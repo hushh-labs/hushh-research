@@ -42,6 +42,7 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
+import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -56,6 +57,7 @@ export function Providers({ children }: ProvidersProps) {
     [pathname]
   );
   const topShellMetrics = topShellRouteProfile.metrics;
+  const topShellBreadcrumb = useMemo(() => resolveTopShellBreadcrumb(pathname), [pathname]);
   const hideGlobalChrome = !topShellMetrics.shellVisible;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow;
@@ -65,6 +67,9 @@ export function Providers({ children }: ProvidersProps) {
         "--top-tabs-gap": "0px",
         "--top-tabs-total": topShellMetrics.hasTabs
           ? "calc(var(--top-tabs-h) + var(--top-tabs-gap))"
+          : "0px",
+        "--top-subnav-total": topShellBreadcrumb
+          ? "calc(var(--top-subnav-h) + var(--top-subnav-gap))"
           : "0px",
         "--top-systembar-row-gap": "4px",
         "--top-fade-active": topShellMetrics.hasTabs ? "22px" : "18px",
@@ -90,6 +95,7 @@ export function Providers({ children }: ProvidersProps) {
     [
       chromeState.hideCommandBar,
       topShellMetrics.contentOffsetMode,
+      topShellBreadcrumb,
       topShellMetrics.hasTabs,
       topShellMetrics.shellVisible,
     ]

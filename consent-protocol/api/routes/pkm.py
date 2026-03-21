@@ -20,8 +20,6 @@ class PKMAgentLabStructureRequest(BaseModel):
     user_id: str
     message: str = Field(min_length=1, max_length=12000)
     current_domains: list[str] = Field(default_factory=list)
-    candidate_domain: str | None = None
-    candidate_data: dict = Field(default_factory=dict)
 
 
 class PKMAgentLabStructureResponse(BaseModel):
@@ -30,6 +28,7 @@ class PKMAgentLabStructureResponse(BaseModel):
     model: str
     used_fallback: bool
     error: str | None = None
+    candidate_payload: dict
     structure_decision: dict
     manifest_draft: dict | None = None
 
@@ -131,7 +130,5 @@ async def preview_pkm_structure(
         user_id=request.user_id,
         message=request.message,
         current_domains=request.current_domains,
-        candidate_domain=request.candidate_domain,
-        candidate_data=request.candidate_data,
     )
     return PKMAgentLabStructureResponse(**payload)

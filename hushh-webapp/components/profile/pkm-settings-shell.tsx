@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, Code2, Database, FolderTree } from "lucide-react";
+import { usePathname } from "next/navigation";
 
 import {
   AppPageContentRegion,
@@ -11,55 +10,22 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
-import { Badge } from "@/components/ui/badge";
-import {
-  SettingsGroup,
-  SettingsRow,
-} from "@/components/profile/settings-ui";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { ensureMorphyGsapReady, getMorphyEaseName } from "@/lib/morphy-ux/gsap-init";
 import { getGsap, prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 
-type PkmPageKey = "viewer" | "agent-lab";
-
-const PKM_NAV_ITEMS: Array<{
-  key: PkmPageKey;
-  href: string;
-  label: string;
-  description: string;
-  icon: typeof Database;
-}> = [
-  {
-    key: "viewer",
-    href: "/profile/pkm",
-    label: "PKM Viewer",
-    description: "Inspect live domains, manifests, scopes, and decrypted first-party previews.",
-    icon: Database,
-  },
-  {
-    key: "agent-lab",
-    href: "/profile/pkm-agent-lab",
-    label: "Intent Capture Lab",
-    description: "Turn natural language into a saved PKM structure with a clear backend storage plan.",
-    icon: Code2,
-  },
-];
-
 export function PkmSettingsShell({
-  activePage,
   title,
   description,
   actions,
   children,
 }: {
-  activePage: PkmPageKey;
   title: string;
   description: string;
   actions?: ReactNode;
   children: ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const shellRef = useRef<HTMLDivElement | null>(null);
 
   usePageEnterAnimation(shellRef, {
@@ -138,64 +104,7 @@ export function PkmSettingsShell({
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <div ref={shellRef} className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-            <SettingsGroup
-              eyebrow="Navigation"
-              title="Move through PKM like settings"
-              description="Jump between saved knowledge and intent capture without losing your place."
-            >
-              <div data-pkm-nav-row="true">
-                <SettingsRow
-                  icon={ArrowLeft}
-                  title="Back to Profile"
-                  description="Return to your main profile settings."
-                  chevron
-                  onClick={() => router.push("/profile?tab=account")}
-                />
-              </div>
-              {PKM_NAV_ITEMS.map((item) => {
-                const isActive = item.key === activePage;
-                return (
-                  <div key={item.key} data-pkm-nav-row="true">
-                    <SettingsRow
-                      icon={item.icon}
-                      title={item.label}
-                      description={item.description}
-                      trailing={isActive ? <Badge variant="secondary">Open</Badge> : undefined}
-                      chevron
-                      onClick={() => {
-                        if (isActive) return;
-                        router.push(item.href);
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </SettingsGroup>
-
-            <SettingsGroup
-              eyebrow="Flow"
-              title="How this stays organized"
-              description="Capture intent first, then inspect how the same data becomes encrypted segments and scope handles."
-            >
-              <div data-pkm-nav-row="true">
-                <SettingsRow
-                  icon={FolderTree}
-                  title="Capture"
-                  description="Natural language becomes a target domain, manifest, and structure decision."
-                />
-              </div>
-              <div data-pkm-nav-row="true">
-                <SettingsRow
-                  icon={Database}
-                  title="Inspect"
-                  description="Review stored segments, manifests, and scope exposure after save."
-                />
-              </div>
-            </SettingsGroup>
-          </aside>
-
+        <div ref={shellRef} className="space-y-4">
           <div data-pkm-detail-panel="true">
             <SurfaceStack compact>{children}</SurfaceStack>
           </div>

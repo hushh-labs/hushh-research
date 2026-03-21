@@ -7,7 +7,6 @@ import {
   Bug,
   Cloud,
   Code2,
-  Database,
   Fingerprint,
   Folder,
   KeyRound,
@@ -1007,16 +1006,9 @@ export default function ProfilePage() {
                 onClick={() => updateProfileView({ tab: "account", panel: "support" })}
               />
               <SettingsRow
-                icon={Database}
-                title="PKM Viewer"
-                description="Browse your live Personal Knowledge Model domains, scopes, manifests, and decrypted first-party previews."
-                chevron
-                onClick={() => router.push("/profile/pkm")}
-              />
-              <SettingsRow
                 icon={Code2}
                 title="PKM Agent Lab"
-                description="Inspect structured Personal Knowledge Model routing and manifest drafts with your live vault context."
+                description="Capture intent, inspect saved PKM data, and review how live encrypted storage is organized for your account."
                 chevron
                 onClick={() => router.push("/profile/pkm-agent-lab")}
               />

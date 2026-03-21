@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   BriefcaseBusiness,
   Check,
   ChevronDown,
@@ -70,6 +71,16 @@ import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
+import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import Link from "next/link";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
 export {
@@ -154,6 +165,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
   const topShellMetrics = useMemo(() => resolveTopShellMetrics(pathname), [pathname]);
+  const topShellBreadcrumb = useMemo(() => resolveTopShellBreadcrumb(pathname), [pathname]);
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
@@ -208,7 +220,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const topGlassHeight = useMemo(
     () =>
       showKaiTabs
-        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${tabsScrollHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
+        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${tabsScrollHideProgress}) * var(--top-tabs-h)) + var(--top-subnav-total) + var(--top-fade-active))`
         : "var(--top-shell-visual-height)",
     [showKaiTabs, tabsScrollHideProgress]
   );
@@ -242,16 +254,35 @@ export function TopAppBar({ className }: TopAppBarProps) {
           <div className="h-full w-full bar-glass bar-glass-top" style={topGlassStyle} />
         </div>
 
-        <div className="pointer-events-none relative mx-auto flex h-full w-full max-w-[540px] items-end px-4 sm:px-6">
-          {/* Header row: actor title · actions */}
+        <div className="pointer-events-none relative mx-auto flex h-full w-full max-w-[540px] flex-col justify-end px-4 sm:px-6">
           <div
             data-testid="top-app-bar-row"
             className="pointer-events-none relative h-[var(--top-bar-h)] w-full shrink-0"
           >
-            <div
-              className="pointer-events-none absolute left-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center"
-              aria-hidden
-            />
+            <div className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2">
+              <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
+                {topShellBreadcrumb ? (
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="icon"
+                    className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
+                    aria-label="Go back"
+                    onClick={() => {
+                      if (typeof window !== "undefined" && window.history.length > 1) {
+                        router.back();
+                        return;
+                      }
+                      router.push(topShellBreadcrumb.backHref);
+                    }}
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                ) : (
+                  <div className="h-11 w-11" aria-hidden />
+                )}
+              </div>
+            </div>
 
             <div className="pointer-events-none absolute left-1/2 top-1/2 inline-flex min-w-0 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
               {centerTitle ? (
@@ -339,6 +370,48 @@ export function TopAppBar({ className }: TopAppBarProps) {
               </div>
             </div>
           </div>
+
+          {topShellBreadcrumb ? (
+            <div
+              className="pointer-events-none relative mt-[var(--top-subnav-gap)] h-[var(--top-subnav-h)] w-full shrink-0"
+              data-testid="top-app-bar-breadcrumb-row"
+            >
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-center px-2">
+                <div className="pointer-events-auto min-w-0 max-w-full">
+                  <Breadcrumb>
+                    <BreadcrumbList className="flex flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap">
+                      {topShellBreadcrumb.items.map((item, index) => {
+                        const isLast = index === topShellBreadcrumb.items.length - 1;
+                        return (
+                          <BreadcrumbItem key={`${item.label}-${index}`} className="min-w-0">
+                            {isLast ? (
+                              <BreadcrumbPage className="truncate text-xs font-medium sm:text-sm">
+                                {item.label}
+                              </BreadcrumbPage>
+                            ) : item.href ? (
+                              <BreadcrumbLink asChild>
+                                <Link
+                                  href={item.href}
+                                  className="truncate text-xs sm:text-sm"
+                                >
+                                  {item.label}
+                                </Link>
+                              </BreadcrumbLink>
+                            ) : (
+                              <span className="truncate text-xs text-muted-foreground sm:text-sm">
+                                {item.label}
+                              </span>
+                            )}
+                            {!isLast ? <BreadcrumbSeparator /> : null}
+                          </BreadcrumbItem>
+                        );
+                      })}
+                    </BreadcrumbList>
+                  </Breadcrumb>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

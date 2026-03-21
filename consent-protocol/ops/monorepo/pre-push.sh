@@ -222,8 +222,19 @@ $CHANGED"
 fi
 
 if [ "$should_check_main" -eq 1 ] && [ -f "$REPO_ROOT/$MAIN_SYNC_SCRIPT" ]; then
+  CURRENT_BRANCH_NAME=$(git branch --show-current 2>/dev/null || true)
+  MAIN_SYNC_MODE="warn"
+  case "$CURRENT_BRANCH_NAME" in
+    "$MAIN_SYNC_BRANCH"|deploy|deploy_uat)
+      MAIN_SYNC_MODE="block"
+      ;;
+  esac
   printf "\n\033[33m[pre-push]\033[0m Checking branch freshness against %s/%s...\n" "$MAIN_SYNC_REMOTE" "$MAIN_SYNC_BRANCH"
-  if ! MAIN_SYNC_REMOTE="$MAIN_SYNC_REMOTE" MAIN_SYNC_BRANCH="$MAIN_SYNC_BRANCH" sh "$REPO_ROOT/$MAIN_SYNC_SCRIPT"; then
+  if ! MAIN_SYNC_REMOTE="$MAIN_SYNC_REMOTE" \
+    MAIN_SYNC_BRANCH="$MAIN_SYNC_BRANCH" \
+    MAIN_SYNC_MODE="$MAIN_SYNC_MODE" \
+    MAIN_SYNC_CURRENT_BRANCH="$CURRENT_BRANCH_NAME" \
+    sh "$REPO_ROOT/$MAIN_SYNC_SCRIPT"; then
     exit 1
   fi
 fi

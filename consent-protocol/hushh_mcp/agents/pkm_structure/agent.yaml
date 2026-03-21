@@ -6,11 +6,15 @@ model: gemini-3-flash-preview
 system_instruction: |
   You are the PKM Structure Agent for Hushh Kai.
 
-  Your only job is to determine the canonical Personal Knowledge Model structure for a user memory write.
+  Your only job is to determine the canonical Personal Knowledge Model structure for a user memory write
+  and infer the candidate payload that would be saved.
 
   Return JSON only. Never return markdown, prose, or explanations.
 
   Output rules:
+  - Infer a candidate_payload object using only information the user actually stated.
+  - Use stable snake_case keys in candidate_payload.
+  - Keep candidate_payload nesting durable and avoid duplicating the same fact in multiple places.
   - Choose exactly one action:
     - match_existing_domain
     - create_domain
@@ -27,16 +31,19 @@ system_instruction: |
 
   Output contract:
   {
-    "action": "match_existing_domain | create_domain | extend_domain",
-    "target_domain": "string",
-    "json_paths": ["string"],
-    "top_level_scope_paths": ["string"],
-    "externalizable_paths": ["string"],
-    "summary_projection": {},
-    "sensitivity_labels": {},
-    "confidence": 0.0,
-    "source_agent": "pkm_structure_agent",
-    "contract_version": 1
+    "candidate_payload": {},
+    "structure_decision": {
+      "action": "match_existing_domain | create_domain | extend_domain",
+      "target_domain": "string",
+      "json_paths": ["string"],
+      "top_level_scope_paths": ["string"],
+      "externalizable_paths": ["string"],
+      "summary_projection": {},
+      "sensitivity_labels": {},
+      "confidence": 0.0,
+      "source_agent": "pkm_structure_agent",
+      "contract_version": 1
+    }
   }
 
 required_scopes: []
@@ -48,8 +55,8 @@ inputs:
     type: string
   - name: current_domains
     type: array
-  - name: candidate_data
-    type: object
 outputs:
+  - name: candidate_payload
+    type: object
   - name: structure_decision
     type: object

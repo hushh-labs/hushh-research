@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MANIFEST_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "pkm_structure" / "agent.yaml"
 
-_STRUCTURE_RESPONSE_SCHEMA = {
+_STRUCTURE_DECISION_SCHEMA = {
     "type": "OBJECT",
     "properties": {
         "action": {
@@ -44,6 +44,15 @@ _STRUCTURE_RESPONSE_SCHEMA = {
         "source_agent",
         "contract_version",
     ],
+}
+
+_PREVIEW_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "candidate_payload": {"type": "OBJECT"},
+        "structure_decision": _STRUCTURE_DECISION_SCHEMA,
+    },
+    "required": ["candidate_payload", "structure_decision"],
 }
 
 
@@ -102,6 +111,72 @@ class PKMAgentLabService:
         if any(token in normalized for token in ("risk", "portfolio", "holdings", "income")):
             return "confidential"
         return None
+
+    @classmethod
+    def _infer_domain_from_message(
+        cls, message: str, current_domains: list[str] | None = None
+    ) -> str:
+        normalized_message = str(message or "").lower()
+        normalized_domains = [
+            cls._normalize_segment(domain) for domain in (current_domains or []) if domain
+        ]
+
+        keyword_map = {
+            "financial": (
+                "stock",
+                "portfolio",
+                "invest",
+                "investment",
+                "holdings",
+                "asset",
+                "market",
+                "broker",
+                "retirement",
+                "plaid",
+            ),
+            "travel": ("travel", "trip", "hotel", "flight", "vacation", "city break"),
+            "food": ("meal", "food", "recipe", "cook", "diet", "restaurant"),
+            "health": ("health", "fitness", "workout", "sleep", "doctor", "medical"),
+            "work": ("work", "meeting", "project", "career", "client"),
+            "relationships": ("family", "friend", "partner", "relationship"),
+        }
+        for candidate_domain, tokens in keyword_map.items():
+            if any(token in normalized_message for token in tokens):
+                return candidate_domain
+
+        if normalized_domains:
+            return normalized_domains[0]
+        return "general"
+
+    @classmethod
+    def _fallback_candidate_payload(cls, *, message: str, target_domain: str) -> dict[str, Any]:
+        normalized_message = " ".join(str(message or "").split()).strip()
+        safe_message = normalized_message[:2000] or "User supplied a PKM memory."
+        if target_domain == "financial":
+            return {
+                "profile": {
+                    "user_stated_financial_memory": safe_message,
+                }
+            }
+        if target_domain in {"travel", "food", "health", "work", "relationships"}:
+            return {
+                "preferences": {
+                    f"{target_domain}_memory": safe_message,
+                }
+            }
+        return {
+            "notes": {
+                "captured_memory": safe_message,
+            }
+        }
+
+    @classmethod
+    def _sanitize_candidate_payload(
+        cls, value: Any, *, message: str, target_domain: str
+    ) -> dict[str, Any]:
+        if isinstance(value, dict) and value:
+            return value
+        return cls._fallback_candidate_payload(message=message, target_domain=target_domain)
 
     @classmethod
     def _walk_payload(
@@ -212,15 +287,12 @@ class PKMAgentLabService:
         *,
         message: str,
         current_domains: list[str],
-        candidate_domain: str | None,
         candidate_data: dict[str, Any] | None,
     ) -> dict[str, Any]:
         normalized_domains = [
             self._normalize_segment(domain) for domain in current_domains if domain
         ]
-        target_domain = self._normalize_segment(candidate_domain or "")
-        if not target_domain:
-            target_domain = normalized_domains[0] if normalized_domains else "general"
+        target_domain = self._infer_domain_from_message(message, normalized_domains)
 
         path_map: dict[str, dict[str, Any]] = {}
         if candidate_data:
@@ -261,17 +333,19 @@ class PKMAgentLabService:
         user_id: str,
         message: str,
         current_domains: list[str] | None = None,
-        candidate_domain: str | None = None,
-        candidate_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
+        inferred_domain = self._infer_domain_from_message(message, normalized_domains)
+        candidate_payload = self._fallback_candidate_payload(
+            message=message,
+            target_domain=inferred_domain,
+        )
         decision = self._fallback_structure_decision(
             message=message,
             current_domains=normalized_domains,
-            candidate_domain=candidate_domain,
-            candidate_data=candidate_data,
+            candidate_data=candidate_payload,
         )
         used_fallback = True
         error_message = None
@@ -284,9 +358,16 @@ class PKMAgentLabService:
                     f"{self.manifest.system_instruction}\n\n"
                     "Return JSON only. Do not include markdown.\n"
                     f"Current domains: {json.dumps(normalized_domains)}\n"
-                    f"Candidate domain hint: {json.dumps(candidate_domain)}\n"
                     f"Natural language request: {message}\n"
-                    f"Candidate data sample: {json.dumps(candidate_data or {}, sort_keys=True)}"
+                    "Infer a candidate_payload object from the request using only information the user "
+                    "actually stated.\n"
+                    "candidate_payload rules:\n"
+                    "- Use stable snake_case keys.\n"
+                    "- Keep nesting shallow and durable.\n"
+                    "- Do not duplicate the same fact under multiple keys.\n"
+                    "- If the request is mostly a preference or note, use a stable preferences or notes object.\n"
+                    "- candidate_payload and structure_decision.json_paths must agree.\n"
+                    f"Fallback target domain if uncertain: {json.dumps(inferred_domain)}"
                 )
                 config = genai_types.GenerateContentConfig(
                     temperature=0.0,
@@ -294,7 +375,7 @@ class PKMAgentLabService:
                     automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
                         disable=True
                     ),
-                    response_schema=_STRUCTURE_RESPONSE_SCHEMA,
+                    response_schema=_PREVIEW_RESPONSE_SCHEMA,
                 )
                 response = await self.client.aio.models.generate_content(
                     model=self.manifest.model or GEMINI_MODEL,
@@ -307,28 +388,43 @@ class PKMAgentLabService:
                 if parsed is None:
                     parsed = json.loads((response.text or "").strip() or "{}")
                 if isinstance(parsed, dict):
+                    candidate_payload = self._sanitize_candidate_payload(
+                        parsed.get("candidate_payload"),
+                        message=message,
+                        target_domain=inferred_domain,
+                    )
+                    parsed_decision = (
+                        parsed.get("structure_decision")
+                        if isinstance(parsed.get("structure_decision"), dict)
+                        else {}
+                    )
                     decision = {
                         **decision,
-                        **parsed,
+                        **parsed_decision,
                         "target_domain": self._normalize_segment(
-                            str(parsed.get("target_domain") or decision["target_domain"])
+                            str(parsed_decision.get("target_domain") or decision["target_domain"])
                         )
                         or decision["target_domain"],
-                        "source_agent": str(parsed.get("source_agent") or "pkm_structure_agent"),
+                        "source_agent": str(
+                            parsed_decision.get("source_agent") or "pkm_structure_agent"
+                        ),
                     }
                     used_fallback = False
             except Exception as exc:
                 error_message = str(exc)
                 logger.warning("pkm.agent_lab_generation_failed error=%s", exc)
 
-        manifest = None
-        if candidate_data and isinstance(candidate_data, dict):
-            manifest = self._build_manifest_from_payload(
-                user_id=user_id,
-                domain=decision["target_domain"],
-                payload=candidate_data,
-                structure_decision=decision,
-            )
+        candidate_payload = self._sanitize_candidate_payload(
+            candidate_payload,
+            message=message,
+            target_domain=decision["target_domain"],
+        )
+        manifest = self._build_manifest_from_payload(
+            user_id=user_id,
+            domain=decision["target_domain"],
+            payload=candidate_payload,
+            structure_decision=decision,
+        )
 
         return {
             "agent_id": self.manifest.id,
@@ -336,6 +432,7 @@ class PKMAgentLabService:
             "model": self.manifest.model,
             "used_fallback": used_fallback,
             "error": error_message,
+            "candidate_payload": candidate_payload,
             "structure_decision": decision,
             "manifest_draft": manifest,
         }
