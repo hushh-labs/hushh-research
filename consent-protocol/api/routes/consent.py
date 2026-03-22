@@ -103,15 +103,22 @@ async def approve_consent(
     SECURITY: Requires VAULT_OWNER token. User can only approve their own consent requests.
 
     Browser sends encrypted export data (server never sees plaintext).
-    Export key is embedded in the consent token.
+    For connector-backed approvals, the export key is wrapped to the connector public key
+    and the backend never persists a plaintext decrypt key.
     """
     body = await request.json()
     userId = body.get("userId")
     requestId = body.get("requestId")
-    exportKey = body.get("exportKey")  # Hex-encoded AES-256 key
+    exportKey = body.get("exportKey")  # Legacy plaintext AES-256 key
     encryptedData = body.get("encryptedData")  # Base64 ciphertext
     encryptedIv = body.get("encryptedIv")  # Base64 IV
     encryptedTag = body.get("encryptedTag")  # Base64 auth tag
+    wrappedExportKey = body.get("wrappedExportKey")
+    wrappedKeyIv = body.get("wrappedKeyIv")
+    wrappedKeyTag = body.get("wrappedKeyTag")
+    senderPublicKey = body.get("senderPublicKey")
+    wrappingAlg = body.get("wrappingAlg")
+    connectorKeyId = body.get("connectorKeyId")
     requested_duration_hours = body.get("durationHours")
 
     # Verify user is approving their own consent
@@ -141,6 +148,9 @@ async def approve_consent(
     developer_label = (
         metadata.get("developer_app_display_name") if isinstance(metadata, dict) else None
     ) or pending_request["developer"]
+    connector_public_key = (
+        metadata.get("connector_public_key") if isinstance(metadata, dict) else None
+    )
     expiry_hours = metadata.get("expiry_hours", 24)
     if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
         expiry_hours = min(requested_duration_hours, 24 * 365)
@@ -176,9 +186,6 @@ async def approve_consent(
             "message": f"Consent granted to {developer_label} (Existing)",
             "consent_token": existing_token.get("id")
             or existing_token.get("token"),  # access db model field
-            "export_key": exportKey,  # Reuse provided key for this session or potentially re-encrypt (Scope limitation: Reusing token implies reusing access)
-            # Note: Export Key is ephemeral for the SESSION. If we reuse token, the Client might need the key.
-            # But in ZK flow, Client HAS the key. We just need to authorize.
             "expires_at": existing_token.get("expires_at"),
             "bundle_id": metadata.get("bundle_id"),
         }
@@ -197,7 +204,25 @@ async def approve_consent(
 
     # Store encrypted export linked to token
     # Persist to database for cross-instance consistency
-    if encryptedData and exportKey:
+    wrapped_key_bundle = None
+    if connector_public_key:
+        if not all([wrappedExportKey, wrappedKeyIv, wrappedKeyTag, senderPublicKey]):
+            raise HTTPException(
+                status_code=400,
+                detail="Connector-backed consent approvals must include a wrapped export key bundle.",
+            )
+        wrapped_key_bundle = {
+            "wrapped_export_key": wrappedExportKey,
+            "wrapped_key_iv": wrappedKeyIv,
+            "wrapped_key_tag": wrappedKeyTag,
+            "sender_public_key": senderPublicKey,
+            "wrapping_alg": wrappingAlg
+            or metadata.get("connector_wrapping_alg")
+            or "X25519-AES256-GCM",
+            "connector_key_id": connectorKeyId or metadata.get("connector_key_id"),
+        }
+
+    if encryptedData and (wrapped_key_bundle or exportKey):
         # Store in database (source of truth)
         await service.store_consent_export(
             consent_token=token.token,
@@ -206,6 +231,7 @@ async def approve_consent(
             iv=encryptedIv or "",
             tag=encryptedTag or "",
             export_key=exportKey,
+            wrapped_key_bundle=wrapped_key_bundle,
             scope=pending_request["scope"],
             expires_at_ms=token.expires_at,
         )
@@ -216,6 +242,7 @@ async def approve_consent(
             "iv": encryptedIv,
             "tag": encryptedTag,
             "export_key": exportKey,
+            "wrapped_key_bundle": wrapped_key_bundle,
             "scope": pending_request["scope"],
             "created_at": int(time.time() * 1000),
         }
@@ -246,7 +273,6 @@ async def approve_consent(
         "status": "approved",
         "message": f"Consent granted to {developer_label}",
         "consent_token": token.token,
-        "export_key": exportKey,  # MCP uses this to decrypt
         "expires_at": token.expires_at,
         "bundle_id": metadata.get("bundle_id"),
     }
@@ -625,8 +651,8 @@ async def get_consent_export_data(consent_token: str):
     Retrieve encrypted export data for a consent token (Zero-Knowledge).
 
     MCP calls this with a valid consent token.
-    Returns encrypted data + export key for client-side decryption.
-    Server NEVER sees plaintext.
+    Returns encrypted data + wrapped export key bundle for client-side decryption.
+    Server NEVER sees plaintext and should not persist plaintext export keys for connector-backed flows.
 
     Data is retrieved from database (source of truth) with in-memory cache fallback.
     """
@@ -650,6 +676,7 @@ async def get_consent_export_data(consent_token: str):
             "iv": export_data["iv"],
             "tag": export_data["tag"],
             "export_key": export_data["export_key"],
+            "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
             "scope": export_data["scope"],
         }
 
@@ -672,6 +699,7 @@ async def get_consent_export_data(consent_token: str):
         "iv": export_data["iv"],
         "tag": export_data["tag"],
         "export_key": export_data["export_key"],
+        "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
         "scope": export_data["scope"],
     }
 

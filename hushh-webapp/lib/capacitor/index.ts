@@ -198,6 +198,12 @@ export interface HushhConsentPlugin {
     encryptedIv?: string;
     encryptedTag?: string;
     exportKey?: string;
+    wrappedExportKey?: string;
+    wrappedKeyIv?: string;
+    wrappedKeyTag?: string;
+    senderPublicKey?: string;
+    wrappingAlg?: string;
+    connectorKeyId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }>;
 
@@ -253,18 +259,21 @@ export interface HushhVaultPlugin {
   decryptData(options: DecryptDataOptions): Promise<DecryptDataResult>;
 
   /**
-   * Store encrypted preference in local SQLCipher database
-   * Requires valid consent token
+   * Legacy local preference write surface.
+   * Route-facing features should use cloud-backed preference flows instead.
+   * @deprecated Compatibility-only local path.
    */
   storePreference(options: StorePreferenceOptions): Promise<void>;
 
   /**
-   * Retrieve preferences from local SQLCipher database
+   * Legacy local preference read surface kept for compatibility.
+   * @deprecated Compatibility-only local path.
    */
   getPreferences(options: GetPreferencesOptions): Promise<GetPreferencesResult>;
 
   /**
-   * Delete preferences for a domain
+   * Legacy local preference delete surface kept for compatibility.
+   * @deprecated Compatibility-only local path.
    */
   deletePreferences(options: { userId: string; domain: string }): Promise<void>;
 
@@ -385,7 +394,7 @@ export interface HushhVaultPlugin {
 
   // Consents (New)
   /**
-   * Store a single encrypted preference field to the Cloud DB.
+   * Canonical cross-platform encrypted preference write path.
    * Native method mapping to /db/$domain/store
    */
   storePreferencesToCloud(options: {

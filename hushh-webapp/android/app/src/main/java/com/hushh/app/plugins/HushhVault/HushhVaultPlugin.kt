@@ -1,7 +1,18 @@
 package com.hushh.app.plugins.HushhVault
 
+import android.os.Build
 import android.util.Base64
 import android.util.Log
+import androidx.credentials.CreateCredentialResponse
+import androidx.credentials.CreatePublicKeyCredentialRequest
+import androidx.credentials.CreatePublicKeyCredentialResponse
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
+import androidx.credentials.GetPublicKeyCredentialOption
+import androidx.credentials.PublicKeyCredential
+import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.GetCredentialException
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -18,10 +29,15 @@ import org.json.JSONObject
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
+import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Hushh Vault Plugin - Encryption + Cloud DB Proxy
@@ -33,6 +49,7 @@ import javax.crypto.spec.SecretKeySpec
 class HushhVaultPlugin : Plugin() {
 
     private val TAG = "HushhVault"
+    private val pluginScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     // Configure OkHttpClient with 30-second timeouts to prevent infinite hangs
     private val httpClient = OkHttpClient.Builder()
@@ -601,22 +618,252 @@ class HushhVaultPlugin : Plugin() {
 
     @PluginMethod
     fun isPasskeyAvailable(call: PluginCall) {
-        call.resolve(
-            JSObject().apply {
-                put("available", false)
-                put("reason", "native_passkey_not_implemented")
+        val rpId = call.getString("rpId")?.trim().orEmpty()
+        val activity = activity
+
+        when {
+            activity == null -> {
+                call.resolve(
+                    JSObject().apply {
+                        put("available", false)
+                        put("reason", "activity_unavailable")
+                    }
+                )
             }
-        )
+            rpId.isBlank() -> {
+                call.resolve(
+                    JSObject().apply {
+                        put("available", false)
+                        put("reason", "missing_rp_id")
+                    }
+                )
+            }
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.P -> {
+                call.resolve(
+                    JSObject().apply {
+                        put("available", false)
+                        put("reason", "android_version_not_supported")
+                    }
+                )
+            }
+            else -> {
+                try {
+                    CredentialManager.create(activity)
+                    call.resolve(JSObject().apply { put("available", true) })
+                } catch (e: Exception) {
+                    call.resolve(
+                        JSObject().apply {
+                            put("available", false)
+                            put("reason", "credential_manager_unavailable")
+                        }
+                    )
+                }
+            }
+        }
     }
 
     @PluginMethod
     fun registerPasskeyPrf(call: PluginCall) {
-        call.reject("Native passkey PRF registration is not implemented on Android plugin yet.")
+        val activity = activity
+        val userId = call.getString("userId")?.trim().orEmpty()
+        val displayName = call.getString("displayName")?.trim().orEmpty()
+        val rpId = call.getString("rpId")?.trim().orEmpty()
+
+        when {
+            activity == null -> {
+                call.reject("Activity unavailable for passkey registration.")
+                return
+            }
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.P -> {
+                call.reject("Native passkey PRF requires Android 9 or newer.")
+                return
+            }
+            userId.isBlank() -> {
+                call.reject("Missing userId")
+                return
+            }
+            displayName.isBlank() -> {
+                call.reject("Missing displayName")
+                return
+            }
+            rpId.isBlank() -> {
+                call.reject("Missing rpId")
+                return
+            }
+        }
+
+        val challenge = randomBytes(32)
+        val prfInput = "hushh-vault-prf-$userId".toByteArray(Charsets.UTF_8)
+        val requestJson = JSONObject().apply {
+            put("challenge", base64UrlEncode(challenge))
+            put(
+                "rp",
+                JSONObject().apply {
+                    put("name", "Hushh")
+                    put("id", rpId)
+                }
+            )
+            put(
+                "user",
+                JSONObject().apply {
+                    put("id", base64UrlEncode(userId.toByteArray(Charsets.UTF_8)))
+                    put("name", displayName)
+                    put("displayName", displayName.take(80))
+                }
+            )
+            put(
+                "pubKeyCredParams",
+                JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("alg", -7)
+                        put("type", "public-key")
+                    })
+                    put(JSONObject().apply {
+                        put("alg", -257)
+                        put("type", "public-key")
+                    })
+                }
+            )
+            put(
+                "authenticatorSelection",
+                JSONObject().apply {
+                    put("userVerification", "required")
+                    put("residentKey", "required")
+                }
+            )
+            put("timeout", 120000)
+            put(
+                "extensions",
+                JSONObject().apply {
+                    put(
+                        "prf",
+                        JSONObject().apply {
+                            put(
+                                "eval",
+                                JSONObject().apply {
+                                    put("first", base64UrlEncode(prfInput))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+
+        val credentialManager = CredentialManager.create(activity)
+        val request = CreatePublicKeyCredentialRequest(requestJson.toString())
+        pluginScope.launch {
+            try {
+                val result: CreateCredentialResponse = credentialManager.createCredential(activity, request)
+                if (result !is CreatePublicKeyCredentialResponse) {
+                    call.reject("Unexpected passkey registration response.")
+                    return@launch
+                }
+
+                val responseJson = JSONObject(result.registrationResponseJson)
+                val credentialId = extractCredentialId(responseJson)
+                if (credentialId.isBlank()) {
+                    call.reject("Passkey registration missing credential ID.")
+                    return@launch
+                }
+
+                val prfSalt = randomBytes(32)
+                val prfOutput = extractPrfOutput(responseJson)
+                if (prfOutput != null) {
+                    call.resolve(
+                        JSObject().apply {
+                            put("credentialId", credentialId)
+                            put("prfSalt", Base64.encodeToString(prfSalt, Base64.NO_WRAP))
+                            put("vaultKeyHex", deriveVaultKeyHex(prfOutput, prfSalt))
+                        }
+                    )
+                    return@launch
+                }
+
+                authenticatePasskeyPrfInternal(
+                    userId = userId,
+                    rpId = rpId,
+                    credentialId = credentialId,
+                    prfSalt = prfSalt,
+                    onSuccess = { resolvedCredentialId, vaultKeyHex ->
+                        call.resolve(
+                            JSObject().apply {
+                                put("credentialId", resolvedCredentialId)
+                                put("prfSalt", Base64.encodeToString(prfSalt, Base64.NO_WRAP))
+                                put("vaultKeyHex", vaultKeyHex)
+                            }
+                        )
+                    },
+                    onError = { errorMessage ->
+                        call.reject(errorMessage)
+                    }
+                )
+            } catch (error: CreateCredentialException) {
+                call.reject("Passkey registration failed: ${error.message ?: error.javaClass.simpleName}")
+            } catch (e: Exception) {
+                call.reject("Passkey registration failed: ${e.message}")
+            }
+        }
     }
 
     @PluginMethod
     fun authenticatePasskeyPrf(call: PluginCall) {
-        call.reject("Native passkey PRF authentication is not implemented on Android plugin yet.")
+        val userId = call.getString("userId")?.trim().orEmpty()
+        val rpId = call.getString("rpId")?.trim().orEmpty()
+        val credentialId = call.getString("credentialId")?.trim()
+        val prfSaltRaw = call.getString("prfSalt")?.trim().orEmpty()
+
+        when {
+            activity == null -> {
+                call.reject("Activity unavailable for passkey authentication.")
+                return
+            }
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.P -> {
+                call.reject("Native passkey PRF requires Android 9 or newer.")
+                return
+            }
+            userId.isBlank() -> {
+                call.reject("Missing userId")
+                return
+            }
+            rpId.isBlank() -> {
+                call.reject("Missing rpId")
+                return
+            }
+            prfSaltRaw.isBlank() -> {
+                call.reject("Missing or invalid prfSalt")
+                return
+            }
+        }
+
+        val prfSalt = try {
+            Base64.decode(prfSaltRaw, Base64.DEFAULT)
+        } catch (_: IllegalArgumentException) {
+            call.reject("Missing or invalid prfSalt")
+            return
+        }
+        if (prfSalt.isEmpty()) {
+            call.reject("Missing or invalid prfSalt")
+            return
+        }
+
+        authenticatePasskeyPrfInternal(
+            userId = userId,
+            rpId = rpId,
+            credentialId = credentialId,
+            prfSalt = prfSalt,
+            onSuccess = { resolvedCredentialId, vaultKeyHex ->
+                call.resolve(
+                    JSObject().apply {
+                        put("credentialId", resolvedCredentialId)
+                        put("vaultKeyHex", vaultKeyHex)
+                    }
+                )
+            },
+            onError = { errorMessage ->
+                call.reject(errorMessage)
+            }
+        )
     }
 
     // ==================== Domain Data Methods ====================
@@ -1007,6 +1254,147 @@ class HushhVaultPlugin : Plugin() {
     // ==================== Utility Functions ====================
 
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
+
+    private fun randomBytes(count: Int): ByteArray = ByteArray(count).also {
+        SecureRandom().nextBytes(it)
+    }
+
+    private fun base64UrlEncode(bytes: ByteArray): String =
+        Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+    private fun base64UrlDecode(value: String): ByteArray {
+        val normalized = value.trim()
+        if (normalized.isEmpty()) return ByteArray(0)
+        val padded = when (normalized.length % 4) {
+            2 -> "$normalized=="
+            3 -> "$normalized="
+            else -> normalized
+        }
+        return Base64.decode(padded, Base64.URL_SAFE or Base64.NO_WRAP)
+    }
+
+    private fun extractCredentialId(responseJson: JSONObject): String {
+        val rawId = responseJson.optString("rawId", responseJson.optString("id", "")).trim()
+        if (rawId.isEmpty()) return ""
+        return try {
+            Base64.encodeToString(base64UrlDecode(rawId), Base64.NO_WRAP)
+        } catch (_: IllegalArgumentException) {
+            rawId
+        }
+    }
+
+    private fun extractPrfOutput(responseJson: JSONObject): ByteArray? {
+        val extensionResults = responseJson.optJSONObject("clientExtensionResults") ?: return null
+        val prf = extensionResults.optJSONObject("prf") ?: return null
+        val first = when {
+            prf.optJSONObject("results")?.optString("first").orEmpty().isNotBlank() ->
+                prf.optJSONObject("results")?.optString("first").orEmpty()
+            prf.optString("first").isNotBlank() ->
+                prf.optString("first")
+            else -> ""
+        }
+        if (first.isBlank()) return null
+        return try {
+            base64UrlDecode(first)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+    }
+
+    private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(data)
+    }
+
+    private fun deriveVaultKeyHex(prfOutput: ByteArray, prfSalt: ByteArray): String {
+        val info = "hushh-vault-key-v1".toByteArray(Charsets.UTF_8)
+        val prk = hmacSha256(prfSalt, prfOutput)
+        val okm = hmacSha256(prk, info + byteArrayOf(0x01))
+        return okm.copyOf(32).toHexString()
+    }
+
+    private fun authenticatePasskeyPrfInternal(
+        userId: String,
+        rpId: String,
+        credentialId: String?,
+        prfSalt: ByteArray,
+        onSuccess: (credentialId: String, vaultKeyHex: String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val activity = activity
+        if (activity == null) {
+            onError("Activity unavailable for passkey authentication.")
+            return
+        }
+
+        val prfInput = "hushh-vault-prf-$userId".toByteArray(Charsets.UTF_8)
+        val requestJson = JSONObject().apply {
+            put("challenge", base64UrlEncode(randomBytes(32)))
+            put("rpId", rpId)
+            put("userVerification", "required")
+            put("timeout", 120000)
+            if (!credentialId.isNullOrBlank()) {
+                put(
+                    "allowCredentials",
+                    JSONArray().put(
+                        JSONObject().apply {
+                            put("id", base64UrlEncode(Base64.decode(credentialId, Base64.DEFAULT)))
+                            put("type", "public-key")
+                        }
+                    )
+                )
+            }
+            put(
+                "extensions",
+                JSONObject().apply {
+                    put(
+                        "prf",
+                        JSONObject().apply {
+                            put(
+                                "eval",
+                                JSONObject().apply {
+                                    put("first", base64UrlEncode(prfInput))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+
+        val option = GetPublicKeyCredentialOption(requestJson.toString())
+        val request = GetCredentialRequest(listOf(option))
+        pluginScope.launch {
+            try {
+                val result: GetCredentialResponse = CredentialManager.create(activity).getCredential(activity, request)
+                val credential = result.credential
+                if (credential !is PublicKeyCredential) {
+                    onError("Unexpected passkey authentication response.")
+                    return@launch
+                }
+
+                val responseJson = JSONObject(credential.authenticationResponseJson)
+                val prfOutput = extractPrfOutput(responseJson)
+                if (prfOutput == null) {
+                    onError("PRF extension output missing. Ensure Google Password Manager passkeys are enabled.")
+                    return@launch
+                }
+                val resolvedCredentialId = extractCredentialId(responseJson).ifBlank {
+                    credentialId.orEmpty()
+                }
+                if (resolvedCredentialId.isBlank()) {
+                    onError("Passkey authentication missing credential ID.")
+                    return@launch
+                }
+                onSuccess(resolvedCredentialId, deriveVaultKeyHex(prfOutput, prfSalt))
+            } catch (error: GetCredentialException) {
+                onError("Passkey authentication failed: ${error.message ?: error.javaClass.simpleName}")
+            } catch (e: Exception) {
+                onError("Passkey authentication failed: ${e.message}")
+            }
+        }
+    }
 
     private fun hexStringToByteArray(hex: String): ByteArray {
         val result = ByteArray(hex.length / 2)

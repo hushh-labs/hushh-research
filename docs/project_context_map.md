@@ -127,7 +127,6 @@ Minimum definition of done:
 ## Trust/Compliance Reality Check
 
 Compliance and readiness tracking references:
-- `consent-protocol/COMPLIANCE_PROGRESS.md`
 - `docs/reference/kai/kai-runtime-smoke-checklist.md`
 
 If you're shipping anything investor-facing, read it and close critical findings first.

@@ -8,6 +8,7 @@ Scopes support nested paths:
 - attr.{domain}.{subintent}.*
 """
 
+import json
 import logging
 from typing import Optional
 
@@ -139,6 +140,21 @@ class DynamicScopeGenerator:
                 segments.append(normalized_part)
         return ".".join(segments)
 
+    @staticmethod
+    def _coerce_json_dict(value: object) -> dict:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
     @classmethod
     def _normalize_domains(cls, domains: list[str] | None) -> list[str]:
         if not domains:
@@ -190,68 +206,6 @@ class DynamicScopeGenerator:
                         if normalized:
                             catalog[domain]["paths"].add(normalized)
                             catalog[domain]["wildcards"].add(normalized)
-
-        # Optional domain_registry enrichment. This supports installations where
-        # subintent metadata is modeled in registry parent-child rows or fields.
-        if available_domains:
-            try:
-                parent_rows = (
-                    self.supabase.table("domain_registry")
-                    .select("*")
-                    .in_("domain_key", available_domains)
-                    .execute()
-                )
-                child_rows = (
-                    self.supabase.table("domain_registry")
-                    .select("*")
-                    .in_("parent_domain", available_domains)
-                    .execute()
-                )
-                registry_rows = [*(parent_rows.data or []), *(child_rows.data or [])]
-                for row in registry_rows:
-                    if not isinstance(row, dict):
-                        continue
-                    domain_key = self._normalize_domain_key(row.get("domain_key"))
-                    parent_domain = self._normalize_domain_key(row.get("parent_domain"))
-
-                    # Child rows imply subintents for their parent domain.
-                    if parent_domain and parent_domain in catalog and domain_key:
-                        if domain_key.startswith(f"{parent_domain}."):
-                            inferred = domain_key[len(parent_domain) + 1 :]
-                        else:
-                            inferred = domain_key
-                        normalized_inferred = self._normalize_scope_path(inferred)
-                        if normalized_inferred:
-                            catalog[parent_domain]["paths"].add(normalized_inferred)
-                            catalog[parent_domain]["wildcards"].add(normalized_inferred)
-
-                    source_domain = domain_key if domain_key in catalog else parent_domain
-                    if source_domain and source_domain in catalog:
-                        for key in (
-                            "intent_map",
-                            "sub_intents",
-                            "subintents",
-                            "available_subintents",
-                            "available_sub_intents",
-                        ):
-                            value = row.get(key)
-                            if isinstance(value, list):
-                                for item in value:
-                                    normalized = self._normalize_scope_path(str(item))
-                                    if normalized:
-                                        catalog[source_domain]["paths"].add(normalized)
-                                        catalog[source_domain]["wildcards"].add(normalized)
-                            elif isinstance(value, str):
-                                normalized = self._normalize_scope_path(value)
-                                if normalized:
-                                    catalog[source_domain]["paths"].add(normalized)
-                                    catalog[source_domain]["wildcards"].add(normalized)
-            except Exception as e:
-                logger.warning(
-                    "scope_catalog.registry_lookup_failed user=%s error=%s",
-                    user_id,
-                    e,
-                )
 
         return catalog
 
@@ -306,6 +260,275 @@ class DynamicScopeGenerator:
 
         return await self._get_legacy_scope_catalog(user_id)
 
+    async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+        """
+        Get manifest-backed scope discovery entries with provenance metadata.
+
+        Each entry describes one requestable scope string and why it exists.
+        """
+        try:
+            index_result = (
+                self.supabase.table("pkm_index")
+                .select("available_domains")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            manifest_result = (
+                self.supabase.table("pkm_manifests")
+                .select("domain,top_level_scope_paths,externalizable_paths,manifest_version")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            path_result = (
+                self.supabase.table("pkm_manifest_paths")
+                .select(
+                    "domain,json_path,path_type,exposure_eligibility,consent_label,scope_handle"
+                )
+                .eq("user_id", user_id)
+                .execute()
+            )
+            registry_result = (
+                self.supabase.table("pkm_scope_registry")
+                .select(
+                    "domain,scope_handle,scope_label,exposure_enabled,summary_projection,manifest_version"
+                )
+                .eq("user_id", user_id)
+                .execute()
+            )
+        except Exception as e:
+            logger.error("Error getting scope entries for %s: %s", user_id, e)
+            return []
+
+        def _source_rank(kind: str) -> int:
+            return {
+                "pkm_index": 1,
+                "pkm_manifests.top_level_scope_paths": 2,
+                "pkm_scope_registry": 3,
+                "pkm_manifests.externalizable_paths": 4,
+                "pkm_manifest_paths": 5,
+                "legacy_metadata_fallback": 0,
+            }.get(kind, 0)
+
+        entries: dict[str, dict[str, object]] = {}
+
+        def _upsert_scope_entry(entry: dict[str, object]) -> None:
+            scope = str(entry.get("scope") or "").strip()
+            if not scope:
+                return
+            current = entries.get(scope)
+            if current is None:
+                entries[scope] = entry
+                return
+            if _source_rank(str(entry.get("source_kind") or "")) >= _source_rank(
+                str(current.get("source_kind") or "")
+            ):
+                merged = {**current, **entry}
+            else:
+                merged = {**entry, **current}
+            for key in (
+                "registry_handle",
+                "label",
+                "meta_reference",
+                "path",
+                "domain",
+                "manifest_revision",
+            ):
+                if not merged.get(key):
+                    merged[key] = current.get(key) or entry.get(key)
+            merged["wildcard"] = bool(current.get("wildcard") or entry.get("wildcard"))
+            merged["exposure_eligibility"] = bool(
+                current.get("exposure_eligibility") or entry.get("exposure_eligibility")
+            )
+            entries[scope] = merged
+
+        index_domains = self._normalize_domains(
+            (index_result.data or [{}])[0].get("available_domains") if index_result.data else []
+        )
+        manifest_rows = manifest_result.data or []
+        path_rows = path_result.data or []
+        registry_rows = registry_result.data or []
+
+        registry_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
+        known_domains = set(index_domains)
+        for row in manifest_rows:
+            if not isinstance(row, dict):
+                continue
+            domain = self._normalize_domain_key(row.get("domain"))
+            if domain:
+                known_domains.add(domain)
+        for row in path_rows:
+            if not isinstance(row, dict):
+                continue
+            domain = self._normalize_domain_key(row.get("domain"))
+            if domain:
+                known_domains.add(domain)
+        for row in registry_rows:
+            if not isinstance(row, dict):
+                continue
+            domain = self._normalize_domain_key(row.get("domain"))
+            if domain:
+                known_domains.add(domain)
+            summary_projection = self._coerce_json_dict(row.get("summary_projection"))
+            top_level_path = self._normalize_scope_path(
+                summary_projection.get("top_level_scope_path")
+            )
+            if domain and top_level_path:
+                registry_by_top_level[(domain, top_level_path)] = {
+                    "registry_handle": str(row.get("scope_handle") or "").strip() or None,
+                    "label": str(row.get("scope_label") or "").strip() or None,
+                    "manifest_revision": row.get("manifest_version"),
+                    "source_kind": "pkm_scope_registry",
+                }
+
+        for domain in sorted(known_domains):
+            _upsert_scope_entry(
+                {
+                    "scope": self.generate_domain_wildcard(domain),
+                    "domain": domain,
+                    "path": None,
+                    "wildcard": True,
+                    "source_kind": "pkm_index",
+                    "registry_handle": None,
+                    "label": f"{domain.replace('_', ' ').title()} Domain",
+                    "exposure_eligibility": True,
+                    "manifest_revision": None,
+                    "meta_reference": "domain wildcard derived from discovered PKM domains",
+                }
+            )
+
+        manifest_externalizable_paths: set[tuple[str, str]] = set()
+        for row in manifest_rows:
+            if not isinstance(row, dict):
+                continue
+            domain = self._normalize_domain_key(row.get("domain"))
+            if not domain:
+                continue
+            manifest_version = row.get("manifest_version")
+            top_level_paths = [
+                self._normalize_scope_path(path)
+                for path in (row.get("top_level_scope_paths") or [])
+            ]
+            for path in [path for path in top_level_paths if path]:
+                registry_meta = registry_by_top_level.get((domain, path), {})
+                _upsert_scope_entry(
+                    {
+                        "scope": f"{self.SCOPE_PREFIX}{domain}.{path}{self.WILDCARD_SUFFIX}",
+                        "domain": domain,
+                        "path": path,
+                        "wildcard": True,
+                        "source_kind": "pkm_manifests.top_level_scope_paths",
+                        "registry_handle": registry_meta.get("registry_handle"),
+                        "label": registry_meta.get("label") or path.replace("_", " ").title(),
+                        "exposure_eligibility": True,
+                        "manifest_revision": registry_meta.get("manifest_revision")
+                        or manifest_version,
+                        "meta_reference": "manifest top-level scope path",
+                    }
+                )
+            for raw_path in row.get("externalizable_paths") or []:
+                path = self._normalize_scope_path(raw_path)
+                if not path:
+                    continue
+                manifest_externalizable_paths.add((domain, path))
+                top_level = path.split(".", 1)[0]
+                registry_meta = registry_by_top_level.get((domain, top_level), {})
+                _upsert_scope_entry(
+                    {
+                        "scope": self.generate_scope(domain, path),
+                        "domain": domain,
+                        "path": path,
+                        "wildcard": False,
+                        "source_kind": "pkm_manifests.externalizable_paths",
+                        "registry_handle": registry_meta.get("registry_handle"),
+                        "label": path.replace("_", " ").replace(".", " ").title(),
+                        "exposure_eligibility": True,
+                        "manifest_revision": registry_meta.get("manifest_revision")
+                        or manifest_version,
+                        "meta_reference": "externalizable manifest path",
+                    }
+                )
+
+        for row in path_rows:
+            if not isinstance(row, dict):
+                continue
+            if row.get("exposure_eligibility") is False:
+                continue
+            domain = self._normalize_domain_key(row.get("domain"))
+            path = self._normalize_scope_path(row.get("json_path"))
+            if not domain or not path:
+                continue
+            top_level = path.split(".", 1)[0]
+            registry_meta = registry_by_top_level.get((domain, top_level), {})
+            _upsert_scope_entry(
+                {
+                    "scope": self.generate_scope(domain, path),
+                    "domain": domain,
+                    "path": path,
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "registry_handle": str(row.get("scope_handle") or "").strip()
+                    or registry_meta.get("registry_handle"),
+                    "label": str(row.get("consent_label") or "").strip()
+                    or registry_meta.get("label")
+                    or path.replace("_", " ").replace(".", " ").title(),
+                    "exposure_eligibility": True,
+                    "manifest_revision": registry_meta.get("manifest_revision"),
+                    "meta_reference": "manifest path row marked exposure eligible",
+                }
+            )
+
+        if entries:
+            return [entries[scope] for scope in sorted(entries)]
+
+        legacy_catalog = await self._get_legacy_scope_catalog(user_id)
+        for domain, entry in legacy_catalog.items():
+            _upsert_scope_entry(
+                {
+                    "scope": self.generate_domain_wildcard(domain),
+                    "domain": domain,
+                    "path": None,
+                    "wildcard": True,
+                    "source_kind": "legacy_metadata_fallback",
+                    "registry_handle": None,
+                    "label": f"{domain.replace('_', ' ').title()} Domain",
+                    "exposure_eligibility": True,
+                    "manifest_revision": None,
+                    "meta_reference": "legacy metadata fallback domain wildcard",
+                }
+            )
+            for path in sorted(entry.get("wildcards", set())):
+                _upsert_scope_entry(
+                    {
+                        "scope": f"{self.SCOPE_PREFIX}{domain}.{path}{self.WILDCARD_SUFFIX}",
+                        "domain": domain,
+                        "path": path,
+                        "wildcard": True,
+                        "source_kind": "legacy_metadata_fallback",
+                        "registry_handle": None,
+                        "label": path.replace("_", " ").replace(".", " ").title(),
+                        "exposure_eligibility": True,
+                        "manifest_revision": None,
+                        "meta_reference": "legacy metadata fallback wildcard path",
+                    }
+                )
+            for path in sorted(entry.get("paths", set())):
+                _upsert_scope_entry(
+                    {
+                        "scope": self.generate_scope(domain, path),
+                        "domain": domain,
+                        "path": path,
+                        "wildcard": False,
+                        "source_kind": "legacy_metadata_fallback",
+                        "registry_handle": None,
+                        "label": path.replace("_", " ").replace(".", " ").title(),
+                        "exposure_eligibility": True,
+                        "manifest_revision": None,
+                        "meta_reference": "legacy metadata fallback exact path",
+                    }
+                )
+        return [entries[scope] for scope in sorted(entries)]
+
     def matches_wildcard(self, scope: str, wildcard: str) -> bool:
         """
         Check if a specific scope matches a wildcard pattern.
@@ -341,8 +564,7 @@ class DynamicScopeGenerator:
         """
         Validate that a scope is valid.
 
-        Validates against user metadata from world_model_index_v2 plus optional
-        domain_registry subintent metadata.
+        Validates against PKM manifests, manifest paths, and index-backed discovery.
 
         Args:
             scope: The scope to validate
@@ -407,10 +629,11 @@ class DynamicScopeGenerator:
             List of exact and wildcard scope strings
         """
         try:
-            scope_catalog = await self._get_user_scope_catalog(user_id)
             scopes: set[str] = {"pkm.read", "world_model.read"}
-            for domain, _entries in scope_catalog.items():
-                scopes.add(self.generate_domain_wildcard(domain))
+            for entry in await self.get_available_scope_entries(user_id):
+                scope = str(entry.get("scope") or "").strip()
+                if scope:
+                    scopes.add(scope)
             return sorted(scopes)
         except Exception as e:
             logger.error(f"Error getting available scopes for {user_id}: {e}")

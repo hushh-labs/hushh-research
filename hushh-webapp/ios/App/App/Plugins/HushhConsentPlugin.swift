@@ -350,6 +350,12 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         let encryptedIv = call.getString("encryptedIv")
         let encryptedTag = call.getString("encryptedTag")
         let exportKey = call.getString("exportKey")
+        let wrappedExportKey = call.getString("wrappedExportKey")
+        let wrappedKeyIv = call.getString("wrappedKeyIv")
+        let wrappedKeyTag = call.getString("wrappedKeyTag")
+        let senderPublicKey = call.getString("senderPublicKey")
+        let wrappingAlg = call.getString("wrappingAlg")
+        let connectorKeyId = call.getString("connectorKeyId")
         let userId = call.getString("userId")
         
         guard let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty else {
@@ -364,6 +370,12 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         if let v = encryptedIv { body["encryptedIv"] = v }
         if let v = encryptedTag { body["encryptedTag"] = v }
         if let v = exportKey { body["exportKey"] = v }
+        if let v = wrappedExportKey { body["wrappedExportKey"] = v }
+        if let v = wrappedKeyIv { body["wrappedKeyIv"] = v }
+        if let v = wrappedKeyTag { body["wrappedKeyTag"] = v }
+        if let v = senderPublicKey { body["senderPublicKey"] = v }
+        if let v = wrappingAlg { body["wrappingAlg"] = v }
+        if let v = connectorKeyId { body["connectorKeyId"] = v }
         
         performRequest(url: "\(backendUrl)/api/consent/pending/approve", body: body, authToken: vaultOwnerToken) { result, error in
             if let error = error {

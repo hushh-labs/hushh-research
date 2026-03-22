@@ -138,6 +138,66 @@ Encryption and vault storage plugin.
 | recoveryIv | string | Yes | Recovery IV |
 | authToken | string | No | Firebase ID token |
 
+### isPasskeyAvailable
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| rpId | string | No | Passkey relying-party ID |
+
+**Returns:**
+| Field | Type | Description |
+|-------|------|-------------|
+| available | boolean | Whether native passkey PRF can be attempted on this device |
+| reason | string | Optional machine-readable reason when unavailable |
+
+### registerPasskeyPrf
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| userId | string | Yes | User ID |
+| displayName | string | Yes | User display name |
+| rpId | string | Yes | Passkey relying-party ID |
+
+**Returns:**
+| Field | Type | Description |
+|-------|------|-------------|
+| credentialId | string | Base64 credential ID |
+| prfSalt | string | Base64 HKDF salt |
+| vaultKeyHex | string | Hex-encoded PRF-derived vault key |
+
+### authenticatePasskeyPrf
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| userId | string | Yes | User ID |
+| rpId | string | Yes | Passkey relying-party ID |
+| credentialId | string | No | Base64 credential ID hint |
+| prfSalt | string | Yes | Base64 HKDF salt saved at registration time |
+
+**Returns:**
+| Field | Type | Description |
+|-------|------|-------------|
+| credentialId | string | Base64 credential ID used to authenticate |
+| vaultKeyHex | string | Hex-encoded PRF-derived vault key |
+
+### storePreferencesToCloud
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| userId | string | Yes | User ID |
+| domain | string | Yes | Preference domain |
+| fieldName | string | Yes | Encrypted field name within the domain |
+| ciphertext | string | Yes | Base64 ciphertext |
+| iv | string | Yes | Base64 IV |
+| tag | string | Yes | Base64 auth tag |
+| consentToken | string | Yes | VAULT_OWNER or approved consent token |
+| authToken | string | No | Firebase ID token |
+
+**Returns:**
+| Field | Type | Description |
+|-------|------|-------------|
+| success | boolean | Whether the encrypted preference field was stored |
+
+### storePreference / getPreferences / deletePreferences
+
+Legacy compatibility-only local preference surfaces. Route-facing product flows must use `storePreferencesToCloud()` and other cloud-backed preference paths instead of depending on local-only CRUD parity.
+
 ---
 
 ## HushhConsent

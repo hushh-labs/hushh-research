@@ -72,6 +72,7 @@ make security      # Security scan
 2. **Agents never call services directly.** The stack is: Agent > Tool > Operon > Service.
 3. **Consent is validated at every layer.** Use `HushhAgent` for agents, `@hushh_tool` for tools.
 4. **No `sessionStorage` or `localStorage` patterns.** The backend is stateless; state management is the frontend's concern.
+5. **Canonical PKM semantics must be agent-derived.** If a backend feature interprets user meaning, it must declare the owning agent, prompt contract, validator rules, and required live-eval phase. See `docs/reference/pkm-agent-north-star.md`.
 
 ---
 
@@ -135,6 +136,22 @@ tools:
 5. Wire tools to operons (never directly to services)
 6. Add tests
 7. Register in `hushh_mcp/agents/__init__.py`
+
+### Semantic Feature Declaration
+
+If the feature classifies or restructures user meaning, the PR must declare:
+
+- owning agent
+- manifest path
+- structured output contract
+- deterministic validator rules
+- live-eval phase required before promotion
+
+Reference docs:
+
+- `docs/reference/pkm-agent-north-star.md`
+- `docs/reference/pkm-prompt-contract.md`
+- `docs/reference/backend-semantic-boundary.md`
 
 ---
 

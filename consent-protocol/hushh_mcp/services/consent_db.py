@@ -1090,7 +1090,8 @@ class ConsentDBService:
         encrypted_data: str,
         iv: str,
         tag: str,
-        export_key: str,
+        export_key: str | None,
+        wrapped_key_bundle: Dict | None,
         scope: str,
         expires_at_ms: int,
     ) -> bool:
@@ -1106,7 +1107,8 @@ class ConsentDBService:
             encrypted_data: Base64-encoded ciphertext
             iv: Base64-encoded initialization vector
             tag: Base64-encoded authentication tag
-            export_key: Hex-encoded AES-256 key for MCP decryption
+            export_key: Legacy plaintext export key for backwards compatibility only
+            wrapped_key_bundle: Wrapped export-key metadata for strict zero-knowledge flow
             scope: The scope this export is for
             expires_at_ms: Expiry timestamp in milliseconds
 
@@ -1121,6 +1123,11 @@ class ConsentDBService:
         expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc).isoformat()
 
         try:
+            stored_export_key = (
+                json.dumps(wrapped_key_bundle)
+                if isinstance(wrapped_key_bundle, dict) and wrapped_key_bundle
+                else export_key
+            )
             # Upsert to handle re-approvals
             supabase.table("consent_exports").upsert(
                 {
@@ -1129,7 +1136,7 @@ class ConsentDBService:
                     "encrypted_data": encrypted_data,
                     "iv": iv,
                     "tag": tag,
-                    "export_key": export_key,
+                    "export_key": stored_export_key,
                     "scope": scope,
                     "expires_at": expires_at,
                 },
@@ -1171,6 +1178,7 @@ class ConsentDBService:
                     "iv": row.get("iv"),
                     "tag": row.get("tag"),
                     "export_key": row.get("export_key"),
+                    "wrapped_key_bundle": self._parse_metadata(row.get("export_key")) or None,
                     "scope": row.get("scope"),
                     "created_at": row.get("created_at"),
                 }

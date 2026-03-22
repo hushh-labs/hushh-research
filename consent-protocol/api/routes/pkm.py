@@ -20,6 +20,7 @@ class PKMAgentLabStructureRequest(BaseModel):
     user_id: str
     message: str = Field(min_length=1, max_length=12000)
     current_domains: list[str] = Field(default_factory=list)
+    simulated_state: dict | None = None
 
 
 class PKMAgentLabStructureResponse(BaseModel):
@@ -27,9 +28,18 @@ class PKMAgentLabStructureResponse(BaseModel):
     agent_name: str
     model: str
     used_fallback: bool
+    intent_used_fallback: bool = False
+    structure_used_fallback: bool = False
     error: str | None = None
+    routing_decision: str = "non_financial_or_ephemeral"
+    intent_frame: dict = Field(default_factory=dict)
+    merge_decision: dict = Field(default_factory=dict)
     candidate_payload: dict
     structure_decision: dict
+    write_mode: str = "confirm_first"
+    primary_json_path: str | None = None
+    target_entity_scope: str | None = None
+    validation_hints: list[str] = Field(default_factory=list)
     manifest_draft: dict | None = None
 
 
@@ -130,5 +140,6 @@ async def preview_pkm_structure(
         user_id=request.user_id,
         message=request.message,
         current_domains=request.current_domains,
+        simulated_state=request.simulated_state,
     )
     return PKMAgentLabStructureResponse(**payload)

@@ -1,6 +1,12 @@
 import { Capacitor } from "@capacitor/core";
 
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import {
+  blobToBase64String,
+  downloadBlobFile,
+} from "@/lib/utils/native-download";
 import { ApiService } from "@/lib/services/api-service";
 import {
   sanitizePortfolioSharePayload,
@@ -78,42 +84,16 @@ function drawRoundedRect(
   ctx.fill();
 }
 
-function triggerDownload(blob: Blob, filename: string) {
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(objectUrl);
-}
-
 function isShareAbortError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === "AbortError") return true;
   const message = String((error as Error)?.message || "").toLowerCase();
   return message.includes("cancel") || message.includes("canceled") || message.includes("cancelled");
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error("Failed to encode file"));
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== "string") {
-        reject(new Error("Unexpected file reader result"));
-        return;
-      }
-      const parts = result.split(",");
-      resolve(parts[1] || "");
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
 async function writeBlobToNativeFile(blob: Blob, fileName: string): Promise<string> {
   const { Filesystem, Directory } = (await import("@capacitor/filesystem")) as typeof import("@capacitor/filesystem");
 
-  const base64 = await blobToBase64(blob);
+  const base64 = await blobToBase64String(blob);
   const path = `portfolio-share/${Date.now()}-${fileName}`;
 
   const writeResult = await Filesystem.writeFile({
@@ -167,8 +147,12 @@ async function deliverBlob(
     }
   }
 
-  triggerDownload(blob, fileName);
-  return "download";
+  const downloaded = await downloadBlobFile(blob, fileName, mimeType);
+  if (downloaded) {
+    return "download";
+  }
+
+  throw new Error("Download is not supported on this device.");
 }
 
 function prepareAllocationRows(
@@ -641,17 +625,10 @@ export async function sharePortfolioLink(url: string): Promise<ShareDelivery> {
   }
 
   let copied = false;
-  if (
-    typeof navigator !== "undefined" &&
-    navigator.clipboard &&
-    typeof navigator.clipboard.writeText === "function"
-  ) {
-    try {
-      await navigator.clipboard.writeText(url);
-      copied = true;
-    } catch {
-      copied = false;
-    }
+  try {
+    copied = await copyToClipboard(url);
+  } catch {
+    copied = false;
   }
 
   if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
@@ -674,8 +651,8 @@ export async function sharePortfolioLink(url: string): Promise<ShareDelivery> {
     }
   }
 
-  if (typeof window !== "undefined" && /^https?:\/\//i.test(url)) {
-    window.open(url, "_blank", "noopener,noreferrer");
+  if (/^https?:\/\//i.test(url)) {
+    openExternalUrl(url);
   }
 
   if (copied) {

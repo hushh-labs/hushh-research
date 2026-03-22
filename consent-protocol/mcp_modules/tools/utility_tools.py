@@ -277,6 +277,7 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
         ]
 
     scopes = data.get("scopes") or []
+    scope_entries = data.get("scope_entries") or []
     domains = []
     for s in scopes:
         m = re.match(r"^attr\.([a-zA-Z0-9_]+)(?:\..*)?$", s)
@@ -292,6 +293,7 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                     "user_id": data.get("user_id", uid),
                     "domains": domains,
                     "scopes": scopes,
+                    "scope_entries": scope_entries,
                     "usage": "Call request_consent(user_id, scope) with one of the scopes above to request consent",
                 }
             ),

@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  Bell,
   BriefcaseBusiness,
   Check,
   ChevronDown,
@@ -93,7 +94,7 @@ export {
 
 /* ── Constants ─────────────────────────────────────────────────────── */
 export const TOP_SHELL_ICON_BUTTON_CLASSNAME =
-  "grid h-11 w-11 place-items-center rounded-full bg-background/55 backdrop-blur-sm transition-colors hover:bg-muted/40 active:bg-muted/70";
+  "relative grid h-10 w-10 place-items-center rounded-full border border-border/60 bg-background/70 shadow-sm backdrop-blur-sm transition-colors hover:bg-muted/50 active:bg-muted/80";
 
 /* ── Stubs (kept for import stability) ─────────────────────────────── */
 export function TopBarBackground() { return null; }
@@ -174,6 +175,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
     [activePersona, pathname]
   );
   const showKaiTabs = topShellMetrics.hasTabs;
+  const usesNestedBreadcrumbChrome = Boolean(topShellBreadcrumb);
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(null);
 
   useEffect(() => {
@@ -262,10 +264,8 @@ export function TopAppBar({ className }: TopAppBarProps) {
             <div className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2">
               <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                 {topShellBreadcrumb ? (
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="icon"
+                  <button
+                    type="button"
                     className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
                     aria-label="Go back"
                     onClick={() => {
@@ -277,7 +277,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     }}
                   >
                     <ArrowLeft className="h-5 w-5" />
-                  </Button>
+                  </button>
                 ) : (
                   <div className="h-11 w-11" aria-hidden />
                 )}
@@ -286,7 +286,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
             <div className="pointer-events-none absolute left-1/2 top-1/2 inline-flex min-w-0 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
               {centerTitle ? (
-                centerTitle.interactive ? (
+                centerTitle.interactive && !usesNestedBreadcrumbChrome ? (
                   <div className="pointer-events-auto inline-flex w-fit max-w-fit items-center justify-center">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -364,6 +364,15 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 <OnboardingRouteActions />
               ) : isVaultUnlocked ? (
                 <DebateTaskCenter triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
+              ) : usesNestedBreadcrumbChrome ? (
+                <button
+                  type="button"
+                  className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
+                  aria-label="Notifications unavailable until your vault is unlocked"
+                  disabled
+                >
+                  <Bell className="h-5 w-5 opacity-65" />
+                </button>
               ) : (
                 <div className="h-11 w-11" aria-hidden />
               )}

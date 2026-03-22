@@ -23,6 +23,12 @@ export async function POST(request: NextRequest) {
       encryptedData,
       encryptedIv,
       encryptedTag,
+      wrappedExportKey,
+      wrappedKeyIv,
+      wrappedKeyTag,
+      senderPublicKey,
+      wrappingAlg,
+      connectorKeyId,
     } = body;
 
     if (!userId || !requestId) {
@@ -58,6 +64,12 @@ export async function POST(request: NextRequest) {
         encryptedData,
         encryptedIv,
         encryptedTag,
+        wrappedExportKey,
+        wrappedKeyIv,
+        wrappedKeyTag,
+        senderPublicKey,
+        wrappingAlg,
+        connectorKeyId,
       }),
     });
 
