@@ -836,6 +836,7 @@ class PKMAgentLabService:
             "Allowed routing_decision values: financial_core, sanctioned_financial_memory, non_financial_or_ephemeral.\n"
         )
         if strict_small_model:
+            # nosec B608 - this is an LLM prompt template, not a SQL query.
             return (
                 f"{header}"
                 "Rules:\n"
@@ -2140,7 +2141,7 @@ class PKMAgentLabService:
             state_summary = self._compact_state_summary(simulated_state)
             registry_payload = self._compact_registry_choices(registry_choices)
             return (
-                "You are the Memory Intent Agent for Hushh Kai.\n"
+                "You are the Memory Intent Agent for Hushh Kai.\n"  # nosec B608 - prompt template, not SQL.
                 "Return JSON only with save_class, intent_class, mutation_intent, requires_confirmation, confirmation_reason, candidate_domain_choices, confidence, source_agent, contract_version.\n"
                 "Allowed save_class: durable, ephemeral, ambiguous.\n"
                 "Allowed intent_class: preference, profile_fact, routine, task_or_reminder, plan_or_goal, relationship, health, travel, shopping_need, financial_event, correction, deletion, note, ambiguous.\n"
