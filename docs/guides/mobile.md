@@ -62,11 +62,10 @@ Notes:
 - `localhost` is valid for web dev passkeys, but not for iOS associated domains.
 - Native PRF passkey status:
   - iOS: implemented via `HushhVault.registerPasskeyPrf/authenticatePasskeyPrf` (requires iOS 18+).
-  - Android: PRF native passkey methods are still pending; biometric/passphrase fallback remains active.
+  - Android: implemented via the native `HushhVault` passkey PRF bridge on supported devices.
 - Vault preference/native fallback status:
-  - `storePreferencesToCloud()` is the canonical shipped native-safe path for encrypted preference writes.
-  - `deletePreferences()` remains intentionally unsupported in the web fallback.
-  - New mobile features must not depend on local-only preference deletion semantics without updating the parity contract first.
+  - `storePreferencesToCloud()` is the canonical shipped cross-platform path for encrypted preference writes.
+  - Legacy local preference CRUD methods remain compatibility-only and are not part of the parity-critical product contract.
 
 ### Full parity audit lane
 
@@ -88,8 +87,7 @@ That release gate includes:
 
 Accepted parity exceptions currently documented in the registry:
 
-- Android native passkey PRF is still pending.
-- Cloud-backed vault preference methods remain the canonical mobile-safe path for some preference flows.
+- None. Full parity requires the registry and runtime to stay exception-free for visible route behavior.
 
 ### Firebase artifact safety (no secret leak in git)
 

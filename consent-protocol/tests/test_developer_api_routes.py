@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 from api.routes import developer
 
+_CONNECTOR_PUBLIC_KEY = "U29tZUNvbm5lY3RvclB1YmxpY0tleURhdGE="
+
 
 def _build_app() -> FastAPI:
     app = FastAPI()
@@ -89,7 +91,53 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
-            return ["attr.financial.*", "attr.financial.profile.*", "world_model.read"]
+            return [
+                "attr.financial.*",
+                "attr.financial.profile.*",
+                "attr.financial.profile.risk_tolerance",
+                "world_model.read",
+            ]
+
+        async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+            assert user_id == "user_123"
+            return [
+                {
+                    "scope": "attr.financial.*",
+                    "domain": "financial",
+                    "path": None,
+                    "wildcard": True,
+                    "source_kind": "pkm_index",
+                    "registry_handle": None,
+                    "label": "Financial Domain",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "domain wildcard derived from discovered PKM domains",
+                },
+                {
+                    "scope": "attr.financial.profile.*",
+                    "domain": "financial",
+                    "path": "profile",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_financial_profile",
+                    "label": "Profile",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest top-level scope path",
+                },
+                {
+                    "scope": "attr.financial.profile.risk_tolerance",
+                    "domain": "financial",
+                    "path": "profile.risk_tolerance",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "registry_handle": "s_financial_profile",
+                    "label": "Risk Tolerance",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest path row marked exposure eligible",
+                },
+            ]
 
     class _FakeIndex:
         available_domains = ["financial"]
@@ -117,6 +165,9 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     payload = response.json()
     assert payload["available_domains"] == ["financial"]
     assert "attr.financial.*" in payload["scopes"]
+    assert payload["scope_entries"][0]["source_kind"] == "pkm_index"
+    assert payload["scope_entries"][1]["meta_reference"] == "manifest top-level scope path"
+    assert payload["scope_entries"][2]["path"] == "profile.risk_tolerance"
     assert payload["app_display_name"] == "Demo App"
 
 
@@ -210,6 +261,8 @@ def test_request_consent_creates_pending_request(monkeypatch):
             "scope": "attr.financial.*",
             "expiry_hours": 24,
             "reason": "Portfolio analysis",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": "connector_demo",
         },
     )
 
@@ -221,6 +274,8 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["agent_id"] == "developer:app_demo_123"
     assert inserted["scope"] == "attr.financial.*"
     assert inserted["metadata"]["developer_app_display_name"] == "Demo App"
+    assert inserted["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_KEY
+    assert inserted["metadata"]["connector_key_id"] == "connector_demo"
 
 
 def test_request_consent_rejects_legacy_body_fields(monkeypatch):
@@ -237,6 +292,7 @@ def test_request_consent_rejects_legacy_body_fields(monkeypatch):
             "user_id": "user_123",
             "scope": "attr.financial.*",
             "developer_token": "secret-token",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
         },
     )
 
@@ -272,6 +328,7 @@ def test_request_consent_rejects_legacy_scope_alias(monkeypatch):
         json={
             "user_id": "user_123",
             "scope": "attr_financial",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
         },
     )
 

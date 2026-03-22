@@ -130,7 +130,7 @@ html body[data-scroll-locked] {
   --top-tabs-gap: var(--kai-route-tabs-content-gap);
   --top-tabs-total: 0px;
   --top-subnav-h: 36px;
-  --top-subnav-gap: 6px;
+  --top-subnav-gap: 10px;
   --top-subnav-total: 0px;
   --top-fade-active: 14px;
   --top-systembar-row-gap: 4px;

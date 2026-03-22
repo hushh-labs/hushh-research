@@ -264,6 +264,7 @@ function toPendingConsent(entry: ConsentCenterEntry, durationHours?: number) {
       entry.metadata && typeof entry.metadata === "object"
         ? String(entry.metadata.bundle_id || "") || undefined
         : undefined,
+    metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : undefined,
   };
 }
 

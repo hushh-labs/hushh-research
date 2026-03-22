@@ -93,6 +93,15 @@ export interface ScopeDiscovery {
   wildcardScopes: string[];
 }
 
+export interface PkmMergeDecision {
+  merge_mode?: string;
+  target_domain?: string;
+  target_entity_id?: string;
+  target_entity_path?: string;
+  match_confidence?: number;
+  match_reason?: string;
+}
+
 // ==================== Service ====================
 
 export class WorldModelService {
@@ -122,6 +131,201 @@ export class WorldModelService {
       }
     }
     return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  private static isPlainObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  private static deepMergeRecords(
+    base: Record<string, unknown>,
+    incoming: Record<string, unknown>
+  ): Record<string, unknown> {
+    const merged: Record<string, unknown> = { ...base };
+    for (const [key, value] of Object.entries(incoming)) {
+      const current = merged[key];
+      if (this.isPlainObject(current) && this.isPlainObject(value)) {
+        merged[key] = this.deepMergeRecords(current, value);
+      } else {
+        merged[key] = value;
+      }
+    }
+    return merged;
+  }
+
+  private static normalizePathSegments(path: string | undefined | null): string[] {
+    return String(path || "")
+      .split(".")
+      .map((part) =>
+        String(part)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9_]/g, "_")
+          .replace(/^_+|_+$/g, "")
+      )
+      .filter(Boolean);
+  }
+
+  private static getValueAtPath(
+    root: Record<string, unknown>,
+    path: string | undefined | null
+  ): unknown {
+    const segments = this.normalizePathSegments(path);
+    let cursor: unknown = root;
+    for (const segment of segments) {
+      if (!this.isPlainObject(cursor)) return undefined;
+      cursor = cursor[segment];
+    }
+    return cursor;
+  }
+
+  private static ensureObjectAtPath(
+    root: Record<string, unknown>,
+    path: string | undefined | null
+  ): Record<string, unknown> {
+    const segments = this.normalizePathSegments(path);
+    let cursor: Record<string, unknown> = root;
+    for (const segment of segments) {
+      if (!this.isPlainObject(cursor[segment])) {
+        cursor[segment] = {};
+      }
+      cursor = cursor[segment] as Record<string, unknown>;
+    }
+    return cursor;
+  }
+
+  private static extractEntityPayload(
+    domainData: Record<string, unknown>,
+    mergeDecision?: PkmMergeDecision
+  ): { scopePath: string; entityId: string; entity: Record<string, unknown> } | null {
+    const explicitEntityPath = String(mergeDecision?.target_entity_path || "").trim();
+    const explicitSegments = this.normalizePathSegments(explicitEntityPath);
+    const entityIndex = explicitSegments.indexOf("entities");
+    if (entityIndex >= 0 && explicitSegments[entityIndex + 1]) {
+      const scopePath = explicitSegments.slice(0, entityIndex).join(".");
+      const entityId = explicitSegments[entityIndex + 1] || "";
+      const entityValue = this.getValueAtPath(domainData, explicitEntityPath);
+      if (this.isPlainObject(entityValue)) {
+        return {
+          scopePath,
+          entityId,
+          entity: this.cloneRecord(entityValue),
+        };
+      }
+    }
+
+    for (const [scopeKey, scopeValue] of Object.entries(domainData || {})) {
+      if (!this.isPlainObject(scopeValue)) continue;
+      const entities = scopeValue.entities;
+      if (!this.isPlainObject(entities)) continue;
+      const [entityId, entityValue] = Object.entries(entities)[0] || [];
+      if (!entityId || !this.isPlainObject(entityValue)) continue;
+      return {
+        scopePath: scopeKey,
+        entityId,
+        entity: this.cloneRecord(entityValue),
+      };
+    }
+    return null;
+  }
+
+  private static applyMergeDecisionToDomain(params: {
+    existingDomainData: Record<string, unknown>;
+    candidateDomainData: Record<string, unknown>;
+    mergeDecision?: PkmMergeDecision;
+  }): Record<string, unknown> {
+    const mergeMode = String(params.mergeDecision?.merge_mode || "create_entity").trim().toLowerCase();
+    if (mergeMode === "no_op") {
+      return this.cloneRecord(params.existingDomainData);
+    }
+
+    const existing = this.cloneRecord(params.existingDomainData);
+    const candidate = this.cloneRecord(params.candidateDomainData);
+    const incoming = this.extractEntityPayload(candidate, params.mergeDecision);
+    if (!incoming) {
+      return this.deepMergeRecords(existing, candidate);
+    }
+
+    const targetScope = incoming.scopePath || "notes";
+    const scopeObject = this.ensureObjectAtPath(existing, targetScope);
+    if (!this.isPlainObject(scopeObject.entities)) {
+      scopeObject.entities = {};
+    }
+    const entities = scopeObject.entities as Record<string, unknown>;
+    const nowIso = new Date().toISOString();
+    const incomingEntity = this.cloneRecord(incoming.entity);
+    if (!incomingEntity.entity_id) {
+      incomingEntity.entity_id = incoming.entityId;
+    }
+    if (!incomingEntity.created_at) {
+      incomingEntity.created_at = nowIso;
+    }
+    incomingEntity.updated_at = nowIso;
+
+    const existingEntity = this.isPlainObject(entities[incoming.entityId])
+      ? (this.cloneRecord(entities[incoming.entityId] as Record<string, unknown>) as Record<string, unknown>)
+      : null;
+
+    if (mergeMode === "create_entity" || !existingEntity) {
+      entities[incoming.entityId] = incomingEntity;
+      return existing;
+    }
+
+    if (mergeMode === "extend_entity") {
+      const observations = Array.isArray(existingEntity.observations)
+        ? [...existingEntity.observations]
+        : [];
+      const incomingObservations = Array.isArray(incomingEntity.observations)
+        ? incomingEntity.observations
+        : [];
+      for (const observation of incomingObservations) {
+        if (!observations.includes(observation)) {
+          observations.push(observation);
+        }
+      }
+      entities[incoming.entityId] = {
+        ...existingEntity,
+        ...incomingEntity,
+        observations,
+        status: "active",
+        updated_at: nowIso,
+      };
+      return existing;
+    }
+
+    if (mergeMode === "delete_entity") {
+      entities[incoming.entityId] = {
+        ...existingEntity,
+        status: "deleted",
+        updated_at: nowIso,
+      };
+      return existing;
+    }
+
+    if (mergeMode === "correct_entity") {
+      entities[incoming.entityId] = {
+        ...existingEntity,
+        status: "corrected",
+        updated_at: nowIso,
+      };
+      const candidateReplacementId =
+        String(incomingEntity.entity_id || "").trim() || `${incoming.entityId}_v2`;
+      const replacementId =
+        candidateReplacementId === incoming.entityId
+          ? `${incoming.entityId}_corr`
+          : candidateReplacementId;
+      entities[replacementId] = {
+        ...incomingEntity,
+        entity_id: replacementId,
+        supersedes_entity_id: incoming.entityId,
+        status: "active",
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+      return existing;
+    }
+
+    return this.deepMergeRecords(existing, candidate);
   }
 
   private static buildEncryptedBlobMarker(blob: EncryptedUserBlob | EncryptedValue): string {
@@ -1296,22 +1500,33 @@ export class WorldModelService {
     vaultKey: string;
     domain: string;
     domainData: Record<string, unknown>;
+    mergeDecision?: PkmMergeDecision;
   }): Promise<{
     encryptedBlob: EncryptedValue;
     fullBlob: Record<string, unknown>;
+    domainData: Record<string, unknown>;
   }> {
+    const existingDomainData = this.isPlainObject(params.baseFullBlob[params.domain])
+      ? this.cloneRecord(params.baseFullBlob[params.domain] as Record<string, unknown>)
+      : {};
+    const mergedDomainData = this.applyMergeDecisionToDomain({
+      existingDomainData,
+      candidateDomainData: params.domainData,
+      mergeDecision: params.mergeDecision,
+    });
     const fullBlob = {
       ...params.baseFullBlob,
-      [params.domain]: params.domainData,
+      [params.domain]: mergedDomainData,
     };
     const encrypted = await this.encryptDomainForStorage({
       vaultKey: params.vaultKey,
-      domainData: params.domainData,
+      domainData: mergedDomainData,
     });
 
     return {
       encryptedBlob: encrypted,
       fullBlob,
+      domainData: mergedDomainData,
     };
   }
 
@@ -1447,6 +1662,7 @@ export class WorldModelService {
     domain: string;
     domainData: Record<string, unknown>;
     summary: Record<string, unknown>;
+    mergeDecision?: PkmMergeDecision;
     structureDecision?: Record<string, unknown>;
     manifest?: DomainManifest | null;
     expectedDataVersion?: number;
@@ -1478,6 +1694,7 @@ export class WorldModelService {
     domainData: Record<string, unknown>;
     summary: Record<string, unknown>;
     baseFullBlob: Record<string, unknown>;
+    mergeDecision?: PkmMergeDecision;
     structureDecision?: Record<string, unknown>;
     manifest?: DomainManifest | null;
     expectedDataVersion?: number;
@@ -1500,14 +1717,20 @@ export class WorldModelService {
       vaultKey: params.vaultKey,
       domain: params.domain,
       domainData: params.domainData,
+      mergeDecision: params.mergeDecision,
     });
     const fallbackArtifacts = buildWorldModelStructureArtifacts({
       domain: params.domain,
-      domainData: params.domainData,
+      domainData: merged.domainData,
       previousManifest,
     });
-    const manifest = params.manifest || fallbackArtifacts.manifest;
-    const structureDecision = params.structureDecision || fallbackArtifacts.structureDecision;
+    const useCallerArtifacts = !params.mergeDecision;
+    const manifest =
+      useCallerArtifacts && params.manifest ? params.manifest : fallbackArtifacts.manifest;
+    const structureDecision =
+      useCallerArtifacts && params.structureDecision
+        ? params.structureDecision
+        : fallbackArtifacts.structureDecision;
 
     const summaryWithIntent = {
       domain_intent: params.domain,
@@ -1516,7 +1739,7 @@ export class WorldModelService {
     };
     const portfolioData = this.resolvePortfolioDataForDomain({
       domain: params.domain,
-      domainData: params.domainData,
+      domainData: merged.domainData,
     });
 
     const result = await this.storeDomainData({

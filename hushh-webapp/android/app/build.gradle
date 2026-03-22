@@ -57,7 +57,12 @@ dependencies {
     
     // Biometric Authentication
     implementation "androidx.biometric:biometric:1.1.0"
-    
+
+    // Credential Manager / Passkeys
+    implementation "androidx.credentials:credentials:1.5.0"
+    implementation "androidx.credentials:credentials-play-services-auth:1.5.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+
     // OkHttp for Cloud API calls
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     

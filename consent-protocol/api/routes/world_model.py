@@ -759,6 +759,7 @@ class UserScopesResponse(BaseModel):
             "attr.{domain}.*, attr.{domain}.{subintent}.*, or attr.{domain}.{path}."
         ),
     )
+    scope_entries: List[dict] = Field(default_factory=list)
 
 
 class DomainRegistryEntryResponse(BaseModel):
@@ -831,7 +832,9 @@ async def get_user_scopes(
 
     world_model = get_world_model_service()
     scopes = await world_model.scope_generator.get_available_scopes(user_id)
-    return UserScopesResponse(user_id=user_id, scopes=sorted(scopes))
+    scope_entries_getter = getattr(world_model.scope_generator, "get_available_scope_entries", None)
+    scope_entries = await scope_entries_getter(user_id) if callable(scope_entries_getter) else []
+    return UserScopesResponse(user_id=user_id, scopes=sorted(scopes), scope_entries=scope_entries)
 
 
 @router.post("/get-context", response_model=StockContextResponse)

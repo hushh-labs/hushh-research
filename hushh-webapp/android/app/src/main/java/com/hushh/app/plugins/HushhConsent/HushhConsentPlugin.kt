@@ -559,6 +559,12 @@ class HushhConsentPlugin : Plugin() {
         val encryptedIv = call.getString("encryptedIv")
         val encryptedTag = call.getString("encryptedTag")
         val exportKey = call.getString("exportKey")
+        val wrappedExportKey = call.getString("wrappedExportKey")
+        val wrappedKeyIv = call.getString("wrappedKeyIv")
+        val wrappedKeyTag = call.getString("wrappedKeyTag")
+        val senderPublicKey = call.getString("senderPublicKey")
+        val wrappingAlg = call.getString("wrappingAlg")
+        val connectorKeyId = call.getString("connectorKeyId")
         val userId = call.getString("userId") // Optional, but good context
 
         val vaultOwnerToken = call.getString("vaultOwnerToken") ?: run {
@@ -579,6 +585,12 @@ class HushhConsentPlugin : Plugin() {
                     if (encryptedIv != null) put("encryptedIv", encryptedIv)
                     if (encryptedTag != null) put("encryptedTag", encryptedTag)
                     if (exportKey != null) put("exportKey", exportKey)
+                    if (wrappedExportKey != null) put("wrappedExportKey", wrappedExportKey)
+                    if (wrappedKeyIv != null) put("wrappedKeyIv", wrappedKeyIv)
+                    if (wrappedKeyTag != null) put("wrappedKeyTag", wrappedKeyTag)
+                    if (senderPublicKey != null) put("senderPublicKey", senderPublicKey)
+                    if (wrappingAlg != null) put("wrappingAlg", wrappingAlg)
+                    if (connectorKeyId != null) put("connectorKeyId", connectorKeyId)
                 }
                 
                 val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())

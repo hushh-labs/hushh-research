@@ -11,6 +11,8 @@ import json
 import logging
 
 import httpx
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from mcp.types import TextContent
 
@@ -18,6 +20,7 @@ from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_request_query
+from mcp_modules.tools.consent_tools import load_connector_private_key
 
 logger = logging.getLogger("hushh-mcp-server")
 
@@ -73,12 +76,38 @@ async def _fetch_decrypted_export(consent_token: str):
             export_data = export_response.json()
 
             export_key_hex = export_data.get("export_key")
+            wrapped_key_bundle = export_data.get("wrapped_key_bundle") or {}
             encrypted_data = export_data.get("encrypted_data")
             iv = export_data.get("iv")
             tag = export_data.get("tag")
 
-            if not all([export_key_hex, encrypted_data, iv, tag]):
+            if not all([encrypted_data, iv, tag]):
                 logger.warning("⚠️ Incomplete export payload for consent token")
+                return None
+
+            if isinstance(wrapped_key_bundle, dict) and wrapped_key_bundle.get(
+                "wrapped_export_key"
+            ):
+                private_key = load_connector_private_key()
+                sender_public_key = x25519.X25519PublicKey.from_public_bytes(
+                    base64.b64decode(str(wrapped_key_bundle.get("sender_public_key") or ""))
+                )
+                shared_secret = private_key.exchange(sender_public_key)
+                digest = hashes.Hash(hashes.SHA256())
+                digest.update(shared_secret)
+                wrapping_key = digest.finalize()
+
+                wrapped_ciphertext = base64.b64decode(
+                    str(wrapped_key_bundle.get("wrapped_export_key") or "")
+                )
+                wrapped_iv = base64.b64decode(str(wrapped_key_bundle.get("wrapped_key_iv") or ""))
+                wrapped_tag = base64.b64decode(str(wrapped_key_bundle.get("wrapped_key_tag") or ""))
+                wrapped_combined = wrapped_ciphertext + wrapped_tag
+                export_key_bytes = AESGCM(wrapping_key).decrypt(wrapped_iv, wrapped_combined, None)
+                export_key_hex = export_key_bytes.hex()
+
+            if not export_key_hex:
+                logger.warning("⚠️ Missing export key material for consent token")
                 return None
 
             key_bytes = bytes.fromhex(export_key_hex)

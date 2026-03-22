@@ -55,10 +55,9 @@ Direct usage is allowed only in:
 
 Current accepted parity exceptions are:
 
-1. Android native passkey PRF is still pending. iOS PRF is implemented; Android uses biometric/passphrase fallback.
-2. Some vault preference flows remain cloud-backed by design. `storePreferencesToCloud()` is the canonical native-safe write path, and `deletePreferences()` is not parity-complete in the web fallback.
+- None.
 
-If a new exception is needed, document it in `mobile-parity-registry.json` and `docs/guides/mobile.md` in the same change.
+Cloud-backed vault preference flows are the canonical cross-platform behavior, and Android passkey PRF is part of the parity contract rather than an exception. If a new exception is ever needed, document it in `mobile-parity-registry.json` and `docs/guides/mobile.md` in the same change.
 
 ## Native Project Sanity
 

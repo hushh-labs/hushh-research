@@ -258,13 +258,17 @@ class TestAttributeLearnerCompliance:
 The attribute_learner.py file is required for auto-learning user preferences from conversation.
 """
 
-    def test_domain_inferrer_exists(self):
-        """DomainInferrer must exist for auto-categorizing attributes."""
-        path = os.path.join(self.cwd, "hushh_mcp/services/domain_inferrer.py")
-        assert os.path.exists(path), """
-❌ MISSING: DomainInferrer
+    def test_domain_inferrer_not_in_canonical_runtime_path(self):
+        """Canonical PKM runtime must not depend on the legacy domain inferrer."""
+        service_path = os.path.join(
+            self.cwd, "hushh_mcp/services/personal_knowledge_model_service.py"
+        )
+        with open(service_path, encoding="utf-8") as handle:
+            content = handle.read()
+        assert "domain_inferrer" not in content, """
+❌ LEGACY SEMANTIC DRIFT: PersonalKnowledgeModelService still references domain_inferrer.
 
-The domain_inferrer.py file is required for auto-categorizing attributes into domains.
+The canonical PKM runtime path must derive semantics through agents, not the legacy rule engine.
 """
 
 
@@ -282,7 +286,6 @@ class TestHardcodedDomainCompliance:
 
         Allowed patterns:
         - DEFAULT_DOMAIN_METADATA in domain_registry_service.py
-        - DOMAIN_RULES in domain_inferrer.py
         - Example/documentation in tests
 
         Forbidden patterns:

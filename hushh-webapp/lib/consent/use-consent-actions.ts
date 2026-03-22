@@ -31,6 +31,7 @@ export interface PendingConsent {
   expiryHours?: number;
   durationHours?: number;
   bundleId?: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 type RequestStatus = "pending" | "handling" | "handled";
@@ -387,14 +388,33 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         console.log("[NativeDebug] Generating export key...");
         // Generate export key and encrypt
-        const { generateExportKey, encryptForExport } = await import(
+        const { generateExportKey, encryptForExport, wrapExportKeyForConnector } = await import(
           "@/lib/vault/export-encrypt"
         );
+        const consentMetadata =
+          consent.metadata && typeof consent.metadata === "object"
+            ? (consent.metadata as Record<string, unknown>)
+            : {};
+        const connectorPublicKey =
+          typeof consentMetadata.connector_public_key === "string"
+            ? consentMetadata.connector_public_key
+            : "";
+        const connectorKeyId =
+          typeof consentMetadata.connector_key_id === "string"
+            ? consentMetadata.connector_key_id
+            : undefined;
         const exportKey = await generateExportKey();
         const encrypted = await encryptForExport(
           JSON.stringify(scopeData),
           exportKey
         );
+        const wrappedKeyBundle = connectorPublicKey
+          ? await wrapExportKeyForConnector({
+              exportKeyHex: exportKey,
+              connectorPublicKey,
+              connectorKeyId,
+            })
+          : null;
 
         console.log("[NativeDebug] Submitting approval to backend...");
         // Send to server
@@ -402,10 +422,16 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           userId,
           requestId: consent.id,
           vaultOwnerToken,
-          exportKey,
           encryptedData: encrypted.ciphertext,
           encryptedIv: encrypted.iv,
           encryptedTag: encrypted.tag,
+          exportKey: wrappedKeyBundle ? undefined : exportKey,
+          wrappedExportKey: wrappedKeyBundle?.wrappedExportKey,
+          wrappedKeyIv: wrappedKeyBundle?.wrappedKeyIv,
+          wrappedKeyTag: wrappedKeyBundle?.wrappedKeyTag,
+          senderPublicKey: wrappedKeyBundle?.senderPublicKey,
+          wrappingAlg: wrappedKeyBundle?.wrappingAlg,
+          connectorKeyId: wrappedKeyBundle?.connectorKeyId,
           durationHours: consent.durationHours,
         });
 

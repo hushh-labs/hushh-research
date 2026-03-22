@@ -5,13 +5,32 @@
  *
  * When user approves a consent request:
  * 1. Data is decrypted with vault key (client-side)
- * 2. A random export key is generated
- * 3. Data is re-encrypted with export key
- * 4. Export key is embedded in consent token
+ * 2. A random export key is generated on device
+ * 3. Data is re-encrypted with the export key
+ * 4. The export key is wrapped to the connector public key
  *
- * This maintains zero-knowledge: server never sees plaintext.
+ * This maintains zero-knowledge: server never sees plaintext or a plaintext export key.
  */
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
+
+export type WrappedExportKeyBundle = {
+  wrappedExportKey: string;
+  wrappedKeyIv: string;
+  wrappedKeyTag: string;
+  senderPublicKey: string;
+  wrappingAlg: string;
+  connectorKeyId?: string;
+};
+
+function hexToBytes(hex: string): Uint8Array {
+  return new Uint8Array(hex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)));
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
 
 /**
  * Generate a random 256-bit (32-byte) export key
@@ -34,15 +53,12 @@ export async function encryptForExport(
   iv: string;
   tag: string;
 }> {
-  // Convert hex key to bytes
-  const keyBytes = new Uint8Array(
-    exportKeyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
-  );
+  const keyBytes = hexToBytes(exportKeyHex);
 
   // Import as AES-GCM key
   const key = await crypto.subtle.importKey(
     "raw",
-    keyBytes,
+    toArrayBuffer(keyBytes),
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt"]
@@ -79,15 +95,12 @@ export async function decryptExport(
   tag: string,
   exportKeyHex: string
 ): Promise<string> {
-  // Convert hex key to bytes
-  const keyBytes = new Uint8Array(
-    exportKeyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
-  );
+  const keyBytes = hexToBytes(exportKeyHex);
 
   // Import as AES-GCM key
   const key = await crypto.subtle.importKey(
     "raw",
-    keyBytes,
+    toArrayBuffer(keyBytes),
     { name: "AES-GCM", length: 256 },
     false,
     ["decrypt"]
@@ -105,11 +118,73 @@ export async function decryptExport(
 
   // Decrypt
   const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: ivBytes },
+    { name: "AES-GCM", iv: toArrayBuffer(ivBytes) },
     key,
-    combined
+    toArrayBuffer(combined)
   );
 
   const decoder = new TextDecoder();
   return decoder.decode(decrypted);
+}
+
+async function deriveWrappingKey(params: {
+  connectorPublicKey: string;
+  senderKeyPair?: CryptoKeyPair;
+}): Promise<{ wrappingKey: CryptoKey; senderPublicKey: string }> {
+  const algorithm = { name: "X25519" } as unknown as AlgorithmIdentifier;
+  const senderKeyPair =
+    params.senderKeyPair ||
+    (await crypto.subtle.generateKey(algorithm, true, ["deriveBits"])) as CryptoKeyPair;
+
+  const connectorPublicKey = await crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(base64ToBytes(params.connectorPublicKey)),
+    algorithm,
+    false,
+    []
+  );
+  const sharedSecret = await crypto.subtle.deriveBits(
+    { name: "X25519", public: connectorPublicKey } as unknown as AlgorithmIdentifier,
+    senderKeyPair.privateKey,
+    256
+  );
+  const derivedBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", sharedSecret));
+  const wrappingKey = await crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(derivedBytes),
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"]
+  );
+  const senderPublicKey = bytesToBase64(
+    new Uint8Array(await crypto.subtle.exportKey("raw", senderKeyPair.publicKey))
+  );
+  return { wrappingKey, senderPublicKey };
+}
+
+export async function wrapExportKeyForConnector(params: {
+  exportKeyHex: string;
+  connectorPublicKey: string;
+  connectorKeyId?: string;
+}): Promise<WrappedExportKeyBundle> {
+  const { wrappingKey, senderPublicKey } = await deriveWrappingKey({
+    connectorPublicKey: params.connectorPublicKey,
+  });
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const wrapped = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    wrappingKey,
+    toArrayBuffer(hexToBytes(params.exportKeyHex))
+  );
+  const wrappedBytes = new Uint8Array(wrapped);
+  const ciphertext = wrappedBytes.slice(0, -16);
+  const tag = wrappedBytes.slice(-16);
+  return {
+    wrappedExportKey: bytesToBase64(ciphertext),
+    wrappedKeyIv: bytesToBase64(iv),
+    wrappedKeyTag: bytesToBase64(tag),
+    senderPublicKey,
+    wrappingAlg: "X25519-AES256-GCM",
+    connectorKeyId: params.connectorKeyId,
+  };
 }

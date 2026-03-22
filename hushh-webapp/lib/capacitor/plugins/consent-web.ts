@@ -153,6 +153,12 @@ export class HushhConsentWeb extends WebPlugin {
     encryptedIv?: string;
     encryptedTag?: string;
     exportKey?: string;
+    wrappedExportKey?: string;
+    wrappedKeyIv?: string;
+    wrappedKeyTag?: string;
+    senderPublicKey?: string;
+    wrappingAlg?: string;
+    connectorKeyId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -170,6 +176,12 @@ export class HushhConsentWeb extends WebPlugin {
         encryptedIv: options.encryptedIv,
         encryptedTag: options.encryptedTag,
         exportKey: options.exportKey,
+        wrappedExportKey: options.wrappedExportKey,
+        wrappedKeyIv: options.wrappedKeyIv,
+        wrappedKeyTag: options.wrappedKeyTag,
+        senderPublicKey: options.senderPublicKey,
+        wrappingAlg: options.wrappingAlg,
+        connectorKeyId: options.connectorKeyId,
       }),
     });
 

@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 from db.db_client import get_db
 from hushh_mcp.services.domain_contracts import (
+    CANONICAL_DOMAIN_REGISTRY,
     FINANCIAL_DOMAIN_CONTRACT_VERSION,
     RETIRED_DOMAIN_REGISTRY_KEYS,
     canonical_top_level_domain,
@@ -164,7 +165,6 @@ class PersonalKnowledgeModelService:
     def __init__(self):
         self._supabase = None
         self._domain_registry = None
-        self._domain_inferrer = None
         self._scope_generator = None
         self._blob_upsert_rpc_supported: Optional[bool] = None
 
@@ -829,14 +829,6 @@ class PersonalKnowledgeModelService:
         return self._domain_registry
 
     @property
-    def domain_inferrer(self):
-        if self._domain_inferrer is None:
-            from hushh_mcp.services.domain_inferrer import get_domain_inferrer
-
-            self._domain_inferrer = get_domain_inferrer()
-        return self._domain_inferrer
-
-    @property
     def scope_generator(self):
         if self._scope_generator is None:
             from hushh_mcp.consent.scope_generator import get_scope_generator
@@ -937,17 +929,6 @@ class PersonalKnowledgeModelService:
             domain, summary if isinstance(summary, dict) else {}
         )
         try:
-            # Guarantee domain_registry alignment on write paths.
-            try:
-                await self.domain_registry.ensure_canonical_domains()
-                await self.domain_registry.register_domain(domain)
-            except Exception as registry_error:
-                logger.warning(
-                    "Domain registry auto-register failed for %s/%s: %s",
-                    user_id,
-                    domain,
-                    registry_error,
-                )
             if not is_allowed_top_level_domain(domain):
                 logger.warning(
                     "Non-canonical top-level domain summary write for %s/%s",
@@ -1301,24 +1282,40 @@ class PersonalKnowledgeModelService:
                     f"RPC get_user_world_model_metadata failed, using fallback: {rpc_error}"
                 )
 
-            # Fallback: Manual query
-            user_domains = await self.domain_registry.get_user_domains(user_id)
+            # Fallback: derive from PKM index and manifests rather than domain_registry.
+            index = await self.get_index_v2(user_id)
+            scopes = await self.scope_generator.get_available_scopes(user_id)
+            contract_map = {entry.domain_key: entry for entry in CANONICAL_DOMAIN_REGISTRY}
 
             domains = []
-            for domain_info in user_domains:
-                # Get scopes for this domain
-                scopes = await self.scope_generator.get_available_scopes(user_id)
-                domain_scopes = [
-                    s for s in scopes if s.startswith(f"attr.{domain_info.domain_key}.")
-                ]
-
+            for domain_key in sorted(index.available_domains if index else []):
+                summary = (
+                    index.domain_summaries.get(domain_key)
+                    if index and isinstance(index.domain_summaries.get(domain_key), dict)
+                    else {}
+                )
+                contract = contract_map.get(domain_key)
+                domain_scopes = [s for s in scopes if s.startswith(f"attr.{domain_key}.")]
                 domains.append(
                     DomainSummary(
-                        domain_key=domain_info.domain_key,
-                        display_name=domain_info.display_name,
-                        icon=domain_info.icon_name,
-                        color=domain_info.color_hex,
-                        attribute_count=domain_info.attribute_count,
+                        domain_key=domain_key,
+                        display_name=(
+                            str(summary.get("display_name") or "").strip()
+                            or (
+                                contract.display_name
+                                if contract
+                                else domain_key.replace("_", " ").title()
+                            )
+                        ),
+                        icon=(
+                            str(summary.get("icon") or "").strip()
+                            or (contract.icon_name if contract else "folder")
+                        ),
+                        color=(
+                            str(summary.get("color") or "").strip()
+                            or (contract.color_hex if contract else "#6B7280")
+                        ),
+                        attribute_count=self._normalized_summary_count(summary),
                         available_scopes=domain_scopes,
                     )
                 )
@@ -1328,24 +1325,8 @@ class PersonalKnowledgeModelService:
             for domain in domains:
                 total += domain.attribute_count
 
-            # Calculate completeness (based on recommended domains from registry)
-            # Query domain registry for domains marked as "recommended" or use top domains by user count
-            try:
-                registry_result = (
-                    self.supabase.table("domain_registry")
-                    .select("domain_key")
-                    .order("user_count", desc=True)
-                    .limit(5)
-                    .execute()
-                )
-                common_domains = (
-                    {d["domain_key"] for d in registry_result.data}
-                    if registry_result.data
-                    else set()
-                )
-            except Exception:
-                # Fallback to sensible defaults if registry query fails
-                common_domains = {"financial", "subscriptions", "health", "travel", "food"}
+            # Calculate completeness against broad soft-ontology anchors only.
+            common_domains = {"financial", "health", "travel", "food", "professional"}
 
             user_domain_keys = {d.domain_key for d in domains}
             completeness = (
@@ -1472,16 +1453,6 @@ class PersonalKnowledgeModelService:
             return result if return_result else False
 
         try:
-            try:
-                await self.domain_registry.ensure_canonical_domains()
-                await self.domain_registry.register_domain(domain)
-            except Exception as registry_error:
-                logger.warning(
-                    "Domain registry auto-register failed for %s/%s: %s",
-                    user_id,
-                    domain,
-                    registry_error,
-                )
             if not is_allowed_top_level_domain(domain):
                 logger.warning(
                     "Non-canonical top-level domain write for %s/%s",
@@ -1941,7 +1912,7 @@ class PersonalKnowledgeModelService:
         self,
         user_id: str,
         *,
-        register_missing_registry: bool = True,
+        register_missing_registry: bool = False,
     ) -> bool:
         """
         Runtime-repair helper for index/domain registry coherence.
@@ -2039,16 +2010,10 @@ class PersonalKnowledgeModelService:
                 )
 
             if register_missing_registry:
-                for domain in sorted(available_domains):
-                    try:
-                        await self.domain_registry.register_domain(domain)
-                    except Exception as registry_error:
-                        logger.warning(
-                            "Domain registry reconcile failed for %s/%s: %s",
-                            user_id,
-                            domain,
-                            registry_error,
-                        )
+                logger.info(
+                    "reconcile_user_index_domains register_missing_registry requested for %s; runtime registry sync is disabled",
+                    user_id,
+                )
 
             index.domain_summaries = normalized_summaries
             index.available_domains = sorted(available_domains)

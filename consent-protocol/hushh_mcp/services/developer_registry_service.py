@@ -910,7 +910,12 @@ class DeveloperRegistryService:
 
     @staticmethod
     def build_consent_metadata(
-        principal: DeveloperPrincipal, *, reason: str | None = None
+        principal: DeveloperPrincipal,
+        *,
+        reason: str | None = None,
+        connector_public_key: str | None = None,
+        connector_key_id: str | None = None,
+        connector_wrapping_alg: str | None = None,
     ) -> dict[str, Any]:
         metadata = {
             "developer_app_id": principal.app_id,
@@ -928,6 +933,12 @@ class DeveloperRegistryService:
             metadata["developer_contact_email"] = principal.contact_email
         if reason:
             metadata["reason"] = reason
+        if connector_public_key:
+            metadata["connector_public_key"] = connector_public_key
+        if connector_key_id:
+            metadata["connector_key_id"] = connector_key_id
+        if connector_wrapping_alg:
+            metadata["connector_wrapping_alg"] = connector_wrapping_alg
         return metadata
 
     def get_tool_catalog(self, *, principal: DeveloperPrincipal | None = None) -> dict[str, Any]:

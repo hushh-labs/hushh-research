@@ -4,7 +4,7 @@ Last audited: March 19, 2026
 
 ## Overall Status
 
-Current status: release-gate pass with explicit accepted exceptions.
+Current status: release-gate pass with no accepted parity exceptions.
 
 The following all pass together:
 
@@ -32,23 +32,9 @@ The repo now hard-fails when:
 
 ## Accepted Exceptions
 
-### 1. Android native passkey PRF
+None.
 
-- Status: accepted exception
-- Scope: Android native parity only
-- Current behavior:
-  - iOS PRF passkey flow is implemented
-  - Android PRF native methods are still pending
-  - biometric/passphrase fallback remains active
-
-### 2. Cloud-backed vault preference methods
-
-- Status: accepted exception
-- Scope: vault preference flows
-- Current behavior:
-  - `storePreferencesToCloud()` is the canonical native-safe write path
-  - `deletePreferences()` is intentionally unsupported in the web fallback
-  - new mobile product flows should not assume local-only preference deletion parity
+Android passkey PRF is part of the shipped native contract, and cloud-backed preference storage is the canonical cross-platform behavior rather than an exception.
 
 ## Advisory Follow-Up
 

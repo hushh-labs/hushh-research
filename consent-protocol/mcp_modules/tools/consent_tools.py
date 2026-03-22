@@ -10,11 +10,15 @@ Regulated cutover note:
 - caller receives `pending` and must wait for user approval in-app (FCM-driven flow).
 """
 
+import base64
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 import httpx
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import x25519
 from mcp.types import TextContent
 
 from mcp_modules.config import (
@@ -26,6 +30,64 @@ from mcp_modules.config import (
 from mcp_modules.developer_context import get_developer_request_query
 
 logger = logging.getLogger("hushh-mcp-server")
+_CONNECTOR_KEY_DIR = Path.home() / ".hushh" / "mcp"
+_CONNECTOR_KEY_FILE = _CONNECTOR_KEY_DIR / "connector_x25519_key.json"
+
+
+def _load_or_create_connector_keypair() -> tuple[str, str]:
+    _CONNECTOR_KEY_DIR.mkdir(parents=True, exist_ok=True)
+    if _CONNECTOR_KEY_FILE.exists():
+        try:
+            payload = json.loads(_CONNECTOR_KEY_FILE.read_text(encoding="utf-8"))
+            private_key_b64 = str(payload.get("private_key") or "").strip()
+            public_key_b64 = str(payload.get("public_key") or "").strip()
+            if private_key_b64 and public_key_b64:
+                return private_key_b64, public_key_b64
+        except Exception as exc:
+            logger.warning("connector_key_load_failed: %s", exc)
+
+    private_key = x25519.X25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    private_key_b64 = base64.b64encode(
+        private_key.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    ).decode("utf-8")
+    public_key_b64 = base64.b64encode(
+        public_key.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+    ).decode("utf-8")
+    _CONNECTOR_KEY_FILE.write_text(
+        json.dumps(
+            {
+                "private_key": private_key_b64,
+                "public_key": public_key_b64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return private_key_b64, public_key_b64
+
+
+def get_connector_public_key_bundle() -> dict[str, str]:
+    _private_key_b64, public_key_b64 = _load_or_create_connector_keypair()
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(base64.b64decode(public_key_b64))
+    key_id = digest.finalize().hex()[:16]
+    return {
+        "connector_public_key": public_key_b64,
+        "connector_key_id": key_id,
+        "connector_wrapping_alg": "X25519-AES256-GCM",
+    }
+
+
+def load_connector_private_key() -> x25519.X25519PrivateKey:
+    private_key_b64, _public_key_b64 = _load_or_create_connector_keypair()
+    return x25519.X25519PrivateKey.from_private_bytes(base64.b64decode(private_key_b64))
 
 
 async def resolve_email_to_uid(user_id: str) -> tuple[Optional[str], str | None, str | None]:
@@ -161,6 +223,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
 
     display_id = user_display_name or user_email or user_id
     logger.info("Requesting consent for %s / %s", display_id, scope_str)
+    connector_bundle = get_connector_public_key_bundle()
 
     try:
         async with httpx.AsyncClient() as client:
@@ -171,6 +234,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                     "user_id": user_id,
                     "scope": scope_dot,
                     "expiry_hours": 24,
+                    **connector_bundle,
                 },
                 timeout=10.0,
             )

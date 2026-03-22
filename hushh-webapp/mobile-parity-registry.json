@@ -8,7 +8,7 @@
     "kaiOnboardingPage",
     "kaiImportPage",
     "kaiDashboardPage",
-    "kaiInvestmentsPage",
+    "kaiInvestmentsWrapperPage",
     "kaiDashboardLegacyRedirectPage",
     "kaiAnalysisPage",
     "kaiOptimizePage",
@@ -16,6 +16,8 @@
     "consentsPage",
     "developersPage",
     "profilePage",
+    "pkmViewerPage",
+    "pkmAgentLabPage",
     "marketplacePage",
     "marketplaceRiaProfilePage",
     "riaHomePage",
@@ -29,24 +31,7 @@
     "legacyAnalysisRedirectPage"
   ],
   "webOnlyExemptPageContractIds": [],
-  "acceptedParityExceptions": [
-    {
-      "id": "androidPasskeyPrfPending",
-      "status": "accepted_exception",
-      "summary": "Android native passkey PRF methods are not shipped yet; iOS PRF is implemented and biometric/passphrase fallback remains active on Android.",
-      "docPaths": [
-        "docs/guides/mobile.md"
-      ]
-    },
-    {
-      "id": "cloudBackedVaultPreferenceMethods",
-      "status": "accepted_exception",
-      "summary": "Some vault preference flows remain cloud-backed or intentionally unsupported in the web/native fallback surface, and must use documented cloud-backed paths instead of local-only native methods.",
-      "docPaths": [
-        "docs/guides/mobile.md"
-      ]
-    }
-  ],
+  "acceptedParityExceptions": [],
   "browserCompat": {
     "allowedDirectUsage": {
       "clipboard_write": [
@@ -74,7 +59,8 @@
         "hushh-webapp/lib/capacitor/plugins/kai-web.ts"
       ],
       "file_reader": [
-        "hushh-webapp/lib/services/api-service.ts"
+        "hushh-webapp/lib/services/api-service.ts",
+        "hushh-webapp/lib/utils/native-download.ts"
       ]
     }
   }
