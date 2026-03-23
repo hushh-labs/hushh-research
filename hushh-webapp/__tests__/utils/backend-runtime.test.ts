@@ -32,6 +32,15 @@ describe("backend runtime resolution", () => {
     expect(helper.getPythonApiUrl()).toBe("http://127.0.0.1:8000");
   });
 
+  it("canonicalizes localhost local hints to loopback for server-side routes", async () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "development";
+    process.env.NEXT_PUBLIC_BACKEND_URL = "http://localhost:8000";
+    process.env.NEXT_PUBLIC_DEVELOPER_API_URL = "http://localhost:8000";
+    const helper = await loadHelper();
+    expect(helper.getPythonApiUrl()).toBe("http://127.0.0.1:8000");
+    expect(helper.getDeveloperApiUrl()).toBe("http://127.0.0.1:8000");
+  });
+
   it("prefers explicit runtime BACKEND_URL in hosted runtimes", async () => {
     process.env.K_SERVICE = "hushh-webapp";
     process.env.NEXT_PUBLIC_APP_ENV = "uat";

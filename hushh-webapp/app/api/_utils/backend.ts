@@ -70,6 +70,19 @@ function isLocalhostUrl(value: string): boolean {
   }
 }
 
+function canonicalizeLocalOrigin(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.hostname.toLowerCase() !== "localhost") {
+      return value;
+    }
+    url.hostname = "127.0.0.1";
+    return url.origin;
+  } catch {
+    return value;
+  }
+}
+
 function resolveConfiguredOrigin(keys: string[]): string | null {
   for (const key of keys) {
     const resolved = normalizeUrl(process.env[key]);
@@ -96,13 +109,13 @@ function requireBackendOrigin(params: {
           `Set ${params.runtimeKeys.join(" or ")} explicitly for this deployment.`
       );
     }
-    return runtimeOrigin;
+    return hosted ? runtimeOrigin : canonicalizeLocalOrigin(runtimeOrigin);
   }
 
   const localHint = resolveConfiguredOrigin(params.localHintKeys);
   if (!hosted) {
     if (localHint) {
-      return localHint;
+      return canonicalizeLocalOrigin(localHint);
     }
     if (environment === "development") {
       return LOCAL_DEFAULT;
