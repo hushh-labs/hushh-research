@@ -2,6 +2,7 @@
 
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -73,7 +74,7 @@ export function DashboardBreadcrumb() {
             segment.charAt(0).toUpperCase() + segment.slice(1);
 
           return (
-            <div key={segment} className="flex items-center gap-2">
+            <Fragment key={segment}>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 {isLast ? (
@@ -84,7 +85,7 @@ export function DashboardBreadcrumb() {
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>
-            </div>
+            </Fragment>
           );
         })}
       </BreadcrumbList>

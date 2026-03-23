@@ -44,10 +44,11 @@ IAM_MIGRATION_FILES = (
     "027_relationship_disconnect_status.sql",
     "028_professional_regulatory_capabilities.sql",
 )
-WORLD_MODEL_MIGRATION_FILES = (
+PKM_MIGRATION_FILES = (
     "030_pkm_cutover.sql",
     "031_domain_registry_rpc_compat.sql",
     "032_pkm_metadata_rpc_compat.sql",
+    "033_atomic_pkm_storage_rename.sql",
 )
 
 
@@ -255,17 +256,17 @@ async def create_internal_access_events(pool: asyncpg.Pool):
     print("✅ internal_access_events ready!")
 
 
-async def create_world_model_data(pool: asyncpg.Pool):
+async def create_pkm_data(pool: asyncpg.Pool):
     """
-    Create world_model_data table (PRIVATE, E2E ENCRYPTED USER DATA).
+    Create pkm_data table (PRIVATE, E2E ENCRYPTED USER DATA).
 
     This is the PRIMARY storage for ALL user data using BYOK encryption.
     Single encrypted blob containing all domain data (financial, food, professional, etc.).
     """
-    print("🔐 Creating world_model_data table...")
+    print("🔐 Creating pkm_data table...")
 
     await pool.execute("""
-        CREATE TABLE IF NOT EXISTS world_model_data (
+        CREATE TABLE IF NOT EXISTS pkm_data (
             user_id TEXT PRIMARY KEY REFERENCES vault_keys(user_id) ON DELETE CASCADE,
             
             -- Encrypted data blob (BYOK - client encrypts, server stores only ciphertext)
@@ -283,20 +284,20 @@ async def create_world_model_data(pool: asyncpg.Pool):
         )
     """)
 
-    print("✅ world_model_data ready!")
+    print("✅ pkm_data ready!")
 
 
-async def create_world_model_index_v2(pool: asyncpg.Pool):
+async def create_pkm_index(pool: asyncpg.Pool):
     """
-    Create world_model_index_v2 table (QUERYABLE INDEX FOR WORLD MODEL).
+    Create pkm_index table (QUERYABLE INDEX FOR PKM).
 
-    This is the queryable metadata layer for the world model.
+    This is the queryable metadata layer for the PKM.
     Non-encrypted, used for UI display and MCP scope generation.
     """
-    print("📊 Creating world_model_index_v2 table...")
+    print("📊 Creating pkm_index table...")
 
     await pool.execute("""
-        CREATE TABLE IF NOT EXISTS world_model_index_v2 (
+        CREATE TABLE IF NOT EXISTS pkm_index (
             user_id TEXT PRIMARY KEY REFERENCES vault_keys(user_id) ON DELETE CASCADE,
             
             -- Domain summaries (JSONB - { domain_key: { summary_data } })
@@ -323,16 +324,16 @@ async def create_world_model_index_v2(pool: asyncpg.Pool):
     """)
 
     await pool.execute(
-        "CREATE INDEX IF NOT EXISTS idx_wmi2_domains ON world_model_index_v2 USING GIN(domain_summaries)"
+        "CREATE INDEX IF NOT EXISTS idx_pkm_index_domains ON pkm_index USING GIN(domain_summaries)"
     )
     await pool.execute(
-        "CREATE INDEX IF NOT EXISTS idx_wmi2_available ON world_model_index_v2 USING GIN(available_domains)"
+        "CREATE INDEX IF NOT EXISTS idx_pkm_index_available ON pkm_index USING GIN(available_domains)"
     )
     await pool.execute(
-        "CREATE INDEX IF NOT EXISTS idx_wmi2_tags ON world_model_index_v2 USING GIN(computed_tags)"
+        "CREATE INDEX IF NOT EXISTS idx_pkm_index_tags ON pkm_index USING GIN(computed_tags)"
     )
 
-    print("✅ world_model_index_v2 ready!")
+    print("✅ pkm_index ready!")
 
 
 async def create_consent_exports(pool: asyncpg.Pool):
@@ -382,7 +383,7 @@ async def create_domain_registry(pool: asyncpg.Pool):
     """
     Create domain_registry table (DYNAMIC DOMAIN REGISTRY).
 
-    Registry of all available domains in the world model.
+    Registry of all available domains in the PKM.
     Used for UI display and scope generation.
     """
     print("📂 Creating domain_registry table...")
@@ -768,8 +769,8 @@ TABLE_CREATORS = {
     "consent_audit": create_consent_audit,
     "user_push_tokens": create_user_push_tokens,
     "internal_access_events": create_internal_access_events,
-    "world_model_data": create_world_model_data,
-    "world_model_index_v2": create_world_model_index_v2,
+    "pkm_data": create_pkm_data,
+    "pkm_index": create_pkm_index,
     "domain_registry": create_domain_registry,
     "tickers": create_tickers,
     "ticker_facts_snapshot": create_ticker_facts_snapshot,
@@ -797,8 +798,8 @@ async def run_full_migration(pool: asyncpg.Pool):
         "consent_audit",
         "user_push_tokens",
         "internal_access_events",
-        "world_model_data",
-        "world_model_index_v2",
+        "pkm_data",
+        "pkm_index",
         "domain_registry",
         "ticker_facts_snapshot",
         "ticker_enrichment_runs",
@@ -828,11 +829,11 @@ async def run_full_migration(pool: asyncpg.Pool):
     print("[5/13] Creating internal_access_events (self/internal ledger)...")
     await create_internal_access_events(pool)
 
-    print("[6/13] Creating world_model_data (encrypted user data blob)...")
-    await create_world_model_data(pool)
+    print("[6/13] Creating pkm_data (encrypted user data blob)...")
+    await create_pkm_data(pool)
 
-    print("[7/13] Creating world_model_index_v2 (queryable metadata index)...")
-    await create_world_model_index_v2(pool)
+    print("[7/13] Creating pkm_index (queryable metadata index)...")
+    await create_pkm_index(pool)
 
     print("[8/13] Creating domain_registry (dynamic domain registry)...")
     await create_domain_registry(pool)
@@ -849,8 +850,8 @@ async def run_full_migration(pool: asyncpg.Pool):
     await create_kai_market_cache_entries(pool)
     print("[14/14] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[15/15] Applying world model evolution migrations...")
-    await run_world_model_migration(pool)
+    print("[15/15] Applying PKM evolution migrations...")
+    await run_pkm_migration(pool)
 
     print("\n✅ Full migration complete!")
 
@@ -881,15 +882,15 @@ async def run_iam_migration(pool: asyncpg.Pool):
     print("IAM schema migration complete!")
 
 
-async def run_world_model_migration(pool: asyncpg.Pool):
+async def run_pkm_migration(pool: asyncpg.Pool):
     """Apply the canonical PKM cutover migration."""
     print("Running PKM schema migration (explicit mode)...")
 
     async with pool.acquire() as conn:
-        for filename in WORLD_MODEL_MIGRATION_FILES:
+        for filename in PKM_MIGRATION_FILES:
             migration_path = MIGRATIONS_DIR / filename
             if not migration_path.exists():
-                raise FileNotFoundError(f"World model migration file missing: {migration_path}")
+                raise FileNotFoundError(f"PKM migration file missing: {migration_path}")
             sql = migration_path.read_text(encoding="utf-8")
             print(f"  -> applying {filename}")
             await conn.execute(sql)
@@ -921,11 +922,11 @@ async def run_init_migration(pool: asyncpg.Pool):
     print("[5/13] Creating internal_access_events (self/internal ledger)...")
     await create_internal_access_events(pool)
 
-    print("[6/13] Creating world_model_data (encrypted user data blob)...")
-    await create_world_model_data(pool)
+    print("[6/13] Creating pkm_data (encrypted user data blob)...")
+    await create_pkm_data(pool)
 
-    print("[7/13] Creating world_model_index_v2 (queryable metadata index)...")
-    await create_world_model_index_v2(pool)
+    print("[7/13] Creating pkm_index (queryable metadata index)...")
+    await create_pkm_index(pool)
 
     print("[8/13] Creating domain_registry (dynamic domain registry)...")
     await create_domain_registry(pool)
@@ -942,8 +943,8 @@ async def run_init_migration(pool: asyncpg.Pool):
     await create_kai_market_cache_entries(pool)
     print("[14/14] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[15/15] Applying world model evolution migrations...")
-    await run_world_model_migration(pool)
+    print("[15/15] Applying PKM evolution migrations...")
+    await run_pkm_migration(pool)
 
     print("\nAll tables initialized successfully!")
 
@@ -974,8 +975,8 @@ async def show_status(pool: asyncpg.Pool):
         "consent_audit",
         "user_push_tokens",
         "internal_access_events",
-        "world_model_data",
-        "world_model_index_v2",
+        "pkm_data",
+        "pkm_index",
         "domain_registry",
         "tickers",
         "ticker_facts_snapshot",
@@ -1017,10 +1018,10 @@ async def main():
         epilog="""
 Examples:
   python db/migrate.py --init                    # First-time setup (RECOMMENDED)
-  python db/migrate.py --table world_model_data  # Create single table
+  python db/migrate.py --table pkm_data  # Create single table
   python db/migrate.py --consent                 # Create all consent tables
   python db/migrate.py --iam                     # Apply IAM schema foundation (020 + 021)
-  python db/migrate.py --world-model             # Apply world-model evolution migrations
+  python db/migrate.py --pkm             # Apply PKM evolution migrations
   python db/migrate.py --full                    # Full reset (WARNING: DESTRUCTIVE!)
   python db/migrate.py --status                  # Show table summary
         """,
@@ -1035,7 +1036,7 @@ Examples:
         choices=list(TABLE_CREATORS.keys()),
         help=(
             "Create a specific table (vault_keys, vault_key_wrappers, consent_audit, "
-            "world_model_data, world_model_index_v2, domain_registry, tickers, "
+            "pkm_data, pkm_index, domain_registry, tickers, "
             "ticker_facts_snapshot, ticker_enrichment_runs, consent_exports, "
             "kai_market_cache_entries)"
         ),
@@ -1047,9 +1048,9 @@ Examples:
         help="Apply IAM schema foundation migrations (020 + 021)",
     )
     parser.add_argument(
-        "--world-model",
+        "--pkm",
         action="store_true",
-        help="Apply world-model evolution migrations (029+)",
+        help="Apply PKM evolution migrations (029+)",
     )
     parser.add_argument(
         "--full", action="store_true", help="Drop and recreate ALL tables (DESTRUCTIVE!)"
@@ -1067,7 +1068,7 @@ Examples:
             args.table,
             args.consent,
             args.iam,
-            args.world_model,
+            args.pkm,
             args.full,
             args.clear,
             args.status,
@@ -1120,8 +1121,8 @@ Examples:
         if args.iam:
             await run_iam_migration(pool)
 
-        if args.world_model:
-            await run_world_model_migration(pool)
+        if args.pkm:
+            await run_pkm_migration(pool)
 
         if args.clear:
             await clear_table(pool, args.clear)

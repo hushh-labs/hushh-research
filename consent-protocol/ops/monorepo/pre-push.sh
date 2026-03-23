@@ -10,11 +10,15 @@ fi
 
 REMOTE="${1:-}"
 URL="${2:-}"
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 UPSTREAM_REMOTE="${CONSENT_UPSTREAM_REMOTE:-consent-upstream}"
 UPSTREAM_BRANCH="${CONSENT_UPSTREAM_BRANCH:-main}"
 SUBTREE_PREFIX="${CONSENT_SUBTREE_PREFIX:-consent-protocol}"
 SYNC_REF="${CONSENT_SYNC_REF:-refs/subtree-sync/consent-protocol}"
+MAIN_SYNC_REMOTE="${MAIN_SYNC_REMOTE:-origin}"
+MAIN_SYNC_BRANCH="${MAIN_SYNC_BRANCH:-main}"
+MAIN_SYNC_SCRIPT="${MAIN_SYNC_SCRIPT:-scripts/git/check-main-sync.sh}"
 
 CP_FILES=""
 STRICT_MODE="$CHECK_ONLY"
@@ -188,12 +192,15 @@ run_sync_gate() {
 }
 
 should_check_subtree=0
+should_check_main=0
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
   should_check_subtree=1
+  should_check_main=1
 else
   case "$URL" in
     *hushh-research*)
+      should_check_main=1
       while read local_ref local_sha remote_ref remote_sha; do
         [ -z "$local_sha" ] && continue
 
@@ -212,6 +219,24 @@ $CHANGED"
       done
       ;;
   esac
+fi
+
+if [ "$should_check_main" -eq 1 ] && [ -f "$REPO_ROOT/$MAIN_SYNC_SCRIPT" ]; then
+  CURRENT_BRANCH_NAME=$(git branch --show-current 2>/dev/null || true)
+  MAIN_SYNC_MODE="warn"
+  case "$CURRENT_BRANCH_NAME" in
+    "$MAIN_SYNC_BRANCH"|deploy|deploy_uat)
+      MAIN_SYNC_MODE="block"
+      ;;
+  esac
+  printf "\n\033[33m[pre-push]\033[0m Checking branch freshness against %s/%s...\n" "$MAIN_SYNC_REMOTE" "$MAIN_SYNC_BRANCH"
+  if ! MAIN_SYNC_REMOTE="$MAIN_SYNC_REMOTE" \
+    MAIN_SYNC_BRANCH="$MAIN_SYNC_BRANCH" \
+    MAIN_SYNC_MODE="$MAIN_SYNC_MODE" \
+    MAIN_SYNC_CURRENT_BRANCH="$CURRENT_BRANCH_NAME" \
+    sh "$REPO_ROOT/$MAIN_SYNC_SCRIPT"; then
+    exit 1
+  fi
 fi
 
 if [ "$should_check_subtree" -eq 1 ]; then

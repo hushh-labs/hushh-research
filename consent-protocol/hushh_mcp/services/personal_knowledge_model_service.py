@@ -1,16 +1,12 @@
 # consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py
 """
-Personal Knowledge Model service with BYOK encryption and bounded cutover helpers.
+Personal Knowledge Model service with BYOK encryption.
 
 Canonical storage:
 1. pkm_index
 2. pkm_blobs
 3. pkm_manifests + pkm_manifest_paths + pkm_scope_registry
 4. pkm_events + pkm_migration_state
-
-Legacy read adapters remain only for cutover:
-- world_model_data
-- world_model_index_v2
 """
 
 import json
@@ -22,6 +18,7 @@ from typing import Any, Optional
 
 from db.db_client import get_db
 from hushh_mcp.services.domain_contracts import (
+    CANONICAL_DOMAIN_REGISTRY,
     FINANCIAL_DOMAIN_CONTRACT_VERSION,
     RETIRED_DOMAIN_REGISTRY_KEYS,
     canonical_top_level_domain,
@@ -78,8 +75,8 @@ class PersonalKnowledgeModelIndex:
 
 
 @dataclass
-class UserWorldModelMetadata:
-    """Complete metadata about a user's world model for UI."""
+class UserPersonalKnowledgeModelMetadata:
+    """Complete metadata about a user's PKM for UI."""
 
     user_id: str
     domains: list[DomainSummary] = field(default_factory=list)
@@ -164,7 +161,6 @@ class PersonalKnowledgeModelService:
     def __init__(self):
         self._supabase = None
         self._domain_registry = None
-        self._domain_inferrer = None
         self._scope_generator = None
         self._blob_upsert_rpc_supported: Optional[bool] = None
 
@@ -238,14 +234,12 @@ class PersonalKnowledgeModelService:
                     WHERE proname = :function_name
                 ) AS exists
                 """,
-                {"function_name": "upsert_world_model_data_blob"},
+                {"function_name": "upsert_pkm_data_blob"},
             )
             exists = bool(result.data and bool(result.data[0].get("exists")))
             self._blob_upsert_rpc_supported = exists
             if not exists:
-                logger.info(
-                    "upsert_world_model_data_blob RPC is not installed; using fallback write path."
-                )
+                logger.info("upsert_pkm_data_blob RPC is not installed; using fallback write path.")
             return exists
         except Exception as probe_error:
             logger.debug("RPC probe failed, attempting RPC path directly: %s", probe_error)
@@ -829,14 +823,6 @@ class PersonalKnowledgeModelService:
         return self._domain_registry
 
     @property
-    def domain_inferrer(self):
-        if self._domain_inferrer is None:
-            from hushh_mcp.services.domain_inferrer import get_domain_inferrer
-
-            self._domain_inferrer = get_domain_inferrer()
-        return self._domain_inferrer
-
-    @property
     def scope_generator(self):
         if self._scope_generator is None:
             from hushh_mcp.consent.scope_generator import get_scope_generator
@@ -937,17 +923,6 @@ class PersonalKnowledgeModelService:
             domain, summary if isinstance(summary, dict) else {}
         )
         try:
-            # Guarantee domain_registry alignment on write paths.
-            try:
-                await self.domain_registry.ensure_canonical_domains()
-                await self.domain_registry.register_domain(domain)
-            except Exception as registry_error:
-                logger.warning(
-                    "Domain registry auto-register failed for %s/%s: %s",
-                    user_id,
-                    domain,
-                    registry_error,
-                )
             if not is_allowed_top_level_domain(domain):
                 logger.warning(
                     "Non-canonical top-level domain summary write for %s/%s",
@@ -1202,12 +1177,12 @@ class PersonalKnowledgeModelService:
             return []
 
     # ==================== ATTRIBUTE OPERATIONS (DEPRECATED) ====================
-    # These methods wrote to the now-removed world_model_attributes table.
+    # These methods wrote to the now-removed legacy attribute tables.
     # Signatures are kept temporarily to catch hidden callers at runtime.
     # New code MUST use store_domain_data / get_domain_data / update_domain_summary.
 
     _DEPRECATION_MSG = (
-        "Deprecated: world_model_attributes table removed. "
+        "Deprecated: legacy attribute tables removed. "
         "Use store_domain_data()/get_domain_data() or update_domain_summary()."
     )
 
@@ -1264,16 +1239,16 @@ class PersonalKnowledgeModelService:
 
     # ==================== METADATA OPERATIONS ====================
 
-    async def get_user_metadata(self, user_id: str) -> UserWorldModelMetadata:
+    async def get_user_metadata(self, user_id: str) -> UserPersonalKnowledgeModelMetadata:
         """
-        Get complete metadata about user's world model for UI.
+        Get complete metadata about user's PKM for UI.
 
         This is the primary method for frontend to fetch user profile data.
         """
         try:
             # Try RPC function first (more efficient)
             try:
-                result = self._run_rpc("get_user_world_model_metadata", {"p_user_id": user_id})
+                result = self._run_rpc("get_user_pkm_metadata", {"p_user_id": user_id})
 
                 if result.data:
                     data = result.data[0] if isinstance(result.data, list) else result.data
@@ -1290,35 +1265,49 @@ class PersonalKnowledgeModelService:
                             )
                         )
 
-                    return UserWorldModelMetadata(
+                    return UserPersonalKnowledgeModelMetadata(
                         user_id=user_id,
                         domains=domains,
                         total_attributes=data.get("total_attributes", 0),
                         last_updated=data.get("last_updated"),
                     )
             except Exception as rpc_error:
-                logger.warning(
-                    f"RPC get_user_world_model_metadata failed, using fallback: {rpc_error}"
-                )
+                logger.warning(f"RPC get_user_pkm_metadata failed, using fallback: {rpc_error}")
 
-            # Fallback: Manual query
-            user_domains = await self.domain_registry.get_user_domains(user_id)
+            # Fallback: derive from PKM index and manifests rather than domain_registry.
+            index = await self.get_index_v2(user_id)
+            scopes = await self.scope_generator.get_available_scopes(user_id)
+            contract_map = {entry.domain_key: entry for entry in CANONICAL_DOMAIN_REGISTRY}
 
             domains = []
-            for domain_info in user_domains:
-                # Get scopes for this domain
-                scopes = await self.scope_generator.get_available_scopes(user_id)
-                domain_scopes = [
-                    s for s in scopes if s.startswith(f"attr.{domain_info.domain_key}.")
-                ]
-
+            for domain_key in sorted(index.available_domains if index else []):
+                summary = (
+                    index.domain_summaries.get(domain_key)
+                    if index and isinstance(index.domain_summaries.get(domain_key), dict)
+                    else {}
+                )
+                contract = contract_map.get(domain_key)
+                domain_scopes = [s for s in scopes if s.startswith(f"attr.{domain_key}.")]
                 domains.append(
                     DomainSummary(
-                        domain_key=domain_info.domain_key,
-                        display_name=domain_info.display_name,
-                        icon=domain_info.icon_name,
-                        color=domain_info.color_hex,
-                        attribute_count=domain_info.attribute_count,
+                        domain_key=domain_key,
+                        display_name=(
+                            str(summary.get("display_name") or "").strip()
+                            or (
+                                contract.display_name
+                                if contract
+                                else domain_key.replace("_", " ").title()
+                            )
+                        ),
+                        icon=(
+                            str(summary.get("icon") or "").strip()
+                            or (contract.icon_name if contract else "folder")
+                        ),
+                        color=(
+                            str(summary.get("color") or "").strip()
+                            or (contract.color_hex if contract else "#6B7280")
+                        ),
+                        attribute_count=self._normalized_summary_count(summary),
                         available_scopes=domain_scopes,
                     )
                 )
@@ -1328,24 +1317,8 @@ class PersonalKnowledgeModelService:
             for domain in domains:
                 total += domain.attribute_count
 
-            # Calculate completeness (based on recommended domains from registry)
-            # Query domain registry for domains marked as "recommended" or use top domains by user count
-            try:
-                registry_result = (
-                    self.supabase.table("domain_registry")
-                    .select("domain_key")
-                    .order("user_count", desc=True)
-                    .limit(5)
-                    .execute()
-                )
-                common_domains = (
-                    {d["domain_key"] for d in registry_result.data}
-                    if registry_result.data
-                    else set()
-                )
-            except Exception:
-                # Fallback to sensible defaults if registry query fails
-                common_domains = {"financial", "subscriptions", "health", "travel", "food"}
+            # Calculate completeness against broad soft-ontology anchors only.
+            common_domains = {"financial", "health", "travel", "food", "professional"}
 
             user_domain_keys = {d.domain_key for d in domains}
             completeness = (
@@ -1357,7 +1330,7 @@ class PersonalKnowledgeModelService:
             # Suggest missing common domains
             suggested = list(common_domains - user_domain_keys)[:3]
 
-            return UserWorldModelMetadata(
+            return UserPersonalKnowledgeModelMetadata(
                 user_id=user_id,
                 domains=domains,
                 total_attributes=total,
@@ -1367,7 +1340,7 @@ class PersonalKnowledgeModelService:
             )
         except Exception as e:
             logger.error(f"Error getting user metadata: {e}")
-            return UserWorldModelMetadata(user_id=user_id)
+            return UserPersonalKnowledgeModelMetadata(user_id=user_id)
 
     # ==================== EMBEDDING OPERATIONS ====================
 
@@ -1388,7 +1361,7 @@ class PersonalKnowledgeModelService:
                 "updated_at": datetime.now(UTC).isoformat(),
             }
 
-            self.supabase.table("world_model_embeddings").upsert(
+            self.supabase.table("pkm_embeddings").upsert(
                 data, on_conflict="user_id,embedding_type"
             ).execute()
             return True
@@ -1420,7 +1393,7 @@ class PersonalKnowledgeModelService:
             logger.error(f"Error finding similar users: {e}")
             return []
 
-    # ==================== WORLD MODEL DATA OPERATIONS (BLOB-BASED) ====================
+    # ==================== PKM DATA OPERATIONS (BLOB-BASED) ====================
 
     async def store_domain_data(
         self,
@@ -1472,16 +1445,6 @@ class PersonalKnowledgeModelService:
             return result if return_result else False
 
         try:
-            try:
-                await self.domain_registry.ensure_canonical_domains()
-                await self.domain_registry.register_domain(domain)
-            except Exception as registry_error:
-                logger.warning(
-                    "Domain registry auto-register failed for %s/%s: %s",
-                    user_id,
-                    domain,
-                    registry_error,
-                )
             if not is_allowed_top_level_domain(domain):
                 logger.warning(
                     "Non-canonical top-level domain write for %s/%s",
@@ -1714,7 +1677,7 @@ class PersonalKnowledgeModelService:
                 {
                     "user_id": user_id,
                     "status": "completed",
-                    "source_model": "world_model" if legacy_blob is not None else "pkm",
+                    "source_model": "pkm",
                     "legacy_blob_present": legacy_blob is not None,
                     "migrated_at": resolved_updated_at,
                     "last_error": None,
@@ -1743,9 +1706,7 @@ class PersonalKnowledgeModelService:
             or None if no data exists
         """
         try:
-            result = (
-                self.supabase.table("world_model_data").select("*").eq("user_id", user_id).execute()
-            )
+            result = self.supabase.table("pkm_data").select("*").eq("user_id", user_id).execute()
 
             if not result.data:
                 return None
@@ -1763,7 +1724,12 @@ class PersonalKnowledgeModelService:
             logger.error(f"Error getting encrypted data: {e}")
             return None
 
-    async def get_domain_data(self, user_id: str, domain: str) -> Optional[dict]:
+    async def get_domain_data(
+        self,
+        user_id: str,
+        domain: str,
+        segment_ids: list[str] | None = None,
+    ) -> Optional[dict]:
         """
         Get encrypted data for a specific domain.
 
@@ -1790,6 +1756,22 @@ class PersonalKnowledgeModelService:
             )
             if domain_blob_result.data:
                 rows = domain_blob_result.data
+                normalized_segment_ids = sorted(
+                    {
+                        str(segment_id or "").strip().lower()
+                        for segment_id in (segment_ids or [])
+                        if str(segment_id or "").strip()
+                    }
+                )
+                if normalized_segment_ids:
+                    rows = [
+                        row
+                        for row in rows
+                        if str(row.get("segment_id") or "root").strip().lower()
+                        in normalized_segment_ids
+                    ]
+                    if not rows:
+                        return None
                 root_row = next((row for row in rows if row.get("segment_id") == "root"), rows[0])
                 segments = {
                     str(row.get("segment_id") or "root"): {
@@ -1838,7 +1820,7 @@ class PersonalKnowledgeModelService:
         """
         try:
             # Delete encrypted data
-            self.supabase.table("world_model_data").delete().eq("user_id", user_id).execute()
+            self.supabase.table("pkm_data").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_blobs").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_manifest_paths").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_scope_registry").delete().eq("user_id", user_id).execute()
@@ -1856,7 +1838,7 @@ class PersonalKnowledgeModelService:
 
     async def delete_domain_data(self, user_id: str, domain: str) -> bool:
         """
-        Delete a specific domain from user's world model.
+        Delete a specific domain from user's PKM.
 
         This removes the domain from the index (available_domains and domain_summaries).
         Note: The encrypted blob still contains the domain data, but since the client
@@ -1941,7 +1923,7 @@ class PersonalKnowledgeModelService:
         self,
         user_id: str,
         *,
-        register_missing_registry: bool = True,
+        register_missing_registry: bool = False,
     ) -> bool:
         """
         Runtime-repair helper for index/domain registry coherence.
@@ -2039,16 +2021,10 @@ class PersonalKnowledgeModelService:
                 )
 
             if register_missing_registry:
-                for domain in sorted(available_domains):
-                    try:
-                        await self.domain_registry.register_domain(domain)
-                    except Exception as registry_error:
-                        logger.warning(
-                            "Domain registry reconcile failed for %s/%s: %s",
-                            user_id,
-                            domain,
-                            registry_error,
-                        )
+                logger.info(
+                    "reconcile_user_index_domains register_missing_registry requested for %s; runtime registry sync is disabled",
+                    user_id,
+                )
 
             index.domain_summaries = normalized_summaries
             index.available_domains = sorted(available_domains)
@@ -2058,18 +2034,14 @@ class PersonalKnowledgeModelService:
             logger.error("Error reconciling PKM index for %s: %s", user_id, e)
             return False
 
-    # ==================== LEGACY COMPATIBILITY ====================
-    # These methods maintain backward compatibility with the old API
-
     async def get_index(self, user_id: str):
-        """Legacy: Get world model index (redirects to v2)."""
+        """Get the discovery-only PKM index."""
         return await self.get_index_v2(user_id)
 
     async def upsert_index(self, index):
-        """Legacy: Upsert world model index."""
+        """Upsert the discovery-only PKM index."""
         if isinstance(index, PersonalKnowledgeModelIndex):
             return await self.upsert_index_v2(index)
-        # Convert old format to new
         new_index = PersonalKnowledgeModelIndex(
             user_id=index.user_id,
             activity_score=getattr(index, "activity_score", None),
@@ -2094,23 +2066,13 @@ class PersonalKnowledgeModelService:
             return False
 
 
-# Compatibility aliases during PKM cutover.
-WorldModelIndexV2 = PersonalKnowledgeModelIndex
-WorldModelService = PersonalKnowledgeModelService
-
-
 # Singleton instance
-_world_model_service: Optional[PersonalKnowledgeModelService] = None
-
-
-def get_world_model_service() -> PersonalKnowledgeModelService:
-    """Legacy accessor for the canonical PKM service singleton."""
-    global _world_model_service
-    if _world_model_service is None:
-        _world_model_service = PersonalKnowledgeModelService()
-    return _world_model_service
+_pkm_service: Optional[PersonalKnowledgeModelService] = None
 
 
 def get_pkm_service() -> PersonalKnowledgeModelService:
     """Canonical accessor for the PKM service singleton."""
-    return get_world_model_service()
+    global _pkm_service
+    if _pkm_service is None:
+        _pkm_service = PersonalKnowledgeModelService()
+    return _pkm_service

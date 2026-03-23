@@ -3,27 +3,27 @@ import Capacitor
 import Foundation
 
 /**
- * WorldModel Plugin - iOS Implementation
+ * PersonalKnowledgeModel Plugin - iOS Implementation
  * 
- * Native plugin for World Model operations.
- * Provides access to user's world model data for native platforms.
+ * Native plugin for PKM operations.
+ * Provides access to user's PKM data for native platforms.
  * 
  * Methods:
- * - getMetadata: Get user's world model metadata (domains, attribute counts)
+ * - getMetadata: Get user's PKM metadata (domains, attribute counts)
  * - getAttributes: Get attributes for a specific domain
  * - storeAttribute: Store an encrypted attribute
  * - getInitialChatState: Get initial chat state for proactive welcome
  * - importPortfolio: Import portfolio from file
  */
 
-@objc(WorldModelPlugin)
-public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
+@objc(PersonalKnowledgeModelPlugin)
+public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
     
-    private let TAG = "WorldModelPlugin"
+    private let TAG = "PersonalKnowledgeModelPlugin"
     
     // MARK: - CAPBridgedPlugin Protocol
-    public let identifier = "WorldModelPlugin"
-    public let jsName = "WorldModel"
+    public let identifier = "PersonalKnowledgeModelPlugin"
+    public let jsName = "PersonalKnowledgeModel"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getMetadata", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getIndex", returnType: CAPPluginReturnPromise),
@@ -64,7 +64,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
         )
     }
 
-    // Consent-first: world-model operations are consent-gated and must use VAULT_OWNER token.
+    // Consent-first: PKM operations are consent-gated and must use VAULT_OWNER token.
     private func getVaultOwnerToken(_ call: CAPPluginCall) -> String? {
         let raw = call.getString("vaultOwnerToken")
         guard let token = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty else {
@@ -76,7 +76,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Plugin Methods
     
     /**
-     * Get user's world model metadata.
+     * Get user's PKM metadata.
      * 
      * Parameters:
      * - userId: User's Firebase UID
@@ -98,7 +98,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
         // if a VAULT_OWNER token is available, we still forward it.
         let vaultOwnerToken = getVaultOwnerToken(call)
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/metadata/\(userId)"
+        let urlStr = "\(backendUrl)/api/pkm/metadata/\(userId)"
         
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -143,9 +143,9 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let urlStr: String
         if let domain = domain, !domain.isEmpty {
-            urlStr = "\(backendUrl)/api/world-model/attributes/\(userId)?domain=\(domain)"
+            urlStr = "\(backendUrl)/api/pkm/attributes/\(userId)?domain=\(domain)"
         } else {
-            urlStr = "\(backendUrl)/api/world-model/attributes/\(userId)"
+            urlStr = "\(backendUrl)/api/pkm/attributes/\(userId)"
         }
         
         guard let url = URL(string: urlStr) else {
@@ -195,7 +195,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/attributes"
+        let urlStr = "\(backendUrl)/api/pkm/attributes"
         
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -239,7 +239,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /**
-     * Get user's world model index.
+     * Get user's PKM index.
      */
     @objc func getIndex(_ call: CAPPluginCall) {
         print("[\(TAG)] getIndex called")
@@ -253,7 +253,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/index/\(userId)"
+        let urlStr = "\(backendUrl)/api/pkm/index/\(userId)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -286,7 +286,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/attributes/\(userId)/\(domain)/\(attributeKey)"
+        let urlStr = "\(backendUrl)/api/pkm/attributes/\(userId)/\(domain)/\(attributeKey)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -323,7 +323,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/store-domain"
+        let urlStr = "\(backendUrl)/api/pkm/store-domain"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -372,7 +372,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/domain-data/\(userId)/\(domain)"
+        let urlStr = "\(backendUrl)/api/pkm/domain-data/\(userId)/\(domain)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -388,7 +388,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /**
-     * Get full encrypted world-model blob for a user.
+     * Get full encrypted PKM blob for a user.
      */
     @objc func getEncryptedData(_ call: CAPPluginCall) {
         print("[\(TAG)] getEncryptedData called")
@@ -402,7 +402,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/data/\(userId)"
+        let urlStr = "\(backendUrl)/api/pkm/data/\(userId)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -433,7 +433,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/domain-data/\(userId)/\(domain)"
+        let urlStr = "\(backendUrl)/api/pkm/domain-data/\(userId)/\(domain)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -509,7 +509,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/domains?include_empty=\(includeEmpty)"
+        let urlStr = "\(backendUrl)/api/pkm/domains?include_empty=\(includeEmpty)"
         
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -546,7 +546,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/domains/\(userId)"
+        let urlStr = "\(backendUrl)/api/pkm/domains/\(userId)"
         
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -585,7 +585,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/scopes/\(userId)"
+        let urlStr = "\(backendUrl)/api/pkm/scopes/\(userId)"
         
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -618,7 +618,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/portfolio/\(userId)?portfolio_name=\(encodedName)"
+        let urlStr = "\(backendUrl)/api/pkm/portfolio/\(userId)?portfolio_name=\(encodedName)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -649,7 +649,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/world-model/portfolios/\(userId)"
+        let urlStr = "\(backendUrl)/api/pkm/portfolios/\(userId)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")

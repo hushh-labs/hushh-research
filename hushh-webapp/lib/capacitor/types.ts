@@ -7,7 +7,7 @@
  * - hushh_mcp/types.py → EncryptedPayload, VaultRecord
  * - hushh_mcp/constants.py → ConsentScope enum
  *
- * NOTE: Uses dynamic attr.DOMAIN.ATTRIBUTE scopes instead of legacy vault.read/vault.write scopes.
+ * Uses dynamic attr.DOMAIN.ATTRIBUTE scopes with PKM read/write scopes.
  */
 
 // ==================== Consent Scopes ====================
@@ -19,9 +19,9 @@ export enum ConsentScope {
   ATTR_FINANCIAL_RISK_PROFILE = "attr.financial.risk_profile",
   ATTR_HEALTH = "attr.health.*",
 
-  // World model scopes
-  WORLD_MODEL_READ = "world_model.read",
-  WORLD_MODEL_WRITE = "world_model.write",
+  // PKM scopes
+  PKM_READ = "pkm.read",
+  PKM_WRITE = "pkm.write",
 
   // Vault owner (master scope)
   VAULT_OWNER = "vault.owner",

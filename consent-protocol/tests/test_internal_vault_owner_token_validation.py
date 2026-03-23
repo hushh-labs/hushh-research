@@ -128,7 +128,7 @@ async def test_external_tokens_still_use_consent_audit(monkeypatch):
 
     is_active = await service.is_token_active(
         "user_test",
-        ConsentScope.WORLD_MODEL_READ.value,
+        ConsentScope.PKM_READ.value,
         agent_id="agent_alpha",
     )
 

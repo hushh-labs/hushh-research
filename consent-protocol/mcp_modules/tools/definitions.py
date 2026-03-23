@@ -33,12 +33,12 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     "scope": {
                         "type": "string",
                         "description": (
-                            "Data scope to access. Use world_model.read for full world model, "
+                            "Data scope to access. Use pkm.read for the full PKM, "
                             "or one of the dynamic attr scopes discovered for this user. "
                             "Domains per user come from discover_user_domains(user_id). Each scope requires separate consent."
                         ),
                         "examples": [
-                            "world_model.read",
+                            "pkm.read",
                             "attr.{domain}.*",
                             "attr.{domain}.{subintent}.*",
                             "attr.{domain}.{path}",

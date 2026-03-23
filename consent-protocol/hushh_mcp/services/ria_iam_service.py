@@ -810,12 +810,12 @@ class RIAIAMService:
             "scope": normalized_scope,
             "label": get_scope_description(normalized_scope),
             "description": get_scope_description(normalized_scope),
-            "kind": "world_model"
-            if normalized_scope == "world_model.read"
+            "kind": "pkm"
+            if normalized_scope == "pkm.read"
             else "portfolio_domain"
             if normalized_scope.startswith("attr.financial.")
             else "profile_domain",
-            "summary_only": normalized_scope != "world_model.read",
+            "summary_only": normalized_scope != "pkm.read",
         }
 
     @classmethod
@@ -837,7 +837,7 @@ class RIAIAMService:
         if total_attributes > 0 or normalized_domains:
             items.append(
                 {
-                    **cls._scope_metadata("world_model.read"),
+                    **cls._scope_metadata("pkm.read"),
                     "available": True,
                     "domain_key": None,
                 }
@@ -2044,7 +2044,7 @@ class RIAIAMService:
                   domain_summaries,
                   total_attributes,
                   updated_at
-                FROM world_model_index_v2
+                FROM pkm_index
                 WHERE user_id = $1
                 """,
                 investor_user_id,
@@ -2120,7 +2120,7 @@ class RIAIAMService:
             "domain_summaries": raw_domain_summaries if reveal_workspace_metadata else {},
             "total_attributes": total_attributes,
             "workspace_ready": bool(granted_scopes) and total_attributes > 0,
-            "world_model_updated_at": updated_at,
+            "pkm_updated_at": updated_at,
         }
 
     async def disconnect_relationship(
@@ -3464,7 +3464,7 @@ class RIAIAMService:
                   domain_summaries,
                   total_attributes,
                   updated_at
-                FROM world_model_index_v2
+                FROM pkm_index
                 WHERE user_id = $1
                 """,
                 investor_user_id,
@@ -3490,7 +3490,7 @@ class RIAIAMService:
 
             available_domains = self._parse_string_list(metadata["available_domains"])
             domain_summaries = self._parse_metadata(metadata["domain_summaries"])
-            if "world_model.read" not in granted_scope_keys:
+            if "pkm.read" not in granted_scope_keys:
                 financial_only = any(
                     scope.startswith("attr.financial.") for scope in granted_scope_keys
                 )

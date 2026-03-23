@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hushh_mcp.services.personal_knowledge_model_service import WorldModelService
+from hushh_mcp.services.personal_knowledge_model_service import PersonalKnowledgeModelService
 
 
 class _StubDomainRegistry:
@@ -75,7 +75,7 @@ class _StubSupabase:
 
 @pytest.mark.asyncio
 async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monkeypatch):
-    service = WorldModelService()
+    service = PersonalKnowledgeModelService()
     service._domain_registry = _StubDomainRegistry()
     service._supabase = _StubSupabase()
 
@@ -163,7 +163,7 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
 
 @pytest.mark.asyncio
 async def test_store_domain_data_uses_legacy_blob_version_for_initial_domain_conflict(monkeypatch):
-    service = WorldModelService()
+    service = PersonalKnowledgeModelService()
     service._domain_registry = _StubDomainRegistry()
     service._supabase = _StubSupabase()
 

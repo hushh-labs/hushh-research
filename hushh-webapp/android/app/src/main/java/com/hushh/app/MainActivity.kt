@@ -12,7 +12,7 @@ import com.hushh.app.plugins.HushhSync.HushhSyncPlugin
 import com.hushh.app.plugins.HushhAccount.HushhAccountPlugin
 import com.hushh.app.plugins.HushhNotifications.HushhNotificationsPlugin
 import com.hushh.app.plugins.Kai.KaiPlugin
-import com.hushh.app.plugins.WorldModel.WorldModelPlugin
+import com.hushh.app.plugins.PersonalKnowledgeModel.PersonalKnowledgeModelPlugin
 
 class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,7 +27,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhKeystorePlugin::class.java)
         registerPlugin(HushhNotificationsPlugin::class.java)
         registerPlugin(KaiPlugin::class.java) // Agent Kai plugin
-        registerPlugin(WorldModelPlugin::class.java) // World Model plugin
+        registerPlugin(PersonalKnowledgeModelPlugin::class.java) // PKM plugin
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
         
         Log.d("MainActivity", "✅ [MainActivity] All 10 plugins registered successfully")

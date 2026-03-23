@@ -41,8 +41,8 @@ Backend Kai market cache tiers (generalized modules):
 
 ## Mutation -> Cache Sync Matrix
 
-- PKM store domain: `CacheSyncService.onWorldModelDomainStored(...)`
-- PKM clear domain: `CacheSyncService.onWorldModelDomainCleared(...)`
+- PKM store domain: `CacheSyncService.onPkmDomainStored(...)`
+- PKM clear domain: `CacheSyncService.onPkmDomainCleared(...)`
 - Portfolio upsert/save: `CacheSyncService.onPortfolioUpserted(...)`
 - Vault setup/check state changes: `CacheSyncService.onVaultStateChanged(...)`
 - Consent approve/deny/revoke: `CacheSyncService.onConsentMutated(...)`

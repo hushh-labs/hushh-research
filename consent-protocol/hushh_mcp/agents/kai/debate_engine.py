@@ -918,7 +918,7 @@ class DebateEngine:
 
         CONTEXT FUSION RULES (MANDATORY):
         - Reference at least one Renaissance screening signal (tier, investable/avoid, rubric criteria).
-        - Reference at least one world-model portfolio fact (holdings, concentration, coverage, or statement signal).
+        - Reference at least one PKM portfolio fact (holdings, concentration, coverage, or statement signal).
         - Explicitly frame risk tradeoff (concentration/diversification/downside) for this user.
         - If your view conflicts with Renaissance screening, state the conflict and mitigation.
         - Avoid raw data dumps; use only the highest-signal facts.
@@ -1140,7 +1140,7 @@ class DebateEngine:
             if tier in {"ACE", "KING"} and scores["fundamental"] > 0:
                 shift += 0.05
 
-        # User preference overlays from world model context.
+        # User preference overlays from PKM context.
         preferences = self.user_context.get("preferences", {}) if self.user_context else {}
         style = str(preferences.get("investment_style") or "").lower()
         horizon = str(preferences.get("investment_horizon") or "").lower()

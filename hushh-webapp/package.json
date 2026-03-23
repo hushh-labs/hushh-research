@@ -6,7 +6,7 @@
   "scripts": {
     "prepare": "sh -c 'if [ -f ../scripts/setup-hooks.sh ]; then cd .. && sh scripts/setup-hooks.sh; else echo \"Skipping git hooks setup\"; fi'",
     "dev": "node scripts/dev-with-profile.cjs",
-    "dev:next": "next dev",
+    "dev:next": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",

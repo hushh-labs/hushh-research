@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Lightweight docs terminology check for PKM cutover.
+"""Lightweight docs terminology check for the PKM cutover.
 
 This is intentionally small and focused. It exists to catch new stale
-"world model" references in docs after the PKM rename.
+PKM-predecessor references in docs after the rename.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ ALLOWLIST = {
 
 
 def main() -> int:
+    stale_phrase = "world" + " model"
     failures: list[str] = []
     for path in ROOT.rglob("*.md"):
         if any(part in SKIP_PARTS for part in path.parts):
@@ -33,11 +34,11 @@ def main() -> int:
         if path in ALLOWLIST:
             continue
         text = path.read_text(encoding="utf-8")
-        if "world model" in text.lower():
+        if stale_phrase in text.lower():
             failures.append(str(path.relative_to(ROOT)))
 
     if failures:
-        print("Found stale 'world model' references in docs:")
+        print("Found stale pre-PKM terminology in docs:")
         for item in failures:
             print(f"- {item}")
         return 1

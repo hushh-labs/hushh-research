@@ -312,7 +312,7 @@ export async function getStockContext(
     return cached;
   }
   
-  const response = await ApiService.apiFetch("/api/world-model/get-context", {
+  const response = await ApiService.apiFetch("/api/pkm/get-context", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${vaultOwnerToken}`,

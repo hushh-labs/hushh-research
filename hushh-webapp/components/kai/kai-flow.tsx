@@ -4,7 +4,7 @@
  * Kai Flow - State-driven UI component flow for investment analysis
  *
  * Flow:
- * 1. Check World Model for financial data
+ * 1. Check PKM for financial data
  * 2. If no data -> Show portfolio import
  * 3. After import -> Show streaming progress -> Review screen -> Dashboard
  * 4. Dashboard shows KPIs, prime assets, and search bar for analysis
@@ -19,7 +19,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -1292,7 +1292,7 @@ export function KaiFlow({
     }
   }, [effectiveVaultOwnerToken, userId]);
 
-  // Check World Model for financial data on mount
+  // Check PKM for financial data on mount
   useEffect(() => {
     async function checkFinancialData() {
       try {
@@ -1357,8 +1357,8 @@ export function KaiFlow({
           return hasPortfolioHoldings(portfolio) ? portfolio : null;
         };
 
-        // Fetch user's World Model metadata
-        const metadata = await WorldModelService.getMetadata(userId, false, effectiveVaultOwnerToken);
+        // Fetch user PKM metadata
+        const metadata = await PersonalKnowledgeModelService.getMetadata(userId, false, effectiveVaultOwnerToken);
 
         // Check if financial domain exists and has data
         const financialDomain = metadata.domains.find(
@@ -1374,15 +1374,15 @@ export function KaiFlow({
             : undefined;
 
           if (!portfolioData && vaultKey) {
-            // No cache - try to decrypt from World Model
-            console.log("[KaiFlow] No cache, attempting to decrypt from World Model...");
+            // No cache - try targeted financial PKM decryption.
+            console.log("[KaiFlow] No cache, attempting to decrypt the financial PKM domain...");
             try {
-              const allData = await WorldModelService.loadFullBlob({
+              const rawFinancial = await PersonalKnowledgeModelService.loadDomainData({
                 userId,
+                domain: "financial",
                 vaultKey,
                 vaultOwnerToken: effectiveVaultOwnerToken,
               });
-              const rawFinancial = allData.financial;
               if (!hasValidFinancialDomainData(rawFinancial)) {
                 console.warn(
                   "[KaiFlow] Financial domain metadata exists but encrypted blob has no valid financial holdings shape."
@@ -1393,11 +1393,11 @@ export function KaiFlow({
               // Normalize Review-format → Dashboard-format field names
               if (hasValidFinancialDomainData(rawFinancial)) {
                 portfolioData = normalizeStoredPortfolio(rawFinancial) as PortfolioData;
-                console.log("[KaiFlow] Successfully decrypted portfolio data from World Model");
+                console.log("[KaiFlow] Successfully decrypted portfolio data from PKM");
               }
             } catch (decryptError) {
               // Handle encryption key mismatch or corrupted data
-              console.error("[KaiFlow] Failed to decrypt from World Model:", decryptError);
+              console.error("[KaiFlow] Failed to decrypt the financial PKM domain:", decryptError);
               
               // Check if this is a decryption error (key mismatch)
               const errorMessage = decryptError instanceof Error ? decryptError.message : "";
@@ -1415,7 +1415,7 @@ export function KaiFlow({
           }
 
           // Ensure holdings have unrealized_gain_loss_pct computed
-          // This handles data loaded from cache/World Model that may not have been normalized
+          // This handles data loaded from cache/PKM that may not have been normalized
           if (portfolioData?.holdings) {
             portfolioData.holdings = normalizeHoldingsWithPct(portfolioData.holdings);
             console.log("[KaiFlow] Normalized holdings with unrealized_gain_loss_pct");
@@ -1502,12 +1502,12 @@ export function KaiFlow({
           // Secondary fallback: metadata can lag while full blob already contains holdings.
           if (vaultKey && effectiveVaultOwnerToken) {
             try {
-              const allData = await WorldModelService.loadFullBlob({
+              const rawFinancial = await PersonalKnowledgeModelService.loadDomainData({
                 userId,
+                domain: "financial",
                 vaultKey,
                 vaultOwnerToken: effectiveVaultOwnerToken,
               });
-              const rawFinancial = allData.financial;
               if (hasValidFinancialDomainData(rawFinancial)) {
                 let recoveredPortfolioData = normalizeStoredPortfolio(rawFinancial) as PortfolioData;
                 if (recoveredPortfolioData.holdings) {

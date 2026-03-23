@@ -42,7 +42,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(HushhSyncPlugin())
         bridge?.registerPluginInstance(HushhSettingsPlugin())
         bridge?.registerPluginInstance(HushhKeystorePlugin())
-        bridge?.registerPluginInstance(WorldModelPlugin())
+        bridge?.registerPluginInstance(PersonalKnowledgeModelPlugin())
         bridge?.registerPluginInstance(HushhAccountPlugin())
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
         
@@ -54,7 +54,7 @@ class MyViewController: CAPBridgeViewController {
         print("   - HushhSync (Cloud Sync)")
         print("   - HushhSettings (App Settings)")
         print("   - HushhKeystore (Secure Storage)")
-        print("   - WorldModel (World Model / Domain Data)")
+        print("   - PersonalKnowledgeModel (PKM / Domain Data)")
         print("   - HushhAccount (Account Management)")
         print("   - HushhNotifications (Push Token Registration)")
         
@@ -74,7 +74,7 @@ class MyViewController: CAPBridgeViewController {
             "HushhSync",
             "HushhSettings",
             "HushhKeychain",  // Note: jsName is HushhKeychain (not HushhKeystore)
-            "WorldModel",
+            "PersonalKnowledgeModel",
             "HushhAccount",
             "HushhNotifications"
         ]

@@ -75,7 +75,7 @@ const config: CapacitorConfig = {
     HushhNotifications: {
       backendUrl: NORMALIZED_BACKEND_URL,
     },
-    WorldModel: {
+    PersonalKnowledgeModel: {
       backendUrl: NORMALIZED_BACKEND_URL,
     },
     HushhAccount: {

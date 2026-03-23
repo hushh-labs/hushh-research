@@ -247,6 +247,43 @@ jobs:
         continue-on-error: true
         run: bash scripts/ci/subtree-sync-check.sh
 
+  main-freshness-gate:
+    name: "Main Freshness Gate"
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify branch contains latest origin/main
+        env:
+          MAIN_SYNC_REMOTE: origin
+          MAIN_SYNC_BRANCH: main
+          MAIN_SYNC_MODE: block
+          MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref }}
+        run: sh scripts/git/check-main-sync.sh
+
+  branch-freshness-advisory:
+    name: "Branch Freshness Advisory"
+    if: github.event_name == 'push' && github.ref_name != 'main' && github.ref_name != 'deploy' && github.ref_name != 'deploy_uat'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check freshness against origin/main
+        env:
+          MAIN_SYNC_REMOTE: origin
+          MAIN_SYNC_BRANCH: main
+          MAIN_SYNC_MODE: warn
+          MAIN_SYNC_CURRENT_BRANCH: ${{ github.ref_name }}
+        run: sh scripts/git/check-main-sync.sh
+
   ci-status:
     name: "CI Status Gate"
     needs:

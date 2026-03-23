@@ -3,7 +3,7 @@
 Attribute Learner - Extracts user attributes from conversation and auto-classifies into domains.
 
 This service uses LLM to analyze conversations and extract structured user preferences,
-then stores them in the world model with appropriate domain classification.
+then stores them in the PKM with appropriate domain classification.
 """
 
 import json
@@ -59,12 +59,12 @@ class AttributeLearner:
     Extracts user attributes from conversation and auto-classifies into domains.
 
     Uses Google Gemini to analyze conversation and extract structured data,
-    then stores it in the world model for future context.
+    then stores it in the PKM for future context.
     """
 
     def __init__(self):
         self._client = None
-        self._world_model = None
+        self._pkm_service = None
 
     @property
     def client(self):
@@ -78,12 +78,12 @@ class AttributeLearner:
         return self._client
 
     @property
-    def world_model(self):
-        if self._world_model is None:
-            from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+    def pkm_service(self):
+        if self._pkm_service is None:
+            from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 
-            self._world_model = get_world_model_service()
-        return self._world_model
+            self._pkm_service = get_pkm_service()
+        return self._pkm_service
 
     async def extract_attributes(
         self,
@@ -153,7 +153,7 @@ class AttributeLearner:
         """
         Extract attributes from conversation and record them as mutation events.
 
-        Learned attributes are no longer written into world_model_index_v2.domain_summaries.
+        Learned attributes are no longer written into the legacy summary index tables.
         Sensitive semantic state belongs in the BYOK-encrypted domain payloads, not the
         discovery index. We still emit structured mutation events so the research flow
         remains auditable and replayable.
@@ -179,7 +179,7 @@ class AttributeLearner:
 
         for domain, inferred_payload in domain_attrs.items():
             try:
-                success = await self.world_model.record_mutation_event(
+                success = await self.pkm_service.record_mutation_event(
                     user_id=user_id,
                     domain=domain,
                     operation_type="attribute_inference",

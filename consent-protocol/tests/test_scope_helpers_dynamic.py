@@ -15,8 +15,8 @@ def test_scope_matches_nested_wildcard_isolation():
     assert not scope_matches("attr.financial.profile.*", "attr.food.profile.risk_score")
 
 
-def test_scope_matches_world_model_read_superset():
-    assert scope_matches("world_model.read", "attr.financial.profile.*")
+def test_scope_matches_pkm_read_superset():
+    assert scope_matches("pkm.read", "attr.financial.profile.*")
 
 
 def test_normalize_scope_rejects_legacy_dynamic_format():
@@ -25,4 +25,4 @@ def test_normalize_scope_rejects_legacy_dynamic_format():
 
 
 def test_resolve_scope_to_enum_dynamic_scope():
-    assert resolve_scope_to_enum("attr.financial.profile.*") == ConsentScope.WORLD_MODEL_READ
+    assert resolve_scope_to_enum("attr.financial.profile.*") == ConsentScope.PKM_READ

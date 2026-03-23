@@ -3,8 +3,9 @@ set -euo pipefail
 
 REPO="${GITHUB_REPO:-hushh-labs/hushh-research}"
 BRANCH="${GITHUB_BRANCH:-main}"
-REQUIRED_CHECK="${GITHUB_REQUIRED_CHECK:-CI Status Gate}"
+REQUIRED_CHECKS="${GITHUB_REQUIRED_CHECKS:-${GITHUB_REQUIRED_CHECK:-CI Status Gate,Main Freshness Gate}}"
 MIN_APPROVALS="${GITHUB_MIN_APPROVALS:-1}"
+REQUIRE_STRICT="${GITHUB_REQUIRE_STRICT:-true}"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "❌ GitHub CLI (gh) is required to verify live branch protection."
@@ -20,13 +21,14 @@ PROTECTION_JSON="$(gh api "repos/${REPO}/branches/${BRANCH}/protection")"
 RULESETS_JSON="$(gh api "repos/${REPO}/rules/branches/${BRANCH}" || echo '[]')"
 export PROTECTION_JSON RULESETS_JSON
 
-python3 - "$REQUIRED_CHECK" "$MIN_APPROVALS" <<'PY'
+python3 - "$REQUIRED_CHECKS" "$MIN_APPROVALS" "$REQUIRE_STRICT" <<'PY'
 import json
 import os
 import sys
 
-required_check = sys.argv[1]
+required_checks = [item.strip() for item in sys.argv[1].split(",") if item.strip()]
 min_approvals = int(sys.argv[2])
+require_strict = sys.argv[3].lower() == "true"
 data = json.loads(os.environ["PROTECTION_JSON"])
 
 checks = []
@@ -37,6 +39,7 @@ checks.extend(
     if check.get("context")
 )
 checks = sorted(set(checks))
+strict_checks = data.get("required_status_checks", {}).get("strict", False)
 
 approvals = (
     data.get("required_pull_request_reviews", {}).get("required_approving_review_count", 0)
@@ -46,17 +49,20 @@ deletions = data.get("allow_deletions", {}).get("enabled", False)
 admins_enforced = data.get("enforce_admins", {}).get("enabled", False)
 
 errors = []
-if required_check not in checks:
-    errors.append(f"required status check missing: {required_check}")
+for required_check in required_checks:
+    if required_check not in checks:
+        errors.append(f"required status check missing: {required_check}")
 if approvals < min_approvals:
     errors.append(f"required approvals too low: {approvals} < {min_approvals}")
+if require_strict and not strict_checks:
+    errors.append("required status checks are not strict/up-to-date")
 if force_pushes:
     errors.append("force pushes are allowed")
 if deletions:
     errors.append("branch deletions are allowed")
 
 print(f"Branch protection summary: checks={checks}, approvals={approvals}, "
-      f"enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
+      f"strict={strict_checks}, enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
       f"allow_deletions={deletions}")
 
 if errors:

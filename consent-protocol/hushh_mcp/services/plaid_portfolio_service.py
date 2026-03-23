@@ -1,9 +1,9 @@
 """Plaid-backed read-only portfolio source for Kai.
 
-This service stores Plaid Items outside the BYOK world-model blob so webhook-driven
+This service stores Plaid Items outside the BYOK PKM blob so webhook-driven
 sync can update brokerage snapshots without requiring the user's vault key.
 
-The world model remains the editable statement source. Plaid snapshots are kept in
+The PKM remains the editable statement source. Plaid snapshots are kept in
 dedicated server storage and aggregated into Kai on read.
 """
 

@@ -3,9 +3,11 @@
 # Usage: make <target>
 # Run `make help` for available targets.
 
-.PHONY: help bootstrap doctor dev local uat prod local-web uat-web prod-web local-backend stack web backend profile-use env-bootstrap lint test verify-docs ci-local db-init-iam verify-iam-schema
+.PHONY: help bootstrap doctor dev local uat prod local-web uat-web prod-web local-backend stack web backend profile-use env-bootstrap lint test verify-docs ci-local db-init-iam verify-iam-schema check-main-sync sync-main
 
 PROFILE ?= $(if $(ENV),$(ENV),local-uatdb)
+MAIN_SYNC_REMOTE ?= origin
+MAIN_SYNC_BRANCH ?= main
 
 # === Help ==================================================================
 
@@ -95,3 +97,23 @@ db-init-iam: ## Apply IAM foundation migrations explicitly (020 + 021)
 
 verify-iam-schema: ## Verify IAM tables/templates readiness
 	cd consent-protocol && PYTHONPATH=. .venv/bin/python scripts/verify_iam_schema.py
+
+check-main-sync: ## Ensure current branch already contains the latest origin/main
+	@MAIN_SYNC_REMOTE=$(MAIN_SYNC_REMOTE) \
+	MAIN_SYNC_BRANCH=$(MAIN_SYNC_BRANCH) \
+	sh scripts/git/check-main-sync.sh
+
+sync-main: ## Fetch and merge the latest origin/main into the current branch
+	@CURRENT_BRANCH=$$(git branch --show-current); \
+	if [ -z "$$CURRENT_BRANCH" ]; then \
+		echo "Detached HEAD detected; switch to a branch first."; \
+		exit 1; \
+	fi; \
+	if [ "$$CURRENT_BRANCH" = "$(MAIN_SYNC_BRANCH)" ]; then \
+		echo "Already on $(MAIN_SYNC_BRANCH); nothing to sync."; \
+		exit 0; \
+	fi; \
+	echo "Fetching $(MAIN_SYNC_REMOTE)/$(MAIN_SYNC_BRANCH)..."; \
+	git fetch $(MAIN_SYNC_REMOTE) $(MAIN_SYNC_BRANCH) --quiet; \
+	echo "Merging $(MAIN_SYNC_REMOTE)/$(MAIN_SYNC_BRANCH) into $$CURRENT_BRANCH..."; \
+	git merge $(MAIN_SYNC_REMOTE)/$(MAIN_SYNC_BRANCH)

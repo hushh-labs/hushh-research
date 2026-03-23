@@ -13,7 +13,7 @@ class ConsentScope(str, Enum):
     Consent scopes for MCP-compliant data access.
 
     Design Principles:
-    - VAULT_OWNER grants full world model access (user's own data)
+    - VAULT_OWNER grants full PKM access (user's own data)
     - Dynamic attr.{domain}.{key} scopes are validated via DynamicScopeGenerator
     - Static operation scopes are defined in this enum
 
@@ -44,11 +44,6 @@ class ConsentScope(str, Enum):
     PKM_READ = "pkm.read"
     PKM_WRITE = "pkm.write"
     PKM_METADATA = "pkm.metadata"
-
-    # Legacy aliases retained during cutover.
-    WORLD_MODEL_READ = "world_model.read"
-    WORLD_MODEL_WRITE = "world_model.write"
-    WORLD_MODEL_METADATA = "world_model.metadata"
 
     # ==================== KAI AGENT OPERATIONS ====================
     AGENT_KAI_ANALYZE = "agent.kai.analyze"
@@ -183,9 +178,6 @@ class ConsentScope(str, Enum):
             cls.PKM_READ,
             cls.PKM_WRITE,
             cls.PKM_METADATA,
-            cls.WORLD_MODEL_READ,
-            cls.WORLD_MODEL_WRITE,
-            cls.WORLD_MODEL_METADATA,
         ]
 
     @classmethod

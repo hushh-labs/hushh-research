@@ -1,4 +1,4 @@
-package com.hushh.app.plugins.WorldModel
+package com.hushh.app.plugins.PersonalKnowledgeModel
 
 import com.getcapacitor.*
 import com.getcapacitor.annotation.CapacitorPlugin
@@ -13,13 +13,13 @@ import android.util.Base64
 import java.net.URLEncoder
 
 /**
- * WorldModel Plugin - Android Implementation
+ * PersonalKnowledgeModel Plugin - Android Implementation
  * 
- * Native plugin for World Model operations.
- * Provides access to user's world model data for native platforms.
+ * Native plugin for PKM operations.
+ * Provides access to user's PKM data for native platforms.
  * 
  * Methods:
- * - getMetadata: Get user's world model metadata (domains, attribute counts)
+ * - getMetadata: Get user's PKM metadata (domains, attribute counts)
  * - getAttributes: Get attributes for a specific domain
  * - storeAttribute: Store an encrypted attribute
  * - getInitialChatState: Get initial chat state for proactive welcome
@@ -29,10 +29,10 @@ import java.net.URLEncoder
  * - getAvailableScopes: Get available consent scopes for a user
  */
 
-@CapacitorPlugin(name = "WorldModel")
-class WorldModelPlugin : Plugin() {
+@CapacitorPlugin(name = "PersonalKnowledgeModel")
+class PersonalKnowledgeModelPlugin : Plugin() {
     
-    private val TAG = "WorldModelPlugin"
+    private val TAG = "PersonalKnowledgeModelPlugin"
 
     // OkHttp client with reasonable timeouts
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -51,17 +51,17 @@ class WorldModelPlugin : Plugin() {
         .build()
 
     private fun getBackendUrl(call: PluginCall? = null): String {
-        return BackendUrl.resolve(bridge, call, "WorldModel")
+        return BackendUrl.resolve(bridge, call, "PersonalKnowledgeModel")
     }
 
     private fun getAuthToken(call: PluginCall): String? {
-        // Consent-first: World Model access is consent-gated. Do not fall back to Firebase tokens.
+        // Consent-first: PKM access is consent-gated. Do not fall back to Firebase tokens.
         val raw = call.getString("vaultOwnerToken")
         return if (raw.isNullOrBlank()) null else raw
     }
     
     /**
-     * Get user's world model metadata.
+     * Get user's PKM metadata.
      * 
      * Parameters:
      * - userId: User's Firebase UID
@@ -76,7 +76,7 @@ class WorldModelPlugin : Plugin() {
         
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/metadata/$userId"
+        val url = "$backendUrl/api/pkm/metadata/$userId"
         
         val requestBuilder = Request.Builder().url(url).get()
         
@@ -88,7 +88,7 @@ class WorldModelPlugin : Plugin() {
     }
 
     /**
-     * Get user's world model index.
+     * Get user's PKM index.
      */
     @PluginMethod
     fun getIndex(call: PluginCall) {
@@ -99,7 +99,7 @@ class WorldModelPlugin : Plugin() {
 
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/index/$userId"
+        val url = "$backendUrl/api/pkm/index/$userId"
 
         val requestBuilder = Request.Builder().url(url).get()
 
@@ -129,9 +129,9 @@ class WorldModelPlugin : Plugin() {
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
         val url = if (!domain.isNullOrBlank()) {
-            "$backendUrl/api/world-model/attributes/$userId?domain=$domain"
+            "$backendUrl/api/pkm/attributes/$userId?domain=$domain"
         } else {
-            "$backendUrl/api/world-model/attributes/$userId"
+            "$backendUrl/api/pkm/attributes/$userId"
         }
         
         val requestBuilder = Request.Builder().url(url).get()
@@ -184,7 +184,7 @@ class WorldModelPlugin : Plugin() {
         
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/attributes"
+        val url = "$backendUrl/api/pkm/attributes"
         
         val json = JSONObject().apply {
             put("user_id", userId)
@@ -236,7 +236,7 @@ class WorldModelPlugin : Plugin() {
 
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/attributes/$userId/$domain/$attributeKey"
+        val url = "$backendUrl/api/pkm/attributes/$userId/$domain/$attributeKey"
 
         val requestBuilder = Request.Builder().url(url).delete()
 
@@ -383,7 +383,7 @@ class WorldModelPlugin : Plugin() {
         val includeEmpty = call.getBoolean("includeEmpty") ?: false
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/domains?include_empty=$includeEmpty"
+        val url = "$backendUrl/api/pkm/domains?include_empty=$includeEmpty"
         
         val requestBuilder = Request.Builder().url(url).get()
         
@@ -413,7 +413,7 @@ class WorldModelPlugin : Plugin() {
         
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/domains/$userId"
+        val url = "$backendUrl/api/pkm/domains/$userId"
         
         val requestBuilder = Request.Builder().url(url).get()
         
@@ -444,7 +444,7 @@ class WorldModelPlugin : Plugin() {
         
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/scopes/$userId"
+        val url = "$backendUrl/api/pkm/scopes/$userId"
         
         val requestBuilder = Request.Builder().url(url).get()
         
@@ -469,7 +469,7 @@ class WorldModelPlugin : Plugin() {
         val encodedName = URLEncoder.encode(portfolioName, "UTF-8")
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/portfolio/$userId?portfolio_name=$encodedName"
+        val url = "$backendUrl/api/pkm/portfolio/$userId?portfolio_name=$encodedName"
 
         val requestBuilder = Request.Builder().url(url).get()
 
@@ -492,7 +492,7 @@ class WorldModelPlugin : Plugin() {
 
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/portfolios/$userId"
+        val url = "$backendUrl/api/pkm/portfolios/$userId"
 
         val requestBuilder = Request.Builder().url(url).get()
 
@@ -504,7 +504,7 @@ class WorldModelPlugin : Plugin() {
     }
 
     /**
-     * Get full encrypted world-model blob for a user.
+     * Get full encrypted PKM blob for a user.
      */
     @PluginMethod
     fun getEncryptedData(call: PluginCall) {
@@ -515,7 +515,7 @@ class WorldModelPlugin : Plugin() {
 
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/data/$userId"
+        val url = "$backendUrl/api/pkm/data/$userId"
 
         val requestBuilder = Request.Builder().url(url).get()
         if (authToken != null) {
@@ -556,7 +556,7 @@ class WorldModelPlugin : Plugin() {
         val summary = call.getObject("summary") ?: JSObject()
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/store-domain"
+        val url = "$backendUrl/api/pkm/store-domain"
 
         val blob = JSONObject().apply {
             put("ciphertext", ciphertext)
@@ -599,7 +599,7 @@ class WorldModelPlugin : Plugin() {
 
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/domain-data/$userId/$domain"
+        val url = "$backendUrl/api/pkm/domain-data/$userId/$domain"
 
         val requestBuilder = Request.Builder().url(url).get()
 
@@ -627,7 +627,7 @@ class WorldModelPlugin : Plugin() {
 
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/world-model/domain-data/$userId/$domain"
+        val url = "$backendUrl/api/pkm/domain-data/$userId/$domain"
 
         val requestBuilder = Request.Builder().url(url).delete()
 

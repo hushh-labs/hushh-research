@@ -183,7 +183,7 @@ async def list_user_conversations(
 class InitialChatStateResponse(BaseModel):
     """Response for initial chat state - determines proactive welcome message."""
 
-    is_new_user: bool = Field(..., description="True if user has no world model data")
+    is_new_user: bool = Field(..., description="True if user has no PKM data")
     has_portfolio: bool = Field(..., description="True if user has imported a portfolio")
     has_financial_data: bool = Field(
         ..., description="True if user has financial domain attributes"
@@ -191,7 +191,7 @@ class InitialChatStateResponse(BaseModel):
     welcome_type: str = Field(
         ..., description="Type of welcome: 'new', 'returning_no_portfolio', 'returning'"
     )
-    total_attributes: int = Field(0, description="Total number of attributes in user's world model")
+    total_attributes: int = Field(0, description="Total number of attributes in user's PKM")
     available_domains: list[str] = Field(
         default_factory=list, description="List of domains user has data in"
     )
@@ -272,7 +272,7 @@ class AnalyzeLoserResponse(BaseModel):
     reasoning: str = Field(..., description="Detailed reasoning for the decision")
     component_type: str = Field(default="analysis_summary", description="UI component type")
     component_data: dict = Field(default_factory=dict, description="Data for the UI component")
-    saved_to_world_model: bool = Field(default=False, description="Whether decision was saved")
+    saved_to_pkm: bool = Field(default=False, description="Whether decision was saved")
 
 
 @router.post("/chat/analyze-loser", response_model=AnalyzeLoserResponse)
@@ -310,7 +310,7 @@ async def analyze_portfolio_loser(
         "reasoning": "While Apple maintains strong cash flows and brand loyalty...",
         "component_type": "analysis_summary",
         "component_data": {...},
-        "saved_to_world_model": true
+        "saved_to_pkm": true
     }
     ```
     """
@@ -351,7 +351,7 @@ async def analyze_portfolio_loser(
                 "summary": result.get("summary", ""),
                 "hasFullAnalysis": result.get("has_full_analysis", False),
             },
-            saved_to_world_model=result.get("saved_to_world_model", False),
+            saved_to_pkm=result.get("saved_to_pkm", False),
         )
 
     except Exception as e:

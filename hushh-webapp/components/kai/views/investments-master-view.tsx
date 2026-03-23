@@ -482,7 +482,7 @@ export function InvestmentsMasterView({
         {activeSource === "plaid" && plaidProjectionStale ? (
           <SurfaceCard accent="sky">
             <SurfaceCardContent className="py-3 text-sm text-muted-foreground">
-              Brokerage data is fresher than the mirrored world-model snapshot right now. Kai will
+              Brokerage data is fresher than the mirrored PKM snapshot right now. Kai will
               project the latest Plaid source again while your vault is unlocked.
             </SurfaceCardContent>
           </SurfaceCard>

@@ -17,7 +17,7 @@ To prevent CI check-sprawl, only these checks are hard-blocking by default:
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-The local parity script mirrors those same blocking stages. On GitHub, `main` should require the single aggregated `CI Status Gate` check so the remote gate matches the local one-command gate.
+The local parity script mirrors those same blocking stages. On GitHub, `main` should require both `CI Status Gate` and `Main Freshness Gate` so the remote gate matches the local one-command CI plus the branch-up-to-date policy.
 
 ## When CI Runs
 
@@ -42,6 +42,8 @@ The local parity script mirrors those same blocking stages. On GitHub, `main` sh
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI (license-free) scans the event commit range, not full repo history |
 | Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
+| Main Freshness Gate | Prevent stale PR merges into `main` | Blocks pull requests targeting `main` unless the branch contains latest `origin/main` |
+| Branch Freshness Advisory | Early stale-branch signal on feature-branch pushes | Warn-only; does not block CI or merges |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
 
 ## Live GitHub Enforcement
@@ -49,7 +51,7 @@ The local parity script mirrors those same blocking stages. On GitHub, `main` sh
 `main` is expected to enforce the same CI contract documented here:
 
 - at least `1` approving review
-- required status check: `CI Status Gate`
+- required status checks: `CI Status Gate`, `Main Freshness Gate`
 - force-pushes disabled
 - branch deletion disabled
 

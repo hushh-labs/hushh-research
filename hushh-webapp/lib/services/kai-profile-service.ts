@@ -1,6 +1,6 @@
 "use client";
 
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 
 const FINANCIAL_DOMAIN = "financial";
@@ -266,7 +266,7 @@ function normalizeProfileLegacy(raw: Record<string, unknown>): KaiProfileV2 {
     onboarding: {
       completed: introSeen,
       completed_at: null,
-      // Legacy users did not answer the world-model questionnaire.
+      // Older users may not have completed the original PKM questionnaire.
       skipped_preferences: introSeen,
       nav_tour_completed_at: null,
       nav_tour_skipped_at: null,
@@ -335,20 +335,35 @@ function profileFromFinancialSummaryRoot(
   };
 }
 
-async function getFullBlob(params: {
+async function getFinancialDomain(params: {
   userId: string;
   vaultKey: string;
   vaultOwnerToken?: string;
 }): Promise<Record<string, unknown>> {
-  return WorldModelService.loadFullBlob({
+  const financial = await PersonalKnowledgeModelService.loadDomainData({
     userId: params.userId,
+    domain: FINANCIAL_DOMAIN,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
   });
+  return financial && typeof financial === "object" && !Array.isArray(financial) ? financial : {};
 }
 
-function selectProfile(fullBlob: Record<string, unknown>): KaiProfileV2 {
-  const financialValue = fullBlob[FINANCIAL_DOMAIN];
+async function getFinancialScopedBlob(params: {
+  userId: string;
+  vaultKey: string;
+  vaultOwnerToken?: string;
+}): Promise<Record<string, unknown>> {
+  const financial = await getFinancialDomain(params);
+  if (!financial || Object.keys(financial).length === 0) {
+    return {};
+  }
+  return {
+    [FINANCIAL_DOMAIN]: financial,
+  };
+}
+
+function selectProfileFromFinancialDomain(financialValue: unknown): KaiProfileV2 {
   if (financialValue && typeof financialValue === "object" && !Array.isArray(financialValue)) {
     const financialRecord = financialValue as Record<string, unknown>;
     const canonicalProfile = financialRecord.profile;
@@ -385,6 +400,10 @@ function selectProfile(fullBlob: Record<string, unknown>): KaiProfileV2 {
     if (legacySummary) return legacySummary;
   }
   return createDefaultProfile();
+}
+
+function selectProfile(fullBlob: Record<string, unknown>): KaiProfileV2 {
+  return selectProfileFromFinancialDomain(fullBlob[FINANCIAL_DOMAIN]);
 }
 
 function selectFinancialDomain(fullBlob: Record<string, unknown>): Record<string, unknown> {
@@ -499,8 +518,8 @@ export class KaiProfileService {
       }
     }
     try {
-      const fullBlob = await getFullBlob(params);
-      const profile = selectProfile(fullBlob);
+      const financialDomain = await getFinancialDomain(params);
+      const profile = selectProfileFromFinancialDomain(financialDomain);
       cache.set(cacheKey, profile, CACHE_TTL.SESSION);
       return profile;
     } catch (error) {
@@ -521,7 +540,9 @@ export class KaiProfileService {
     now?: Date;
   }): Promise<KaiProfileV2> {
     const iso = nowIso(params.now);
-    const fullBlob: Record<string, unknown> = await getFullBlob(params).catch(() => ({}));
+    const fullBlob: Record<string, unknown> = await getFinancialScopedBlob(params).catch(
+      () => ({})
+    );
     const current = selectProfile(fullBlob);
 
     const next: KaiProfileV2 = {
@@ -591,7 +612,7 @@ export class KaiProfileService {
       updatedAtIso: iso,
     });
 
-    const result = await WorldModelService.storeMergedDomain({
+    const result = await PersonalKnowledgeModelService.storeMergedDomain({
       userId: params.userId,
       vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,
@@ -616,7 +637,9 @@ export class KaiProfileService {
     now?: Date;
   }): Promise<KaiProfileV2> {
     const iso = nowIso(params.now);
-    const fullBlob: Record<string, unknown> = await getFullBlob(params).catch(() => ({}));
+    const fullBlob: Record<string, unknown> = await getFinancialScopedBlob(params).catch(
+      () => ({})
+    );
     const current = selectProfile(fullBlob);
 
     const next: KaiProfileV2 = {
@@ -637,7 +660,7 @@ export class KaiProfileService {
       updatedAtIso: iso,
     });
 
-    const result = await WorldModelService.storeMergedDomain({
+    const result = await PersonalKnowledgeModelService.storeMergedDomain({
       userId: params.userId,
       vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,
@@ -663,7 +686,9 @@ export class KaiProfileService {
     now?: Date;
   }): Promise<KaiProfileV2> {
     const iso = nowIso(params.now);
-    const fullBlob: Record<string, unknown> = await getFullBlob(params).catch(() => ({}));
+    const fullBlob: Record<string, unknown> = await getFinancialScopedBlob(params).catch(
+      () => ({})
+    );
     const current = selectProfile(fullBlob);
 
     const next: KaiProfileV2 = {
@@ -689,7 +714,7 @@ export class KaiProfileService {
       updatedAtIso: iso,
     });
 
-    const result = await WorldModelService.storeMergedDomain({
+    const result = await PersonalKnowledgeModelService.storeMergedDomain({
       userId: params.userId,
       vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,
@@ -733,7 +758,7 @@ export class KaiProfileService {
     const fullBlob: Record<string, unknown> =
       params.baseFullBlob && typeof params.baseFullBlob === "object"
         ? params.baseFullBlob
-        : await getFullBlob(params).catch(() => ({}));
+        : await getFinancialScopedBlob(params).catch(() => ({}));
     const current = selectProfile(fullBlob);
 
     const next: KaiProfileV2 = {
@@ -803,7 +828,7 @@ export class KaiProfileService {
       updatedAtIso: iso,
     });
 
-    const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+    const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
       userId: params.userId,
       vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,

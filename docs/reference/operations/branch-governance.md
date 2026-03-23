@@ -39,7 +39,7 @@ This repo runs on three branch lanes:
 ### `main`
 
 1. Require pull requests before merge.
-2. Require the `CI Status Gate` status check.
+2. Require the `CI Status Gate` and `Main Freshness Gate` status checks.
 3. Block force-pushes.
 4. Block branch deletion.
 5. Decide explicitly whether admins can bypass branch protection.

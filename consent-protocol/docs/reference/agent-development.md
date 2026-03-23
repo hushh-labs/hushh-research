@@ -25,7 +25,7 @@ Hushh agents are built from four composable layers. Each layer has a single resp
 ├─────────────────────────────────────────────────────┤
 │ SERVICES                                             │
 │ The only layer that touches the database             │
-│ (WorldModelService, ConsentDBService, etc.)          │
+│ (PersonalKnowledgeModelService, ConsentDBService, etc.)          │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -297,6 +297,21 @@ outputs:
     type: object
 ui_type: chat
 ```
+
+### Semantic Contract Requirement
+
+For any agent that classifies user meaning or shapes PKM structure:
+
+- the manifest-backed agent is the semantic owner
+- outputs must use an exact JSON contract
+- deterministic code may validate and reject, but must not replace the agent as the semantic classifier
+- the feature must document its validator rules and live-eval phase
+
+Reference:
+
+- `./pkm-agent-north-star.md`
+- `./pkm-prompt-contract.md`
+- `./backend-semantic-boundary.md`
 
 ### Step 3: Subclass HushhAgent
 

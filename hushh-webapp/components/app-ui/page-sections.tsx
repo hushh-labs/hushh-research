@@ -123,7 +123,7 @@ export function PageHeader({
                   {eyebrow}
                 </p>
               ) : null}
-              <h1 className="text-[clamp(1.78rem,4.2vw,2.7rem)] font-semibold tracking-tight leading-[1.02] text-foreground">
+              <h1 className="text-[clamp(1.56rem,3.7vw,2.3rem)] font-semibold tracking-tight leading-[1.04] text-foreground">
                 {title}
               </h1>
             </div>

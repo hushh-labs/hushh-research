@@ -165,7 +165,7 @@ export interface RiaClientDetail {
   domain_summaries: Record<string, unknown>;
   total_attributes: number;
   workspace_ready: boolean;
-  world_model_updated_at?: string | null;
+  pkm_updated_at?: string | null;
 }
 
 export interface RiaRequestRecord {

@@ -41,7 +41,7 @@ const REQUIRED_PLUGINS = [
   "HushhSync",
   "HushhSettings",
   "HushhKeychain", // iOS keystore uses jsName HushhKeychain
-  "WorldModel",
+  "PersonalKnowledgeModel",
   // Extra
   "HushhAccount",
   "HushhNotifications",
@@ -50,7 +50,7 @@ const REQUIRED_PLUGINS = [
 const REQUIRED_WEB_ROUTES = [
   "hushh-webapp/app/api/notifications/register/route.ts",
   "hushh-webapp/app/api/notifications/unregister/route.ts",
-  "hushh-webapp/app/api/world-model/get-context/route.ts",
+  "hushh-webapp/app/api/pkm/[...path]/route.ts",
   "hushh-webapp/app/api/kai/[...path]/route.ts",
   "hushh-webapp/app/api/consent/pending/route.ts",
   "hushh-webapp/app/api/consent/revoke/route.ts",
@@ -67,10 +67,10 @@ function checkTsRegistrations() {
   const ts = readText("hushh-webapp/lib/capacitor/index.ts");
   // Kai is registered in lib/capacitor/kai.ts
   const kaiTs = readText("hushh-webapp/lib/capacitor/kai.ts");
-  const worldModelTs = readText("hushh-webapp/lib/capacitor/world-model.ts");
+  const pkmTs = readText("hushh-webapp/lib/capacitor/personal-knowledge-model.ts");
   const accountTs = readText("hushh-webapp/lib/capacitor/account.ts");
 
-  const combined = `${ts}\n${kaiTs}\n${worldModelTs}\n${accountTs}`;
+  const combined = `${ts}\n${kaiTs}\n${pkmTs}\n${accountTs}`;
 
   for (const name of REQUIRED_PLUGINS) {
     if (!combined.includes(`\"${name}\"`) && !combined.includes(`'${name}'`)) {
@@ -105,7 +105,7 @@ function checkAndroidRegistrationAndNames() {
     "HushhSyncPlugin",
     "HushhSettingsPlugin",
     "HushhKeystorePlugin",
-    "WorldModelPlugin",
+    "PersonalKnowledgeModelPlugin",
     "HushhAccountPlugin",
     "HushhNotificationsPlugin",
   ];
@@ -120,7 +120,7 @@ function checkAndroidRegistrationAndNames() {
   const androidPluginFiles = [
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhNotifications/HushhNotificationsPlugin.kt",
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhAccount/HushhAccountPlugin.kt",
-    "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/WorldModel/WorldModelPlugin.kt",
+    "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt",
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/Kai/KaiPlugin.kt",
   ];
 
@@ -187,7 +187,7 @@ function checkBackendResolverUsage() {
     "hushh-webapp/ios/App/App/Plugins/HushhVaultPlugin.swift",
     "hushh-webapp/ios/App/App/Plugins/HushhConsentPlugin.swift",
     "hushh-webapp/ios/App/App/Plugins/KaiPlugin.swift",
-    "hushh-webapp/ios/App/App/Plugins/WorldModelPlugin.swift",
+    "hushh-webapp/ios/App/App/Plugins/PersonalKnowledgeModelPlugin.swift",
     "hushh-webapp/ios/App/App/Plugins/HushhNotificationsPlugin.swift",
     "hushh-webapp/ios/App/App/Plugins/HushhAccountPlugin.swift",
   ];
@@ -210,7 +210,7 @@ function checkBackendResolverUsage() {
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhVault/HushhVaultPlugin.kt",
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhConsent/HushhConsentPlugin.kt",
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/Kai/KaiPlugin.kt",
-    "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/WorldModel/WorldModelPlugin.kt",
+    "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt",
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhNotifications/HushhNotificationsPlugin.kt",
     "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhAccount/HushhAccountPlugin.kt",
   ];
@@ -286,11 +286,11 @@ function checkMethodLevelParity() {
   );
 
   assertMethodsPresent(
-    "WorldModel critical parity",
+    "PersonalKnowledgeModel critical parity",
     [
-      "hushh-webapp/lib/capacitor/world-model.ts",
-      "hushh-webapp/ios/App/App/Plugins/WorldModelPlugin.swift",
-      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/WorldModel/WorldModelPlugin.kt",
+      "hushh-webapp/lib/capacitor/personal-knowledge-model.ts",
+      "hushh-webapp/ios/App/App/Plugins/PersonalKnowledgeModelPlugin.swift",
+      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt",
     ],
     ["getMetadata", "getEncryptedData", "storeDomainData", "getDomainData", "clearDomain"]
   );
@@ -314,12 +314,12 @@ function checkMethodLevelParity() {
   );
 
   assertPathsPresent(
-    "WorldModel endpoint parity",
+    "PersonalKnowledgeModel endpoint parity",
     [
-      "hushh-webapp/ios/App/App/Plugins/WorldModelPlugin.swift",
-      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/WorldModel/WorldModelPlugin.kt",
+      "hushh-webapp/ios/App/App/Plugins/PersonalKnowledgeModelPlugin.swift",
+      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt",
     ],
-    ["/api/world-model/metadata/", "/api/world-model/store-domain", "/api/world-model/domain-data/"]
+    ["/api/pkm/metadata/", "/api/pkm/store-domain", "/api/pkm/domain-data/"]
   );
 }
 

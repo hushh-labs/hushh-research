@@ -86,3 +86,63 @@ export async function downloadTextFile(
     return false;
   }
 }
+
+export async function blobToBase64String(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("Failed to encode file"));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Unexpected file reader result"));
+        return;
+      }
+      const parts = result.split(",");
+      resolve(parts[1] || "");
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function downloadBlobFile(
+  blob: Blob,
+  filename: string,
+  mimeType = "application/octet-stream"
+): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const { Filesystem, Directory } = (await import(
+        "@capacitor/filesystem"
+      )) as typeof import("@capacitor/filesystem");
+
+      const base64 = await blobToBase64String(blob);
+      await Filesystem.writeFile({
+        path: filename,
+        data: base64,
+        directory: Directory.Documents,
+        recursive: true,
+      });
+      return true;
+    } catch (error) {
+      console.error("[Download] Native blob save failed:", error);
+      return false;
+    }
+  }
+
+  try {
+    const typedBlob =
+      blob.type === mimeType || !mimeType ? blob : new Blob([blob], { type: mimeType });
+    const url = URL.createObjectURL(typedBlob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (error) {
+    console.error("[Download] Browser blob download failed:", error);
+    return false;
+  }
+}

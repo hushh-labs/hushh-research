@@ -4,7 +4,7 @@ Kai Chat Service - Conversational AI with auto-learning and context awareness.
 
 This service handles:
 1. Natural conversation with Google Gemini LLM
-2. User context from world model
+2. User context from PKM
 3. Auto-learning of user attributes from conversation
 4. Insertable UI component detection
 5. Persistent chat history
@@ -34,8 +34,8 @@ from hushh_mcp.services.chat_db_service import (
     get_chat_db_service,
 )
 from hushh_mcp.services.personal_knowledge_model_service import (
-    UserWorldModelMetadata,
-    get_world_model_service,
+    UserPersonalKnowledgeModelMetadata,
+    get_pkm_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -193,7 +193,7 @@ Your capabilities:
 - Analyze investment portfolios and identify underperformers
 - Learn user preferences and remember them for personalized advice
 - Help users understand their financial risk profile
-- Provide insights based on user's world model data
+- Provide insights based on user's PKM data
 
 PROACTIVE BEHAVIORS:
 1. If the user is new (no portfolio data), proactively offer to import their brokerage statement
@@ -222,7 +222,7 @@ class KaiChatService:
 
     Integrates:
     - Google Gemini for natural language generation
-    - World model for user context
+    - PKM for user context
     - Attribute learner for auto-learning
     - Chat DB for persistent history
     - Intent classifier for workflow triggers
@@ -230,7 +230,7 @@ class KaiChatService:
 
     def __init__(self):
         self._client = None
-        self._world_model = None
+        self._pkm_service = None
         self._chat_db = None
         self._attribute_learner = None
         self._intent_classifier = IntentClassifier()
@@ -248,10 +248,10 @@ class KaiChatService:
         return self._client
 
     @property
-    def world_model(self):
-        if self._world_model is None:
-            self._world_model = get_world_model_service()
-        return self._world_model
+    def pkm_service(self):
+        if self._pkm_service is None:
+            self._pkm_service = get_pkm_service()
+        return self._pkm_service
 
     @property
     def chat_db(self) -> ChatDBService:
@@ -289,8 +289,8 @@ class KaiChatService:
             # 2. Get chat history for context
             history = await self.chat_db.get_recent_context(conversation.id, max_messages=10)
 
-            # 3. Get user's world model context
-            user_context = await self.world_model.get_user_metadata(user_id)
+            # 3. Get user's PKM context
+            user_context = await self.pkm_service.get_user_metadata(user_id)
 
             # 4. Check if this is a new user who should be prompted for portfolio
             if await self._should_prompt_portfolio(user_id, user_context, history):
@@ -426,14 +426,14 @@ class KaiChatService:
     async def _should_prompt_portfolio(
         self,
         user_id: str,
-        user_context: Optional[UserWorldModelMetadata],
+        user_context: Optional[UserPersonalKnowledgeModelMetadata],
         history: list,
     ) -> bool:
         """
         Check if we should proactively prompt the user to import their portfolio.
 
         Triggers portfolio import prompt if:
-        - User is new (no world model data)
+        - User is new (no PKM data)
         - User has minimal attributes
         - No portfolio imported yet
         - First 1-2 messages in conversation
@@ -474,7 +474,7 @@ class KaiChatService:
         """
         try:
             # Get user's domains
-            metadata = await self.world_model.get_user_metadata(user_id)
+            metadata = await self.pkm_service.get_user_metadata(user_id)
 
             # Check if financial domain exists
             user_domain_keys = (
@@ -493,8 +493,8 @@ class KaiChatService:
                     "total_attributes": 0,
                 }
 
-            # Get financial domain summary from world_model_index_v2
-            index = await self.world_model.get_index_v2(user_id)
+            # Get financial domain summary from the PKM index
+            index = await self.pkm_service.get_index_v2(user_id)
             domain_summary = index.domain_summaries.get("financial", {}) if index else {}
 
             # Build a set of "known" attribute keys from the domain summary
@@ -616,7 +616,7 @@ class KaiChatService:
         self,
         intent: IntentType,
         message: str,
-        user_context: UserWorldModelMetadata,
+        user_context: UserPersonalKnowledgeModelMetadata,
     ) -> Optional[UIComponent]:
         """Handle specific intents with UI components."""
         if intent == IntentType.PORTFOLIO_IMPORT:
@@ -635,7 +635,7 @@ class KaiChatService:
 
         elif intent == IntentType.PROFILE_QUERY:
             return UIComponent(
-                type="world_model_summary",
+                type="pkm_summary",
                 data={"user_context": user_context.__dict__ if user_context else {}},
             )
 
@@ -694,7 +694,7 @@ class KaiChatService:
 
     def _build_system_prompt(
         self,
-        user_context: UserWorldModelMetadata,
+        user_context: UserPersonalKnowledgeModelMetadata,
         history: list[dict],
     ) -> str:
         """Build the system prompt with user context and history."""
@@ -803,13 +803,13 @@ class KaiChatService:
                     data={"ticker": ticker_match.group(1)},
                 )
 
-        # World model summary trigger
+        # PKM summary trigger
         if any(
             phrase in message_lower
             for phrase in ["what do you know about me", "my profile", "my data"]
         ):
             return UIComponent(
-                type="world_model_summary",
+                type="pkm_summary",
                 data={},
             )
 
@@ -844,21 +844,21 @@ class KaiChatService:
 
         Returns:
             dict with:
-            - is_new_user: True if user has no world model data
+            - is_new_user: True if user has no PKM data
             - has_portfolio: True if user has imported a portfolio
             - has_financial_data: True if user has financial domain attributes
             - welcome_type: 'new', 'returning_no_portfolio', or 'returning'
-            - total_attributes: Total number of attributes in user's world model
+            - total_attributes: Total number of attributes in user's PKM
             - available_domains: List of domains user has data in
         """
         try:
-            # Get world model metadata
-            metadata = await self.world_model.get_user_metadata(user_id)
+            # Get PKM metadata
+            metadata = await self.pkm_service.get_user_metadata(user_id)
 
             # Check portfolio
             has_portfolio = False
             try:
-                portfolio = await self.world_model.get_portfolio(user_id)
+                portfolio = await self.pkm_service.get_portfolio(user_id)
                 has_portfolio = portfolio is not None
             except Exception:
                 pass
@@ -918,7 +918,7 @@ class KaiChatService:
         This method:
         1. Checks Renaissance universe for tier/conviction
         2. Generates a quick analysis using the LLM with Renaissance context
-        3. Stores the decision in the world model
+        3. Stores the decision in the PKM
         4. Returns a compact summary for chat display
 
         Args:
@@ -1017,12 +1017,12 @@ REASONING: [2-3 sentences]
             )
             reasoning = reasoning_match.group(1).strip() if reasoning_match else ""
 
-            # Store decision as a non-sensitive summary in world_model_index_v2
+            # Store decision as a non-sensitive summary in the PKM index
             saved = False
             try:
                 analyzed_at = datetime.now().isoformat()
                 ticker_upper = str(ticker or "").upper()
-                await self.world_model.update_domain_summary(
+                await self.pkm_service.update_domain_summary(
                     user_id=user_id,
                     domain="financial",
                     summary={
@@ -1038,7 +1038,7 @@ REASONING: [2-3 sentences]
                 saved = True
 
             except Exception as e:
-                logger.warning(f"Failed to save analysis to world model: {e}")
+                logger.warning(f"Failed to save analysis to PKM: {e}")
 
             # Store in chat history
             await self.chat_db.add_message(
@@ -1065,7 +1065,7 @@ REASONING: [2-3 sentences]
                 "summary": summary,
                 "reasoning": reasoning,
                 "has_full_analysis": True,
-                "saved_to_world_model": saved,
+                "saved_to_pkm": saved,
                 "renaissance_context": {
                     "is_investable": ren_context.get("is_investable", False),
                     "tier": ren_context.get("tier"),

@@ -62,11 +62,10 @@ Notes:
 - `localhost` is valid for web dev passkeys, but not for iOS associated domains.
 - Native PRF passkey status:
   - iOS: implemented via `HushhVault.registerPasskeyPrf/authenticatePasskeyPrf` (requires iOS 18+).
-  - Android: PRF native passkey methods are still pending; biometric/passphrase fallback remains active.
+  - Android: implemented via the native `HushhVault` passkey PRF bridge on supported devices.
 - Vault preference/native fallback status:
-  - `storePreferencesToCloud()` is the canonical shipped native-safe path for encrypted preference writes.
-  - `deletePreferences()` remains intentionally unsupported in the web fallback.
-  - New mobile features must not depend on local-only preference deletion semantics without updating the parity contract first.
+  - `storePreferencesToCloud()` is the canonical shipped cross-platform path for encrypted preference writes.
+  - Legacy local preference CRUD methods remain compatibility-only and are not part of the parity-critical product contract.
 
 ### Full parity audit lane
 
@@ -88,8 +87,7 @@ That release gate includes:
 
 Accepted parity exceptions currently documented in the registry:
 
-- Android native passkey PRF is still pending.
-- Cloud-backed vault preference methods remain the canonical mobile-safe path for some preference flows.
+- None. Full parity requires the registry and runtime to stay exception-free for visible route behavior.
 
 ### Firebase artifact safety (no secret leak in git)
 
@@ -111,7 +109,7 @@ Accepted parity exceptions currently documented in the registry:
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │       Native Plugins (10 per platform)                    │  │
 │  │  HushhAuth · HushhVault · HushhConsent · Kai             │  │
-│  │  HushhSync · HushhSettings · HushhKeystore · WorldModel  │  │
+│  │  HushhSync · HushhSettings · HushhKeystore · PKM         │  │
 │  │  HushhAccount · HushhNotifications                       │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Native HTTP                          │
@@ -137,7 +135,7 @@ All 10 plugins exist on both platforms with matching methods:
 | **HushhSync**     | `HushhSync`     | Cloud synchronization          | `HushhSyncPlugin.swift`     | `HushhSyncPlugin.kt`     |
 | **HushhSettings** | `HushhSettings` | App preferences                | `HushhSettingsPlugin.swift` | `HushhSettingsPlugin.kt` |
 | **HushhKeystore** | `HushhKeychain` | Secure key storage             | `HushhKeystorePlugin.swift` | `HushhKeystorePlugin.kt` |
-| **WorldModel**    | `WorldModel`    | Domain metadata/index access   | `WorldModelPlugin.swift`    | `WorldModelPlugin.kt`    |
+| **PKM**           | `PersonalKnowledgeModel` | Domain metadata/index access | `PersonalKnowledgeModelPlugin.swift` | `PersonalKnowledgeModelPlugin.kt` |
 | **HushhAccount**  | `HushhAccount`  | Account lifecycle actions      | `HushhAccountPlugin.swift`  | `HushhAccountPlugin.kt`  |
 | **HushhNotifications** | `HushhNotifications` | Push token registration | `HushhNotificationsPlugin.swift` | `HushhNotificationsPlugin.kt` |
 
@@ -256,7 +254,7 @@ ios/App/App/
     ├── HushhSyncPlugin.swift
     ├── HushhVaultPlugin.swift
     ├── KaiPlugin.swift
-    └── WorldModelPlugin.swift
+    └── PersonalKnowledgeModelPlugin.swift
 ```
 
 ### Android
@@ -274,7 +272,7 @@ android/app/src/main/java/com/hushh/app/
     ├── HushhSync/HushhSyncPlugin.kt
     ├── HushhVault/HushhVaultPlugin.kt
     ├── Kai/KaiPlugin.kt
-    ├── WorldModel/WorldModelPlugin.kt
+    ├── PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt
     └── shared/BackendUrl.kt
 ```
 
@@ -324,7 +322,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(HushhSyncPlugin())
         bridge?.registerPluginInstance(HushhSettingsPlugin())
         bridge?.registerPluginInstance(HushhKeystorePlugin())
-        bridge?.registerPluginInstance(WorldModelPlugin())
+        bridge?.registerPluginInstance(PersonalKnowledgeModelPlugin())
         bridge?.registerPluginInstance(HushhAccountPlugin())
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
     }
@@ -354,7 +352,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhKeystorePlugin::class.java)
         registerPlugin(HushhNotificationsPlugin::class.java)
         registerPlugin(KaiPlugin::class.java)
-        registerPlugin(WorldModelPlugin::class.java)
+        registerPlugin(PersonalKnowledgeModelPlugin::class.java)
         registerPlugin(HushhAccountPlugin::class.java)
         super.onCreate(savedInstanceState)
     }
@@ -430,7 +428,7 @@ if (Capacitor.isNativePlatform()) {
 
 | Plugin     | Methods                                                                     | Status                    |
 | ---------- | --------------------------------------------------------------------------- | ------------------------- |
-| WorldModel | getMetadata, getAttributes, getUserDomains, listDomains, getAvailableScopes | Required                  |
+| PersonalKnowledgeModel | getMetadata, getAttributes, getUserDomains, listDomains, getAvailableScopes | Required |
 | Kai        | getInitialChatState, chat                                                   | Required                  |
 | Identity   | autoDetect, getIdentityStatus, getEncryptedProfile                          | Required                  |
 | Vault      | All crypto methods                                                          | Not needed (simple types) |
@@ -669,7 +667,7 @@ const { vaultOwnerToken } = useVault();
 />
 
 // Service call includes token
-await WorldModelService.storeDomainData({
+await PersonalKnowledgeModelService.storeDomainData({
   userId,
   domain: "financial",
   encryptedBlob: { ... },

@@ -9,7 +9,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
@@ -154,7 +154,7 @@ export function KaiCommandBarGlobal() {
       }
 
       try {
-        const metadata = await WorldModelService.getMetadata(
+        const metadata = await PersonalKnowledgeModelService.getMetadata(
           user.uid,
           false,
           vaultOwnerToken

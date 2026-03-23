@@ -12,10 +12,10 @@ MANIFEST = {
     "name": "Agent Kai",
     "version": "1.0.0",
     "description": "Explainable investing copilot with 3-agent debate framework",
-    # Required consent scopes (world-model only; enum members)
+    # Required consent scopes (PKM only; enum members)
     "required_scopes": [
-        ConsentScope.WORLD_MODEL_READ,
-        ConsentScope.WORLD_MODEL_WRITE,
+        ConsentScope.PKM_READ,
+        ConsentScope.PKM_WRITE,
         ConsentScope.AGENT_KAI_ANALYZE,
     ],
     # Optional scopes (for hybrid mode)

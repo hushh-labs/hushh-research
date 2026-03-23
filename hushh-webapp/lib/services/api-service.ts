@@ -1347,6 +1347,12 @@ export class ApiService {
     encryptedIv?: string;
     encryptedTag?: string;
     exportKey?: string;
+    wrappedExportKey?: string;
+    wrappedKeyIv?: string;
+    wrappedKeyTag?: string;
+    senderPublicKey?: string;
+    wrappingAlg?: string;
+    connectorKeyId?: string;
     durationHours?: number;
   }): Promise<Response> {
     const requestId = data.requestId || data.token;
@@ -1380,6 +1386,12 @@ export class ApiService {
           encryptedIv: data.encryptedIv,
           encryptedTag: data.encryptedTag,
           exportKey: data.exportKey,
+          wrappedExportKey: data.wrappedExportKey,
+          wrappedKeyIv: data.wrappedKeyIv,
+          wrappedKeyTag: data.wrappedKeyTag,
+          senderPublicKey: data.senderPublicKey,
+          wrappingAlg: data.wrappingAlg,
+          connectorKeyId: data.connectorKeyId,
           vaultOwnerToken,
         });
 
@@ -1416,6 +1428,12 @@ export class ApiService {
         encryptedIv: data.encryptedIv,
         encryptedTag: data.encryptedTag,
         exportKey: data.exportKey,
+        wrappedExportKey: data.wrappedExportKey,
+        wrappedKeyIv: data.wrappedKeyIv,
+        wrappedKeyTag: data.wrappedKeyTag,
+        senderPublicKey: data.senderPublicKey,
+        wrappingAlg: data.wrappingAlg,
+        connectorKeyId: data.connectorKeyId,
         durationHours: data.durationHours,
       }),
     });
@@ -2613,7 +2631,7 @@ export class ApiService {
   }
 
   /**
-   * Get portfolio summary from world model
+   * Get portfolio summary from PKM
    */
   static async getPortfolioSummary(data: {
     userId: string;

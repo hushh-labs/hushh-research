@@ -25,7 +25,7 @@ from hushh_mcp.services.developer_registry_service import (
     normalize_tool_groups,
     visible_tool_names_for_groups,
 )
-from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ router = APIRouter()
 developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
 
-_STATIC_REQUESTABLE_SCOPES = ("pkm.read", "pkm.write", "world_model.read", "world_model.write")
+_STATIC_REQUESTABLE_SCOPES = ("pkm.read", "pkm.write", "pkm.read", "pkm.write")
 _MAX_EXPIRY_HOURS = 24 * 365
 
 
@@ -80,6 +80,7 @@ class DeveloperUserScopesResponse(BaseModel):
     user_id: str
     available_domains: list[str] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
+    scope_entries: list[dict] = Field(default_factory=list)
     scopes_are_dynamic: bool = True
     source: str = "pkm_index + pkm_scope_registry"
     app_id: str | None = None
@@ -119,6 +120,9 @@ class DeveloperConsentRequest(BaseModel):
     scope: str
     reason: str | None = None
     expiry_hours: int = 24
+    connector_public_key: str = Field(min_length=16)
+    connector_key_id: str | None = Field(default=None, max_length=128)
+    connector_wrapping_alg: str = Field(default="X25519-AES256-GCM", max_length=128)
 
 
 class DeveloperPortalTokenResponse(BaseModel):
@@ -190,14 +194,6 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
             description="Write to the user personal knowledge model in governed flows.",
         ),
         DeveloperScopeDescriptor(
-            name="world_model.read",
-            description="Legacy alias for pkm.read during cutover.",
-        ),
-        DeveloperScopeDescriptor(
-            name="world_model.write",
-            description="Legacy alias for pkm.write during cutover.",
-        ),
-        DeveloperScopeDescriptor(
             name="attr.{domain}.*",
             description="Read one discovered domain branch.",
             dynamic=True,
@@ -248,11 +244,11 @@ def _resolve_principal(
     )
 
 
-async def _get_user_scope_snapshot(user_id: str) -> tuple[list[str], list[str]]:
-    world_model = get_world_model_service()
-    index = await world_model.get_index_v2(user_id)
+async def _get_user_scope_snapshot(user_id: str) -> tuple[list[str], list[str], list[dict]]:
+    pkm_service = get_pkm_service()
+    index = await pkm_service.get_index_v2(user_id)
     if index is None:
-        return [], []
+        return [], [], []
     available_domains = sorted(
         {
             str(domain).strip().lower()
@@ -260,8 +256,13 @@ async def _get_user_scope_snapshot(user_id: str) -> tuple[list[str], list[str]]:
             if str(domain).strip()
         }
     )
-    scopes = sorted(await world_model.scope_generator.get_available_scopes(user_id))
-    return available_domains, scopes
+    scopes = sorted(await pkm_service.scope_generator.get_available_scopes(user_id))
+    scope_entries_getter = getattr(pkm_service.scope_generator, "get_available_scope_entries", None)
+    if callable(scope_entries_getter):
+        scope_entries = await scope_entries_getter(user_id)
+    else:
+        scope_entries = [{"scope": scope} for scope in scopes if scope.startswith("attr.")]
+    return available_domains, scopes, scope_entries
 
 
 def _developer_root_payload() -> dict[str, object]:
@@ -439,11 +440,12 @@ async def get_user_scopes(
         authorization=authorization,
     )
 
-    available_domains, scopes = await _get_user_scope_snapshot(user_id)
+    available_domains, scopes, scope_entries = await _get_user_scope_snapshot(user_id)
     return DeveloperUserScopesResponse(
         user_id=user_id,
         available_domains=available_domains,
         scopes=scopes,
+        scope_entries=scope_entries,
         app_id=principal.app_id,
         app_display_name=principal.display_name,
     )
@@ -556,7 +558,9 @@ async def request_consent(
             },
         )
 
-    available_domains, discovered_scopes = await _get_user_scope_snapshot(payload.user_id)
+    available_domains, discovered_scopes, _scope_entries = await _get_user_scope_snapshot(
+        payload.user_id
+    )
     if normalized_scope.startswith("attr.") and normalized_scope not in set(discovered_scopes):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -614,6 +618,9 @@ async def request_consent(
     metadata = DeveloperRegistryService.build_consent_metadata(
         principal,
         reason=payload.reason,
+        connector_public_key=payload.connector_public_key,
+        connector_key_id=payload.connector_key_id,
+        connector_wrapping_alg=payload.connector_wrapping_alg,
     )
     metadata.update({"expiry_hours": payload.expiry_hours})
 

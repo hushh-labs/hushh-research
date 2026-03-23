@@ -3,7 +3,7 @@
 Agent chat endpoints for Kai Financial agent.
 
 Note: Food & Dining and Professional Profile agents have been deprecated
-in favor of the dynamic world model architecture.
+in favor of the dynamic PKM architecture.
 """
 
 import logging

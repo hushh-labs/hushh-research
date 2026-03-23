@@ -51,7 +51,7 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import { format } from "date-fns";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
@@ -705,13 +705,13 @@ export function AnalysisHistoryDashboard({
         return;
       }
 
-      const blob = await WorldModelService.loadFullBlob({
+      const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
         userId,
+        domain: "financial",
         vaultKey,
         vaultOwnerToken,
       });
 
-      const financialDomain = isRecord(blob.financial) ? blob.financial : null;
       const portfolioCandidate = financialDomain && isRecord(financialDomain.portfolio)
         ? financialDomain.portfolio
         : financialDomain;

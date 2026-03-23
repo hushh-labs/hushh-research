@@ -4,7 +4,7 @@
     "hushh-webapp/app/api/app-config/review-mode/route.ts",
     "hushh-webapp/app/api/app-config/review-mode/session/route.ts",
     "hushh-webapp/app/api/consent/events/[userId]/route.ts",
-    "hushh-webapp/app/api/world-model/get-context/route.ts",
+    "hushh-webapp/app/api/pkm/[...path]/route.ts",
     "hushh-webapp/app/api/portfolio/share-link/route.ts"
   ],
   "allowlistedPageRouteFiles": [
@@ -204,34 +204,14 @@
           "/data/{user_id}",
           "/domain-data/{user_id}/{domain}",
           "/manifest/{user_id}/{domain}",
-          "/scopes/{user_id}"
-        ]
-      }
-    },
-    {
-      "id": "worldModelProxy",
-      "webRouteFiles": [
-        "hushh-webapp/app/api/world-model/[...path]/route.ts",
-        "hushh-webapp/app/api/world-model/domains/route.ts",
-        "hushh-webapp/app/api/world-model/domains/[userId]/route.ts",
-        "hushh-webapp/app/api/world-model/metadata/[userId]/route.ts",
-        "hushh-webapp/app/api/world-model/scopes/[userId]/route.ts",
-        "hushh-webapp/app/api/world-model/store-domain/route.ts"
-      ],
-      "backend": {
-        "file": "consent-protocol/api/routes/world_model.py",
-        "routerPrefix": "/api/world-model",
-        "paths": [
-          "/metadata/{user_id}",
-          "/store-domain",
-          "/data/{user_id}",
-          "/domain-data/{user_id}/{domain}"
+          "/scopes/{user_id}",
+          "/get-context"
         ]
       },
       "native": {
-        "tsPluginFile": "hushh-webapp/lib/capacitor/world-model.ts",
-        "iosPluginFile": "hushh-webapp/ios/App/App/Plugins/WorldModelPlugin.swift",
-        "androidPluginFile": "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/WorldModel/WorldModelPlugin.kt",
+        "tsPluginFile": "hushh-webapp/lib/capacitor/personal-knowledge-model.ts",
+        "iosPluginFile": "hushh-webapp/ios/App/App/Plugins/PersonalKnowledgeModelPlugin.swift",
+        "androidPluginFile": "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt",
         "requiredMethodNames": [
           "getMetadata",
           "getAvailableScopes",
@@ -487,13 +467,13 @@
       ],
       "apiContractIds": [
         "vaultWebProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultOwnerToken",
         "inviteProxy"
       ],
       "nativeContractIds": [
         "vaultWebProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultOwnerToken"
       ]
     },
@@ -511,14 +491,14 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "tickersPublic"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken"
       ]
@@ -538,14 +518,14 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "tickersPublic"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken"
       ]
@@ -568,13 +548,13 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultOwnerToken",
         "tickersPublic"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultOwnerToken"
       ]
     },
@@ -588,12 +568,12 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultOwnerToken"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "worldModelProxy",
+        "pkmProxy",
         "vaultOwnerToken"
       ]
     },
@@ -655,14 +635,14 @@
         "hushh-webapp/lib/services/ria-service.ts"
       ],
       "apiContractIds": [
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "accountDelete",
         "iamProxy"
       ],
       "nativeContractIds": [
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "accountDelete"
@@ -680,7 +660,7 @@
         "vaultOwnerToken"
       ],
       "nativeContractIds": [
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken"
       ]
@@ -698,7 +678,7 @@
         "vaultOwnerToken"
       ],
       "nativeContractIds": [
-        "worldModelProxy",
+        "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken"
       ]

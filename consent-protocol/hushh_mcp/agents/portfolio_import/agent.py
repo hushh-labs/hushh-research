@@ -534,7 +534,7 @@ Document text:
         return sorted(winners, key=lambda x: x["gain_loss_pct"], reverse=True)
 
     def _build_portfolio_data(self, portfolio: EnhancedPortfolio, kpis: Dict) -> Dict:
-        """Build complete portfolio data for world model storage."""
+        """Build complete portfolio data for PKM storage."""
         return {
             "account_metadata": {
                 "account_number": portfolio.account_number,

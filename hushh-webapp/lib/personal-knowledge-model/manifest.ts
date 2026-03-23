@@ -149,7 +149,7 @@ function walkValue(
   }
 }
 
-export function buildWorldModelStructureArtifacts(params: {
+export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   domain: string;
   domainData: Record<string, unknown>;
   previousManifest?: DomainManifest | null;
@@ -287,7 +287,6 @@ export function projectDomainDataForScope(params: {
 }): Record<string, unknown> {
   if (
     params.scope === "pkm.read" ||
-    params.scope === "world_model.read" ||
     params.scope === `attr.${params.domain}.*`
   ) {
     return { [params.domain]: cloneValue(params.domainData) };
@@ -320,5 +319,4 @@ export function projectDomainDataForScope(params: {
   };
 }
 
-export const buildPersonalKnowledgeModelStructureArtifacts = buildWorldModelStructureArtifacts;
 export const projectPersonalKnowledgeModelDataForScope = projectDomainDataForScope;

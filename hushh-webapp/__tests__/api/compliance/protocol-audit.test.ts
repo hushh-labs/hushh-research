@@ -20,7 +20,7 @@ import {
   mockFetch,
 } from "../../utils/test-helpers";
 
-// Dynamic imports for route handlers (food/professional routes removed; use world-model)
+// Dynamic imports for route handlers (food/professional routes removed; use PKM)
 let vaultGetRoute: { GET: Function };
 let vaultCheckRoute: { GET: Function };
 

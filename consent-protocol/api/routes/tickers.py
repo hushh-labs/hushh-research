@@ -76,7 +76,7 @@ async def sync_tickers_from_holdings(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
-    ETL symbols from decrypted world-model holdings into ticker master metadata.
+    ETL symbols from decrypted PKM holdings into ticker master metadata.
 
     Protected by VAULT_OWNER token because holdings are user-sensitive input.
     """

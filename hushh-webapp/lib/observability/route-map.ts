@@ -79,20 +79,20 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/db/vault/bootstrap-state",
   },
   {
-    regex: /^\/api\/world-model\/metadata\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/world-model/metadata/{user_id}",
+    regex: /^\/api\/pkm\/metadata\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/pkm/metadata/{user_id}",
   },
   {
-    regex: /^\/api\/world-model\/scopes\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/world-model/scopes/{user_id}",
+    regex: /^\/api\/pkm\/scopes\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/pkm/scopes/{user_id}",
   },
   {
-    regex: /^\/api\/world-model\/data\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/world-model/data/{user_id}",
+    regex: /^\/api\/pkm\/data\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/pkm/data/{user_id}",
   },
   {
-    regex: /^\/api\/world-model\/domain-data\/[^/?]+\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/world-model/domain-data/{user_id}/{domain}",
+    regex: /^\/api\/pkm\/domain-data\/[^/?]+\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/pkm/domain-data/{user_id}/{domain}",
   },
   {
     regex: /^\/api\/kai\/market\/insights\/[^/?]+(?:\?.*)?$/i,

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 
@@ -53,6 +54,40 @@ function activateProfile(profile) {
   }
 }
 
+function ensureWebDependenciesReady() {
+  const packageJsonPath = path.join(webRoot, 'package.json');
+  const packageLockPath = path.join(webRoot, 'package-lock.json');
+  const installedLockPath = path.join(webRoot, 'node_modules', '.package-lock.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  const requiredDeps = Object.keys(packageJson.dependencies || {});
+  const missingDeps = requiredDeps.filter((dep) => {
+    const depPackagePath = path.join(webRoot, 'node_modules', ...dep.split('/'), 'package.json');
+    return !fs.existsSync(depPackagePath);
+  });
+
+  if (missingDeps.length > 0) {
+    const preview = missingDeps.slice(0, 6).join(', ');
+    const suffix = missingDeps.length > 6 ? ` and ${missingDeps.length - 6} more` : '';
+    console.error(
+      `Missing installed web dependencies: ${preview}${suffix}. ` +
+        "Run 'cd hushh-webapp && npm install' before starting the dev server."
+    );
+    process.exit(1);
+  }
+
+  if (fs.existsSync(packageLockPath) && fs.existsSync(installedLockPath)) {
+    const packageLockStat = fs.statSync(packageLockPath);
+    const installedLockStat = fs.statSync(installedLockPath);
+    if (packageLockStat.mtimeMs > installedLockStat.mtimeMs + 1000) {
+      console.error(
+        "Your installed dependencies look older than package-lock.json. " +
+          "Run 'cd hushh-webapp && npm install' before starting the dev server."
+      );
+      process.exit(1);
+    }
+  }
+}
+
 async function main() {
   const { profile: argProfile, passthrough } = parseArgs(process.argv.slice(2));
   const envProfile = normalizeProfile(process.env.APP_RUNTIME_PROFILE);
@@ -72,6 +107,7 @@ async function main() {
     process.exit(1);
   }
 
+  ensureWebDependenciesReady();
   activateProfile(profile);
 
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';

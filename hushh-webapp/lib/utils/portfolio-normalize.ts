@@ -1,7 +1,7 @@
 /**
  * Kai portfolio normalizer (V2-only)
  *
- * Canonical world-model shape:
+ * Canonical PKM financial shape:
  * - financial.portfolio (FinancialPortfolioCanonicalV2)
  * - financial.analytics (FinancialAnalyticsV2)
  */
