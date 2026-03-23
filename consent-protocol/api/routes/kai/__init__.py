@@ -6,6 +6,7 @@ This package organizes Kai routes into logical modules:
 - chat.py: Conversational chat endpoint with auto-learning
 - portfolio.py: Portfolio import and analysis
 - plaid.py: Read-only brokerage connectivity, OAuth resume, refresh, and source selection
+- gmail.py: Profile Gmail receipts connector + sync lifecycle
 - analyze.py: Non-streaming analysis endpoint
 - stream.py: SSE streaming analysis endpoint
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
@@ -25,6 +26,7 @@ from .health import router as health_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
 from .plaid import router as plaid_router
+from .gmail import router as gmail_router
 from .portfolio import router as portfolio_router
 from .stream import router as stream_router
 from .voice import router as voice_router
@@ -70,6 +72,13 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/plaid/refresh/{run_id}/cancel",
     "/plaid/source",
     "/plaid/webhook",
+    "/gmail/connect/start",
+    "/gmail/connect/complete",
+    "/gmail/status/{user_id}",
+    "/gmail/disconnect",
+    "/gmail/sync",
+    "/gmail/sync/{run_id}",
+    "/gmail/receipts/{user_id}",
     "/support/message",
     "/dashboard/profile-picks/{user_id}",
     "/portfolio/analyze-losers",
@@ -91,6 +100,7 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
+kai_router.include_router(gmail_router)
 
 # Export for server.py
 router = kai_router

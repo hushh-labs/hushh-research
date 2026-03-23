@@ -66,7 +66,10 @@ function normalizeTranscriptEvent(payload: Record<string, unknown>): VoiceRealti
   if (!eventType) return null;
 
   const itemId = typeof payload.item_id === "string" ? payload.item_id : null;
-  if (eventType === "conversation.item.input_audio_transcription.delta") {
+  if (
+    eventType === "conversation.item.input_audio_transcription.delta" ||
+    eventType === "input_audio_transcription.delta"
+  ) {
     const delta = typeof payload.delta === "string" ? payload.delta : "";
     if (!delta.trim()) return null;
     return {
@@ -75,7 +78,24 @@ function normalizeTranscriptEvent(payload: Record<string, unknown>): VoiceRealti
       itemId,
     };
   }
-  if (eventType === "conversation.item.input_audio_transcription.completed") {
+  if (eventType === "conversation.item.input_audio_transcription.segment") {
+    const segment =
+      typeof payload.transcript === "string"
+        ? payload.transcript
+        : typeof payload.text === "string"
+          ? payload.text
+          : "";
+    if (!segment.trim()) return null;
+    return {
+      kind: "partial",
+      text: segment,
+      itemId,
+    };
+  }
+  if (
+    eventType === "conversation.item.input_audio_transcription.completed" ||
+    eventType === "input_audio_transcription.completed"
+  ) {
     const transcript = typeof payload.transcript === "string" ? payload.transcript : "";
     if (!transcript.trim()) return null;
     return {
@@ -232,6 +252,8 @@ export class VoiceRealtimeClient {
           : 800,
       disableAutoResponse: input.disableAutoResponse !== false,
       enableBargeIn: input.enableBargeIn !== false,
+      model: input.session.model,
+      voice: input.session.voice,
     });
 
     return stream;
@@ -241,11 +263,15 @@ export class VoiceRealtimeClient {
     silenceDurationMs: number;
     disableAutoResponse: boolean;
     enableBargeIn: boolean;
+    model: string;
+    voice: string;
   }): void {
     try {
       this.sendEvent({
         type: "session.update",
         session: {
+          type: "realtime",
+          model: input.model,
           audio: {
             input: {
               turn_detection: {
@@ -254,6 +280,9 @@ export class VoiceRealtimeClient {
                 create_response: input.disableAutoResponse ? false : true,
                 interrupt_response: input.enableBargeIn ? true : false,
               },
+            },
+            output: {
+              voice: input.voice || "alloy",
             },
           },
         },
@@ -601,12 +630,23 @@ export class VoiceRealtimeClient {
       const message =
         (errorObject && typeof errorObject.message === "string" && errorObject.message) ||
         "Realtime API error";
+      const code =
+        (errorObject && typeof errorObject.code === "string" && errorObject.code.trim()) || null;
+      const errorType =
+        (errorObject && typeof errorObject.type === "string" && errorObject.type.trim()) || null;
+      const eventId = (typeof payload.event_id === "string" && payload.event_id.trim()) || null;
+      const param =
+        (errorObject && typeof errorObject.param === "string" && errorObject.param.trim()) || null;
       const pending = this.pendingSpeech;
       if (pending) {
         pending.reject(new Error(message));
       }
       this.onDebug?.("stream_error", {
         message,
+        code,
+        error_type: errorType,
+        event_id: eventId,
+        param,
       });
     }
   }

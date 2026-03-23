@@ -130,6 +130,13 @@ def _plan_body() -> dict:
     }
 
 
+def _realtime_session_body() -> dict:
+    return {
+        "user_id": "user_a",
+        "voice": "alloy",
+    }
+
+
 def test_voice_plan_respects_rollout_allowlist(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -171,6 +178,74 @@ def test_voice_plan_respects_rollout_allowlist(
     assert payload["response"]["message"] == "Voice is not enabled for this account yet."
     assert payload["memory"]["allow_durable_write"] is False
     assert called["value"] is False
+
+
+def test_voice_realtime_session_respects_rollout_allowlist(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
+    monkeypatch.setenv("KAI_VOICE_V1_CANARY_PERCENT", "100")
+
+    called = {"value": False}
+
+    async def _never_called(*args, **kwargs):
+        called["value"] = True
+        return {}
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "create_realtime_session", _never_called)
+
+    response = client.post(
+        "/api/kai/voice/realtime/session",
+        json=_realtime_session_body(),
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Voice is not enabled for this account yet."
+    assert called["value"] is False
+
+
+def test_voice_realtime_session_allows_rollout_included_user(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+
+    async def _fake_session(*args, **kwargs):
+        return {
+            "session_id": "sess_123",
+            "client_secret": "ephemeral_secret",
+            "client_secret_expires_at": 2_000_000_000,
+            "model": "gpt-realtime",
+            "voice": "alloy",
+            "server_vad_enabled": True,
+            "silence_duration_ms": 800,
+            "auto_response_enabled": False,
+            "barge_in_enabled": True,
+        }
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "create_realtime_session", _fake_session)
+
+    response = client.post(
+        "/api/kai/voice/realtime/session",
+        json=_realtime_session_body(),
+        headers={**_auth(token), "X-Voice-Turn-Id": "vturn_test_realtime_001"},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert response.headers.get("X-Voice-Turn-Id") == "vturn_test_realtime_001"
+    assert payload["session_id"] == "sess_123"
+    assert payload["model"] == "gpt-realtime"
+    assert payload["voice"] == "alloy"
+    assert payload["client_secret"] == "ephemeral_secret"
 
 
 def test_voice_plan_respects_canary_percent(

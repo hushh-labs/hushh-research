@@ -104,6 +104,38 @@ else:
 PY
 }
 
+validate_proxy_credentials_json() {
+  local raw="$1"
+  python3 - "$raw" <<'PY'
+import json
+import sys
+
+raw = sys.argv[1]
+try:
+    data = json.loads(raw)
+except Exception as exc:
+    print(f"Invalid FIREBASE_SERVICE_ACCOUNT_JSON (not valid JSON): {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+required_keys = ("type", "project_id", "private_key", "client_email")
+missing = [key for key in required_keys if not str(data.get(key, "")).strip()]
+if missing:
+    print(
+        "Invalid FIREBASE_SERVICE_ACCOUNT_JSON (missing required keys): "
+        + ", ".join(missing),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+if str(data.get("type", "")).strip() != "service_account":
+    print(
+        "Invalid FIREBASE_SERVICE_ACCOUNT_JSON (type must be 'service_account').",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
+}
+
 wait_for_port() {
   local host="$1"
   local port="$2"
@@ -253,6 +285,11 @@ PY
     fi
     proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
     if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
+      if ! validate_proxy_credentials_json "$PROXY_CREDENTIALS_JSON"; then
+        echo "Refusing to start Cloud SQL proxy with malformed FIREBASE_SERVICE_ACCOUNT_JSON." >&2
+        echo "Fix consent-protocol/.env.local-uatdb.local and rerun." >&2
+        exit 1
+      fi
       PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
       python3 - "$PROXY_CREDENTIALS_TEMP" "$PROXY_CREDENTIALS_JSON" <<'PY'
 import json
@@ -282,8 +319,20 @@ PY
     "${proxy_cmd[@]}" >/tmp/hushh-cloud-sql-proxy.log 2>&1 &
     PROXY_PID=$!
     if ! wait_for_port 127.0.0.1 "$PROXY_PORT"; then
-      echo "Cloud SQL proxy failed to bind 127.0.0.1:${PROXY_PORT}. See /tmp/hushh-cloud-sql-proxy.log" >&2
-      exit 1
+      bind_conflict=false
+      if [ -f /tmp/hushh-cloud-sql-proxy.log ] && grep -Eqi 'address already in use|bind: address already in use' /tmp/hushh-cloud-sql-proxy.log; then
+        bind_conflict=true
+      fi
+      if [ "$bind_conflict" = "true" ] && port_is_listening 127.0.0.1 "$PROXY_PORT"; then
+        echo "Cloud SQL proxy reported port conflict on 127.0.0.1:${PROXY_PORT}; reusing existing listener."
+        PROXY_PID=""
+      else
+        echo "Cloud SQL proxy failed to bind 127.0.0.1:${PROXY_PORT}. See /tmp/hushh-cloud-sql-proxy.log" >&2
+        if [ -f /tmp/hushh-cloud-sql-proxy.log ]; then
+          tail -n 20 /tmp/hushh-cloud-sql-proxy.log >&2 || true
+        fi
+        exit 1
+      fi
     fi
   fi
 fi

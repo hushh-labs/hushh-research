@@ -42,6 +42,9 @@ REQUIRED_RUNTIME_TABLES = (
     "consent_audit",
     "user_push_tokens",
     "internal_access_events",
+    "kai_gmail_connections",
+    "kai_gmail_sync_runs",
+    "kai_gmail_receipts",
     "runtime_persona_state",
     "ria_pick_uploads",
     "ria_pick_upload_rows",
@@ -174,6 +177,9 @@ else:
 from api.routes.kai import router as kai_router  # noqa: E402
 from api.routes.kai.market_insights import (  # noqa: E402
     start_market_insights_background_refresh,
+)
+from hushh_mcp.services.gmail_receipts_service import (  # noqa: E402
+    start_gmail_receipts_background_sync,
 )
 
 app.include_router(kai_router)
@@ -308,6 +314,12 @@ async def shutdown_remote_mcp_transport():
 async def startup_market_insights_refresh():
     """Start background market cache refresh loop for public modules."""
     start_market_insights_background_refresh()
+
+
+@app.on_event("startup")
+async def startup_gmail_receipts_sync():
+    """Start background Gmail receipts sync scheduler."""
+    start_gmail_receipts_background_sync()
 
 
 # ============================================================================

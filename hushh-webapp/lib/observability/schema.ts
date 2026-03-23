@@ -47,6 +47,12 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   ria_workspace_opened: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   mcp_ria_read_tool_called: [...BASE_ALLOWED_KEYS, "action", "result"],
   profile_method_switch_result: [...BASE_ALLOWED_KEYS, "result"],
+  gmail_connect_started: [...BASE_ALLOWED_KEYS, "action", "result"],
+  gmail_connect_result: [...BASE_ALLOWED_KEYS, "action", "result"],
+  gmail_disconnect_result: [...BASE_ALLOWED_KEYS, "result"],
+  gmail_sync_requested: [...BASE_ALLOWED_KEYS, "action", "result"],
+  gmail_sync_result: [...BASE_ALLOWED_KEYS, "action", "result"],
+  gmail_receipts_loaded: [...BASE_ALLOWED_KEYS, "result"],
   account_delete_requested: [...BASE_ALLOWED_KEYS, "result"],
   account_delete_completed: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   api_request_completed: [

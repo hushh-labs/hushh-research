@@ -586,10 +586,18 @@ class DatabaseClient:
         try:
             with self.engine.connect() as conn:
                 result = conn.execute(text(sql), params or {})
+                statement = (sql or "").lstrip().lower()
+                leading_keyword = statement.split(None, 1)[0] if statement else ""
+                mutating_leads = {"insert", "update", "delete", "merge"}
+                is_mutating = leading_keyword in mutating_leads
 
                 # Check if this is a SELECT-like query that returns rows
                 if result.returns_rows:
                     rows = [dict(row._mapping) for row in result]
+                    # INSERT/UPDATE/DELETE ... RETURNING must be committed or they are rolled back
+                    # when the connection context exits.
+                    if is_mutating:
+                        conn.commit()
                     return QueryResult(data=rows, count=len(rows))
                 else:
                     conn.commit()

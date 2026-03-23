@@ -35,7 +35,14 @@
           "/portfolio/summary/{user_id}",
           "/portfolio/analyze-losers",
           "/portfolio/analyze-losers/stream",
-          "/market/insights/{user_id}"
+          "/market/insights/{user_id}",
+          "/gmail/connect/start",
+          "/gmail/connect/complete",
+          "/gmail/status/{user_id}",
+          "/gmail/disconnect",
+          "/gmail/sync",
+          "/gmail/sync/{run_id}",
+          "/gmail/receipts/{user_id}"
         ]
       },
       "native": {
@@ -632,14 +639,16 @@
         "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
         "hushh-webapp/lib/services/account-service.ts",
         "hushh-webapp/lib/services/vault-service.ts",
-        "hushh-webapp/lib/services/ria-service.ts"
+        "hushh-webapp/lib/services/ria-service.ts",
+        "hushh-webapp/lib/services/gmail-receipts-service.ts"
       ],
       "apiContractIds": [
         "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "accountDelete",
-        "iamProxy"
+        "iamProxy",
+        "kaiProxy"
       ],
       "nativeContractIds": [
         "pkmProxy",
@@ -681,6 +690,29 @@
         "pkmProxy",
         "vaultWebProxy",
         "vaultOwnerToken"
+      ]
+    },
+    {
+      "id": "profileReceiptsPage",
+      "pageFile": "hushh-webapp/app/profile/receipts/page.tsx",
+      "serviceFiles": [
+        "hushh-webapp/lib/services/gmail-receipts-service.ts"
+      ],
+      "apiContractIds": [
+        "kaiProxy"
+      ]
+    },
+    {
+      "id": "profileGmailOauthReturnPage",
+      "pageFile": "hushh-webapp/app/profile/gmail/oauth/return/page.tsx",
+      "componentFiles": [
+        "hushh-webapp/components/app-ui/hushh-loader.tsx"
+      ],
+      "serviceFiles": [
+        "hushh-webapp/lib/services/gmail-receipts-service.ts"
+      ],
+      "apiContractIds": [
+        "kaiProxy"
       ]
     },
     {

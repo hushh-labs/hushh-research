@@ -12,6 +12,8 @@ describe("observability route map", () => {
     expect(resolveRouteId("/kai/dashboard/analysis")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/marketplace")).toBe("marketplace");
     expect(resolveRouteId("/marketplace/ria")).toBe("marketplace_ria_profile");
+    expect(resolveRouteId("/profile/receipts")).toBe("profile_receipts");
+    expect(resolveRouteId("/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
     expect(resolveRouteId("/ria/workspace")).toBe("ria_workspace");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
@@ -32,6 +34,9 @@ describe("observability route map", () => {
     );
     expect(normalizeApiPathToTemplate("/api/consent/center?actor=ria&view=outgoing")).toBe(
       "/api/consent/center"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/status/user_123")).toBe(
+      "/api/kai/gmail/status/{user_id}"
     );
   });
 

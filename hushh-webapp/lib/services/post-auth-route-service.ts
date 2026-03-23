@@ -13,6 +13,11 @@ function normalizeRedirectPath(path: string | null | undefined): string {
   return path;
 }
 
+function isOAuthContinuationRoute(path: string): boolean {
+  const pathname = path.split(/[?#]/, 1)[0]?.trim() || "";
+  return pathname === ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
+}
+
 export class PostAuthRouteService {
   static async resolveAfterLogin(params: {
     userId: string;
@@ -20,6 +25,11 @@ export class PostAuthRouteService {
     idToken?: string;
   }): Promise<string> {
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
+
+    if (isOAuthContinuationRoute(fallbackRoute)) {
+      return fallbackRoute;
+    }
+
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
     const canOverrideWithPersona =
       !params.redirectPath ||

@@ -639,6 +639,34 @@ async def kai_voice_realtime_session(
         )
         raise HTTPException(status_code=403, detail="Token user_id does not match request user_id")
 
+    rollout = _voice_rollout_state(body.user_id)
+    if not rollout["enabled"]:
+        _log_voice_metric(
+            "realtime_session_rollout_blocked_count",
+            1,
+            turn_id=turn_id,
+            user_id=body.user_id,
+            tags={
+                "reason": rollout["reason"],
+                "canary_percent": rollout["canary_percent"],
+            },
+        )
+        _trace_voice_stage(
+            turn_id,
+            "response_sent",
+            {
+                "route": "/voice/realtime/session",
+                "status": "error",
+                "http_status": 403,
+                "error": _VOICE_NOT_ENABLED_MESSAGE,
+                "rollout_reason": rollout["reason"],
+                "canary_percent": rollout["canary_percent"],
+                "bucket": rollout["bucket"],
+            },
+            finalize=True,
+        )
+        raise HTTPException(status_code=403, detail=_VOICE_NOT_ENABLED_MESSAGE)
+
     try:
         await _ensure_client_connected(request, turn_id=turn_id, route="/voice/realtime/session")
         session = await voice_service.create_realtime_session(

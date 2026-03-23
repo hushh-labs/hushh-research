@@ -26,6 +26,7 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
   },
   { route: ROUTES.LOGIN, mode: "hidden", exemptionReason: "Auth-only route intentionally bypasses the signed-in app shell." },
   { route: ROUTES.LOGOUT, mode: "hidden", exemptionReason: "Logout route is a transitional auth screen, not a standard content page." },
+  { route: "/portfolio/shared", mode: "hidden", exemptionReason: "Shared portfolio snapshot route is a public read-only view with dedicated chrome-free layout." },
   { route: ROUTES.LABS_PROFILE_APPEARANCE, mode: "hidden", exemptionReason: "Labs route is intentionally isolated from the primary app shell." },
   { route: ROUTES.CONSENTS, mode: "redirect", exemptionReason: "Compatibility alias routes into the shared consent sheet instead of rendering a standalone page." },
   {
@@ -121,6 +122,38 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     shellVerification: {
       file: "app/profile/page.tsx",
       includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"],
+    },
+  },
+  {
+    route: ROUTES.PROFILE_PKM,
+    mode: "standard",
+    shellVerification: {
+      file: "app/profile/pkm/page.tsx",
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"],
+    },
+  },
+  {
+    route: ROUTES.PROFILE_PKM_AGENT_LAB,
+    mode: "standard",
+    shellVerification: {
+      file: "app/profile/pkm-agent-lab/page.tsx",
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"],
+    },
+  },
+  {
+    route: ROUTES.PROFILE_RECEIPTS,
+    mode: "standard",
+    shellVerification: {
+      file: "app/profile/receipts/page.tsx",
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"],
+    },
+  },
+  {
+    route: ROUTES.PROFILE_GMAIL_OAUTH_RETURN,
+    mode: "standard",
+    shellVerification: {
+      file: "app/profile/gmail/oauth/return/page.tsx",
+      includes: ["AppPageShell", "AppPageContentRegion"],
     },
   },
   {

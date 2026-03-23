@@ -34,6 +34,12 @@ export type ObservabilityEventName =
   | "ria_workspace_opened"
   | "mcp_ria_read_tool_called"
   | "profile_method_switch_result"
+  | "gmail_connect_started"
+  | "gmail_connect_result"
+  | "gmail_disconnect_result"
+  | "gmail_sync_requested"
+  | "gmail_sync_result"
+  | "gmail_receipts_loaded"
   | "account_delete_requested"
   | "account_delete_completed"
   | "api_request_completed";
@@ -176,6 +182,28 @@ export interface EventPayloadMap {
     result: EventResult;
   };
   profile_method_switch_result: {
+    result: EventResult;
+  };
+  gmail_connect_started: {
+    action: "incremental" | "full";
+    result: "success";
+  };
+  gmail_connect_result: {
+    action: "start" | "complete";
+    result: EventResult;
+  };
+  gmail_disconnect_result: {
+    result: EventResult;
+  };
+  gmail_sync_requested: {
+    action: "manual";
+    result: "success";
+  };
+  gmail_sync_result: {
+    action: "queue" | "already_running" | "poll";
+    result: EventResult;
+  };
+  gmail_receipts_loaded: {
     result: EventResult;
   };
   account_delete_requested: {

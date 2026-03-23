@@ -72,6 +72,45 @@ function stopMediaStream(stream: MediaStream | null | undefined): void {
   });
 }
 
+function asLowerTrimmed(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function isNonFatalRealtimeStreamError(payload?: Record<string, unknown>): boolean {
+  const message = asLowerTrimmed(payload?.message);
+  const code = asLowerTrimmed(payload?.code);
+  const errorType = asLowerTrimmed(payload?.error_type);
+  const haystack = `${message} ${code} ${errorType}`.trim();
+  if (!haystack) return false;
+  return (
+    haystack.includes("response is not in progress") ||
+    haystack.includes("response not in progress") ||
+    haystack.includes("no active response") ||
+    haystack.includes("already cancelled") ||
+    haystack.includes("already canceled") ||
+    haystack.includes("nothing to cancel") ||
+    haystack.includes("unknown parameter") ||
+    haystack.includes("invalid parameter") ||
+    haystack.includes("unrecognized parameter") ||
+    haystack.includes("invalid event")
+  );
+}
+
+function isHardFatalRealtimeStreamError(payload?: Record<string, unknown>): boolean {
+  const message = asLowerTrimmed(payload?.message);
+  const code = asLowerTrimmed(payload?.code);
+  const errorType = asLowerTrimmed(payload?.error_type);
+  const haystack = `${message} ${code} ${errorType}`.trim();
+  if (!haystack) return false;
+  return (
+    haystack.includes("authentication") ||
+    haystack.includes("not authorized") ||
+    haystack.includes("invalid api key") ||
+    haystack.includes("session expired") ||
+    haystack.includes("token expired")
+  );
+}
+
 class VoiceSessionManager {
   private static singleton: VoiceSessionManager | null = null;
 
@@ -103,6 +142,7 @@ class VoiceSessionManager {
   private connectPromise: Promise<void> | null = null;
   private connectGeneration = 0;
   private connectAbortController: AbortController | null = null;
+  private transportRecoveryInFlight = false;
 
   private visibilityHandlerRegistered = false;
 
@@ -224,6 +264,48 @@ class VoiceSessionManager {
     });
   }
 
+  private async recoverFromTransportFailure(
+    reason: string,
+    errorMessage: string,
+    payload: Record<string, unknown> = {}
+  ): Promise<void> {
+    if (this.transportRecoveryInFlight) {
+      this.emitDebug("transport_recovery_skipped_in_flight", {
+        reason,
+        error_message: errorMessage,
+      });
+      return;
+    }
+
+    this.transportRecoveryInFlight = true;
+    this.setState("error", reason, errorMessage);
+    this.emitDebug("transport_recovery_started", {
+      reason,
+      error_message: errorMessage,
+      ...payload,
+    });
+
+    try {
+      await this.disconnect("transport_error_cleanup", { stopLocalStream: true });
+      if (this.scopeIds.size === 0 || !this.userId || !this.vaultOwnerToken) {
+        this.emitDebug("transport_recovery_skipped_no_scope", { reason });
+        return;
+      }
+      await this.ensureConnected("transport_recovery");
+      this.emitDebug("transport_recovery_succeeded", { reason });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "VOICE_REALTIME_TRANSPORT_RECOVERY_FAILED";
+      this.setState("error", "transport_recovery_failed", message);
+      this.emitDebug("transport_recovery_failed", {
+        reason,
+        error_message: message,
+      });
+    } finally {
+      this.transportRecoveryInFlight = false;
+    }
+  }
+
   async ensureConnected(reason: string = "manual"): Promise<void> {
     if (!this.userId || !this.vaultOwnerToken) {
       throw new Error("VOICE_SESSION_AUTH_REQUIRED");
@@ -293,16 +375,34 @@ class VoiceSessionManager {
           },
           onDebug: (event, payload) => {
             this.emitDebug(event, payload || {});
-            if (
+            if (event === "stream_error" && isNonFatalRealtimeStreamError(payload || {})) {
+              this.emitDebug("stream_error_ignored_non_fatal", payload || {});
+              return;
+            }
+            if (event === "stream_error" && !isHardFatalRealtimeStreamError(payload || {})) {
+              this.emitDebug("stream_error_ignored_soft", payload || {});
+              return;
+            }
+
+            const peerConnectionFailed =
+              event === "peer_connection_state_changed" &&
+              typeof payload?.connection_state === "string" &&
+              ["closed", "failed"].includes(payload.connection_state);
+            const transportFailed =
               event === "data_channel_closed" ||
               event === "data_channel_error" ||
-              event === "stream_error" ||
-              (event === "peer_connection_state_changed" &&
-                typeof payload?.connection_state === "string" &&
-                ["closed", "failed", "disconnected"].includes(payload.connection_state))
-            ) {
-              this.setState("error", "realtime_transport_error", "VOICE_REALTIME_TRANSPORT_ERROR");
-            }
+              (event === "stream_error" && isHardFatalRealtimeStreamError(payload || {})) ||
+              peerConnectionFailed;
+
+            if (!transportFailed) return;
+
+            const message =
+              (typeof payload?.message === "string" && payload.message.trim()) ||
+              (typeof payload?.connection_state === "string" &&
+              ["closed", "failed"].includes(payload.connection_state)
+                ? `VOICE_REALTIME_CONNECTION_${payload.connection_state.toUpperCase()}`
+                : "VOICE_REALTIME_TRANSPORT_ERROR");
+            void this.recoverFromTransportFailure("realtime_transport_error", message, payload || {});
           },
         });
 

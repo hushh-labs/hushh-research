@@ -77,3 +77,6 @@ hushh-webapp/android/.gradle/
 hushh-webapp/android/build/
 hushh-webapp/android/app/build/
 /temp
+
+# Personal local startup notes
+start.md

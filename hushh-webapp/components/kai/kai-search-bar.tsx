@@ -710,13 +710,35 @@ export function KaiSearchBar({
         setSessionStateText(snapshot.state);
 
         if (snapshot.state === "connected") {
+          setVoiceErrorMessage(null);
           const stream = voiceSessionManager.getStream();
           if (stream) {
             void startMeterRef.current(stream);
           }
+          if (
+            !snapshot.muted &&
+            (voiceUiStateRef.current === "sheet_listening" || voiceUiStateRef.current === "retry_ready")
+          ) {
+            if (voiceUiStateRef.current === "retry_ready") {
+              transitionVoiceStateRef.current("sheet_listening", "session_recovered");
+            }
+            setTranscriptPreview("Listening...");
+          }
         }
         if (snapshot.state === "idle" || snapshot.state === "error") {
           stopMeterRef.current();
+        }
+        if (snapshot.state === "connecting" && voiceUiStateRef.current === "sheet_listening") {
+          setTranscriptPreview("Connecting realtime voice session...");
+        }
+        if (snapshot.state === "error") {
+          const detail =
+            typeof snapshot.lastError === "string" && snapshot.lastError.trim()
+              ? snapshot.lastError.trim()
+              : "Realtime voice session failed.";
+          setProcessingStageText(null);
+          setVoiceErrorMessage(detail);
+          setTranscriptPreview("Realtime session dropped. Reconnecting...");
         }
 
         emitDebugRef.current(
@@ -821,14 +843,18 @@ export function KaiSearchBar({
     if (voiceUiState !== "sheet_listening") return;
     const timer = window.setInterval(() => {
       const activity = smoothedLevel > 0.06 ? "Audio detected..." : "Listening...";
+      const statusMessage =
+        sessionStateText === "error"
+          ? "Realtime session dropped. Reconnecting..."
+          : "Connecting realtime voice session...";
       setTranscriptPreview(
-        realtimeSessionReady ? activity : "Connecting realtime voice session..."
+        realtimeSessionReady ? activity : statusMessage
       );
     }, 280);
     return () => {
       window.clearInterval(timer);
     };
-  }, [realtimeSessionReady, smoothedLevel, voiceUiState]);
+  }, [realtimeSessionReady, sessionStateText, smoothedLevel, voiceUiState]);
 
   const showVoiceSheet =
     voiceUiState === "sheet_listening" || voiceUiState === "sheet_paused";

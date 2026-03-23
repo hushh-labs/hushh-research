@@ -8,8 +8,10 @@ import logging
 import os
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.utils import parseaddr
 from typing import Literal, Optional
 
+from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
@@ -79,6 +81,19 @@ def _derive_project_id(service_account_email: str) -> str | None:
 
 def _env_truthy(name: str) -> bool:
     return _clean_text(os.getenv(name)).lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_reply_to(user_email: str | None) -> str | None:
+    candidate = _clean_text(user_email)
+    if not candidate or "\r" in candidate or "\n" in candidate:
+        return None
+
+    _, address = parseaddr(candidate)
+    if address != candidate or "@" not in address:
+        return None
+    if any(ch.isspace() for ch in address):
+        return None
+    return address
 
 
 @dataclass(frozen=True)
@@ -243,8 +258,9 @@ class SupportEmailService:
             subject=subject,
             delivery_mode=cfg.delivery_mode,
         )
-        if user_email:
-            msg["Reply-To"] = user_email
+        reply_to = _normalize_reply_to(user_email)
+        if reply_to:
+            msg["Reply-To"] = reply_to
 
         sections = [
             f"Kind: {self._kind_label(kind)}",
@@ -296,15 +312,26 @@ class SupportEmailService:
         except SupportEmailNotConfiguredError:
             raise
         except Exception as exc:
+            if isinstance(exc, google_auth_exceptions.GoogleAuthError):
+                logger.exception(
+                    "support_email.transport_failed delegated_user=%s recipient=%s",
+                    self.config.delegated_user,
+                    self.config.effective_recipient,
+                )
+                raise SupportEmailSendError(
+                    "Gmail API authorization failed. Verify Workspace domain-wide delegation "
+                    f"for client ID `{self.config.client_id or 'unknown'}` and that "
+                    f"`{self.config.delegated_user}` is a valid mailbox user."
+                ) from exc
+
             logger.exception(
                 "support_email.transport_failed delegated_user=%s recipient=%s",
                 self.config.delegated_user,
                 self.config.effective_recipient,
             )
             raise SupportEmailSendError(
-                "Gmail API authorization failed. Verify Workspace domain-wide delegation "
-                f"for client ID `{self.config.client_id or 'unknown'}` and that "
-                f"`{self.config.delegated_user}` is a valid mailbox user."
+                "Gmail API transport failed. Check network connectivity, Gmail API "
+                "availability, and try again."
             ) from exc
         try:
             payload = response.json()

@@ -7,6 +7,8 @@ export const ROUTE_ID_VALUES = [
   "logout",
   "labs_profile_appearance",
   "profile",
+  "profile_receipts",
+  "profile_gmail_oauth_return",
   "consents",
   "marketplace",
   "marketplace_ria_profile",
@@ -36,6 +38,8 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.LOGOUT) return "logout";
   if (pathname === ROUTES.LABS_PROFILE_APPEARANCE) return "labs_profile_appearance";
   if (pathname === ROUTES.PROFILE) return "profile";
+  if (pathname === ROUTES.PROFILE_RECEIPTS) return "profile_receipts";
+  if (pathname === ROUTES.PROFILE_GMAIL_OAUTH_RETURN) return "profile_gmail_oauth_return";
   if (pathname === ROUTES.CONSENTS) return "consents";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
   if (
@@ -141,6 +145,34 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/kai\/plaid\/source(?:\?.*)?$/i,
     template: "/api/kai/plaid/source",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/connect\/start(?:\?.*)?$/i,
+    template: "/api/kai/gmail/connect/start",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/connect\/complete(?:\?.*)?$/i,
+    template: "/api/kai/gmail/connect/complete",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/status\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/gmail/status/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/disconnect(?:\?.*)?$/i,
+    template: "/api/kai/gmail/disconnect",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/sync(?:\?.*)?$/i,
+    template: "/api/kai/gmail/sync",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/sync\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/gmail/sync/{run_id}",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/receipts\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/gmail/receipts/{user_id}",
   },
   {
     regex: /^\/api\/kai\/analyze\/run\/start(?:\?.*)?$/i,

@@ -108,4 +108,21 @@ describe("PostAuthRouteService", () => {
     ).resolves.toBe(ROUTES.KAI_HOME);
     expect(updatePreVaultStateMock).toHaveBeenCalledTimes(1);
   });
+
+  it("preserves Gmail OAuth callback paths after login", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: false,
+      preOnboardingCompletedAt: null,
+      preOnboardingSkipped: null,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: ROUTES.PROFILE_GMAIL_OAUTH_RETURN,
+      })
+    ).resolves.toBe(ROUTES.PROFILE_GMAIL_OAUTH_RETURN);
+    expect(loadPendingOnboardingMock).not.toHaveBeenCalled();
+  });
 });

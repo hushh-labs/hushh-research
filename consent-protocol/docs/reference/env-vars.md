@@ -34,6 +34,17 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `SUPPORT_EMAIL_TO` | `hushh_mcp/services/support_email_service.py` | Recommended | Live support inbox recipient. Default: `support@hushh.ai`. |
 | `SUPPORT_EMAIL_TEST_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Test-mode recipient override for non-production verification. |
 | `SUPPORT_EMAIL_MODE` | `hushh_mcp/services/support_email_service.py` | Optional | `live` or `test`. If unset, non-production defaults to `test` when `SUPPORT_EMAIL_TEST_TO` exists. |
+| `GMAIL_OAUTH_CLIENT_ID` | `hushh_mcp/services/gmail_receipts_service.py` | If Gmail receipts enabled | Google OAuth client ID for the app-level Gmail connector. |
+| `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | If Gmail receipts enabled | Google OAuth client secret paired with `GMAIL_OAUTH_CLIENT_ID`. |
+| `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | If Gmail receipts enabled | Must match the allowlisted callback path (for example `/profile/gmail/oauth/return`). |
+| `GMAIL_TOKEN_ENCRYPTION_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Recommended | AES-GCM key for stored Gmail OAuth token envelopes. |
+| `KAI_GMAIL_RECEIPTS_SYNC_ENABLED` | `hushh_mcp/services/gmail_receipts_service.py` | No | Enables scheduled Gmail receipt sync loop (default `true`). |
+| `KAI_GMAIL_RECEIPTS_SYNC_LOOP_SECONDS` | `hushh_mcp/services/gmail_receipts_service.py` | No | Scheduler loop interval in seconds (default `3600`). |
+| `KAI_GMAIL_RECEIPTS_DAILY_SYNC_HOURS` | `hushh_mcp/services/gmail_receipts_service.py` | No | How stale a connection must be before auto daily sync queues (default `24`). |
+| `KAI_GMAIL_RECEIPTS_MAX_MESSAGES_PER_SYNC` | `hushh_mcp/services/gmail_receipts_service.py` | No | Per-run max Gmail message candidates processed (default `300`). |
+| `GMAIL_RECEIPT_HTTP_TIMEOUT_SECONDS` | `hushh_mcp/services/gmail_receipts_service.py` | No | Gmail API HTTP timeout (default `25`). |
+| `GMAIL_RECEIPT_LLM_FALLBACK_ENABLED` | `hushh_mcp/services/gmail_receipts_service.py` | No | Enables LLM fallback classifier for ambiguous receipt candidates. |
+| `GMAIL_RECEIPT_LLM_MODEL` | `hushh_mcp/services/gmail_receipts_service.py` | No | Model id used by Gmail receipt LLM fallback (default `gemini-2.5-flash-lite`). |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
 | `ENVIRONMENT` | `hushh_mcp/config.py` | No | `production` or `development` (default). |
@@ -190,6 +201,9 @@ This path requires Workspace domain-wide delegation for the chosen service accou
 | `DB_PASSWORD` | Yes | GCP Secret Manager |
 | `FRONTEND_URL` | Yes | GCP Secret Manager |
 | `GOOGLE_API_KEY` | Yes | GCP Secret Manager |
+| `GMAIL_OAUTH_CLIENT_ID` | Yes | GCP Secret Manager |
+| `GMAIL_OAUTH_CLIENT_SECRET` | Yes | GCP Secret Manager |
+| `GMAIL_TOKEN_ENCRYPTION_KEY` | Yes | GCP Secret Manager |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Yes | GCP Secret Manager |
 | `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | Yes | GCP Secret Manager |
 | `DB_HOST` | No | Cloud Run env var |
