@@ -29,7 +29,7 @@ final class HushhProxyClient {
         "HushhRuntime",
         "HushhVault",
         "HushhConsent",
-        "WorldModel",
+        "PersonalKnowledgeModel",
         "Kai",
         "HushhNotifications",
         "HushhAccount",

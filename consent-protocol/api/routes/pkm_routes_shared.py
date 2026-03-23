@@ -1,28 +1,27 @@
-# consent-protocol/api/routes/world_model.py
+# consent-protocol/api/routes/pkm_routes_shared.py
 """
-World Model API Routes - BYOK world model storage and discovery.
+Shared PKM request/response models and route handlers.
 
-Implements the evolving architecture:
-- world_model_domain_blobs: Encrypted per-domain payloads
-- user_domain_manifests: Explicit structure contracts for scopes
-- world_model_index_v2: Minimal discovery metadata for UI/bootstrap
-- world_model_data: Legacy full-blob read fallback
+Implements the current PKM architecture:
+- pkm_blobs: encrypted per-domain payloads
+- pkm_manifests: explicit structure contracts for scopes
+- pkm_index: minimal discovery metadata for UI/bootstrap
 """
 
 import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.domain_contracts import canonical_top_level_domain, domain_registry_payload
-from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/world-model", tags=["world-model"])
+router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 
 def _isoformat_or_none(value):
@@ -87,7 +86,7 @@ def _summary_attribute_count(summary: dict | None) -> int:
 
 async def get_risk_profile_from_index(user_id: str) -> tuple[str, list[dict], dict[str, int]]:
     """
-    Get user's context from world_model_index_v2 domain_summaries.
+    Get user context from PKM index domain summaries.
 
     Returns cached data stored in the financial summary contract:
     - risk_profile: user preference risk from onboarding/profile settings
@@ -97,10 +96,10 @@ async def get_risk_profile_from_index(user_id: str) -> tuple[str, list[dict], di
     Falls back to defaults if no cache exists.
     """
     try:
-        world_model = get_world_model_service()
+        pkm_service = get_pkm_service()
 
-        # Get index from world_model_index_v2
-        index = await world_model.get_index_v2(user_id)
+        # Read cached summary metadata from PKM index.
+        index = await pkm_service.get_index_v2(user_id)
 
         if index and "financial" in (index.domain_summaries or {}):
             financial_summary = index.domain_summaries["financial"]
@@ -124,7 +123,7 @@ async def get_risk_profile_from_index(user_id: str) -> tuple[str, list[dict], di
 
             return risk_profile, cached_holdings, portfolio_allocation
     except Exception as e:
-        logger.warning(f"[World Model Context] Failed to get context from index: {e}")
+        logger.warning(f"[PKM Context] Failed to get context from index: {e}")
 
     # Fallback defaults if no cache exists
     return "balanced", [], {"equities_pct": 70, "bonds_pct": 20, "cash_pct": 10}
@@ -134,22 +133,22 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
     """
     Fetch recent decisions for a user from mutation events first.
 
-    Canonical source: world_model_mutation_events decision projections.
+    Canonical source: PKM mutation event decision projections.
     Returns a list of DecisionRecord objects sorted by creation date (newest first).
     """
     try:
-        world_model = get_world_model_service()
+        pkm_service = get_pkm_service()
         records: list[DecisionRecord] = []
-        items = await world_model.get_recent_decision_records(user_id, limit=limit)
+        items = await pkm_service.get_recent_decision_records(user_id, limit=limit)
         if not items:
-            index = await world_model.get_index_v2(user_id)
+            index = await pkm_service.get_index_v2(user_id)
             domain_summaries = index.domain_summaries if index and index.domain_summaries else {}
             financial_summary = (
                 domain_summaries.get("financial")
                 if isinstance(domain_summaries.get("financial"), dict)
                 else {}
             )
-            items = world_model._extract_decision_records(financial_summary)
+            items = pkm_service._extract_decision_records(financial_summary)
 
         for d in items:
             try:
@@ -171,7 +170,7 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
         records.sort(key=lambda x: x.created_at if x.created_at else "", reverse=True)
         return records[:limit]
     except Exception as e:
-        logger.warning(f"[World Model Context] Failed to fetch decisions: {e}")
+        logger.warning(f"[PKM Context] Failed to fetch decisions: {e}")
         return []
 
 
@@ -207,7 +206,7 @@ class StructureDecisionPayload(BaseModel):
     summary_projection: dict = Field(default_factory=dict)
     sensitivity_labels: dict = Field(default_factory=dict)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    source_agent: str = Field(default="world_model_structure_agent")
+    source_agent: str = Field(default="pkm_structure_agent")
     contract_version: int = Field(default=1, ge=1)
 
 
@@ -269,8 +268,8 @@ async def store_domain(
 
     This endpoint:
     1. Receives PRE-ENCRYPTED data from client
-    2. Stores ciphertext in world_model_data
-    3. Updates metadata in world_model_index_v2
+    2. Stores ciphertext in `pkm_blobs`
+    3. Updates metadata in `pkm_index`
     4. Backend CANNOT decrypt the data (BYOK principle)
     """
     # Verify token matches user_id
@@ -280,11 +279,11 @@ async def store_domain(
             detail="Token user_id does not match request user_id",
         )
 
-    world_model = get_world_model_service()
+    pkm_service = get_pkm_service()
 
     # Store encrypted blob + metadata
     canonical_domain = canonical_top_level_domain(request.domain)
-    store_result = await world_model.store_domain_data(
+    store_result = await pkm_service.store_domain_data(
         user_id=request.user_id,
         domain=canonical_domain,
         encrypted_blob={
@@ -317,10 +316,8 @@ async def store_domain(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
-                    "code": "WORLD_MODEL_VERSION_CONFLICT",
-                    "message": (
-                        "World model changed on another device. Refresh latest data and retry."
-                    ),
+                    "code": "PKM_VERSION_CONFLICT",
+                    "message": ("PKM changed on another device. Refresh latest data and retry."),
                     "current_data_version": store_result.get("data_version"),
                     "updated_at": _isoformat_or_none(store_result.get("updated_at")),
                 },
@@ -355,8 +352,8 @@ async def get_encrypted_data(
             detail="Token user_id does not match request user_id",
         )
 
-    world_model = get_world_model_service()
-    data = await world_model.get_encrypted_data(user_id)
+    pkm_service = get_pkm_service()
+    data = await pkm_service.get_encrypted_data(user_id)
 
     if data is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No data found for user")
@@ -377,6 +374,7 @@ class DomainDataResponse(BaseModel):
 async def get_domain_data(
     user_id: str,
     domain: str,
+    segment_ids: Optional[List[str]] = Query(default=None),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -391,8 +389,8 @@ async def get_domain_data(
             detail="Token user_id does not match request user_id",
         )
 
-    world_model = get_world_model_service()
-    data = await world_model.get_domain_data(user_id, domain)
+    pkm_service = get_pkm_service()
+    data = await pkm_service.get_domain_data(user_id, domain, segment_ids=segment_ids)
 
     if data is None:
         raise HTTPException(
@@ -453,8 +451,8 @@ async def get_domain_manifest(
             detail="Token user_id does not match request user_id",
         )
 
-    world_model = get_world_model_service()
-    manifest = await world_model.get_domain_manifest(user_id, domain)
+    pkm_service = get_pkm_service()
+    manifest = await pkm_service.get_domain_manifest(user_id, domain)
     if manifest is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -477,7 +475,7 @@ class DeleteDomainResponse(BaseModel):
     message: Optional[str] = None
 
 
-class ReconcileWorldModelResponse(BaseModel):
+class ReconcilePkmResponse(BaseModel):
     """Response from index/registry reconciliation."""
 
     success: bool
@@ -491,7 +489,7 @@ async def delete_domain_data(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
-    Delete a specific domain from user's world model.
+    Delete a specific domain from user's PKM.
 
     This removes the domain from the index (available_domains and domain_summaries).
     The client should also update their local encrypted blob to remove the domain data.
@@ -505,8 +503,8 @@ async def delete_domain_data(
             detail="Token user_id does not match request user_id",
         )
 
-    world_model = get_world_model_service()
-    success = await world_model.delete_domain_data(user_id, domain)
+    pkm_service = get_pkm_service()
+    success = await pkm_service.delete_domain_data(user_id, domain)
 
     if not success:
         raise HTTPException(
@@ -517,8 +515,8 @@ async def delete_domain_data(
     return DeleteDomainResponse(success=True, message=f"Successfully deleted {domain} domain data")
 
 
-@router.post("/reconcile/{user_id}", response_model=ReconcileWorldModelResponse)
-async def reconcile_world_model_index(
+@router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
+async def reconcile_pkm_index(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -537,14 +535,14 @@ async def reconcile_world_model_index(
             detail="Token user_id does not match request user_id",
         )
 
-    world_model = get_world_model_service()
-    success = await world_model.reconcile_user_index_domains(user_id)
+    pkm_service = get_pkm_service()
+    success = await pkm_service.reconcile_user_index_domains(user_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to reconcile world model index",
+            detail="Failed to reconcile PKM index",
         )
-    return ReconcileWorldModelResponse(success=True, message="World model index reconciled")
+    return ReconcilePkmResponse(success=True, message="PKM index reconciled")
 
 
 # ==================== LEGACY ATTRIBUTE ROUTES (410 GONE) ====================
@@ -584,8 +582,8 @@ class DomainMetadata(BaseModel):
     last_updated: Optional[str] = Field(default=None, description="ISO timestamp of last update")
 
 
-class WorldModelMetadataResponse(BaseModel):
-    """Response for world model metadata."""
+class PersonalKnowledgeModelMetadataResponse(BaseModel):
+    """Response for PKM metadata."""
 
     user_id: str
     domains: List[DomainMetadata]
@@ -597,20 +595,20 @@ class WorldModelMetadataResponse(BaseModel):
     last_updated: Optional[str] = None
 
 
-@router.get("/metadata/{user_id}", response_model=WorldModelMetadataResponse)
+@router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
-    Get user's world model metadata for UI display.
+    Get user's PKM metadata for UI display.
 
     This endpoint is used by the frontend to:
     1. Determine if user has existing data (for showing dashboard vs import prompt)
     2. Display domain summaries and completeness scores
-    3. Suggest additional domains to enrich the world model
+    3. Suggest additional domains to enrich the PKM
 
-    Returns 404 if user has no world model data (new user).
+    Returns 404 if user has no PKM data (new user).
 
     **Authentication**: Requires valid VAULT_OWNER token.
     Domain names, counts, and summaries are user-private metadata.
@@ -621,16 +619,16 @@ async def get_metadata(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token user_id does not match request user_id",
         )
-    world_model = get_world_model_service()
+    pkm_service = get_pkm_service()
 
     try:
-        # Get index from world_model_index_v2
-        index = await world_model.get_index_v2(user_id)
+        # Read PKM index metadata.
+        index = await pkm_service.get_index_v2(user_id)
 
         if index is None:
-            encrypted_data = await world_model.get_encrypted_data(user_id)
+            encrypted_data = await pkm_service.get_encrypted_data(user_id)
             domain_rows = (
-                world_model.supabase.table("pkm_blobs")
+                pkm_service.supabase.table("pkm_blobs")
                 .select("domain,content_revision,updated_at")
                 .eq("user_id", user_id)
                 .execute()
@@ -640,16 +638,16 @@ async def get_metadata(
             if encrypted_data is None and not domain_rows:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No world model data found for user",
+                    detail="No PKM data found for user",
                 )
             logger.warning(
-                "User %s has world model storage but no index - returning degraded metadata",
+                "User %s has PKM storage but no index - returning degraded metadata",
                 user_id,
             )
             degraded_domains: List[DomainMetadata] = []
             for row in domain_rows:
                 domain_key = str(row.get("domain") or "")
-                manifest = await world_model.get_domain_manifest(user_id, domain_key)
+                manifest = await pkm_service.get_domain_manifest(user_id, domain_key)
                 degraded_domains.append(
                     DomainMetadata(
                         key=domain_key,
@@ -670,7 +668,7 @@ async def get_metadata(
                         last_updated=str(row.get("updated_at") or ""),
                     )
                 )
-            return WorldModelMetadataResponse(
+            return PersonalKnowledgeModelMetadataResponse(
                 user_id=user_id,
                 domains=degraded_domains,
                 total_attributes=sum(domain.attribute_count for domain in degraded_domains),
@@ -681,14 +679,14 @@ async def get_metadata(
 
         # Build domain metadata from index
         domains: List[DomainMetadata] = []
-        user_scopes = await world_model.scope_generator.get_available_scopes(user_id)
+        user_scopes = await pkm_service.scope_generator.get_available_scopes(user_id)
 
         for domain_key in index.available_domains:
             summary = index.domain_summaries.get(domain_key, {})
 
             # Lookup domain display info from registry
             try:
-                domain_info = await world_model.domain_registry.get_domain(domain_key)
+                domain_info = await pkm_service.domain_registry.get_domain(domain_key)
             except Exception as e:
                 logger.warning(f"Failed to get domain info for {domain_key}: {e}")
                 domain_info = None
@@ -729,7 +727,7 @@ async def get_metadata(
         # Suggest missing common domains
         suggested = list(common_domains - user_domain_keys)[:3]
 
-        return WorldModelMetadataResponse(
+        return PersonalKnowledgeModelMetadataResponse(
             user_id=user_id,
             domains=domains,
             total_attributes=total_attrs,
@@ -744,7 +742,7 @@ async def get_metadata(
         logger.error(f"Error getting metadata for user {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve world model metadata",
+            detail="Failed to retrieve PKM metadata",
         )
 
 
@@ -755,7 +753,7 @@ class UserScopesResponse(BaseModel):
     scopes: List[str] = Field(
         default_factory=list,
         description=(
-            "Available scope strings for this user, for example world_model.read, "
+            "Available scope strings for this user, for example pkm.read, "
             "attr.{domain}.*, attr.{domain}.{subintent}.*, or attr.{domain}.{path}."
         ),
     )
@@ -769,15 +767,12 @@ class DomainRegistryEntryResponse(BaseModel):
     color_hex: str
     description: str
     status: str
-    is_legacy_alias: bool = False
-    canonical_target: Optional[str] = None
     parent_domain: Optional[str] = None
 
 
 class DomainRegistryResponse(BaseModel):
     domains: List[DomainRegistryEntryResponse]
     canonical_domain_count: int
-    legacy_alias_count: int
 
 
 @router.get("/domain-registry", response_model=DomainRegistryResponse)
@@ -785,7 +780,7 @@ async def get_domain_registry(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
-    Return canonical top-level domain registry + legacy alias map.
+    Return canonical top-level PKM domain registry.
 
     This endpoint is additive and intended for runtime contract introspection.
     """
@@ -796,16 +791,26 @@ async def get_domain_registry(
             detail="Invalid token",
         )
 
-    world_model = get_world_model_service()
-    await world_model.domain_registry.ensure_canonical_domains()
+    pkm_service = get_pkm_service()
+    await pkm_service.domain_registry.ensure_canonical_domains()
 
-    entries = [DomainRegistryEntryResponse(**row) for row in domain_registry_payload()]
-    canonical_count = sum(1 for row in entries if not row.is_legacy_alias)
-    legacy_count = len(entries) - canonical_count
+    entries = [
+        DomainRegistryEntryResponse(
+            domain_key=row["domain_key"],
+            display_name=row["display_name"],
+            icon_name=row["icon_name"],
+            color_hex=row["color_hex"],
+            description=row["description"],
+            status=row["status"],
+            parent_domain=row.get("parent_domain"),
+        )
+        for row in domain_registry_payload()
+        if not row.get("is_legacy_alias")
+    ]
+    canonical_count = len(entries)
     return DomainRegistryResponse(
         domains=entries,
         canonical_domain_count=canonical_count,
-        legacy_alias_count=legacy_count,
     )
 
 
@@ -830,9 +835,9 @@ async def get_user_scopes(
             detail="Token user_id does not match request user_id",
         )
 
-    world_model = get_world_model_service()
-    scopes = await world_model.scope_generator.get_available_scopes(user_id)
-    scope_entries_getter = getattr(world_model.scope_generator, "get_available_scope_entries", None)
+    pkm_service = get_pkm_service()
+    scopes = await pkm_service.scope_generator.get_available_scopes(user_id)
+    scope_entries_getter = getattr(pkm_service.scope_generator, "get_available_scope_entries", None)
     scope_entries = await scope_entries_getter(user_id) if callable(scope_entries_getter) else []
     return UserScopesResponse(user_id=user_id, scopes=sorted(scopes), scope_entries=scope_entries)
 
@@ -845,14 +850,14 @@ async def get_stock_context(
     """
     Get user's context for stock analysis.
 
-    This endpoint provides world model context (portfolio holdings, risk profile,
+    This endpoint provides PKM context (portfolio holdings, risk profile,
     recent decisions) for a specific stock ticker being analyzed by Kai.
 
     **Authentication**: Requires valid VAULT_OWNER token. The token contains the
     user_id which is validated by require_vault_owner_token middleware.
 
     **Request**:
-        POST /api/world-model/get-context
+        POST /api/pkm/get-context
         Authorization: Bearer {vault_owner_token}
         Body: {
             "ticker": "AAPL"
@@ -893,7 +898,7 @@ async def get_stock_context(
             detail="Invalid ticker symbol format (1-5 uppercase letters)",
         )
 
-    # Get context from world_model_index_v2 cached data
+    # Get context from PKM index cached data
     risk_profile, holdings, portfolio_allocation = await get_risk_profile_from_index(user_id)
 
     # Filter to just the requested ticker if it's in the portfolio

@@ -193,11 +193,10 @@ from api.routes import identity  # noqa: E402
 
 app.include_router(identity.router)
 
-# Phase 7: World Model (Dynamic Domain Management)
-from api.routes import pkm, world_model  # noqa: E402
+# Phase 7: Personal Knowledge Model (Dynamic Domain Management)
+from api.routes import pkm  # noqa: E402
 
 app.include_router(pkm.router)
-app.include_router(world_model.router)
 
 # Account deletion and management
 app.include_router(account.router)

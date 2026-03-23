@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Normalize user-data rows in Supabase for the current vault/world-model contract.
+Normalize user-data rows in Supabase for the current vault/PKM contract.
 
 What this script normalizes:
 1. vault_keys
    - auth_method/key_mode canonical values
    - trims + removes accidental whitespace from encrypted/base64 fields
    - converts sentinel strings ("null"/"undefined"/"none") to NULL for optional fields
-2. world_model_data
+2. pkm_data
    - trims + removes accidental whitespace from encrypted/base64 fields
    - normalizes algorithm to "aes-256-gcm" when invalid
-3. world_model_index_v2
+3. pkm_index
    - fills null JSON/array counters with defaults
 
 Usage:
@@ -183,10 +183,10 @@ VAULT_KEYS_UPDATE_SQL = dedent(
 )
 
 
-WORLD_MODEL_DATA_COUNT_SQL = dedent(
+PKM_DATA_COUNT_SQL = dedent(
     """
     SELECT COUNT(*) AS count
-    FROM world_model_data
+    FROM pkm_data
     {where_clause}
     {and_clause}
       (
@@ -201,7 +201,7 @@ WORLD_MODEL_DATA_COUNT_SQL = dedent(
 )
 
 
-WORLD_MODEL_DATA_UPDATE_SQL = dedent(
+PKM_DATA_UPDATE_SQL = dedent(
     """
     WITH normalized AS (
       SELECT
@@ -213,10 +213,10 @@ WORLD_MODEL_DATA_UPDATE_SQL = dedent(
           WHEN algorithm IS NULL OR btrim(algorithm) = '' THEN 'aes-256-gcm'
           ELSE lower(btrim(algorithm))
         END AS algorithm_norm
-      FROM world_model_data
+      FROM pkm_data
       {where_clause}
     )
-    UPDATE world_model_data wmd
+    UPDATE pkm_data wmd
     SET
       encrypted_data_ciphertext = n.ciphertext_norm,
       encrypted_data_iv = n.iv_norm,
@@ -241,10 +241,10 @@ WORLD_MODEL_DATA_UPDATE_SQL = dedent(
 )
 
 
-WORLD_MODEL_INDEX_COUNT_SQL = dedent(
+PKM_INDEX_COUNT_SQL = dedent(
     """
     SELECT COUNT(*) AS count
-    FROM world_model_index_v2
+    FROM pkm_index
     {where_clause}
     {and_clause}
       (
@@ -258,9 +258,9 @@ WORLD_MODEL_INDEX_COUNT_SQL = dedent(
 )
 
 
-WORLD_MODEL_INDEX_UPDATE_SQL = dedent(
+PKM_INDEX_UPDATE_SQL = dedent(
     """
-    UPDATE world_model_index_v2
+    UPDATE pkm_index
     SET
       domain_summaries = COALESCE(domain_summaries, '{{}}'::jsonb),
       available_domains = COALESCE(available_domains, ARRAY[]::text[]),
@@ -323,19 +323,19 @@ def main() -> int:
         )
         wmd_candidates = _run_scalar(
             conn,
-            WORLD_MODEL_DATA_COUNT_SQL.format(where_clause=where_clause, and_clause=and_clause),
+            PKM_DATA_COUNT_SQL.format(where_clause=where_clause, and_clause=and_clause),
             params,
         )
         wmi_candidates = _run_scalar(
             conn,
-            WORLD_MODEL_INDEX_COUNT_SQL.format(where_clause=where_clause, and_clause=and_clause),
+            PKM_INDEX_COUNT_SQL.format(where_clause=where_clause, and_clause=and_clause),
             params,
         )
 
         print("Normalization scan:")
         print(f"  vault_keys candidates: {vault_candidates}")
-        print(f"  world_model_data candidates: {wmd_candidates}")
-        print(f"  world_model_index_v2 candidates: {wmi_candidates}")
+        print(f"  pkm_data candidates: {wmd_candidates}")
+        print(f"  pkm_index candidates: {wmi_candidates}")
 
         if not args.apply:
             print("\nDry-run only. Re-run with --apply to update rows.")
@@ -348,19 +348,19 @@ def main() -> int:
         )
         updated_wmd = _run_update(
             conn,
-            WORLD_MODEL_DATA_UPDATE_SQL.format(where_clause=where_clause),
+            PKM_DATA_UPDATE_SQL.format(where_clause=where_clause),
             params,
         )
         updated_wmi = _run_update(
             conn,
-            WORLD_MODEL_INDEX_UPDATE_SQL.format(where_clause=where_clause, and_clause=and_clause),
+            PKM_INDEX_UPDATE_SQL.format(where_clause=where_clause, and_clause=and_clause),
             params,
         )
 
         print("\nApplied normalization:")
         print(f"  vault_keys updated: {updated_vault}")
-        print(f"  world_model_data updated: {updated_wmd}")
-        print(f"  world_model_index_v2 updated: {updated_wmi}")
+        print(f"  pkm_data updated: {updated_wmd}")
+        print(f"  pkm_index updated: {updated_wmi}")
         print("Done.")
 
     return 0

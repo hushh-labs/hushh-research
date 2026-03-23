@@ -4,7 +4,7 @@
  * CacheProvider - React context for sharing cached data across components
  *
  * Provides in-memory caching for frequently accessed data:
- * - World Model metadata
+ * - PKM metadata
  * - Portfolio data
  * - Vault status
  * - Active consents
@@ -23,7 +23,7 @@ import {
   useMemo,
 } from "react";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
-import type { WorldModelMetadata } from "@/lib/services/personal-knowledge-model-service";
+import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 // ==================== Types ====================
 
@@ -93,10 +93,10 @@ export interface PortfolioData {
 }
 
 interface CacheContextType {
-  // World Model
-  worldModelMetadata: WorldModelMetadata | null;
-  setWorldModelMetadata: (userId: string, data: WorldModelMetadata) => void;
-  getWorldModelMetadata: (userId: string) => WorldModelMetadata | null;
+  // PKM
+  pkmMetadata: PersonalKnowledgeModelMetadata | null;
+  setPersonalKnowledgeModelMetadata: (userId: string, data: PersonalKnowledgeModelMetadata) => void;
+  getPersonalKnowledgeModelMetadata: (userId: string) => PersonalKnowledgeModelMetadata | null;
 
   // Portfolio
   portfolioData: PortfolioData | null;
@@ -135,8 +135,8 @@ interface CacheProviderProps {
 
 export function CacheProvider({ children }: CacheProviderProps) {
   // Local state for React reactivity (mirrors CacheService for UI updates)
-  const [worldModelMetadata, setWorldModelMetadataState] =
-    useState<WorldModelMetadata | null>(null);
+  const [pkmMetadata, setPersonalKnowledgeModelMetadataState] =
+    useState<PersonalKnowledgeModelMetadata | null>(null);
   const [portfolioData, setPortfolioDataState] = useState<PortfolioData | null>(
     null
   );
@@ -151,7 +151,7 @@ export function CacheProvider({ children }: CacheProviderProps) {
   useEffect(() => {
     const unsubscribe = cache.subscribe((event) => {
       if (event.type === "clear") {
-        setWorldModelMetadataState(null);
+        setPersonalKnowledgeModelMetadataState(null);
         setPortfolioDataState(null);
         setVaultStatusState(null);
         setActiveConsentsState([]);
@@ -165,8 +165,8 @@ export function CacheProvider({ children }: CacheProviderProps) {
 
       if (keys.length === 0) return;
 
-      if (keys.some((key) => key.startsWith("world_model_metadata_"))) {
-        setWorldModelMetadataState(null);
+      if (keys.some((key) => key.startsWith("pkm_metadata_"))) {
+        setPersonalKnowledgeModelMetadataState(null);
       }
 
       if (
@@ -198,26 +198,26 @@ export function CacheProvider({ children }: CacheProviderProps) {
     return unsubscribe;
   }, [cache]);
 
-  // World Model Metadata
-  const setWorldModelMetadata = useCallback(
-    (userId: string, data: WorldModelMetadata) => {
-      cache.set(CACHE_KEYS.WORLD_MODEL_METADATA(userId), data, CACHE_TTL.MEDIUM);
-      setWorldModelMetadataState(data);
+  // PKM Metadata
+  const setPersonalKnowledgeModelMetadata = useCallback(
+    (userId: string, data: PersonalKnowledgeModelMetadata) => {
+      cache.set(CACHE_KEYS.PKM_METADATA(userId), data, CACHE_TTL.MEDIUM);
+      setPersonalKnowledgeModelMetadataState(data);
     },
     [cache]
   );
 
-  const getWorldModelMetadata = useCallback(
-    (userId: string): WorldModelMetadata | null => {
-      const cached = cache.get<WorldModelMetadata>(
-        CACHE_KEYS.WORLD_MODEL_METADATA(userId)
+  const getPersonalKnowledgeModelMetadata = useCallback(
+    (userId: string): PersonalKnowledgeModelMetadata | null => {
+      const cached = cache.get<PersonalKnowledgeModelMetadata>(
+        CACHE_KEYS.PKM_METADATA(userId)
       );
-      if (cached && !worldModelMetadata) {
-        setWorldModelMetadataState(cached);
+      if (cached && !pkmMetadata) {
+        setPersonalKnowledgeModelMetadataState(cached);
       }
       return cached;
     },
-    [cache, worldModelMetadata]
+    [cache, pkmMetadata]
   );
 
   // Portfolio Data
@@ -294,7 +294,7 @@ export function CacheProvider({ children }: CacheProviderProps) {
   // Invalidation
   const invalidateAll = useCallback(() => {
     cache.clear();
-    setWorldModelMetadataState(null);
+    setPersonalKnowledgeModelMetadataState(null);
     setPortfolioDataState(null);
     setVaultStatusState(null);
     setActiveConsentsState([]);
@@ -303,7 +303,7 @@ export function CacheProvider({ children }: CacheProviderProps) {
   const invalidateUser = useCallback(
     (userId: string) => {
       cache.invalidateUser(userId);
-      setWorldModelMetadataState(null);
+      setPersonalKnowledgeModelMetadataState(null);
       setPortfolioDataState(null);
       setVaultStatusState(null);
       setActiveConsentsState([]);
@@ -315,8 +315,8 @@ export function CacheProvider({ children }: CacheProviderProps) {
     (userId: string, domain: string) => {
       cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
       // Also invalidate metadata since domain counts may have changed
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
-      setWorldModelMetadataState(null);
+      cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
+      setPersonalKnowledgeModelMetadataState(null);
       if (domain === "financial") {
         cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
         setPortfolioDataState(null);
@@ -327,9 +327,9 @@ export function CacheProvider({ children }: CacheProviderProps) {
 
   const value = useMemo(
     () => ({
-      worldModelMetadata,
-      setWorldModelMetadata,
-      getWorldModelMetadata,
+      pkmMetadata,
+      setPersonalKnowledgeModelMetadata,
+      getPersonalKnowledgeModelMetadata,
       portfolioData,
       setPortfolioData,
       getPortfolioData,
@@ -346,9 +346,9 @@ export function CacheProvider({ children }: CacheProviderProps) {
       setPrefetching,
     }),
     [
-      worldModelMetadata,
-      setWorldModelMetadata,
-      getWorldModelMetadata,
+      pkmMetadata,
+      setPersonalKnowledgeModelMetadata,
+      getPersonalKnowledgeModelMetadata,
       portfolioData,
       setPortfolioData,
       getPortfolioData,

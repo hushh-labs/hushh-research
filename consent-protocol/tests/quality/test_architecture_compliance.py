@@ -8,8 +8,8 @@ CRITICAL: These tests enforce our core architecture rules:
 1. API routes must use service layer (not direct Supabase)
 2. All vault operations must validate consent tokens
 3. No backdoors or bypasses allowed
-4. World-model scopes only: attr.{domain}.* and world_model.read/write
-5. World Model service must be used for new data storage
+4. PKM scopes only: attr.{domain}.* and pkm.read/write
+5. PKM service must be used for new data storage
 """
 
 import os
@@ -128,7 +128,7 @@ This service file is required for architecture compliance.
 
 
 class TestDynamicScopeCompliance:
-    """Ensure world-model scopes (attr.{domain}.*, world_model.read/write) are used."""
+    """Ensure PKM scopes (attr.{domain}.*, pkm.read/write) are used."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
@@ -153,14 +153,14 @@ The scope_generator.py file is required for dynamic attr.{domain}.* scope valida
 The domain_registry_service.py file is required for dynamic domain discovery.
 """
 
-    def test_world_model_service_exists(self):
-        """WorldModelService must exist for unified data storage."""
+    def test_pkm_service_exists(self):
+        """PersonalKnowledgeModelService must exist for unified data storage."""
         path = os.path.join(self.cwd, "hushh_mcp/services/personal_knowledge_model_service.py")
         assert os.path.exists(path), """
-❌ MISSING: WorldModelService
+❌ MISSING: PersonalKnowledgeModelService
 
 The personal_knowledge_model_service.py file is required for unified data storage.
-All new data should be stored in world_model_attributes table via this service.
+All new data should be stored through the PKM service via encrypted domain payloads.
 """
 
     def test_constants_has_dynamic_scope_support(self):
@@ -303,7 +303,7 @@ class TestHardcodedDomainCompliance:
                 "-rE",
                 r'(domain\s*==\s*["\'])(food|professional|financial|health)(["\'])',
                 "api/routes/",
-                "--exclude=world_model.py",  # world_model.py can have examples
+                "--exclude=pkm_routes_shared.py",
             ],
             capture_output=True,
             text=True,
@@ -341,7 +341,7 @@ Violations found:
                 "-rE",
                 r'\["food",\s*"professional"',
                 "api/routes/",
-                "--exclude=world_model.py",
+                "--exclude=pkm_routes_shared.py",
             ],
             capture_output=True,
             text=True,
@@ -390,7 +390,7 @@ Violations found:
                 f"Files with violations:\n{result.stdout}\n\n"
                 "WRONG:\n"
                 "    SCOPE_TO_ENUM = {\n"
-                "        'attr.food.*': ConsentScope.WORLD_MODEL_READ,\n"
+                "        'attr.food.*': ConsentScope.PKM_READ,\n"
                 "        ...\n"
                 "    }\n"
                 "    scope = SCOPE_TO_ENUM.get(scope_str)\n\n"
@@ -400,25 +400,25 @@ Violations found:
             )
 
 
-class TestWorldModelMigrationCompliance:
-    """Ensure world_model_attributes table is used instead of vault_* tables for new code."""
+class TestPkmMigrationCompliance:
+    """Ensure PKM storage is used instead of legacy vault_* tables for new code."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
         """Set working directory to consent-protocol root."""
         self.cwd = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-    def test_world_model_service_exists(self):
-        """WorldModelService must exist as preferred data storage."""
+    def test_pkm_service_exists(self):
+        """PersonalKnowledgeModelService must exist as preferred data storage."""
         path = os.path.join(self.cwd, "hushh_mcp/services/personal_knowledge_model_service.py")
         assert os.path.exists(path), """
-❌ MISSING: WorldModelService
+❌ MISSING: PersonalKnowledgeModelService
 
 The personal_knowledge_model_service.py file is required for dynamic data storage.
 """
 
     def test_vault_db_has_deprecation_notice(self):
-        """VaultDBService must have deprecation notice pointing to WorldModelService."""
+        """VaultDBService must have deprecation notice pointing to PersonalKnowledgeModelService."""
         vault_db_path = os.path.join(self.cwd, "hushh_mcp/services/vault_db.py")
 
         with open(vault_db_path, "r") as f:
@@ -427,11 +427,11 @@ The personal_knowledge_model_service.py file is required for dynamic data storag
         assert "DEPRECATION" in content or "deprecated" in content.lower(), """
 ❌ MISSING DEPRECATION NOTICE: vault_db.py must indicate it's deprecated!
 
-Add a deprecation notice in the docstring pointing developers to WorldModelService.
+Add a deprecation notice in the docstring pointing developers to PersonalKnowledgeModelService.
 """
 
-        assert "WorldModelService" in content or "world_model" in content, """
-❌ INCOMPLETE DEPRECATION NOTICE: Must reference WorldModelService as replacement!
+        assert "PersonalKnowledgeModelService" in content, """
+❌ INCOMPLETE DEPRECATION NOTICE: Must reference PersonalKnowledgeModelService as replacement!
 
-The deprecation notice should guide developers to use WorldModelService instead.
+The deprecation notice should guide developers to use PersonalKnowledgeModelService instead.
 """

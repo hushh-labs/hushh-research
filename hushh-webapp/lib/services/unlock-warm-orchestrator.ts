@@ -6,7 +6,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { persistKaiMarketHomePayload } from "@/lib/kai/market-home-cache";
 import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 
 export type UnlockWarmResult = {
@@ -224,7 +224,7 @@ export class UnlockWarmOrchestrator {
       vaultStatusWarmed: false,
     };
     let symbols: string[] = [];
-    let prewarmedFullBlob: Record<string, unknown> | null = null;
+    let prewarmedFinancialDomain: Record<string, unknown> | null = null;
     let financialHydrated = false;
 
     const syncPromise =
@@ -269,15 +269,16 @@ export class UnlockWarmOrchestrator {
 
     if (shouldWarmFinancial) {
       try {
-        prewarmedFullBlob = await WorldModelService.loadFullBlob({
+        prewarmedFinancialDomain = await PersonalKnowledgeModelService.loadDomainData({
           userId: params.userId,
+          domain: "financial",
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
         });
         const hydrated = this.hydrateFinancialCaches({
           cache,
           userId: params.userId,
-          fullBlob: prewarmedFullBlob,
+          financialDomain: prewarmedFinancialDomain,
         });
         financialHydrated = hydrated.financialWarmed;
         result.financialWarmed = hydrated.financialWarmed;
@@ -340,10 +341,10 @@ export class UnlockWarmOrchestrator {
       consentsResult,
       pendingResult,
       auditResult,
-      fullBlobResult,
+      financialDomainResult,
     ] = await Promise.allSettled([
       shouldWarmMetadata
-        ? WorldModelService.getMetadata(params.userId, false, params.vaultOwnerToken)
+        ? PersonalKnowledgeModelService.getMetadata(params.userId, false, params.vaultOwnerToken)
         : Promise.resolve(null),
       shouldWarmVaultStatus
         ? ApiService.getVaultStatus(params.userId, params.vaultOwnerToken)
@@ -358,10 +359,11 @@ export class UnlockWarmOrchestrator {
         ? ApiService.getConsentHistory(params.userId, params.vaultOwnerToken, 1, 50)
         : Promise.resolve(null),
       shouldWarmFinancial
-        ? prewarmedFullBlob
-          ? Promise.resolve(prewarmedFullBlob)
-          : WorldModelService.loadFullBlob({
+        ? prewarmedFinancialDomain
+          ? Promise.resolve(prewarmedFinancialDomain)
+          : PersonalKnowledgeModelService.loadDomainData({
               userId: params.userId,
+              domain: "financial",
               vaultKey: params.vaultKey,
               vaultOwnerToken: params.vaultOwnerToken,
             })
@@ -422,13 +424,13 @@ export class UnlockWarmOrchestrator {
     if (
       shouldWarmFinancial &&
       !financialHydrated &&
-      fullBlobResult.status === "fulfilled" &&
-      fullBlobResult.value
+      financialDomainResult.status === "fulfilled" &&
+      financialDomainResult.value
     ) {
       const hydrated = this.hydrateFinancialCaches({
         cache,
         userId: params.userId,
-        fullBlob: fullBlobResult.value,
+        financialDomain: financialDomainResult.value,
       });
       result.financialWarmed = hydrated.financialWarmed;
       symbols = hydrated.symbols;
@@ -508,9 +510,9 @@ export class UnlockWarmOrchestrator {
   private static hydrateFinancialCaches(params: {
     cache: CacheService;
     userId: string;
-    fullBlob: Record<string, unknown> | null;
+    financialDomain: Record<string, unknown> | null;
   }): { financialWarmed: boolean; symbols: string[] } {
-    const financialRaw = params.fullBlob?.financial;
+    const financialRaw = params.financialDomain;
     if (!financialRaw || typeof financialRaw !== "object" || Array.isArray(financialRaw)) {
       return { financialWarmed: false, symbols: [] };
     }

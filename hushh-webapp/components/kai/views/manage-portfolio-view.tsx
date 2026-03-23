@@ -8,7 +8,7 @@
  * - Summary section (beginning/ending value, cash, equities)
  * - Scrollable holdings list with edit buttons
  * - Add Holding button
- * - Save Changes button with encryption and world model storage
+ * - Save Changes button with encryption and PKM storage
  */
 
 "use client";
@@ -33,7 +33,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAuth } from "@/lib/firebase";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache, type PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -209,8 +209,8 @@ export function ManagePortfolioView() {
           return;
         }
 
-        // Get encrypted data from world model
-        const response = await WorldModelService.getMetadata(
+        // Get PKM metadata first so we only decrypt the financial domain when needed.
+        const response = await PersonalKnowledgeModelService.getMetadata(
           user.uid,
           false,
           vaultOwnerToken || undefined
@@ -221,16 +221,16 @@ export function ManagePortfolioView() {
           // Priority 1: CacheProvider (shared with dashboard)
           let parsed: PortfolioData | null = getPortfolioData(user.uid);
           
-          // Priority 2: Decrypt from World Model (fallback)
+          // Priority 2: Decrypt the financial PKM domain (fallback)
           if (!parsed) {
-            console.log("[ManagePortfolio] No cache, attempting to decrypt from World Model...");
+            console.log("[ManagePortfolio] No cache, attempting to decrypt the financial PKM domain...");
             try {
-              const allData = await WorldModelService.loadFullBlob({
+              const rawFinancial = await PersonalKnowledgeModelService.loadDomainData({
                 userId: user.uid,
+                domain: "financial",
                 vaultKey,
                 vaultOwnerToken: vaultOwnerToken || undefined,
               });
-              const rawFinancial = allData.financial;
 
               if (!hasValidFinancialShape(rawFinancial)) {
                 toast.error("Portfolio index exists but financial data is missing. Please re-import your statement.");
@@ -243,7 +243,7 @@ export function ManagePortfolioView() {
                 console.log("[ManagePortfolio] Decrypted and cached portfolio data");
               }
             } catch (decryptError) {
-              console.error("[ManagePortfolio] Failed to decrypt from World Model:", decryptError);
+              console.error("[ManagePortfolio] Failed to decrypt the financial PKM domain:", decryptError);
               toast.error("Unable to decrypt portfolio data. Please re-import your statement.");
             }
           }
@@ -338,18 +338,13 @@ export function ManagePortfolioView() {
       };
 
       const nowIso = new Date().toISOString();
-      const fullBlob = await WorldModelService.loadFullBlob({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken: vaultOwnerToken || undefined,
-      }).catch(() => ({} as Record<string, unknown>));
-      const existingFinancialRaw = fullBlob.financial;
       const existingFinancial =
-        existingFinancialRaw &&
-        typeof existingFinancialRaw === "object" &&
-        !Array.isArray(existingFinancialRaw)
-          ? ({ ...(existingFinancialRaw as Record<string, unknown>) } as Record<string, unknown>)
-          : {};
+        (await PersonalKnowledgeModelService.loadDomainData({
+          userId: user.uid,
+          domain: "financial",
+          vaultKey,
+          vaultOwnerToken: vaultOwnerToken || undefined,
+        }).catch(() => null)) ?? {};
 
       const nextFinancialDomain = {
         ...existingFinancial,
@@ -376,7 +371,7 @@ export function ManagePortfolioView() {
       };
 
       // 2. Store via prepared-blob path to avoid a second load/decrypt cycle.
-      const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId: user.uid,
         vaultKey,
         domain: "financial",
@@ -399,7 +394,8 @@ export function ManagePortfolioView() {
           ],
           last_updated: nowIso,
         },
-        baseFullBlob: fullBlob,
+        baseFullBlob: { financial: existingFinancial },
+        cacheFullBlob: false,
         vaultOwnerToken: vaultOwnerToken || undefined,
       });
 

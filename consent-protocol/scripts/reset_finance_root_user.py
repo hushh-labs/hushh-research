@@ -34,7 +34,7 @@ from db.db_client import get_db  # noqa: E402
 from hushh_mcp.services.domain_contracts import FINANCIAL_INTENT_MAP  # noqa: E402
 from hushh_mcp.services.domain_registry_service import get_domain_registry_service  # noqa: E402
 from hushh_mcp.services.personal_knowledge_model_service import (
-    get_world_model_service,  # noqa: E402
+    get_pkm_service,  # noqa: E402
 )
 from hushh_mcp.services.portfolio_import_service import (  # noqa: E402
     ImportResult,
@@ -572,9 +572,7 @@ def _build_financial_from_import(
     return financial_domain, summary
 
 
-def _decrypt_world_model_blob(
-    blob_row: dict[str, Any] | None, vault_key_hex: str
-) -> dict[str, Any]:
+def _decrypt_pkm_blob(blob_row: dict[str, Any] | None, vault_key_hex: str) -> dict[str, Any]:
     if not blob_row:
         return {}
     payload = EncryptedPayload(
@@ -632,7 +630,7 @@ async def _run(args: argparse.Namespace) -> None:
         )
 
     db = get_db()
-    world_model = get_world_model_service()
+    pkm_service = get_pkm_service()
     domain_registry = get_domain_registry_service()
 
     now_iso = _now_iso()
@@ -678,16 +676,12 @@ async def _run(args: argparse.Namespace) -> None:
         raise RuntimeError("Derived vault key has invalid length.")
     print("[reset] passphrase wrapper decrypted successfully.")
 
-    # 3) Backup pre-reset world model.
-    pre_blob_row = db.table("world_model_data").select("*").eq("user_id", user_id).execute().data
+    # 3) Backup pre-reset PKM.
+    pre_blob_row = db.table("pkm_data").select("*").eq("user_id", user_id).execute().data
     pre_blob_row = pre_blob_row[0] if pre_blob_row else None
-    pre_index_row = (
-        db.table("world_model_index_v2").select("*").eq("user_id", user_id).execute().data
-    )
+    pre_index_row = db.table("pkm_index").select("*").eq("user_id", user_id).execute().data
     pre_index_row = pre_index_row[0] if pre_index_row else None
-    pre_decrypted_blob = (
-        _decrypt_world_model_blob(pre_blob_row, vault_key_hex) if pre_blob_row else {}
-    )
+    pre_decrypted_blob = _decrypt_pkm_blob(pre_blob_row, vault_key_hex) if pre_blob_row else {}
 
     pre_artifact = {
         "extracted_at_utc": now_iso,
@@ -695,21 +689,21 @@ async def _run(args: argparse.Namespace) -> None:
         "sources": [
             "vault_keys",
             "vault_key_wrappers",
-            "world_model_data",
-            "world_model_index_v2",
+            "pkm_data",
+            "pkm_index",
         ],
         "vault_snapshot": vault_snapshot_before,
-        "world_model_index_pre": pre_index_row,
-        "world_model_blob_pre_decrypted": pre_decrypted_blob,
+        "pkm_index_pre": pre_index_row,
+        "pkm_blob_pre_decrypted": pre_decrypted_blob,
     }
     pre_path = _build_artifact_name("kai-finance-reset-pre", user_id, "json")
     _safe_write_json(pre_path, pre_artifact)
     print(f"[reset] wrote pre artifact: {pre_path}")
 
-    # 4) Reset only world model rows for target user.
-    db.table("world_model_data").delete().eq("user_id", user_id).execute()
-    db.table("world_model_index_v2").delete().eq("user_id", user_id).execute()
-    print("[reset] cleared world_model_data + world_model_index_v2 for user.")
+    # 4) Reset only PKM rows for target user.
+    db.table("pkm_data").delete().eq("user_id", user_id).execute()
+    db.table("pkm_index").delete().eq("user_id", user_id).execute()
+    print("[reset] cleared pkm_data + pkm_index for user.")
 
     await domain_registry.ensure_canonical_domains()
 
@@ -717,7 +711,7 @@ async def _run(args: argparse.Namespace) -> None:
     skeleton_financial, skeleton_summary = _build_financial_skeleton(now_iso)
     skeleton_blob = {"financial": skeleton_financial}
     skeleton_encrypted = encrypt_data(json.dumps(skeleton_blob), vault_key_hex)
-    skeleton_ok = await world_model.store_domain_data(
+    skeleton_ok = await pkm_service.store_domain_data(
         user_id=user_id,
         domain="financial",
         encrypted_blob={
@@ -761,7 +755,7 @@ async def _run(args: argparse.Namespace) -> None:
     )
     full_blob = {"financial": financial_domain}
     encrypted_blob = encrypt_data(json.dumps(full_blob), vault_key_hex)
-    stored_ok = await world_model.store_domain_data(
+    stored_ok = await pkm_service.store_domain_data(
         user_id=user_id,
         domain="financial",
         encrypted_blob={
@@ -774,19 +768,15 @@ async def _run(args: argparse.Namespace) -> None:
     )
     if not stored_ok:
         raise RuntimeError("Failed to store imported financial domain.")
-    await world_model.reconcile_user_index_domains(user_id)
+    await pkm_service.reconcile_user_index_domains(user_id)
     print("[reset] imported financial domain stored and reconciled.")
 
     # 8) Post verification.
-    post_blob_row = (
-        db.table("world_model_data").select("*").eq("user_id", user_id).execute().data or []
-    )
+    post_blob_row = db.table("pkm_data").select("*").eq("user_id", user_id).execute().data or []
     post_blob_row = post_blob_row[0] if post_blob_row else None
-    post_index_row = (
-        db.table("world_model_index_v2").select("*").eq("user_id", user_id).execute().data or []
-    )
+    post_index_row = db.table("pkm_index").select("*").eq("user_id", user_id).execute().data or []
     post_index_row = post_index_row[0] if post_index_row else None
-    post_blob = _decrypt_world_model_blob(post_blob_row, vault_key_hex) if post_blob_row else {}
+    post_blob = _decrypt_pkm_blob(post_blob_row, vault_key_hex) if post_blob_row else {}
 
     top_level_domains = sorted(post_blob.keys())
     if top_level_domains != ["financial"]:
@@ -841,12 +831,12 @@ async def _run(args: argparse.Namespace) -> None:
         "sources": [
             "vault_keys",
             "vault_key_wrappers",
-            "world_model_data",
-            "world_model_index_v2",
+            "pkm_data",
+            "pkm_index",
             "portfolio_import_service.import_file",
         ],
-        "world_model_index_post": post_index_row,
-        "world_model_blob_post_decrypted": post_blob,
+        "pkm_index_post": post_index_row,
+        "pkm_blob_post_decrypted": post_blob,
         "financial_summary_post": financial_summary_row,
         "top_level_domains": top_level_domains,
         "available_domains": available_domains,
@@ -862,8 +852,8 @@ async def _run(args: argparse.Namespace) -> None:
     post_path = _build_artifact_name("kai-finance-reset-post", user_id, "json")
     _safe_write_json(post_path, post_artifact)
 
-    # Keep canonical world-model dump artifact aligned with existing plan files.
-    canonical_dump_path = _build_artifact_name("kai-figma-world-model", user_id, "json")
+    # Keep canonical PKM dump artifact aligned with existing plan files.
+    canonical_dump_path = _build_artifact_name("kai-figma-PKM", user_id, "json")
     _safe_write_json(canonical_dump_path, post_blob)
 
     report_lines = [
@@ -871,7 +861,7 @@ async def _run(args: argparse.Namespace) -> None:
         "",
         f"- Executed at (UTC): `{extracted_at}`",
         f"- Source PDF: `{pdf_path}`",
-        "- Reset scope: `world_model_data` + `world_model_index_v2` for this user only",
+        "- Reset scope: `pkm_data` + `pkm_index` for this user only",
         "- Vault key tables touched: `No` (fingerprint verified unchanged)",
         "- Onboarding profile source: `onboarding_sync`",
         "",
@@ -891,7 +881,7 @@ async def _run(args: argparse.Namespace) -> None:
     report_path.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
 
     print(f"[reset] wrote post artifact: {post_path}")
-    print(f"[reset] wrote world-model dump: {canonical_dump_path}")
+    print(f"[reset] wrote PKM dump: {canonical_dump_path}")
     print(f"[reset] wrote report: {report_path}")
     print("[reset] complete.")
 
@@ -902,7 +892,7 @@ def _default(value: str, env_key: str) -> str:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Reset one user's world model to finance-root and reimport brokerage data.",
+        description="Reset one user's PKM to finance-root and reimport brokerage data.",
     )
     parser.add_argument(
         "--user-id",

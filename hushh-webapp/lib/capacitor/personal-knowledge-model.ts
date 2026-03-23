@@ -1,12 +1,12 @@
 /**
- * World Model Plugin Interface
+ * Personal Knowledge Model plugin interface.
  *
- * Supported TypeScript surface for the current world-model runtime contract.
+ * Supported TypeScript surface for the current PKM runtime contract.
  */
 
 import { registerPlugin } from "@capacitor/core";
 
-export interface HushhWorldModelPlugin {
+export interface HushhPersonalKnowledgeModelPlugin {
   getMetadata(options: { userId: string; vaultOwnerToken?: string }): Promise<{
     userId: string;
     domains: Array<{
@@ -78,6 +78,7 @@ export interface HushhWorldModelPlugin {
   getDomainData(options: {
     userId: string;
     domain: string;
+    segmentIds?: string[];
     vaultOwnerToken?: string;
   }): Promise<{
     encrypted_blob?: {
@@ -109,12 +110,12 @@ export interface HushhWorldModelPlugin {
   }): Promise<{ success: boolean }>;
 }
 
-export const HushhWorldModel = registerPlugin<HushhWorldModelPlugin>(
-  "WorldModel",
+export const HushhPersonalKnowledgeModel = registerPlugin<HushhPersonalKnowledgeModelPlugin>(
+  "PersonalKnowledgeModel",
   {
     web: () =>
-      import("./plugins/world-model-web").then(
-        (m) => new m.HushhWorldModelWeb()
+      import("./plugins/personal-knowledge-model-web").then(
+        (m) => new m.HushhPersonalKnowledgeModelWeb()
       ),
   }
 );

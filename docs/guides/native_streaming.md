@@ -276,7 +276,7 @@ if (done) {
 />
 
 // Child component
-await WorldModelService.storeDomainData({
+await PersonalKnowledgeModelService.storeDomainData({
   // ... other params
   vaultOwnerToken, // Explicitly passed
 });

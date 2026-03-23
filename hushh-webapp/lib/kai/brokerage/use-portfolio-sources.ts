@@ -35,7 +35,7 @@ import { AppBackgroundTaskService } from "@/lib/services/app-background-task-ser
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
 interface UsePortfolioSourcesParams {
   userId: string | null | undefined;
@@ -180,24 +180,28 @@ export function usePortfolioSources({
       };
     }
 
-    const cachedBlob = WorldModelService.peekCachedFullBlob(userId);
-    let fullBlob: Record<string, unknown>;
-    if (cachedBlob?.blob) {
-      fullBlob = cachedBlob.blob;
-    } else {
-      fullBlob = await WorldModelService.loadFullBlob({
+    const cachedBlob = PersonalKnowledgeModelService.peekCachedFullBlob(userId);
+    const cachedFinancial =
+      cachedBlob?.blob &&
+      typeof cachedBlob.blob.financial === "object" &&
+      !Array.isArray(cachedBlob.blob.financial)
+        ? (cachedBlob.blob.financial as Record<string, unknown>)
+        : null;
+    const financial =
+      cachedFinancial ??
+      (await PersonalKnowledgeModelService.loadDomainData({
         userId,
+        domain: "financial",
         vaultKey,
         vaultOwnerToken: vaultOwnerToken || undefined,
-      }).catch(() => ({} as Record<string, unknown>));
-    }
+      }).catch(() => null));
 
     const expectedDataVersion =
-      cachedBlob?.dataVersion ?? WorldModelService.peekCachedEncryptedBlob(userId)?.dataVersion;
+      cachedBlob?.dataVersion ?? PersonalKnowledgeModelService.peekCachedEncryptedBlob(userId)?.dataVersion;
 
     return {
-      fullBlob,
-      financial: toFinancialDomain(fullBlob.financial),
+      fullBlob: financial ? { financial } : ({} as Record<string, unknown>),
+      financial: toFinancialDomain(financial),
       expectedDataVersion,
     };
   }, [userId, vaultKey, vaultOwnerToken]);
@@ -290,7 +294,7 @@ export function usePortfolioSources({
         }
 
         if (shouldPersist) {
-          const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+          const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
             userId,
             vaultKey,
             domain: "financial",
@@ -431,7 +435,7 @@ export function usePortfolioSources({
               })()
             : setActivePlaidSource(financial, plaidStatus, nowIso);
         if (nextFinancial) {
-          await WorldModelService.storeMergedDomainWithPreparedBlob({
+          await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
             userId,
             vaultKey,
             domain: "financial",
@@ -473,7 +477,7 @@ export function usePortfolioSources({
         activeSource: "statement",
         vaultOwnerToken,
       });
-      await WorldModelService.storeMergedDomainWithPreparedBlob({
+      await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId,
         vaultKey,
         domain: "financial",

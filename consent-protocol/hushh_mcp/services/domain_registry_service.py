@@ -128,16 +128,14 @@ class DomainRegistryService:
         referenced: set[str] = set()
         try:
             rows = (
-                self.supabase.table("world_model_index_v2")
+                self.supabase.table("pkm_index")
                 .select("available_domains,domain_summaries")
                 .execute()
                 .data
                 or []
             )
         except Exception as read_error:
-            logger.warning(
-                "Failed to scan world_model_index_v2 for domain references: %s", read_error
-            )
+            logger.warning("Failed to scan pkm_index for domain references: %s", read_error)
             return referenced
 
         for row in rows:
@@ -438,10 +436,10 @@ class DomainRegistryService:
             return []
 
     async def get_user_domains(self, user_id: str) -> list[DomainInfo]:
-        """Get domains that have data for a specific user from world_model_index_v2."""
+        """Get domains that have data for a specific user from pkm_index."""
         try:
             result = (
-                self.supabase.table("world_model_index_v2")
+                self.supabase.table("pkm_index")
                 .select("available_domains", "domain_summaries")
                 .eq("user_id", user_id)
                 .limit(1)

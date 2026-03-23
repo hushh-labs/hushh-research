@@ -1,6 +1,6 @@
 import type { PortfolioData } from "@/lib/cache/cache-context";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
-import type { WorldModelMetadata } from "@/lib/services/personal-knowledge-model-service";
+import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import { removeSessionItemsByPrefix } from "@/lib/utils/session-storage";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -88,7 +88,7 @@ function sanitizeDomainSummary(summary: DomainSummaryPatch): Record<string, unkn
 }
 
 function patchMetadataDomain(
-  cachedMetadata: WorldModelMetadata,
+  cachedMetadata: PersonalKnowledgeModelMetadata,
   userId: string,
   domain: string,
   options?: {
@@ -96,7 +96,7 @@ function patchMetadataDomain(
     portfolioData?: PortfolioData;
     metadataTimestamp?: string;
   }
-): WorldModelMetadata {
+): PersonalKnowledgeModelMetadata {
   const sanitizedSummary = sanitizeDomainSummary(options?.domainSummary ?? {});
   const metadataTimestamp =
     options?.metadataTimestamp ??
@@ -164,7 +164,7 @@ export class CacheSyncService {
       .catch(() => undefined);
   }
 
-  static onWorldModelDomainStored(
+  static onPkmDomainStored(
     userId: string,
     domain: string,
     options?: {
@@ -184,7 +184,7 @@ export class CacheSyncService {
   ): void {
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
 
     if (domain === "financial") {
       if (options?.portfolioData) {
@@ -208,19 +208,19 @@ export class CacheSyncService {
         options.encryptedBlob,
         CACHE_TTL.SESSION
       );
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_BLOB(userId));
+      cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
     } else {
       cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_BLOB(userId));
+      cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
     }
 
     if (!writeThroughMetadata) {
       return;
     }
 
-    const cachedMetadata = cache.get<WorldModelMetadata>(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
+    const cachedMetadata = cache.get<PersonalKnowledgeModelMetadata>(CACHE_KEYS.PKM_METADATA(userId));
     if (!cachedMetadata || !options?.domainSummary) {
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
+      cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
       return;
     }
 
@@ -229,16 +229,16 @@ export class CacheSyncService {
       portfolioData: options.portfolioData,
       metadataTimestamp: options.metadataTimestamp,
     });
-    cache.set(CACHE_KEYS.WORLD_MODEL_METADATA(userId), patched, CACHE_TTL.MEDIUM);
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), patched, CACHE_TTL.MEDIUM);
   }
 
-  static onWorldModelDomainCleared(userId: string, domain: string): void {
+  static onPkmDomainCleared(userId: string, domain: string): void {
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_BLOB(userId));
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId));
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
+    cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
     if (domain === "financial") {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
     }
@@ -256,7 +256,7 @@ export class CacheSyncService {
     cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), portfolioData, CACHE_TTL.SESSION);
     this.onKaiMarketContextChanged(userId);
     if (options?.invalidateMetadata !== false) {
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
+      cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
     }
   }
 
@@ -327,11 +327,11 @@ export class CacheSyncService {
     if (!options?.preserveHistoryCache) {
       cache.invalidate(CACHE_KEYS.ANALYSIS_HISTORY(userId));
     }
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_BLOB(userId));
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
+    cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
     if (ticker) {
       cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker.toUpperCase()));
     }

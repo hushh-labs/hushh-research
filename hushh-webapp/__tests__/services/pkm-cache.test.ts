@@ -9,7 +9,7 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 vi.mock("@/lib/capacitor", () => ({
-  HushhWorldModel: {},
+  HushhPersonalKnowledgeModel: {},
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -20,7 +20,7 @@ vi.mock("@/lib/services/api-service", () => ({
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
 describe("PKM cache behavior", () => {
   beforeEach(() => {
@@ -44,8 +44,8 @@ describe("PKM cache behavior", () => {
     );
 
     const [a, b] = await Promise.all([
-      WorldModelService.getMetadata("user-1", false, "vault-owner-token"),
-      WorldModelService.getMetadata("user-1", false, "vault-owner-token"),
+      PersonalKnowledgeModelService.getMetadata("user-1", false, "vault-owner-token"),
+      PersonalKnowledgeModelService.getMetadata("user-1", false, "vault-owner-token"),
     ]);
 
     expect(a.userId).toBe("user-1");
@@ -80,17 +80,17 @@ describe("PKM cache behavior", () => {
       return new Response("not found", { status: 404 });
     });
 
-    const blobFirst = await WorldModelService.getEncryptedData("user-1", "vault-owner-token");
-    const blobSecond = await WorldModelService.getEncryptedData("user-1", "vault-owner-token");
+    const blobFirst = await PersonalKnowledgeModelService.getEncryptedData("user-1", "vault-owner-token");
+    const blobSecond = await PersonalKnowledgeModelService.getEncryptedData("user-1", "vault-owner-token");
     expect(blobFirst?.ciphertext).toBe("ciphertext-user");
     expect(blobSecond?.ciphertext).toBe("ciphertext-user");
 
-    const domainFirst = await WorldModelService.getDomainData(
+    const domainFirst = await PersonalKnowledgeModelService.getDomainData(
       "user-1",
       "financial",
       "vault-owner-token"
     );
-    const domainSecond = await WorldModelService.getDomainData(
+    const domainSecond = await PersonalKnowledgeModelService.getDomainData(
       "user-1",
       "financial",
       "vault-owner-token"
@@ -101,11 +101,78 @@ describe("PKM cache behavior", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("supports targeted segment reads for manifest-backed paths", async () => {
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/api/pkm/domain-data/user-1/health")) {
+        return new Response(
+          JSON.stringify({
+            encrypted_blob: {
+              ciphertext: "ciphertext-health",
+              iv: "iv-health",
+              tag: "tag-health",
+              segments: {
+                activities: {
+                  ciphertext: "ciphertext-activities",
+                  iv: "iv-activities",
+                  tag: "tag-activities",
+                },
+              },
+            },
+            segment_ids: ["activities"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    const manifest = {
+      domain: "health",
+      manifest_version: 1,
+      summary_projection: {},
+      top_level_scope_paths: ["activities"],
+      externalizable_paths: ["activities.entities.mem_swim.summary"],
+      paths: [
+        {
+          json_path: "activities",
+          path_type: "object" as const,
+          exposure_eligibility: true,
+          segment_id: "activities",
+        },
+        {
+          json_path: "activities.entities.mem_swim.summary",
+          path_type: "leaf" as const,
+          exposure_eligibility: true,
+          segment_id: "activities",
+        },
+      ],
+    };
+
+    const segmentIds = PersonalKnowledgeModelService.resolveSegmentIdsForPaths({
+      manifest,
+      paths: ["activities.entities.mem_swim.summary"],
+    });
+    expect(segmentIds).toEqual(["activities"]);
+
+    const domainBlob = await PersonalKnowledgeModelService.getDomainData(
+      "user-1",
+      "health",
+      "vault-owner-token",
+      segmentIds
+    );
+
+    expect(domainBlob?.segmentIds).toEqual(["activities"]);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("segment_ids=activities"),
+      expect.any(Object)
+    );
+  });
+
   it("writes through and invalidates cache keys on PKM CRUD sync hooks", () => {
     const cache = CacheService.getInstance();
     const userId = "user-1";
 
-    cache.set(CACHE_KEYS.WORLD_MODEL_METADATA(userId), {
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), {
       userId,
       domains: [],
       totalAttributes: 0,
@@ -114,7 +181,7 @@ describe("PKM cache behavior", () => {
       lastUpdated: null,
     });
 
-    CacheSyncService.onWorldModelDomainStored(userId, "financial", {
+    CacheSyncService.onPkmDomainStored(userId, "financial", {
       portfolioData: {
         holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, price: 100, market_value: 1000 }],
       },
@@ -130,21 +197,21 @@ describe("PKM cache behavior", () => {
     });
 
     expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeTruthy();
-    expect(cache.get(CACHE_KEYS.WORLD_MODEL_BLOB(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_BLOB(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeTruthy();
-    expect(cache.get(CACHE_KEYS.WORLD_MODEL_METADATA(userId))).toBeTruthy();
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeTruthy();
 
     CacheSyncService.onPortfolioUpserted(
       userId,
       { holdings: [{ symbol: "MSFT", name: "Microsoft", quantity: 3, price: 10, market_value: 30 }] },
       { invalidateMetadata: false }
     );
-    expect(cache.get(CACHE_KEYS.WORLD_MODEL_METADATA(userId))).toBeTruthy();
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeTruthy();
 
-    CacheSyncService.onWorldModelDomainCleared(userId, "financial");
+    CacheSyncService.onPkmDomainCleared(userId, "financial");
     expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
-    expect(cache.get(CACHE_KEYS.WORLD_MODEL_BLOB(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_BLOB(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeNull();
-    expect(cache.get(CACHE_KEYS.WORLD_MODEL_METADATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
   });
 });

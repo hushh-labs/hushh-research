@@ -5,7 +5,7 @@ Kai Portfolio API Route - Portfolio import and analysis endpoints.
 Handles:
 - File upload (CSV/PDF) for brokerage statements
 - Portfolio summary retrieval
-- KPI derivation and world model integration
+- KPI derivation and PKM integration
 - SSE streaming for real-time parsing progress
 
 Authentication:
@@ -59,7 +59,7 @@ from hushh_mcp.kai_import import (
     evaluate_import_quality_gate_v2,
     run_stream_pass_v2,
 )
-from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.portfolio_import_service import (
     ImportResult,
     get_portfolio_import_service,
@@ -2051,7 +2051,7 @@ async def import_portfolio(
     **Process**:
     1. Parse the file to extract holdings
     2. Derive KPIs (risk bucket, sector allocation, etc.)
-    3. Store KPIs in user's world model
+    3. Store KPIs in user's PKM
     4. Return summary with losers and winners
 
     **Authentication**: Requires valid VAULT_OWNER token.
@@ -2138,7 +2138,7 @@ async def get_portfolio_summary(
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioSummaryResponse:
     """
-    Get portfolio summary from world model (without decrypting holdings).
+    Get portfolio summary from PKM (without decrypting holdings).
 
     Returns KPIs derived from the user's imported portfolio.
 
@@ -2150,9 +2150,9 @@ async def get_portfolio_summary(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
         )
 
-    # Get portfolio summary from world_model_index_v2 (no decryption)
-    world_model = get_world_model_service()
-    index = await world_model.get_index_v2(user_id)
+    # Get portfolio summary from the PKM index (no decryption)
+    pkm_service = get_pkm_service()
+    index = await pkm_service.get_index_v2(user_id)
     if index is None or "financial" not in index.available_domains:
         return PortfolioSummaryResponse(
             user_id=user_id,
@@ -2201,7 +2201,7 @@ async def get_dashboard_profile_picks(
     Build profile-based dashboard picks from real user context.
 
     Source blend:
-    - User profile/risk from `world_model_index_v2.domain_summaries.financial`
+    - User profile/risk from `pkm_index.domain_summaries.financial`
     - Existing holdings symbols from caller-provided decrypted symbols context
     - Renaissance investable universe tiers
     - Live quote/sector context via `fetch_market_data`
@@ -2218,8 +2218,8 @@ async def get_dashboard_profile_picks(
     requested_limit = max(1, min(int(limit), _MAX_PROFILE_PICKS))
     consent_token = str(token_data.get("token") or "")
 
-    world_model = get_world_model_service()
-    index = await world_model.get_index_v2(user_id)
+    pkm_service = get_pkm_service()
+    index = await pkm_service.get_index_v2(user_id)
     domain_summaries = index.domain_summaries if index and index.domain_summaries else {}
     financial_summary = (
         domain_summaries.get("financial")

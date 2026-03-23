@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reset user-scoped development data across vault/world-model/consent tables."""
+"""Reset user-scoped development data across vault/PKM/consent tables."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from db.connection import get_database_ssl, get_database_url  # noqa: E402
 TABLES_TO_TRUNCATE = [
     "vault_key_wrappers",
     "vault_keys",
-    "world_model_data",
-    "world_model_index_v2",
+    "pkm_data",
+    "pkm_index",
     "consent_audit",
     "consent_exports",
     "user_push_tokens",

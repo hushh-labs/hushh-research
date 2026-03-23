@@ -18,7 +18,7 @@
  * }
  */
 
-import { WorldModelService } from "./personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "./personal-knowledge-model-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 
@@ -241,6 +241,18 @@ function extractHistoryMap(fullBlob: Record<string, unknown>): AnalysisHistoryMa
   return {};
 }
 
+function extractHistoryMapFromFinancialDomain(financialDomain: Record<string, unknown>): AnalysisHistoryMap {
+  const canonicalHistory = financialDomain.analysis_history;
+  if (
+    canonicalHistory &&
+    typeof canonicalHistory === "object" &&
+    !Array.isArray(canonicalHistory)
+  ) {
+    return sanitizeHistoryMap(canonicalHistory as Record<string, unknown>);
+  }
+  return {};
+}
+
 function buildFinancialDomainWithHistory(params: {
   fullBlob: Record<string, unknown>;
   historyMap: AnalysisHistoryMap;
@@ -310,15 +322,22 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, entry } = params;
 
     try {
-      // 1. Fetch existing encrypted blob
-      const fullBlob = await WorldModelService.loadFullBlob({
+      // 1. Fetch only the financial domain we need for history persistence.
+      const existingFinancialDomain = await PersonalKnowledgeModelService.loadDomainData({
         userId,
+        domain: FINANCIAL_DOMAIN,
         vaultKey,
         vaultOwnerToken,
       }).catch((e) => {
-        console.warn("[KaiHistory] Could not fetch/decrypt existing blob, starting fresh:", e);
-        return {} as Record<string, unknown>;
+        console.warn("[KaiHistory] Could not fetch/decrypt financial domain, starting fresh:", e);
+        return null;
       });
+      const fullBlob =
+        existingFinancialDomain &&
+        typeof existingFinancialDomain === "object" &&
+        !Array.isArray(existingFinancialDomain)
+          ? { [FINANCIAL_DOMAIN]: existingFinancialDomain }
+          : ({} as Record<string, unknown>);
 
       // 2. Get or create the history map
       const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
@@ -358,20 +377,21 @@ export class KaiHistoryService {
       historyMap[entry.ticker] = tickerHistory;
       const summary = buildHistorySummary(historyMap, entry.ticker, entry.timestamp);
       const nowIso = new Date().toISOString();
-      const financialDomain = buildFinancialDomainWithHistory({
+      const nextFinancialDomain = buildFinancialDomainWithHistory({
         fullBlob,
         historyMap,
         nowIso,
       });
 
       // 7. Re-encrypt and store merged domain
-      const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId,
         vaultKey,
         domain: FINANCIAL_DOMAIN,
-        domainData: financialDomain,
+        domainData: nextFinancialDomain,
         summary,
         baseFullBlob: fullBlob,
+        cacheFullBlob: false,
         vaultOwnerToken,
       });
 
@@ -424,12 +444,18 @@ export class KaiHistoryService {
     }
 
     try {
-      const fullBlob = await WorldModelService.loadFullBlob({
+      const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
         userId,
+        domain: FINANCIAL_DOMAIN,
         vaultKey,
         vaultOwnerToken,
       });
-      const historyMap = extractHistoryMap(fullBlob);
+      const historyMap =
+        financialDomain &&
+        typeof financialDomain === "object" &&
+        !Array.isArray(financialDomain)
+          ? extractHistoryMapFromFinancialDomain(financialDomain as Record<string, unknown>)
+          : {};
       CacheSyncService.onAnalysisHistoryStored(userId, historyMap);
       return historyMap;
     } catch (error) {
@@ -452,12 +478,17 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, ticker, timestamp, streamId } = params;
 
     try {
-      // 1. Fetch & Decrypt
-      const fullBlob = await WorldModelService.loadFullBlob({
+      // 1. Fetch only the financial domain needed for the delete operation.
+      const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
         userId,
+        domain: FINANCIAL_DOMAIN,
         vaultKey,
         vaultOwnerToken,
       }).catch(() => ({} as Record<string, unknown>));
+      const fullBlob =
+        financialDomain && typeof financialDomain === "object" && !Array.isArray(financialDomain)
+          ? { [FINANCIAL_DOMAIN]: financialDomain }
+          : ({} as Record<string, unknown>);
 
       // 2. Modify
       const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
@@ -513,7 +544,7 @@ export class KaiHistoryService {
 
       // 3. Encrypt & Save
       const nowIso = new Date().toISOString();
-      const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId,
         vaultKey,
         domain: FINANCIAL_DOMAIN,
@@ -524,6 +555,7 @@ export class KaiHistoryService {
         }),
         summary: buildHistorySummary(historyMap),
         baseFullBlob: fullBlob,
+        cacheFullBlob: false,
         vaultOwnerToken,
       });
 
@@ -553,12 +585,17 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, ticker } = params;
 
     try {
-      // 1. Fetch & Decrypt
-      const fullBlob = await WorldModelService.loadFullBlob({
+      // 1. Fetch only the financial domain needed for the delete operation.
+      const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
         userId,
+        domain: FINANCIAL_DOMAIN,
         vaultKey,
         vaultOwnerToken,
       }).catch(() => ({} as Record<string, unknown>));
+      const fullBlob =
+        financialDomain && typeof financialDomain === "object" && !Array.isArray(financialDomain)
+          ? { [FINANCIAL_DOMAIN]: financialDomain }
+          : ({} as Record<string, unknown>);
 
       // 2. Modify
       const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
@@ -568,7 +605,7 @@ export class KaiHistoryService {
       delete historyMap[tickerKey];
       // 3. Encrypt & Save
       const nowIso = new Date().toISOString();
-      const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId,
         vaultKey,
         domain: FINANCIAL_DOMAIN,
@@ -579,6 +616,7 @@ export class KaiHistoryService {
         }),
         summary: buildHistorySummary(historyMap),
         baseFullBlob: fullBlob,
+        cacheFullBlob: false,
         vaultOwnerToken,
       });
 

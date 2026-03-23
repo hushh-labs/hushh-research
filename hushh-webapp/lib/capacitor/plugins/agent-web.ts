@@ -52,7 +52,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
     }
     
     return {
-      response: `👋 Hi! I can help with investment analysis (Kai) and world-model domains. What would you like to do?`,
+      response: `👋 Hi! I can help with investment analysis (Kai) and PKM domains. What would you like to do?`,
       isComplete: false,
       needsConsent: false,
     };

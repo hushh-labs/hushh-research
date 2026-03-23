@@ -24,7 +24,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
     Enforces security protocols BEFORE the tool logic runs.
 
     Args:
-        scope: The required consent scope (e.g. attr.food.* or world_model.read)
+        scope: The required consent scope (e.g. attr.food.* or pkm.read)
         name: Optional override for the tool name
     """
 

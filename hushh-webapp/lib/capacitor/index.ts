@@ -707,11 +707,11 @@ export const HushhNotifications = registerPlugin<HushhNotificationsPlugin>(
   }
 );
 
-// ==================== HushhWorldModelPlugin ====================
-// World Model operations for dynamic domain/attribute management
+// ==================== HushhPersonalKnowledgeModelPlugin ====================
+// PKM operations for dynamic domain/attribute management
 
-export { HushhWorldModel } from "./world-model";
-export type { HushhWorldModelPlugin } from "./world-model";
+export { HushhPersonalKnowledgeModel } from "./personal-knowledge-model";
+export type { HushhPersonalKnowledgeModelPlugin } from "./personal-knowledge-model";
 
 // ==================== Export all ====================
 

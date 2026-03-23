@@ -110,7 +110,7 @@ class RIAClientDetailResponse(BaseModel):
     domain_summaries: dict = Field(default_factory=dict)
     total_attributes: int = 0
     workspace_ready: bool = False
-    world_model_updated_at: str | None = None
+    pkm_updated_at: str | None = None
 
 
 def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:

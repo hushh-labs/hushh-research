@@ -2181,7 +2181,7 @@ export class ApiService {
   }
 
   /**
-   * Get portfolio summary from world model
+   * Get portfolio summary from PKM
    */
   static async getPortfolioSummary(data: {
     userId: string;

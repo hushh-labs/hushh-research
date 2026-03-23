@@ -2,7 +2,7 @@
 """
 Consent request and status check handlers.
 
-Only world-model scopes are supported: world_model.read, world_model.write,
+Canonical PKM scopes are supported: pkm.read, pkm.write,
 attr.{domain}.*, and optional nested attr.{domain}.{subintent}.* scopes.
 
 Regulated cutover note:
@@ -167,8 +167,8 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                         "status": "error",
                         "error": f"Invalid scope: {scope_str}",
                         "valid_scopes": [
-                            "world_model.read",
-                            "world_model.write",
+                            "pkm.read",
+                            "pkm.write",
                             "attr.{domain}.*",
                             "attr.{domain}.{subintent}.*",
                         ],

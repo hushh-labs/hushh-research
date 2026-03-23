@@ -32,7 +32,7 @@ const REQUIRED_BACKEND_PLUGINS = [
   "HushhConsent",
   "Kai",
   "HushhNotifications",
-  "WorldModel",
+  "PersonalKnowledgeModel",
   "HushhAccount",
   "HushhSync",
 ];

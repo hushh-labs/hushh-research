@@ -7,7 +7,7 @@ Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile par
 - Routes touched
 - API/schema/type changes
 - Cache keys touched
-- World-model domain summary effects
+- PKM domain summary effects
 - Mobile parity impacts
 - Docs updated (exact file list)
 - Verification commands executed
@@ -26,7 +26,7 @@ Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile par
 - Cache keys touched:
   - ...
 
-- World-model effects:
+- PKM effects:
   - Domain(s): ...
   - Summary fields changed: ...
   - Reconciliation required: yes/no

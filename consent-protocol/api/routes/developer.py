@@ -25,7 +25,7 @@ from hushh_mcp.services.developer_registry_service import (
     normalize_tool_groups,
     visible_tool_names_for_groups,
 )
-from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ router = APIRouter()
 developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
 
-_STATIC_REQUESTABLE_SCOPES = ("pkm.read", "pkm.write", "world_model.read", "world_model.write")
+_STATIC_REQUESTABLE_SCOPES = ("pkm.read", "pkm.write", "pkm.read", "pkm.write")
 _MAX_EXPIRY_HOURS = 24 * 365
 
 
@@ -194,14 +194,6 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
             description="Write to the user personal knowledge model in governed flows.",
         ),
         DeveloperScopeDescriptor(
-            name="world_model.read",
-            description="Legacy alias for pkm.read during cutover.",
-        ),
-        DeveloperScopeDescriptor(
-            name="world_model.write",
-            description="Legacy alias for pkm.write during cutover.",
-        ),
-        DeveloperScopeDescriptor(
             name="attr.{domain}.*",
             description="Read one discovered domain branch.",
             dynamic=True,
@@ -253,8 +245,8 @@ def _resolve_principal(
 
 
 async def _get_user_scope_snapshot(user_id: str) -> tuple[list[str], list[str], list[dict]]:
-    world_model = get_world_model_service()
-    index = await world_model.get_index_v2(user_id)
+    pkm_service = get_pkm_service()
+    index = await pkm_service.get_index_v2(user_id)
     if index is None:
         return [], [], []
     available_domains = sorted(
@@ -264,8 +256,8 @@ async def _get_user_scope_snapshot(user_id: str) -> tuple[list[str], list[str], 
             if str(domain).strip()
         }
     )
-    scopes = sorted(await world_model.scope_generator.get_available_scopes(user_id))
-    scope_entries_getter = getattr(world_model.scope_generator, "get_available_scope_entries", None)
+    scopes = sorted(await pkm_service.scope_generator.get_available_scopes(user_id))
+    scope_entries_getter = getattr(pkm_service.scope_generator, "get_available_scope_entries", None)
     if callable(scope_entries_getter):
         scope_entries = await scope_entries_getter(user_id)
     else:

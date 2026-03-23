@@ -46,7 +46,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
                 logger.critical(error_msg)
                 raise PermissionError(error_msg)
 
-            # 2. Validate Token Scope (resolve world-model scope string to enum)
+            # 2. Validate Token Scope (resolve PKM scope string to enum)
             expected = resolve_scope_to_enum(scope) if isinstance(scope, str) else scope
             valid, reason, token_obj = validate_token(ctx.consent_token, expected_scope=expected)
 

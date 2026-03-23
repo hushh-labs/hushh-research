@@ -191,7 +191,7 @@ async def approve_consent(
         }
 
     # CRITICAL FIX: Pass original scope STRING to issue_token, not enum
-    # This ensures token contains 'attr.financial.*' not 'world_model.read'
+    # This ensures token contains 'attr.financial.*' not 'pkm.read'
     # The enum was validated above, but the token must preserve the exact scope
     token = issue_token(
         user_id=userId,

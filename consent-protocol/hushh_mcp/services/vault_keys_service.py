@@ -987,7 +987,7 @@ class VaultKeysService:
         kai_field_count = 0
         try:
             wm_response = (
-                supabase.table("world_model_index_v2")
+                supabase.table("pkm_index")
                 .select("domain_summaries")
                 .eq("user_id", user_id)
                 .limit(1)
@@ -1001,7 +1001,7 @@ class VaultKeysService:
                     prefs_summary.get("field_count", 0) if isinstance(prefs_summary, dict) else 0
                 )
         except Exception as e:  # pragma: no cover
-            logger.warning(f"Failed to check world_model_index_v2 for vault status: {e}")
+            logger.warning(f"Failed to check pkm_index for vault status: {e}")
 
         domains = {
             "kai": {

@@ -163,9 +163,9 @@ class CacheService {
    */
   invalidateUser(userId: string): void {
     const keysToDelete = new Set<string>([
-      CACHE_KEYS.WORLD_MODEL_METADATA(userId),
-      CACHE_KEYS.WORLD_MODEL_BLOB(userId),
-      CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId),
+      CACHE_KEYS.PKM_METADATA(userId),
+      CACHE_KEYS.PKM_BLOB(userId),
+      CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
       CACHE_KEYS.ACTIVE_CONSENTS(userId),
@@ -249,9 +249,9 @@ class CacheService {
 
 // Cache key constants for consistency
 export const CACHE_KEYS = {
-  WORLD_MODEL_METADATA: (userId: string) => `world_model_metadata_${userId}`,
-  WORLD_MODEL_BLOB: (userId: string) => `world_model_blob_${userId}`,
-  WORLD_MODEL_DECRYPTED_BLOB: (userId: string) => `world_model_decrypted_blob_${userId}`,
+  PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,
+  PKM_BLOB: (userId: string) => `pkm_blob_${userId}`,
+  PKM_DECRYPTED_BLOB: (userId: string) => `pkm_decrypted_blob_${userId}`,
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
   ACTIVE_CONSENTS: (userId: string) => `active_consents_${userId}`,

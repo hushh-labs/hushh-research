@@ -7,7 +7,7 @@
  * - Storing encrypted domain data blobs (BYOK)
  * - Scope validation
  *
- * Tri-Flow compliant: uses HushhWorldModel on native and ApiService.apiFetch() on web.
+ * Tri-Flow compliant: uses HushhPersonalKnowledgeModel on native and ApiService.apiFetch() on web.
  *
  * IMPORTANT: This service MUST NOT use direct fetch("/api/...") calls.
  * All web requests go through ApiService.apiFetch() for consistent auth handling.
@@ -16,13 +16,13 @@
  */
 
 import { Capacitor } from "@capacitor/core";
-import { HushhWorldModel } from "@/lib/capacitor";
+import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { ApiService } from "./api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
 import {
-  buildWorldModelStructureArtifacts,
+  buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
 } from "@/lib/personal-knowledge-model/manifest";
 
@@ -39,7 +39,7 @@ export interface DomainSummary {
   lastUpdated: string | null;
 }
 
-export interface WorldModelMetadata {
+export interface PersonalKnowledgeModelMetadata {
   userId: string;
   domains: DomainSummary[];
   totalAttributes: number;
@@ -104,9 +104,9 @@ export interface PkmMergeDecision {
 
 // ==================== Service ====================
 
-export class WorldModelService {
+export class PersonalKnowledgeModelService {
   private static readonly PKM_API_PREFIX = "/api/pkm";
-  private static metadataInflight = new Map<string, Promise<WorldModelMetadata>>();
+  private static metadataInflight = new Map<string, Promise<PersonalKnowledgeModelMetadata>>();
   private static encryptedDataInflight = new Map<string, Promise<EncryptedUserBlob | null>>();
   private static domainDataInflight = new Map<string, Promise<EncryptedDomainBlob | null>>();
   private static domainManifestInflight = new Map<string, Promise<DomainManifest | null>>();
@@ -351,7 +351,7 @@ export class WorldModelService {
     fullBlob: Record<string, unknown>;
   }): void {
     const cache = CacheService.getInstance();
-    const cacheKey = CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(params.userId);
+    const cacheKey = CACHE_KEYS.PKM_DECRYPTED_BLOB(params.userId);
     const entry: DecryptedFullBlobCacheEntry = {
       marker: params.marker,
       blob: this.cloneRecord(params.fullBlob),
@@ -373,6 +373,40 @@ export class WorldModelService {
       .replace(/[^a-z0-9_]/g, "_")
       .replace(/^_+|_+$/g, "");
     return normalized || "root";
+  }
+
+  private static normalizeSegmentIds(segmentIds?: string[] | null): string[] {
+    return [...new Set((segmentIds || []).map((segmentId) => this.canonicalSegmentId(segmentId)))];
+  }
+
+  static resolveSegmentIdsForPaths(params: {
+    manifest: DomainManifest | null | undefined;
+    paths?: string[] | null;
+  }): string[] {
+    const manifest = params.manifest;
+    if (!manifest) {
+      return [];
+    }
+    const requestedPaths = [...new Set((params.paths || []).map((path) => this.normalizePathSegments(path).join(".")))].filter(Boolean);
+    if (requestedPaths.length === 0) {
+      return this.normalizeSegmentIds(manifest.segment_ids);
+    }
+
+    const matchedSegmentIds = new Set<string>();
+    for (const descriptor of manifest.paths || []) {
+      const jsonPath = this.normalizePathSegments(descriptor?.json_path).join(".");
+      if (!jsonPath) continue;
+      const matches = requestedPaths.some(
+        (path) => jsonPath === path || jsonPath.startsWith(`${path}.`) || path.startsWith(`${jsonPath}.`)
+      );
+      if (!matches) continue;
+      matchedSegmentIds.add(this.canonicalSegmentId(descriptor.segment_id || "root"));
+    }
+
+    if (matchedSegmentIds.size === 0) {
+      return this.normalizeSegmentIds(manifest.segment_ids);
+    }
+    return [...matchedSegmentIds];
   }
 
   private static partitionDomainDataIntoSegments(domainData: Record<string, unknown>): Record<string, unknown> {
@@ -439,6 +473,7 @@ export class WorldModelService {
     vaultKey: string;
     domain: string;
     blob: EncryptedDomainBlob;
+    segmentIds?: string[];
   }): Promise<Record<string, unknown>> {
     const { decryptData } = await import("@/lib/vault/encrypt");
     const segments = params.blob.segments || {};
@@ -457,7 +492,13 @@ export class WorldModelService {
     }
 
     const domainData: Record<string, unknown> = {};
-    for (const [segmentId, encryptedSegment] of Object.entries(segments)) {
+    const requestedSegmentIds = this.normalizeSegmentIds(params.segmentIds);
+    const segmentEntries = Object.entries(segments).filter(([segmentId]) =>
+      requestedSegmentIds.length === 0
+        ? true
+        : requestedSegmentIds.includes(this.canonicalSegmentId(segmentId))
+    );
+    for (const [segmentId, encryptedSegment] of segmentEntries) {
       const decrypted = await decryptData(
         {
           ciphertext: encryptedSegment.ciphertext,
@@ -480,7 +521,7 @@ export class WorldModelService {
 
   static peekCachedEncryptedBlob(userId: string): EncryptedUserBlob | null {
     const cache = CacheService.getInstance();
-    const cacheKey = CACHE_KEYS.WORLD_MODEL_BLOB(userId);
+    const cacheKey = CACHE_KEYS.PKM_BLOB(userId);
     const cached = cache.get<EncryptedUserBlob>(cacheKey);
     if (!cached) return null;
     return { ...cached };
@@ -492,7 +533,7 @@ export class WorldModelService {
     updatedAt?: string;
   } | null {
     const cache = CacheService.getInstance();
-    const decryptedCacheKey = CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId);
+    const decryptedCacheKey = CACHE_KEYS.PKM_DECRYPTED_BLOB(userId);
     const cachedDecrypted = cache.get<DecryptedFullBlobCacheEntry>(decryptedCacheKey);
     if (!cachedDecrypted?.blob) {
       return null;
@@ -648,7 +689,7 @@ export class WorldModelService {
     const priorAt = this.tickerSyncLastAt.get(params.userId) || 0;
     if (
       priorSignature === signature &&
-      now - priorAt < WorldModelService.TICKER_SYNC_THROTTLE_MS
+      now - priorAt < PersonalKnowledgeModelService.TICKER_SYNC_THROTTLE_MS
     ) {
       return;
     }
@@ -679,7 +720,7 @@ export class WorldModelService {
         if (!response.ok) {
           const errorText = await response.text().catch(() => "");
           console.warn(
-            `[WorldModelService] ticker sync failed (${response.status}) for ${params.userId}: ${errorText}`
+            `[PersonalKnowledgeModelService] ticker sync failed (${response.status}) for ${params.userId}: ${errorText}`
           );
           return;
         }
@@ -697,7 +738,7 @@ export class WorldModelService {
         this.tickerSyncSignatureByUser.set(params.userId, signature);
         this.tickerSyncLastAt.set(params.userId, Date.now());
       } catch (error) {
-        console.warn("[WorldModelService] ticker sync request failed:", error);
+        console.warn("[PersonalKnowledgeModelService] ticker sync request failed:", error);
       }
     })();
 
@@ -727,11 +768,11 @@ export class WorldModelService {
   }
 
   /**
-   * Get user's world model metadata for UI display.
+   * Get user PKM metadata for UI display.
    * This is the primary method for fetching profile data.
-   * 
+   *
    * Uses in-memory caching with 5-minute TTL to reduce API calls.
-   * 
+   *
    * @param userId - User's ID
    * @param forceRefresh - If true, bypasses cache and fetches fresh data
    */
@@ -739,15 +780,15 @@ export class WorldModelService {
     userId: string,
     forceRefresh = false,
     vaultOwnerToken?: string
-  ): Promise<WorldModelMetadata> {
+  ): Promise<PersonalKnowledgeModelMetadata> {
     const cache = CacheService.getInstance();
-    const cacheKey = CACHE_KEYS.WORLD_MODEL_METADATA(userId);
+    const cacheKey = CACHE_KEYS.PKM_METADATA(userId);
 
     // Check cache first (unless force refresh)
     if (!forceRefresh) {
-      const cached = cache.get<WorldModelMetadata>(cacheKey);
+      const cached = cache.get<PersonalKnowledgeModelMetadata>(cacheKey);
       if (cached) {
-        console.log("[WorldModelService] Using cached metadata");
+        console.log("[PersonalKnowledgeModelService] Using cached metadata");
         return cached;
       }
     }
@@ -764,14 +805,14 @@ export class WorldModelService {
       return existingRequest;
     }
 
-    const request = (async (): Promise<WorldModelMetadata> => {
-      let result: WorldModelMetadata;
+    const request = (async (): Promise<PersonalKnowledgeModelMetadata> => {
+      let result: PersonalKnowledgeModelMetadata;
       let cacheTtlMs = CACHE_TTL.MEDIUM;
 
       if (Capacitor.isNativePlatform()) {
         // Use Capacitor plugin for native platforms
         // Native plugins return snake_case from backend - transform to camelCase
-        const nativeResult = await HushhWorldModel.getMetadata({
+        const nativeResult = await HushhPersonalKnowledgeModel.getMetadata({
           userId,
           vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
         });
@@ -828,7 +869,7 @@ export class WorldModelService {
           // Token may be missing/expired/revoked during startup transitions.
           // Return empty metadata instead of throwing noisy runtime errors.
           console.warn(
-            `[WorldModelService] Metadata unauthorized for ${userId}; returning empty state (${response.status})`
+            `[PersonalKnowledgeModelService] Metadata unauthorized for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
           result = {
@@ -843,7 +884,7 @@ export class WorldModelService {
           // Upstream timeout / temporary backend issue.
           // Return an empty shape so callers can apply local fallbacks (cache/blob) without hard crash.
           console.warn(
-            `[WorldModelService] Metadata temporarily unavailable for ${userId}; returning empty state (${response.status})`
+            `[PersonalKnowledgeModelService] Metadata temporarily unavailable for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
           result = {
@@ -858,7 +899,7 @@ export class WorldModelService {
           // Any remaining non-OK status should fail open for dashboard bootstrap.
           // Callers already apply local cache/blob fallbacks.
           console.warn(
-            `[WorldModelService] Metadata request failed for ${userId}; returning empty state (${response.status})`
+            `[PersonalKnowledgeModelService] Metadata request failed for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
           result = {
@@ -895,7 +936,7 @@ export class WorldModelService {
 
       // Cache the result
       cache.set(cacheKey, result, cacheTtlMs);
-      console.log("[WorldModelService] Cached metadata for", userId);
+      console.log("[PersonalKnowledgeModelService] Cached metadata for", userId);
 
       return result;
     })();
@@ -919,7 +960,7 @@ export class WorldModelService {
    * @param params.userId - User's ID
    * @param params.domain - Domain key (e.g., "financial", "food")
    * @param params.encryptedBlob - Pre-encrypted data from client
-   * @param params.summary - Non-sensitive metadata for world_model_index_v2
+   * @param params.summary - Non-sensitive metadata for pkm_index
    */
   static async storeDomainData(params: {
     userId: string;
@@ -933,7 +974,7 @@ export class WorldModelService {
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
     if (Capacitor.isNativePlatform()) {
-      const result = await HushhWorldModel.storeDomainData({
+      const result = await HushhPersonalKnowledgeModel.storeDomainData({
         userId: params.userId,
         domain: params.domain,
         encryptedBlob: {
@@ -951,7 +992,7 @@ export class WorldModelService {
 
       // Invalidate caches after successful native store
       if (result.success) {
-        CacheSyncService.onWorldModelDomainStored(params.userId, params.domain, {
+        CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
           portfolioData: params.portfolioData,
           encryptedBlob: params.encryptedBlob,
           domainSummary: params.summary,
@@ -1014,7 +1055,7 @@ export class WorldModelService {
           message:
             (detailRecord && typeof detailRecord.message === "string"
               ? detailRecord.message
-              : null) ?? "World model version conflict.",
+              : null) ?? "PKM version conflict.",
           dataVersion:
             detailRecord && typeof detailRecord.current_data_version === "number"
               ? detailRecord.current_data_version
@@ -1041,7 +1082,7 @@ export class WorldModelService {
     };
 
     // Invalidate caches after successful store
-    CacheSyncService.onWorldModelDomainStored(params.userId, params.domain, {
+    CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
       portfolioData: params.portfolioData,
       encryptedBlob: enrichedEncryptedBlob,
       domainSummary: params.summary,
@@ -1065,7 +1106,7 @@ export class WorldModelService {
     vaultOwnerToken?: string
   ): Promise<ScopeDiscovery> {
     if (Capacitor.isNativePlatform()) {
-      const nativeResult = await HushhWorldModel.getAvailableScopes({
+      const nativeResult = await HushhPersonalKnowledgeModel.getAvailableScopes({
         userId,
         vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
       });
@@ -1124,7 +1165,7 @@ export class WorldModelService {
       wildcardScopes:
         data.wildcard_scopes ||
         rawScopes.filter(
-          (scope) => scope === "pkm.read" || scope === "world_model.read" || scope.endsWith(".*")
+          (scope) => scope === "pkm.read" || scope.endsWith(".*")
         ),
     };
   }
@@ -1174,14 +1215,14 @@ export class WorldModelService {
   }
 
   /**
-   * Get the full encrypted world-model blob for a user.
+   * Get the full encrypted PKM blob for a user.
    */
   static async getEncryptedData(
     userId: string,
     vaultOwnerToken?: string
   ): Promise<EncryptedUserBlob | null> {
     const cache = CacheService.getInstance();
-    const cacheKey = CACHE_KEYS.WORLD_MODEL_BLOB(userId);
+    const cacheKey = CACHE_KEYS.PKM_BLOB(userId);
     const cached = cache.get<EncryptedUserBlob>(cacheKey);
     if (cached) {
       return cached;
@@ -1202,7 +1243,7 @@ export class WorldModelService {
       let result: EncryptedUserBlob | null = null;
 
       if (Capacitor.isNativePlatform()) {
-        const nativeResult = await HushhWorldModel.getEncryptedData({
+        const nativeResult = await HushhPersonalKnowledgeModel.getEncryptedData({
           userId,
           vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
         });
@@ -1272,7 +1313,7 @@ export class WorldModelService {
   }
 
   /**
-   * Decrypt and return the full world-model blob.
+   * Decrypt and return the full PKM blob.
    * Returns empty object when user has no encrypted data.
    */
   static async loadFullBlob(params: {
@@ -1281,7 +1322,7 @@ export class WorldModelService {
     vaultOwnerToken?: string;
   }): Promise<Record<string, unknown>> {
     const cache = CacheService.getInstance();
-    let metadata: WorldModelMetadata | null = null;
+    let metadata: PersonalKnowledgeModelMetadata | null = null;
     try {
       metadata = await this.getMetadata(params.userId, false, params.vaultOwnerToken);
     } catch {
@@ -1298,7 +1339,7 @@ export class WorldModelService {
     );
 
     if (!legacyEncrypted && materializedDomainBlobs.length === 0) {
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(params.userId));
+      cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(params.userId));
       return {};
     }
 
@@ -1306,7 +1347,7 @@ export class WorldModelService {
       ...(legacyEncrypted ? [legacyEncrypted] : []),
       ...materializedDomainBlobs,
     ]);
-    const decryptedCacheKey = CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(params.userId);
+    const decryptedCacheKey = CACHE_KEYS.PKM_DECRYPTED_BLOB(params.userId);
     const cachedDecrypted = cache.get<DecryptedFullBlobCacheEntry>(decryptedCacheKey);
     if (cachedDecrypted?.marker === marker && cachedDecrypted.blob) {
       return this.cloneRecord(cachedDecrypted.blob);
@@ -1379,7 +1420,7 @@ export class WorldModelService {
     vaultOwnerToken?: string;
     legacyEncrypted: EncryptedUserBlob | null;
     fullBlob: Record<string, unknown>;
-    metadata: WorldModelMetadata | null;
+    metadata: PersonalKnowledgeModelMetadata | null;
     fetchedDomains: Array<{ domain: string; blob: EncryptedDomainBlob | null }>;
   }): Promise<void> {
     if (!params.legacyEncrypted) {
@@ -1427,7 +1468,7 @@ export class WorldModelService {
           domain,
           params.vaultOwnerToken
         ).catch(() => null);
-        const structureArtifacts = buildWorldModelStructureArtifacts({
+        const structureArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
           domain,
           domainData,
           previousManifest,
@@ -1469,7 +1510,7 @@ export class WorldModelService {
   }
 
   /**
-   * Merge one domain into full world-model blob, encrypt, and persist.
+   * Merge one domain into the full PKM blob, encrypt, and persist.
    */
   static async mergeAndEncryptFullBlob(params: {
     userId: string;
@@ -1530,6 +1571,30 @@ export class WorldModelService {
     };
   }
 
+  private static async loadTargetDomainBaseBlob(params: {
+    userId: string;
+    vaultKey: string;
+    domain: string;
+    vaultOwnerToken?: string;
+    segmentIds?: string[];
+  }): Promise<Record<string, unknown>> {
+    const domainData = await this.loadDomainData({
+      userId: params.userId,
+      domain: params.domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      segmentIds: params.segmentIds,
+    }).catch(() => null);
+
+    if (!this.isPlainObject(domainData)) {
+      return {};
+    }
+
+    return {
+      [params.domain]: this.cloneRecord(domainData),
+    };
+  }
+
   /**
    * Merge one domain into full blob and persist via storeDomainData.
    */
@@ -1549,15 +1614,17 @@ export class WorldModelService {
     updatedAt?: string;
     fullBlob: Record<string, unknown>;
   }> {
-    const baseFullBlob = await this.loadFullBlob({
+    const baseFullBlob = await this.loadTargetDomainBaseBlob({
       userId: params.userId,
       vaultKey: params.vaultKey,
+      domain: params.domain,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => ({} as Record<string, unknown>));
+    });
 
     return this.storeMergedDomainWithPreparedBlob({
       ...params,
       baseFullBlob,
+      cacheFullBlob: false,
     });
   }
 
@@ -1574,6 +1641,7 @@ export class WorldModelService {
     baseFullBlob: Record<string, unknown>;
     expectedDataVersion?: number;
     vaultOwnerToken?: string;
+    cacheFullBlob?: boolean;
   }): Promise<{
     success: boolean;
     conflict?: boolean;
@@ -1593,7 +1661,7 @@ export class WorldModelService {
       domain: params.domain,
       domainData: params.domainData,
     });
-    const structureArtifacts = buildWorldModelStructureArtifacts({
+    const structureArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
       domain: params.domain,
       domainData: params.domainData,
       previousManifest,
@@ -1628,7 +1696,7 @@ export class WorldModelService {
         vaultOwnerToken: params.vaultOwnerToken,
       });
     }
-    if (result.success) {
+    if (result.success && params.cacheFullBlob !== false) {
       const encryptedBlobForCache: EncryptedUserBlob = {
         ...merged.encryptedBlob,
         dataVersion: result.dataVersion,
@@ -1675,15 +1743,17 @@ export class WorldModelService {
     updatedAt?: string;
     fullBlob: Record<string, unknown>;
   }> {
-    const baseFullBlob = await this.loadFullBlob({
+    const baseFullBlob = await this.loadTargetDomainBaseBlob({
       userId: params.userId,
       vaultKey: params.vaultKey,
+      domain: params.domain,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => ({} as Record<string, unknown>));
+    });
 
     return this.storePreparedDomainWithPreparedBlob({
       ...params,
       baseFullBlob,
+      cacheFullBlob: false,
     });
   }
 
@@ -1699,6 +1769,7 @@ export class WorldModelService {
     manifest?: DomainManifest | null;
     expectedDataVersion?: number;
     vaultOwnerToken?: string;
+    cacheFullBlob?: boolean;
   }): Promise<{
     success: boolean;
     conflict?: boolean;
@@ -1719,7 +1790,7 @@ export class WorldModelService {
       domainData: params.domainData,
       mergeDecision: params.mergeDecision,
     });
-    const fallbackArtifacts = buildWorldModelStructureArtifacts({
+    const fallbackArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
       domain: params.domain,
       domainData: merged.domainData,
       previousManifest,
@@ -1762,7 +1833,7 @@ export class WorldModelService {
       });
     }
 
-    if (result.success) {
+    if (result.success && params.cacheFullBlob !== false) {
       const encryptedBlobForCache: EncryptedUserBlob = {
         ...merged.encryptedBlob,
         dataVersion: result.dataVersion,
@@ -1796,19 +1867,25 @@ export class WorldModelService {
   static async getDomainData(
     userId: string,
     domain: string,
-    vaultOwnerToken?: string
+    vaultOwnerToken?: string,
+    segmentIds?: string[]
   ): Promise<EncryptedDomainBlob | null> {
     const cache = CacheService.getInstance();
+    const normalizedSegmentIds = this.normalizeSegmentIds(segmentIds);
+    const canUseCache = normalizedSegmentIds.length === 0;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
-    const cached = cache.get<EncryptedDomainBlob>(cacheKey);
-    if (cached) {
-      return cached;
+    if (canUseCache) {
+      const cached = cache.get<EncryptedDomainBlob>(cacheKey);
+      if (cached) {
+        return cached;
+      }
     }
 
     const dedupeKey = this.inflightKey([
       "domain_blob",
       userId,
       domain,
+      normalizedSegmentIds.join(",") || "all_segments",
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
     ]);
@@ -1821,9 +1898,10 @@ export class WorldModelService {
       let encryptedBlob: EncryptedDomainBlob | null = null;
 
       if (Capacitor.isNativePlatform()) {
-        const result = await HushhWorldModel.getDomainData({
+        const result = await HushhPersonalKnowledgeModel.getDomainData({
           userId,
           domain,
+          segmentIds: normalizedSegmentIds.length > 0 ? normalizedSegmentIds : undefined,
           vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
         });
         if (result.encrypted_blob) {
@@ -1865,7 +1943,13 @@ export class WorldModelService {
       } else {
         // Web: Use ApiService.apiFetch() for tri-flow compliance
         const response = await ApiService.apiFetch(
-          `${this.PKM_API_PREFIX}/domain-data/${userId}/${domain}`,
+          `${this.PKM_API_PREFIX}/domain-data/${userId}/${domain}${
+            normalizedSegmentIds.length > 0
+              ? `?${normalizedSegmentIds
+                  .map((segmentId) => `segment_ids=${encodeURIComponent(segmentId)}`)
+                  .join("&")}`
+              : ""
+          }`,
           {
             headers: this.getAuthHeaders(vaultOwnerToken),
           }
@@ -1917,9 +2001,9 @@ export class WorldModelService {
         }
       }
 
-      if (encryptedBlob) {
+      if (encryptedBlob && canUseCache) {
         cache.set(cacheKey, encryptedBlob, CACHE_TTL.SESSION);
-      } else {
+      } else if (!encryptedBlob && canUseCache) {
         cache.invalidate(cacheKey);
       }
 
@@ -1941,8 +2025,14 @@ export class WorldModelService {
     domain: string;
     vaultKey: string;
     vaultOwnerToken?: string;
+    segmentIds?: string[];
   }): Promise<Record<string, unknown> | null> {
-    const blob = await this.getDomainData(params.userId, params.domain, params.vaultOwnerToken);
+    const blob = await this.getDomainData(
+      params.userId,
+      params.domain,
+      params.vaultOwnerToken,
+      params.segmentIds
+    );
     if (!blob) {
       return null;
     }
@@ -1964,13 +2054,14 @@ export class WorldModelService {
       vaultKey: params.vaultKey,
       domain: params.domain,
       blob,
+      segmentIds: params.segmentIds,
     });
   }
 
   /**
    * Clear all data for a specific domain.
-   * This removes the encrypted blob and updates the world model index.
-   * 
+   * This removes the encrypted blob and updates the PKM index.
+   *
    * @param userId - User's ID
    * @param domain - Domain key (e.g., "financial")
    * @returns Success status
@@ -1981,11 +2072,11 @@ export class WorldModelService {
     vaultOwnerToken?: string
   ): Promise<boolean> {
     const invalidateDomainCaches = () => {
-      CacheSyncService.onWorldModelDomainCleared(userId, domain);
+      CacheSyncService.onPkmDomainCleared(userId, domain);
     };
 
     if (Capacitor.isNativePlatform()) {
-      const result = await HushhWorldModel.clearDomain({
+      const result = await HushhPersonalKnowledgeModel.clearDomain({
         userId,
         domain,
         vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
@@ -2014,7 +2105,4 @@ export class WorldModelService {
   }
 }
 
-export const PersonalKnowledgeModelService = WorldModelService;
-
-// WorldModelService remains as a compatibility alias during the PKM cutover.
 export default PersonalKnowledgeModelService;

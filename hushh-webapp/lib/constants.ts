@@ -6,8 +6,7 @@
 /**
  * Consent scopes matching backend ConsentScope enum
  * 
- * NOTE: Uses dynamic attr.DOMAIN.ATTRIBUTE scopes instead of legacy vault.read/vault.write scopes.
- * Legacy scopes are kept for backward compatibility but should not be used in new code.
+ * Uses dynamic attr.DOMAIN.ATTRIBUTE scopes with PKM read/write scopes.
  */
 export const CONSENT_SCOPES = {
   // Dynamic attr.* scopes (canonical - preferred)
@@ -15,9 +14,9 @@ export const CONSENT_SCOPES = {
   ATTR_FINANCIAL_RISK_PROFILE: "attr.financial.risk_profile",
   ATTR_HEALTH: "attr.health.*",
 
-  // World model scopes
-  WORLD_MODEL_READ: "world_model.read",
-  WORLD_MODEL_WRITE: "world_model.write",
+  // PKM scopes
+  PKM_READ: "pkm.read",
+  PKM_WRITE: "pkm.write",
 
   // Vault owner (master scope)
   VAULT_OWNER: "vault.owner",

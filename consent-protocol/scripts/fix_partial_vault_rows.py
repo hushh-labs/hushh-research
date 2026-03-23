@@ -95,7 +95,7 @@ async def main() -> None:
     parser.add_argument(
         "--delete-invalid",
         action="store_true",
-        help="Delete invalid vault rows (cascades to wrappers/world model).",
+        help="Delete invalid vault rows (cascades to wrappers/PKM).",
     )
     parser.add_argument(
         "--confirm",
