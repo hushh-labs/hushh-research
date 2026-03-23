@@ -735,7 +735,7 @@ You are given finalized multi-agent debate artifacts for {ticker}.
 
 Your task: produce a concise, institution-grade synthesis that explicitly fuses:
 1) AlphaAgents debate outputs,
-2) world-model portfolio/user context,
+2) PKM portfolio/user context,
 3) Renaissance screening signals.
 
 Return STRICT JSON with keys:

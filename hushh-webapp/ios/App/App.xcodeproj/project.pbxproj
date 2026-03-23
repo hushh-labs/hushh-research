@@ -19,7 +19,7 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
-		A1B2C3D42F0E966A009FC3FD /* WorldModelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D52F0E966A009FC3FD /* WorldModelPlugin.swift */; };
+		A1B2C3D42F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */; };
 		A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */; };
 		D1F9F9122F0E966A009FC3FB /* KaiPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */; };
 		E1F2A3B42F0E966A009FC3FE /* HushhProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F2A3B52F0E966A009FC3FE /* HushhProxyClient.swift */; };
@@ -47,7 +47,7 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhConsentPlugin.swift; path = Plugins/HushhConsentPlugin.swift; sourceTree = "<group>"; };
 		9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhKeystorePlugin.swift; path = Plugins/HushhKeystorePlugin.swift; sourceTree = "<group>"; };
-		A1B2C3D52F0E966A009FC3FD /* WorldModelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WorldModelPlugin.swift; path = Plugins/WorldModelPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalKnowledgeModelPlugin.swift; path = Plugins/PersonalKnowledgeModelPlugin.swift; sourceTree = "<group>"; };
 		A280438C2F21B1FC005B42F3 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KaiPlugin.swift; path = Plugins/KaiPlugin.swift; sourceTree = "<group>"; };
 		E1F2A3B52F0E966A009FC3FE /* HushhProxyClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhProxyClient.swift; path = Plugins/HushhProxyClient.swift; sourceTree = "<group>"; };
@@ -115,7 +115,7 @@
 				EB0840347A0D3490156D1D16 /* HushhVaultPlugin.swift */,
 				695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */,
 				9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */,
-				A1B2C3D52F0E966A009FC3FD /* WorldModelPlugin.swift */,
+				A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */,
 				E1F2A3B52F0E966A009FC3FE /* HushhProxyClient.swift */,
 				FACADE000000000000000001 /* HushhAccountPlugin.swift */,
 				FACADE000000000000000004 /* HushhNotificationsPlugin.swift */,
@@ -214,7 +214,7 @@
 				FC968756EFA54153BC098D3D /* HushhVaultPlugin.swift in Sources */,
 				E8B31D0870530F4CFA77B50B /* HushhSettingsPlugin.swift in Sources */,
 				39FF675A1CDE37244E8EAEF2 /* HushhKeystorePlugin.swift in Sources */,
-				A1B2C3D42F0E966A009FC3FD /* WorldModelPlugin.swift in Sources */,
+				A1B2C3D42F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift in Sources */,
 				E1F2A3B42F0E966A009FC3FE /* HushhProxyClient.swift in Sources */,
 				FACADE000000000000000002 /* HushhAccountPlugin.swift in Sources */,
 				FACADE000000000000000003 /* HushhNotificationsPlugin.swift in Sources */,

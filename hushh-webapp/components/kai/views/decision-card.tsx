@@ -108,7 +108,7 @@ export interface DecisionResult {
       score?: number;
       source?: string;
     }>;
-    world_model_context?: {
+    pkm_context?: {
       risk_profile?: string;
       preferences?: Record<string, unknown>;
       holdings_count?: number;
@@ -164,7 +164,7 @@ export interface DecisionResult {
       source?: string;
     };
     context_integrity?: {
-      world_model_context_present?: boolean;
+      pkm_context_present?: boolean;
       renaissance_context_present?: boolean;
       missing_requirements?: string[];
     };

@@ -79,11 +79,11 @@ class _StubChatService:
             "reasoning": "stubbed",
             "component_type": "analysis_summary",
             "component_data": {},
-            "saved_to_world_model": False,
+            "saved_to_pkm": False,
         }
 
 
-class _StubWorldModelService:
+class _StubPersonalKnowledgeModelService:
     async def store_domain_data(self, *args, **kwargs):
         return True
 

@@ -70,10 +70,39 @@ def _to_http_exception(error: Exception) -> HTTPException:
         }
         status_code = error.status_code if error.status_code >= 400 else 502
         return HTTPException(status_code=status_code, detail=detail)
+    if isinstance(error, RuntimeError):
+        message = str(error)
+        if message == "No active Plaid Item is available to refresh.":
+            return HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "PLAID_REFRESH_UNAVAILABLE",
+                    "message": message,
+                },
+            )
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail={"code": "PLAID_ROUTE_FAILURE", "message": str(error)},
     )
+
+
+def _raise_logged_http_exception(
+    route_name: str,
+    user_id: str,
+    error: Exception,
+) -> None:
+    http_exc = _to_http_exception(error)
+    if http_exc.status_code >= 500:
+        logger.exception("%s user_id=%s", route_name, user_id)
+    else:
+        logger.warning(
+            "%s user_id=%s status=%s detail=%s",
+            route_name,
+            user_id,
+            http_exc.status_code,
+            http_exc.detail,
+        )
+    raise http_exc from error
 
 
 @router.get("/plaid/status/{user_id}")
@@ -145,8 +174,7 @@ async def exchange_plaid_public_token(
             resume_session_id=request.resume_session_id,
         )
     except Exception as exc:
-        logger.exception("kai.plaid.exchange_failed user_id=%s", request.user_id)
-        raise _to_http_exception(exc) from exc
+        _raise_logged_http_exception("kai.plaid.exchange_failed", request.user_id, exc)
 
 
 @router.post("/plaid/oauth/resume")
@@ -190,8 +218,7 @@ async def refresh_plaid_connections(
             trigger_source="manual_refresh",
         )
     except Exception as exc:
-        logger.exception("kai.plaid.refresh_failed user_id=%s", request.user_id)
-        raise _to_http_exception(exc) from exc
+        _raise_logged_http_exception("kai.plaid.refresh_failed", request.user_id, exc)
 
 
 @router.get("/plaid/refresh/{run_id}")

@@ -22,7 +22,7 @@ import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { KaiProfileService } from "@/lib/services/kai-profile-service";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { toInvestorMessage, toInvestorStreamText } from "@/lib/copy/investor-language";
 import type { PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
@@ -1264,24 +1264,19 @@ export function DebateStreamView({
           : extractDebatePortfolioContext(userId);
       if (!hasRequiredDebateContext(portfolioContext) && vaultKey) {
         try {
-          const fullBlob = await WorldModelService.loadFullBlob({
+          const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
             userId,
+            domain: "financial",
             vaultKey,
             vaultOwnerToken,
           });
-          const financialDomain =
-            fullBlob.financial &&
-            typeof fullBlob.financial === "object" &&
-            !Array.isArray(fullBlob.financial)
-              ? (fullBlob.financial as Record<string, unknown>)
-              : null;
           const hydratedContext =
-            extractDebatePortfolioContext(userId, financialDomain ?? fullBlob) ??
+            extractDebatePortfolioContext(userId, financialDomain ?? undefined) ??
             portfolioContext;
           portfolioContext = hydratedContext;
         } catch (blobError) {
           console.warn(
-            "[DebateStreamView] Failed to hydrate debate context from world-model blob:",
+            "[DebateStreamView] Failed to hydrate debate context from the financial PKM domain:",
             blobError
           );
         }

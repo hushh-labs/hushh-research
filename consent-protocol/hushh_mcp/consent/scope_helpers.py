@@ -17,7 +17,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     Handles:
     - Dynamic attr.{domain}.* scopes
     - Dynamic attr.{domain}.{attribute} scopes
-    - PKM scopes (pkm.read, pkm.write) and legacy world_model.* aliases
+    - PKM scopes (pkm.read, pkm.write) and internal aliases
     - Agent permissions (agent.*)
     - vault.owner master scope
     - custom.* temporary scopes
@@ -35,18 +35,18 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         return ConsentScope.VAULT_OWNER
 
     # Dynamic attr.* scopes - each domain gets isolated handling
-    # CRITICAL: Do NOT map all attr.* to WORLD_MODEL_READ - this breaks isolation!
-    # Instead, we use WORLD_MODEL_READ as a base but validate scope strings directly
+    # CRITICAL: Do NOT map all attr.* to PKM_READ - this breaks isolation!
+    # Instead, we use PKM_READ as a base but validate scope strings directly
     if generator.is_dynamic_scope(scope):
         domain, attribute_key, is_wildcard = generator.parse_scope(scope)
-        # Return WORLD_MODEL_READ but scope validation will check exact domain match
+        # Return PKM_READ but scope validation will check exact domain match
         # This allows dynamic scopes while maintaining isolation
-        return ConsentScope.WORLD_MODEL_READ
-
-    # World model scopes
-    if scope in {"pkm.read", "world_model.read"}:
         return ConsentScope.PKM_READ
-    if scope in {"pkm.write", "world_model.write"}:
+
+    # Static PKM scopes
+    if scope == "pkm.read":
+        return ConsentScope.PKM_READ
+    if scope == "pkm.write":
         return ConsentScope.PKM_WRITE
 
     # Agent permissions
@@ -68,7 +68,7 @@ def scope_matches(granted_scope: str, requested_scope: str) -> bool:
     This is the KEY function for scope isolation. It ensures:
     - attr.financial.* ONLY matches attr.financial.* or attr.financial.{specific}
     - attr.financial.* does NOT match attr.food.* or other domains
-    - world_model.read matches ALL attr.* scopes (full access)
+    - pkm.read matches ALL attr.* scopes (full access)
     - vault.owner matches EVERYTHING (master key)
 
     Args:
@@ -87,7 +87,7 @@ def scope_matches(granted_scope: str, requested_scope: str) -> bool:
         return True
 
     # PKM read grants access to ALL attr.* domains
-    if granted_scope in {"pkm.read", "world_model.read"}:
+    if granted_scope == "pkm.read":
         generator = get_scope_generator()
         if generator.is_dynamic_scope(requested_scope):
             return True
@@ -132,13 +132,11 @@ def get_scope_description(scope: str) -> str:
         else:
             return f"Access your {domain} domain"
 
-    # Hardcoded descriptions for non-dynamic scopes (world-model only; no legacy vault.*)
+    # Hardcoded descriptions for non-dynamic scopes (PKM only; no legacy vault.*)
     descriptions = {
         "vault.owner": "Full access to your vault (master key)",
         "pkm.read": "Read your personal knowledge model data",
         "pkm.write": "Write to your personal knowledge model",
-        "world_model.read": "Read your personal knowledge model data",
-        "world_model.write": "Write to your personal knowledge model",
         "agent.kai.analyze": "Allow Kai agent to analyze your data",
         "agent.kai.execute": "Allow Kai agent to execute actions",
     }
@@ -159,7 +157,7 @@ def is_write_scope(scope: str) -> bool:
     if scope == "vault.owner":
         return True
 
-    if scope in {"pkm.write", "world_model.write"}:
+    if scope == "pkm.write":
         return True
 
     # For attr.* scopes, write is determined by context, not scope
@@ -181,12 +179,7 @@ def normalize_scope(scope: str) -> str:
     generator = get_scope_generator()
 
     # Already in canonical dot format
-    if generator.is_dynamic_scope(scope) or scope in (
-        "pkm.read",
-        "pkm.write",
-        "world_model.read",
-        "world_model.write",
-    ):
+    if generator.is_dynamic_scope(scope) or scope in ("pkm.read", "pkm.write"):
         return scope
 
     return scope

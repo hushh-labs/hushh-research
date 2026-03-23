@@ -1,5 +1,5 @@
 """
-Canonical world-model domain contracts and Kai finance intent registry.
+Canonical PKM domain contracts and Kai finance intent registry.
 
 This module is the source of truth for:
 - Allowed top-level domains

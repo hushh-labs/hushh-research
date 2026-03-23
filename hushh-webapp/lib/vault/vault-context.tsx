@@ -14,7 +14,7 @@
  * the React component tree's memory space.
  *
  * PERFORMANCE:
- * - Prefetches common data (world model, vault status, consents) on vault unlock
+ * - Prefetches common data (PKM, vault status, consents) on vault unlock
  * - Data is cached via CacheService for faster page loads
  */
 

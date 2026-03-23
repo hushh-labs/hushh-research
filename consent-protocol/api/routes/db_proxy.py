@@ -195,7 +195,7 @@ class VaultIntegrityResponse(BaseModel):
 # Vault Endpoints (Minimal SQL Operations)
 # ============================================================================
 
-# NOTE: /food/get and /professional/get removed; domain data is via world-model.
+# NOTE: /food/get and /professional/get removed; domain data is via PKM.
 
 
 @router.post("/vault/check", response_model=VaultCheckResponse)

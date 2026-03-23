@@ -10,7 +10,7 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 vi.mock("@/lib/capacitor", () => ({
-  HushhWorldModel: {},
+  HushhPersonalKnowledgeModel: {},
   HushhVault: {
     encryptData: (...args: unknown[]) => encryptDataMock(...args),
   },
@@ -23,7 +23,7 @@ vi.mock("@/lib/firebase/config", () => ({
   resetRecaptcha: vi.fn(),
 }));
 
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
 describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () => {
   beforeEach(() => {
@@ -37,13 +37,13 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
 
   it("stores merged domain from prepared blob without loading blob again", async () => {
     const loadSpy = vi
-      .spyOn(WorldModelService, "loadFullBlob")
+      .spyOn(PersonalKnowledgeModelService, "loadFullBlob")
       .mockResolvedValue({ existing: { foo: "bar" } });
     const storeSpy = vi
-      .spyOn(WorldModelService, "storeDomainData")
+      .spyOn(PersonalKnowledgeModelService, "storeDomainData")
       .mockResolvedValue({ success: true });
 
-    const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+    const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
       userId: "user-1",
       vaultKey: "vault-key-1",
       domain: "food",

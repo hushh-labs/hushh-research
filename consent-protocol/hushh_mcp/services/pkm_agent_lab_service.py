@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MEMORY_INTENT_MANIFEST_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "memory_intent" / "agent.yaml"
 _PKM_STRUCTURE_MANIFEST_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "pkm_structure" / "agent.yaml"
 _MEMORY_MERGE_MANIFEST_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "memory_merge" / "agent.yaml"
+_MEMORY_SEGMENTATION_MANIFEST_PATH = (
+    _REPO_ROOT / "hushh_mcp" / "agents" / "memory_segmentation" / "agent.yaml"
+)
 _FINANCIAL_GUARD_MANIFEST_PATH = (
     _REPO_ROOT / "hushh_mcp" / "agents" / "financial_guard" / "agent.yaml"
 )
@@ -183,6 +187,7 @@ _DEFAULT_CONFIRMATION_DOMAINS = ("professional", "travel", "shopping", "food")
 _ENTITY_STATUS_ACTIVE = "active"
 _ENTITY_STATUS_CORRECTED = "corrected"
 _ENTITY_STATUS_DELETED = "deleted"
+_MAX_PREVIEW_CARDS = 4
 _SOFT_ONTOLOGY_KEYS = tuple(
     entry.domain_key
     for entry in CANONICAL_DOMAIN_REGISTRY
@@ -214,6 +219,29 @@ _DOMAIN_CHOICE_SCHEMA = {
         "recommended": {"type": "BOOLEAN"},
     },
     "required": ["domain_key", "display_name", "description", "recommended"],
+}
+
+_SEGMENTATION_CARD_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "source_text": {"type": "STRING"},
+        "confidence": {"type": "NUMBER"},
+        "reason": {"type": "STRING"},
+    },
+    "required": ["source_text", "confidence", "reason"],
+}
+
+_SEGMENTATION_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "segments": {
+            "type": "ARRAY",
+            "items": _SEGMENTATION_CARD_SCHEMA,
+        },
+        "source_agent": {"type": "STRING"},
+        "contract_version": {"type": "INTEGER"},
+    },
+    "required": ["segments", "source_agent", "contract_version"],
 }
 
 _MERGE_DECISION_SCHEMA = {
@@ -347,11 +375,20 @@ _STRUCTURE_PREVIEW_SCHEMA = {
 
 class PKMAgentLabService:
     def __init__(self) -> None:
+        self._memory_segmentation_manifest = None
         self._financial_guard_manifest = None
         self._memory_intent_manifest = None
         self._memory_merge_manifest = None
         self._structure_manifest = None
         self._client = None
+
+    @property
+    def memory_segmentation_manifest(self):
+        if self._memory_segmentation_manifest is None:
+            self._memory_segmentation_manifest = ManifestLoader.load(
+                str(_MEMORY_SEGMENTATION_MANIFEST_PATH)
+            )
+        return self._memory_segmentation_manifest
 
     @property
     def financial_guard_manifest(self):
@@ -445,6 +482,82 @@ class PKMAgentLabService:
         normalized_message = cls._safe_excerpt(message, limit=400).lower()
         normalized_message = re.sub(r"\s+", " ", normalized_message).strip()
         return normalized_message
+
+    @classmethod
+    def _fallback_segmented_messages(cls, message: str) -> list[dict[str, Any]]:
+        normalized = cls._safe_excerpt(message, limit=2000)
+        if not normalized:
+            return []
+
+        parts = [
+            part.strip(" ,.;")
+            for part in re.split(r"\s+(?:and|also|plus|then)\s+", normalized, flags=re.IGNORECASE)
+            if part.strip(" ,.;")
+        ]
+        if len(parts) <= 1:
+            return [
+                {
+                    "source_text": normalized,
+                    "confidence": 0.98,
+                    "reason": "Single dominant memory candidate.",
+                }
+            ]
+
+        segments: list[dict[str, Any]] = []
+        for part in parts[: _MAX_PREVIEW_CARDS + 1]:
+            if len(part) < 6:
+                continue
+            segments.append(
+                {
+                    "source_text": part,
+                    "confidence": 0.72,
+                    "reason": "Fallback clause split from a multi-part prompt.",
+                }
+            )
+        return segments or [
+            {
+                "source_text": normalized,
+                "confidence": 0.98,
+                "reason": "Single dominant memory candidate.",
+            }
+        ]
+
+    @classmethod
+    def _sanitize_segmented_messages(
+        cls,
+        raw: dict[str, Any] | None,
+        *,
+        message: str,
+    ) -> list[dict[str, Any]]:
+        fallback = cls._fallback_segmented_messages(message)
+        if not isinstance(raw, dict):
+            return fallback
+
+        items = raw.get("segments")
+        if not isinstance(items, list):
+            return fallback
+
+        sanitized: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            source_text = cls._safe_excerpt(str(item.get("source_text") or ""), limit=280)
+            if not source_text:
+                continue
+            normalized = source_text.casefold()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            sanitized.append(
+                {
+                    "source_text": source_text,
+                    "confidence": cls._clamp_confidence(item.get("confidence"), default=0.8),
+                    "reason": cls._safe_excerpt(str(item.get("reason") or ""), limit=160)
+                    or "Segmented memory candidate.",
+                }
+            )
+        return sanitized or fallback
 
     @classmethod
     def _stable_entity_id(
@@ -810,6 +923,42 @@ class PKMAgentLabService:
             "domains": summary.get("domains") or [],
             "recent_memories": recent,
         }
+
+    def _build_memory_segmentation_prompt(
+        self,
+        *,
+        message: str,
+        strict_small_model: bool,
+    ) -> str:
+        header = (
+            "You are the Memory Segmentation Agent for Hushh Kai.\n"
+            "Return JSON only with segments, source_agent, contract_version.\n"
+            "Split a single natural-language prompt into 1 to 4 meaningful memory candidates.\n"
+        )
+        if strict_small_model:
+            return (
+                f"{header}"
+                f"Message: {message}\n"
+                "Rules:\n"
+                "- Keep each segment self-contained and short.\n"
+                "- Split only when the prompt clearly contains multiple durable or semi-durable ideas.\n"
+                "- Do not invent facts that were not stated.\n"
+                "- If the prompt is one coherent memory, return one segment only.\n"
+                "- contract_version must be 1.\n"
+                'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
+                '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
+            )
+        return (
+            f"{header}"
+            f"Natural language message: {message}\n"
+            "Rules:\n"
+            "- Return 1 segment for a single coherent memory.\n"
+            "- Return multiple segments only when the prompt clearly contains multiple distinct memories, routines, preferences, or facts.\n"
+            "- Do not split purely stylistic repetition.\n"
+            "- Keep source_text close to the user's own wording.\n"
+            "- Never emit more than 4 segments.\n"
+            "- contract_version must be 1.\n"
+        )
 
     def _build_financial_guard_prompt(
         self,
@@ -2120,6 +2269,241 @@ class PKMAgentLabService:
             "scope_registry": scope_registry,
         }
 
+    @classmethod
+    def _current_snapshot_for_card(
+        cls,
+        *,
+        simulated_state: dict[str, Any] | None,
+        target_domain: str,
+        target_entity_id: str,
+        target_entity_scope: str | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(simulated_state, dict):
+            return None
+        normalized_domain = cls._normalize_segment(target_domain)
+        normalized_entity_id = cls._normalize_segment(target_entity_id)
+        normalized_scope = cls._normalize_path(target_entity_scope or "")
+        for memory in simulated_state.get("memories") or []:
+            if not isinstance(memory, dict):
+                continue
+            memory_domain = cls._normalize_segment(str(memory.get("domain") or ""))
+            memory_entity_id = cls._normalize_segment(str(memory.get("entity_id") or ""))
+            memory_scope = cls._normalize_path(str(memory.get("entity_scope") or ""))
+            if normalized_domain and memory_domain != normalized_domain:
+                continue
+            if normalized_entity_id and memory_entity_id == normalized_entity_id:
+                return deepcopy(memory)
+            if normalized_scope and memory_scope == normalized_scope:
+                return deepcopy(memory)
+        return None
+
+    @classmethod
+    def _extract_patch_value(cls, payload: dict[str, Any], path: str | None) -> Any:
+        if not isinstance(payload, dict):
+            return None
+        normalized_path = cls._normalize_path(path or "")
+        if not normalized_path:
+            return deepcopy(payload)
+        cursor: Any = payload
+        for segment in normalized_path.split("."):
+            if not isinstance(cursor, dict):
+                return None
+            cursor = cursor.get(segment)
+        return deepcopy(cursor)
+
+    @classmethod
+    def _scope_projection_for_card(
+        cls,
+        *,
+        target_domain: str,
+        manifest_draft: dict[str, Any] | None,
+        primary_json_path: str | None,
+    ) -> dict[str, Any]:
+        normalized_domain = cls._normalize_segment(target_domain)
+        normalized_path = cls._normalize_path(primary_json_path or "")
+        scopes: list[str] = []
+        if normalized_domain:
+            scopes.append(f"attr.{normalized_domain}.*")
+            if normalized_path:
+                scopes.append(f"attr.{normalized_domain}.{normalized_path}.*")
+        scope_registry = (
+            manifest_draft.get("scope_registry")
+            if isinstance(manifest_draft, dict)
+            and isinstance(manifest_draft.get("scope_registry"), list)
+            else []
+        )
+        return {
+            "recommended_scope": scopes[-1] if len(scopes) > 1 else (scopes[0] if scopes else ""),
+            "available_scopes": scopes,
+            "scope_handles": [
+                str(entry.get("scope_handle") or "")
+                for entry in scope_registry
+                if isinstance(entry, dict) and str(entry.get("scope_handle") or "").strip()
+            ],
+        }
+
+    @classmethod
+    def _context_plan_from_cards(cls, preview_cards: list[dict[str, Any]]) -> dict[str, Any]:
+        candidate_domains: list[str] = []
+        candidate_paths: list[str] = []
+        candidate_segment_ids: list[str] = []
+        per_domain: dict[str, dict[str, Any]] = {}
+        for card in preview_cards:
+            domain = cls._normalize_segment(str(card.get("target_domain") or ""))
+            path = cls._normalize_path(str(card.get("primary_json_path") or ""))
+            segment_ids = [
+                cls._normalize_segment(str(segment_id))
+                for segment_id in (card.get("candidate_segment_ids") or [])
+                if cls._normalize_segment(str(segment_id))
+            ]
+            if domain and domain not in candidate_domains:
+                candidate_domains.append(domain)
+            if path and path not in candidate_paths:
+                candidate_paths.append(path)
+            for segment_id in segment_ids:
+                if segment_id not in candidate_segment_ids:
+                    candidate_segment_ids.append(segment_id)
+            if domain:
+                entry = per_domain.setdefault(
+                    domain,
+                    {"domain": domain, "paths": [], "segment_ids": []},
+                )
+                if path and path not in entry["paths"]:
+                    entry["paths"].append(path)
+                for segment_id in segment_ids:
+                    if segment_id not in entry["segment_ids"]:
+                        entry["segment_ids"].append(segment_id)
+        return {
+            "candidate_domains": candidate_domains,
+            "candidate_paths": candidate_paths,
+            "candidate_segment_ids": candidate_segment_ids,
+            "domains": list(per_domain.values()),
+        }
+
+    @classmethod
+    def _aggregate_preview_summary(
+        cls,
+        *,
+        preview_cards: list[dict[str, Any]],
+        split_recommended: bool,
+        total_segments_detected: int,
+    ) -> dict[str, Any]:
+        can_save = sum(1 for card in preview_cards if card.get("write_mode") == "can_save")
+        confirm_first = sum(
+            1 for card in preview_cards if card.get("write_mode") == "confirm_first"
+        )
+        do_not_save = sum(1 for card in preview_cards if card.get("write_mode") == "do_not_save")
+        primary_card = next(
+            (card for card in preview_cards if card.get("write_mode") != "do_not_save"),
+            preview_cards[0] if preview_cards else None,
+        )
+        return {
+            "card_count": len(preview_cards),
+            "can_save_count": can_save,
+            "confirm_first_count": confirm_first,
+            "do_not_save_count": do_not_save,
+            "split_recommended": split_recommended,
+            "total_segments_detected": total_segments_detected,
+            "primary_target_domain": primary_card.get("target_domain") if primary_card else None,
+            "primary_write_mode": primary_card.get("write_mode") if primary_card else None,
+            "primary_intent_class": primary_card.get("intent_class") if primary_card else None,
+            "notes": [
+                note
+                for note in [
+                    "Prompt was truncated to four preview cards. Split the message if you want Kai to review each memory separately."
+                    if split_recommended
+                    else "",
+                    "Preview is read-only. Save encrypts only the selected PKM updates with the active vault key.",
+                ]
+                if note
+            ],
+        }
+
+    @classmethod
+    def _build_preview_card(
+        cls,
+        *,
+        card_id: str,
+        source_text: str,
+        preview: dict[str, Any],
+        simulated_state: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        intent_frame = (
+            preview.get("intent_frame") if isinstance(preview.get("intent_frame"), dict) else {}
+        )
+        merge_decision = (
+            preview.get("merge_decision") if isinstance(preview.get("merge_decision"), dict) else {}
+        )
+        structure_decision = (
+            preview.get("structure_decision")
+            if isinstance(preview.get("structure_decision"), dict)
+            else {}
+        )
+        manifest_draft = (
+            preview.get("manifest_draft") if isinstance(preview.get("manifest_draft"), dict) else {}
+        )
+        target_domain = cls._normalize_segment(
+            str(manifest_draft.get("domain") or structure_decision.get("target_domain") or "")
+        )
+        primary_json_path = cls._normalize_path(str(preview.get("primary_json_path") or ""))
+        target_entity_scope = cls._normalize_path(str(preview.get("target_entity_scope") or ""))
+        target_entity_id = cls._normalize_segment(str(merge_decision.get("target_entity_id") or ""))
+        manifest_segment_ids = [
+            cls._normalize_segment(str(segment_id))
+            for segment_id in (manifest_draft.get("segment_ids") or [])
+            if cls._normalize_segment(str(segment_id))
+        ]
+        current_snapshot = cls._current_snapshot_for_card(
+            simulated_state=simulated_state,
+            target_domain=target_domain,
+            target_entity_id=target_entity_id,
+            target_entity_scope=target_entity_scope,
+        )
+        candidate_payload = (
+            preview.get("candidate_payload")
+            if isinstance(preview.get("candidate_payload"), dict)
+            else {}
+        )
+        return {
+            "card_id": card_id,
+            "source_text": source_text,
+            "routing_decision": preview.get("routing_decision") or "non_financial_or_ephemeral",
+            "save_class": intent_frame.get("save_class") or "unknown",
+            "intent_class": intent_frame.get("intent_class") or "unknown",
+            "mutation_intent": intent_frame.get("mutation_intent") or "unknown",
+            "merge_mode": merge_decision.get("merge_mode") or "unknown",
+            "target_domain": target_domain or "unresolved",
+            "primary_json_path": primary_json_path or None,
+            "target_entity_scope": target_entity_scope or None,
+            "target_entity_id": target_entity_id or None,
+            "write_mode": preview.get("write_mode") or "confirm_first",
+            "requires_confirmation": bool(intent_frame.get("requires_confirmation")),
+            "confirmation_reason": str(intent_frame.get("confirmation_reason") or ""),
+            "candidate_domain_choices": deepcopy(
+                intent_frame.get("candidate_domain_choices") or []
+            ),
+            "current_entity_snapshot": current_snapshot,
+            "proposed_entity_patch": cls._extract_patch_value(
+                candidate_payload,
+                target_entity_scope or primary_json_path,
+            ),
+            "resulting_domain_patch": {target_domain: deepcopy(candidate_payload)}
+            if target_domain
+            else deepcopy(candidate_payload),
+            "scope_projection": cls._scope_projection_for_card(
+                target_domain=target_domain,
+                manifest_draft=manifest_draft,
+                primary_json_path=primary_json_path or None,
+            ),
+            "candidate_segment_ids": manifest_segment_ids,
+            "validation_hints": deepcopy(preview.get("validation_hints") or []),
+            "intent_frame": deepcopy(intent_frame),
+            "merge_decision": deepcopy(merge_decision),
+            "candidate_payload": deepcopy(candidate_payload),
+            "structure_decision": deepcopy(structure_decision),
+            "manifest_draft": deepcopy(manifest_draft),
+        }
+
     def _build_memory_intent_prompt(
         self,
         *,
@@ -2353,7 +2737,7 @@ class PKMAgentLabService:
         save_class = cls._normalize_segment(str(intent_frame.get("save_class") or ""))
         return save_class in {"ephemeral", "ambiguous"}
 
-    async def generate_structure_preview(
+    async def _generate_single_structure_preview(
         self,
         *,
         user_id: str,
@@ -2548,6 +2932,7 @@ class PKMAgentLabService:
             "model": model_override or agent_manifest.model or GEMINI_MODEL,
             "used_fallback": financial_guard_used_fallback
             or intent_used_fallback
+            or merge_used_fallback
             or structure_used_fallback,
             "intent_used_fallback": intent_used_fallback,
             "structure_used_fallback": structure_used_fallback,
@@ -2562,6 +2947,166 @@ class PKMAgentLabService:
             "target_entity_scope": normalized_preview["target_entity_scope"],
             "validation_hints": normalized_preview["validation_hints"],
             "manifest_draft": manifest,
+        }
+
+    async def generate_structure_preview(
+        self,
+        *,
+        user_id: str,
+        message: str,
+        current_domains: list[str] | None = None,
+        simulated_state: dict[str, Any] | None = None,
+        model_override: str | None = None,
+        strict_small_model: bool = False,
+        domain_registry_override: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        total_started_at = time.perf_counter()
+        normalized_domains = [
+            self._normalize_segment(domain) for domain in (current_domains or []) if domain
+        ]
+        errors: list[str] = []
+
+        segmentation_started_at = time.perf_counter()
+        segmentation_raw = await self._run_agent_contract(
+            manifest=self.memory_segmentation_manifest,
+            prompt=self._build_memory_segmentation_prompt(
+                message=message,
+                strict_small_model=strict_small_model,
+            ),
+            response_schema=_SEGMENTATION_SCHEMA,
+            model_override=model_override,
+        )
+        segmentation_latency_ms = round((time.perf_counter() - segmentation_started_at) * 1000, 2)
+        segmentation_used_fallback = segmentation_raw is None
+        if segmentation_used_fallback:
+            errors.append("memory_segmentation_agent_fallback")
+
+        segmented_messages = self._sanitize_segmented_messages(segmentation_raw, message=message)
+        total_segments_detected = len(segmented_messages)
+        split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS
+        preview_results: list[dict[str, Any]] = []
+        preview_cards: list[dict[str, Any]] = []
+        preview_latencies_ms: list[float] = []
+
+        for index, segment in enumerate(segmented_messages[:_MAX_PREVIEW_CARDS], start=1):
+            source_text = self._safe_excerpt(str(segment.get("source_text") or ""), limit=400)
+            if not source_text:
+                continue
+            preview_started_at = time.perf_counter()
+            preview = await self._generate_single_structure_preview(
+                user_id=user_id,
+                message=source_text,
+                current_domains=normalized_domains,
+                simulated_state=simulated_state,
+                model_override=model_override,
+                strict_small_model=strict_small_model,
+                domain_registry_override=domain_registry_override,
+            )
+            preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
+            preview_latencies_ms.append(preview_latency_ms)
+            preview_results.append(preview)
+            card_id = f"card_{index:02d}"
+            preview_cards.append(
+                self._build_preview_card(
+                    card_id=card_id,
+                    source_text=source_text,
+                    preview=preview,
+                    simulated_state=simulated_state,
+                )
+            )
+            if preview.get("error"):
+                errors.append(str(preview.get("error")))
+
+        primary_preview = next(
+            (result for result in preview_results if result.get("write_mode") != "do_not_save"),
+            preview_results[0] if preview_results else None,
+        )
+        preview_summary = self._aggregate_preview_summary(
+            preview_cards=preview_cards,
+            split_recommended=split_recommended,
+            total_segments_detected=total_segments_detected,
+        )
+        context_plan = self._context_plan_from_cards(preview_cards)
+        total_latency_ms = round((time.perf_counter() - total_started_at) * 1000, 2)
+        performance = {
+            "total_latency_ms": total_latency_ms,
+            "stage_latencies_ms": {
+                "memory_segmentation": segmentation_latency_ms,
+                "preview_cards_total": round(sum(preview_latencies_ms), 2),
+                "preview_cards_average": round(
+                    sum(preview_latencies_ms) / len(preview_latencies_ms), 2
+                )
+                if preview_latencies_ms
+                else 0.0,
+            },
+            "cards_returned": len(preview_cards),
+            "context_domains_considered": normalized_domains,
+            "context_domains_loaded": context_plan.get("candidate_domains") or [],
+            "context_domains_decrypted": [],
+            "context_segments_loaded": context_plan.get("candidate_segment_ids") or [],
+            "strategy": "metadata_first_targeted_segments",
+        }
+
+        if primary_preview is None:
+            empty_manifest = self._build_manifest_from_payload(
+                user_id=user_id,
+                domain="professional",
+                payload={},
+                structure_decision={
+                    "action": "create_domain",
+                    "target_domain": "professional",
+                    "json_paths": [],
+                    "top_level_scope_paths": [],
+                    "externalizable_paths": [],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.0,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": 1,
+                },
+            )
+            return {
+                "agent_id": self.memory_segmentation_manifest.id,
+                "agent_name": self.memory_segmentation_manifest.name,
+                "model": model_override or self.memory_segmentation_manifest.model or GEMINI_MODEL,
+                "used_fallback": True,
+                "intent_used_fallback": False,
+                "structure_used_fallback": False,
+                "error": "; ".join(self._unique_list(errors or ["memory_segmentation_no_output"])),
+                "routing_decision": "non_financial_or_ephemeral",
+                "intent_frame": {},
+                "merge_decision": {},
+                "candidate_payload": {},
+                "structure_decision": empty_manifest["structure_decision"],
+                "write_mode": "do_not_save",
+                "primary_json_path": None,
+                "target_entity_scope": None,
+                "validation_hints": [
+                    "preview_generation_failed",
+                    *(["split_recommended"] if split_recommended else []),
+                ],
+                "manifest_draft": empty_manifest,
+                "preview_cards": preview_cards,
+                "preview_summary": preview_summary,
+                "performance": performance,
+                "context_plan": context_plan,
+            }
+
+        validation_hints = list(primary_preview.get("validation_hints") or [])
+        if split_recommended and "split_recommended" not in validation_hints:
+            validation_hints.append("split_recommended")
+
+        return {
+            **primary_preview,
+            "used_fallback": bool(
+                primary_preview.get("used_fallback") or segmentation_used_fallback
+            ),
+            "error": "; ".join(self._unique_list(errors)) or primary_preview.get("error"),
+            "validation_hints": self._unique_list(validation_hints),
+            "preview_cards": preview_cards,
+            "preview_summary": preview_summary,
+            "performance": performance,
+            "context_plan": context_plan,
         }
 
 

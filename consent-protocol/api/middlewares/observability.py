@@ -24,7 +24,7 @@ _SAFE_REQUEST_ID_REGEX = re.compile(r"^[a-zA-Z0-9_.:-]{8,128}$")
 _EXPECTED_STATUS_BY_ROUTE: dict[tuple[str, str], set[int]] = {
     ("GET", "/api/kai/analyze/run/active"): {404},
     ("POST", "/api/kai/analyze/run/start"): {409},
-    ("GET", "/api/world-model/metadata/{user_id}"): {401, 404},
+    ("GET", "/api/pkm/metadata/{user_id}"): {401, 404},
     ("GET", "/api/kai/market/insights/{user_id}"): {401},
     ("POST", "/db/vault/get"): {404},
     ("POST", "/db/vault/bootstrap-state"): {404},

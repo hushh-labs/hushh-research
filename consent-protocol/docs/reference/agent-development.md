@@ -25,7 +25,7 @@ Hushh agents are built from four composable layers. Each layer has a single resp
 ├─────────────────────────────────────────────────────┤
 │ SERVICES                                             │
 │ The only layer that touches the database             │
-│ (WorldModelService, ConsentDBService, etc.)          │
+│ (PersonalKnowledgeModelService, ConsentDBService, etc.)          │
 └─────────────────────────────────────────────────────┘
 ```
 

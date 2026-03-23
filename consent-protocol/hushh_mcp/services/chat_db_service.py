@@ -42,7 +42,7 @@ class ComponentType(str, Enum):
     PORTFOLIO_IMPORT = "portfolio_import"
     DECISION_CARD = "decision_card"
     HOLDINGS_CHART = "holdings_chart"
-    WORLD_MODEL_SUMMARY = "world_model_summary"
+    PKM_SUMMARY = "pkm_summary"
     LOSER_REPORT = "loser_report"
     CONSENT_REQUEST = "consent_request"
 

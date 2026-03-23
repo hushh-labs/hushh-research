@@ -6,7 +6,7 @@ from hushh_mcp.types import HushhConsentToken
 
 USER_ID = "user_test"
 AGENT_ID = "agent_alpha"
-VALID_SCOPE = ConsentScope.WORLD_MODEL_READ
+VALID_SCOPE = ConsentScope.PKM_READ
 
 
 def test_issue_and_validate_token():
@@ -24,7 +24,7 @@ def test_issue_and_validate_token():
 
 def test_token_scope_mismatch():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
-    valid, reason, _ = validate_token(token_obj.token, ConsentScope.WORLD_MODEL_WRITE)
+    valid, reason, _ = validate_token(token_obj.token, ConsentScope.PKM_WRITE)
     assert valid is False
     # Reason includes expected vs actual scope for debuggability
     assert reason is not None

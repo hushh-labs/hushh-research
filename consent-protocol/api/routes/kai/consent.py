@@ -4,7 +4,7 @@ Kai Consent Endpoints
 
 Handles Kai-specific consent grants for analysis operations.
 
-Only world-model scopes are used (attr.{domain}.*, agent.kai.analyze).
+Only PKM scopes are used (attr.{domain}.*, agent.kai.analyze).
 
 SECURITY: All consent grant endpoints require Firebase authentication.
 The authenticated user can only grant consent for their own data.

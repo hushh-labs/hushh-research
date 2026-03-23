@@ -2,7 +2,7 @@
 """
 Utility tool handlers (validate_token, delegate, list_scopes, discover_user_domains).
 
-Only world-model scopes are supported: world_model.read, world_model.write,
+Canonical PKM scopes are supported: pkm.read, pkm.write,
 attr.{domain}.*, and optional nested attr.{domain}.{subintent}.* scopes.
 """
 
@@ -158,12 +158,12 @@ async def handle_list_scopes() -> list[TextContent]:
         fallback = {
             "scopes": [
                 {
-                    "name": "world_model.read",
-                    "description": get_scope_description("world_model.read"),
+                    "name": "pkm.read",
+                    "description": get_scope_description("pkm.read"),
                 },
                 {
-                    "name": "world_model.write",
-                    "description": get_scope_description("world_model.write"),
+                    "name": "pkm.write",
+                    "description": get_scope_description("pkm.write"),
                 },
                 {
                     "name": "attr.{domain}.*",
@@ -233,8 +233,8 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                                 "user_id": uid,
                                 "domains": [],
                                 "scopes": [],
-                                "message": "No world model data for this user (new user or no domains yet)",
-                                "usage": "Call request_consent with scope='world_model.read' or attr.{domain}.* after user adds data",
+                                "message": "No PKM data for this user (new user or no domains yet)",
+                                "usage": "Call request_consent with scope='pkm.read' or attr.{domain}.* after user adds data",
                             }
                         ),
                     )

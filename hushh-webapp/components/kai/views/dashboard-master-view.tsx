@@ -54,7 +54,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
@@ -1185,19 +1185,13 @@ export function DashboardMasterView({
       };
 
       const nowIso = new Date().toISOString();
-      const fullBlob = await WorldModelService.loadFullBlob({
-        userId,
-        vaultKey,
-        vaultOwnerToken: vaultOwnerToken || undefined,
-      }).catch(() => ({} as Record<string, unknown>));
-
-      const existingFinancialRaw = fullBlob.financial;
       const existingFinancial =
-        existingFinancialRaw &&
-        typeof existingFinancialRaw === "object" &&
-        !Array.isArray(existingFinancialRaw)
-          ? ({ ...(existingFinancialRaw as Record<string, unknown>) } as Record<string, unknown>)
-          : {};
+        (await PersonalKnowledgeModelService.loadDomainData({
+          userId,
+          domain: "financial",
+          vaultKey,
+          vaultOwnerToken: vaultOwnerToken || undefined,
+        }).catch(() => null)) ?? {};
 
       const nextFinancialDomain = {
         ...existingFinancial,
@@ -1222,7 +1216,7 @@ export function DashboardMasterView({
       };
 
       const riskBucket = deriveRiskBucket(holdingsForSave as ManagedHolding[]);
-      const result = await WorldModelService.storeMergedDomain({
+      const result = await PersonalKnowledgeModelService.storeMergedDomain({
         userId,
         vaultKey,
         domain: "financial",
@@ -1277,19 +1271,13 @@ export function DashboardMasterView({
     setIsDeletingImportedData(true);
     try {
       const nowIso = new Date().toISOString();
-      const baseFullBlob = await WorldModelService.loadFullBlob({
-        userId,
-        vaultKey,
-        vaultOwnerToken: vaultOwnerToken || undefined,
-      }).catch(() => ({} as Record<string, unknown>));
-
-      const existingFinancialRaw = baseFullBlob.financial;
       const existingFinancial =
-        existingFinancialRaw &&
-        typeof existingFinancialRaw === "object" &&
-        !Array.isArray(existingFinancialRaw)
-          ? ({ ...(existingFinancialRaw as Record<string, unknown>) } as Record<string, unknown>)
-          : {};
+        (await PersonalKnowledgeModelService.loadDomainData({
+          userId,
+          domain: "financial",
+          vaultKey,
+          vaultOwnerToken: vaultOwnerToken || undefined,
+        }).catch(() => null)) ?? {};
 
       const existingDocumentsRaw = existingFinancial.documents;
       const existingDocuments =
@@ -1373,7 +1361,7 @@ export function DashboardMasterView({
         updated_at: nowIso,
       };
 
-      const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId,
         vaultKey,
         domain: "financial",
@@ -1398,7 +1386,8 @@ export function DashboardMasterView({
           intent_map: [...FINANCIAL_INTENT_MAP],
           last_updated: nowIso,
         },
-        baseFullBlob,
+        baseFullBlob: { financial: existingFinancial },
+        cacheFullBlob: false,
         vaultOwnerToken: vaultOwnerToken || undefined,
       });
 
@@ -1406,7 +1395,7 @@ export function DashboardMasterView({
         throw new Error("Failed to delete imported data");
       }
 
-      CacheSyncService.onWorldModelDomainCleared(userId, "financial");
+      CacheSyncService.onPkmDomainCleared(userId, "financial");
       baselineBySourceRef.current = new Map();
       setHoldingsDraft([]);
       setDeleteImportedDialogOpen(false);

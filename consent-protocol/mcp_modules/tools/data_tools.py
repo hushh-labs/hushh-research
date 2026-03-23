@@ -225,7 +225,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
 
     Compliance:
     ✅ HushhMCP: Consent BEFORE data access
-    ✅ HushhMCP: Scoped Access (attr.financial.* or world_model.read required)
+    ✅ HushhMCP: Scoped Access (attr.financial.* or pkm.read required)
     ✅ HushhMCP: User ID must match token
     ✅ Privacy: Denied without valid consent
     ✅ Scope Isolation: Financial token can ONLY access financial data
@@ -429,7 +429,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
     # Compliance check with cross-instance revocation
     # NOTE: Legacy VAULT_READ_FOOD scope has been removed.
     valid, reason, token_obj = await validate_token_with_db(
-        consent_token, expected_scope=ConsentScope.WORLD_MODEL_READ
+        consent_token, expected_scope=ConsentScope.PKM_READ
     )
 
     if not valid:
@@ -441,9 +441,9 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                     {
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
-                        "required_scope": "world_model.read",
+                        "required_scope": "pkm.read",
                         "privacy_notice": "Hushh requires explicit consent before accessing any personal data.",
-                        "remedy": "Call request_consent with scope='world_model.read' first",
+                        "remedy": "Call request_consent with scope='pkm.read' first",
                     }
                 ),
             )
@@ -522,7 +522,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                         "status": "no_data",
                         "error": "No food preferences data found in vault",
                         "user_id": user_id,
-                        "scope": getattr(token_obj, "scope", "world_model.read"),
+                        "scope": getattr(token_obj, "scope", "pkm.read"),
                         "compatibility_wrapper": "get_food_preferences",
                         "consent_verified": True,
                         "message": "The user has not saved any food preferences yet, or the data export was not included with consent approval.",
@@ -541,7 +541,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                 {
                     "status": "success",
                     "user_id": user_id,
-                    "scope": getattr(token_obj, "scope", "world_model.read"),
+                    "scope": getattr(token_obj, "scope", "pkm.read"),
                     "compatibility_wrapper": "get_food_preferences",
                     "consent_verified": True,
                     "consent_token_used": consent_token[:30] + "...",
@@ -569,9 +569,9 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
     # Email resolution
     user_id = await resolve_email_to_uid(user_id)
 
-    # Compliance check with cross-instance revocation - must have world_model.read scope
+    # Compliance check with cross-instance revocation - must have PKM full-read scope
     valid, reason, token_obj = await validate_token_with_db(
-        consent_token, expected_scope=ConsentScope.WORLD_MODEL_READ
+        consent_token, expected_scope=ConsentScope.PKM_READ
     )
 
     if not valid:
@@ -583,9 +583,9 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
                     {
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
-                        "required_scope": "world_model.read",
+                        "required_scope": "pkm.read",
                         "privacy_notice": "Each data category requires its own consent token.",
-                        "remedy": "Call request_consent with scope='world_model.read' first",
+                        "remedy": "Call request_consent with scope='pkm.read' first",
                     }
                 ),
             )
@@ -655,7 +655,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
                         "status": "no_data",
                         "error": "No professional profile data found in vault",
                         "user_id": user_id,
-                        "scope": getattr(token_obj, "scope", "world_model.read"),
+                        "scope": getattr(token_obj, "scope", "pkm.read"),
                         "compatibility_wrapper": "get_professional_profile",
                         "consent_verified": True,
                         "message": "The user has not saved any professional profile yet, or the data export was not included with consent approval.",
@@ -674,7 +674,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
                 {
                     "status": "success",
                     "user_id": user_id,
-                    "scope": getattr(token_obj, "scope", "world_model.read"),
+                    "scope": getattr(token_obj, "scope", "pkm.read"),
                     "compatibility_wrapper": "get_professional_profile",
                     "consent_verified": True,
                     "data": professional_data,

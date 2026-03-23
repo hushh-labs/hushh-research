@@ -2,7 +2,7 @@
  * PortfolioReviewView Component
  *
  * Review screen for verifying and editing parsed portfolio data before saving.
- * Displayed after PDF parsing completes, before data is saved to world model.
+ * Displayed after PDF parsing completes, before data is saved to PKM.
  *
  * Features:
  * - Account info display (editable)
@@ -10,7 +10,7 @@
  * - Holdings list with inline editing
  * - Asset allocation breakdown
  * - Income summary (if available)
- * - Save to Vault button (encrypts and stores to world model)
+ * - Save to Vault button (encrypts and stores to PKM)
  * - Re-import button to try again
  */
 
@@ -46,7 +46,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   useCache,
@@ -1346,7 +1346,7 @@ export function PortfolioReviewView({
       return;
     }
 
-    const shouldVerifySave = process.env.NEXT_PUBLIC_WORLD_MODEL_VERIFY_SAVE === "true";
+    const shouldVerifySave = process.env.NEXT_PUBLIC_PKM_VERIFY_SAVE === "true";
     const enableSaveProfiling = process.env.NEXT_PUBLIC_KAI_SAVE_PROFILING === "true";
     const nowMs = () =>
       typeof performance !== "undefined" && typeof performance.now === "function"
@@ -1464,20 +1464,28 @@ export function PortfolioReviewView({
 
       const nowIso = new Date().toISOString();
       const blobLoadStartedAt = nowMs();
-      const cachedBlob = WorldModelService.peekCachedFullBlob(userId);
+      const cachedBlob = PersonalKnowledgeModelService.peekCachedFullBlob(userId);
       let fullBlob: Record<string, unknown>;
       let expectedDataVersion = cachedBlob?.dataVersion;
       if (cachedBlob?.blob) {
         fullBlob = cachedBlob.blob;
       } else {
-        fullBlob = await WorldModelService.loadFullBlob({
-          userId,
-          vaultKey: effectiveVaultKey,
-          vaultOwnerToken: resolvedVaultOwnerToken,
-        }).catch(() => ({} as Record<string, unknown>));
+        const existingFinancial =
+          (await PersonalKnowledgeModelService.loadDomainData({
+            userId,
+            domain: "financial",
+            vaultKey: effectiveVaultKey,
+            vaultOwnerToken: resolvedVaultOwnerToken,
+          }).catch(() => null)) ?? {};
+        fullBlob =
+          existingFinancial &&
+          typeof existingFinancial === "object" &&
+          !Array.isArray(existingFinancial)
+            ? { financial: existingFinancial }
+            : {};
       }
       if (expectedDataVersion === undefined) {
-        expectedDataVersion = WorldModelService.peekCachedEncryptedBlob(userId)?.dataVersion;
+        expectedDataVersion = PersonalKnowledgeModelService.peekCachedEncryptedBlob(userId)?.dataVersion;
       }
       logSavePhase("blob load", blobLoadStartedAt);
       const mergeBuildStartedAt = nowMs();
@@ -1837,7 +1845,7 @@ export function PortfolioReviewView({
       // 4. Store canonical financial domain with full-blob merge semantics.
       const encryptStoreStartedAt = nowMs();
       const storeMergedDomain = async (vaultOwnerTokenToUse: string) =>
-        WorldModelService.storeMergedDomainWithPreparedBlob({
+        PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
           userId,
           vaultKey: effectiveVaultKey,
           domain: "financial",
@@ -1845,6 +1853,7 @@ export function PortfolioReviewView({
           summary: financialSummary,
           baseFullBlob: fullBlob,
           expectedDataVersion,
+          cacheFullBlob: Boolean(cachedBlob?.blob),
           vaultOwnerToken: vaultOwnerTokenToUse,
         });
 
@@ -1916,7 +1925,7 @@ export function PortfolioReviewView({
       if (shouldVerifySave) {
         void (async () => {
           try {
-            const readBack = await WorldModelService.getDomainData(
+            const readBack = await PersonalKnowledgeModelService.getDomainData(
               userId,
               "financial",
               resolvedVaultOwnerToken

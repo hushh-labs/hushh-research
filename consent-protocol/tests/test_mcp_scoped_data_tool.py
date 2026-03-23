@@ -26,7 +26,7 @@ async def test_get_scoped_data_returns_decrypted_payload(monkeypatch):
             SimpleNamespace(
                 user_id="user_123",
                 scope_str="attr.financial.*",
-                scope=SimpleNamespace(value="world_model.read"),
+                scope=SimpleNamespace(value="pkm.read"),
             ),
         )
 

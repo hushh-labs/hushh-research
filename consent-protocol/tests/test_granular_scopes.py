@@ -33,11 +33,11 @@ class TestStaticScopes:
         assert ConsentScope.EMBEDDING_PROFILE_READ.value == "embedding.profile.read"
         assert ConsentScope.EMBEDDING_PROFILE_COMPUTE.value == "embedding.profile.compute"
 
-    def test_world_model_scopes(self):
-        """Test world model operation scopes."""
-        assert ConsentScope.WORLD_MODEL_READ.value == "world_model.read"
-        assert ConsentScope.WORLD_MODEL_WRITE.value == "world_model.write"
-        assert ConsentScope.WORLD_MODEL_METADATA.value == "world_model.metadata"
+    def test_pkm_scopes(self):
+        """Test PKM operation scopes."""
+        assert ConsentScope.PKM_READ.value == "pkm.read"
+        assert ConsentScope.PKM_WRITE.value == "pkm.write"
+        assert ConsentScope.PKM_METADATA.value == "pkm.metadata"
 
     def test_kai_agent_scopes(self):
         """Test Kai agent operation scopes."""
@@ -60,7 +60,7 @@ class TestStaticScopes:
         assert isinstance(scope_list, list)
         assert "vault.owner" in scope_list
         assert "portfolio.import" in scope_list
-        assert "world_model.read" in scope_list
+        assert "pkm.read" in scope_list
 
     def test_scope_values_are_strings(self):
         """Test that all scope values are strings."""
@@ -74,7 +74,7 @@ class TestStaticScopes:
 
         assert ConsentScope.PORTFOLIO_IMPORT in op_scopes
         assert ConsentScope.CHAT_HISTORY_READ in op_scopes
-        assert ConsentScope.WORLD_MODEL_READ in op_scopes
+        assert ConsentScope.PKM_READ in op_scopes
 
     def test_agent_scopes(self):
         """Test agent_scopes() returns correct scopes."""

@@ -5,7 +5,7 @@ Portfolio Import Service - Parse brokerage statements and derive KPIs.
 Supports:
 - CSV files from major brokerages (Schwab, Fidelity, Robinhood, generic)
 - PDF files (via pdfplumber for Fidelity and JPMorgan statements)
-- Enhanced KPI derivation (15+ metrics) for world model integration
+- Enhanced KPI derivation (15+ metrics) for PKM integration
 """
 
 import csv
@@ -3010,21 +3010,21 @@ class PortfolioImportService:
     """
     Service for importing and analyzing portfolio data.
 
-    Handles file parsing, KPI derivation, and world model integration.
+    Handles file parsing, KPI derivation, and PKM integration.
     """
 
     def __init__(self):
         self.parser = PortfolioParser()
         self.rich_parser = RichPDFParser()
-        self._world_model = None
+        self._pkm_service = None
 
     @property
-    def world_model(self):
-        if self._world_model is None:
-            from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+    def pkm_service(self):
+        if self._pkm_service is None:
+            from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 
-            self._world_model = get_world_model_service()
-        return self._world_model
+            self._pkm_service = get_pkm_service()
+        return self._pkm_service
 
     async def assess_document_relevance(
         self,
@@ -3771,7 +3771,7 @@ Content sample:
         return enhanced
 
     def _derive_kpis(self, portfolio: Portfolio) -> dict:
-        """Derive basic KPIs from portfolio for world model (legacy)."""
+        """Derive basic KPIs from portfolio for PKM (legacy)."""
         kpis = {}
 
         if not portfolio.holdings:
@@ -3847,7 +3847,7 @@ Content sample:
 
     def _derive_enhanced_kpis(self, portfolio: EnhancedPortfolio) -> dict:
         """
-        Derive comprehensive KPIs for world model (15+ metrics).
+        Derive comprehensive KPIs for PKM (15+ metrics).
 
         Categories:
         - Basic metrics (holdings count, value bucket)

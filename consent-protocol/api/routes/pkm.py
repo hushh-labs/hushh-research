@@ -2,15 +2,56 @@
 """
 Personal Knowledge Model API routes.
 
-Canonical API surface for PKM during cutover. The legacy world-model router
-remains available only as a bounded compatibility adapter.
+Canonical API surface for PKM.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
-from api.routes import world_model as legacy
+from api.routes.pkm_routes_shared import (
+    DeleteDomainResponse,
+    DomainDataResponse,
+    DomainManifestResponse,
+    DomainRegistryResponse,
+    PersonalKnowledgeModelMetadataResponse,
+    ReconcilePkmResponse,
+    StockContextRequest,
+    StockContextResponse,
+    StoreDomainRequest,
+    StoreDomainResponse,
+    UserScopesResponse,
+)
+from api.routes.pkm_routes_shared import (
+    delete_domain_data as _delete_domain_data,
+)
+from api.routes.pkm_routes_shared import (
+    get_domain_data as _get_domain_data,
+)
+from api.routes.pkm_routes_shared import (
+    get_domain_manifest as _get_domain_manifest,
+)
+from api.routes.pkm_routes_shared import (
+    get_domain_registry as _get_domain_registry,
+)
+from api.routes.pkm_routes_shared import (
+    get_encrypted_data as _get_encrypted_data,
+)
+from api.routes.pkm_routes_shared import (
+    get_metadata as _get_metadata,
+)
+from api.routes.pkm_routes_shared import (
+    get_stock_context as _get_stock_context,
+)
+from api.routes.pkm_routes_shared import (
+    get_user_scopes as _get_user_scopes,
+)
+from api.routes.pkm_routes_shared import (
+    reconcile_pkm_index as _reconcile_pkm_index,
+)
+from api.routes.pkm_routes_shared import (
+    store_domain as _store_domain,
+)
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
@@ -41,14 +82,18 @@ class PKMAgentLabStructureResponse(BaseModel):
     target_entity_scope: str | None = None
     validation_hints: list[str] = Field(default_factory=list)
     manifest_draft: dict | None = None
+    preview_cards: list[dict] = Field(default_factory=list)
+    preview_summary: dict = Field(default_factory=dict)
+    performance: dict = Field(default_factory=dict)
+    context_plan: dict = Field(default_factory=dict)
 
 
-@router.post("/store-domain", response_model=legacy.StoreDomainResponse)
+@router.post("/store-domain", response_model=StoreDomainResponse)
 async def store_domain(
-    request: legacy.StoreDomainRequest,
+    request: StoreDomainRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.store_domain(request, token_data)
+    return await _store_domain(request, token_data)
 
 
 @router.get("/data/{user_id}", response_model=dict)
@@ -56,73 +101,74 @@ async def get_encrypted_data(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.get_encrypted_data(user_id, token_data)
+    return await _get_encrypted_data(user_id, token_data)
 
 
-@router.get("/domain-data/{user_id}/{domain}", response_model=legacy.DomainDataResponse)
+@router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
 async def get_domain_data(
     user_id: str,
     domain: str,
+    segment_ids: list[str] | None = Query(default=None),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.get_domain_data(user_id, domain, token_data)
+    return await _get_domain_data(user_id, domain, segment_ids, token_data)
 
 
-@router.get("/manifest/{user_id}/{domain}", response_model=legacy.DomainManifestResponse)
+@router.get("/manifest/{user_id}/{domain}", response_model=DomainManifestResponse)
 async def get_domain_manifest(
     user_id: str,
     domain: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.get_domain_manifest(user_id, domain, token_data)
+    return await _get_domain_manifest(user_id, domain, token_data)
 
 
-@router.delete("/domain-data/{user_id}/{domain}", response_model=legacy.DeleteDomainResponse)
+@router.delete("/domain-data/{user_id}/{domain}", response_model=DeleteDomainResponse)
 async def delete_domain_data(
     user_id: str,
     domain: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.delete_domain_data(user_id, domain, token_data)
+    return await _delete_domain_data(user_id, domain, token_data)
 
 
-@router.post("/reconcile/{user_id}", response_model=legacy.ReconcileWorldModelResponse)
+@router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
 async def reconcile_pkm_index(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.reconcile_world_model_index(user_id, token_data)
+    return await _reconcile_pkm_index(user_id, token_data)
 
 
-@router.get("/metadata/{user_id}", response_model=legacy.WorldModelMetadataResponse)
+@router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.get_metadata(user_id, token_data)
+    return await _get_metadata(user_id, token_data)
 
 
-@router.get("/domain-registry", response_model=legacy.DomainRegistryResponse)
+@router.get("/domain-registry", response_model=DomainRegistryResponse)
 async def get_domain_registry(
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.get_domain_registry(token_data)
+    return await _get_domain_registry(token_data)
 
 
-@router.get("/scopes/{user_id}", response_model=legacy.UserScopesResponse)
+@router.get("/scopes/{user_id}", response_model=UserScopesResponse)
 async def get_user_scopes(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.get_user_scopes(user_id, token_data)
+    return await _get_user_scopes(user_id, token_data)
 
 
-@router.post("/get-context", response_model=legacy.StockContextResponse)
+@router.post("/get-context", response_model=StockContextResponse)
 async def get_stock_context(
-    request: legacy.StockContextRequest,
+    request: StockContextRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await legacy.get_stock_context(request, token_data)
+    return await _get_stock_context(request, token_data)
 
 
 @router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)

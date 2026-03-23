@@ -96,7 +96,7 @@ export const PUBLIC_TOOL_NAMES = [
 
 export const PUBLIC_SCOPE_PATTERNS = [
   "pkm.read",
-  "world_model.write",
+  "pkm.write",
   "attr.{domain}.*",
   "attr.{domain}.{subintent}.*",
   "attr.{domain}.{path}",
@@ -199,7 +199,7 @@ export const DEVELOPER_ACCESS_NOTES = [
 ];
 
 export const DEVELOPER_SCOPE_NOTES = [
-  "Scopes are still evolving as Kai adds richer world-model coverage and tighter domain metadata.",
+  "Scopes are still evolving as Kai adds richer PKM coverage and tighter domain metadata.",
   "Discover available scopes per user at runtime instead of hardcoding a fixed universal list.",
   "The current Kai test-user shape is mostly financial, so early community integrations should expect financial-first examples.",
 ];
@@ -222,7 +222,7 @@ export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
     "attr.financial.runtime.*",
     "attr.financial.analysis.decisions.*"
   ],
-  "source": "world_model_index_v2 + domain_registry"
+  "source": "pkm_index_v2 + manifest-backed scope discovery"
 }`,
   },
   {

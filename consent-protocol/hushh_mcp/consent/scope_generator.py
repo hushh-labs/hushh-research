@@ -588,7 +588,7 @@ class DynamicScopeGenerator:
         try:
             scope_catalog = await self._get_user_scope_catalog(user_id)
             if not scope_catalog:
-                logger.debug(f"No world model index for user {user_id}")
+                logger.debug(f"No PKM index for user {user_id}")
                 return False
 
             domain_catalog = scope_catalog.get(domain)
@@ -629,7 +629,7 @@ class DynamicScopeGenerator:
             List of exact and wildcard scope strings
         """
         try:
-            scopes: set[str] = {"pkm.read", "world_model.read"}
+            scopes: set[str] = {"pkm.read"}
             for entry in await self.get_available_scope_entries(user_id):
                 scope = str(entry.get("scope") or "").strip()
                 if scope:
@@ -641,7 +641,7 @@ class DynamicScopeGenerator:
 
     async def get_available_wildcards(self, user_id: str) -> list[str]:
         """
-        Get all valid wildcard scopes for a user from world_model_index_v2.
+        Get all valid wildcard scopes for a user from PKM index metadata.
 
         Args:
             user_id: The user ID
@@ -651,9 +651,7 @@ class DynamicScopeGenerator:
         """
         scopes = await self.get_available_scopes(user_id)
         return sorted(
-            scope
-            for scope in scopes
-            if scope in {"pkm.read", "world_model.read"} or scope.endswith(self.WILDCARD_SUFFIX)
+            scope for scope in scopes if scope == "pkm.read" or scope.endswith(self.WILDCARD_SUFFIX)
         )
 
     async def check_scope_access(
@@ -694,7 +692,7 @@ class DynamicScopeGenerator:
 
         Args:
             wildcard: The wildcard scope (e.g., 'attr.financial.*')
-            user_id: The user ID (unused; kept for API compatibility)
+            user_id: The user ID (unused; kept for API stability)
 
         Returns:
             List of matching exact scopes

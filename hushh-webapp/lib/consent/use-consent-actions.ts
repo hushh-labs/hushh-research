@@ -14,7 +14,7 @@ import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
-import { WorldModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
 
@@ -49,11 +49,10 @@ interface UseConsentActionsOptions {
 
 /** pkm.read or attr.{domain}.* (domain: alphanumeric + underscore only) */
 const PKM_READ = "pkm.read";
-const WORLD_MODEL_READ = "world_model.read";
 const ATTR_SCOPE_REGEX = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/;
 
-function isWorldModelScope(scope: string): boolean {
-  return scope === PKM_READ || scope === WORLD_MODEL_READ || scope.startsWith("attr.");
+function isPkmScope(scope: string): boolean {
+  return scope === PKM_READ || scope.startsWith("attr.");
 }
 
 function parseAttrScope(scope: string): {
@@ -102,12 +101,8 @@ function resolveApprovedPaths(scope: string, manifest: {
 
 function getScopeDataEndpoint(scope: string): string | null {
   const scopeMap: Record<string, string> = {
-    // Dynamic attr.* scopes (canonical - preferred)
+    // Dynamic attr.* scopes (canonical)
     "attr.financial.*": "/api/vault/finance",
-    // Legacy underscore format (deprecated)
-    vault_read_finance: "/api/vault/finance",
-    // Legacy dot format (deprecated)
-    "vault.read.finance": "/api/vault/finance",
   };
   return scopeMap[scope] || null;
 }
@@ -209,11 +204,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         let scopeData: Record<string, unknown> = {};
 
-        // World model scopes: build export from world model blob (BYOK)
-        if (isWorldModelScope(consent.scope)) {
+        // PKM scopes: build export from encrypted PKM storage (BYOK)
+        if (isPkmScope(consent.scope)) {
           try {
-            if (consent.scope === PKM_READ || consent.scope === WORLD_MODEL_READ) {
-              const fullBlob = await WorldModelService.loadFullBlob({
+            if (consent.scope === PKM_READ || consent.scope === PKM_READ) {
+              const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
                 userId,
                 vaultKey,
                 vaultOwnerToken,
@@ -221,7 +216,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
               const availableDomains = Object.keys(fullBlob);
               if (availableDomains.length === 0) {
                 scopeData = {};
-                console.info("[Consent] Consent approved with empty world model export (no domains)");
+                console.info("[Consent] Consent approved with empty PKM export (no domains)");
               } else {
                 scopeData = {
                   ...fullBlob,
@@ -237,28 +232,34 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
               if (!parsedScope) {
                 scopeData = {};
               } else {
-                const blob = await WorldModelService.getDomainData(
+                const manifest = await PersonalKnowledgeModelService.getDomainManifest(
                   userId,
                   parsedScope.domain,
                   vaultOwnerToken
+                ).catch(() => null);
+                const approvedPaths = resolveApprovedPaths(consent.scope, manifest);
+                const segmentIds = PersonalKnowledgeModelService.resolveSegmentIdsForPaths({
+                  manifest,
+                  paths: approvedPaths,
+                });
+                const blob = await PersonalKnowledgeModelService.getDomainData(
+                  userId,
+                  parsedScope.domain,
+                  vaultOwnerToken,
+                  segmentIds
                 );
                 if (!blob) {
                   scopeData = { [parsedScope.domain]: {} };
                 } else {
                   const domainData =
-                    await WorldModelService.loadDomainData({
+                    await PersonalKnowledgeModelService.loadDomainData({
                       userId,
                       domain: parsedScope.domain,
                       vaultKey,
                       vaultOwnerToken,
+                      segmentIds,
                     });
                   const resolvedDomainData = domainData || {};
-                  const manifest = await WorldModelService.getDomainManifest(
-                    userId,
-                    parsedScope.domain,
-                    vaultOwnerToken
-                  ).catch(() => null);
-                  const approvedPaths = resolveApprovedPaths(consent.scope, manifest);
                   scopeData = {
                     ...projectDomainDataForScope({
                       domain: parsedScope.domain,
@@ -270,6 +271,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
                       source_domain: parsedScope.domain,
                       manifest_version: manifest?.manifest_version ?? null,
                       approved_paths: approvedPaths,
+                      approved_segment_ids: segmentIds,
                       export_timestamp: new Date().toISOString(),
                     },
                   };
@@ -278,10 +280,10 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             }
           } catch (err) {
             if (err instanceof SyntaxError) {
-              console.error("[Consent] Failed to parse world model blob after decrypt");
+              console.error("[Consent] Failed to parse PKM blob after decrypt");
               throw new Error("Could not prepare export; check vault.");
             }
-            console.error("[Consent] World model export build failed:", err);
+            console.error("[Consent] PKM export build failed:", err);
             throw new Error("Could not load your data; try again.");
           }
         }
@@ -295,7 +297,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           console.log("[NativeDebug] Fetching scope data for:", consent.scope);
 
           try {
-            // Scope mapping to ApiService methods (food/professional removed; use world-model)
+            // Scope mapping to ApiService methods (food/professional removed; use PKM)
             if (consent.scope.includes("finance")) {
               // Legacy finance endpoint if needed
               console.warn("Finance scope: legacy endpoint not yet populated");
@@ -382,7 +384,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           }
         }
 
-        if (Object.keys(scopeData).length === 0 && !isWorldModelScope(consent.scope) && !getScopeDataEndpoint(consent.scope)) {
+        if (Object.keys(scopeData).length === 0 && !isPkmScope(consent.scope) && !getScopeDataEndpoint(consent.scope)) {
           console.info("[Consent] Unknown scope, approving with empty export:", consent.scope);
         }
 

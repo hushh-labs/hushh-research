@@ -19,20 +19,20 @@ BYOK (Bring Your Own Key):
 
 DEPRECATION NOTICE:
     This service uses legacy vault_* tables (vault_food, vault_professional, etc.).
-    New code should use WorldModelService with world_model_data + world_model_index_v2
+    New code should use PersonalKnowledgeModelService with PKM encrypted blob/index storage
     (store_domain_data, get_encrypted_data, get_domain_data).
     Migration path:
-    - VaultDBService (legacy) → WorldModelService blob API (preferred)
-    - vault_* tables → world_model_data encrypted blob + world_model_index_v2
+    - VaultDBService (legacy) → PersonalKnowledgeModelService blob API (preferred)
+    - vault_* tables → PKM encrypted blob + PKM index
 
 Usage:
-    # DEPRECATED - use WorldModelService instead
+    # DEPRECATED - use PersonalKnowledgeModelService instead
     from hushh_mcp.services.vault_db import VaultDBService
 
-    # PREFERRED - use WorldModelService blob API
-    from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+    # PREFERRED - use PersonalKnowledgeModelService blob API
+    from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 
-    service = get_world_model_service()
+    service = get_pkm_service()
     await service.store_domain_data(user_id, domain, encrypted_blob, summary)
 """
 
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # DEPRECATED: Domain to table mapping — EMPTY.
 # All legacy vault_* tables (vault_food, vault_professional, vault_kai_preferences,
-# vault_kai) have been removed.  Use WorldModelService for all domain data.
+# vault_kai) have been removed.  Use PersonalKnowledgeModelService for all domain data.
 DOMAIN_TABLES: dict[str, str] = {}
 
 # DEPRECATED: Domain to scope mapping — EMPTY.
@@ -455,7 +455,7 @@ class VaultDBService:
         """
         Check if user has any data in the specified vault domain.
 
-        NOTE: This method is DEPRECATED. Use WorldModelService.get_domain_data() or check world_model_index_v2 instead.
+        NOTE: This method is DEPRECATED. Use PersonalKnowledgeModelService.get_domain_data() or check PKM metadata instead.
 
         This does NOT require consent as it only checks existence,
         not the actual encrypted data.

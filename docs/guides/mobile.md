@@ -109,7 +109,7 @@ Accepted parity exceptions currently documented in the registry:
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │       Native Plugins (10 per platform)                    │  │
 │  │  HushhAuth · HushhVault · HushhConsent · Kai             │  │
-│  │  HushhSync · HushhSettings · HushhKeystore · WorldModel  │  │
+│  │  HushhSync · HushhSettings · HushhKeystore · PKM         │  │
 │  │  HushhAccount · HushhNotifications                       │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Native HTTP                          │
@@ -135,7 +135,7 @@ All 10 plugins exist on both platforms with matching methods:
 | **HushhSync**     | `HushhSync`     | Cloud synchronization          | `HushhSyncPlugin.swift`     | `HushhSyncPlugin.kt`     |
 | **HushhSettings** | `HushhSettings` | App preferences                | `HushhSettingsPlugin.swift` | `HushhSettingsPlugin.kt` |
 | **HushhKeystore** | `HushhKeychain` | Secure key storage             | `HushhKeystorePlugin.swift` | `HushhKeystorePlugin.kt` |
-| **WorldModel**    | `WorldModel`    | Domain metadata/index access   | `WorldModelPlugin.swift`    | `WorldModelPlugin.kt`    |
+| **PKM**           | `PersonalKnowledgeModel` | Domain metadata/index access | `PersonalKnowledgeModelPlugin.swift` | `PersonalKnowledgeModelPlugin.kt` |
 | **HushhAccount**  | `HushhAccount`  | Account lifecycle actions      | `HushhAccountPlugin.swift`  | `HushhAccountPlugin.kt`  |
 | **HushhNotifications** | `HushhNotifications` | Push token registration | `HushhNotificationsPlugin.swift` | `HushhNotificationsPlugin.kt` |
 
@@ -254,7 +254,7 @@ ios/App/App/
     ├── HushhSyncPlugin.swift
     ├── HushhVaultPlugin.swift
     ├── KaiPlugin.swift
-    └── WorldModelPlugin.swift
+    └── PersonalKnowledgeModelPlugin.swift
 ```
 
 ### Android
@@ -272,7 +272,7 @@ android/app/src/main/java/com/hushh/app/
     ├── HushhSync/HushhSyncPlugin.kt
     ├── HushhVault/HushhVaultPlugin.kt
     ├── Kai/KaiPlugin.kt
-    ├── WorldModel/WorldModelPlugin.kt
+    ├── PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt
     └── shared/BackendUrl.kt
 ```
 
@@ -322,7 +322,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(HushhSyncPlugin())
         bridge?.registerPluginInstance(HushhSettingsPlugin())
         bridge?.registerPluginInstance(HushhKeystorePlugin())
-        bridge?.registerPluginInstance(WorldModelPlugin())
+        bridge?.registerPluginInstance(PersonalKnowledgeModelPlugin())
         bridge?.registerPluginInstance(HushhAccountPlugin())
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
     }
@@ -352,7 +352,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhKeystorePlugin::class.java)
         registerPlugin(HushhNotificationsPlugin::class.java)
         registerPlugin(KaiPlugin::class.java)
-        registerPlugin(WorldModelPlugin::class.java)
+        registerPlugin(PersonalKnowledgeModelPlugin::class.java)
         registerPlugin(HushhAccountPlugin::class.java)
         super.onCreate(savedInstanceState)
     }
@@ -428,7 +428,7 @@ if (Capacitor.isNativePlatform()) {
 
 | Plugin     | Methods                                                                     | Status                    |
 | ---------- | --------------------------------------------------------------------------- | ------------------------- |
-| WorldModel | getMetadata, getAttributes, getUserDomains, listDomains, getAvailableScopes | Required                  |
+| PersonalKnowledgeModel | getMetadata, getAttributes, getUserDomains, listDomains, getAvailableScopes | Required |
 | Kai        | getInitialChatState, chat                                                   | Required                  |
 | Identity   | autoDetect, getIdentityStatus, getEncryptedProfile                          | Required                  |
 | Vault      | All crypto methods                                                          | Not needed (simple types) |
@@ -667,7 +667,7 @@ const { vaultOwnerToken } = useVault();
 />
 
 // Service call includes token
-await WorldModelService.storeDomainData({
+await PersonalKnowledgeModelService.storeDomainData({
   userId,
   domain: "financial",
   encryptedBlob: { ... },

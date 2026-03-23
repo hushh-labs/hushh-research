@@ -88,10 +88,10 @@ SERVER_INFO = {
 # SCOPE MAPPINGS
 # ============================================================================
 
-# Canonical scopes only.
+# Canonical PKM scopes.
 SCOPE_API_MAP = {
-    "world_model.read": "world_model.read",
-    "world_model.write": "world_model.write",
+    "pkm.read": "pkm.read",
+    "pkm.write": "pkm.write",
 }
 
 
@@ -99,7 +99,7 @@ def resolve_scope_api(scope: str) -> str | None:
     """Resolve scope input to canonical dot notation.
 
     Accepts:
-    - canonical static scopes (world_model.read/write)
+    - canonical static scopes (pkm.read/write)
     - canonical dynamic scopes (attr.{domain}.*, attr.{domain}.{subintent}.*,
       or specific paths like attr.{domain}.{attribute})
 

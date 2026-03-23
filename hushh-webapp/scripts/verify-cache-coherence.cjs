@@ -58,7 +58,7 @@ function assertNotContains(relPath, snippets) {
 
 function checkRequiredCoordinatorUsage() {
   const required = [
-    ["lib/services/personal-knowledge-model-service.ts", ["CacheSyncService.onWorldModelDomainStored", "CacheSyncService.onWorldModelDomainCleared"]],
+    ["lib/services/personal-knowledge-model-service.ts", ["CacheSyncService.onPkmDomainStored", "CacheSyncService.onPkmDomainCleared"]],
     ["lib/services/vault-service.ts", ["CacheSyncService.onVaultStateChanged"]],
     ["lib/services/kai-history-service.ts", ["CacheSyncService.onAnalysisHistoryMutated"]],
     ["lib/consent/use-consent-actions.ts", ["CacheSyncService.onConsentMutated"]],
@@ -90,11 +90,11 @@ function checkBypassPatterns() {
     ],
     [
       "components/kai/kai-flow.tsx",
-      ["CacheService.getInstance().invalidate(", "CACHE_KEYS.WORLD_MODEL_METADATA", "CACHE_KEYS.PORTFOLIO_DATA"],
+      ["CacheService.getInstance().invalidate(", "CACHE_KEYS.PKM_METADATA", "CACHE_KEYS.PORTFOLIO_DATA"],
     ],
     [
       "components/kai/views/manage-portfolio-view.tsx",
-      ["CacheService.getInstance().invalidate(", "CACHE_KEYS.WORLD_MODEL_METADATA"],
+      ["CacheService.getInstance().invalidate(", "CACHE_KEYS.PKM_METADATA"],
     ],
   ];
 

@@ -4,7 +4,7 @@
   "required_functions": [
     "merge_domain_summary",
     "remove_domain_summary_key",
-    "upsert_world_model_data_blob"
+    "upsert_pkm_data_blob"
   ],
   "required_tables": {
     "vault_keys": [
@@ -47,7 +47,7 @@
       "action",
       "issued_at"
     ],
-    "world_model_data": [
+    "pkm_data": [
       "user_id",
       "encrypted_data_ciphertext",
       "encrypted_data_iv",
@@ -57,7 +57,7 @@
       "created_at",
       "updated_at"
     ],
-    "world_model_index_v2": [
+    "pkm_index": [
       "user_id",
       "domain_summaries",
       "available_domains",

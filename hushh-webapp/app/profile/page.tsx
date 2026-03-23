@@ -56,6 +56,7 @@ import { Switch } from "@/components/ui/switch";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { usePendingConsentCount } from "@/components/consent/notification-provider";
 import { useAuth } from "@/hooks/use-auth";
+import { resolveAppEnvironment } from "@/lib/app-env";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
@@ -206,6 +207,7 @@ function tabForPanel(panel: ProfilePanel | null, fallback: ProfileTab): ProfileT
 }
 
 export default function ProfilePage() {
+  const canShowPkmAgentLab = resolveAppEnvironment() !== "production";
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1005,13 +1007,15 @@ export default function ProfilePage() {
                 chevron
                 onClick={() => updateProfileView({ tab: "account", panel: "support" })}
               />
-              <SettingsRow
-                icon={Code2}
-                title="PKM Agent Lab"
-                description="Capture intent, inspect saved PKM data, and review how live encrypted storage is organized for your account."
-                chevron
-                onClick={() => router.push("/profile/pkm-agent-lab")}
-              />
+              {canShowPkmAgentLab ? (
+                <SettingsRow
+                  icon={Code2}
+                  title="PKM Agent Lab"
+                  description="Capture intent, inspect saved PKM data, and review how live encrypted storage is organized for your account."
+                  chevron
+                  onClick={() => router.push("/profile/pkm-agent-lab")}
+                />
+              ) : null}
             </SettingsGroup>
 
             <SettingsGroup eyebrow="Session">

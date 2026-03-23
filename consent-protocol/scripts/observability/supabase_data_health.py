@@ -26,8 +26,8 @@ from db.connection import close_pool, get_pool  # noqa: E402
 KEY_TABLES = (
     "consent_audit",
     "vault_keys",
-    "world_model_data",
-    "world_model_index_v2",
+    "pkm_data",
+    "pkm_index",
     "kai_market_cache_entries",
     "tickers",
 )
@@ -89,14 +89,14 @@ async def _vault_method_coverage(conn) -> dict[str, int]:
     return result
 
 
-async def _world_model_coherence(conn) -> dict[str, int]:
+async def _pkm_coherence(conn) -> dict[str, int]:
     data_users = await _safe_fetchval(
         conn,
-        "SELECT COUNT(DISTINCT user_id)::bigint FROM world_model_data",
+        "SELECT COUNT(DISTINCT user_id)::bigint FROM pkm_data",
     )
     index_users = await _safe_fetchval(
         conn,
-        "SELECT COUNT(DISTINCT user_id)::bigint FROM world_model_index_v2",
+        "SELECT COUNT(DISTINCT user_id)::bigint FROM pkm_index",
     )
     data_without_index = await _safe_fetchval(
         conn,
@@ -104,8 +104,8 @@ async def _world_model_coherence(conn) -> dict[str, int]:
         SELECT COUNT(*)::bigint
         FROM (
           SELECT DISTINCT d.user_id
-          FROM world_model_data d
-          LEFT JOIN world_model_index_v2 i ON i.user_id = d.user_id
+          FROM pkm_data d
+          LEFT JOIN pkm_index i ON i.user_id = d.user_id
           WHERE i.user_id IS NULL
         ) AS missing
         """,
@@ -116,8 +116,8 @@ async def _world_model_coherence(conn) -> dict[str, int]:
         SELECT COUNT(*)::bigint
         FROM (
           SELECT DISTINCT i.user_id
-          FROM world_model_index_v2 i
-          LEFT JOIN world_model_data d ON d.user_id = i.user_id
+          FROM pkm_index i
+          LEFT JOIN pkm_data d ON d.user_id = i.user_id
           WHERE d.user_id IS NULL
         ) AS missing
         """,
@@ -193,12 +193,12 @@ async def run_checks() -> int:
         async with pool.acquire() as conn:
             table_counts = await _table_counts(conn)
             vault_coverage = await _vault_method_coverage(conn)
-            world_model = await _world_model_coherence(conn)
+            pkm = await _pkm_coherence(conn)
             market_cache = await _market_cache_freshness(conn)
             consent_activity = await _consent_audit_activity(conn)
 
-        if world_model["data_without_index"] > 0 or world_model["index_without_data"] > 0:
-            anomalies.append("world_model_coherence_mismatch")
+        if pkm["data_without_index"] > 0 or pkm["index_without_data"] > 0:
+            anomalies.append("pkm_coherence_mismatch")
 
         stale_ratio = float(market_cache.get("stale_ratio", 0.0) or 0.0)
         if stale_ratio >= float(os.getenv("OBS_DATA_STALE_RATIO_THRESHOLD", "0.25")):
@@ -219,7 +219,7 @@ async def run_checks() -> int:
             "duration_ms": duration_ms,
             "table_counts": table_counts,
             "vault_method_coverage": vault_coverage,
-            "world_model": world_model,
+            "pkm": pkm,
             "market_cache": market_cache,
             "consent_activity": consent_activity,
             "anomalies": anomalies,

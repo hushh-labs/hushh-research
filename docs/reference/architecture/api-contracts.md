@@ -224,7 +224,7 @@ Method-management semantics:
 
 Security invariant:
 - No plaintext-at-rest path is allowed.
-- World-model encryption/decryption always uses the same DEK regardless of unlock method.
+- PKM encryption/decryption always uses the same DEK regardless of unlock method.
 | POST | `/api/sync/vault` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | POST | `/api/sync/batch` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | GET | `/api/sync/pull` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
@@ -420,7 +420,7 @@ Service:  { userId: "abc", domainSummaries: {...} }
 React:    Uses camelCase throughout
 ```
 
-Plugins requiring camelCase transformation: WorldModel, Kai.
+Plugins requiring camelCase transformation: PersonalKnowledgeModel, Kai.
 
 ---
 

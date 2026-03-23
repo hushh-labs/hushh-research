@@ -39,7 +39,7 @@ These paths are allowed temporarily but must be treated as migration targets or 
 
 - regex or keyword domain inference
 - direct Gemini semantic prompts outside manifest-backed agents
-- legacy `world_model.*` compatibility surfaces influencing PKM behavior
+- any leftover legacy naming or storage shims influencing PKM behavior
 - service-local semantic fallbacks that invent meaning
 
 ## Allowed validator behavior

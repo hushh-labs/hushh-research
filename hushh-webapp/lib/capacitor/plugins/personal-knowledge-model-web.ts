@@ -1,15 +1,15 @@
 /**
- * World Model Web Implementation
+ * Personal Knowledge Model web implementation.
  *
- * Web fallback for the supported world-model proxy surface.
+ * Web fallback for the supported PKM proxy surface.
  */
 
 import { WebPlugin } from "@capacitor/core";
-import type { HushhWorldModelPlugin } from "@/lib/capacitor/world-model";
+import type { HushhPersonalKnowledgeModelPlugin } from "@/lib/capacitor/personal-knowledge-model";
 
-export class HushhWorldModelWeb
+export class HushhPersonalKnowledgeModelWeb
   extends WebPlugin
-  implements HushhWorldModelPlugin
+  implements HushhPersonalKnowledgeModelPlugin
 {
   private async getAuthHeader(overrideToken?: string): Promise<string> {
     return overrideToken ? `Bearer ${overrideToken}` : "";
@@ -119,7 +119,7 @@ export class HushhWorldModelWeb
       wildcardScopes:
         data.wildcard_scopes ||
         rawScopes.filter(
-          (scope) => scope === "pkm.read" || scope === "world_model.read" || scope.endsWith(".*")
+          (scope) => scope === "pkm.read" || scope.endsWith(".*")
         ),
     };
   }
@@ -203,6 +203,7 @@ export class HushhWorldModelWeb
   async getDomainData(options: {
     userId: string;
     domain: string;
+    segmentIds?: string[];
     vaultOwnerToken?: string;
   }): Promise<{
     encrypted_blob?: {
@@ -226,8 +227,16 @@ export class HushhWorldModelWeb
     manifest_revision?: number;
     segment_ids?: string[];
   }> {
+    const params = new URLSearchParams();
+    for (const segmentId of options.segmentIds || []) {
+      if (segmentId) {
+        params.append("segment_ids", segmentId);
+      }
+    }
     const response = await fetch(
-      `/api/pkm/domain-data/${options.userId}/${options.domain}`,
+      `/api/pkm/domain-data/${options.userId}/${options.domain}${
+        params.toString() ? `?${params.toString()}` : ""
+      }`,
       {
         headers: {
           Authorization: await this.getAuthHeader(options.vaultOwnerToken),

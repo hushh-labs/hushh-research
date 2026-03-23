@@ -39,7 +39,7 @@ from hushh_mcp.operons.kai.llm import (
     synthesize_debate_recommendation_card,
 )
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.personal_knowledge_model_service import get_world_model_service
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
@@ -629,7 +629,7 @@ def _derive_market_snapshot(
     }
 
 
-def _validate_world_model_context_requirements(
+def _validate_pkm_context_requirements(
     full_user_context: dict[str, Any],
 ) -> list[str]:
     missing: list[str] = []
@@ -641,20 +641,20 @@ def _validate_world_model_context_requirements(
 
     holdings = request_context.get("holdings")
     if not isinstance(holdings, list) or len(holdings) == 0:
-        missing.append("world_model_holdings")
+        missing.append("pkm_holdings")
 
     debate_context = request_context.get("debate_context")
     if not isinstance(debate_context, dict):
-        missing.append("world_model_debate_context")
+        missing.append("pkm_debate_context")
         return missing
 
     portfolio_snapshot = debate_context.get("portfolio_snapshot")
     if not isinstance(portfolio_snapshot, dict) or len(portfolio_snapshot) == 0:
-        missing.append("world_model_portfolio_snapshot")
+        missing.append("pkm_portfolio_snapshot")
 
     coverage = debate_context.get("coverage")
     if not isinstance(coverage, dict) or len(coverage) == 0:
-        missing.append("world_model_coverage")
+        missing.append("pkm_coverage")
 
     return missing
 
@@ -867,7 +867,7 @@ async def analyze_stream_generator(
             {
                 "phase": "analysis",
                 "round": 1,
-                "message": "Preparing world model context and Renaissance universe signals...",
+                "message": "Preparing PKM context and Renaissance universe signals...",
                 "tokens": ["Connecting", "to", "context", "layers", "and", "screening", "data."],
             },
         )
@@ -913,13 +913,13 @@ async def analyze_stream_generator(
         # 1. FETCH FULL CONTEXT (The Omniscient Backend)
         # =========================================================================
 
-        # A + B. Pull Renaissance + world model context in parallel.
+        # A + B. Pull Renaissance + PKM context in parallel.
         renaissance_service = get_renaissance_service()
-        world_model = get_world_model_service()
+        pkm_service = get_pkm_service()
         context_results = await asyncio.wait_for(
             asyncio.gather(
                 renaissance_service.get_analysis_context(ticker),
-                world_model.get_index_v2(user_id),
+                pkm_service.get_index_v2(user_id),
                 return_exceptions=True,
             ),
             timeout=remaining_timeout(),
@@ -940,7 +940,7 @@ async def analyze_stream_generator(
             renaissance_context = renaissance_result if isinstance(renaissance_result, dict) else {}
 
         if isinstance(wm_result, Exception):
-            logger.warning("[Kai Stream] World model fetch failed for %s: %s", user_id, wm_result)
+            logger.warning("[Kai Stream] PKM fetch failed for %s: %s", user_id, wm_result)
             wm_index = None
         else:
             wm_index = wm_result
@@ -1081,7 +1081,7 @@ async def analyze_stream_generator(
 
         missing_requirements = sorted(
             set(
-                _validate_world_model_context_requirements(full_user_context)
+                _validate_pkm_context_requirements(full_user_context)
                 + _validate_renaissance_context_requirements(
                     renaissance_context,
                     renaissance_lookup_error,
@@ -1089,8 +1089,8 @@ async def analyze_stream_generator(
             )
         )
         context_integrity = {
-            "world_model_context_present": not any(
-                item.startswith("world_model_") for item in missing_requirements
+            "pkm_context_present": not any(
+                item.startswith("pkm_") for item in missing_requirements
             ),
             "renaissance_context_present": not any(
                 item.startswith("renaissance_") for item in missing_requirements
@@ -1103,7 +1103,7 @@ async def analyze_stream_generator(
                 {
                     "code": "ANALYZE_CONTEXT_REQUIRED",
                     "message": (
-                        "Analysis requires both world-model portfolio context "
+                        "Analysis requires both PKM portfolio context "
                         "and Renaissance screening context."
                     ),
                     "ticker": ticker,
@@ -1907,7 +1907,7 @@ async def analyze_stream_generator(
             analysis_updated_at=analysis_updated_at,
         )
 
-        world_model_context = {
+        pkm_context = {
             "risk_profile": full_user_context.get("risk_profile"),
             "preferences": full_user_context.get("preferences", {}),
             "holdings_count": int(
@@ -1952,7 +1952,7 @@ async def analyze_stream_generator(
             "consensus_reached": debate_result.consensus_reached,
             "dissenting_opinions": debate_result.dissenting_opinions,
             "debate_highlights": debate_highlights[:20],
-            "world_model_context": world_model_context,
+            "pkm_context": pkm_context,
             "context_integrity": context_integrity,
             "renaissance_comparison": renaissance_comparison,
             "renaissance_tier": renaissance_context.get("tier"),

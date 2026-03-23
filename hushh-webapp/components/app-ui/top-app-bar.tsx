@@ -17,7 +17,7 @@
  * evaluates correctly in both environments.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -175,7 +175,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
     [activePersona, pathname]
   );
   const showKaiTabs = topShellMetrics.hasTabs;
-  const usesNestedBreadcrumbChrome = Boolean(topShellBreadcrumb);
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(null);
 
   useEffect(() => {
@@ -261,7 +260,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
             data-testid="top-app-bar-row"
             className="pointer-events-none relative h-[var(--top-bar-h)] w-full shrink-0"
           >
-            <div className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2">
+            <div className="pointer-events-none grid h-full w-full grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2">
               <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                 {topShellBreadcrumb ? (
                   <button
@@ -282,21 +281,20 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   <div className="h-11 w-11" aria-hidden />
                 )}
               </div>
-            </div>
 
-            <div className="pointer-events-none absolute left-1/2 top-1/2 inline-flex min-w-0 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
-              {centerTitle ? (
-                centerTitle.interactive && !usesNestedBreadcrumbChrome ? (
-                  <div className="pointer-events-auto inline-flex w-fit max-w-fit items-center justify-center">
+              <div className="pointer-events-none flex min-w-0 items-center justify-center">
+                {centerTitle ? (
+                  centerTitle.interactive ? (
+                    <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
                           data-tour-id="nav-role-switch"
-                          className="group relative inline-flex w-fit max-w-fit flex-none items-center justify-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-base font-semibold tracking-tight text-foreground transition-colors hover:bg-muted/40 sm:text-lg"
+                          className="group relative inline-flex min-w-0 max-w-full flex-none items-center justify-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-base font-semibold tracking-tight text-foreground transition-colors hover:bg-muted/40 sm:text-lg"
                           aria-label="Switch role"
                         >
-                          <span className="relative z-10 inline-flex min-w-0 items-center gap-2">
+                          <span className="relative z-10 inline-flex min-w-0 max-w-full items-center gap-2">
                             <Icon
                               icon={switchingPersona ? Loader2 : centerTitle.icon!}
                               size="sm"
@@ -346,36 +344,35 @@ export function TopAppBar({ className }: TopAppBarProps) {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </div>
-                ) : (
-                  <div className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full px-3 py-1.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
-                    {centerTitle.icon ? (
-                      <Icon icon={centerTitle.icon} size="sm" className="shrink-0 text-current" />
-                    ) : null}
-                    <span className="truncate">{centerTitle.label}</span>
-                  </div>
-                )
-              ) : null}
-            </div>
+                    </div>
+                  ) : (
+                    <div className="inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-full px-3 py-1.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                      {centerTitle.icon ? (
+                        <Icon icon={centerTitle.icon} size="sm" className="shrink-0 text-current" />
+                      ) : null}
+                      <span className="truncate">{centerTitle.label}</span>
+                    </div>
+                  )
+                ) : null}
+              </div>
 
-            <div className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2">
               <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-              {showOnboardingActions ? (
-                <OnboardingRouteActions />
-              ) : isVaultUnlocked ? (
-                <DebateTaskCenter triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
-              ) : usesNestedBreadcrumbChrome ? (
-                <button
-                  type="button"
-                  className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
-                  aria-label="Notifications unavailable until your vault is unlocked"
-                  disabled
-                >
-                  <Bell className="h-5 w-5 opacity-65" />
-                </button>
-              ) : (
-                <div className="h-11 w-11" aria-hidden />
-              )}
+                {showOnboardingActions ? (
+                  <OnboardingRouteActions />
+                ) : isVaultUnlocked ? (
+                  <DebateTaskCenter triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
+                ) : topShellBreadcrumb ? (
+                  <button
+                    type="button"
+                    className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
+                    aria-label="Notifications unavailable until your vault is unlocked"
+                    disabled
+                  >
+                    <Bell className="h-5 w-5 opacity-65" />
+                  </button>
+                ) : (
+                  <div className="h-11 w-11" aria-hidden />
+                )}
               </div>
             </div>
           </div>
@@ -385,34 +382,38 @@ export function TopAppBar({ className }: TopAppBarProps) {
               className="pointer-events-none relative mt-[var(--top-subnav-gap)] h-[var(--top-subnav-h)] w-full shrink-0"
               data-testid="top-app-bar-breadcrumb-row"
             >
-              <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-center px-2">
-                <div className="pointer-events-auto min-w-0 max-w-full">
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-center px-3">
+                <div className="pointer-events-auto min-w-0 max-w-full rounded-full border border-border/45 bg-background/45 px-3 py-1 shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] backdrop-blur-sm">
                   <Breadcrumb>
                     <BreadcrumbList className="flex flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap">
                       {topShellBreadcrumb.items.map((item, index) => {
                         const isLast = index === topShellBreadcrumb.items.length - 1;
                         return (
-                          <BreadcrumbItem key={`${item.label}-${index}`} className="min-w-0">
-                            {isLast ? (
-                              <BreadcrumbPage className="truncate text-xs font-medium sm:text-sm">
-                                {item.label}
-                              </BreadcrumbPage>
-                            ) : item.href ? (
-                              <BreadcrumbLink asChild>
-                                <Link
-                                  href={item.href}
-                                  className="truncate text-xs sm:text-sm"
-                                >
+                          <Fragment key={`${item.label}-${index}`}>
+                            <BreadcrumbItem className="min-w-0">
+                              {isLast ? (
+                                <BreadcrumbPage className="truncate text-[11px] font-medium text-foreground/85 sm:text-xs">
                                   {item.label}
-                                </Link>
-                              </BreadcrumbLink>
-                            ) : (
-                              <span className="truncate text-xs text-muted-foreground sm:text-sm">
-                                {item.label}
-                              </span>
-                            )}
-                            {!isLast ? <BreadcrumbSeparator /> : null}
-                          </BreadcrumbItem>
+                                </BreadcrumbPage>
+                              ) : item.href ? (
+                                <BreadcrumbLink asChild>
+                                  <Link
+                                    href={item.href}
+                                    className="truncate text-[11px] text-muted-foreground transition-colors hover:text-foreground sm:text-xs"
+                                  >
+                                    {item.label}
+                                  </Link>
+                                </BreadcrumbLink>
+                              ) : (
+                                <span className="truncate text-[11px] text-muted-foreground sm:text-xs">
+                                  {item.label}
+                                </span>
+                              )}
+                            </BreadcrumbItem>
+                            {!isLast ? (
+                              <BreadcrumbSeparator className="text-muted-foreground/70 [&>svg]:size-3" />
+                            ) : null}
+                          </Fragment>
                         );
                       })}
                     </BreadcrumbList>

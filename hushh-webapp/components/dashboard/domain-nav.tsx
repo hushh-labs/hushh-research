@@ -1,5 +1,5 @@
 // components/dashboard/domain-nav.tsx
-// Domain nav: Kai-first; additional domains can be driven by WorldModelService.listDomains() when needed.
+// Domain nav: Kai-first; additional domains can be driven by PersonalKnowledgeModelService.listDomains() when needed.
 
 "use client";
 

@@ -4,7 +4,7 @@
  * Vault Status API - Token-Enforced Metadata
  *
  * GET endpoint for checking domain activity status without fetching encrypted data.
- * Returns domain activity metadata (e.g. kai and world-model domains).
+ * Returns domain activity metadata (e.g. Kai and PKM domains).
  * Proxies to Python backend /db/vault/status
  */
 

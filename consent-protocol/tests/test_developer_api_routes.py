@@ -39,7 +39,8 @@ def test_list_scopes_returns_dynamic_catalog(monkeypatch):
     payload = response.json()
     names = [item["name"] for item in payload["scopes"]]
     assert payload["scopes_are_dynamic"] is True
-    assert "world_model.read" in names
+    assert "pkm.read" in names
+    assert all("world" not in name for name in names)
     assert "attr.{domain}.*" in names
     assert payload["request_endpoint"] == "/api/v1/request-consent"
     assert "hushh://info/developer-api" in payload["mcp_resources"]
@@ -95,7 +96,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
                 "attr.financial.*",
                 "attr.financial.profile.*",
                 "attr.financial.profile.risk_tolerance",
-                "world_model.read",
+                "pkm.read",
             ]
 
         async def get_available_scope_entries(self, user_id: str) -> list[dict]:
@@ -142,7 +143,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     class _FakeIndex:
         available_domains = ["financial"]
 
-    class _FakeWorldModel:
+    class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
         async def get_index_v2(self, user_id: str):
@@ -151,7 +152,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
 
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "get_world_model_service", lambda: _FakeWorldModel())
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
     monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
@@ -208,12 +209,12 @@ def test_request_consent_creates_pending_request(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
-            return ["attr.financial.*", "world_model.read"]
+            return ["attr.financial.*", "pkm.read"]
 
     class _FakeIndex:
         available_domains = ["financial"]
 
-    class _FakeWorldModel:
+    class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
         async def get_index_v2(self, user_id: str):
@@ -247,7 +248,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
 
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "get_world_model_service", lambda: _FakeWorldModel())
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
@@ -303,12 +304,12 @@ def test_request_consent_rejects_legacy_scope_alias(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
-            return ["attr.financial.*", "world_model.read"]
+            return ["attr.financial.*", "pkm.read"]
 
     class _FakeIndex:
         available_domains = ["financial"]
 
-    class _FakeWorldModel:
+    class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
         async def get_index_v2(self, user_id: str):
@@ -317,7 +318,7 @@ def test_request_consent_rejects_legacy_scope_alias(monkeypatch):
 
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "get_world_model_service", lambda: _FakeWorldModel())
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
     monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )

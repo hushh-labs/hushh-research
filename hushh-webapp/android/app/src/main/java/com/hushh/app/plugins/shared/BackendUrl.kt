@@ -14,7 +14,7 @@ object BackendUrl {
         "HushhRuntime",
         "HushhVault",
         "HushhConsent",
-        "WorldModel",
+        "PersonalKnowledgeModel",
         "Kai",
         "HushhNotifications",
         "HushhAccount",

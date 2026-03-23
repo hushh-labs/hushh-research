@@ -25,7 +25,7 @@ import {
   PersonalKnowledgeModelService,
   type DomainSummary,
   type EncryptedDomainBlob,
-  type WorldModelMetadata,
+  type PersonalKnowledgeModelMetadata,
 } from "@/lib/services/personal-knowledge-model-service";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
@@ -50,7 +50,7 @@ export function PkmExplorerPanel() {
   const { user, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
 
-  const [metadata, setMetadata] = useState<WorldModelMetadata | null>(null);
+  const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);

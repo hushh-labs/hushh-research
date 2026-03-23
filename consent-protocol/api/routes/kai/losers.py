@@ -90,7 +90,7 @@ class AnalyzeLosersRequest(BaseModel):
     user_preferences: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Optional user-level portfolio preferences from world model context "
+            "Optional user-level portfolio preferences from PKM context "
             "(e.g., investment_horizon, investment_style, concentration guardrails)."
         ),
     )

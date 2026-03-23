@@ -12,7 +12,7 @@ system_instruction: |
   1. Identify the brokerage/source from document content
   2. Extract ALL holdings with complete details
   3. Extract account metadata and summary values
-  4. Derive financial KPIs for the user's world model
+  4. Derive financial KPIs for the user's PKM
   
   For each holding, extract:
   - Symbol, Name, Quantity, Price, Market Value
@@ -28,7 +28,7 @@ system_instruction: |
   - Realized gains/losses
   - Fees and taxes withheld
   
-  Return data as structured JSON for world model storage.
+  Return data as structured JSON for PKM storage.
 
 required_scopes:
   - portfolio.import
@@ -75,7 +75,7 @@ outputs:
     description: Account number, type, statement period
   - name: kpis
     type: object
-    description: Derived financial KPIs for world model
+    description: Derived financial KPIs for PKM
   - name: source
     type: string
     description: Detected brokerage source
