@@ -55,7 +55,17 @@ function sanitizeDomainSummary(summary: DomainSummaryPatch): Record<string, unkn
     const normalized = key.toLowerCase();
     if (blocked.has(normalized)) continue;
     if (
-      ["attribute_count", "holdings_count", "item_count", "path_count", "externalizable_path_count", "manifest_version", "top_level_scope_count"].includes(
+      [
+        "attribute_count",
+        "holdings_count",
+        "item_count",
+        "path_count",
+        "externalizable_path_count",
+        "manifest_version",
+        "top_level_scope_count",
+        "domain_contract_version",
+        "readable_summary_version",
+      ].includes(
         normalized
       )
     ) {
@@ -76,11 +86,25 @@ function sanitizeDomainSummary(summary: DomainSummaryPatch): Record<string, unkn
     }
     if (
       typeof value === "string" &&
-      ["last_structured_at", "last_content_at", "storage_mode", "domain_contract_version"].includes(
-        normalized
-      )
+      [
+        "last_structured_at",
+        "last_content_at",
+        "storage_mode",
+        "upgraded_at",
+        "readable_summary",
+        "readable_updated_at",
+        "readable_source_label",
+        "readable_event_summary",
+      ].includes(normalized)
     ) {
       sanitized[normalized] = value;
+      continue;
+    }
+    if (normalized === "readable_highlights" && Array.isArray(value)) {
+      sanitized[normalized] = value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
+        .slice(0, 5);
     }
   }
 
@@ -120,9 +144,53 @@ function patchMetadataDomain(
       (typeof options?.domainSummary?.color === "string" ? options.domainSummary.color : existing?.color) ||
       "var(--brand-500)",
     attributeCount: deriveAttributeCount(options?.domainSummary, options?.portfolioData),
-    summary: sanitizedSummary as Record<string, string | number>,
+    summary: sanitizedSummary,
     availableScopes: existing?.availableScopes ?? [],
     lastUpdated: metadataTimestamp,
+    readableSummary:
+      (typeof options?.domainSummary?.readable_summary === "string"
+        ? options.domainSummary.readable_summary
+        : typeof options?.domainSummary?.readableSummary === "string"
+          ? options.domainSummary.readableSummary
+          : existing?.readableSummary) || null,
+    readableHighlights:
+      (Array.isArray(options?.domainSummary?.readable_highlights)
+        ? options?.domainSummary?.readable_highlights
+        : Array.isArray(options?.domainSummary?.readableHighlights)
+          ? options?.domainSummary?.readableHighlights
+          : existing?.readableHighlights) || [],
+    readableUpdatedAt:
+      (typeof options?.domainSummary?.readable_updated_at === "string"
+        ? options.domainSummary.readable_updated_at
+        : typeof options?.domainSummary?.readableUpdatedAt === "string"
+          ? options.domainSummary.readableUpdatedAt
+          : existing?.readableUpdatedAt) || metadataTimestamp,
+    readableSourceLabel:
+      (typeof options?.domainSummary?.readable_source_label === "string"
+        ? options.domainSummary.readable_source_label
+        : typeof options?.domainSummary?.readableSourceLabel === "string"
+          ? options.domainSummary.readableSourceLabel
+          : existing?.readableSourceLabel) || null,
+    domainContractVersion:
+      Number(
+        options?.domainSummary?.domain_contract_version ??
+          options?.domainSummary?.domainContractVersion ??
+          existing?.domainContractVersion ??
+          1
+      ) || 1,
+    readableSummaryVersion:
+      Number(
+        options?.domainSummary?.readable_summary_version ??
+          options?.domainSummary?.readableSummaryVersion ??
+          existing?.readableSummaryVersion ??
+          0
+      ) || 0,
+    upgradedAt:
+      (typeof options?.domainSummary?.upgraded_at === "string"
+        ? options.domainSummary.upgraded_at
+        : typeof options?.domainSummary?.upgradedAt === "string"
+          ? options.domainSummary.upgradedAt
+          : existing?.upgradedAt) || metadataTimestamp,
   };
 
   const domains = [...cachedMetadata.domains];
@@ -142,6 +210,11 @@ function patchMetadataDomain(
     userId,
     domains,
     totalAttributes,
+    modelVersion: cachedMetadata.modelVersion,
+    targetModelVersion: cachedMetadata.targetModelVersion,
+    upgradeStatus: cachedMetadata.upgradeStatus,
+    upgradableDomains: cachedMetadata.upgradableDomains,
+    lastUpgradedAt: cachedMetadata.lastUpgradedAt,
     lastUpdated: metadataTimestamp,
   };
 }
@@ -182,6 +255,19 @@ export class CacheSyncService {
       writeThroughMetadata?: boolean;
     }
   ): void {
+    const emitDomainStoredEvent = () => {
+      if (typeof window === "undefined") return;
+      window.dispatchEvent(
+        new CustomEvent("pkm-domain-stored", {
+          detail: {
+            userId,
+            domain,
+            dataVersion: options?.encryptedBlob?.dataVersion ?? null,
+            updatedAt: options?.encryptedBlob?.updatedAt ?? options?.metadataTimestamp ?? null,
+          },
+        })
+      );
+    };
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
@@ -215,12 +301,14 @@ export class CacheSyncService {
     }
 
     if (!writeThroughMetadata) {
+      emitDomainStoredEvent();
       return;
     }
 
     const cachedMetadata = cache.get<PersonalKnowledgeModelMetadata>(CACHE_KEYS.PKM_METADATA(userId));
     if (!cachedMetadata || !options?.domainSummary) {
       cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
+      emitDomainStoredEvent();
       return;
     }
 
@@ -230,6 +318,7 @@ export class CacheSyncService {
       metadataTimestamp: options.metadataTimestamp,
     });
     cache.set(CACHE_KEYS.PKM_METADATA(userId), patched, CACHE_TTL.MEDIUM);
+    emitDomainStoredEvent();
   }
 
   static onPkmDomainCleared(userId: string, domain: string): void {

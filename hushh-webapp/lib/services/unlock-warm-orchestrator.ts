@@ -7,6 +7,8 @@ import { persistKaiMarketHomePayload } from "@/lib/kai/market-home-cache";
 import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
+import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 
 export type UnlockWarmResult = {
@@ -113,6 +115,39 @@ export class UnlockWarmOrchestrator {
     string,
     { completedAt: number; result: UnlockWarmResult }
   >();
+
+  private static queuePkmUpgrade(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    void PkmUpgradeOrchestrator.ensureRunning({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      initiatedBy: "unlock_warm",
+    }).catch((error) => {
+      console.warn("[UnlockWarmOrchestrator] PKM upgrade orchestration failed:", error);
+    });
+  }
+
+  private static queueConsentExportRefresh(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    void ConsentExportRefreshOrchestrator.ensureRunning({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      initiatedBy: "unlock_warm",
+    }).catch((error) => {
+      console.warn(
+        "[UnlockWarmOrchestrator] Consent export refresh orchestration failed:",
+        error
+      );
+    });
+  }
 
   static invalidateForUser(userId: string): void {
     for (const key of this.recentResultBySignature.keys()) {
@@ -475,6 +510,8 @@ export class UnlockWarmOrchestrator {
       const cached = cache.get(cacheKey);
       if (cached) {
         result.kaiMarketWarmed = true;
+        this.queuePkmUpgrade(params);
+        this.queueConsentExportRefresh(params);
         return result;
       }
       try {
@@ -504,6 +541,8 @@ export class UnlockWarmOrchestrator {
       }
     }
 
+    this.queuePkmUpgrade(params);
+    this.queueConsentExportRefresh(params);
     return result;
   }
 

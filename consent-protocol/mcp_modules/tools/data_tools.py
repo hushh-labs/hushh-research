@@ -11,8 +11,6 @@ import json
 import logging
 
 import httpx
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from mcp.types import TextContent
 
@@ -20,7 +18,6 @@ from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_request_query
-from mcp_modules.tools.consent_tools import load_connector_private_key
 
 logger = logging.getLogger("hushh-mcp-server")
 
@@ -53,82 +50,59 @@ async def resolve_email_to_uid(user_id: str) -> str:
     return user_id
 
 
-async def _fetch_decrypted_export(consent_token: str):
-    """
-    Fetch encrypted export data from the backend and decrypt it locally.
+async def _fetch_encrypted_export_package(
+    *,
+    user_id: str,
+    consent_token: str,
+    expected_scope: str | None,
+):
+    token_query = get_developer_request_query()
+    if not token_query:
+        return {
+            "status": "error",
+            "error": "Developer token is not configured",
+            "hint": "Set HUSHH_DEVELOPER_TOKEN for stdio or append ?token=<developer-token> to the remote MCP URL.",
+        }
 
-    The export is already scope-filtered by the approval flow, so callers
-    receive only the approved subset.
-    """
     try:
         async with httpx.AsyncClient() as client:
-            export_response = await client.get(
-                f"{FASTAPI_URL}/api/consent/data",
-                params={"consent_token": consent_token},
+            response = await client.post(
+                f"{FASTAPI_URL}/api/v1/scoped-export",
+                params=token_query,
+                json={
+                    "user_id": user_id,
+                    "consent_token": consent_token,
+                    **({"expected_scope": expected_scope} if expected_scope else {}),
+                },
                 timeout=10.0,
             )
-
-            if export_response.status_code == 404:
-                logger.warning("⚠️ No export data found for consent token")
-                return None
-
-            export_response.raise_for_status()
-            export_data = export_response.json()
-
-            export_key_hex = export_data.get("export_key")
-            wrapped_key_bundle = export_data.get("wrapped_key_bundle") or {}
-            encrypted_data = export_data.get("encrypted_data")
-            iv = export_data.get("iv")
-            tag = export_data.get("tag")
-
-            if not all([encrypted_data, iv, tag]):
-                logger.warning("⚠️ Incomplete export payload for consent token")
-                return None
-
-            if isinstance(wrapped_key_bundle, dict) and wrapped_key_bundle.get(
-                "wrapped_export_key"
-            ):
-                private_key = load_connector_private_key()
-                sender_public_key = x25519.X25519PublicKey.from_public_bytes(
-                    base64.b64decode(str(wrapped_key_bundle.get("sender_public_key") or ""))
-                )
-                shared_secret = private_key.exchange(sender_public_key)
-                digest = hashes.Hash(hashes.SHA256())
-                digest.update(shared_secret)
-                wrapping_key = digest.finalize()
-
-                wrapped_ciphertext = base64.b64decode(
-                    str(wrapped_key_bundle.get("wrapped_export_key") or "")
-                )
-                wrapped_iv = base64.b64decode(str(wrapped_key_bundle.get("wrapped_key_iv") or ""))
-                wrapped_tag = base64.b64decode(str(wrapped_key_bundle.get("wrapped_key_tag") or ""))
-                wrapped_combined = wrapped_ciphertext + wrapped_tag
-                export_key_bytes = AESGCM(wrapping_key).decrypt(wrapped_iv, wrapped_combined, None)
-                export_key_hex = export_key_bytes.hex()
-
-            if not export_key_hex:
-                logger.warning("⚠️ Missing export key material for consent token")
-                return None
-
-            key_bytes = bytes.fromhex(export_key_hex)
-            iv_bytes = base64.b64decode(iv)
-            ciphertext_bytes = base64.b64decode(encrypted_data)
-            tag_bytes = base64.b64decode(tag)
-
-            combined = ciphertext_bytes + tag_bytes
-            aesgcm = AESGCM(key_bytes)
-            plaintext = aesgcm.decrypt(iv_bytes, combined, None)
-            return json.loads(plaintext.decode("utf-8"))
-    except Exception as e:
-        logger.warning("⚠️ Scoped export fetch/decrypt failed: %s", e)
-        return None
+            if response.status_code >= 400:
+                payload = response.json()
+                detail = payload.get("detail")
+                if isinstance(detail, dict):
+                    return {
+                        "status": "error",
+                        "error": detail.get("message") or "Failed to fetch encrypted scoped export",
+                        "error_code": detail.get("error_code"),
+                    }
+                return {
+                    "status": "error",
+                    "error": payload.get("detail") or "Failed to fetch encrypted scoped export",
+                }
+            return response.json()
+    except Exception as exc:
+        logger.warning("Encrypted scoped export fetch failed: %s", exc)
+        return {
+            "status": "error",
+            "error": "Failed to fetch encrypted scoped export",
+        }
 
 
-async def handle_get_scoped_data(args: dict) -> list[TextContent]:
+async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     """
-    Get scope-filtered export data for any approved consent token.
+    Get the encrypted wrapped-key export package for any approved consent token.
 
-    This is the scalable dynamic replacement for named domain getters.
+    Hushh never decrypts the payload inside the hosted MCP runtime.
     """
     user_id = args.get("user_id")
     consent_token = args.get("consent_token")
@@ -177,27 +151,15 @@ async def handle_get_scoped_data(args: dict) -> list[TextContent]:
             )
         ]
 
-    scoped_data = await _fetch_decrypted_export(consent_token)
     granted_scope = token_obj.scope_str or token_obj.scope.value
-
-    if scoped_data is None:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "status": "no_data",
-                        "error": "No scoped export data found for this token",
-                        "user_id": user_id,
-                        "scope": granted_scope,
-                        "consent_verified": True,
-                        "message": "The user has not approved export data for this scope yet, or the export has expired.",
-                    }
-                ),
-            )
-        ]
-
-    payload_keys = sorted(scoped_data.keys()) if isinstance(scoped_data, dict) else None
+    export_payload = await _fetch_encrypted_export_package(
+        user_id=user_id,
+        consent_token=consent_token,
+        expected_scope=str(expected_scope) if expected_scope else None,
+    )
+    status_value = str(export_payload.get("status") or "").strip().lower()
+    if status_value != "success":
+        return [TextContent(type="text", text=json.dumps(export_payload))]
 
     return [
         TextContent(
@@ -209,9 +171,21 @@ async def handle_get_scoped_data(args: dict) -> list[TextContent]:
                     "scope": granted_scope,
                     **({"expected_scope": expected_scope} if expected_scope else {}),
                     "consent_verified": True,
-                    "data": scoped_data,
-                    **({"top_level_keys": payload_keys} if payload_keys is not None else {}),
-                    "privacy_note": "This payload contains only the subset the user approved for this consent token.",
+                    "granted_scope": export_payload.get("granted_scope", granted_scope),
+                    "coverage_kind": export_payload.get("coverage_kind"),
+                    "expires_at": export_payload.get("expires_at"),
+                    "export_revision": export_payload.get("export_revision"),
+                    "export_generated_at": export_payload.get("export_generated_at"),
+                    "export_refresh_status": export_payload.get("export_refresh_status"),
+                    "encrypted_data": export_payload.get("encrypted_data"),
+                    "iv": export_payload.get("iv"),
+                    "tag": export_payload.get("tag"),
+                    "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),
+                    "message": export_payload.get("message"),
+                    "privacy_note": (
+                        "This payload is encrypted. Hushh returns ciphertext plus wrapped key metadata only; "
+                        "the external connector decrypts and narrows it client-side."
+                    ),
                     "zero_knowledge": True,
                 }
             ),

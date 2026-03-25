@@ -1,15 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Geist_Mono, Manrope, Playfair_Display } from "next/font/google";
+import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { RootLayoutClient } from "./layout-client";
 import { resolveGtmContainerId } from "@/lib/observability/env";
 
-const manrope = Manrope({
+const geistSans = Geist({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-app-body",
-  weight: ["400", "500", "600", "700", "800"],
 });
 
 const geistMono = Geist_Mono({
@@ -18,11 +17,10 @@ const geistMono = Geist_Mono({
   variable: "--font-app-mono",
 });
 
-const playfairDisplay = Playfair_Display({
+const headingSans = Inter({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-app-heading",
-  weight: ["600", "700", "800"],
 });
 
 const gtmContainerId = resolveGtmContainerId();
@@ -77,7 +75,7 @@ export default function RootLayout({
         ) : null}
       </head>
       <RootLayoutClient
-        fontClasses={`${manrope.variable} ${geistMono.variable} ${playfairDisplay.variable}`}
+        fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
       >
         {children}
       </RootLayoutClient>

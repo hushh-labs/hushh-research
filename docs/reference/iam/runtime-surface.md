@@ -53,9 +53,10 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 4. `GET /api/ria/clients`
 5. `GET /api/ria/requests` (compatibility alias)
 6. `POST /api/ria/requests` (compatibility alias)
-7. `GET /api/ria/workspace/{investor_user_id}`
-8. `GET /api/ria/invites`
-9. `POST /api/ria/invites`
+7. `GET /api/ria/clients/{investor_user_id}`
+8. `GET /api/ria/workspace/{investor_user_id}`
+9. `GET /api/ria/invites`
+10. `POST /api/ria/invites`
 
 ### Consent Center
 
@@ -79,8 +80,10 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 6. `advisor_investor_relationships`
 7. `ria_client_invites`
 8. `consent_scope_templates`
-9. `marketplace_public_profiles`
-10. `runtime_persona_state` (transitional compatibility only)
+9. `relationship_share_grants`
+10. `relationship_share_events`
+11. `marketplace_public_profiles`
+12. `runtime_persona_state` (transitional compatibility only)
 
 ## Persona State Ownership
 
@@ -93,7 +96,17 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 1. RIA request creation writes `REQUESTED` rows into `consent_audit` with actor metadata.
 2. Consent approve/deny/cancel/revoke actions synchronize relationship lifecycle.
 3. Workspace access is blocked unless relationship is approved and consent is active/non-expired.
-4. Invite state is pre-consent workflow only; it is surfaced through the same consent-center read model but remains distinct from the canonical audit ledger.
+4. Approved RIA relationships implicitly materialize `ria_active_picks_feed_v1`, which lets Kai surface the advisor's active picks feed to the investor without a second prompt.
+5. Relationship-share grants are tracked outside `consent_audit` because advisor picks are advisor-authored relationship content, not investor PKM.
+6. Invite state is pre-consent workflow only; it is surfaced through the same consent-center read model but remains distinct from the canonical audit ledger.
+
+## Relationship Share Integration
+
+1. Investor private data flowing to an RIA stays on the shared `/consents` lane and `consent_audit`.
+2. Advisor-authored content flowing back to the investor uses `relationship_share_grants` plus append-only `relationship_share_events`.
+3. The initial implicit share is `ria_active_picks_feed_v1`.
+4. Kai only exposes `ria:*` pick sources when both the relationship is approved and the picks-share grant is active.
+5. Active uploads continue to update the entitled feed without requiring a fresh investor prompt.
 
 ## MCP Read-Only Tools
 

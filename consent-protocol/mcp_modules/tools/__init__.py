@@ -5,10 +5,10 @@ MCP tool definitions and handlers.
 
 from .consent_tools import handle_check_consent_status, handle_request_consent
 from .data_tools import (
+    handle_get_encrypted_scoped_export,
     handle_get_financial,
     handle_get_food,
     handle_get_professional,
-    handle_get_scoped_data,
 )
 from .definitions import get_tool_definitions
 from .ria_read_tools import (
@@ -29,10 +29,10 @@ __all__ = [
     "get_tool_definitions",
     "handle_request_consent",
     "handle_check_consent_status",
+    "handle_get_encrypted_scoped_export",
     "handle_get_financial",
     "handle_get_food",
     "handle_get_professional",
-    "handle_get_scoped_data",
     "handle_validate_token",
     "handle_delegate",
     "handle_list_scopes",

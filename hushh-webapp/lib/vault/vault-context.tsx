@@ -30,6 +30,8 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
+import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
 
@@ -93,6 +95,17 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const lockVault = useCallback(() => {
     console.log("🔒 Vault locked (key + token cleared from memory)");
+    if (user?.uid && vaultOwnerToken) {
+      void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
+        userId: user.uid,
+        vaultOwnerToken,
+      }).catch((error) => {
+        console.warn("[VaultProvider] Failed to pause PKM upgrade for local auth resume:", error);
+      });
+    }
+    if (user?.uid) {
+      ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: user.uid });
+    }
     setVaultKey(null);
     setVaultOwnerToken(null);
     setTokenExpiresAt(null);
@@ -101,7 +114,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       CacheSyncService.onVaultStateChanged(user.uid);
     }
     VaultService.invalidateVaultStateCache();
-  }, [user?.uid]);
+  }, [user?.uid, vaultOwnerToken]);
 
   // Auto-Lock on Sign Out
   // If AuthContext reports no user, we MUST clear the decrypted key from memory immediately.
@@ -126,6 +139,35 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () =>
       window.removeEventListener("vault-lock-requested", handleLockRequest);
   }, [lockVault]);
+
+  useEffect(() => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      return;
+    }
+
+    const handleDomainStored = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        userId?: string;
+        domain?: string;
+      }>;
+      if (customEvent.detail?.userId !== user.uid) {
+        return;
+      }
+      void ConsentExportRefreshOrchestrator.ensureRunning({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        initiatedBy: "pkm_domain_store",
+      }).catch((error) => {
+        console.warn("[VaultProvider] Consent export refresh orchestration failed:", error);
+      });
+    };
+
+    window.addEventListener("pkm-domain-stored", handleDomainStored);
+    return () => {
+      window.removeEventListener("pkm-domain-stored", handleDomainStored);
+    };
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
 
   /**
    * Prefetch common data after vault unlock to speed up page loads.

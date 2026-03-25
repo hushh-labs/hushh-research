@@ -59,6 +59,38 @@ function formatDate(value?: string | number | null) {
   return date.toLocaleString();
 }
 
+function formatPicksFeedStatus(status?: string | null) {
+  switch (status) {
+    case "ready":
+      return "Shared";
+    case "pending":
+      return "Awaiting upload";
+    case "included_on_approval":
+      return "Included on approval";
+    case "unavailable":
+    default:
+      return "Unavailable";
+  }
+}
+
+function picksFeedHelper(value: {
+  picks_feed_status?: string | null;
+  has_active_pick_upload?: boolean;
+}) {
+  if (value.picks_feed_status === "ready") {
+    return "The investor already has the advisor's active list in Kai.";
+  }
+  if (value.picks_feed_status === "pending") {
+    return value.has_active_pick_upload
+      ? "The picks share is active."
+      : "The share is active, but there is no active advisor upload yet.";
+  }
+  if (value.picks_feed_status === "included_on_approval") {
+    return "This benefit is included automatically when the relationship is approved.";
+  }
+  return "Advisor picks are not currently available for this relationship.";
+}
+
 function defaultScopesForTemplate(
   detail: RiaClientDetail,
   template: RiaRequestScopeTemplate | null
@@ -309,6 +341,23 @@ export default function RiaWorkspacePage() {
                   workspace?.workspace_ready || detail.workspace_ready ? "success" : "warning",
               },
               {
+                label: "Advisor picks",
+                value: formatPicksFeedStatus(
+                  workspace?.picks_feed_status || detail.picks_feed_status
+                ),
+                helper: picksFeedHelper({
+                  picks_feed_status: workspace?.picks_feed_status || detail.picks_feed_status,
+                  has_active_pick_upload:
+                    workspace?.has_active_pick_upload || detail.has_active_pick_upload,
+                }),
+                tone:
+                  (workspace?.picks_feed_status || detail.picks_feed_status) === "ready"
+                    ? "success"
+                    : (workspace?.picks_feed_status || detail.picks_feed_status) === "pending"
+                      ? "warning"
+                      : "neutral",
+              },
+              {
                 label: "Consent expires",
                 value: formatDate(detail.consent_expires_at) || "Not granted",
                 helper: "Latest active grant window",
@@ -356,6 +405,13 @@ export default function RiaWorkspacePage() {
                 </div>
                 <p className="text-sm leading-6 text-muted-foreground">
                   {detail.next_action || "Review the relationship before asking for more data."}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {picksFeedHelper({
+                    picks_feed_status: workspace?.picks_feed_status || detail.picks_feed_status,
+                    has_active_pick_upload:
+                      workspace?.has_active_pick_upload || detail.has_active_pick_upload,
+                  })}
                 </p>
               </div>
               <Button

@@ -129,14 +129,11 @@ html body[data-scroll-locked] {
   --top-tabs-h: var(--kai-route-tabs-height);
   --top-tabs-gap: var(--kai-route-tabs-content-gap);
   --top-tabs-total: 0px;
-  --top-subnav-h: 36px;
-  --top-subnav-gap: 10px;
-  --top-subnav-total: 0px;
   --top-fade-active: 14px;
   --top-systembar-row-gap: 4px;
   --top-shell-row-gap: var(--top-systembar-row-gap);
   --top-shell-reserved-height: calc(
-    var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) + var(--top-tabs-total) + var(--top-subnav-total)
+    var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) + var(--top-tabs-total)
   );
   --top-shell-visual-height: calc(var(--top-shell-reserved-height) + var(--top-fade-active));
   --top-shell-h: var(--top-shell-reserved-height);
@@ -618,17 +615,17 @@ html.native-ios {
   }
 
   h1 {
-    font-size: 2.25rem !important;
-    line-height: 1.12 !important;
-    font-weight: 600 !important;
-    letter-spacing: -0.02em;
+    font-size: clamp(1.875rem, 3.4vw, 2.75rem) !important;
+    line-height: 1.1 !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.022em;
   }
 
   h2 {
-    font-size: 1.75rem !important;
-    line-height: 1.2 !important;
-    font-weight: 600 !important;
-    letter-spacing: -0.015em;
+    font-size: clamp(1.55rem, 2.8vw, 2.25rem) !important;
+    line-height: 1.14 !important;
+    font-weight: 750 !important;
+    letter-spacing: -0.018em;
   }
 
   h3 {
@@ -657,20 +654,20 @@ html.native-ios {
   }
 
   [data-slot$="title"] {
-    font-family: var(--font-sans), system-ui, sans-serif;
-    font-size: 1.0625rem !important;
-    line-height: 1.35 !important;
-    font-weight: 600 !important;
-    letter-spacing: -0.01em;
+    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+    font-size: clamp(1.05rem, 1.4vw, 1.2rem) !important;
+    line-height: 1.28 !important;
+    font-weight: 650 !important;
+    letter-spacing: -0.012em;
   }
 
   .app-section-heading,
   [data-section-heading] {
     font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: 1.75rem !important;
-    line-height: 1.2 !important;
-    font-weight: 600 !important;
-    letter-spacing: -0.015em;
+    font-size: clamp(1.05rem, 1.4vw, 1.2rem) !important;
+    line-height: 1.28 !important;
+    font-weight: 650 !important;
+    letter-spacing: -0.012em;
   }
 
   /* Global Lucide icon stroke thickness (lucide-react adds `.lucide` on the SVG). */
@@ -695,7 +692,7 @@ html.native-ios {
     @apply bg-background text-foreground;
     font-family: var(--font-sans), system-ui, sans-serif;
     font-size: 1rem;
-    line-height: 1.6;
+    line-height: 1.5;
     /* Safe-area padding is applied only on native shells (see html.native-ios). */
     padding-top: 0;
     padding-left: 0;
@@ -720,70 +717,6 @@ html.native-ios {
   }
   html {
     overflow-x: hidden;
-  }
-}
-
-@layer utilities {
-  .app-hero-title {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: 2.25rem;
-    line-height: 1.12;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-  }
-
-  .app-section-title {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: 1.75rem;
-    line-height: 1.2;
-    font-weight: 600;
-    letter-spacing: -0.015em;
-  }
-
-  .app-body-text {
-    font-family: var(--font-sans), system-ui, sans-serif;
-    font-size: 1rem;
-    line-height: 1.6;
-    color: #5f5f5f;
-  }
-
-  .app-feature-point {
-    font-family: var(--font-sans), system-ui, sans-serif;
-    font-size: 0.9375rem;
-    line-height: 1.45;
-    font-weight: 500;
-  }
-
-  .app-card-title {
-    font-family: var(--font-sans), system-ui, sans-serif;
-    font-size: 1.0625rem;
-    line-height: 1.35;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-  }
-
-  .app-label-text {
-    font-family: var(--font-sans), system-ui, sans-serif;
-    font-size: 0.8125rem;
-    line-height: 1.35;
-    color: #8e8e93;
-  }
-
-  .app-button-text {
-    font-family: var(--font-sans), system-ui, sans-serif;
-    font-size: 0.9375rem;
-    line-height: 1.2;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-  }
-
-  .app-button-black {
-    background: #000 !important;
-    color: #fff !important;
-  }
-
-  .app-title-subtitle-gap {
-    margin-bottom: 0.625rem;
   }
 }
 /* GPU optimization class - promotes element to its own compositor layer */

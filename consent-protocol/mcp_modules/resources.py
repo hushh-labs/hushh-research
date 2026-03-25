@@ -60,10 +60,10 @@ async def read_resource(uri: str) -> str:
             ],
             "token_format": "HCT:base64(user|agent|scope|issued|expires).signature",
             "scopes_are_dynamic": True,
-            "scope_note": "Scopes are NOT a fixed list. They come from the Personal Knowledge Model registry and per-user metadata. Always use discover_user_domains(user_id) or GET /api/v1/user-scopes/{user_id} to get the actual scope strings and scope_entries metadata for a user. Domains come from pkm_index.available_domains; optional path scopes are inferred from manifests, manifest paths, and scope registry metadata.",
+            "scope_note": "Scopes are NOT a fixed list. They come from the world model registry and per-user metadata. Always use discover_user_domains(user_id) or GET /api/v1/user-scopes/{user_id} to get the actual scope strings for a user. Domains come from world_model_index_v2.available_domains; optional subintent scopes are inferred from domain summaries + domain_registry metadata.",
             "scope_examples": [
-                "pkm.read - Full Personal Knowledge Model (all domains)",
-                "pkm.write - Write to Personal Knowledge Model",
+                "world_model.read - Full world model (all domains)",
+                "world_model.write - Write to world model",
                 "attr.{domain}.* - One domain (domain key from discover_user_domains or metadata; e.g. attr.financial.*, attr.food.*)",
             ],
             "zero_knowledge": True,
@@ -103,12 +103,12 @@ async def read_resource(uri: str) -> str:
                 {
                     "name": "get_food_preferences",
                     "purpose": "Get food/dining preferences",
-                    "when_to_use": "After consent for attr.food.* or pkm.read",
+                    "when_to_use": "After consent for attr.food.* or world_model.read",
                 },
                 {
                     "name": "get_professional_profile",
                     "purpose": "Get professional profile",
-                    "when_to_use": "After consent for attr.professional.* or pkm.read",
+                    "when_to_use": "After consent for attr.professional.* or world_model.read",
                 },
                 {
                     "name": "delegate_to_agent",
@@ -143,13 +143,13 @@ async def read_resource(uri: str) -> str:
             ],
             "recommended_flow": [
                 "1. discover_user_domains(user_id) to get domains and scope strings for this user",
-                "2. request_consent(user_id, scope) for each scope needed (e.g. pkm.read or attr.food.*)",
+                "2. request_consent(user_id, scope) for each scope needed (e.g. world_model.read or attr.food.*)",
                 "3. If status is pending, return control to caller; user approves in app and caller can re-check status later",
-                "4. Use the returned consent_token with get_* tools or PKM data APIs",
+                "4. Use the returned consent_token with get_* tools or world-model data APIs",
             ],
             "scopes_are_dynamic": True,
-            "supported_scopes": "pkm.read, pkm.write, attr.{domain}.*, and attr.{domain}.{subintent}.* when metadata exposes subintents. Use pkm.read, pkm.write, and attr.* scopes exposed by PKM metadata.",
-            "discover_scopes": "Call discover_user_domains(user_id) first to get this user's domains, scope strings, and metadata references. Backend uses GET /api/v1/user-scopes/{user_id} (developer-auth) and validates against PKM manifests, manifest paths, and scope registry metadata.",
+            "supported_scopes": "world_model.read, world_model.write, attr.{domain}.*, and attr.{domain}.{subintent}.* when metadata exposes subintents. No fixed list.",
+            "discover_scopes": "Call discover_user_domains(user_id) first to get this user's domains and scope strings. Backend uses GET /api/v1/user-scopes/{user_id} (developer-auth) and validates against world_model_index_v2 + domain_registry metadata.",
             "server_backend": "Backend: FastAPI consent API. Set CONSENT_API_URL if not using default (e.g. http://localhost:8000).",
             "consent_ui_required": "When request_consent returns 'pending', the user must approve in the Hushh app (consents/dashboard). Delivery is FCM-first in production; consent SSE/polling is disabled for this flow.",
         }

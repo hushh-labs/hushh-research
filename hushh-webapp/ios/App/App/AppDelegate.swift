@@ -24,26 +24,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("ℹ️ [AppDelegate] Firebase already initialized")
         }
 
-        // Configure push notifications
+        // Configure the delegate so notification presentation and tap handling work
+        // after the app explicitly requests permission from the notification init flow.
         UNUserNotificationCenter.current().delegate = self
-        
-        // Request notification permissions
-        let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
-        UNUserNotificationCenter.current().requestAuthorization(
-            options: authOptions,
-            completionHandler: { granted, error in
-                if granted {
-                    print("✅ [AppDelegate] Notification permission granted")
-                } else {
-                    print("❌ [AppDelegate] Notification permission denied: \(String(describing: error))")
-                }
-            }
-        )
-        
-        // Register for remote notifications
-        application.registerForRemoteNotifications()
-        print("📱 [AppDelegate] Registered for remote notifications")
-        
+
         return true
     }
     

@@ -10,15 +10,11 @@ Regulated cutover note:
 - caller receives `pending` and must wait for user approval in-app (FCM-driven flow).
 """
 
-import base64
 import json
 import logging
-from pathlib import Path
 from typing import Optional
 
 import httpx
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import x25519
 from mcp.types import TextContent
 
 from mcp_modules.config import (
@@ -30,64 +26,6 @@ from mcp_modules.config import (
 from mcp_modules.developer_context import get_developer_request_query
 
 logger = logging.getLogger("hushh-mcp-server")
-_CONNECTOR_KEY_DIR = Path.home() / ".hushh" / "mcp"
-_CONNECTOR_KEY_FILE = _CONNECTOR_KEY_DIR / "connector_x25519_key.json"
-
-
-def _load_or_create_connector_keypair() -> tuple[str, str]:
-    _CONNECTOR_KEY_DIR.mkdir(parents=True, exist_ok=True)
-    if _CONNECTOR_KEY_FILE.exists():
-        try:
-            payload = json.loads(_CONNECTOR_KEY_FILE.read_text(encoding="utf-8"))
-            private_key_b64 = str(payload.get("private_key") or "").strip()
-            public_key_b64 = str(payload.get("public_key") or "").strip()
-            if private_key_b64 and public_key_b64:
-                return private_key_b64, public_key_b64
-        except Exception as exc:
-            logger.warning("connector_key_load_failed: %s", exc)
-
-    private_key = x25519.X25519PrivateKey.generate()
-    public_key = private_key.public_key()
-    private_key_b64 = base64.b64encode(
-        private_key.private_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PrivateFormat.Raw,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    ).decode("utf-8")
-    public_key_b64 = base64.b64encode(
-        public_key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw,
-        )
-    ).decode("utf-8")
-    _CONNECTOR_KEY_FILE.write_text(
-        json.dumps(
-            {
-                "private_key": private_key_b64,
-                "public_key": public_key_b64,
-            }
-        ),
-        encoding="utf-8",
-    )
-    return private_key_b64, public_key_b64
-
-
-def get_connector_public_key_bundle() -> dict[str, str]:
-    _private_key_b64, public_key_b64 = _load_or_create_connector_keypair()
-    digest = hashes.Hash(hashes.SHA256())
-    digest.update(base64.b64decode(public_key_b64))
-    key_id = digest.finalize().hex()[:16]
-    return {
-        "connector_public_key": public_key_b64,
-        "connector_key_id": key_id,
-        "connector_wrapping_alg": "X25519-AES256-GCM",
-    }
-
-
-def load_connector_private_key() -> x25519.X25519PrivateKey:
-    private_key_b64, _public_key_b64 = _load_or_create_connector_keypair()
-    return x25519.X25519PrivateKey.from_private_bytes(base64.b64decode(private_key_b64))
 
 
 async def resolve_email_to_uid(user_id: str) -> tuple[Optional[str], str | None, str | None]:
@@ -108,7 +46,7 @@ async def resolve_email_to_uid(user_id: str) -> tuple[Optional[str], str | None,
             lookup_response = await client.get(
                 f"{FASTAPI_URL}/api/user/lookup",
                 params={"email": user_id, **token_query},
-                timeout=5.0,
+                timeout=10.0,
             )
 
             if lookup_response.status_code == 200:
@@ -138,6 +76,23 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     """
     user_id = args.get("user_id")
     scope_str = args.get("scope")
+    reason = str(args.get("reason") or "").strip() or None
+    expiry_hours = args.get("expiry_hours")
+    approval_timeout_minutes = args.get("approval_timeout_minutes")
+    connector_public_key = str(args.get("connector_public_key") or "").strip()
+    connector_key_id = str(args.get("connector_key_id") or "").strip()
+    connector_wrapping_alg = str(args.get("connector_wrapping_alg") or "").strip()
+
+    try:
+        resolved_expiry_hours = int(expiry_hours) if expiry_hours is not None else 24
+    except (TypeError, ValueError):
+        resolved_expiry_hours = 24
+    try:
+        resolved_approval_timeout_minutes = (
+            int(approval_timeout_minutes) if approval_timeout_minutes is not None else 24 * 60
+        )
+    except (TypeError, ValueError):
+        resolved_approval_timeout_minutes = 24 * 60
 
     original_identifier = user_id
     user_id, user_email, user_display_name = await resolve_email_to_uid(user_id)
@@ -223,7 +178,25 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
 
     display_id = user_display_name or user_email or user_id
     logger.info("Requesting consent for %s / %s", display_id, scope_str)
-    connector_bundle = get_connector_public_key_bundle()
+    if not all([connector_public_key, connector_key_id, connector_wrapping_alg]):
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "status": "error",
+                        "error": (
+                            "Strict zero-knowledge mode requires connector_public_key, "
+                            "connector_key_id, and connector_wrapping_alg."
+                        ),
+                        "hint": (
+                            "Generate an X25519 keypair in the external connector, keep the private key there, "
+                            "and pass the public bundle into request_consent."
+                        ),
+                    }
+                ),
+            )
+        ]
 
     try:
         async with httpx.AsyncClient() as client:
@@ -233,8 +206,12 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                 json={
                     "user_id": user_id,
                     "scope": scope_dot,
-                    "expiry_hours": 24,
-                    **connector_bundle,
+                    "reason": reason,
+                    "expiry_hours": resolved_expiry_hours,
+                    "approval_timeout_minutes": resolved_approval_timeout_minutes,
+                    "connector_public_key": connector_public_key,
+                    "connector_key_id": connector_key_id,
+                    "connector_wrapping_alg": connector_wrapping_alg,
                 },
                 timeout=10.0,
             )
@@ -294,7 +271,22 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                                 "consent_token": data.get("consent_token"),
                                 "user_id": user_id,
                                 "scope": data.get("scope", scope_dot),
-                                "message": "Consent already granted.",
+                                "requested_scope": data.get(
+                                    "requested_scope", data.get("scope", scope_dot)
+                                ),
+                                "granted_scope": data.get(
+                                    "granted_scope", data.get("scope", scope_dot)
+                                ),
+                                "coverage_kind": data.get("coverage_kind", "exact"),
+                                "covered_by_existing_grant": data.get(
+                                    "covered_by_existing_grant", True
+                                ),
+                                "expiry_hours": data.get("expiry_hours"),
+                                "request_url": data.get("request_url"),
+                                "requester_label": data.get("requester_label"),
+                                "requester_image_url": data.get("requester_image_url"),
+                                "reason": data.get("reason"),
+                                "message": data.get("message", "Consent already granted."),
                             }
                         ),
                     )
@@ -335,9 +327,31 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                             "status": "pending",
                             "user_id": user_id,
                             "scope": data.get("scope", scope_dot),
+                            "requested_scope": data.get(
+                                "requested_scope", data.get("scope", scope_dot)
+                            ),
+                            "granted_scope": data.get("granted_scope"),
+                            "coverage_kind": data.get("coverage_kind"),
+                            "covered_by_existing_grant": data.get(
+                                "covered_by_existing_grant", False
+                            ),
                             "request_id": request_id,
-                            "message": "Consent request submitted. User approval is pending in Hushh app.",
+                            "message": data.get(
+                                "message",
+                                "Consent request submitted. User approval is pending in Hushh app.",
+                            ),
                             "approval_surface": data.get("approval_surface", "/consents"),
+                            "request_url": data.get("request_url"),
+                            "approval_timeout_at": data.get("approval_timeout_at")
+                            or data.get("poll_timeout_at"),
+                            "approval_timeout_minutes": data.get("approval_timeout_minutes"),
+                            "expiry_hours": data.get("expiry_hours"),
+                            "requester_label": data.get("requester_label"),
+                            "requester_image_url": data.get("requester_image_url"),
+                            "reason": data.get("reason"),
+                            "is_scope_upgrade": data.get("is_scope_upgrade"),
+                            "existing_granted_scopes": data.get("existing_granted_scopes"),
+                            "additional_access_summary": data.get("additional_access_summary"),
                             "next_step": "Call check_consent_status later, or wait for user confirmation.",
                         }
                     ),

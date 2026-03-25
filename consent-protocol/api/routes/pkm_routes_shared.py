@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.domain_contracts import canonical_top_level_domain, domain_registry_payload
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,35 @@ def _summary_attribute_count(summary: dict | None) -> int:
             except Exception:
                 continue
     return 0
+
+
+def _summary_text(summary: dict | None, key: str) -> Optional[str]:
+    if not isinstance(summary, dict):
+        return None
+    value = summary.get(key)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _summary_string_list(summary: dict | None, key: str) -> list[str]:
+    if not isinstance(summary, dict):
+        return []
+    value = summary.get(key)
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(normalized)
+    return cleaned[:5]
 
 
 async def get_risk_profile_from_index(user_id: str) -> tuple[str, list[dict], dict[str, int]]:
@@ -212,11 +242,23 @@ class StructureDecisionPayload(BaseModel):
 
 class DomainManifestPayload(BaseModel):
     manifest_version: int = Field(default=1, ge=1)
+    domain_contract_version: int = Field(default=1, ge=1)
+    readable_summary_version: int = Field(default=0, ge=0)
+    upgraded_at: Optional[str] = None
     summary_projection: dict = Field(default_factory=dict)
     top_level_scope_paths: List[str] = Field(default_factory=list)
     externalizable_paths: List[str] = Field(default_factory=list)
     paths: List[PathDescriptorPayload] = Field(default_factory=list)
     source_agent: Optional[str] = None
+
+
+class UpgradeContextPayload(BaseModel):
+    run_id: str = Field(..., min_length=1)
+    prior_domain_contract_version: Optional[int] = Field(default=None, ge=0)
+    new_domain_contract_version: Optional[int] = Field(default=None, ge=0)
+    prior_readable_summary_version: Optional[int] = Field(default=None, ge=0)
+    new_readable_summary_version: Optional[int] = Field(default=None, ge=0)
+    retry_count: Optional[int] = Field(default=None, ge=0)
 
 
 class StoreDomainRequest(BaseModel):
@@ -242,6 +284,10 @@ class StoreDomainRequest(BaseModel):
         default=None,
         ge=0,
         description="Optional optimistic concurrency guard for the current domain blob version",
+    )
+    upgrade_context: Optional[UpgradeContextPayload] = Field(
+        default=None,
+        description="Optional non-secret upgrade provenance for generic PKM migration writes",
     )
 
 
@@ -308,6 +354,7 @@ async def store_domain(
         manifest=request.manifest.model_dump() if request.manifest else None,
         source_agent=request.source_agent,
         expected_data_version=request.expected_data_version,
+        upgrade_context=request.upgrade_context.model_dump() if request.upgrade_context else None,
         return_result=True,
     )
 
@@ -425,6 +472,9 @@ class DomainManifestResponse(BaseModel):
     user_id: str
     domain: str
     manifest_version: int = 1
+    domain_contract_version: int = 1
+    readable_summary_version: int = 0
+    upgraded_at: Optional[str] = None
     structure_decision: dict = Field(default_factory=dict)
     summary_projection: dict = Field(default_factory=dict)
     top_level_scope_paths: List[str] = Field(default_factory=list)
@@ -580,6 +630,26 @@ class DomainMetadata(BaseModel):
     summary: dict = Field(default_factory=dict, description="Domain-specific summary data")
     available_scopes: List[str] = Field(default_factory=list, description="Available MCP scopes")
     last_updated: Optional[str] = Field(default=None, description="ISO timestamp of last update")
+    readable_summary: Optional[str] = Field(
+        default=None, description="Optional consumer-readable summary for this domain"
+    )
+    readable_highlights: List[str] = Field(
+        default_factory=list,
+        description="Optional consumer-readable highlights for this domain",
+    )
+    readable_updated_at: Optional[str] = Field(
+        default=None, description="ISO timestamp of the readable summary refresh"
+    )
+    readable_source_label: Optional[str] = Field(
+        default=None, description="Short label describing where the readable summary came from"
+    )
+    domain_contract_version: int = Field(default=1, description="Current domain contract version")
+    readable_summary_version: int = Field(
+        default=0, description="Current readable summary contract version"
+    )
+    upgraded_at: Optional[str] = Field(
+        default=None, description="ISO timestamp of the last successful PKM upgrade for this domain"
+    )
 
 
 class PersonalKnowledgeModelMetadataResponse(BaseModel):
@@ -589,6 +659,11 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
     domains: List[DomainMetadata]
     total_attributes: int
     model_completeness: int = Field(description="Percentage of recommended domains filled (0-100)")
+    model_version: int = Field(default=1, description="Current PKM model version for this user")
+    target_model_version: int = Field(default=1, description="Latest PKM model version supported")
+    upgrade_status: str = Field(default="current")
+    upgradable_domains: List[dict] = Field(default_factory=list)
+    last_upgraded_at: Optional[str] = None
     suggested_domains: List[str] = Field(
         default_factory=list, description="Domains user should consider adding"
     )
@@ -620,10 +695,12 @@ async def get_metadata(
             detail="Token user_id does not match request user_id",
         )
     pkm_service = get_pkm_service()
+    upgrade_service = get_pkm_upgrade_service()
 
     try:
         # Read PKM index metadata.
         index = await pkm_service.get_index_v2(user_id)
+        upgrade_status_payload = await upgrade_service.build_status(user_id)
 
         if index is None:
             encrypted_data = await pkm_service.get_encrypted_data(user_id)
@@ -666,6 +743,33 @@ async def get_metadata(
                         },
                         available_scopes=[],
                         last_updated=str(row.get("updated_at") or ""),
+                        readable_summary=_summary_text(
+                            (manifest or {}).get("summary_projection"), "readable_summary"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else None,
+                        readable_highlights=_summary_string_list(
+                            (manifest or {}).get("summary_projection"), "readable_highlights"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else [],
+                        readable_updated_at=_summary_text(
+                            (manifest or {}).get("summary_projection"), "readable_updated_at"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else None,
+                        readable_source_label=_summary_text(
+                            (manifest or {}).get("summary_projection"), "readable_source_label"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else None,
+                        domain_contract_version=int(
+                            (manifest or {}).get("domain_contract_version") or 1
+                        ),
+                        readable_summary_version=int(
+                            (manifest or {}).get("readable_summary_version") or 0
+                        ),
+                        upgraded_at=_isoformat_or_none((manifest or {}).get("upgraded_at")),
                     )
                 )
             return PersonalKnowledgeModelMetadataResponse(
@@ -673,6 +777,11 @@ async def get_metadata(
                 domains=degraded_domains,
                 total_attributes=sum(domain.attribute_count for domain in degraded_domains),
                 model_completeness=0,
+                model_version=upgrade_status_payload.get("model_version") or 1,
+                target_model_version=upgrade_status_payload.get("target_model_version") or 1,
+                upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
+                upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
+                last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
                 suggested_domains=["financial", "health", "travel"],
                 last_updated=(encrypted_data or {}).get("updated_at"),
             )
@@ -712,6 +821,13 @@ async def get_metadata(
                         or scope.startswith(f"attr.{domain_key}.")
                     ],
                     last_updated=index.last_active_at.isoformat() if index.last_active_at else None,
+                    readable_summary=_summary_text(summary, "readable_summary"),
+                    readable_highlights=_summary_string_list(summary, "readable_highlights"),
+                    readable_updated_at=_summary_text(summary, "readable_updated_at"),
+                    readable_source_label=_summary_text(summary, "readable_source_label"),
+                    domain_contract_version=int(summary.get("domain_contract_version") or 1),
+                    readable_summary_version=int(summary.get("readable_summary_version") or 0),
+                    upgraded_at=_summary_text(summary, "upgraded_at"),
                 )
             )
 
@@ -732,6 +848,11 @@ async def get_metadata(
             domains=domains,
             total_attributes=total_attrs,
             model_completeness=completeness,
+            model_version=upgrade_status_payload.get("model_version") or 1,
+            target_model_version=upgrade_status_payload.get("target_model_version") or 1,
+            upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
+            upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
+            last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
             suggested_domains=suggested,
             last_updated=index.last_active_at.isoformat() if index.last_active_at else None,
         )
@@ -744,6 +865,238 @@ async def get_metadata(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve PKM metadata",
         )
+
+
+class PkmUpgradeDomainStateResponse(BaseModel):
+    domain: str
+    current_domain_contract_version: int
+    target_domain_contract_version: int
+    current_readable_summary_version: int
+    target_readable_summary_version: int
+    upgraded_at: Optional[str] = None
+    needs_upgrade: bool = False
+
+
+class PkmUpgradeStepResponse(BaseModel):
+    run_id: str
+    domain: str
+    status: str
+    from_domain_contract_version: int
+    to_domain_contract_version: int
+    from_readable_summary_version: int
+    to_readable_summary_version: int
+    attempt_count: int = 0
+    last_completed_content_revision: Optional[int] = None
+    last_completed_manifest_version: Optional[int] = None
+    checkpoint_payload: dict = Field(default_factory=dict)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class PkmUpgradeRunResponse(BaseModel):
+    run_id: str
+    user_id: str
+    status: str
+    from_model_version: int
+    to_model_version: int
+    current_domain: Optional[str] = None
+    initiated_by: str
+    resume_count: int = 0
+    started_at: Optional[str] = None
+    last_checkpoint_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    last_error: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    steps: List[PkmUpgradeStepResponse] = Field(default_factory=list)
+
+
+class PkmUpgradeStatusResponse(BaseModel):
+    user_id: str
+    model_version: int
+    target_model_version: int
+    upgrade_status: str
+    upgradable_domains: List[PkmUpgradeDomainStateResponse] = Field(default_factory=list)
+    last_upgraded_at: Optional[str] = None
+    run: Optional[PkmUpgradeRunResponse] = None
+
+
+class StartOrResumeUpgradeRequest(BaseModel):
+    user_id: str
+    initiated_by: str = Field(default="unlock_warm")
+
+
+class UpdateUpgradeRunRequest(BaseModel):
+    user_id: str
+    status: str
+    current_domain: Optional[str] = None
+    last_error: Optional[str] = None
+
+
+class UpdateUpgradeStepRequest(BaseModel):
+    user_id: str
+    status: str
+    checkpoint_payload: dict = Field(default_factory=dict)
+    attempt_count: Optional[int] = Field(default=None, ge=0)
+    last_completed_content_revision: Optional[int] = Field(default=None, ge=0)
+    last_completed_manifest_version: Optional[int] = Field(default=None, ge=0)
+
+
+def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
+    run_payload = payload.get("run")
+    run_response = None
+    if isinstance(run_payload, dict):
+        run_response = PkmUpgradeRunResponse(
+            **{
+                **run_payload,
+                "steps": [
+                    PkmUpgradeStepResponse(**step)
+                    for step in (run_payload.get("steps") or [])
+                    if isinstance(step, dict)
+                ],
+            }
+        )
+    return PkmUpgradeStatusResponse(
+        user_id=payload.get("user_id") or "",
+        model_version=int(payload.get("model_version") or 1),
+        target_model_version=int(payload.get("target_model_version") or 1),
+        upgrade_status=str(payload.get("upgrade_status") or "current"),
+        upgradable_domains=[
+            PkmUpgradeDomainStateResponse(**domain_payload)
+            for domain_payload in (payload.get("upgradable_domains") or [])
+            if isinstance(domain_payload, dict)
+        ],
+        last_upgraded_at=_isoformat_or_none(payload.get("last_upgraded_at")),
+        run=run_response,
+    )
+
+
+@router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
+async def get_upgrade_status(
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    payload = await get_pkm_upgrade_service().build_status(user_id)
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/start-or-resume", response_model=PkmUpgradeStatusResponse)
+async def start_or_resume_upgrade(
+    request: StartOrResumeUpgradeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    payload = await get_pkm_upgrade_service().start_or_resume_run(
+        request.user_id,
+        initiated_by=request.initiated_by,
+    )
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_run_status(
+    run_id: str,
+    request: UpdateUpgradeRunRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    service = get_pkm_upgrade_service()
+    updated = await service.mark_run_status(
+        run_id=run_id,
+        status=request.status,
+        current_domain=request.current_domain,
+        last_error=request.last_error,
+    )
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    payload = await service.build_status(request.user_id)
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_step(
+    run_id: str,
+    domain: str,
+    request: UpdateUpgradeStepRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    step = await get_pkm_upgrade_service().update_step(
+        run_id=run_id,
+        domain=canonical_top_level_domain(domain),
+        status=request.status,
+        checkpoint_payload=request.checkpoint_payload,
+        attempt_count=request.attempt_count,
+        last_completed_content_revision=request.last_completed_content_revision,
+        last_completed_manifest_version=request.last_completed_manifest_version,
+    )
+    if step is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade step not found")
+    payload = await get_pkm_upgrade_service().build_status(request.user_id)
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
+async def complete_upgrade_run(
+    run_id: str,
+    request: StartOrResumeUpgradeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    try:
+        payload = await get_pkm_upgrade_service().complete_run(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
+async def fail_upgrade_run(
+    run_id: str,
+    request: UpdateUpgradeRunRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    payload = await get_pkm_upgrade_service().fail_run(
+        run_id,
+        last_error=request.last_error,
+    )
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    return _build_upgrade_status_response(payload)
 
 
 class UserScopesResponse(BaseModel):

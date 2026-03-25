@@ -18,6 +18,10 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.services.consent_request_links import (
+    build_consent_request_path,
+    build_consent_request_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,70 @@ def _authorize_sse_user(user_id: str, authorization: Optional[str]) -> None:
         raise HTTPException(status_code=403, detail="User ID mismatch")
 
 
+def _sse_payload_from_event_payload(payload: dict) -> dict:
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    request_id = payload.get("request_id") or ""
+    bundle_id = payload.get("bundle_id") or metadata.get("bundle_id") or ""
+    request_url = (
+        payload.get("request_url")
+        or metadata.get("request_url")
+        or build_consent_request_url(
+            request_id=request_id or None,
+            bundle_id=bundle_id or None,
+        )
+    )
+    deep_link = (
+        payload.get("deep_link")
+        or metadata.get("deep_link")
+        or build_consent_request_path(
+            request_id=request_id or None,
+            bundle_id=bundle_id or None,
+        )
+    )
+
+    return {
+        "request_id": request_id,
+        "action": payload.get("action", "REQUESTED"),
+        "scope": payload.get("scope", ""),
+        "agent_id": payload.get("agent_id", ""),
+        "agent_label": payload.get("agent_label")
+        or payload.get("requester_label")
+        or metadata.get("requester_label")
+        or metadata.get("developer_app_display_name")
+        or payload.get("agent_id", ""),
+        "scope_description": payload.get("scope_description", ""),
+        "bundle_id": bundle_id,
+        "bundle_label": payload.get("bundle_label") or metadata.get("bundle_label") or "",
+        "bundle_scope_count": payload.get("bundle_scope_count")
+        or metadata.get("bundle_scope_count")
+        or "1",
+        "expires_at": payload.get("expires_at"),
+        "timestamp": payload.get("issued_at", 0),
+        "request_url": request_url,
+        "deep_link": deep_link,
+        "requester_label": payload.get("requester_label")
+        or metadata.get("requester_label")
+        or metadata.get("developer_app_display_name")
+        or "",
+        "requester_image_url": payload.get("requester_image_url")
+        or metadata.get("requester_image_url")
+        or "",
+        "requester_website_url": payload.get("requester_website_url")
+        or metadata.get("requester_website_url")
+        or "",
+        "reason": payload.get("reason") or metadata.get("reason") or "",
+        "expiry_hours": payload.get("expiry_hours") or metadata.get("expiry_hours") or "",
+        "approval_timeout_at": payload.get("approval_timeout_at")
+        or metadata.get("approval_timeout_at")
+        or payload.get("poll_timeout_at")
+        or "",
+        "approval_timeout_minutes": payload.get("approval_timeout_minutes")
+        or metadata.get("approval_timeout_minutes")
+        or "",
+        "notification_sequence": payload.get("notification_sequence") or "",
+    }
+
+
 async def consent_event_generator(user_id: str, request: Request) -> AsyncGenerator[dict, None]:
     """
     Generate SSE events for consent notifications.
@@ -99,20 +167,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
             yield {
                 "event": "consent_update",
                 "id": event_id,
-                "data": json.dumps(
-                    {
-                        "request_id": request_id,
-                        "action": event["action"],
-                        "scope": event["scope"],
-                        "agent_id": event["agent_id"],
-                        "scope_description": event.get("scope_description"),
-                        "bundle_id": event.get("bundle_id"),
-                        "bundle_label": event.get("bundle_label"),
-                        "bundle_scope_count": event.get("bundle_scope_count"),
-                        "expires_at": event.get("expires_at"),
-                        "timestamp": event["issued_at"],
-                    }
-                ),
+                "data": json.dumps(_sse_payload_from_event_payload(event)),
             }
 
         while True:
@@ -140,19 +195,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
             yield {
                 "event": "consent_update",
                 "id": event_id,
-                "data": json.dumps(
-                    {
-                        "request_id": request_id,
-                        "action": data.get("action", "REQUESTED"),
-                        "scope": data.get("scope", ""),
-                        "agent_id": data.get("agent_id", ""),
-                        "scope_description": data.get("scope_description", ""),
-                        "bundle_id": data.get("bundle_id", ""),
-                        "bundle_label": data.get("bundle_label", ""),
-                        "bundle_scope_count": data.get("bundle_scope_count", "1"),
-                        "timestamp": data.get("issued_at", 0),
-                    }
-                ),
+                "data": json.dumps(_sse_payload_from_event_payload(data)),
             }
     except asyncio.CancelledError:
         logger.info("consent_sse.cancelled user_id=%s", user_id)

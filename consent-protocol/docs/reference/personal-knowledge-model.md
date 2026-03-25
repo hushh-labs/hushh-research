@@ -18,6 +18,10 @@ The Personal Knowledge Model (PKM) is Kai's canonical user-memory architecture.
   Append-only PKM mutation and replay ledger.
 - `pkm_migration_state`
   Cutover state for legacy encrypted users awaiting repartition on vault unlock.
+- `pkm_upgrade_runs`
+  Generic client-side PKM upgrade runs for post-cutover schema and readability evolution.
+- `pkm_upgrade_steps`
+  Per-domain resumable checkpoints for generic PKM upgrades. No plaintext or key material is stored here.
 
 ## Storage rules
 
@@ -62,6 +66,19 @@ JSONB is still useful for:
 5. Cache decrypted segments by `user + domain + segment + content_revision`.
 
 The server does not inspect plaintext PKM payloads.
+
+## Generic PKM upgrades
+
+After legacy cutover, PKM still evolves. Those upgrades are a separate system from `pkm_migration_state`.
+
+- `pkm_migration_state` remains only for legacy-to-PKM repartition.
+- Generic PKM upgrades are driven by:
+  - global `pkm_index.model_version`
+  - per-domain `pkm_manifests.domain_contract_version`
+  - per-domain `pkm_manifests.readable_summary_version`
+- The client plans upgrades after vault unlock, decrypts locally, rewrites one domain at a time, re-encrypts, and stores new PKM rows with optimistic concurrency.
+- Upgrade run state and checkpoints are stored server-side as non-secret metadata only.
+- If the app loses the unlocked session mid-upgrade, the next resume must reacquire access locally through the user’s normal vault unlock method.
 
 ## Financial protected lane
 

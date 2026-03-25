@@ -157,6 +157,7 @@ Runtime: Next.js 16 App Router, React 19, Tailwind CSS, Capacitor 8.
 Current app-level navigation targets are defined in `hushh-webapp/lib/navigation/routes.ts`:
 
 - `/`
+- `/developers`
 - `/login`
 - `/logout`
 - `/labs/profile-appearance`
@@ -167,12 +168,14 @@ Current app-level navigation targets are defined in `hushh-webapp/lib/navigation
 - `/ria`
 - `/ria/onboarding`
 - `/ria/clients`
+- `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
 - `/kai`
 - `/kai/onboarding`
 - `/kai/import`
 - `/kai/plaid/oauth/return`
+- `/kai/investments`
 - `/kai/portfolio`
 - `/kai/analysis`
 - `/kai/optimize`
@@ -203,10 +206,12 @@ hushh-webapp/
   app/
     api/
     consents/
+    developers/
     kai/
       analysis/
       dashboard/
       import/
+      investments/
       onboarding/
       optimize/
     labs/
@@ -220,6 +225,7 @@ hushh-webapp/
     ria/
       clients/
       onboarding/
+      picks/
       requests/
       settings/
       workspace/

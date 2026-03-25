@@ -87,6 +87,11 @@ class ConsentCenterService:
         metadata = self._metadata(item.get("metadata"))
         counterpart_type, counterpart_id = self._counterpart(agent_id, metadata)
         status = "pending"
+        existing_granted_scopes = item.get("existingGrantedScopes")
+        if not isinstance(existing_granted_scopes, list):
+            existing_granted_scopes = metadata.get("existing_granted_scopes")
+        if not isinstance(existing_granted_scopes, list):
+            existing_granted_scopes = []
         return {
             "id": str(item.get("id") or ""),
             "kind": "incoming_request",
@@ -97,15 +102,29 @@ class ConsentCenterService:
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
             "counterpart_label": self._developer_label(agent_id, metadata),
+            "counterpart_image_url": item.get("requesterImageUrl")
+            or metadata.get("requester_image_url"),
+            "counterpart_website_url": item.get("requesterWebsiteUrl")
+            or metadata.get("requester_website_url"),
             "request_id": item.get("id"),
             "invite_id": None,
             "relationship_status": None,
             "allowed_next_action": self._map_next_action(status, "incoming_request"),
             "issued_at": item.get("requestedAt"),
             "expires_at": item.get("pollTimeoutAt"),
+            "approval_timeout_at": item.get("approvalTimeoutAt") or item.get("pollTimeoutAt"),
+            "request_url": item.get("requestUrl"),
+            "reason": item.get("reason") or metadata.get("reason"),
+            "is_scope_upgrade": bool(
+                item.get("isScopeUpgrade") or metadata.get("is_scope_upgrade")
+            ),
+            "existing_granted_scopes": existing_granted_scopes,
+            "additional_access_summary": item.get("additionalAccessSummary")
+            or metadata.get("additional_access_summary"),
             "metadata": {
                 **metadata,
                 "expiry_hours": item.get("expiryHours"),
+                "approval_timeout_minutes": item.get("approvalTimeoutMinutes"),
             },
         }
 
@@ -124,12 +143,19 @@ class ConsentCenterService:
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
             "counterpart_label": self._developer_label(agent_id, metadata),
+            "counterpart_image_url": metadata.get("requester_image_url"),
+            "counterpart_website_url": metadata.get("requester_website_url"),
             "request_id": item.get("request_id"),
             "invite_id": None,
             "relationship_status": self._map_action_to_status(item.get("action")),
             "allowed_next_action": self._map_next_action(status, "active_grant"),
             "issued_at": item.get("issued_at"),
             "expires_at": item.get("expires_at"),
+            "request_url": metadata.get("request_url"),
+            "reason": metadata.get("reason"),
+            "is_scope_upgrade": bool(metadata.get("is_scope_upgrade")),
+            "existing_granted_scopes": metadata.get("existing_granted_scopes"),
+            "additional_access_summary": metadata.get("additional_access_summary"),
             "metadata": metadata or None,
         }
 
@@ -151,12 +177,19 @@ class ConsentCenterService:
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
             "counterpart_label": counterpart_label,
+            "counterpart_image_url": metadata.get("requester_image_url"),
+            "counterpart_website_url": metadata.get("requester_website_url"),
             "request_id": item.get("request_id"),
             "invite_id": metadata.get("invite_id"),
             "relationship_status": status,
             "allowed_next_action": self._map_next_action(status, "history"),
             "issued_at": item.get("issued_at"),
             "expires_at": item.get("expires_at"),
+            "request_url": metadata.get("request_url"),
+            "reason": metadata.get("reason"),
+            "is_scope_upgrade": bool(metadata.get("is_scope_upgrade")),
+            "existing_granted_scopes": metadata.get("existing_granted_scopes"),
+            "additional_access_summary": metadata.get("additional_access_summary"),
             "metadata": metadata or None,
         }
 
@@ -224,12 +257,17 @@ class ConsentCenterService:
             "counterpart_label": item.get("subject_display_name")
             or item.get("subject_headline")
             or item.get("user_id"),
+            "counterpart_image_url": None,
+            "counterpart_website_url": None,
             "request_id": item.get("request_id"),
             "invite_id": metadata.get("invite_id"),
             "relationship_status": status,
             "allowed_next_action": self._map_next_action(status, "outgoing_request"),
             "issued_at": item.get("issued_at"),
             "expires_at": item.get("expires_at"),
+            "request_url": metadata.get("request_url"),
+            "reason": metadata.get("reason"),
+            "additional_access_summary": metadata.get("additional_access_summary"),
             "metadata": metadata or None,
         }
 
@@ -252,12 +290,16 @@ class ConsentCenterService:
             "counterpart_type": "investor",
             "counterpart_id": item.get("target_investor_user_id"),
             "counterpart_label": counterpart_label,
+            "counterpart_image_url": None,
+            "counterpart_website_url": None,
             "request_id": item.get("accepted_request_id"),
             "invite_id": item.get("invite_id"),
             "relationship_status": status,
             "allowed_next_action": self._map_next_action(status, "invite"),
             "issued_at": item.get("created_at"),
             "expires_at": item.get("expires_at"),
+            "request_url": None,
+            "reason": item.get("reason"),
             "metadata": {
                 "delivery_channel": item.get("delivery_channel"),
                 "duration_hours": item.get("duration_hours"),

@@ -136,8 +136,10 @@ RETIRED_DOMAIN_REGISTRY_KEYS: tuple[str, ...] = (
     "kai_preferences",
 )
 
+CURRENT_PKM_MODEL_VERSION = 3
+CURRENT_READABLE_SUMMARY_VERSION = 1
 FINANCIAL_DOMAIN_SCHEMA_VERSION = 3
-FINANCIAL_DOMAIN_CONTRACT_VERSION = 1
+FINANCIAL_DOMAIN_CONTRACT_VERSION = 2
 FINANCIAL_INTENT_MAP: tuple[str, ...] = (
     "portfolio",
     "profile",
@@ -227,6 +229,13 @@ def canonical_subpath_for_domain(domain_key: str) -> str | None:
 
 def is_allowed_top_level_domain(domain: str) -> bool:
     return canonical_top_level_domain(domain) in CANONICAL_DOMAIN_KEYS
+
+
+def current_domain_contract_version(domain: str) -> int:
+    canonical = canonical_top_level_domain(domain)
+    if canonical == "financial":
+        return FINANCIAL_DOMAIN_CONTRACT_VERSION
+    return 1
 
 
 def get_canonical_domain_metadata(domain_key: str) -> DomainContractEntry | None:

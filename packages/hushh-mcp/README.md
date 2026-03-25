@@ -6,6 +6,9 @@ This package does not replace the Python MCP implementation. It bootstraps the e
 
 ## Preferred Host Config
 
+Generic JSON host config (`mcpServers`) is appropriate for hosts such as Cursor and VS Code.
+Codex uses `codex mcp add ...` or `~/.codex/config.toml` instead of `mcp.json`.
+
 ```json
 {
   "mcpServers": {
@@ -21,16 +24,25 @@ This package does not replace the Python MCP implementation. It bootstraps the e
 }
 ```
 
-Codex-style config:
+Codex remote setup:
+
+```bash
+codex mcp add hushh_consent --url "https://<consent-api-origin>/mcp/?token=<developer-token>"
+```
+
+This stores the current beta query-token URL in machine-local Codex config. Do not commit or share that file.
+
+Codex stdio config:
 
 ```toml
 [mcp_servers.hushh_consent]
 command = "npx"
 args = ["-y", "@hushh/mcp@beta"]
+enabled = true
+
 [mcp_servers.hushh_consent.env]
 CONSENT_API_URL = "https://<consent-api-origin>"
 HUSHH_DEVELOPER_TOKEN = "<developer-token>"
-enabled = true
 ```
 
 Remote MCP hosts that support direct HTTP transport can point at the UAT beta endpoint:
@@ -39,7 +51,7 @@ Remote MCP hosts that support direct HTTP transport can point at the UAT beta en
 {
   "mcpServers": {
     "hushh-consent-remote": {
-      "url": "https://<consent-api-origin>/mcp?token=<developer-token>"
+      "url": "https://<consent-api-origin>/mcp/?token=<developer-token>"
     }
   }
 }
@@ -50,9 +62,13 @@ The public UAT contract is the scalable consent core only:
 - `discover_user_domains`
 - `request_consent`
 - `check_consent_status`
-- `get_scoped_data`
+- `get_encrypted_scoped_export`
 - `validate_token`
 - `list_scopes`
+
+Strict zero-knowledge mode is wrapped-key only. `request_consent` callers must provide
+`connector_public_key`, `connector_key_id`, and `connector_wrapping_alg`, and the external
+connector keeps the private key. The MCP runtime does not generate or manage that private key.
 
 ## Runtime Expectations
 

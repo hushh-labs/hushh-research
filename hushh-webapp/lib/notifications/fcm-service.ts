@@ -695,7 +695,11 @@ function setupNativeListeners(): void {
           typeof data.type === "string" &&
           data.type === "consent_request"
         ) {
-          assignWindowLocation(`${ROUTES.CONSENTS}?tab=pending`);
+          const target =
+            (typeof data.request_url === "string" && data.request_url) ||
+            (typeof data.deep_link === "string" && data.deep_link) ||
+            buildConsentTargetPath(data);
+          assignWindowLocation(target);
         } else if (
           data &&
           typeof data.type === "string" &&
@@ -730,6 +734,23 @@ function setupNativeListeners(): void {
 
     console.log("[FCM] Native listeners configured");
   });
+}
+
+function buildConsentTargetPath(
+  data: Record<string, unknown> | undefined
+): string {
+  const requestId =
+    data && typeof data.request_id === "string" ? data.request_id : undefined;
+  const bundleId =
+    data && typeof data.bundle_id === "string" ? data.bundle_id : undefined;
+  const params = new URLSearchParams({
+    tab: "privacy",
+    sheet: "consents",
+    consentView: "pending",
+  });
+  if (requestId) params.set("requestId", requestId);
+  if (bundleId) params.set("bundleId", bundleId);
+  return `${ROUTES.PROFILE}?${params.toString()}`;
 }
 
 /**

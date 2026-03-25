@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { PkmExplorerPanel } from "@/components/profile/pkm-explorer-panel";
+import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
+import { PkmUpgradeStatusCard } from "@/components/profile/pkm-upgrade-status-card";
 import { PkmJsonTree } from "@/components/profile/pkm-tree-view";
 import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import {
@@ -37,6 +39,12 @@ import {
   type DeveloperPortalAccess,
 } from "@/lib/services/developer-portal-service";
 import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
+import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
+import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
+import {
+  PkmUpgradeService,
+  type PkmUpgradeStatus,
+} from "@/lib/services/pkm-upgrade-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -119,7 +127,7 @@ type OverlapAssessment = {
   note: string;
 };
 
-type PkmAgentLabTab = "overview" | "tool" | "explorer";
+type PkmAgentLabTab = "overview" | "tool" | "natural" | "explorer";
 
 function toStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -192,7 +200,12 @@ export default function PkmAgentLabPageClient() {
   const [overlapAssessment, setOverlapAssessment] = useState<OverlapAssessment | null>(null);
   const [overlapLoading, setOverlapLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<PkmAgentLabTab>("tool");
+  const [naturalMounted, setNaturalMounted] = useState(false);
   const [explorerMounted, setExplorerMounted] = useState(false);
+  const [naturalRefreshToken, setNaturalRefreshToken] = useState(0);
+  const [upgradeStatus, setUpgradeStatus] = useState<PkmUpgradeStatus | null>(null);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +258,73 @@ export default function PkmAgentLabPageClient() {
       cancelled = true;
     };
   }, [isVaultUnlocked, loading, user, vaultOwnerToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUpgradeStatus() {
+      if (!user || !vaultOwnerToken) {
+        if (!cancelled) {
+          setUpgradeStatus(null);
+          setUpgradeLoading(false);
+        }
+        return;
+      }
+
+      setUpgradeLoading(true);
+      try {
+        const nextStatus = await PkmUpgradeService.getStatus({
+          userId: user.uid,
+          vaultOwnerToken,
+        });
+        if (!cancelled) {
+          setUpgradeStatus(nextStatus);
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load PKM upgrade status."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setUpgradeLoading(false);
+        }
+      }
+    }
+
+    void loadUpgradeStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, vaultOwnerToken, naturalRefreshToken]);
+
+  useEffect(() => {
+    if (!user || !vaultOwnerToken) return;
+    if (!upgradeStatus || !["running", "awaiting_local_auth_resume"].includes(upgradeStatus.upgradeStatus)) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void PkmUpgradeService.getStatus({
+        userId: user.uid,
+        vaultOwnerToken,
+      })
+        .then((nextStatus) => {
+          setUpgradeStatus(nextStatus);
+          if (nextStatus.upgradeStatus === "current") {
+            setNaturalRefreshToken((value) => value + 1);
+          }
+        })
+        .catch(() => undefined);
+    }, 4000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [upgradeStatus, user, vaultOwnerToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -358,6 +438,9 @@ export default function PkmAgentLabPageClient() {
   }, [currentDomains, response, user, vaultOwnerToken]);
 
   useEffect(() => {
+    if (activeTab === "natural") {
+      setNaturalMounted(true);
+    }
     if (activeTab === "explorer") {
       setExplorerMounted(true);
     }
@@ -491,6 +574,36 @@ export default function PkmAgentLabPageClient() {
     };
   }, [response]);
 
+  async function handleResumeUpgrade() {
+    if (!user) return;
+    if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      setShowVaultUnlock(true);
+      return;
+    }
+
+    try {
+      setUpgradeBusy(true);
+      await PkmUpgradeOrchestrator.ensureRunning({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        initiatedBy: "pkm_lab",
+      });
+      const refreshed = await PkmUpgradeService.getStatus({
+        userId: user.uid,
+        vaultOwnerToken,
+      });
+      setUpgradeStatus(refreshed);
+      setNaturalRefreshToken((value) => value + 1);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "Failed to resume PKM upgrade."
+      );
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
   async function handlePreview() {
     if (!user || !vaultOwnerToken) {
       setError("Unlock your vault before using Agent Lab.");
@@ -571,6 +684,47 @@ export default function PkmAgentLabPageClient() {
           typeof structureDecision.summary_projection === "object"
             ? (structureDecision.summary_projection as Record<string, unknown>)
             : {};
+        const readableMetadata = buildReadablePkmMetadata({
+          domainKey: targetDomain,
+          domainDisplayName: titleizeSlug(targetDomain),
+          sourceText: String(card.source_text || message),
+          mergeMode:
+            typeof card.merge_mode === "string"
+              ? card.merge_mode
+              : typeof card.merge_decision?.merge_mode === "string"
+                ? String(card.merge_decision.merge_mode)
+                : null,
+          intentClass:
+            typeof card.intent_class === "string"
+              ? card.intent_class
+              : typeof card.intent_frame?.intent_class === "string"
+                ? card.intent_frame.intent_class
+                : null,
+          manifest: manifestDraft as DomainManifest | null,
+          structureDecision,
+          primaryJsonPath:
+            typeof card.primary_json_path === "string" ? card.primary_json_path : null,
+          targetEntityScope:
+            typeof card.target_entity_scope === "string" ? card.target_entity_scope : null,
+        });
+        const nextSummaryProjection = {
+          ...summaryProjection,
+          ...readableMetadata,
+        };
+        const nextStructureDecision = {
+          ...structureDecision,
+          summary_projection: nextSummaryProjection,
+        };
+        const nextManifest =
+          manifestDraft && typeof manifestDraft === "object"
+            ? ({
+                ...manifestDraft,
+                summary_projection: {
+                  ...(manifestDraft.summary_projection || {}),
+                  ...readableMetadata,
+                },
+              } as DomainManifest)
+            : null;
 
         const result = await PersonalKnowledgeModelService.storePreparedDomain({
           userId: user.uid,
@@ -579,14 +733,14 @@ export default function PkmAgentLabPageClient() {
           domain: targetDomain,
           domainData: candidatePayload,
           summary: {
-            ...summaryProjection,
+            ...nextSummaryProjection,
             message_excerpt: String(card.source_text || message).slice(0, 160),
             source: "pkm_agent_lab",
             card_id: card.card_id,
           },
           mergeDecision: card.merge_decision,
-          structureDecision,
-          manifest: manifestDraft as DomainManifest | null,
+          structureDecision: nextStructureDecision,
+          manifest: nextManifest,
         });
 
         if (!result.success) {
@@ -600,6 +754,7 @@ export default function PkmAgentLabPageClient() {
         vaultOwnerToken
       ).catch(() => null);
       setCurrentDomains(metadata?.domains.map((domain) => domain.key) || currentDomains);
+      setNaturalRefreshToken((value) => value + 1);
       setSaveMessage(
         saveableCards.length === 1
           ? `Saved 1 PKM update. Preview stayed read-only; Save encrypted the update with your vault key and wrote a new PKM revision.`
@@ -640,22 +795,31 @@ export default function PkmAgentLabPageClient() {
               Developer flow
             </p>
             <div className="space-y-1">
-              <h2 className="text-sm font-semibold">One PKM page, three focused views</h2>
+              <h2 className="text-sm font-semibold">One PKM page, four focused views</h2>
               <p className="text-sm text-muted-foreground">
-                Overview explains the data flow, Tool handles preview and save, and Explorer lets
-                you inspect the saved PKM without turning this page into one long scroll.
+                Overview explains the data flow, Tool handles preview and save, Natural keeps the
+                saved PKM readable, and Explorer stays raw for technical inspection.
               </p>
             </div>
           </div>
           <SettingsSegmentedTabs
             value={activeTab}
             onValueChange={(value) => setActiveTab(value as PkmAgentLabTab)}
-            mobileColumns={3}
+            mobileColumns={4}
             options={[
               { value: "overview", label: "Overview" },
               { value: "tool", label: "Tool" },
+              { value: "natural", label: "Natural" },
               { value: "explorer", label: "Explorer" },
             ]}
+          />
+          <PkmUpgradeStatusCard
+            status={upgradeStatus}
+            loading={upgradeLoading}
+            onResume={handleResumeUpgrade}
+            resumeBusy={upgradeBusy}
+            onUnlock={() => setShowVaultUnlock(true)}
+            vaultUnlocked={isVaultUnlocked}
           />
         </SurfaceInset>
 
@@ -1219,6 +1383,21 @@ export default function PkmAgentLabPageClient() {
                 </Accordion>
               </SurfaceInset>
             </div>
+          </div>
+        ) : null}
+
+        {naturalMounted ? (
+          <div
+            className={
+              activeTab === "natural"
+                ? "space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                : "hidden"
+            }
+          >
+            <PkmNaturalPanel
+              refreshToken={naturalRefreshToken}
+              onOpenExplorer={() => setActiveTab("explorer")}
+            />
           </div>
         ) : null}
 

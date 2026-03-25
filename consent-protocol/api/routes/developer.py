@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,7 +17,9 @@ from api.developer_auth import (
 from api.middleware import require_firebase_auth
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.scope_helpers import get_scope_description, normalize_scope
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.developer_registry_service import (
     DEFAULT_PUBLIC_TOOL_GROUPS,
     DeveloperPrincipal,
@@ -34,7 +36,10 @@ developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
 
 _STATIC_REQUESTABLE_SCOPES = ("pkm.read", "pkm.write", "pkm.read", "pkm.write")
-_MAX_EXPIRY_HOURS = 24 * 365
+_MIN_PUBLIC_EXPIRY_HOURS = 24
+_MAX_PUBLIC_EXPIRY_HOURS = 24 * 90
+_MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 5
+_MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 24 * 60
 
 
 class DeveloperScopeDescriptor(BaseModel):
@@ -64,14 +69,14 @@ class DeveloperScopeCatalogResponse(BaseModel):
             "discover_user_domains",
             "request_consent",
             "check_consent_status",
-            "get_scoped_data",
+            "get_encrypted_scoped_export",
         ]
     )
     notes: list[str] = Field(
         default_factory=lambda: [
             "Do not hardcode domain keys. Discover available scopes per user at runtime.",
             "Dynamic attr scopes are derived from PKM discovery metadata and the scope registry.",
-            "Use get_scoped_data for all consented reads; public named data getters are not supported.",
+            "Use get_encrypted_scoped_export for all consented reads; Hushh does not return plaintext user data to developer callers.",
         ]
     )
 
@@ -104,10 +109,27 @@ class DeveloperConsentStatusResponse(BaseModel):
     status: str
     user_id: str
     scope: str | None = None
+    requested_scope: str | None = None
+    granted_scope: str | None = None
+    coverage_kind: str | None = None
+    covered_by_existing_grant: bool = False
     request_id: str | None = None
     consent_token: str | None = None
     expires_at: int | None = None
+    export_revision: int | None = None
+    export_generated_at: str | None = None
+    export_refresh_status: str | None = None
     poll_timeout_at: int | None = None
+    approval_timeout_at: int | None = None
+    approval_timeout_minutes: int | None = None
+    expiry_hours: int | None = None
+    is_scope_upgrade: bool | None = None
+    existing_granted_scopes: list[str] | None = None
+    additional_access_summary: str | None = None
+    request_url: str | None = None
+    requester_label: str | None = None
+    requester_image_url: str | None = None
+    reason: str | None = None
     app_id: str | None = None
     app_display_name: str | None = None
     message: str
@@ -120,9 +142,36 @@ class DeveloperConsentRequest(BaseModel):
     scope: str
     reason: str | None = None
     expiry_hours: int = 24
+    approval_timeout_minutes: int = 24 * 60
     connector_public_key: str = Field(min_length=16)
-    connector_key_id: str | None = Field(default=None, max_length=128)
-    connector_wrapping_alg: str = Field(default="X25519-AES256-GCM", max_length=128)
+    connector_key_id: str = Field(min_length=1, max_length=128)
+    connector_wrapping_alg: str = Field(min_length=1, max_length=128)
+
+
+class DeveloperScopedExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    consent_token: str = Field(min_length=16)
+    expected_scope: str | None = None
+
+
+class DeveloperScopedExportResponse(BaseModel):
+    status: str
+    user_id: str
+    consent_token: str
+    granted_scope: str | None = None
+    expected_scope: str | None = None
+    coverage_kind: str | None = None
+    expires_at: int | None = None
+    export_revision: int | None = None
+    export_generated_at: str | None = None
+    export_refresh_status: str | None = None
+    encrypted_data: str | None = None
+    iv: str | None = None
+    tag: str | None = None
+    wrapped_key_bundle: dict | None = None
+    message: str
 
 
 class DeveloperPortalTokenResponse(BaseModel):
@@ -143,6 +192,7 @@ class DeveloperPortalAppResponse(BaseModel):
     support_url: str | None = None
     policy_url: str | None = None
     website_url: str | None = None
+    brand_image_url: str | None = None
     status: str
     allowed_tool_groups: list[str]
     created_at: int
@@ -175,6 +225,7 @@ class DeveloperPortalProfileUpdateRequest(BaseModel):
     support_url: str | None = Field(default=None, max_length=512)
     policy_url: str | None = Field(default=None, max_length=512)
     website_url: str | None = Field(default=None, max_length=512)
+    brand_image_url: str | None = Field(default=None, max_length=512)
 
 
 class OwnerProfile(TypedDict):
@@ -214,21 +265,157 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
     ]
 
 
-def _consent_timeout_seconds() -> int:
-    raw = "120"
-    try:
-        import os
-
-        raw = str(os.getenv("CONSENT_TIMEOUT_SECONDS", "120")).strip()
-        return max(30, int(raw))
-    except ValueError:
-        return 120
-
-
 def _is_supported_scope(scope: str) -> bool:
     if scope in _STATIC_REQUESTABLE_SCOPES:
         return True
     return scope.startswith("attr.")
+
+
+def _validate_public_expiry_hours(expiry_hours: int) -> int:
+    if _MIN_PUBLIC_EXPIRY_HOURS <= expiry_hours <= _MAX_PUBLIC_EXPIRY_HOURS:
+        return expiry_hours
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error_code": "INVALID_EXPIRY_HOURS",
+            "message": (
+                f"expiry_hours must be between {_MIN_PUBLIC_EXPIRY_HOURS} "
+                f"and {_MAX_PUBLIC_EXPIRY_HOURS}"
+            ),
+        },
+    )
+
+
+def _validate_public_approval_timeout_minutes(approval_timeout_minutes: int) -> int:
+    if (
+        _MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES
+        <= approval_timeout_minutes
+        <= _MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES
+    ):
+        return approval_timeout_minutes
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error_code": "INVALID_APPROVAL_TIMEOUT_MINUTES",
+            "message": (
+                "approval_timeout_minutes must be between "
+                f"{_MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES} and {_MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES}"
+            ),
+        },
+    )
+
+
+def _request_url_from_metadata(
+    request_id: str | None,
+    metadata: dict[str, object] | None,
+) -> str | None:
+    meta = metadata or {}
+    bundle_id = str(meta.get("bundle_id") or "").strip() or None
+    request_url = str(meta.get("request_url") or "").strip()
+    if request_url:
+        return request_url
+    if request_id or bundle_id:
+        return build_consent_request_url(request_id=request_id, bundle_id=bundle_id)
+    return None
+
+
+def _normalize_scope_list(value: object | None) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    scopes: list[str] = []
+    for item in value:
+        normalized = str(item or "").strip()
+        if normalized and normalized not in scopes:
+            scopes.append(normalized)
+    return scopes
+
+
+def _coverage_fields(
+    *, requested_scope: str, granted_scope: str | None
+) -> dict[str, object | None]:
+    if not granted_scope:
+        return {
+            "requested_scope": requested_scope,
+            "granted_scope": None,
+            "coverage_kind": None,
+            "covered_by_existing_grant": False,
+        }
+    return {
+        "requested_scope": requested_scope,
+        "granted_scope": granted_scope,
+        "coverage_kind": "exact" if granted_scope == requested_scope else "superset",
+        "covered_by_existing_grant": True,
+    }
+
+
+def _export_fields(export_metadata: dict[str, Any] | None) -> dict[str, object | None]:
+    metadata = export_metadata or {}
+    return {
+        "export_revision": metadata.get("export_revision"),
+        "export_generated_at": metadata.get("export_generated_at"),
+        "export_refresh_status": metadata.get("refresh_status") if metadata else None,
+    }
+
+
+async def _resolve_strict_covering_active_token(
+    *,
+    service: ConsentDBService,
+    user_id: str,
+    agent_id: str,
+    requested_scope: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, bool]:
+    invalidated_legacy = False
+    covering_tokens = await service.get_covering_active_tokens(
+        user_id,
+        agent_id=agent_id,
+        requested_scope=requested_scope,
+    )
+    for token_row in covering_tokens:
+        token_id = str(token_row.get("token_id") or "").strip()
+        if not token_id:
+            continue
+        export_metadata = await service.get_consent_export_metadata(token_id)
+        if export_metadata and export_metadata.get("is_strict_zero_knowledge"):
+            return token_row, export_metadata, invalidated_legacy
+        if export_metadata and export_metadata.get("legacy_export_key_present"):
+            await service.invalidate_legacy_active_token(token_row)
+            invalidated_legacy = True
+    return None, None, invalidated_legacy
+
+
+def _scope_upgrade_summary(
+    *, requested_scope: str, existing_granted_scopes: list[str]
+) -> str | None:
+    if not existing_granted_scopes:
+        return None
+    if len(existing_granted_scopes) == 1:
+        return (
+            f"This app already has access to {existing_granted_scopes[0]} and is now requesting "
+            f"additional access to {requested_scope}."
+        )
+    return (
+        f"This app already has {len(existing_granted_scopes)} narrower scopes and is now requesting "
+        f"additional access to {requested_scope}."
+    )
+
+
+def _scope_upgrade_fields(
+    *,
+    requested_scope: str,
+    existing_granted_scopes: list[str],
+) -> dict[str, object | None]:
+    unique_scopes = sorted(
+        {scope for scope in existing_granted_scopes if scope and scope != requested_scope}
+    )
+    is_scope_upgrade = bool(unique_scopes)
+    return {
+        "is_scope_upgrade": is_scope_upgrade,
+        "existing_granted_scopes": unique_scopes or None,
+        "additional_access_summary": _scope_upgrade_summary(
+            requested_scope=requested_scope,
+            existing_granted_scopes=unique_scopes,
+        ),
+    }
 
 
 def _resolve_principal(
@@ -275,6 +462,7 @@ def _developer_root_payload() -> dict[str, object]:
             "user_scopes": "/api/v1/user-scopes/{user_id}",
             "request_consent": "/api/v1/request-consent",
             "consent_status": "/api/v1/consent-status",
+            "scoped_export": "/api/v1/scoped-export",
         },
         "recommended_resources": [
             "hushh://info/connector",
@@ -284,7 +472,7 @@ def _developer_root_payload() -> dict[str, object]:
             "discover_user_domains",
             "request_consent",
             "check_consent_status",
-            "get_scoped_data",
+            "get_encrypted_scoped_export",
         ],
         "public_beta_default_tool_groups": list(DEFAULT_PUBLIC_TOOL_GROUPS),
         "developer_access": {
@@ -326,6 +514,7 @@ def _serialize_app(app: dict | None) -> DeveloperPortalAppResponse | None:
         support_url=str(app["support_url"]) if app.get("support_url") else None,
         policy_url=str(app["policy_url"]) if app.get("policy_url") else None,
         website_url=str(app["website_url"]) if app.get("website_url") else None,
+        brand_image_url=str(app["brand_image_url"]) if app.get("brand_image_url") else None,
         status=str(app["status"]),
         allowed_tool_groups=list(allowed_groups),
         created_at=int(app["created_at"]),
@@ -469,23 +658,53 @@ async def get_consent_status(
 
     service = ConsentDBService()
     if normalized_scope:
-        active_tokens = await service.get_active_tokens(
-            user_id,
+        active, export_metadata, invalidated_legacy = await _resolve_strict_covering_active_token(
+            service=service,
+            user_id=user_id,
             agent_id=principal.agent_id,
-            scope=normalized_scope,
+            requested_scope=normalized_scope,
         )
-        if active_tokens:
-            active = active_tokens[0]
+        if active:
+            active_metadata = (
+                active.get("metadata") if isinstance(active.get("metadata"), dict) else {}
+            )
             return DeveloperConsentStatusResponse(
                 status="granted",
                 user_id=user_id,
                 scope=normalized_scope,
+                **_coverage_fields(
+                    requested_scope=normalized_scope,
+                    granted_scope=str(active.get("scope") or "") or None,
+                ),
                 request_id=active.get("request_id"),
                 consent_token=active.get("token_id"),
                 expires_at=active.get("expires_at"),
+                **_export_fields(export_metadata),
+                expiry_hours=active_metadata.get("expiry_hours"),
+                request_url=_request_url_from_metadata(active.get("request_id"), active_metadata),
+                requester_label=active_metadata.get("requester_label"),
+                requester_image_url=active_metadata.get("requester_image_url"),
+                reason=active_metadata.get("reason"),
                 app_id=principal.app_id,
                 app_display_name=principal.display_name,
-                message="Consent is active for this app and scope.",
+                message=(
+                    "Consent is active for this app and scope."
+                    if str(active.get("scope") or "") == normalized_scope
+                    else "Consent is active for this app; an existing broader grant covers the requested scope."
+                ),
+            )
+        if invalidated_legacy:
+            return DeveloperConsentStatusResponse(
+                status="requires_reconsent",
+                user_id=user_id,
+                scope=normalized_scope,
+                requested_scope=normalized_scope,
+                app_id=principal.app_id,
+                app_display_name=principal.display_name,
+                message=(
+                    "A legacy consent export for this app was invalidated because it was not wrapped-key-only. "
+                    "Request consent again to receive a strict zero-knowledge export."
+                ),
             )
 
     if request_id:
@@ -501,14 +720,44 @@ async def get_consent_status(
                 "REVOKED": "revoked",
             }
             resolved_status = status_map.get(latest_action, "unknown")
+            metadata = latest.get("metadata") if isinstance(latest.get("metadata"), dict) else {}
+            approval_timeout_at = latest.get("poll_timeout_at") or metadata.get(
+                "approval_timeout_at"
+            )
+            export_metadata = None
+            if latest_action == "CONSENT_GRANTED" and latest.get("token_id"):
+                export_metadata = await service.get_consent_export_metadata(
+                    str(latest.get("token_id"))
+                )
             return DeveloperConsentStatusResponse(
                 status=resolved_status,
                 user_id=user_id,
                 scope=latest.get("scope"),
+                requested_scope=str(latest.get("scope") or "") or normalized_scope or None,
+                granted_scope=str(latest.get("scope") or "") or None,
+                coverage_kind="exact" if latest.get("scope") else None,
+                covered_by_existing_grant=False,
                 request_id=request_id,
                 consent_token=latest.get("token_id"),
                 expires_at=latest.get("expires_at"),
+                **_export_fields(export_metadata),
                 poll_timeout_at=latest.get("poll_timeout_at"),
+                approval_timeout_at=approval_timeout_at,
+                approval_timeout_minutes=metadata.get("approval_timeout_minutes"),
+                expiry_hours=metadata.get("expiry_hours"),
+                is_scope_upgrade=bool(metadata.get("is_scope_upgrade")),
+                existing_granted_scopes=_normalize_scope_list(
+                    metadata.get("existing_granted_scopes")
+                )
+                or None,
+                additional_access_summary=str(
+                    metadata.get("additional_access_summary") or ""
+                ).strip()
+                or None,
+                request_url=_request_url_from_metadata(request_id, metadata),
+                requester_label=metadata.get("requester_label"),
+                requester_image_url=metadata.get("requester_image_url"),
+                reason=metadata.get("reason"),
                 app_id=principal.app_id,
                 app_display_name=principal.display_name,
                 message=f"Latest request action is {latest_action or 'UNKNOWN'}.",
@@ -518,6 +767,7 @@ async def get_consent_status(
         status="not_found",
         user_id=user_id,
         scope=normalized_scope,
+        requested_scope=normalized_scope,
         request_id=request_id,
         app_id=principal.app_id,
         app_display_name=principal.display_name,
@@ -549,14 +799,10 @@ async def request_consent(
             },
         )
 
-    if payload.expiry_hours <= 0 or payload.expiry_hours > _MAX_EXPIRY_HOURS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error_code": "INVALID_EXPIRY_HOURS",
-                "message": f"expiry_hours must be between 1 and {_MAX_EXPIRY_HOURS}",
-            },
-        )
+    expiry_hours = _validate_public_expiry_hours(payload.expiry_hours)
+    approval_timeout_minutes = _validate_public_approval_timeout_minutes(
+        payload.approval_timeout_minutes
+    )
 
     available_domains, discovered_scopes, _scope_entries = await _get_user_scope_snapshot(
         payload.user_id
@@ -573,13 +819,15 @@ async def request_consent(
         )
 
     service = ConsentDBService()
-    active_tokens = await service.get_active_tokens(
-        payload.user_id,
+    active, export_metadata, _invalidated_legacy = await _resolve_strict_covering_active_token(
+        service=service,
+        user_id=payload.user_id,
         agent_id=principal.agent_id,
-        scope=normalized_scope,
+        requested_scope=normalized_scope,
     )
-    if active_tokens:
-        active = active_tokens[0]
+    if active:
+        active_metadata = active.get("metadata") if isinstance(active.get("metadata"), dict) else {}
+        granted_scope = str(active.get("scope") or "") or None
         logger.info(
             "developer_api.request_consent.reused scope=%s app_id=%s",
             normalized_scope,
@@ -587,14 +835,71 @@ async def request_consent(
         )
         return {
             "status": "already_granted",
-            "message": "Consent already active for this developer app and scope.",
+            "message": (
+                "Consent already active for this developer app and scope."
+                if granted_scope == normalized_scope
+                else "Consent already active for this developer app; an existing broader grant covers the requested scope."
+            ),
             "consent_token": active.get("token_id"),
             "expires_at": active.get("expires_at"),
             "request_id": active.get("request_id"),
             "scope": normalized_scope,
+            **_coverage_fields(
+                requested_scope=normalized_scope,
+                granted_scope=granted_scope,
+            ),
+            **_export_fields(export_metadata),
+            "expiry_hours": active_metadata.get("expiry_hours"),
+            "request_url": _request_url_from_metadata(active.get("request_id"), active_metadata),
+            "requester_label": active_metadata.get("requester_label"),
+            "requester_image_url": active_metadata.get("requester_image_url"),
+            "reason": active_metadata.get("reason"),
             "agent_id": principal.agent_id,
             "app_id": principal.app_id,
             "app_display_name": principal.display_name,
+        }
+
+    pending = await service.get_pending_request_for_scope(
+        payload.user_id,
+        agent_id=principal.agent_id,
+        scope=normalized_scope,
+    )
+    if pending:
+        pending_metadata = (
+            pending.get("metadata") if isinstance(pending.get("metadata"), dict) else {}
+        )
+        return {
+            "status": "pending",
+            "message": "Consent request already pending in the Hushh app.",
+            "request_id": pending.get("id"),
+            "scope": normalized_scope,
+            **_coverage_fields(
+                requested_scope=normalized_scope,
+                granted_scope=None,
+            ),
+            "scope_description": pending.get("scopeDescription")
+            or get_scope_description(normalized_scope),
+            "poll_timeout_at": pending.get("pollTimeoutAt"),
+            "approval_timeout_at": pending.get("approvalTimeoutAt"),
+            "approval_timeout_minutes": pending.get("approvalTimeoutMinutes"),
+            "expiry_hours": pending.get("expiryHours"),
+            "agent_id": principal.agent_id,
+            "app_id": principal.app_id,
+            "app_display_name": principal.display_name,
+            "request_url": pending.get("requestUrl"),
+            "requester_label": pending.get("requesterLabel"),
+            "requester_image_url": pending.get("requesterImageUrl"),
+            "reason": pending.get("reason") or pending_metadata.get("reason"),
+            "approval_surface": "/profile?tab=privacy&sheet=consents",
+            "is_scope_upgrade": bool(
+                pending.get("isScopeUpgrade") or pending_metadata.get("is_scope_upgrade")
+            ),
+            "existing_granted_scopes": pending.get("existingGrantedScopes")
+            or _normalize_scope_list(pending_metadata.get("existing_granted_scopes"))
+            or None,
+            "additional_access_summary": pending.get("additionalAccessSummary")
+            or str(pending_metadata.get("additional_access_summary") or "").strip()
+            or None,
         }
 
     if await service.was_recently_denied(
@@ -611,10 +916,23 @@ async def request_consent(
             "app_display_name": principal.display_name,
         }
 
-    request_id = f"req_{uuid.uuid4().hex}"
+    request_id = f"req_{uuid.uuid4().hex[:28]}"
     now_ms = int(time.time() * 1000)
-    poll_timeout_at = now_ms + (_consent_timeout_seconds() * 1000)
+    poll_timeout_at = now_ms + (approval_timeout_minutes * 60 * 1000)
     scope_description = get_scope_description(normalized_scope)
+    existing_granted_scopes = [
+        str(token.get("scope") or "")
+        for token in await service.get_superseded_active_tokens(
+            payload.user_id,
+            agent_id=principal.agent_id,
+            requested_scope=normalized_scope,
+        )
+        if str(token.get("scope") or "").strip()
+    ]
+    scope_upgrade_fields = _scope_upgrade_fields(
+        requested_scope=normalized_scope,
+        existing_granted_scopes=existing_granted_scopes,
+    )
     metadata = DeveloperRegistryService.build_consent_metadata(
         principal,
         reason=payload.reason,
@@ -622,7 +940,16 @@ async def request_consent(
         connector_key_id=payload.connector_key_id,
         connector_wrapping_alg=payload.connector_wrapping_alg,
     )
-    metadata.update({"expiry_hours": payload.expiry_hours})
+    request_url = build_consent_request_url(request_id=request_id)
+    metadata.update(
+        {
+            "expiry_hours": expiry_hours,
+            "approval_timeout_minutes": approval_timeout_minutes,
+            "approval_timeout_at": poll_timeout_at,
+            "request_url": request_url,
+            **scope_upgrade_fields,
+        }
+    )
 
     await service.insert_event(
         user_id=payload.user_id,
@@ -645,14 +972,127 @@ async def request_consent(
         "message": "Consent request submitted. User approval is pending in the Hushh app.",
         "request_id": request_id,
         "scope": normalized_scope,
+        **_coverage_fields(
+            requested_scope=normalized_scope,
+            granted_scope=None,
+        ),
         "scope_description": scope_description,
         "poll_timeout_at": poll_timeout_at,
-        "expires_in_hours": payload.expiry_hours,
+        "approval_timeout_at": poll_timeout_at,
+        "approval_timeout_minutes": approval_timeout_minutes,
+        "expiry_hours": expiry_hours,
         "agent_id": principal.agent_id,
         "app_id": principal.app_id,
         "app_display_name": principal.display_name,
-        "approval_surface": "/consents",
+        "request_url": request_url,
+        "requester_label": metadata.get("requester_label"),
+        "requester_image_url": metadata.get("requester_image_url"),
+        "reason": payload.reason,
+        "approval_surface": "/profile?tab=privacy&sheet=consents",
+        "is_scope_upgrade": scope_upgrade_fields["is_scope_upgrade"],
+        "existing_granted_scopes": scope_upgrade_fields["existing_granted_scopes"],
+        "additional_access_summary": scope_upgrade_fields["additional_access_summary"],
     }
+
+
+@developer_api_router.post("/scoped-export", response_model=DeveloperScopedExportResponse)
+async def get_scoped_export(
+    payload: DeveloperScopedExportRequest,
+    request: Request,
+    token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    principal = _resolve_principal(
+        request=request,
+        token=token,
+        authorization=authorization,
+    )
+    expected_scope = normalize_scope(payload.expected_scope) if payload.expected_scope else None
+    valid, reason, token_obj = await validate_token_with_db(
+        payload.consent_token,
+        expected_scope=expected_scope,
+    )
+    if not valid or token_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": "INVALID_CONSENT_TOKEN",
+                "message": f"Consent validation failed: {reason or 'unknown error'}",
+            },
+        )
+
+    if str(token_obj.user_id) != payload.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_TOKEN_USER_MISMATCH",
+                "message": "Token user_id does not match the requested user_id.",
+            },
+        )
+    if str(token_obj.agent_id) != principal.agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_TOKEN_APP_MISMATCH",
+                "message": "This consent token belongs to a different developer app.",
+            },
+        )
+
+    service = ConsentDBService()
+    export_data = await service.get_consent_export(payload.consent_token)
+    if not export_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "SCOPED_EXPORT_NOT_FOUND",
+                "message": "No active encrypted export is available for this consent token.",
+            },
+        )
+
+    if not export_data.get("is_strict_zero_knowledge"):
+        await service.invalidate_legacy_active_token(
+            {
+                "user_id": payload.user_id,
+                "agent_id": principal.agent_id,
+                "scope": export_data.get("scope") or token_obj.scope_str or token_obj.scope.value,
+                "token_id": payload.consent_token,
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "LEGACY_EXPORT_INVALIDATED",
+                "message": (
+                    "This consent grant used a deprecated non-zero-knowledge export format. "
+                    "Request consent again to receive a wrapped-key-only export."
+                ),
+            },
+        )
+
+    granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
+    return DeveloperScopedExportResponse(
+        status="success",
+        user_id=payload.user_id,
+        consent_token=payload.consent_token,
+        granted_scope=granted_scope,
+        expected_scope=expected_scope,
+        coverage_kind="exact"
+        if not expected_scope or expected_scope == granted_scope
+        else "superset",
+        expires_at=token_obj.expires_at,
+        export_revision=export_data.get("export_revision"),
+        export_generated_at=export_data.get("export_generated_at"),
+        export_refresh_status=export_data.get("refresh_status"),
+        encrypted_data=export_data.get("encrypted_data"),
+        iv=export_data.get("iv"),
+        tag=export_data.get("tag"),
+        wrapped_key_bundle=export_data.get("wrapped_key_bundle"),
+        message=(
+            "Encrypted scoped export ready."
+            if not expected_scope or expected_scope == granted_scope
+            else "Encrypted export ready. The granted scope is broader than expected_scope, so narrow it client-side after decrypting."
+        ),
+    )
 
 
 @portal_router.get("/access", response_model=DeveloperPortalAccessResponse)
@@ -723,6 +1163,7 @@ async def update_developer_access_profile(
         owner_firebase_uid=firebase_uid,
         display_name=payload.display_name,
         website_url=payload.website_url,
+        brand_image_url=payload.brand_image_url,
         support_url=payload.support_url,
         policy_url=payload.policy_url,
     )

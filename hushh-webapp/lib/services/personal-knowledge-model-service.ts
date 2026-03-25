@@ -25,6 +25,11 @@ import {
   buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
 } from "@/lib/personal-knowledge-model/manifest";
+import {
+  CURRENT_PKM_MODEL_VERSION,
+  CURRENT_READABLE_SUMMARY_VERSION,
+  currentDomainContractVersion,
+} from "@/lib/personal-knowledge-model/upgrade-contracts";
 
 // ==================== Types ====================
 
@@ -34,9 +39,26 @@ export interface DomainSummary {
   icon: string;
   color: string;
   attributeCount: number;
-  summary: Record<string, string | number>;
+  summary: Record<string, unknown>;
   availableScopes: string[];
   lastUpdated: string | null;
+  readableSummary?: string | null;
+  readableHighlights?: string[];
+  readableUpdatedAt?: string | null;
+  readableSourceLabel?: string | null;
+  domainContractVersion?: number;
+  readableSummaryVersion?: number;
+  upgradedAt?: string | null;
+}
+
+export interface PkmUpgradeDomainState {
+  domain: string;
+  currentDomainContractVersion: number;
+  targetDomainContractVersion: number;
+  currentReadableSummaryVersion: number;
+  targetReadableSummaryVersion: number;
+  upgradedAt: string | null;
+  needsUpgrade: boolean;
 }
 
 export interface PersonalKnowledgeModelMetadata {
@@ -44,6 +66,11 @@ export interface PersonalKnowledgeModelMetadata {
   domains: DomainSummary[];
   totalAttributes: number;
   modelCompleteness: number;
+  modelVersion: number;
+  targetModelVersion: number;
+  upgradeStatus: string;
+  upgradableDomains: PkmUpgradeDomainState[];
+  lastUpgradedAt: string | null;
   suggestedDomains: string[];
   lastUpdated: string | null;
 }
@@ -75,6 +102,15 @@ export interface StoreDomainDataResult {
   message?: string;
   dataVersion?: number;
   updatedAt?: string;
+}
+
+export interface PkmUpgradeContext {
+  runId: string;
+  priorDomainContractVersion?: number;
+  newDomainContractVersion?: number;
+  priorReadableSummaryVersion?: number;
+  newReadableSummaryVersion?: number;
+  retryCount?: number;
 }
 
 type DecryptedFullBlobCacheEntry = {
@@ -135,6 +171,22 @@ export class PersonalKnowledgeModelService {
 
   private static isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  static emptyMetadata(userId: string): PersonalKnowledgeModelMetadata {
+    return {
+      userId,
+      domains: [],
+      totalAttributes: 0,
+      modelCompleteness: 0,
+      modelVersion: CURRENT_PKM_MODEL_VERSION,
+      targetModelVersion: CURRENT_PKM_MODEL_VERSION,
+      upgradeStatus: "current",
+      upgradableDomains: [],
+      lastUpgradedAt: null,
+      suggestedDomains: [],
+      lastUpdated: null,
+    };
   }
 
   private static deepMergeRecords(
@@ -826,12 +878,68 @@ export class PersonalKnowledgeModelService {
             icon: (d.icon_name || d.icon) as string,
             color: (d.color_hex || d.color) as string,
             attributeCount: (d.attribute_count || d.attributeCount || 0) as number,
-            summary: (d.summary || {}) as Record<string, string | number>,
+            summary: (d.summary || {}) as Record<string, unknown>,
             availableScopes: (d.available_scopes || d.availableScopes || []) as string[],
             lastUpdated: (d.last_updated || d.lastUpdated || null) as string | null,
+            readableSummary: (d.readable_summary || d.readableSummary || null) as string | null,
+            readableHighlights: Array.isArray(d.readable_highlights)
+              ? (d.readable_highlights as string[])
+              : Array.isArray(d.readableHighlights)
+                ? (d.readableHighlights as string[])
+                : [],
+            readableUpdatedAt: (d.readable_updated_at ||
+              d.readableUpdatedAt ||
+              null) as string | null,
+            readableSourceLabel: (d.readable_source_label ||
+              d.readableSourceLabel ||
+              null) as string | null,
+            domainContractVersion: Number(
+              d.domain_contract_version ??
+                d.domainContractVersion ??
+                currentDomainContractVersion(String(d.domain_key || d.key || ""))
+            ),
+            readableSummaryVersion: Number(
+              d.readable_summary_version ?? d.readableSummaryVersion ?? 0
+            ),
+            upgradedAt: (d.upgraded_at || d.upgradedAt || null) as string | null,
           })),
           totalAttributes: raw.total_attributes || raw.totalAttributes || 0,
           modelCompleteness: raw.model_completeness || raw.modelCompleteness || 0,
+          modelVersion: raw.model_version || raw.modelVersion || CURRENT_PKM_MODEL_VERSION,
+          targetModelVersion:
+            raw.target_model_version || raw.targetModelVersion || CURRENT_PKM_MODEL_VERSION,
+          upgradeStatus: raw.upgrade_status || raw.upgradeStatus || "current",
+          upgradableDomains: Array.isArray(raw.upgradable_domains || raw.upgradableDomains)
+            ? ((raw.upgradable_domains || raw.upgradableDomains) as Array<Record<string, unknown>>).map(
+                (domain) => ({
+                  domain: String(domain.domain || ""),
+                  currentDomainContractVersion: Number(
+                    domain.current_domain_contract_version ??
+                      domain.currentDomainContractVersion ??
+                      1
+                  ),
+                  targetDomainContractVersion: Number(
+                    domain.target_domain_contract_version ??
+                      domain.targetDomainContractVersion ??
+                      1
+                  ),
+                  currentReadableSummaryVersion: Number(
+                    domain.current_readable_summary_version ??
+                      domain.currentReadableSummaryVersion ??
+                      0
+                  ),
+                  targetReadableSummaryVersion: Number(
+                    domain.target_readable_summary_version ??
+                      domain.targetReadableSummaryVersion ??
+                      CURRENT_READABLE_SUMMARY_VERSION
+                  ),
+                  upgradedAt: (domain.upgraded_at || domain.upgradedAt || null) as string | null,
+                  needsUpgrade: Boolean(domain.needs_upgrade ?? domain.needsUpgrade),
+                })
+              )
+            : [],
+          lastUpgradedAt:
+            (raw.last_upgraded_at || raw.lastUpgradedAt || null) as string | null,
           suggestedDomains: raw.suggested_domains || raw.suggestedDomains || [],
           lastUpdated: raw.last_updated || raw.lastUpdated || null,
         };
@@ -839,14 +947,7 @@ export class PersonalKnowledgeModelService {
         // Without a VAULT_OWNER token, metadata endpoint is expected to reject with 401.
         // Return empty metadata so first-time / locked-vault screens can render gracefully.
         if (!vaultOwnerToken) {
-          result = {
-            userId,
-            domains: [],
-            totalAttributes: 0,
-            modelCompleteness: 0,
-            suggestedDomains: [],
-            lastUpdated: null,
-          };
+          result = this.emptyMetadata(userId);
           return result;
         }
 
@@ -857,14 +958,7 @@ export class PersonalKnowledgeModelService {
 
         // Handle 404 as valid "no data" response for new users
         if (response.status === 404) {
-          result = {
-            userId,
-            domains: [],
-            totalAttributes: 0,
-            modelCompleteness: 0,
-            suggestedDomains: [],
-            lastUpdated: null,
-          };
+          result = this.emptyMetadata(userId);
         } else if (response.status === 401 || response.status === 403) {
           // Token may be missing/expired/revoked during startup transitions.
           // Return empty metadata instead of throwing noisy runtime errors.
@@ -872,14 +966,7 @@ export class PersonalKnowledgeModelService {
             `[PersonalKnowledgeModelService] Metadata unauthorized for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
-          result = {
-            userId,
-            domains: [],
-            totalAttributes: 0,
-            modelCompleteness: 0,
-            suggestedDomains: [],
-            lastUpdated: null,
-          };
+          result = this.emptyMetadata(userId);
         } else if (response.status === 408 || response.status === 429 || response.status >= 500) {
           // Upstream timeout / temporary backend issue.
           // Return an empty shape so callers can apply local fallbacks (cache/blob) without hard crash.
@@ -887,14 +974,7 @@ export class PersonalKnowledgeModelService {
             `[PersonalKnowledgeModelService] Metadata temporarily unavailable for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
-          result = {
-            userId,
-            domains: [],
-            totalAttributes: 0,
-            modelCompleteness: 0,
-            suggestedDomains: [],
-            lastUpdated: null,
-          };
+          result = this.emptyMetadata(userId);
         } else if (!response.ok) {
           // Any remaining non-OK status should fail open for dashboard bootstrap.
           // Callers already apply local cache/blob fallbacks.
@@ -902,14 +982,7 @@ export class PersonalKnowledgeModelService {
             `[PersonalKnowledgeModelService] Metadata request failed for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
-          result = {
-            userId,
-            domains: [],
-            totalAttributes: 0,
-            modelCompleteness: 0,
-            suggestedDomains: [],
-            lastUpdated: null,
-          };
+          result = this.emptyMetadata(userId);
         } else {
           const data = await response.json();
 
@@ -922,12 +995,47 @@ export class PersonalKnowledgeModelService {
               icon: (d.icon_name || d.icon) as string,
               color: (d.color_hex || d.color) as string,
               attributeCount: (d.attribute_count || d.attributeCount) as number,
-              summary: (d.summary || {}) as Record<string, string | number>,
+              summary: (d.summary || {}) as Record<string, unknown>,
               availableScopes: (d.available_scopes || []) as string[],
               lastUpdated: (d.last_updated || null) as string | null,
+              readableSummary: (d.readable_summary || null) as string | null,
+              readableHighlights: Array.isArray(d.readable_highlights)
+                ? (d.readable_highlights as string[])
+                : [],
+              readableUpdatedAt: (d.readable_updated_at || null) as string | null,
+              readableSourceLabel: (d.readable_source_label || null) as string | null,
+              domainContractVersion: Number(
+                d.domain_contract_version ??
+                  currentDomainContractVersion(String(d.domain_key || d.key || ""))
+              ),
+              readableSummaryVersion: Number(d.readable_summary_version ?? 0),
+              upgradedAt: (d.upgraded_at || null) as string | null,
             })),
             totalAttributes: data.total_attributes || 0,
             modelCompleteness: data.model_completeness || 0,
+            modelVersion: data.model_version || CURRENT_PKM_MODEL_VERSION,
+            targetModelVersion: data.target_model_version || CURRENT_PKM_MODEL_VERSION,
+            upgradeStatus: data.upgrade_status || "current",
+            upgradableDomains: Array.isArray(data.upgradable_domains)
+              ? (data.upgradable_domains as Array<Record<string, unknown>>).map((domain) => ({
+                  domain: String(domain.domain || ""),
+                  currentDomainContractVersion: Number(
+                    domain.current_domain_contract_version ?? 1
+                  ),
+                  targetDomainContractVersion: Number(
+                    domain.target_domain_contract_version ?? 1
+                  ),
+                  currentReadableSummaryVersion: Number(
+                    domain.current_readable_summary_version ?? 0
+                  ),
+                  targetReadableSummaryVersion: Number(
+                    domain.target_readable_summary_version ?? CURRENT_READABLE_SUMMARY_VERSION
+                  ),
+                  upgradedAt: (domain.upgraded_at || null) as string | null,
+                  needsUpgrade: Boolean(domain.needs_upgrade),
+                }))
+              : [],
+            lastUpgradedAt: (data.last_upgraded_at || null) as string | null,
             suggestedDomains: data.suggested_domains || [],
             lastUpdated: data.last_updated,
           };
@@ -971,8 +1079,55 @@ export class PersonalKnowledgeModelService {
     manifest?: DomainManifest;
     portfolioData?: CachedPortfolioData;
     expectedDataVersion?: number;
+    upgradeContext?: PkmUpgradeContext;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
+    const metadataTimestamp = new Date().toISOString();
+    const normalizedSummary: Record<string, unknown> = {
+      ...params.summary,
+      domain_contract_version:
+        Number(params.summary.domain_contract_version) || currentDomainContractVersion(params.domain),
+      readable_summary_version:
+        Number(params.summary.readable_summary_version) || CURRENT_READABLE_SUMMARY_VERSION,
+      upgraded_at:
+        typeof params.summary.upgraded_at === "string" && params.summary.upgraded_at.trim().length > 0
+          ? params.summary.upgraded_at
+          : metadataTimestamp,
+    };
+    const manifestSummaryProjection = params.manifest?.summary_projection || {};
+    const normalizedManifest: DomainManifest | undefined = params.manifest
+      ? {
+          ...params.manifest,
+          domain_contract_version:
+            Number(params.manifest.domain_contract_version) ||
+            currentDomainContractVersion(params.domain),
+          readable_summary_version:
+            Number(params.manifest.readable_summary_version) ||
+            CURRENT_READABLE_SUMMARY_VERSION,
+          upgraded_at:
+            typeof params.manifest.upgraded_at === "string" &&
+            params.manifest.upgraded_at.trim().length > 0
+              ? params.manifest.upgraded_at
+              : metadataTimestamp,
+          summary_projection: {
+            ...manifestSummaryProjection,
+            domain_contract_version:
+              Number(manifestSummaryProjection.domain_contract_version) ||
+              Number(params.manifest.domain_contract_version) ||
+              currentDomainContractVersion(params.domain),
+            readable_summary_version:
+              Number(manifestSummaryProjection.readable_summary_version) ||
+              Number(params.manifest.readable_summary_version) ||
+              CURRENT_READABLE_SUMMARY_VERSION,
+            upgraded_at:
+              typeof manifestSummaryProjection.upgraded_at === "string" &&
+              manifestSummaryProjection.upgraded_at.trim().length > 0
+                ? manifestSummaryProjection.upgraded_at
+                : metadataTimestamp,
+          },
+        }
+      : undefined;
+
     if (Capacitor.isNativePlatform()) {
       const result = await HushhPersonalKnowledgeModel.storeDomainData({
         userId: params.userId,
@@ -984,24 +1139,42 @@ export class PersonalKnowledgeModelService {
           algorithm: params.encryptedBlob.algorithm || "aes-256-gcm",
           segments: params.encryptedBlob.segments,
         },
-        summary: params.summary,
+        summary: normalizedSummary,
         structureDecision: params.structureDecision,
-        manifest: params.manifest,
+        manifest: normalizedManifest,
+        expectedDataVersion: params.expectedDataVersion,
+        upgradeContext: params.upgradeContext,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
 
+      const resolvedDataVersion =
+        typeof result.dataVersion === "number" ? result.dataVersion : undefined;
+      const resolvedUpdatedAt =
+        typeof result.updatedAt === "string" ? result.updatedAt : undefined;
+      const resolvedMessage =
+        typeof result.message === "string" ? result.message : undefined;
+
       // Invalidate caches after successful native store
       if (result.success) {
+        const enrichedEncryptedBlob: EncryptedUserBlob = {
+          ...params.encryptedBlob,
+          dataVersion: resolvedDataVersion,
+          updatedAt: resolvedUpdatedAt,
+        };
         CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
           portfolioData: params.portfolioData,
-          encryptedBlob: params.encryptedBlob,
-          domainSummary: params.summary,
-          metadataTimestamp: new Date().toISOString(),
+          encryptedBlob: enrichedEncryptedBlob,
+          domainSummary: normalizedSummary,
+          metadataTimestamp,
         });
       }
 
       return {
         success: result.success,
+        conflict: result.conflict === true,
+        message: resolvedMessage,
+        dataVersion: resolvedDataVersion,
+        updatedAt: resolvedUpdatedAt,
       };
     }
 
@@ -1015,12 +1188,22 @@ export class PersonalKnowledgeModelService {
         algorithm: params.encryptedBlob.algorithm || "aes-256-gcm",
         segments: params.encryptedBlob.segments,
       },
-      summary: params.summary,
+      summary: normalizedSummary,
       structure_decision: params.structureDecision,
-      manifest: params.manifest,
+      manifest: normalizedManifest,
     };
     if (Number.isFinite(params.expectedDataVersion)) {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
+    }
+    if (params.upgradeContext?.runId) {
+      payload.upgrade_context = {
+        run_id: params.upgradeContext.runId,
+        prior_domain_contract_version: params.upgradeContext.priorDomainContractVersion,
+        new_domain_contract_version: params.upgradeContext.newDomainContractVersion,
+        prior_readable_summary_version: params.upgradeContext.priorReadableSummaryVersion,
+        new_readable_summary_version: params.upgradeContext.newReadableSummaryVersion,
+        retry_count: params.upgradeContext.retryCount,
+      };
     }
 
     // Web: Use ApiService.apiFetch() for tri-flow compliance
@@ -1085,8 +1268,8 @@ export class PersonalKnowledgeModelService {
     CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
       portfolioData: params.portfolioData,
       encryptedBlob: enrichedEncryptedBlob,
-      domainSummary: params.summary,
-      metadataTimestamp: new Date().toISOString(),
+      domainSummary: normalizedSummary,
+      metadataTimestamp,
     });
 
     return {
@@ -1604,7 +1787,9 @@ export class PersonalKnowledgeModelService {
     domain: string;
     domainData: Record<string, unknown>;
     summary: Record<string, unknown>;
+    manifest?: DomainManifest;
     expectedDataVersion?: number;
+    upgradeContext?: PkmUpgradeContext;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
@@ -1639,7 +1824,9 @@ export class PersonalKnowledgeModelService {
     domainData: Record<string, unknown>;
     summary: Record<string, unknown>;
     baseFullBlob: Record<string, unknown>;
+    manifest?: DomainManifest;
     expectedDataVersion?: number;
+    upgradeContext?: PkmUpgradeContext;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
   }): Promise<{
@@ -1666,11 +1853,15 @@ export class PersonalKnowledgeModelService {
       domainData: params.domainData,
       previousManifest,
     });
+    const nextManifest = params.manifest || structureArtifacts.manifest;
+    const nextStructureDecision =
+      (params.manifest?.structure_decision as Record<string, unknown> | undefined) ||
+      structureArtifacts.structureDecision;
 
     const summaryWithIntent = {
       domain_intent: params.domain,
       ...params.summary,
-      ...structureArtifacts.manifest.summary_projection,
+      ...nextManifest.summary_projection,
     };
     const portfolioData = this.resolvePortfolioDataForDomain({
       domain: params.domain,
@@ -1682,10 +1873,11 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       encryptedBlob: merged.encryptedBlob,
       summary: summaryWithIntent,
-      structureDecision: structureArtifacts.structureDecision,
-      manifest: structureArtifacts.manifest,
+      structureDecision: nextStructureDecision,
+      manifest: nextManifest,
       portfolioData,
       expectedDataVersion: params.expectedDataVersion,
+      upgradeContext: params.upgradeContext,
       vaultOwnerToken: params.vaultOwnerToken,
     });
 

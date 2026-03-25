@@ -26,6 +26,8 @@ REQUIRED_TABLES = (
     "ria_client_invites",
     "consent_scope_templates",
     "marketplace_public_profiles",
+    "relationship_share_grants",
+    "relationship_share_events",
     "runtime_persona_state",
 )
 

@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import hushh_mcp.services.consent_db as consent_db_module
 from hushh_mcp.services.personal_knowledge_model_service import PersonalKnowledgeModelService
 
 
@@ -82,6 +83,10 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     monkeypatch.setattr(service, "get_encrypted_data", AsyncMock(return_value=None))
     monkeypatch.setattr(service, "update_domain_summary", AsyncMock(return_value=True))
     monkeypatch.setattr(service, "get_domain_manifest", AsyncMock(return_value=None))
+    queue_refreshes = AsyncMock()
+    monkeypatch.setattr(
+        service, "_queue_consent_export_refreshes_for_domain_write", queue_refreshes
+    )
 
     recorded_events = []
 
@@ -100,7 +105,14 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
             "tag": "tag-1",
             "algorithm": "AES-256-GCM",
         },
-        summary={"holdings_count": 2, "risk_profile": "aggressive"},
+        summary={
+            "holdings_count": 2,
+            "risk_profile": "aggressive",
+            "readable_summary": "Kai saved a readable financial update.",
+            "readable_highlights": ["Updated sections: Portfolio", "Captured from: latest note"],
+            "readable_source_label": "PKM Agent Lab",
+            "readable_event_summary": "Updated Financial.",
+        },
         manifest={
             "manifest_version": 1,
             "paths": [
@@ -150,11 +162,23 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert summary_payload["storage_mode"] == "per_domain_blob"
     assert summary_payload["manifest_version"] == 1
     assert "risk_profile" not in summary_payload
+    assert summary_payload["readable_summary"] == "Kai saved a readable financial update."
+    assert summary_payload["readable_highlights"] == [
+        "Updated sections: Portfolio",
+        "Captured from: latest note",
+    ]
 
     assert [event["operation_type"] for event in recorded_events] == [
         "structure_create",
         "content_write",
     ]
+    assert recorded_events[0]["metadata"]["readable"]["readable_summary"] == (
+        "Kai saved a readable financial update."
+    )
+    assert recorded_events[1]["metadata"]["readable"]["readable_event_summary"] == (
+        "Updated Financial."
+    )
+    queue_refreshes.assert_awaited_once()
 
     migration_upsert = service._supabase.tables["pkm_migration_state"].last_upsert_data
     assert migration_upsert["on_conflict"] == "user_id"
@@ -191,3 +215,56 @@ async def test_store_domain_data_uses_legacy_blob_version_for_initial_domain_con
     assert result["conflict"] is True
     assert result["data_version"] == 4
     assert result["updated_at"] == "2026-03-20T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_queue_refresh_jobs_targets_matching_strict_grants(monkeypatch):
+    service = PersonalKnowledgeModelService()
+    queued: list[dict[str, object]] = []
+
+    class _FakeConsentDBService:
+        async def get_active_tokens(self, user_id: str):
+            assert user_id == "user-3"
+            return [
+                {"scope": "attr.financial.*", "token_id": "token_financial"},
+                {"scope": "pkm.read", "token_id": "token_pkm"},
+                {"scope": "attr.financial.profile.*", "token_id": "token_profile"},
+                {"scope": "attr.health.*", "token_id": "token_health"},
+                {"scope": "attr.financial.documents.*", "token_id": "token_legacy"},
+            ]
+
+        async def get_consent_export_metadata(self, token_id: str):
+            if token_id == "token_legacy":  # noqa: S105 - test fixture token id
+                return {"is_strict_zero_knowledge": False}
+            return {"is_strict_zero_knowledge": True}
+
+        async def queue_consent_export_refresh_job(self, **kwargs):
+            queued.append(kwargs)
+            return True
+
+    monkeypatch.setattr(consent_db_module, "ConsentDBService", lambda: _FakeConsentDBService())
+
+    manifest = SimpleNamespace(
+        top_level_scope_paths=["analytics", "profile"],
+        externalizable_paths=["analytics.quality_metrics", "profile.risk_score"],
+    )
+
+    await service._queue_consent_export_refreshes_for_domain_write(
+        user_id="user-3",
+        domain="financial",
+        manifest=manifest,
+    )
+
+    queued_tokens = {entry["consent_token"] for entry in queued}
+    assert queued_tokens == {"token_financial", "token_pkm", "token_profile"}
+    assert all(entry["trigger_domain"] == "financial" for entry in queued)
+    assert all(
+        entry["trigger_paths"]
+        == [
+            "analytics",
+            "analytics.quality_metrics",
+            "profile",
+            "profile.risk_score",
+        ]
+        for entry in queued
+    )

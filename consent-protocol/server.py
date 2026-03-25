@@ -15,8 +15,9 @@ from dotenv import load_dotenv
 # Load .env file before any other imports that might depend on it
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import RedirectResponse  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -131,6 +132,22 @@ configure_opentelemetry(app)
 
 from mcp_remote import remote_mcp_app, shutdown_remote_mcp, startup_remote_mcp  # noqa: E402
 
+
+def _mcp_root_redirect_target(request: Request) -> str:
+    query_string = request.scope.get("query_string", b"")
+    if isinstance(query_string, bytes) and query_string:
+        return f"/mcp/?{query_string.decode('utf-8')}"
+    return "/mcp/"
+
+
+@app.middleware("http")
+async def normalize_mcp_root(request: Request, call_next):
+    # Keep the redirect relative so Cloud Run preserves the original https scheme.
+    if request.url.path == "/mcp":
+        return RedirectResponse(url=_mcp_root_redirect_target(request), status_code=307)
+    return await call_next(request)
+
+
 app.mount("/mcp", remote_mcp_app)
 
 
@@ -197,6 +214,11 @@ app.include_router(identity.router)
 from api.routes import pkm  # noqa: E402
 
 app.include_router(pkm.router)
+
+# Legacy world-model compatibility routes mapped to PKM.
+from api.routes import world_model  # noqa: E402
+
+app.include_router(world_model.router)
 
 # Account deletion and management
 app.include_router(account.router)

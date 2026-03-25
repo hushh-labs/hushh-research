@@ -101,6 +101,10 @@ class RIAClientDetailResponse(BaseModel):
     disconnect_allowed: bool = True
     is_self_relationship: bool = False
     next_action: str | None = None
+    relationship_shares: list[dict] = Field(default_factory=list)
+    picks_feed_status: str | None = None
+    picks_feed_granted_at: str | None = None
+    has_active_pick_upload: bool = False
     granted_scopes: list[dict] = Field(default_factory=list)
     request_history: list[dict] = Field(default_factory=list)
     invite_history: list[dict] = Field(default_factory=list)

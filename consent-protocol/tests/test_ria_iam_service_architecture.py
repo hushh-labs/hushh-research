@@ -1,3 +1,6 @@
+import pytest
+
+from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.renaissance_service import RenaissanceService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
 from hushh_mcp.services.ria_verification import validate_regulated_runtime_configuration
@@ -158,3 +161,138 @@ def test_renaissance_service_exposes_generic_security_list_descriptors():
     assert "renaissance_universe" in ids
     assert "renaissance_avoid" in ids
     assert "renaissance_screening_criteria" in ids
+
+
+def test_relationship_share_summary_describes_implicit_picks_benefit():
+    summary = RIAIAMService._relationship_share_summary("ria_active_picks_feed_v1")
+
+    assert "advisor's active picks list" in summary.lower()
+
+
+def test_picks_feed_status_reflects_relationship_and_upload_state():
+    assert (
+        RIAIAMService._picks_feed_status(
+            relationship_status="approved",
+            share_status="active",
+            has_active_pick_upload=True,
+        )
+        == "ready"
+    )
+    assert (
+        RIAIAMService._picks_feed_status(
+            relationship_status="approved",
+            share_status="active",
+            has_active_pick_upload=False,
+        )
+        == "pending"
+    )
+    assert (
+        RIAIAMService._picks_feed_status(
+            relationship_status="request_pending",
+            share_status="active",
+            has_active_pick_upload=True,
+        )
+        == "included_on_approval"
+    )
+    assert (
+        RIAIAMService._picks_feed_status(
+            relationship_status="approved",
+            share_status="revoked",
+            has_active_pick_upload=True,
+        )
+        == "unavailable"
+    )
+
+
+def test_consent_center_outgoing_request_preserves_additional_access_summary():
+    entry = ConsentCenterService()._normalize_outgoing(
+        {
+            "request_id": "req_1",
+            "user_id": "investor_1",
+            "scope": "attr.financial.*",
+            "action": "REQUESTED",
+            "issued_at": 1,
+            "expires_at": 2,
+            "subject_display_name": "Taylor",
+            "metadata": {
+                "reason": "Need advisory context",
+                "additional_access_summary": "Approving this relationship also unlocks the advisor picks feed.",
+            },
+        }
+    )
+
+    assert (
+        entry["additional_access_summary"]
+        == "Approving this relationship also unlocks the advisor picks feed."
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_investor_pick_sources_requires_active_relationship_share(monkeypatch):
+    class _FakeConn:
+        async def fetch(self, query: str, *_args):
+            assert "relationship_share_grants picks_share" in query
+            return [
+                {
+                    "ria_profile_id": "ria_profile_1",
+                    "ria_user_id": "ria_user_1",
+                    "label": "Advisor Alpha",
+                    "upload_id": "upload_1",
+                    "share_status": "active",
+                    "share_granted_at": "2026-03-24T00:00:00Z",
+                    "share_metadata": {"share_origin": "relationship_implicit"},
+                }
+            ]
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+
+    items = await service.list_investor_pick_sources("investor_1")
+
+    assert len(items) == 1
+    assert items[0]["id"] == "ria:ria_profile_1"
+    assert items[0]["state"] == "ready"
+    assert items[0]["share_status"] == "active"
+    assert items[0]["share_origin"] == "relationship_implicit"
+
+
+@pytest.mark.asyncio
+async def test_get_pick_rows_for_source_returns_empty_without_active_relationship_share(
+    monkeypatch,
+):
+    class _FakeConn:
+        async def fetchrow(self, query: str, *_args):
+            assert "relationship_share_grants share" in query
+            return None
+
+        async def fetch(self, _query: str, *_args):
+            raise AssertionError("Pick rows should not be fetched without an active share grant")
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+
+    rows = await service.get_pick_rows_for_source("investor_1", "ria:ria_profile_1")
+
+    assert rows == []
