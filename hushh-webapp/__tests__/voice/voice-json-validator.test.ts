@@ -44,6 +44,22 @@ describe("voice-json-validator", () => {
     expect(toolCall).toBeNull();
   });
 
+  it("accepts import command payloads", () => {
+    const toolCall = validateVoiceToolCall({
+      tool_name: "execute_kai_command",
+      args: {
+        command: "import",
+      },
+    });
+
+    expect(toolCall).toEqual({
+      tool_name: "execute_kai_command",
+      args: {
+        command: "import",
+      },
+    });
+  });
+
   it("validates blocked response payload", () => {
     const response = validateVoiceResponse({
       kind: "blocked",

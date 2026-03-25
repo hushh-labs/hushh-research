@@ -99,6 +99,41 @@ describe("ApiService voice planning contract", () => {
     expect(body).toHaveProperty("app_state");
   });
 
+  it("forwards planner v2 envelope fields for structured context and memory", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await ApiService.planKaiVoiceIntent({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      transcript: "open dashboard",
+      plannerV2: {
+        turnId: "vturn_1",
+        transcriptFinal: "open dashboard",
+        structuredContext: {
+          route: { pathname: "/kai", screen: "home", subview: null },
+        },
+        memoryShort: [{ turn: "t1" }],
+        memoryRetrieved: [{ memory: "m1" }],
+      },
+    });
+
+    const [, request] = fetchSpy.mock.calls[0] ?? [];
+    const body = JSON.parse(String(request?.body || "{}")) as Record<string, unknown>;
+    expect(body.turn_id).toBe("vturn_1");
+    expect(body.transcript_final).toBe("open dashboard");
+    expect(body.context_structured).toEqual({
+      route: { pathname: "/kai", screen: "home", subview: null },
+    });
+    expect(body.memory_short).toEqual([{ turn: "t1" }]);
+    expect(body.memory_retrieved).toEqual([{ memory: "m1" }]);
+  });
+
   it("forwards voice turn id header for STT and TTS requests", async () => {
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

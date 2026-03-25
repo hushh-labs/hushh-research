@@ -2,6 +2,10 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { KaiCommandAction, KaiCommandParams } from "@/lib/kai/kai-command-types";
+import {
+  getInvestorKaiActionByKaiCommand,
+  resolveInvestorKaiActionWiring,
+} from "@/lib/voice/investor-kai-action-registry";
 
 type RouterLike = {
   push: (href: string) => void;
@@ -71,6 +75,20 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
     !confirmLeave("You have unsaved portfolio changes. Leaving now will discard them.")
   ) {
     return { status: "blocked", reason: "review_dirty" };
+  }
+
+  const canonicalAction = getInvestorKaiActionByKaiCommand(command);
+  if (canonicalAction) {
+    const resolution = resolveInvestorKaiActionWiring(canonicalAction);
+    if (!resolution.resolvable) {
+      console.warn(
+        `[KAI_ACTION_REGISTRY] unresolved_wired_action id=${canonicalAction.id} reason=${resolution.reason}`
+      );
+    } else {
+      console.info(`[KAI_ACTION_REGISTRY] resolved_action id=${canonicalAction.id}`);
+    }
+  } else {
+    console.warn(`[KAI_ACTION_REGISTRY] missing_action_for_command command=${command}`);
   }
 
   if (!hasPortfolioData && (command === "analyze" || command === "history")) {

@@ -4,6 +4,10 @@ import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { VoiceToolCall } from "@/lib/voice/voice-types";
 import type { ExecuteKaiCommandResult } from "@/lib/kai/command-executor";
+import {
+  getInvestorKaiActionByVoiceToolCall,
+  resolveInvestorKaiActionWiring,
+} from "@/lib/voice/investor-kai-action-registry";
 
 type RouterLike = {
   push: (href: string) => void;
@@ -31,6 +35,20 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     executeKaiCommand,
     setAnalysisParams,
   } = input;
+
+  const canonicalAction = getInvestorKaiActionByVoiceToolCall(toolCall);
+  if (canonicalAction) {
+    const resolution = resolveInvestorKaiActionWiring(canonicalAction);
+    if (!resolution.resolvable) {
+      console.warn(
+        `[KAI_ACTION_REGISTRY] unresolved_voice_action id=${canonicalAction.id} reason=${resolution.reason}`
+      );
+    } else {
+      console.info(`[KAI_ACTION_REGISTRY] resolved_voice_action id=${canonicalAction.id}`);
+    }
+  } else {
+    console.warn(`[KAI_ACTION_REGISTRY] missing_action_for_voice_tool tool=${toolCall.tool_name}`);
+  }
 
   console.info("[VOICE_UI] dispatch_tool_call=", toolCall);
 

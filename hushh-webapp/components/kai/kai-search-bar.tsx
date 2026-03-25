@@ -33,6 +33,7 @@ import {
 import { VoiceTtsPlaybackManager } from "@/lib/voice/voice-tts-playback";
 import { voiceSessionManager } from "@/lib/voice/voice-session-manager";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
+import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import {
   VoiceTurnOrchestrator,
   type VoiceOrchestratorSource,
@@ -58,8 +59,11 @@ const VOICE_V2_FLAGS = getVoiceV2Flags();
 interface KaiSearchBarProps {
   onCommand: (command: KaiCommandAction, params?: Record<string, unknown>) => void;
   onVoiceResponse?: (payload: {
+    turnId: string;
+    responseId: string;
     transcript: string;
     response: VoiceResponse;
+    groundedPlan?: GroundedVoicePlan;
     memory?: VoiceMemoryHint;
   }) => Promise<unknown> | unknown;
   disabled?: boolean;

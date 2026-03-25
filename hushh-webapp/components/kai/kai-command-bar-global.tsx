@@ -16,6 +16,8 @@ import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
+import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
+import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import type { AppRuntimeState, VoiceMemoryHint, VoiceResponse } from "@/lib/voice/voice-types";
 
 function toBoolean(value: unknown): boolean | undefined {
@@ -46,40 +48,6 @@ function computeAnalyzeEligibilityFromHolding(holding: Record<string, unknown>):
   return false;
 }
 
-function deriveRouteScreen(pathname: string): { screen: string; subview?: string | null } {
-  const normalizedPath = String(pathname || "").split("?")[0];
-  if (!normalizedPath) {
-    return { screen: "unknown", subview: null };
-  }
-  if (normalizedPath === "/kai" || normalizedPath.startsWith("/kai/home")) {
-    return { screen: "home", subview: null };
-  }
-  if (normalizedPath.startsWith("/kai/dashboard")) {
-    const segments = normalizedPath.split("/").filter(Boolean);
-    return { screen: "dashboard", subview: segments[2] || null };
-  }
-  if (normalizedPath.startsWith("/kai/analysis")) {
-    return { screen: "analysis", subview: null };
-  }
-  if (normalizedPath.startsWith("/kai/import")) {
-    return { screen: "import", subview: null };
-  }
-  if (normalizedPath.startsWith("/kai/optimize")) {
-    return { screen: "optimize", subview: null };
-  }
-  if (normalizedPath.startsWith("/consents")) {
-    return { screen: "consents", subview: null };
-  }
-  if (normalizedPath.startsWith("/profile")) {
-    return { screen: "profile", subview: null };
-  }
-  if (normalizedPath.startsWith("/kai")) {
-    const segments = normalizedPath.split("/").filter(Boolean);
-    return { screen: "kai", subview: segments[1] || null };
-  }
-  return { screen: "app", subview: null };
-}
-
 export function KaiCommandBarGlobal() {
   const router = useRouter();
   const pathname = usePathname();
@@ -91,6 +59,7 @@ export function KaiCommandBarGlobal() {
   const setAnalysisParams = useKaiSession((s) => s.setAnalysisParams);
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const analysisParams = useKaiSession((s) => s.analysisParams);
+  const appendVoiceDebugEvent = useVoiceSession((s) => s.appendDebugEvent);
   const { lastToolName, lastTicker, setLastVoiceTurn } = useVoiceSession();
   const cache = useMemo(() => CacheService.getInstance(), []);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
@@ -278,7 +247,7 @@ export function KaiCommandBarGlobal() {
     );
   }, [backgroundTaskState.tasks, userId]);
 
-  const routeInfo = useMemo(() => deriveRouteScreen(pathname || ""), [pathname]);
+  const routeInfo = useMemo(() => deriveVoiceRouteScreen(pathname || ""), [pathname]);
   const appRuntimeState = useMemo<AppRuntimeState>(
     () => ({
       auth: {
@@ -380,12 +349,18 @@ export function KaiCommandBarGlobal() {
         runKaiCommand(command, params);
       }}
       onVoiceResponse={async (payload: {
+        turnId: string;
+        responseId: string;
         transcript: string;
         response: VoiceResponse;
+        groundedPlan?: GroundedVoicePlan;
         memory?: VoiceMemoryHint;
       }) => {
         const outcome = await executeVoiceResponse({
           response: payload.response,
+          groundedPlan: payload.groundedPlan,
+          turnId: payload.turnId,
+          responseId: payload.responseId,
           userId,
           vaultOwnerToken: vaultOwnerToken || undefined,
           vaultKey: vaultKey || undefined,
@@ -400,6 +375,15 @@ export function KaiCommandBarGlobal() {
                 )
               : { status: "invalid", reason: "not_execute_tool" },
           setAnalysisParams,
+          emitTelemetry: (event, telemetryPayload) => {
+            appendVoiceDebugEvent({
+              turnId: payload.turnId || "no_turn",
+              sessionId: null,
+              stage: "dispatch",
+              event,
+              payload: telemetryPayload,
+            });
+          },
         });
 
         if (outcome.shortTermMemoryWrite) {
@@ -408,6 +392,7 @@ export function KaiCommandBarGlobal() {
             toolName: outcome.toolName,
             ticker: outcome.ticker,
             responseKind: outcome.responseKind,
+            turnId: payload.turnId,
           });
         }
 

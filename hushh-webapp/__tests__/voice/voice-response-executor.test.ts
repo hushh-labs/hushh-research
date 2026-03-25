@@ -17,6 +17,9 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 
 import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
 
+const originalGroundedExecutionFlag =
+  process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED;
+
 function baseInput() {
   return {
     userId: "user_1",
@@ -37,6 +40,12 @@ describe("executeVoiceResponse", () => {
     dispatchVoiceToolCallMock.mockResolvedValue(undefined);
     toastInfoMock.mockReset();
     toastSuccessMock.mockReset();
+    if (originalGroundedExecutionFlag === undefined) {
+      delete process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED;
+    } else {
+      process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED =
+        originalGroundedExecutionFlag;
+    }
   });
 
   it("dispatches execute response through voice tool dispatcher", async () => {
@@ -67,6 +76,184 @@ describe("executeVoiceResponse", () => {
     });
   });
 
+  it("blocks destructive grounded actions and asks for manual completion", async () => {
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      response: {
+        kind: "speak_only",
+        message: "Please do that yourself in the app.",
+        speak: true,
+      },
+      groundedPlan: {
+        status: "manual_only",
+        actionId: "profile.delete_account",
+        actionLabel: "Delete Account",
+        destructive: true,
+        message: "Please do that yourself in the app.",
+        execution: {
+          mode: "manual_only",
+          steps: [
+            {
+              type: "prompt",
+              message: "Please do that yourself in the app.",
+              reason: "destructive_action_policy",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(toastInfoMock).toHaveBeenCalledWith("Please do that yourself in the app.");
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "speak_only",
+    });
+  });
+
+  it("executes hidden action plans as navigation followed by tool dispatch", async () => {
+    const input = baseInput();
+    const result = await executeVoiceResponse({
+      ...input,
+      response: {
+        kind: "execute",
+        message: "Resuming active analysis.",
+        speak: true,
+        tool_call: {
+          tool_name: "resume_active_analysis",
+          args: {},
+        },
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "analysis.resume_active",
+        actionLabel: "Resume Active Analysis Run",
+        destructive: false,
+        message: null,
+        execution: {
+          mode: "navigate_then_action",
+          steps: [
+            {
+              type: "navigate",
+              href: "/kai/analysis",
+              reason: "hidden_action_navigation_prerequisite",
+            },
+            {
+              type: "tool_call",
+              toolCall: {
+                tool_name: "resume_active_analysis",
+                args: {},
+              },
+              reason: "wired_tool_after_navigation",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis");
+    expect(dispatchVoiceToolCallMock).toHaveBeenCalledTimes(1);
+    expect(input.router.push.mock.invocationCallOrder[0]).toBeLessThan(
+      dispatchVoiceToolCallMock.mock.invocationCallOrder[0]
+    );
+    expect(result).toEqual({
+      shortTermMemoryWrite: true,
+      toolName: "resume_active_analysis",
+      ticker: null,
+      responseKind: "execute",
+    });
+  });
+
+  it("shows unavailable grounded action message without dispatch", async () => {
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      response: {
+        kind: "speak_only",
+        message: "I can’t do that right now.",
+        speak: true,
+      },
+      groundedPlan: {
+        status: "unavailable",
+        actionId: "command.optimize_legacy",
+        actionLabel: "Legacy Optimize Voice Command",
+        destructive: false,
+        message: "I can’t do that right now.",
+        execution: {
+          mode: "unavailable",
+          steps: [
+            {
+              type: "prompt",
+              message: "I can’t do that right now.",
+              reason: "legacy_unavailable",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(toastInfoMock).toHaveBeenCalledWith("I can’t do that right now.");
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "speak_only",
+    });
+  });
+
+  it("falls back to legacy execute path when grounded execution rollout flag is disabled", async () => {
+    process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED = "0";
+    const input = baseInput();
+    const result = await executeVoiceResponse({
+      ...input,
+      response: {
+        kind: "execute",
+        message: "Resuming active analysis.",
+        speak: true,
+        tool_call: {
+          tool_name: "resume_active_analysis",
+          args: {},
+        },
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "analysis.resume_active",
+        actionLabel: "Resume Active Analysis Run",
+        destructive: false,
+        message: null,
+        execution: {
+          mode: "navigate_then_action",
+          steps: [
+            {
+              type: "navigate",
+              href: "/kai/analysis",
+              reason: "hidden_action_navigation_prerequisite",
+            },
+            {
+              type: "tool_call",
+              toolCall: {
+                tool_name: "resume_active_analysis",
+                args: {},
+              },
+              reason: "wired_tool_after_navigation",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(input.router.push).not.toHaveBeenCalled();
+    expect(dispatchVoiceToolCallMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      shortTermMemoryWrite: true,
+      toolName: "resume_active_analysis",
+      ticker: null,
+      responseKind: "execute",
+    });
+  });
+
   it("does not write short-term memory for stt_unusable clarify", async () => {
     const result = await executeVoiceResponse({
       ...baseInput(),
@@ -81,6 +268,38 @@ describe("executeVoiceResponse", () => {
     expect(toastInfoMock).toHaveBeenCalledTimes(1);
     expect(result.shortTermMemoryWrite).toBe(false);
     expect(result.toolName).toBeNull();
+  });
+
+  it("keeps ticker_ambiguous clarify in fallback flow", async () => {
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      response: {
+        kind: "clarify",
+        reason: "ticker_ambiguous",
+        message: "Did you mean NVDA or AMD?",
+        speak: true,
+      },
+      groundedPlan: {
+        status: "ambiguous",
+        actionId: null,
+        actionLabel: null,
+        destructive: false,
+        message: "Did you mean NVDA or AMD?",
+        execution: {
+          mode: "ambiguous",
+          steps: [],
+        },
+      },
+    });
+
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(toastInfoMock).toHaveBeenCalledWith("Did you mean NVDA or AMD?");
+    expect(result).toEqual({
+      shortTermMemoryWrite: true,
+      toolName: "clarify",
+      ticker: null,
+      responseKind: "clarify",
+    });
   });
 
   it("returns already_running as short-term memory eligible", async () => {

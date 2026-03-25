@@ -1,9 +1,16 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import { normalizeClarifyToolCall, validateVoicePlanPayload } from "@/lib/voice/voice-json-validator";
-import { createVoiceTurnId } from "@/lib/voice/voice-telemetry";
+import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
 import { buildStructuredScreenContext, type StructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import {
+  resolveGroundedVoicePlan,
+  type GroundedVoicePlan,
+  VOICE_MANUAL_ONLY_MESSAGE,
+  VOICE_UNAVAILABLE_MESSAGE,
+} from "@/lib/voice/voice-grounding";
 import {
   type DurableMemoryItem,
   type DurableMemoryWriteCandidate,
@@ -74,14 +81,31 @@ function makeResponseId(turnId: string): string {
   return `vrsp_${turnId.replace(/^vturn_/, "")}`;
 }
 
+function createNoopGroundedPlan(): GroundedVoicePlan {
+  return {
+    status: "none",
+    actionId: null,
+    actionLabel: null,
+    destructive: false,
+    message: null,
+    execution: {
+      mode: "none",
+      steps: [],
+    },
+  };
+}
+
 export type VoiceTurnOrchestratorConfig = {
   userId: string;
   vaultOwnerToken: string;
   getAppRuntimeState: () => AppRuntimeState | undefined;
   getVoiceContext: () => Record<string, unknown> | undefined;
   onVoiceResponse: (payload: {
+    turnId: string;
+    responseId: string;
     transcript: string;
     response: VoiceResponse;
+    groundedPlan?: GroundedVoicePlan;
     memory?: VoiceMemoryHint;
   }) => Promise<unknown> | unknown;
   speak: (input: VoiceTurnOrchestratorSpeakInput) => Promise<void>;
@@ -100,6 +124,7 @@ export type VoiceTurnOrchestratorResult = {
   turnId: string;
   responseId: string;
   response: VoiceResponse;
+  groundedPlan: GroundedVoicePlan;
   source: VoiceOrchestratorSource;
 };
 
@@ -173,11 +198,15 @@ export class VoiceTurnOrchestrator {
         userId: this.config.userId,
         vaultOwnerToken: this.config.vaultOwnerToken,
         transcript: cleanTranscript,
+        plannerV2: {
+          turnId,
+          transcriptFinal: cleanTranscript,
+          structuredContext,
+          memoryShort,
+          memoryRetrieved,
+        },
         context: {
           ...(voiceContext || {}),
-          structured_screen_context: structuredContext,
-          memory_short: memoryShort,
-          memory_retrieved: memoryRetrieved,
           planner_v2_enabled: true,
           planner_turn_id: turnId,
         },
@@ -211,17 +240,139 @@ export class VoiceTurnOrchestrator {
         throw new Error("VOICE_ORCHESTRATOR_INVALID_PLAN_PAYLOAD");
       }
 
-      const response = normalizedPlan.response;
+      const plannerResponse = normalizedPlan.response;
       const responseId =
         plannerSafeText(plannerEnvelope.response_id) || makeResponseId(turnId);
       const isLongRunning = plannerEnvelope.is_long_running === true;
       const ackText = plannerSafeText(plannerEnvelope.ack_text);
-      const finalText = plannerSafeText(plannerEnvelope.final_text) || response.message;
       const memoryWriteCandidates = parsePlannerMemoryWriteCandidates(
         plannerEnvelope.memory_write_candidates
       );
+      const voiceFlags = getVoiceV2Flags();
+      const groundedPlan = voiceFlags.groundedActionResolutionEnabled
+        ? resolveGroundedVoicePlan({
+            transcript: cleanTranscript,
+            response: plannerResponse,
+            structuredContext,
+          })
+        : createNoopGroundedPlan();
+      if (!voiceFlags.groundedActionResolutionEnabled) {
+        this.config.onDebug?.("grounding_skipped_rollout_flag", {
+          flag: "NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_RESOLUTION_ENABLED",
+        });
+      }
+      const plannerIntentName =
+        plannerEnvelope.intent &&
+        typeof plannerEnvelope.intent === "object" &&
+        typeof plannerEnvelope.intent.name === "string"
+          ? plannerEnvelope.intent.name.trim()
+          : "";
+      this.config.onDebug?.("grounding_resolved", {
+        status: groundedPlan.status,
+        action_id: groundedPlan.actionId,
+        action_label: groundedPlan.actionLabel,
+        execution_mode: groundedPlan.execution.mode,
+        destructive: groundedPlan.destructive,
+        planner_intent: plannerIntentName || null,
+        rollout_grounded_resolution_enabled: voiceFlags.groundedActionResolutionEnabled,
+        rollout_grounded_policy_enabled: voiceFlags.groundedActionPolicyEnforcementEnabled,
+      });
+      this.config.onDebug?.("intent_grounded_action_mapped", {
+        intent_name: plannerIntentName || null,
+        action_id: groundedPlan.actionId,
+        grounded_status: groundedPlan.status,
+      });
+      logVoiceMetric({
+        metric: "intent_grounded_action_mapping",
+        value: groundedPlan.actionId ? 1 : 0,
+        turnId,
+        tags: {
+          intent_name: plannerIntentName || "unknown",
+          action_id: groundedPlan.actionId || "none",
+          grounded_status: groundedPlan.status,
+        },
+      });
 
-      if (isLongRunning && ackText) {
+      if (
+        groundedPlan.status === "resolved" &&
+        groundedPlan.execution.mode === "navigate_then_action"
+      ) {
+        const hiddenPath = groundedPlan.execution.steps.map((step) =>
+          step.type === "navigate"
+            ? `navigate:${step.href}`
+            : step.type === "tool_call"
+              ? `tool:${step.toolCall.tool_name}`
+              : "prompt"
+        );
+        this.config.onDebug?.("hidden_navigation_resolution_path", {
+          action_id: groundedPlan.actionId,
+          path: hiddenPath,
+        });
+        logVoiceMetric({
+          metric: "hidden_navigation_resolution",
+          value: 1,
+          turnId,
+          tags: {
+            action_id: groundedPlan.actionId || "none",
+            path: hiddenPath.join("->"),
+          },
+        });
+      }
+
+      let response: VoiceResponse = plannerResponse;
+      let finalText =
+        plannerSafeText(plannerEnvelope.final_text) || plannerResponse.message;
+      let effectiveLongRunning = isLongRunning;
+
+      if (voiceFlags.groundedActionPolicyEnforcementEnabled && groundedPlan.status === "manual_only") {
+        if (groundedPlan.destructive) {
+          this.config.onDebug?.("destructive_intent_blocked_self_serve_required", {
+            action_id: groundedPlan.actionId,
+            action_label: groundedPlan.actionLabel,
+          });
+          logVoiceMetric({
+            metric: "destructive_intent_blocked",
+            value: 1,
+            turnId,
+            tags: {
+              action_id: groundedPlan.actionId || "none",
+            },
+          });
+        }
+        const message =
+          (groundedPlan.message && groundedPlan.message.trim()) || VOICE_MANUAL_ONLY_MESSAGE;
+        response = {
+          kind: "speak_only",
+          message,
+          speak: true,
+        };
+        finalText = message;
+        effectiveLongRunning = false;
+      } else if (voiceFlags.groundedActionPolicyEnforcementEnabled && groundedPlan.status === "unavailable") {
+        this.config.onDebug?.("grounded_action_unavailable", {
+          action_id: groundedPlan.actionId,
+          action_label: groundedPlan.actionLabel,
+        });
+        logVoiceMetric({
+          metric: "grounded_action_unavailable",
+          value: 1,
+          turnId,
+          tags: {
+            action_id: groundedPlan.actionId || "none",
+          },
+        });
+        const message =
+          (groundedPlan.message && groundedPlan.message.trim()) || VOICE_UNAVAILABLE_MESSAGE;
+        response = {
+          kind: "speak_only",
+          message,
+          speak: true,
+        };
+        finalText = message;
+        effectiveLongRunning = false;
+      }
+
+      if (effectiveLongRunning && ackText) {
         this.config.onStageChange?.("speaking_ack");
         this.config.onAssistantText?.({
           text: ackText,
@@ -243,8 +394,11 @@ export class VoiceTurnOrchestrator {
       this.config.onStageChange?.("dispatch");
       await Promise.resolve(
         this.config.onVoiceResponse({
+          turnId,
+          responseId,
           transcript: cleanTranscript,
           response,
+          groundedPlan,
           memory: normalizedPlan.memory,
         })
       );
@@ -252,7 +406,8 @@ export class VoiceTurnOrchestrator {
       if (!this.isTokenActive(token)) return null;
 
       const shouldSpeakFinal =
-        response.speak && (!isLongRunning || !ackText || ackText.trim() !== finalText.trim());
+        response.speak &&
+        (!effectiveLongRunning || !ackText || ackText.trim() !== finalText.trim());
 
       if (shouldSpeakFinal) {
         this.config.onStageChange?.("speaking_final");
@@ -289,6 +444,7 @@ export class VoiceTurnOrchestrator {
         turnId,
         responseId,
         response,
+        groundedPlan,
         source: input.source,
       };
     } finally {

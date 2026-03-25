@@ -1134,9 +1134,9 @@ export class ApiService {
     plannerV2?: {
       turnId: string;
       transcriptFinal: string;
-      structuredContext?: Record<string, unknown>;
-      memoryShort?: Array<Record<string, unknown>>;
-      memoryRetrieved?: Array<Record<string, unknown>>;
+      structuredContext?: unknown;
+      memoryShort?: unknown[];
+      memoryRetrieved?: unknown[];
     };
     voiceTurnId?: string;
     signal?: AbortSignal;

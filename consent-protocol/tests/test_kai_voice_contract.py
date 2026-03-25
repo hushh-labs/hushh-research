@@ -40,6 +40,7 @@ from hushh_mcp.services.voice_intent_service import (
     _ALLOWED_COMMANDS,
     _ALLOWED_TOOL_NAMES,
     _UNCLEAR_STT_MESSAGE,
+    _compact_context,
 )
 
 
@@ -196,6 +197,29 @@ async def test_plan_voice_response_explain_screen_is_deterministic_speak_only(
     assert model == "deterministic"
 
 
+def test_compact_context_keeps_structured_context_and_bounds_memory():
+    short_items = [{"turn": idx} for idx in range(12)]
+    retrieved_items = [{"id": idx} for idx in range(10)]
+    compact = _compact_context(
+        {
+            "route": "/kai/analysis",
+            "structured_screen_context": {"route": {"pathname": "/kai/analysis"}},
+            "memory_short": short_items,
+            "memory_retrieved": retrieved_items,
+            "planner_v2_enabled": True,
+            "planner_turn_id": "vturn_123",
+            "ignored_key": "drop-me",
+        }
+    )
+
+    assert compact["structured_screen_context"] == {"route": {"pathname": "/kai/analysis"}}
+    assert compact["memory_short"] == short_items[:8]
+    assert compact["memory_retrieved"] == retrieved_items[:8]
+    assert compact["planner_v2_enabled"] is True
+    assert compact["planner_turn_id"] == "vturn_123"
+    assert "ignored_key" not in compact
+
+
 @pytest.mark.anyio
 async def test_plan_voice_response_import_already_running(voice_service: VoiceIntentService):
     response, _, _ = await voice_service.plan_voice_response(
@@ -209,6 +233,22 @@ async def test_plan_voice_response_import_already_running(voice_service: VoiceIn
     assert response["kind"] == "already_running"
     assert response["task"] == "import"
     assert response["run_id"] == "import_run_1"
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_import_routes_to_command(voice_service: VoiceIntentService):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="open import",
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["tool_call"] == {
+        "tool_name": "execute_kai_command",
+        "args": {"command": "import"},
+    }
 
 
 @pytest.mark.anyio

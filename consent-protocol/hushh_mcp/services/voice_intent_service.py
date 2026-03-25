@@ -30,6 +30,7 @@ _ALLOWED_TOOL_NAMES = {
 _ALLOWED_COMMANDS = {
     "analyze",
     "optimize",
+    "import",
     "consent",
     "profile",
     "history",
@@ -52,6 +53,8 @@ _COMMAND_ALIASES = {
     "consent_section": "consent",
     "portfolio": "dashboard",
     "portfolio_section": "dashboard",
+    "imports": "import",
+    "import_section": "import",
     "profiel": "profile",
     "profle": "profile",
     "dash_board": "dashboard",
@@ -64,6 +67,11 @@ _ALLOWED_CONTEXT_KEYS = {
     "last_ticker",
     "current_ticker",
     "has_portfolio_data",
+    "structured_screen_context",
+    "memory_short",
+    "memory_retrieved",
+    "planner_v2_enabled",
+    "planner_turn_id",
 }
 _UNCLEAR_STT_MESSAGE = "I couldn\u2019t understand what you said, please repeat."
 _MIN_ACTIONABLE_CHARS = 2
@@ -141,6 +149,9 @@ _CANCEL_INTENT_KEYWORDS = (
 _NAV_COMMAND_KEYWORDS = (
     ("dashboard", "dashboard"),
     ("portfolio", "dashboard"),
+    ("import", "import"),
+    ("upload statement", "import"),
+    ("portfolio import", "import"),
     ("analysis history", "history"),
     ("open history", "history"),
     ("history tab", "history"),
@@ -382,6 +393,14 @@ def _compact_context(value: dict[str, Any] | None) -> dict[str, Any]:
         if key not in value:
             continue
         raw = value.get(key)
+        if key == "structured_screen_context":
+            if isinstance(raw, dict):
+                compact[key] = raw
+            continue
+        if key in {"memory_short", "memory_retrieved"}:
+            if isinstance(raw, list):
+                compact[key] = raw[:8]
+            continue
         if isinstance(raw, bool):
             compact[key] = raw
             continue
@@ -1163,6 +1182,7 @@ class VoiceIntentService:
             "for navigation requests like go to / take me to / open / navigate to, even if text is imperfect. "
             "Navigation target mapping: "
             "dashboard|portfolio => execute_kai_command(command='dashboard'); "
+            "import|upload statement|portfolio import => execute_kai_command(command='import'); "
             "history|analysis history|analysis tab => execute_kai_command(command='history'); "
             "market|kai|home => execute_kai_command(command='home'); "
             "consent|consents|similar sounding consent words => execute_kai_command(command='consent'); "
@@ -1583,11 +1603,11 @@ class VoiceIntentService:
                 response["tool_call"] = self._legacy_tool_call_for_response(response)
                 return response, 0, "deterministic"
             response = self._build_response(
-                kind="speak_only",
-                message="Open the import screen to start a new statement import.",
+                kind="execute",
+                message="Opening import.",
+                tool_call={"tool_name": "execute_kai_command", "args": {"command": "import"}},
             )
             response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
             return response, 0, "deterministic"
 
         if _contains_any(lowered, _RESUME_INTENT_KEYWORDS):

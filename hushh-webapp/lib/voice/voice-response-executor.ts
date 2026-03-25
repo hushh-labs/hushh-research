@@ -1,6 +1,13 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import { dispatchVoiceToolCall } from "@/lib/voice/voice-action-dispatcher";
+import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
+import {
+  type GroundedVoicePlan,
+  VOICE_MANUAL_ONLY_MESSAGE,
+  VOICE_UNAVAILABLE_MESSAGE,
+} from "@/lib/voice/voice-grounding";
+import { logVoiceMetric } from "@/lib/voice/voice-telemetry";
 import type { VoiceResponse } from "@/lib/voice/voice-types";
 import type { ExecuteKaiCommandResult } from "@/lib/kai/command-executor";
 
@@ -8,8 +15,16 @@ type RouterLike = {
   push: (href: string) => void;
 };
 
+type VoiceExecutionTelemetryEmitter = (
+  event: string,
+  payload?: Record<string, unknown>
+) => void;
+
 export type ExecuteVoiceResponseInput = {
   response: VoiceResponse;
+  groundedPlan?: GroundedVoicePlan;
+  turnId?: string;
+  responseId?: string;
   userId: string;
   vaultOwnerToken?: string;
   vaultKey?: string;
@@ -17,6 +32,7 @@ export type ExecuteVoiceResponseInput = {
   handleBack: () => void;
   executeKaiCommand: () => ExecuteKaiCommandResult;
   setAnalysisParams: (params: AnalysisParams | null) => void;
+  emitTelemetry?: VoiceExecutionTelemetryEmitter;
 };
 
 export type ExecuteVoiceResponseResult = {
@@ -26,29 +42,186 @@ export type ExecuteVoiceResponseResult = {
   responseKind: VoiceResponse["kind"];
 };
 
-function extractTickerFromExecute(response: VoiceResponse): string | null {
-  if (response.kind !== "execute") return null;
-  const toolCall = response.tool_call;
+function extractTickerFromToolCall(
+  toolCall: Extract<VoiceResponse, { kind: "execute" }>["tool_call"]
+): string | null {
   if (toolCall.tool_name !== "execute_kai_command") return null;
   if (toolCall.args.command !== "analyze") return null;
   return toolCall.args.params?.symbol ?? null;
 }
 
+function extractTickerFromExecute(response: VoiceResponse): string | null {
+  if (response.kind !== "execute") return null;
+  return extractTickerFromToolCall(response.tool_call);
+}
+
+function emitExecutionTelemetry(
+  input: ExecuteVoiceResponseInput,
+  event: string,
+  payload?: Record<string, unknown>
+): void {
+  input.emitTelemetry?.(event, payload);
+  if (!input.turnId) return;
+  const normalizedTags: Record<string, string | number | boolean | null | undefined> = {};
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      value === null ||
+      value === undefined
+    ) {
+      normalizedTags[key] = value;
+      return;
+    }
+    normalizedTags[key] = String(value);
+  });
+  if (input.responseId) {
+    normalizedTags.response_id = input.responseId;
+  }
+  logVoiceMetric({
+    metric: `execution_${event}`,
+    value: 1,
+    turnId: input.turnId,
+    tags: normalizedTags,
+  });
+}
+
 export async function executeVoiceResponse(
   input: ExecuteVoiceResponseInput
 ): Promise<ExecuteVoiceResponseResult> {
-  const { response } = input;
+  const { response, groundedPlan } = input;
+  const voiceFlags = getVoiceV2Flags();
+  const groundedExecutionEnabled = voiceFlags.groundedActionExecutionEnabled;
+
+  if (groundedPlan && groundedPlan.status !== "none" && groundedExecutionEnabled) {
+    if (groundedPlan.status === "manual_only") {
+      const message = groundedPlan.message || VOICE_MANUAL_ONLY_MESSAGE;
+      toast.info(message);
+      emitExecutionTelemetry(input, "blocked_destructive_intent", {
+        action_id: groundedPlan.actionId,
+        reason: "self_serve_required",
+      });
+      return {
+        shortTermMemoryWrite: false,
+        toolName: null,
+        ticker: null,
+        responseKind: response.kind,
+      };
+    }
+
+    if (groundedPlan.status === "unavailable") {
+      const message = groundedPlan.message || VOICE_UNAVAILABLE_MESSAGE;
+      toast.info(message);
+      emitExecutionTelemetry(input, "grounded_unavailable", {
+        action_id: groundedPlan.actionId,
+      });
+      return {
+        shortTermMemoryWrite: false,
+        toolName: null,
+        ticker: null,
+        responseKind: response.kind,
+      };
+    }
+
+    if (groundedPlan.status === "resolved" && groundedPlan.execution.steps.length > 0) {
+      let executedToolName: string | null = null;
+      let extractedTicker: string | null = null;
+      let navigated = false;
+
+      try {
+        for (const step of groundedPlan.execution.steps) {
+          if (step.type === "navigate") {
+            input.router.push(step.href);
+            navigated = true;
+            emitExecutionTelemetry(input, "hidden_navigation_step", {
+              action_id: groundedPlan.actionId,
+              href: step.href,
+              path_mode: groundedPlan.execution.mode,
+            });
+            continue;
+          }
+          if (step.type === "tool_call") {
+            await dispatchVoiceToolCall({
+              toolCall: step.toolCall,
+              userId: input.userId,
+              vaultOwnerToken: input.vaultOwnerToken,
+              vaultKey: input.vaultKey,
+              router: input.router,
+              handleBack: input.handleBack,
+              executeKaiCommand: input.executeKaiCommand,
+              setAnalysisParams: input.setAnalysisParams,
+            });
+            executedToolName = step.toolCall.tool_name;
+            extractedTicker = extractedTicker || extractTickerFromToolCall(step.toolCall);
+            continue;
+          }
+          toast.info(step.message);
+        }
+      } catch (error) {
+        const message = VOICE_UNAVAILABLE_MESSAGE;
+        toast.info(message);
+        emitExecutionTelemetry(input, "grounded_execution_failure", {
+          action_id: groundedPlan.actionId,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
+        return {
+          shortTermMemoryWrite: false,
+          toolName: null,
+          ticker: null,
+          responseKind: response.kind,
+        };
+      }
+
+      emitExecutionTelemetry(input, "grounded_execution_success", {
+        action_id: groundedPlan.actionId,
+        execution_mode: groundedPlan.execution.mode,
+        tool_name: executedToolName || null,
+        navigated,
+      });
+      return {
+        shortTermMemoryWrite: Boolean(executedToolName || navigated),
+        toolName: executedToolName || (navigated ? "navigate" : null),
+        ticker: extractedTicker,
+        responseKind: response.kind,
+      };
+    }
+  }
+
+  if (groundedPlan && groundedPlan.status !== "none" && !groundedExecutionEnabled) {
+    emitExecutionTelemetry(input, "grounded_execution_skipped_rollout_flag", {
+      action_id: groundedPlan.actionId,
+      status: groundedPlan.status,
+    });
+  }
 
   if (response.kind === "execute") {
-    await dispatchVoiceToolCall({
-      toolCall: response.tool_call,
-      userId: input.userId,
-      vaultOwnerToken: input.vaultOwnerToken,
-      vaultKey: input.vaultKey,
-      router: input.router,
-      handleBack: input.handleBack,
-      executeKaiCommand: input.executeKaiCommand,
-      setAnalysisParams: input.setAnalysisParams,
+    try {
+      await dispatchVoiceToolCall({
+        toolCall: response.tool_call,
+        userId: input.userId,
+        vaultOwnerToken: input.vaultOwnerToken,
+        vaultKey: input.vaultKey,
+        router: input.router,
+        handleBack: input.handleBack,
+        executeKaiCommand: input.executeKaiCommand,
+        setAnalysisParams: input.setAnalysisParams,
+      });
+    } catch (error) {
+      toast.info(VOICE_UNAVAILABLE_MESSAGE);
+      emitExecutionTelemetry(input, "legacy_execute_failure", {
+        tool_name: response.tool_call.tool_name,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+      return {
+        shortTermMemoryWrite: false,
+        toolName: null,
+        ticker: null,
+        responseKind: response.kind,
+      };
+    }
+    emitExecutionTelemetry(input, "legacy_execute_success", {
+      tool_name: response.tool_call.tool_name,
     });
     return {
       shortTermMemoryWrite: true,
@@ -62,6 +235,11 @@ export async function executeVoiceResponse(
     toast.success(response.message, {
       description: `Run ${response.run_id} started for ${response.ticker}.`,
     });
+    emitExecutionTelemetry(input, "background_started", {
+      task: response.task,
+      ticker: response.ticker,
+      run_id: response.run_id,
+    });
     return {
       shortTermMemoryWrite: true,
       toolName: "background_started",
@@ -72,6 +250,11 @@ export async function executeVoiceResponse(
 
   if (response.kind === "already_running") {
     toast.info(response.message);
+    emitExecutionTelemetry(input, "already_running", {
+      task: response.task,
+      ticker: response.ticker ?? null,
+      run_id: response.run_id ?? null,
+    });
     return {
       shortTermMemoryWrite: true,
       toolName: "already_running",
@@ -82,6 +265,9 @@ export async function executeVoiceResponse(
 
   if (response.kind === "clarify") {
     toast.info(response.message);
+    emitExecutionTelemetry(input, "clarify", {
+      reason: response.reason,
+    });
     return {
       shortTermMemoryWrite: response.reason !== "stt_unusable",
       toolName: response.reason === "stt_unusable" ? null : "clarify",
@@ -91,7 +277,11 @@ export async function executeVoiceResponse(
   }
 
   if (response.kind === "blocked") {
-    toast.info(response.message);
+    const message = String(response.message || "").trim() || VOICE_UNAVAILABLE_MESSAGE;
+    toast.info(message);
+    emitExecutionTelemetry(input, "action_blocked", {
+      reason: response.reason,
+    });
     return {
       shortTermMemoryWrite: false,
       toolName: null,
@@ -100,7 +290,10 @@ export async function executeVoiceResponse(
     };
   }
 
-  toast.info(response.message);
+  toast.info(String(response.message || "").trim() || VOICE_UNAVAILABLE_MESSAGE);
+  emitExecutionTelemetry(input, "fallback_speak_only", {
+    response_kind: response.kind,
+  });
   return {
     shortTermMemoryWrite: false,
     toolName: null,

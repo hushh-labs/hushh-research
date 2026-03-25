@@ -24,10 +24,17 @@ export type VoiceV2Flags = {
   submitDebugVisible: boolean;
   clientVadFallbackEnabled: boolean;
   ttsBackendFallbackEnabled: boolean;
+  groundedActionResolutionEnabled: boolean;
+  groundedActionPolicyEnforcementEnabled: boolean;
+  groundedActionExecutionEnabled: boolean;
 };
 
 export function getVoiceV2Flags(): VoiceV2Flags {
   const enabled = resolveFlag(process.env.NEXT_PUBLIC_VOICE_V2_ENABLED, true);
+  const groundedActionResolutionEnabled = resolveFlag(
+    process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_RESOLUTION_ENABLED,
+    enabled
+  );
   return {
     enabled,
     autoturnEnabled: resolveFlag(process.env.NEXT_PUBLIC_VOICE_V2_AUTOTURN_ENABLED, enabled),
@@ -39,6 +46,15 @@ export function getVoiceV2Flags(): VoiceV2Flags {
     ttsBackendFallbackEnabled: resolveFlag(
       process.env.NEXT_PUBLIC_VOICE_V2_TTS_BACKEND_FALLBACK_ENABLED,
       false
+    ),
+    groundedActionResolutionEnabled,
+    groundedActionPolicyEnforcementEnabled: resolveFlag(
+      process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED,
+      groundedActionResolutionEnabled
+    ),
+    groundedActionExecutionEnabled: resolveFlag(
+      process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED,
+      groundedActionResolutionEnabled
     ),
   };
 }
