@@ -90,6 +90,73 @@ jobs:
           echo "deploy_backend=$DEPLOY_BACKEND" >> "$GITHUB_OUTPUT"
           echo "deploy_frontend=$DEPLOY_FRONTEND" >> "$GITHUB_OUTPUT"
 
+      - name: Set up Python for UAT DB governance
+        if: steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install UAT DB governance dependencies
+        if: steps.scope.outputs.deploy_backend == 'true'
+        run: python3 -m pip install --disable-pip-version-check asyncpg python-dotenv
+
+      - name: Install Cloud SQL Auth Proxy
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Apply UAT DB migrations and predeploy schema gate
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6543 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.UAT_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-uat.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6543)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6543 in time")
+          PY
+
+          export DB_HOST=127.0.0.1
+          export DB_PORT=6543
+          export DB_NAME=postgres
+          export DB_USER
+          export DB_PASSWORD
+
+          (
+            cd consent-protocol
+            python3 db/migrate.py --release
+          )
+          python3 scripts/ops/db_migration_release_guard.py \
+            --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+            --report-path /tmp/uat-db-migration-guard-predeploy.json
+
       - name: Deploy backend using Cloud Build
         if: steps.scope.outputs.deploy_backend == 'true'
         run: |
@@ -194,6 +261,61 @@ jobs:
             --frontend-service "${{ env.FRONTEND_SERVICE }}" \
             --require-plaid \
             --assert-runtime-env-contract
+
+      - name: Post-deploy UAT schema contract gate
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6543 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.UAT_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-uat-postdeploy.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6543)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6543 in time")
+          PY
+
+          export DB_HOST=127.0.0.1
+          export DB_PORT=6543
+          export DB_NAME=postgres
+          export DB_USER
+          export DB_PASSWORD
+
+          python3 scripts/ops/db_migration_release_guard.py \
+            --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+            --report-path /tmp/uat-db-migration-guard-postdeploy.json
+
+      - name: Upload UAT DB governance artifacts
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-db-governance-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: |
+            /tmp/uat-db-migration-guard-predeploy.json
+            /tmp/uat-db-migration-guard-postdeploy.json
+            /tmp/cloud-sql-proxy-uat.log
+            /tmp/cloud-sql-proxy-uat-postdeploy.log
 
       - name: Deployment Summary
         if: always()

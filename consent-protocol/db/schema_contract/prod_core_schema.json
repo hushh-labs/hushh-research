@@ -1,6 +1,7 @@
 {
   "contract_name": "prod_core_schema",
   "expected_migration_version": 27,
+  "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
     "remove_domain_summary_key",
@@ -65,7 +66,6 @@
       "activity_score",
       "last_active_at",
       "total_attributes",
-      "model_version",
       "created_at",
       "updated_at"
     ],
@@ -76,31 +76,9 @@
       "iv",
       "tag",
       "export_key",
-      "wrapped_key_bundle",
-      "connector_key_id",
-      "connector_wrapping_alg",
       "scope",
-      "export_revision",
-      "export_generated_at",
-      "source_content_revision",
-      "source_manifest_revision",
-      "refresh_status",
       "expires_at",
       "created_at"
-    ],
-    "consent_export_refresh_jobs": [
-      "id",
-      "user_id",
-      "consent_token",
-      "granted_scope",
-      "status",
-      "trigger_domain",
-      "trigger_paths",
-      "requested_at",
-      "last_error",
-      "attempt_count",
-      "created_at",
-      "updated_at"
     ],
     "kai_market_cache_entries": [
       "cache_key",

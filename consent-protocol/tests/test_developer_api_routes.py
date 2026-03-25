@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -648,7 +649,7 @@ def test_scoped_export_returns_ciphertext_only(monkeypatch):
                     "connector_key_id": _CONNECTOR_KEY_ID,
                 },
                 "export_revision": 7,
-                "export_generated_at": "2026-03-24T18:30:00Z",
+                "export_generated_at": datetime(2026, 3, 24, 18, 30, 0, tzinfo=timezone.utc),
                 "refresh_status": "current",
                 "is_strict_zero_knowledge": True,
             }
@@ -692,6 +693,7 @@ def test_scoped_export_returns_ciphertext_only(monkeypatch):
     assert payload["granted_scope"] == "attr.financial.*"
     assert payload["expected_scope"] == "attr.financial.profile.*"
     assert payload["coverage_kind"] == "superset"
+    assert payload["export_generated_at"] == "2026-03-24 18:30:00+00:00"
     assert payload["encrypted_data"] == "ciphertext"
     assert payload["wrapped_key_bundle"]["connector_key_id"] == _CONNECTOR_KEY_ID
     assert "data" not in payload
