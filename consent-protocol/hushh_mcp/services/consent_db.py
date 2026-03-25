@@ -136,6 +136,23 @@ class ConsentDBService:
             "connector_key_id": str(parsed.get("connector_key_id") or "").strip() or None,
         }
 
+    @classmethod
+    def _normalize_string_list(cls, value: Any) -> List[str]:
+        raw_items: List[Any]
+        if isinstance(value, list):
+            raw_items = value
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+            if not isinstance(parsed, list):
+                return []
+            raw_items = parsed
+        else:
+            return []
+        return [str(item).strip() for item in raw_items if str(item).strip()]
+
     @staticmethod
     def _normalize_refresh_status(value: Any) -> str:
         normalized = str(value or "").strip().lower()
@@ -1711,11 +1728,7 @@ class ConsentDBService:
             merged_paths = sorted(
                 {
                     *normalized_paths,
-                    *[
-                        str(path).strip()
-                        for path in (existing_row.get("trigger_paths") or [])
-                        if str(path).strip()
-                    ],
+                    *self._normalize_string_list(existing_row.get("trigger_paths")),
                 }
             )
             attempt_count = 0
@@ -1731,7 +1744,7 @@ class ConsentDBService:
                     "granted_scope": granted_scope,
                     "status": "pending",
                     "trigger_domain": trigger_domain,
-                    "trigger_paths": merged_paths,
+                    "trigger_paths": json.dumps(merged_paths),
                     "requested_at": now_iso,
                     "last_error": None,
                     "attempt_count": attempt_count,
@@ -1772,11 +1785,7 @@ class ConsentDBService:
                         "granted_scope": str(row.get("granted_scope") or "").strip(),
                         "status": str(row.get("status") or "pending").strip() or "pending",
                         "trigger_domain": str(row.get("trigger_domain") or "").strip() or None,
-                        "trigger_paths": [
-                            str(path).strip()
-                            for path in (row.get("trigger_paths") or [])
-                            if str(path).strip()
-                        ],
+                        "trigger_paths": self._normalize_string_list(row.get("trigger_paths")),
                         "requested_at": row.get("requested_at"),
                         "last_error": str(row.get("last_error") or "").strip() or None,
                         "attempt_count": int(row.get("attempt_count") or 0),

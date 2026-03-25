@@ -18,7 +18,14 @@ bash scripts/ci/orchestrate.sh all
 git push origin deploy_uat
 ```
 
-The push to `deploy_uat` triggers [`.github/workflows/deploy-uat.yml`](../.github/workflows/deploy-uat.yml), which deploys backend/frontend and then runs the hosted runtime parity check.
+The push to `deploy_uat` triggers [`.github/workflows/deploy-uat.yml`](../.github/workflows/deploy-uat.yml), which now:
+
+1. opens a Cloud SQL Auth Proxy session to the UAT database
+2. applies the canonical release lane with `python3 consent-protocol/db/migrate.py --release`
+3. enforces the live UAT schema contract in `consent-protocol/db/schema_contract/uat_integrated_schema.json`
+4. deploys backend/frontend
+5. reruns the read-only UAT schema contract gate after deploy
+6. runs the hosted runtime parity check
 
 ### Backend Deployment
 
@@ -407,6 +414,11 @@ python3 scripts/ops/logical_backup_freshness_check.py \
 # Read-only migration governance + DB drift checks
 python3 scripts/ops/db_migration_release_guard.py \
   --report-path /tmp/db-migration-guard-report.json
+
+# Latest-integrated UAT schema contract gate
+python3 scripts/ops/db_migration_release_guard.py \
+  --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+  --report-path /tmp/uat-db-migration-guard-report.json
 
 # Generate audit manifest for a production release
 python3 scripts/ops/generate_migration_release_manifest.py \

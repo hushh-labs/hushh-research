@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.operons.kai.fetchers import fetch_market_data, fetch_market_news
@@ -175,19 +176,47 @@ def _normalize_pick_source(value: str | None) -> str:
     return DEFAULT_PICK_SOURCE_ID
 
 
+def _pick_source_roster_signature(ria_sources: list[dict[str, Any]]) -> str:
+    if not ria_sources:
+        return "none"
+
+    parts: list[str] = []
+    for item in ria_sources:
+        parts.append(
+            ":".join(
+                [
+                    str(item.get("id") or "").strip(),
+                    str(item.get("state") or "").strip(),
+                    str(item.get("share_status") or "").strip(),
+                    str(item.get("upload_id") or "").strip(),
+                ]
+            )
+        )
+    return "|".join(sorted(parts))
+
+
+def _pick_row_value(row: Any, key: str) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    return getattr(row, key, None)
+
+
 async def _resolve_pick_source_rows(
     user_id: str,
     active_pick_source: str,
+    *,
+    ria_sources: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
     renaissance_service = get_renaissance_service()
     default_rows = await renaissance_service.get_all_investable()
     sources = [_default_pick_source()]
 
-    try:
-        ria_sources = await RIAIAMService().list_investor_pick_sources(user_id)
-    except Exception as exc:
-        logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
-        ria_sources = []
+    if ria_sources is None:
+        try:
+            ria_sources = await RIAIAMService().list_investor_pick_sources(user_id)
+        except Exception as exc:
+            logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
+            ria_sources = []
 
     if ria_sources:
         sources.extend(ria_sources)
@@ -1544,7 +1573,13 @@ async def get_market_insights(
             detail="Missing or invalid consent token",
         )
     canonical_watchlist_key = ",".join(sorted(set(watchlist_symbols)))
-    home_key = f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}"
+    try:
+        ria_source_roster = await RIAIAMService().list_investor_pick_sources(user_id)
+    except Exception as exc:
+        logger.debug("[Kai Market] source roster unavailable for %s: %s", user_id, exc)
+        ria_source_roster = []
+    roster_signature = _pick_source_roster_signature(ria_source_roster)
+    home_key = f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:{roster_signature}"
 
     async def build_payload() -> dict[str, Any]:
         provider_status: dict[str, str] = {}
@@ -1556,11 +1591,15 @@ async def get_market_insights(
             renaissance_rows_source,
             pick_sources,
             resolved_pick_source,
-        ) = await _resolve_pick_source_rows(user_id, active_pick_source)
+        ) = await _resolve_pick_source_rows(
+            user_id,
+            active_pick_source,
+            ria_sources=ria_source_roster,
+        )
         renaissance_symbols = [
-            str(stock.ticker or "").strip().upper()
+            str(_pick_row_value(stock, "ticker") or "").strip().upper()
             for stock in renaissance_rows_source
-            if str(stock.ticker or "").strip()
+            if str(_pick_row_value(stock, "ticker") or "").strip()
         ]
 
         core_symbols = ["SPY", "QQQ"]
@@ -1755,22 +1794,24 @@ async def get_market_insights(
             stale = stale or row_stale
 
         for stock in renaissance_rows_source:
-            symbol = str(stock.ticker or "").strip().upper()
+            symbol = str(_pick_row_value(stock, "ticker") or "").strip().upper()
+            tier = str(_pick_row_value(stock, "tier") or "").strip().upper() or None
             quote = quote_map.get(symbol) if isinstance(quote_map, dict) else None
             quote_source = str((quote or {}).get("source") or "").strip() or "Unknown"
             renaissance_rows.append(
                 {
                     "symbol": symbol,
-                    "company_name": str(stock.company_name or symbol),
-                    "sector": str(stock.sector or "").strip() or None,
-                    "tier": str(stock.tier or "").strip().upper() or None,
-                    "tier_rank": int(stock.tier_rank or 0),
-                    "conviction_weight": float(
-                        TIER_WEIGHTS.get(str(stock.tier or "").strip().upper(), 0.5)
-                    ),
-                    "recommendation_bias": _recommendation_bias_from_tier(stock.tier),
-                    "investment_thesis": str(stock.investment_thesis or "").strip() or None,
-                    "fcf_billions": _safe_float(stock.fcf_billions),
+                    "company_name": str(_pick_row_value(stock, "company_name") or symbol),
+                    "sector": str(_pick_row_value(stock, "sector") or "").strip() or None,
+                    "tier": tier,
+                    "tier_rank": int(_pick_row_value(stock, "tier_rank") or 0),
+                    "conviction_weight": float(TIER_WEIGHTS.get(tier or "", 0.5)),
+                    "recommendation_bias": _recommendation_bias_from_tier(tier),
+                    "investment_thesis": str(
+                        _pick_row_value(stock, "investment_thesis") or ""
+                    ).strip()
+                    or None,
+                    "fcf_billions": _safe_float(_pick_row_value(stock, "fcf_billions")),
                     "price": _safe_float((quote or {}).get("price")),
                     "change_pct": _safe_float((quote or {}).get("change_percent")),
                     "volume": _safe_int((quote or {}).get("volume")),
@@ -2079,7 +2120,7 @@ async def get_market_insights(
             "spotlights": spotlights,
             "themes": themes,
         }
-        return payload
+        return jsonable_encoder(payload)
 
     try:
         (

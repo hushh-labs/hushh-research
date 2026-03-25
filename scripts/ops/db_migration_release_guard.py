@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Production migration governance guard.
+"""DB migration governance guard.
 
 Checks:
 1) Migration filename ordering/monotonicity in consent-protocol/db/migrations.
-2) Contract version alignment (expected_migration_version).
-3) Live DB schema drift for production-critical tables/columns (read-only).
+2) Contract version policy compliance (`expected_migration_version` + `migration_version_policy`).
+3) Live DB schema drift for the selected environment contract (read-only).
 
 Read-only by default. Exits non-zero on policy violations.
 """
@@ -33,6 +33,7 @@ DEFAULT_CONTRACT_FILE = (
     REPO_ROOT / "consent-protocol" / "db" / "schema_contract" / "prod_core_schema.json"
 )
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_[a-z0-9_]+\.sql$")
+VALID_VERSION_POLICIES = {"exact", "minimum"}
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,9 @@ def _load_contract(contract_file: Path) -> tuple[dict[str, Any], list[str]]:
     expected_version = payload.get("expected_migration_version")
     if not isinstance(expected_version, int):
         violations.append("contract_expected_migration_version_missing_or_invalid")
+    version_policy = payload.get("migration_version_policy", "exact")
+    if not isinstance(version_policy, str) or version_policy not in VALID_VERSION_POLICIES:
+        violations.append("contract_migration_version_policy_invalid")
     required_functions = payload.get("required_functions", [])
     if required_functions:
         if not isinstance(required_functions, list):
@@ -230,15 +234,18 @@ def _run(args: argparse.Namespace) -> int:
 
     highest_local_version = migration_files[-1].version if migration_files else None
     expected_contract_version = contract_payload.get("expected_migration_version")
-    if (
-        isinstance(highest_local_version, int)
-        and isinstance(expected_contract_version, int)
-        and highest_local_version != expected_contract_version
-    ):
-        violations.append(
-            "contract_version_mismatch:"
-            f"highest_local={highest_local_version:03d}:expected={expected_contract_version:03d}"
-        )
+    version_policy = contract_payload.get("migration_version_policy", "exact")
+    if isinstance(highest_local_version, int) and isinstance(expected_contract_version, int):
+        if version_policy == "exact" and highest_local_version != expected_contract_version:
+            violations.append(
+                "contract_version_mismatch:"
+                f"policy=exact:highest_local={highest_local_version:03d}:expected={expected_contract_version:03d}"
+            )
+        elif version_policy == "minimum" and highest_local_version < expected_contract_version:
+            violations.append(
+                "contract_version_mismatch:"
+                f"policy=minimum:highest_local={highest_local_version:03d}:expected_min={expected_contract_version:03d}"
+            )
 
     db_check_results: dict[str, Any] | None = None
     if not args.skip_db_check and not contract_violations:
@@ -255,6 +262,7 @@ def _run(args: argparse.Namespace) -> int:
             "skip_db_check": bool(args.skip_db_check),
             "migrations_dir": str(migrations_dir),
             "contract_file": str(contract_file),
+            "migration_version_policy": version_policy,
         },
         "migrations": {
             "count": len(migration_files),

@@ -470,35 +470,47 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO pkm_migration_state (
-  user_id,
-  status,
-  source_model,
-  legacy_blob_present,
-  created_at,
-  updated_at
-)
-SELECT
-  legacy.user_id,
-  CASE
-    WHEN EXISTS (
-      SELECT 1
-      FROM pkm_blobs blobs
-      WHERE blobs.user_id = legacy.user_id
-    ) THEN 'completed'
-    ELSE 'awaiting_unlock_repartition'
-  END AS status,
-  'world_model' AS source_model,
-  TRUE AS legacy_blob_present,
-  NOW(),
-  NOW()
-FROM world_model_data AS legacy
-ON CONFLICT (user_id) DO UPDATE
-SET
-  status = EXCLUDED.status,
-  source_model = EXCLUDED.source_model,
-  legacy_blob_present = EXCLUDED.legacy_blob_present,
-  updated_at = EXCLUDED.updated_at;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'world_model_data'
+  ) THEN
+    EXECUTE $sql$
+      INSERT INTO pkm_migration_state (
+        user_id,
+        status,
+        source_model,
+        legacy_blob_present,
+        created_at,
+        updated_at
+      )
+      SELECT
+        legacy.user_id,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM pkm_blobs blobs
+            WHERE blobs.user_id = legacy.user_id
+          ) THEN 'completed'
+          ELSE 'awaiting_unlock_repartition'
+        END AS status,
+        'world_model' AS source_model,
+        TRUE AS legacy_blob_present,
+        NOW(),
+        NOW()
+      FROM world_model_data AS legacy
+      ON CONFLICT (user_id) DO UPDATE
+      SET
+        status = EXCLUDED.status,
+        source_model = EXCLUDED.source_model,
+        legacy_blob_present = EXCLUDED.legacy_blob_present,
+        updated_at = EXCLUDED.updated_at
+    $sql$;
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION update_pkm_updated_at()
 RETURNS TRIGGER AS $$

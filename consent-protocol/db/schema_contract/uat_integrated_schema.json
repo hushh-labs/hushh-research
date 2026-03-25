@@ -1,0 +1,202 @@
+{
+  "contract_name": "uat_integrated_schema",
+  "expected_migration_version": 36,
+  "migration_version_policy": "exact",
+  "required_functions": [
+    "merge_domain_summary",
+    "remove_domain_summary_key",
+    "upsert_pkm_data_blob",
+    "auto_register_domain",
+    "get_user_pkm_metadata"
+  ],
+  "required_tables": {
+    "vault_keys": [
+      "user_id",
+      "vault_status",
+      "vault_key_hash",
+      "primary_method",
+      "primary_wrapper_id",
+      "recovery_encrypted_vault_key",
+      "recovery_salt",
+      "recovery_iv",
+      "created_at",
+      "updated_at"
+    ],
+    "actor_profiles": [
+      "user_id",
+      "personas",
+      "last_active_persona",
+      "investor_marketplace_opt_in",
+      "created_at",
+      "updated_at"
+    ],
+    "ria_profiles": [
+      "id",
+      "user_id",
+      "display_name",
+      "verification_status",
+      "created_at",
+      "updated_at"
+    ],
+    "advisor_investor_relationships": [
+      "id",
+      "investor_user_id",
+      "ria_profile_id",
+      "status",
+      "granted_scope",
+      "consent_granted_at",
+      "created_at",
+      "updated_at"
+    ],
+    "runtime_persona_state": [
+      "user_id",
+      "last_active_persona",
+      "updated_at"
+    ],
+    "pkm_index": [
+      "user_id",
+      "available_domains",
+      "domain_summaries",
+      "computed_tags",
+      "total_attributes",
+      "model_version",
+      "last_upgraded_at",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_blobs": [
+      "user_id",
+      "domain",
+      "segment_id",
+      "ciphertext",
+      "iv",
+      "tag",
+      "content_revision",
+      "manifest_revision",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_manifests": [
+      "user_id",
+      "domain",
+      "manifest_version",
+      "structure_decision",
+      "summary_projection",
+      "top_level_scope_paths",
+      "domain_contract_version",
+      "readable_summary_version",
+      "upgraded_at",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_scope_registry": [
+      "user_id",
+      "domain",
+      "scope_handle",
+      "scope_label",
+      "manifest_version",
+      "summary_projection",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_upgrade_runs": [
+      "run_id",
+      "user_id",
+      "status",
+      "from_model_version",
+      "to_model_version",
+      "current_domain",
+      "initiated_by",
+      "resume_count",
+      "started_at",
+      "last_checkpoint_at",
+      "completed_at",
+      "last_error",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_upgrade_steps": [
+      "id",
+      "run_id",
+      "domain",
+      "status",
+      "from_domain_contract_version",
+      "to_domain_contract_version",
+      "from_readable_summary_version",
+      "to_readable_summary_version",
+      "attempt_count",
+      "last_completed_content_revision",
+      "last_completed_manifest_version",
+      "checkpoint_payload",
+      "created_at",
+      "updated_at"
+    ],
+    "consent_audit": [
+      "id",
+      "token_id",
+      "user_id",
+      "agent_id",
+      "scope",
+      "action",
+      "issued_at",
+      "poll_timeout_at"
+    ],
+    "consent_exports": [
+      "consent_token",
+      "user_id",
+      "encrypted_data",
+      "iv",
+      "tag",
+      "export_key",
+      "wrapped_key_bundle",
+      "connector_key_id",
+      "connector_wrapping_alg",
+      "scope",
+      "export_revision",
+      "export_generated_at",
+      "source_content_revision",
+      "source_manifest_revision",
+      "refresh_status",
+      "expires_at",
+      "created_at"
+    ],
+    "consent_export_refresh_jobs": [
+      "id",
+      "user_id",
+      "consent_token",
+      "granted_scope",
+      "status",
+      "trigger_domain",
+      "trigger_paths",
+      "requested_at",
+      "last_error",
+      "attempt_count",
+      "created_at",
+      "updated_at"
+    ],
+    "relationship_share_grants": [
+      "id",
+      "relationship_id",
+      "grant_key",
+      "provider_user_id",
+      "receiver_user_id",
+      "status",
+      "granted_at",
+      "revoked_at",
+      "metadata",
+      "created_at",
+      "updated_at"
+    ],
+    "relationship_share_events": [
+      "id",
+      "share_grant_id",
+      "relationship_id",
+      "grant_key",
+      "event_type",
+      "provider_user_id",
+      "receiver_user_id",
+      "metadata",
+      "created_at"
+    ]
+  }
+}
