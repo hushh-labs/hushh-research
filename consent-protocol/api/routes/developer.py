@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Optional, TypedDict
+from typing import Any, Optional, TypedDict, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -133,6 +133,19 @@ class DeveloperConsentStatusResponse(BaseModel):
     app_id: str | None = None
     app_display_name: str | None = None
     message: str
+
+
+class CoverageFields(TypedDict):
+    requested_scope: str
+    granted_scope: str | None
+    coverage_kind: str | None
+    covered_by_existing_grant: bool
+
+
+class ExportFields(TypedDict):
+    export_revision: int | None
+    export_generated_at: str | None
+    export_refresh_status: str | None
 
 
 class DeveloperConsentRequest(BaseModel):
@@ -309,13 +322,13 @@ def _request_url_from_metadata(
     request_id: str | None,
     metadata: dict[str, object] | None,
 ) -> str | None:
-    meta = metadata or {}
-    bundle_id = str(meta.get("bundle_id") or "").strip() or None
-    request_url = str(meta.get("request_url") or "").strip()
+    meta = _metadata_object_map(metadata)
+    bundle_id = _optional_str(meta.get("bundle_id"))
+    request_url = _optional_str(meta.get("request_url"))
     if request_url:
         return request_url
     if request_id or bundle_id:
-        return build_consent_request_url(request_id=request_id, bundle_id=bundle_id)
+        return str(build_consent_request_url(request_id=request_id, bundle_id=bundle_id))
     return None
 
 
@@ -330,9 +343,38 @@ def _normalize_scope_list(value: object | None) -> list[str]:
     return scopes
 
 
-def _coverage_fields(
-    *, requested_scope: str, granted_scope: str | None
-) -> dict[str, object | None]:
+def _metadata_object_map(value: object | None) -> dict[str, object]:
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+    return {}
+
+
+def _optional_str(value: object | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _optional_int(value: object | None) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            return int(normalized)
+        except ValueError:
+            return None
+    return None
+
+
+def _coverage_fields(*, requested_scope: str, granted_scope: str | None) -> CoverageFields:
     if not granted_scope:
         return {
             "requested_scope": requested_scope,
@@ -348,12 +390,12 @@ def _coverage_fields(
     }
 
 
-def _export_fields(export_metadata: dict[str, Any] | None) -> dict[str, object | None]:
-    metadata = export_metadata or {}
+def _export_fields(export_metadata: dict[str, object] | None) -> ExportFields:
+    metadata = _metadata_object_map(export_metadata)
     return {
-        "export_revision": metadata.get("export_revision"),
-        "export_generated_at": metadata.get("export_generated_at"),
-        "export_refresh_status": metadata.get("refresh_status") if metadata else None,
+        "export_revision": _optional_int(metadata.get("export_revision")),
+        "export_generated_at": _optional_str(metadata.get("export_generated_at")),
+        "export_refresh_status": _optional_str(metadata.get("refresh_status")),
     }
 
 
@@ -363,7 +405,7 @@ async def _resolve_strict_covering_active_token(
     user_id: str,
     agent_id: str,
     requested_scope: str,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, bool]:
+) -> tuple[dict[str, Any] | None, dict[str, object] | None, bool]:
     invalidated_legacy = False
     covering_tokens = await service.get_covering_active_tokens(
         user_id,
@@ -375,9 +417,10 @@ async def _resolve_strict_covering_active_token(
         if not token_id:
             continue
         export_metadata = await service.get_consent_export_metadata(token_id)
-        if export_metadata and export_metadata.get("is_strict_zero_knowledge"):
-            return token_row, export_metadata, invalidated_legacy
-        if export_metadata and export_metadata.get("legacy_export_key_present"):
+        export_metadata_map = _metadata_object_map(export_metadata)
+        if export_metadata_map.get("is_strict_zero_knowledge"):
+            return token_row, export_metadata_map, invalidated_legacy
+        if export_metadata_map.get("legacy_export_key_present"):
             await service.invalidate_legacy_active_token(token_row)
             invalidated_legacy = True
     return None, None, invalidated_legacy
@@ -665,26 +708,31 @@ async def get_consent_status(
             requested_scope=normalized_scope,
         )
         if active:
-            active_metadata = (
-                active.get("metadata") if isinstance(active.get("metadata"), dict) else {}
+            active_metadata = _metadata_object_map(active.get("metadata"))
+            coverage = _coverage_fields(
+                requested_scope=normalized_scope,
+                granted_scope=_optional_str(active.get("scope")),
             )
+            export_fields = _export_fields(export_metadata)
             return DeveloperConsentStatusResponse(
                 status="granted",
                 user_id=user_id,
                 scope=normalized_scope,
-                **_coverage_fields(
-                    requested_scope=normalized_scope,
-                    granted_scope=str(active.get("scope") or "") or None,
-                ),
+                requested_scope=coverage["requested_scope"],
+                granted_scope=coverage["granted_scope"],
+                coverage_kind=coverage["coverage_kind"],
+                covered_by_existing_grant=coverage["covered_by_existing_grant"],
                 request_id=active.get("request_id"),
                 consent_token=active.get("token_id"),
                 expires_at=active.get("expires_at"),
-                **_export_fields(export_metadata),
-                expiry_hours=active_metadata.get("expiry_hours"),
+                export_revision=export_fields["export_revision"],
+                export_generated_at=export_fields["export_generated_at"],
+                export_refresh_status=export_fields["export_refresh_status"],
+                expiry_hours=_optional_int(active_metadata.get("expiry_hours")),
                 request_url=_request_url_from_metadata(active.get("request_id"), active_metadata),
-                requester_label=active_metadata.get("requester_label"),
-                requester_image_url=active_metadata.get("requester_image_url"),
-                reason=active_metadata.get("reason"),
+                requester_label=_optional_str(active_metadata.get("requester_label")),
+                requester_image_url=_optional_str(active_metadata.get("requester_image_url")),
+                reason=_optional_str(active_metadata.get("reason")),
                 app_id=principal.app_id,
                 app_display_name=principal.display_name,
                 message=(
@@ -720,7 +768,7 @@ async def get_consent_status(
                 "REVOKED": "revoked",
             }
             resolved_status = status_map.get(latest_action, "unknown")
-            metadata = latest.get("metadata") if isinstance(latest.get("metadata"), dict) else {}
+            metadata = _metadata_object_map(latest.get("metadata"))
             approval_timeout_at = latest.get("poll_timeout_at") or metadata.get(
                 "approval_timeout_at"
             )
@@ -729,6 +777,7 @@ async def get_consent_status(
                 export_metadata = await service.get_consent_export_metadata(
                     str(latest.get("token_id"))
                 )
+            export_fields = _export_fields(export_metadata)
             return DeveloperConsentStatusResponse(
                 status=resolved_status,
                 user_id=user_id,
@@ -740,11 +789,13 @@ async def get_consent_status(
                 request_id=request_id,
                 consent_token=latest.get("token_id"),
                 expires_at=latest.get("expires_at"),
-                **_export_fields(export_metadata),
-                poll_timeout_at=latest.get("poll_timeout_at"),
-                approval_timeout_at=approval_timeout_at,
-                approval_timeout_minutes=metadata.get("approval_timeout_minutes"),
-                expiry_hours=metadata.get("expiry_hours"),
+                export_revision=export_fields["export_revision"],
+                export_generated_at=export_fields["export_generated_at"],
+                export_refresh_status=export_fields["export_refresh_status"],
+                poll_timeout_at=_optional_int(latest.get("poll_timeout_at")),
+                approval_timeout_at=_optional_int(approval_timeout_at),
+                approval_timeout_minutes=_optional_int(metadata.get("approval_timeout_minutes")),
+                expiry_hours=_optional_int(metadata.get("expiry_hours")),
                 is_scope_upgrade=bool(metadata.get("is_scope_upgrade")),
                 existing_granted_scopes=_normalize_scope_list(
                     metadata.get("existing_granted_scopes")
@@ -755,9 +806,9 @@ async def get_consent_status(
                 ).strip()
                 or None,
                 request_url=_request_url_from_metadata(request_id, metadata),
-                requester_label=metadata.get("requester_label"),
-                requester_image_url=metadata.get("requester_image_url"),
-                reason=metadata.get("reason"),
+                requester_label=_optional_str(metadata.get("requester_label")),
+                requester_image_url=_optional_str(metadata.get("requester_image_url")),
+                reason=_optional_str(metadata.get("reason")),
                 app_id=principal.app_id,
                 app_display_name=principal.display_name,
                 message=f"Latest request action is {latest_action or 'UNKNOWN'}.",
@@ -826,8 +877,13 @@ async def request_consent(
         requested_scope=normalized_scope,
     )
     if active:
-        active_metadata = active.get("metadata") if isinstance(active.get("metadata"), dict) else {}
+        active_metadata = _metadata_object_map(active.get("metadata"))
         granted_scope = str(active.get("scope") or "") or None
+        coverage = _coverage_fields(
+            requested_scope=normalized_scope,
+            granted_scope=granted_scope,
+        )
+        export_fields = _export_fields(export_metadata)
         logger.info(
             "developer_api.request_consent.reused scope=%s app_id=%s",
             normalized_scope,
@@ -844,16 +900,13 @@ async def request_consent(
             "expires_at": active.get("expires_at"),
             "request_id": active.get("request_id"),
             "scope": normalized_scope,
-            **_coverage_fields(
-                requested_scope=normalized_scope,
-                granted_scope=granted_scope,
-            ),
-            **_export_fields(export_metadata),
-            "expiry_hours": active_metadata.get("expiry_hours"),
+            **coverage,
+            **export_fields,
+            "expiry_hours": _optional_int(active_metadata.get("expiry_hours")),
             "request_url": _request_url_from_metadata(active.get("request_id"), active_metadata),
-            "requester_label": active_metadata.get("requester_label"),
-            "requester_image_url": active_metadata.get("requester_image_url"),
-            "reason": active_metadata.get("reason"),
+            "requester_label": _optional_str(active_metadata.get("requester_label")),
+            "requester_image_url": _optional_str(active_metadata.get("requester_image_url")),
+            "reason": _optional_str(active_metadata.get("reason")),
             "agent_id": principal.agent_id,
             "app_id": principal.app_id,
             "app_display_name": principal.display_name,
@@ -865,9 +918,7 @@ async def request_consent(
         scope=normalized_scope,
     )
     if pending:
-        pending_metadata = (
-            pending.get("metadata") if isinstance(pending.get("metadata"), dict) else {}
-        )
+        pending_metadata = _metadata_object_map(pending.get("metadata"))
         return {
             "status": "pending",
             "message": "Consent request already pending in the Hushh app.",
@@ -985,8 +1036,8 @@ async def request_consent(
         "app_id": principal.app_id,
         "app_display_name": principal.display_name,
         "request_url": request_url,
-        "requester_label": metadata.get("requester_label"),
-        "requester_image_url": metadata.get("requester_image_url"),
+        "requester_label": _optional_str(metadata.get("requester_label")),
+        "requester_image_url": _optional_str(metadata.get("requester_image_url")),
         "reason": payload.reason,
         "approval_surface": "/profile?tab=privacy&sheet=consents",
         "is_scope_upgrade": scope_upgrade_fields["is_scope_upgrade"],

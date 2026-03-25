@@ -52,6 +52,30 @@ def _as_string_map(payload: Dict[str, Any]) -> Dict[str, str]:
     return normalized
 
 
+def _object_map(value: object | None) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _coerce_optional_int(value: object | None) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            return int(normalized)
+        except ValueError:
+            return None
+    return None
+
+
 async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
     async with _consent_notify_queues_lock:
         q = _consent_notify_queues.get(user_id)
@@ -441,12 +465,11 @@ def _next_pending_notification(
     max_sequence = 0
     delivery_reasons: set[str] = set()
     for event in events:
-        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
-        raw_sequence = metadata.get("notification_sequence")
-        try:
-            max_sequence = max(max_sequence, int(raw_sequence))
-        except (TypeError, ValueError):
+        metadata = _object_map(event.get("metadata"))
+        raw_sequence = _coerce_optional_int(metadata.get("notification_sequence"))
+        if raw_sequence is None:
             continue
+        max_sequence = max(max_sequence, raw_sequence)
         reason = str(metadata.get("delivery_reason") or "").strip()
         if reason:
             delivery_reasons.add(reason)

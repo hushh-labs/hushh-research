@@ -65,10 +65,24 @@ def _authorize_sse_user(user_id: str, authorization: Optional[str]) -> None:
         raise HTTPException(status_code=403, detail="User ID mismatch")
 
 
-def _sse_payload_from_event_payload(payload: dict) -> dict:
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    request_id = payload.get("request_id") or ""
-    bundle_id = payload.get("bundle_id") or metadata.get("bundle_id") or ""
+def _payload_map(value: object | None) -> dict[str, object]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _payload_string(value: object | None) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
+    metadata = _payload_map(payload.get("metadata"))
+    request_id = _payload_string(payload.get("request_id"))
+    bundle_id = _payload_string(payload.get("bundle_id")) or _payload_string(
+        metadata.get("bundle_id")
+    )
     request_url = (
         payload.get("request_url")
         or metadata.get("request_url")
