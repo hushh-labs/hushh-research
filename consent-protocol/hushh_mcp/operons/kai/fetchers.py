@@ -287,7 +287,7 @@ def _emit_realtime_telemetry(event: str, **fields: Any) -> None:
     can aggregate p50/p95 latencies, source failures, and staleness rates.
     """
     payload = {"event": event, **fields}
-    logger.debug("[RealtimeTelemetry] %s", payload)
+    logger.info("[RealtimeTelemetry] %s", payload)
 
 
 async def _fetch_finnhub_quote(ticker: str) -> Dict[str, Any]:
@@ -966,7 +966,7 @@ async def fetch_market_news(
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.debug("[News Fetcher] Fetching news for %s - user %s", ticker, user_id)
+    logger.info(f"[News Fetcher] Fetching news for {ticker} - user {user_id}")
 
     errors: list[str] = []
     articles: list[Dict[str, Any]] = []
@@ -1130,7 +1130,7 @@ async def fetch_market_data(
             )
             return cached_payload
 
-        logger.debug(
+        logger.info(
             "[Market Data Fetcher] Fetching market data for %s - user %s (priority: Finnhub -> PMP -> yfinance -> Yahoo)",
             symbol,
             user_id,

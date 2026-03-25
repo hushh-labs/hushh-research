@@ -4,11 +4,7 @@
     "hushh-webapp/app/api/app-config/review-mode/route.ts",
     "hushh-webapp/app/api/app-config/review-mode/session/route.ts",
     "hushh-webapp/app/api/consent/events/[userId]/route.ts",
-    "hushh-webapp/app/api/pkm/[...path]/route.ts",
-    "hushh-webapp/app/api/portfolio/share-link/route.ts"
-  ],
-  "allowlistedPageRouteFiles": [
-    "hushh-webapp/app/portfolio/shared/page.tsx"
+    "hushh-webapp/app/api/world-model/get-context/route.ts"
   ],
   "contracts": [
     {
@@ -191,20 +187,68 @@
       }
     },
     {
-      "id": "pkmProxy",
+      "id": "consentExportRefreshProxy",
       "webRouteFiles": [
-        "hushh-webapp/app/api/pkm/[...path]/route.ts"
+        "hushh-webapp/app/api/consent/export-refresh/jobs/route.ts",
+        "hushh-webapp/app/api/consent/export-refresh/upload/route.ts",
+        "hushh-webapp/app/api/consent/export-refresh/fail/route.ts"
       ],
       "backend": {
-        "file": "consent-protocol/api/routes/pkm.py",
+        "file": "consent-protocol/api/routes/consent.py",
+        "routerPrefix": "/api/consent",
+        "paths": [
+          "/export-refresh/jobs",
+          "/export-refresh/upload",
+          "/export-refresh/fail"
+        ]
+      }
+    },
+    {
+      "id": "pkmProxy",
+      "webRouteFile": "hushh-webapp/app/api/pkm/[...path]/route.ts",
+      "backend": {
+        "file": "consent-protocol/api/routes/pkm_routes_shared.py",
         "routerPrefix": "/api/pkm",
         "paths": [
-          "/metadata/{user_id}",
           "/store-domain",
           "/data/{user_id}",
           "/domain-data/{user_id}/{domain}",
           "/manifest/{user_id}/{domain}",
+          "/reconcile/{user_id}",
+          "/metadata/{user_id}",
+          "/upgrade/status/{user_id}",
+          "/upgrade/start-or-resume",
+          "/upgrade/runs/{run_id}/status",
+          "/upgrade/runs/{run_id}/steps/{domain}",
+          "/upgrade/runs/{run_id}/complete",
+          "/upgrade/runs/{run_id}/fail",
+          "/domain-registry",
           "/scopes/{user_id}",
+          "/get-context"
+        ]
+      }
+    },
+    {
+      "id": "worldModelProxy",
+      "webRouteFiles": [
+        "hushh-webapp/app/api/world-model/[...path]/route.ts",
+        "hushh-webapp/app/api/world-model/domains/route.ts",
+        "hushh-webapp/app/api/world-model/domains/[userId]/route.ts",
+        "hushh-webapp/app/api/world-model/metadata/[userId]/route.ts",
+        "hushh-webapp/app/api/world-model/scopes/[userId]/route.ts",
+        "hushh-webapp/app/api/world-model/store-domain/route.ts"
+      ],
+      "backend": {
+        "file": "consent-protocol/api/routes/world_model.py",
+        "routerPrefix": "/api/world-model",
+        "paths": [
+          "/domains",
+          "/domains/{user_id}",
+          "/metadata/{user_id}",
+          "/scopes/{user_id}",
+          "/store-domain",
+          "/data/{user_id}",
+          "/domain-data/{user_id}/{domain}",
           "/get-context"
         ]
       },
@@ -400,6 +444,10 @@
     {
       "id": "authSessionInternal",
       "webRouteFile": "hushh-webapp/app/api/auth/session/route.ts"
+    },
+    {
+      "id": "portfolioShareInternal",
+      "webRouteFile": "hushh-webapp/app/api/portfolio/share-link/route.ts"
     }
   ],
   "pageContracts": [
@@ -467,13 +515,13 @@
       ],
       "apiContractIds": [
         "vaultWebProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultOwnerToken",
         "inviteProxy"
       ],
       "nativeContractIds": [
         "vaultWebProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultOwnerToken"
       ]
     },
@@ -491,14 +539,14 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "tickersPublic"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultWebProxy",
         "vaultOwnerToken"
       ]
@@ -518,14 +566,14 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "tickersPublic"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultWebProxy",
         "vaultOwnerToken"
       ]
@@ -548,13 +596,13 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultOwnerToken",
         "tickersPublic"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultOwnerToken"
       ]
     },
@@ -568,12 +616,12 @@
       ],
       "apiContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultOwnerToken"
       ],
       "nativeContractIds": [
         "kaiProxy",
-        "pkmProxy",
+        "worldModelProxy",
         "vaultOwnerToken"
       ]
     },
@@ -635,52 +683,17 @@
         "hushh-webapp/lib/services/ria-service.ts"
       ],
       "apiContractIds": [
-        "pkmProxy",
+        "worldModelProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "accountDelete",
         "iamProxy"
       ],
       "nativeContractIds": [
-        "pkmProxy",
+        "worldModelProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
         "accountDelete"
-      ]
-    },
-    {
-      "id": "pkmViewerPage",
-      "pageFile": "hushh-webapp/app/profile/pkm/page.tsx",
-      "serviceFiles": [
-        "hushh-webapp/lib/services/personal-knowledge-model-service.ts"
-      ],
-      "apiContractIds": [
-        "pkmProxy",
-        "vaultWebProxy",
-        "vaultOwnerToken"
-      ],
-      "nativeContractIds": [
-        "pkmProxy",
-        "vaultWebProxy",
-        "vaultOwnerToken"
-      ]
-    },
-    {
-      "id": "pkmAgentLabPage",
-      "pageFile": "hushh-webapp/app/profile/pkm-agent-lab/page.tsx",
-      "serviceFiles": [
-        "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
-        "hushh-webapp/lib/services/developer-portal-service.ts"
-      ],
-      "apiContractIds": [
-        "pkmProxy",
-        "developerPortalProxy",
-        "vaultOwnerToken"
-      ],
-      "nativeContractIds": [
-        "pkmProxy",
-        "vaultWebProxy",
-        "vaultOwnerToken"
       ]
     },
     {
@@ -789,6 +802,24 @@
         "hushh-webapp/lib/services/api-service.ts",
         "hushh-webapp/lib/cache/cache-sync-service.ts"
       ]
+    },
+    {
+      "id": "pkmRedirectPage",
+      "pageFile": "hushh-webapp/app/profile/pkm/page.tsx"
+    },
+    {
+      "id": "pkmAgentLabPage",
+      "pageFile": "hushh-webapp/app/profile/pkm-agent-lab/page.tsx",
+      "componentFiles": [
+        "hushh-webapp/app/profile/pkm-agent-lab/page-client.tsx"
+      ],
+      "apiContractIds": [
+        "pkmProxy"
+      ]
+    },
+    {
+      "id": "portfolioSharedPage",
+      "pageFile": "hushh-webapp/app/portfolio/shared/page.tsx"
     },
     {
       "id": "legacyAnalysisRedirectPage",

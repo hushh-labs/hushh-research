@@ -197,13 +197,15 @@ export interface HushhConsentPlugin {
     encryptedData?: string;
     encryptedIv?: string;
     encryptedTag?: string;
-    exportKey?: string;
     wrappedExportKey?: string;
     wrappedKeyIv?: string;
     wrappedKeyTag?: string;
     senderPublicKey?: string;
     wrappingAlg?: string;
     connectorKeyId?: string;
+    sourceContentRevision?: number;
+    sourceManifestRevision?: number;
+    durationHours?: number;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }>;
 

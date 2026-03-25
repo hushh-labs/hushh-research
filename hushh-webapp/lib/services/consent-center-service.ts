@@ -21,12 +21,20 @@ export interface ConsentCenterEntry {
   counterpart_type: "ria" | "investor" | "developer" | "self";
   counterpart_id?: string | null;
   counterpart_label?: string | null;
+  counterpart_image_url?: string | null;
+  counterpart_website_url?: string | null;
   request_id?: string | null;
   invite_id?: string | null;
   relationship_status?: string | null;
   allowed_next_action?: string | null;
   issued_at?: number | string | null;
   expires_at?: number | string | null;
+  approval_timeout_at?: number | string | null;
+  request_url?: string | null;
+  reason?: string | null;
+  is_scope_upgrade?: boolean | null;
+  existing_granted_scopes?: string[] | null;
+  additional_access_summary?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 

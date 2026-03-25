@@ -29,7 +29,7 @@ TOOL_GROUP_TOOL_NAMES = {
         "discover_user_domains",
         "request_consent",
         "check_consent_status",
-        "get_scoped_data",
+        "get_encrypted_scoped_export",
         "validate_token",
         "list_scopes",
     ),
@@ -63,10 +63,10 @@ TOOL_CATALOG = (
         "description": "Check whether a pending scope request was granted or denied.",
     },
     {
-        "name": "get_scoped_data",
+        "name": "get_encrypted_scoped_export",
         "group": TOOL_GROUP_CORE_CONSENT,
         "compatibility_status": "recommended",
-        "description": "Read the scope-filtered export for an approved consent token.",
+        "description": "Fetch the encrypted wrapped-key export for an approved consent token.",
     },
     {
         "name": "validate_token",
@@ -127,6 +127,8 @@ class DeveloperPrincipal:
     allowed_tool_groups: tuple[str, ...]
     support_url: str | None = None
     policy_url: str | None = None
+    website_url: str | None = None
+    brand_image_url: str | None = None
     contact_email: str | None = None
     token_id: int | None = None
     auth_source: str = "registry"
@@ -287,6 +289,8 @@ class DeveloperRegistryService:
             allowed_tool_groups=cls._parse_allowed_tool_groups(row.get("allowed_tool_groups")),
             support_url=cls._sanitize_optional_text(row.get("support_url")),
             policy_url=cls._sanitize_optional_text(row.get("policy_url")),
+            website_url=cls._sanitize_optional_text(row.get("website_url")),
+            brand_image_url=cls._sanitize_optional_text(row.get("brand_image_url")),
             contact_email=cls._sanitize_optional_text(row.get("contact_email")),
             token_id=row.get("token_id"),
             auth_source=str(row.get("auth_source") or "registry"),
@@ -334,6 +338,7 @@ class DeveloperRegistryService:
                 support_url TEXT,
                 policy_url TEXT,
                 website_url TEXT,
+                brand_image_url TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 allowed_tool_groups JSONB NOT NULL DEFAULT '["core_consent"]'::jsonb,
                 approved_at BIGINT,
@@ -353,6 +358,7 @@ class DeveloperRegistryService:
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS owner_email TEXT",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS owner_display_name TEXT",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS owner_provider_ids JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS brand_image_url TEXT",
             "CREATE INDEX IF NOT EXISTS idx_developer_apps_status ON developer_apps(status)",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_developer_apps_owner_firebase_uid ON developer_apps(owner_firebase_uid) WHERE owner_firebase_uid IS NOT NULL",
             """
@@ -698,6 +704,7 @@ class DeveloperRegistryService:
                     support_url,
                     policy_url,
                     website_url,
+                    brand_image_url,
                     status,
                     allowed_tool_groups,
                     approved_at,
@@ -716,6 +723,7 @@ class DeveloperRegistryService:
                     :agent_id,
                     :display_name,
                     :contact_email,
+                    NULL,
                     NULL,
                     NULL,
                     NULL,
@@ -791,6 +799,7 @@ class DeveloperRegistryService:
         owner_firebase_uid: str,
         display_name: str | None = None,
         website_url: str | None = None,
+        brand_image_url: str | None = None,
         support_url: str | None = None,
         policy_url: str | None = None,
     ) -> dict[str, Any] | None:
@@ -805,6 +814,11 @@ class DeveloperRegistryService:
         next_website_url = (
             self._sanitize_url(website_url) if website_url is not None else app.get("website_url")
         )
+        next_brand_image_url = (
+            self._sanitize_url(brand_image_url)
+            if brand_image_url is not None
+            else app.get("brand_image_url")
+        )
         next_support_url = (
             self._sanitize_url(support_url) if support_url is not None else app.get("support_url")
         )
@@ -817,6 +831,7 @@ class DeveloperRegistryService:
             UPDATE developer_apps
             SET display_name = :display_name,
                 website_url = :website_url,
+                brand_image_url = :brand_image_url,
                 support_url = :support_url,
                 policy_url = :policy_url,
                 updated_at = :updated_at
@@ -827,6 +842,7 @@ class DeveloperRegistryService:
                 "owner_firebase_uid": owner_firebase_uid,
                 "display_name": next_display_name,
                 "website_url": self._sanitize_optional_text(next_website_url),
+                "brand_image_url": self._sanitize_optional_text(next_brand_image_url),
                 "support_url": self._sanitize_optional_text(next_support_url),
                 "policy_url": self._sanitize_optional_text(next_policy_url),
                 "updated_at": self._now_ms(),
@@ -874,6 +890,8 @@ class DeveloperRegistryService:
                    apps.allowed_tool_groups,
                    apps.support_url,
                    apps.policy_url,
+                   apps.website_url,
+                   apps.brand_image_url,
                    apps.contact_email,
                    tokens.id AS token_id
             FROM developer_tokens AS tokens
@@ -929,8 +947,15 @@ class DeveloperRegistryService:
             metadata["developer_support_url"] = principal.support_url
         if principal.policy_url:
             metadata["developer_policy_url"] = principal.policy_url
+        if principal.website_url:
+            metadata["developer_website_url"] = principal.website_url
+            metadata["requester_website_url"] = principal.website_url
+        if principal.brand_image_url:
+            metadata["developer_brand_image_url"] = principal.brand_image_url
+            metadata["requester_image_url"] = principal.brand_image_url
         if principal.contact_email:
             metadata["developer_contact_email"] = principal.contact_email
+        metadata["requester_label"] = principal.display_name
         if reason:
             metadata["reason"] = reason
         if connector_public_key:
@@ -956,7 +981,7 @@ class DeveloperRegistryService:
                 "discover_user_domains",
                 "request_consent",
                 "check_consent_status",
-                "get_scoped_data",
+                "get_encrypted_scoped_export",
             ],
             "tools": entries,
             "tool_groups": [
@@ -975,7 +1000,7 @@ class DeveloperRegistryService:
             "notes": [
                 "Developers enable access themselves from /developers with Kai sign-in.",
                 "User-specific access is determined by dynamic scope discovery plus explicit consent.",
-                "Use get_scoped_data for all consented reads; there are no public named data-getter variants.",
+                "Use get_encrypted_scoped_export for all consented reads; Hushh does not return plaintext user data to developer callers.",
                 "RIA and marketplace reads stay partner-only unless explicitly granted to the app.",
             ],
         }

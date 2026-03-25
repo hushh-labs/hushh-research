@@ -24,6 +24,7 @@ Hushh uses a contract manifest to keep the declared runtime surface aligned acro
 Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.ts`:
 
 - `/`
+- `/developers`
 - `/login`
 - `/logout`
 - `/labs/profile-appearance`
@@ -34,12 +35,14 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/ria`
 - `/ria/onboarding`
 - `/ria/clients`
+- `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
 - `/kai`
 - `/kai/onboarding`
 - `/kai/import`
 - `/kai/plaid/oauth/return`
+- `/kai/investments`
 - `/kai/portfolio`
 - `/kai/analysis`
 - `/kai/optimize`

@@ -41,8 +41,10 @@ IAM_MIGRATION_FILES = (
     "020_ria_iam_foundation.sql",
     "021_runtime_persona_state.sql",
     "022_ria_invites.sql",
+    "025_ria_pick_lists_and_bundle_notify.sql",
     "027_relationship_disconnect_status.sql",
     "028_professional_regulatory_capabilities.sql",
+    "036_relationship_share_grants.sql",
 )
 PKM_MIGRATION_FILES = (
     "030_pkm_cutover.sql",
@@ -356,7 +358,15 @@ async def create_consent_exports(pool: asyncpg.Pool):
             encrypted_data TEXT NOT NULL,
             iv TEXT NOT NULL,
             tag TEXT NOT NULL,
-            export_key TEXT NOT NULL,
+            export_key TEXT,
+            wrapped_key_bundle JSONB,
+            connector_key_id TEXT,
+            connector_wrapping_alg TEXT,
+            export_revision INTEGER NOT NULL DEFAULT 1,
+            export_generated_at TIMESTAMPTZ DEFAULT NOW(),
+            source_content_revision INTEGER,
+            source_manifest_revision INTEGER,
+            refresh_status TEXT NOT NULL DEFAULT 'current' CHECK (refresh_status IN ('current', 'refresh_pending', 'stale')),
             
             -- Scope this export is for
             scope TEXT NOT NULL,
@@ -377,6 +387,46 @@ async def create_consent_exports(pool: asyncpg.Pool):
     )
 
     print("✅ consent_exports ready!")
+
+
+async def create_consent_export_refresh_jobs(pool: asyncpg.Pool):
+    """Create consent_export_refresh_jobs table (on-device refresh queue metadata)."""
+    print("🔁 Creating consent_export_refresh_jobs table...")
+
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS consent_export_refresh_jobs (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES vault_keys(user_id) ON DELETE CASCADE,
+            consent_token TEXT NOT NULL REFERENCES consent_exports(consent_token) ON DELETE CASCADE,
+            granted_scope TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+            trigger_domain TEXT,
+            trigger_paths JSONB NOT NULL DEFAULT '[]'::JSONB,
+            requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_error TEXT,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (consent_token)
+        )
+    """)
+
+    await pool.execute(
+        "CREATE INDEX IF NOT EXISTS idx_consent_export_refresh_jobs_user ON consent_export_refresh_jobs(user_id, requested_at DESC)"
+    )
+    await pool.execute(
+        "CREATE INDEX IF NOT EXISTS idx_consent_export_refresh_jobs_status ON consent_export_refresh_jobs(status, updated_at DESC)"
+    )
+    await pool.execute(
+        "DROP TRIGGER IF EXISTS trigger_update_consent_export_refresh_jobs_timestamp ON consent_export_refresh_jobs"
+    )
+    await pool.execute("""
+        CREATE TRIGGER trigger_update_consent_export_refresh_jobs_timestamp
+        BEFORE UPDATE ON consent_export_refresh_jobs
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+    """)
+
+    print("✅ consent_export_refresh_jobs ready!")
 
 
 async def create_domain_registry(pool: asyncpg.Pool):
@@ -776,6 +826,7 @@ TABLE_CREATORS = {
     "ticker_facts_snapshot": create_ticker_facts_snapshot,
     "ticker_enrichment_runs": create_ticker_enrichment_runs,
     "consent_exports": create_consent_exports,
+    "consent_export_refresh_jobs": create_consent_export_refresh_jobs,
     "kai_market_cache_entries": create_kai_market_cache_entries,
     "developer_registry": create_developer_registry,
 }
@@ -804,6 +855,7 @@ async def run_full_migration(pool: asyncpg.Pool):
         "ticker_facts_snapshot",
         "ticker_enrichment_runs",
         "consent_exports",
+        "consent_export_refresh_jobs",
         "kai_market_cache_entries",
         "developer_tokens",
         "developer_api_keys",
@@ -846,11 +898,13 @@ async def run_full_migration(pool: asyncpg.Pool):
     await create_ticker_enrichment_runs(pool)
     print("[12/13] Creating consent_exports (MCP zero-knowledge export)...")
     await create_consent_exports(pool)
-    print("[13/13] Creating kai_market_cache_entries (Kai market L2 cache)...")
+    print("[13/15] Creating consent_export_refresh_jobs (encrypted export refresh queue)...")
+    await create_consent_export_refresh_jobs(pool)
+    print("[14/15] Creating kai_market_cache_entries (Kai market L2 cache)...")
     await create_kai_market_cache_entries(pool)
-    print("[14/14] Creating developer registry (public MCP beta auth)...")
+    print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[15/15] Applying PKM evolution migrations...")
+    print("[16/16] Applying PKM evolution migrations...")
     await run_pkm_migration(pool)
 
     print("\n✅ Full migration complete!")
@@ -939,11 +993,13 @@ async def run_init_migration(pool: asyncpg.Pool):
     await create_ticker_enrichment_runs(pool)
     print("[12/13] Creating consent_exports (MCP zero-knowledge export)...")
     await create_consent_exports(pool)
-    print("[13/13] Creating kai_market_cache_entries (Kai market L2 cache)...")
+    print("[13/15] Creating consent_export_refresh_jobs (encrypted export refresh queue)...")
+    await create_consent_export_refresh_jobs(pool)
+    print("[14/15] Creating kai_market_cache_entries (Kai market L2 cache)...")
     await create_kai_market_cache_entries(pool)
-    print("[14/14] Creating developer registry (public MCP beta auth)...")
+    print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[15/15] Applying PKM evolution migrations...")
+    print("[16/16] Applying PKM evolution migrations...")
     await run_pkm_migration(pool)
 
     print("\nAll tables initialized successfully!")

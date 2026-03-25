@@ -1,3 +1,8 @@
+import {
+  CURRENT_READABLE_SUMMARY_VERSION,
+  currentDomainContractVersion,
+} from "@/lib/personal-knowledge-model/upgrade-contracts";
+
 export type PathDescriptor = {
   json_path: string;
   parent_path?: string | null;
@@ -27,6 +32,9 @@ export type DomainManifest = {
   user_id?: string;
   domain: string;
   manifest_version: number;
+  domain_contract_version?: number;
+  readable_summary_version?: number;
+  upgraded_at?: string | null;
   structure_decision?: Record<string, unknown>;
   summary_projection: Record<string, unknown>;
   top_level_scope_paths: string[];
@@ -193,6 +201,8 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   );
   const summaryProjection = {
     manifest_version: nextManifestVersion,
+    domain_contract_version: currentDomainContractVersion(normalizedDomain),
+    readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
     path_count: jsonPaths.length,
     externalizable_path_count: externalizablePaths.length,
     top_level_scope_count: topLevelScopePaths.length,
@@ -215,6 +225,9 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const manifest: DomainManifest = {
     domain: normalizedDomain,
     manifest_version: nextManifestVersion,
+    domain_contract_version: currentDomainContractVersion(normalizedDomain),
+    readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+    upgraded_at: null,
     structure_decision: structureDecision,
     summary_projection: summaryProjection,
     top_level_scope_paths: topLevelScopePaths,

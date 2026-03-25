@@ -59,6 +59,7 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `?token=<developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
 | POST | `/api/v1/request-consent` | Create or reuse consent for one discovered scope (requires `?token=<developer-token>`) |
+| POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
 ### Developer Portal (Firebase Sign-In / Self-Serve)
 
@@ -100,6 +101,21 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | GET | `/api/consent/history` | Paginated consent audit history |
 | GET | `/api/consent/active` | Active (non-expired) tokens |
 
+#### RIA And Relationship Sharing
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/ria/clients` | Advisor-facing relationship summary list, including implicit relationship-share status |
+| GET | `/api/ria/clients/{investor_user_id}` | Advisor-facing relationship detail, including scoped grants and included advisor-picks benefit |
+| GET | `/api/ria/workspace/{investor_user_id}` | Advisor workspace over investor-consented data plus relationship-share status |
+| GET | `/api/kai/market/insights/{user_id}` | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata |
+
+RIA relationship bundle note:
+
+- investor private data -> RIA stays on explicit scope consent
+- RIA active picks feed -> investor is an implicit relationship share (`ria_active_picks_feed_v1`)
+- advisor picks are gated by both relationship approval and an active relationship-share grant, not by a second consent prompt
+
 #### Personal Knowledge Model
 
 | Method | Path | Description |
@@ -109,6 +125,12 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
 | DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
+| GET | `/api/pkm/upgrade/status/{user_id}` | Get generic PKM upgrade status + resumable run metadata |
+| POST | `/api/pkm/upgrade/start-or-resume` | Start or resume a client-side PKM upgrade run |
+| POST | `/api/pkm/upgrade/runs/{run_id}/status` | Update run-level PKM upgrade status |
+| POST | `/api/pkm/upgrade/runs/{run_id}/steps/{domain}` | Update per-domain PKM upgrade checkpoint |
+| POST | `/api/pkm/upgrade/runs/{run_id}/complete` | Mark a PKM upgrade run completed |
+| POST | `/api/pkm/upgrade/runs/{run_id}/fail` | Mark a PKM upgrade run failed |
 | GET | `/api/pkm/scopes/{user_id}` | Get available PKM scope handles for the user |
 | POST | `/api/pkm/get-context` | Get user context for analysis |
 
@@ -225,6 +247,7 @@ Method-management semantics:
 Security invariant:
 - No plaintext-at-rest path is allowed.
 - PKM encryption/decryption always uses the same DEK regardless of unlock method.
+- Generic PKM upgrades remain client-side after unlock; the backend only stores resumable run metadata and ciphertext.
 | POST | `/api/sync/vault` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | POST | `/api/sync/batch` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | GET | `/api/sync/pull` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
@@ -353,8 +376,9 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 2. POST /api/v1/request-consent
    Query: ?token=<developer-token>
-   Body: { user_id, scope, reason }
-   → Returns: { request_id, status: "pending" }
+   Body: { user_id, scope, reason, approval_timeout_minutes, connector_public_key, connector_key_id, connector_wrapping_alg }
+   → Returns: { request_id, status: "pending" } or an immediate reuse payload with
+     { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }
 
 3. User receives FCM notification → approves in app
 
@@ -369,7 +393,14 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `request_consent` → `check_consent_status` → `get_scoped_data`
+`discover_user_domains` → `request_consent` → `check_consent_status` → `get_scoped_data(expected_scope=original_scope)`
+
+Coverage rules:
+
+- broader active grant → narrower ask: reuse immediately
+- narrower active grant → broader ask: requires fresh approval
+- exact duplicate pending request → reuse the existing request_id
+- broader-token reuse must still return the narrower requested slice when `expected_scope` is supplied
 
 Production policy:
 - All `/api/v1/*` endpoints return `410` with:

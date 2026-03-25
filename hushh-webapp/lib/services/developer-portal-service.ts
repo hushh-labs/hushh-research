@@ -40,6 +40,7 @@ export type DeveloperPortalApp = {
   support_url?: string | null;
   policy_url?: string | null;
   website_url?: string | null;
+  brand_image_url?: string | null;
   status: string;
   allowed_tool_groups: string[];
   created_at: number;
@@ -62,6 +63,7 @@ export type DeveloperPortalAccess = {
 export type DeveloperPortalProfileUpdate = {
   display_name?: string;
   website_url?: string;
+  brand_image_url?: string;
   support_url?: string;
   policy_url?: string;
 };

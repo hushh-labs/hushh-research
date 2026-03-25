@@ -15,12 +15,32 @@ export interface HushhPersonalKnowledgeModelPlugin {
       icon: string;
       color: string;
       attributeCount: number;
-      summary: Record<string, string | number>;
+      summary: Record<string, unknown>;
       availableScopes: string[];
       lastUpdated: string | null;
+      readableSummary?: string | null;
+      readableHighlights?: string[];
+      readableUpdatedAt?: string | null;
+      readableSourceLabel?: string | null;
+      domainContractVersion?: number;
+      readableSummaryVersion?: number;
+      upgradedAt?: string | null;
     }>;
     totalAttributes: number;
     modelCompleteness: number;
+    modelVersion?: number;
+    targetModelVersion?: number;
+    upgradeStatus?: string;
+    upgradableDomains?: Array<{
+      domain: string;
+      currentDomainContractVersion?: number;
+      targetDomainContractVersion?: number;
+      currentReadableSummaryVersion?: number;
+      targetReadableSummaryVersion?: number;
+      upgradedAt?: string | null;
+      needsUpgrade?: boolean;
+    }>;
+    lastUpgradedAt?: string | null;
     suggestedDomains: string[];
     lastUpdated: string | null;
   }>;
@@ -72,8 +92,23 @@ export interface HushhPersonalKnowledgeModelPlugin {
     summary: Record<string, unknown>;
     structureDecision?: Record<string, unknown>;
     manifest?: Record<string, unknown>;
+    expectedDataVersion?: number;
+    upgradeContext?: {
+      runId: string;
+      priorDomainContractVersion?: number;
+      newDomainContractVersion?: number;
+      priorReadableSummaryVersion?: number;
+      newReadableSummaryVersion?: number;
+      retryCount?: number;
+    };
     vaultOwnerToken?: string;
-  }): Promise<{ success: boolean }>;
+  }): Promise<{
+    success: boolean;
+    conflict?: boolean;
+    message?: string;
+    dataVersion?: number;
+    updatedAt?: string;
+  }>;
 
   getDomainData(options: {
     userId: string;

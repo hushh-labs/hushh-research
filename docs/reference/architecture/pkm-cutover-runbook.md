@@ -40,6 +40,20 @@ This is the bounded runbook for cutting Kai from legacy encrypted storage to PKM
 - Delete legacy adapters and tables only after the unlock migration window closes.
 - Treat production separately from UAT because runtime posture is different.
 
+## Important boundary: cutover vs generic upgrades
+
+Legacy cutover and ongoing PKM evolution are different:
+
+- `pkm_migration_state` is only for the bounded legacy-to-PKM repartition window.
+- Ongoing PKM schema/readability evolution uses resumable `pkm_upgrade_runs` + `pkm_upgrade_steps`.
+- Generic PKM upgrades still happen client-side after unlock:
+  1. detect stale model/domain/readable versions
+  2. decrypt one encrypted domain locally
+  3. transform it to the current contract
+  4. rebuild manifests/readable metadata
+  5. re-encrypt and store with optimistic concurrency
+- If the app is interrupted, resume is allowed only after local vault re-auth. There is no silent server-side decrypt or key recovery.
+
 ## Wrapper selection rule
 
 Migration tooling must never choose "latest wrapper wins".

@@ -563,6 +563,7 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             put("iv", iv)
             put("tag", tag)
             encryptedBlob.getString("algorithm")?.let { put("algorithm", it) }
+            encryptedBlob.optJSONObject("segments")?.let { put("segments", it) }
         }
 
         val json = JSONObject().apply {
@@ -570,6 +571,47 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             put("domain", domain)
             put("encrypted_blob", blob)
             put("summary", summary)
+            call.getObject("structureDecision")?.let { put("structure_decision", it) }
+            call.getObject("manifest")?.let { put("manifest", it) }
+            call.getInt("expectedDataVersion")?.let { put("expected_data_version", it) }
+            call.getObject("upgradeContext")?.let { upgradeContext ->
+                val runId = upgradeContext.getString("runId")
+                if (!runId.isNullOrBlank()) {
+                    put(
+                        "upgrade_context",
+                        JSONObject().apply {
+                            put("run_id", runId)
+                            if (upgradeContext.has("priorDomainContractVersion")) {
+                                put(
+                                    "prior_domain_contract_version",
+                                    upgradeContext.optInt("priorDomainContractVersion")
+                                )
+                            }
+                            if (upgradeContext.has("newDomainContractVersion")) {
+                                put(
+                                    "new_domain_contract_version",
+                                    upgradeContext.optInt("newDomainContractVersion")
+                                )
+                            }
+                            if (upgradeContext.has("priorReadableSummaryVersion")) {
+                                put(
+                                    "prior_readable_summary_version",
+                                    upgradeContext.optInt("priorReadableSummaryVersion")
+                                )
+                            }
+                            if (upgradeContext.has("newReadableSummaryVersion")) {
+                                put(
+                                    "new_readable_summary_version",
+                                    upgradeContext.optInt("newReadableSummaryVersion")
+                                )
+                            }
+                            if (upgradeContext.has("retryCount")) {
+                                put("retry_count", upgradeContext.optInt("retryCount"))
+                            }
+                        }
+                    )
+                }
+            }
         }
 
         val body = json.toString().toRequestBody("application/json".toMediaType())
@@ -579,7 +621,71 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             requestBuilder.addHeader("Authorization", "Bearer $authToken")
         }
 
-        executeRequest(requestBuilder.build(), call)
+        httpClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(httpCall: Call, e: IOException) {
+                call.reject("Network error: ${e.message}")
+            }
+
+            override fun onResponse(httpCall: Call, response: Response) {
+                response.use {
+                    val responseBody = response.body?.string().orEmpty()
+                    if (response.code == 409) {
+                        val detail = try {
+                            JSONObject(responseBody).optJSONObject("detail")
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val result = JSObject().apply {
+                            put("success", false)
+                            put("conflict", true)
+                            put(
+                                "message",
+                                detail?.optString("message")?.takeIf { !it.isNullOrBlank() }
+                                    ?: "PKM version conflict."
+                            )
+                            if (detail != null && detail.has("current_data_version")) {
+                                put("dataVersion", detail.optInt("current_data_version"))
+                            }
+                            detail?.optString("updated_at")
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { put("updatedAt", it) }
+                        }
+                        call.resolve(result)
+                        return
+                    }
+
+                    if (!response.isSuccessful) {
+                        val truncatedBody = if (responseBody.length > 200) {
+                            responseBody.substring(0, 200) + "..."
+                        } else {
+                            responseBody
+                        }
+                        call.reject("HTTP Error ${response.code}: $truncatedBody")
+                        return
+                    }
+
+                    try {
+                        val jsonResult = JSONObject(responseBody)
+                        val result = JSObject().apply {
+                            put("success", jsonResult.optBoolean("success", true))
+                            put("conflict", jsonResult.optBoolean("conflict", false))
+                            jsonResult.optString("message")
+                                .takeIf { it.isNotBlank() }
+                                ?.let { put("message", it) }
+                            if (jsonResult.has("data_version")) {
+                                put("dataVersion", jsonResult.optInt("data_version"))
+                            }
+                            jsonResult.optString("updated_at")
+                                .takeIf { it.isNotBlank() }
+                                ?.let { put("updatedAt", it) }
+                        }
+                        call.resolve(result)
+                    } catch (e: Exception) {
+                        call.reject("JSON parsing error: ${e.message}")
+                    }
+                }
+            }
+        })
     }
 
     /**

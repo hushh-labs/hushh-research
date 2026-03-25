@@ -130,9 +130,9 @@ export function EditHoldingModal({
   onSave,
 }: EditHoldingModalProps) {
   const maxAcquisitionDate = getLocalDateIso();
+  const acquisitionDateInputRef = useRef<HTMLInputElement | null>(null);
   const symbolInputWrapRef = useRef<HTMLDivElement | null>(null);
   const nameInputWrapRef = useRef<HTMLDivElement | null>(null);
-  const acquisitionDateInputRef = useRef<HTMLInputElement | null>(null);
   const [formData, setFormData] = useState<Holding>({
     symbol: "",
     name: "",
@@ -186,35 +186,21 @@ export function EditHoldingModal({
     }
   }, [holding]);
 
-  // Keep derived position fields synced to quantity/price edits.
-  // Cost basis should always reflect quantity * price for this flow.
+  // Update market value when quantity or price changes
   useEffect(() => {
-    const quantity = Number(formData.quantity) || 0;
-    const price = Number(formData.price) || 0;
-    const marketValue = quantity * price;
-    const costBasis = marketValue;
-    const gainLoss = marketValue - costBasis;
-    const gainLossPct = costBasis > 0 ? (gainLoss / costBasis) * 100 : 0;
+    const marketValue = formData.quantity * formData.price;
+    const gainLoss = formData.cost_basis ? marketValue - formData.cost_basis : 0;
+    const gainLossPct = formData.cost_basis && formData.cost_basis > 0 
+      ? (gainLoss / formData.cost_basis) * 100 
+      : 0;
 
-    setFormData((prev) => {
-      if (
-        prev.market_value === marketValue &&
-        (prev.cost_basis ?? 0) === costBasis &&
-        (prev.unrealized_gain_loss ?? 0) === gainLoss &&
-        (prev.unrealized_gain_loss_pct ?? 0) === gainLossPct
-      ) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        market_value: marketValue,
-        cost_basis: costBasis,
-        unrealized_gain_loss: gainLoss,
-        unrealized_gain_loss_pct: gainLossPct,
-      };
-    });
-  }, [formData.quantity, formData.price]);
+    setFormData(prev => ({
+      ...prev,
+      market_value: marketValue,
+      unrealized_gain_loss: gainLoss,
+      unrealized_gain_loss_pct: gainLossPct,
+    }));
+  }, [formData.quantity, formData.price, formData.cost_basis]);
 
   useEffect(() => {
     const query =
@@ -387,25 +373,26 @@ export function EditHoldingModal({
     });
   }, [formData, validate, onSave]);
 
-  const openAcquisitionDatePicker = useCallback(() => {
+  const handleOpenDatePicker = useCallback(() => {
     const input = acquisitionDateInputRef.current;
     if (!input) return;
 
-    const pickerInput = input as HTMLInputElement & {
-      showPicker?: () => void;
-    };
-
-    if (typeof pickerInput.showPicker === "function") {
-      try {
-        pickerInput.showPicker();
-        return;
-      } catch {
-        // Fallback to focus/click for browsers without showPicker support.
-      }
+    // showPicker is supported in modern Chromium; click/focus fallback keeps Safari/iOS usable.
+    try {
+      (input as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
+      return;
+    } catch {
+      // no-op: fallback below
     }
-
-    input.focus();
+    input.focus({ preventScroll: true });
     input.click();
+  }, []);
+
+  const formatAcquisitionDate = useCallback((value?: string) => {
+    if (!value) return "";
+    const [year, month, day] = value.split("-");
+    if (!year || !month || !day) return value;
+    return `${month}/${day}/${year}`;
   }, []);
 
   const isNewHolding = !holding?.symbol;
@@ -612,17 +599,17 @@ export function EditHoldingModal({
 
           {/* Cost Basis */}
           <div>
-            <label className="block text-sm text-muted-foreground font-medium mb-1">
-              Cost Basis (Auto-calculated)
+            <label className="block text-sm font-medium mb-1">
+              Cost Basis (Total)
             </label>
             <input
               type="number"
-              value={formData.cost_basis ?? 0}
-              readOnly
+              value={formData.cost_basis || ""}
+              onChange={(e) => handleChange("cost_basis", parseFloat(e.target.value) || 0)}
               placeholder="0.00"
               min="0"
               step="0.01"
-              className="w-full px-4 py-3 h-12 rounded-xl border border-border bg-muted/50 text-muted-foreground font-medium"
+              className="w-full px-4 py-3 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors"
             />
             {errors.cost_basis && (
               <p className="text-sm text-red-500 mt-1">{errors.cost_basis}</p>
@@ -636,23 +623,37 @@ export function EditHoldingModal({
             </label>
             <div className="relative">
               <input
+                type="text"
+                value={formatAcquisitionDate(formData.acquisition_date)}
+                placeholder="MM/DD/YYYY"
+                readOnly
+                onClick={handleOpenDatePicker}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleOpenDatePicker();
+                  }
+                }}
+                className="w-full px-4 py-3 pr-12 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors cursor-pointer"
+              />
+              <button
+                type="button"
+                onClick={handleOpenDatePicker}
+                aria-label="Open acquisition date picker"
+                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+              >
+                <Calendar className="h-4 w-4" />
+              </button>
+              <input
                 ref={acquisitionDateInputRef}
                 type="date"
                 value={formData.acquisition_date || ""}
                 onChange={(e) => handleChange("acquisition_date", e.target.value)}
-                onClick={openAcquisitionDatePicker}
                 max={maxAcquisitionDate}
-                aria-label="Select acquisition date"
-                className="w-full h-12 rounded-xl border border-border bg-background px-4 py-3 pr-12 text-foreground outline-none transition-colors focus:border-primary"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="absolute h-px w-px opacity-0 pointer-events-none"
               />
-              <button
-                type="button"
-                onClick={openAcquisitionDatePicker}
-                aria-label="Open acquisition date picker"
-                className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <Calendar className="h-4 w-4" />
-              </button>
             </div>
             {errors.acquisition_date && (
               <p className="text-sm text-red-500 mt-1">{errors.acquisition_date}</p>

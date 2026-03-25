@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from api.routes import consent
+
+
+def _build_app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(consent.router)
+    app.dependency_overrides[consent.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    return app
+
+
+def test_approve_consent_supersedes_narrower_tokens(monkeypatch):
+    events: list[dict] = []
+    deleted_exports: list[str] = []
+    revoked_tokens: list[str] = []
+    issued_grant = "grant_issued_scope_upgrade"
+
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            assert user_id == "user_123"
+            assert request_id == "req_upgrade"
+            return {
+                "request_id": request_id,
+                "developer": "developer:app_demo_123",
+                "scope": "attr.financial.analytics.*",
+                "metadata": {
+                    "developer_app_display_name": "Demo App",
+                    "expiry_hours": 24,
+                    "is_scope_upgrade": True,
+                    "existing_granted_scopes": ["attr.financial.analytics.quality_metrics"],
+                    "additional_access_summary": (
+                        "This app already has access to attr.financial.analytics.quality_metrics "
+                        "and is now requesting additional access to attr.financial.analytics.*."
+                    ),
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return None
+
+        async def store_consent_export(self, **_kwargs):
+            return True
+
+        async def insert_event(self, **kwargs):
+            events.append(kwargs)
+            return len(events)
+
+        async def get_superseded_active_tokens(
+            self,
+            user_id: str,
+            *,
+            requested_scope: str,
+            agent_id: str | None = None,
+        ):
+            assert user_id == "user_123"
+            assert requested_scope == "attr.financial.analytics.*"
+            assert agent_id == "developer:app_demo_123"
+            return [
+                {
+                    "scope": "attr.financial.analytics.quality_metrics",
+                    "token_id": "token_old",
+                    "request_id": "req_old",
+                }
+            ]
+
+        async def delete_consent_export(self, consent_token: str):
+            deleted_exports.append(consent_token)
+            return True
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        consent,
+        "issue_token",
+        lambda **_kwargs: SimpleNamespace(token=issued_grant, expires_at=123456789),
+    )
+    monkeypatch.setattr(consent, "revoke_token", lambda token: revoked_tokens.append(token))
+    monkeypatch.setattr(
+        consent.RIAIAMService,
+        "sync_relationship_from_consent_action",
+        lambda self, **_kwargs: None,
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_upgrade",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "approved"
+    assert payload["consent_token"] == issued_grant
+    assert payload["granted_scope"] == "attr.financial.analytics.*"
+    assert payload["superseded_scopes"] == ["attr.financial.analytics.quality_metrics"]
+
+    assert revoked_tokens == ["token_old"]
+    assert deleted_exports == ["token_old"]
+    assert [event["action"] for event in events] == ["CONSENT_GRANTED", "REVOKED"]
+    assert events[0]["metadata"]["is_scope_upgrade"] is True
+    assert events[1]["metadata"]["superseded_by_broader_scope"] is True
+    assert events[1]["metadata"]["superseded_by_scope"] == "attr.financial.analytics.*"

@@ -100,6 +100,14 @@ function pickSourceSummary(source: KaiHomePickSource | null): string {
   if (!source) {
     return "Using the app-wide default list until advisor picks are linked.";
   }
+  if (source.kind === "ria" && source.share_origin === "relationship_implicit") {
+    if (source.state === "ready") {
+      return "This advisor feed is included through your approved advisor relationship.";
+    }
+    if (source.state === "pending") {
+      return "Your advisor relationship includes this feed, but the advisor has not uploaded an active list yet.";
+    }
+  }
   if (source.kind === "ria" && source.state !== "ready") {
     return "Advisor-specific picks are not available yet, so Kai is still using the default list.";
   }

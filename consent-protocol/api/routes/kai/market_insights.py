@@ -158,6 +158,9 @@ def _default_pick_source() -> dict[str, Any]:
         "kind": "default",
         "state": "ready",
         "is_default": True,
+        "share_status": None,
+        "share_origin": "default",
+        "share_granted_at": None,
     }
 
 

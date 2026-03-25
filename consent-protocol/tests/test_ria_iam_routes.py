@@ -308,3 +308,51 @@ def test_generic_consent_request_routes_to_ria_request_creation(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["request_id"] == "req_generic_1"
+
+
+def test_ria_client_detail_route_exposes_relationship_share_fields(monkeypatch):
+    async def _mock_detail(self, user_id: str, investor_user_id: str):
+        assert user_id == "user_test_123"
+        assert investor_user_id == "investor_1"
+        return {
+            "investor_user_id": investor_user_id,
+            "investor_display_name": "Taylor",
+            "relationship_status": "approved",
+            "granted_scope": "attr.financial.*",
+            "disconnect_allowed": True,
+            "is_self_relationship": False,
+            "next_action": "open_workspace",
+            "relationship_shares": [
+                {
+                    "grant_key": "ria_active_picks_feed_v1",
+                    "label": "Advisor picks feed",
+                    "description": "Included with the advisor relationship.",
+                    "status": "active",
+                    "share_origin": "relationship_implicit",
+                }
+            ],
+            "picks_feed_status": "ready",
+            "picks_feed_granted_at": "2026-03-24T00:00:00Z",
+            "has_active_pick_upload": True,
+            "granted_scopes": [],
+            "request_history": [],
+            "invite_history": [],
+            "requestable_scope_templates": [],
+            "available_scope_metadata": [],
+            "available_domains": [],
+            "domain_summaries": {},
+            "total_attributes": 0,
+            "workspace_ready": False,
+            "pkm_updated_at": None,
+        }
+
+    monkeypatch.setattr(RIAIAMService, "get_ria_client_detail", _mock_detail)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/ria/clients/investor_1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["picks_feed_status"] == "ready"
+    assert payload["has_active_pick_upload"] is True
+    assert payload["relationship_shares"][0]["grant_key"] == "ria_active_picks_feed_v1"

@@ -475,6 +475,9 @@ export interface KaiHomePickSource {
   kind: "default" | "ria";
   state: "ready" | "pending" | "unavailable";
   is_default: boolean;
+  share_status?: string | null;
+  share_origin?: string | null;
+  share_granted_at?: string | null;
 }
 
 export interface KaiStockPreviewQuote {
@@ -896,13 +899,14 @@ export class ApiService {
     encryptedData?: string;
     encryptedIv?: string;
     encryptedTag?: string;
-    exportKey?: string;
     wrappedExportKey?: string;
     wrappedKeyIv?: string;
     wrappedKeyTag?: string;
     senderPublicKey?: string;
     wrappingAlg?: string;
     connectorKeyId?: string;
+    sourceContentRevision?: number;
+    sourceManifestRevision?: number;
     durationHours?: number;
   }): Promise<Response> {
     const requestId = data.requestId || data.token;
@@ -935,13 +939,15 @@ export class ApiService {
           encryptedData: data.encryptedData,
           encryptedIv: data.encryptedIv,
           encryptedTag: data.encryptedTag,
-          exportKey: data.exportKey,
           wrappedExportKey: data.wrappedExportKey,
           wrappedKeyIv: data.wrappedKeyIv,
           wrappedKeyTag: data.wrappedKeyTag,
           senderPublicKey: data.senderPublicKey,
           wrappingAlg: data.wrappingAlg,
           connectorKeyId: data.connectorKeyId,
+          sourceContentRevision: data.sourceContentRevision,
+          sourceManifestRevision: data.sourceManifestRevision,
+          durationHours: data.durationHours,
           vaultOwnerToken,
         });
 
@@ -977,13 +983,14 @@ export class ApiService {
         encryptedData: data.encryptedData,
         encryptedIv: data.encryptedIv,
         encryptedTag: data.encryptedTag,
-        exportKey: data.exportKey,
         wrappedExportKey: data.wrappedExportKey,
         wrappedKeyIv: data.wrappedKeyIv,
         wrappedKeyTag: data.wrappedKeyTag,
         senderPublicKey: data.senderPublicKey,
         wrappingAlg: data.wrappingAlg,
         connectorKeyId: data.connectorKeyId,
+        sourceContentRevision: data.sourceContentRevision,
+        sourceManifestRevision: data.sourceManifestRevision,
         durationHours: data.durationHours,
       }),
     });

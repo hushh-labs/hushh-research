@@ -113,6 +113,19 @@ export interface RiaClientAccess {
   is_invite_only?: boolean;
   disconnect_allowed?: boolean;
   is_self_relationship?: boolean;
+  relationship_shares?: Array<{
+    grant_key: string;
+    label: string;
+    description: string;
+    status: string;
+    share_origin?: string | null;
+    granted_at?: string | null;
+    revoked_at?: string | null;
+    has_active_pick_upload?: boolean;
+  }>;
+  picks_feed_status?: string | null;
+  picks_feed_granted_at?: string | null;
+  has_active_pick_upload?: boolean;
 }
 
 export interface RiaAvailableScopeMetadata {
@@ -151,6 +164,19 @@ export interface RiaClientDetail {
   disconnect_allowed: boolean;
   is_self_relationship: boolean;
   next_action?: string | null;
+  relationship_shares?: Array<{
+    grant_key: string;
+    label: string;
+    description: string;
+    status: string;
+    share_origin?: string | null;
+    granted_at?: string | null;
+    revoked_at?: string | null;
+    has_active_pick_upload?: boolean;
+  }>;
+  picks_feed_status?: string | null;
+  picks_feed_granted_at?: string | null;
+  has_active_pick_upload?: boolean;
   granted_scopes: Array<{
     scope: string;
     label: string;
@@ -694,6 +720,19 @@ export class RiaService {
     total_attributes: number;
     relationship_status: string;
     scope: string;
+    relationship_shares?: Array<{
+      grant_key: string;
+      label: string;
+      description: string;
+      status: string;
+      share_origin?: string | null;
+      granted_at?: string | null;
+      revoked_at?: string | null;
+      has_active_pick_upload?: boolean;
+    }>;
+    picks_feed_status?: string | null;
+    picks_feed_granted_at?: string | null;
+    has_active_pick_upload?: boolean;
     granted_scopes?: Array<{
       scope: string;
       label: string;

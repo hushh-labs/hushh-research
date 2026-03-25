@@ -25,7 +25,7 @@ from urllib.parse import quote_plus
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.pool import NullPool, QueuePool
+from sqlalchemy.pool import NullPool
 
 load_dotenv()
 
@@ -33,24 +33,6 @@ logger = logging.getLogger(__name__)
 
 # Singleton engine instance
 _engine: Optional[Engine] = None
-
-
-def _env_truthy(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("Invalid %s=%r; using default %s", name, raw, default)
-        return default
 
 
 class DatabaseExecutionError(RuntimeError):
@@ -73,8 +55,7 @@ def get_db_engine() -> Engine:
     """
     Get SQLAlchemy engine using session pooler credentials.
 
-    Uses QueuePool by default to avoid reconnecting on every query. Set
-    DB_DISABLE_POOL=true to force NullPool when needed.
+    Uses NullPool to let Supabase's session pooler handle connection pooling.
 
     Returns:
         SQLAlchemy Engine instance
@@ -114,33 +95,8 @@ def get_db_engine() -> Engine:
             target = f"{db_host}:{db_port}/{db_name}"
 
         logger.info(f"Initializing database connection to {target}")
-
-        engine_kwargs: dict[str, Any] = {}
-        if _env_truthy("DB_DISABLE_POOL", default=False):
-            engine_kwargs["poolclass"] = NullPool
-            pool_description = "NullPool (disabled)"
-        else:
-            pool_size = max(1, _env_int("DB_POOL_SIZE", default=5))
-            max_overflow = max(0, _env_int("DB_MAX_OVERFLOW", default=10))
-            pool_timeout = max(1, _env_int("DB_POOL_TIMEOUT_SECONDS", default=30))
-            pool_recycle = max(30, _env_int("DB_POOL_RECYCLE_SECONDS", default=1800))
-            engine_kwargs.update(
-                {
-                    "poolclass": QueuePool,
-                    "pool_size": pool_size,
-                    "max_overflow": max_overflow,
-                    "pool_timeout": pool_timeout,
-                    "pool_recycle": pool_recycle,
-                    "pool_pre_ping": True,
-                }
-            )
-            pool_description = (
-                f"QueuePool(size={pool_size}, overflow={max_overflow}, "
-                f"timeout={pool_timeout}s, recycle={pool_recycle}s)"
-            )
-
-        _engine = create_engine(database_url, **engine_kwargs)
-        logger.info("Database engine initialized (%s)", pool_description)
+        _engine = create_engine(database_url, poolclass=NullPool)
+        logger.info("Database engine initialized")
 
     return _engine
 

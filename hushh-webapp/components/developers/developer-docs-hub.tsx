@@ -104,6 +104,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 type ProfileDraft = {
   display_name: string;
   website_url: string;
+  brand_image_url: string;
   support_url: string;
   policy_url: string;
 };
@@ -111,6 +112,7 @@ type ProfileDraft = {
 const EMPTY_PROFILE_DRAFT: ProfileDraft = {
   display_name: "",
   website_url: "",
+  brand_image_url: "",
   support_url: "",
   policy_url: "",
 };
@@ -734,6 +736,22 @@ function AccessWorkspace({
                     </InputGroup>
                   </Field>
                   <Field orientation="responsive">
+                    <FieldLabel htmlFor="developer-brand-image-url">Brand image URL</FieldLabel>
+                    <FieldDescription>
+                      Optional logo or avatar shown in consent review surfaces and push notifications.
+                    </FieldDescription>
+                    <InputGroup>
+                      <InputGroupInput
+                        id="developer-brand-image-url"
+                        value={profileDraft.brand_image_url}
+                        onChange={(event) =>
+                          onProfileDraftChange("brand_image_url", event.target.value)
+                        }
+                        placeholder="https://example.com/logo.png"
+                      />
+                    </InputGroup>
+                  </Field>
+                  <Field orientation="responsive">
                     <FieldLabel htmlFor="developer-support-url">Support URL</FieldLabel>
                     <FieldDescription>Shown in trust conversations and support follow-ups.</FieldDescription>
                     <InputGroup>
@@ -935,6 +953,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     setProfileDraft({
       display_name: access.app.display_name || "",
       website_url: access.app.website_url || "",
+      brand_image_url: access.app.brand_image_url || "",
       support_url: access.app.support_url || "",
       policy_url: access.app.policy_url || "",
     });

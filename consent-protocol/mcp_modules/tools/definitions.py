@@ -21,7 +21,9 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "🔐 Request consent from a user to access their personal data. "
                 "Returns a cryptographically signed consent token (HCT format) if granted. "
                 "This MUST be called before accessing any user data. "
-                "The token contains: user_id, scope, expiration, HMAC-SHA256 signature."
+                "The token contains: user_id, scope, expiration, HMAC-SHA256 signature. "
+                "If a broader active grant already covers the requested scope, the existing token is reused "
+                "and the response exposes both requested_scope and granted_scope."
             ),
             inputSchema={
                 "type": "object",
@@ -48,8 +50,47 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "type": "string",
                         "description": "Human-readable reason for the request (transparency)",
                     },
+                    "approval_timeout_minutes": {
+                        "type": "integer",
+                        "description": (
+                            "How long the request remains actionable before timing out. "
+                            "Public range: 5 to 1440 minutes. Default: 1440."
+                        ),
+                        "minimum": 5,
+                        "maximum": 1440,
+                    },
+                    "expiry_hours": {
+                        "type": "integer",
+                        "description": (
+                            "How long the granted consent token remains valid after approval. "
+                            "Public range: 24 to 2160 hours. Default: 24."
+                        ),
+                        "minimum": 24,
+                        "maximum": 2160,
+                    },
+                    "connector_public_key": {
+                        "type": "string",
+                        "description": (
+                            "Base64-encoded X25519 public key owned by the external connector. "
+                            "Hushh wraps the export key to this public key and never manages the private key."
+                        ),
+                    },
+                    "connector_key_id": {
+                        "type": "string",
+                        "description": "Stable caller-managed identifier for the connector public key.",
+                    },
+                    "connector_wrapping_alg": {
+                        "type": "string",
+                        "description": "Connector key-wrapping algorithm. Use X25519-AES256-GCM.",
+                    },
                 },
-                "required": ["user_id", "scope"],
+                "required": [
+                    "user_id",
+                    "scope",
+                    "connector_public_key",
+                    "connector_key_id",
+                    "connector_wrapping_alg",
+                ],
             },
         ),
         # Tool 2: Validate Token
@@ -75,13 +116,13 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "required": ["token"],
             },
         ),
-        # Tool 3: Get Scoped Data
+        # Tool 3: Get Encrypted Scoped Export
         Tool(
-            name="get_scoped_data",
+            name="get_encrypted_scoped_export",
             description=(
-                "📦 Retrieve the approved scoped export for any valid consent token. "
+                "📦 Retrieve the encrypted wrapped-key export for any valid consent token. "
                 "This is the recommended dynamic data-access tool for all new integrations. "
-                "The returned payload already reflects the exact scope the user approved."
+                "Hushh returns ciphertext plus wrapped key metadata only; the external connector decrypts client-side."
             ),
             inputSchema={
                 "type": "object",
@@ -97,8 +138,9 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     "expected_scope": {
                         "type": "string",
                         "description": (
-                            "Optional safety check. Use a discovered scope string if the caller "
-                            "wants to verify the token is scoped exactly as expected."
+                            "Optional safety check. Pass the original discovered/requested scope here. "
+                            "If the token came from a reused broader grant, the server returns the canonical broader encrypted export "
+                            "and echoes expected_scope so the connector can narrow after decrypting."
                         ),
                     },
                 },

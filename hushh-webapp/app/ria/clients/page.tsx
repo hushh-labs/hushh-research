@@ -195,6 +195,38 @@ function formatDate(value?: string | number | null) {
   return date.toLocaleString();
 }
 
+function formatPicksFeedStatus(status?: string | null) {
+  switch (status) {
+    case "ready":
+      return "Shared";
+    case "pending":
+      return "Awaiting upload";
+    case "included_on_approval":
+      return "Included on approval";
+    case "unavailable":
+    default:
+      return "Unavailable";
+  }
+}
+
+function picksFeedHelper(item: {
+  picks_feed_status?: string | null;
+  has_active_pick_upload?: boolean;
+}) {
+  if (item.picks_feed_status === "ready") {
+    return "Investor can see the advisor's active feed in Kai.";
+  }
+  if (item.picks_feed_status === "pending") {
+    return item.has_active_pick_upload
+      ? "The relationship share is active."
+      : "The share is active, but the advisor has not uploaded a current list yet.";
+  }
+  if (item.picks_feed_status === "included_on_approval") {
+    return "This benefit is included automatically once the relationship is approved.";
+  }
+  return "Advisor picks are not currently available through this relationship.";
+}
+
 export default function RiaClientsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -838,7 +870,7 @@ export default function RiaClientsPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <SurfaceInset className="p-4">
                     <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                       Granted scopes
@@ -862,6 +894,17 @@ export default function RiaClientsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {detail.available_domains.length} indexed domains across{" "}
                       {detail.total_attributes} tracked attributes.
+                    </p>
+                  </SurfaceInset>
+                  <SurfaceInset className="p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Advisor picks
+                    </p>
+                    <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                      {formatPicksFeedStatus(detail.picks_feed_status)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {picksFeedHelper(detail)}
                     </p>
                   </SurfaceInset>
                 </div>
