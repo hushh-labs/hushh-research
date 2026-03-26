@@ -34,7 +34,7 @@ import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAuth } from "@/lib/firebase";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
+import { consolidateHoldingsBySymbol, normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache, type PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
@@ -316,7 +316,12 @@ export function ManagePortfolioView() {
     setIsSaving(true);
     try {
       // 1. Build complete portfolio data object
-      const holdingsForSave = activeHoldings.map(({ pending_delete: _pending_delete, ...rest }) => rest);
+      const holdingsForSave = consolidateHoldingsBySymbol(
+        activeHoldings.map(({ pending_delete: _pending_delete, ...rest }) => rest) as unknown as Record<
+          string,
+          unknown
+        >[]
+      ) as Holding[];
       const updatedPortfolioData: PortfolioData = {
         account_info: accountInfo,
         account_summary: {
