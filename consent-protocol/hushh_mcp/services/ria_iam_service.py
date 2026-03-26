@@ -14,6 +14,7 @@ import asyncpg
 
 from db.connection import get_pool
 from hushh_mcp.consent.scope_helpers import get_scope_description
+from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
@@ -811,6 +812,15 @@ class RIAIAMService:
         ).strip()
         return origin or _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT
 
+    @staticmethod
+    def _serialize_datetime_value(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        normalized = str(value).strip()
+        return normalized or None
+
     @classmethod
     def _serialize_relationship_share(
         cls,
@@ -830,8 +840,8 @@ class RIAIAMService:
             **descriptor,
             "status": str(payload.get("status") or "").strip() or "unavailable",
             "share_origin": cls._relationship_share_origin(payload.get("metadata")),
-            "granted_at": payload.get("granted_at"),
-            "revoked_at": payload.get("revoked_at"),
+            "granted_at": cls._serialize_datetime_value(payload.get("granted_at")),
+            "revoked_at": cls._serialize_datetime_value(payload.get("revoked_at")),
             "has_active_pick_upload": bool(has_active_pick_upload),
         }
 
@@ -1236,19 +1246,25 @@ class RIAIAMService:
         request_id = uuid.uuid4().hex
         now_ms = self._now_ms()
         expires_at_ms = now_ms + (template.default_duration_hours * 60 * 60 * 1000)
-        agent_id = f"ria:{ria['id']}"
+        ria_map = dict(ria)
+        agent_id = f"ria:{ria_map['id']}"
         request_url = build_consent_request_url(
             request_id=request_id,
             bundle_id=str(bundle_id or "").strip() or None,
         )
+        requester_label = (
+            str(ria_map.get("display_name") or ria_map.get("legal_name") or "").strip()
+            or f"RIA {str(ria_map['id'])[:8]}"
+        )
+        requester_website_url = str(ria_map.get("disclosures_url") or "").strip() or None
 
         metadata = {
             "requester_actor_type": "ria",
             "subject_actor_type": "investor",
-            "requester_entity_id": str(ria["id"]),
-            "requester_label": str(ria["display_name"]),
+            "requester_entity_id": str(ria_map["id"]),
+            "requester_label": requester_label,
             "requester_image_url": None,
-            "requester_website_url": str(ria["disclosures_url"] or "").strip() or None,
+            "requester_website_url": requester_website_url,
             "firm_id": firm_id,
             "scope_template_id": template.template_id,
             "duration_mode": "investor_decides",
@@ -2526,11 +2542,13 @@ class RIAIAMService:
             "relationship_status": relationship_status,
             "granted_scope": relationship_payload["granted_scope"],
             "last_request_id": relationship_payload["last_request_id"],
-            "consent_granted_at": relationship_payload["consent_granted_at"],
+            "consent_granted_at": self._serialize_datetime_value(
+                relationship_payload["consent_granted_at"]
+            ),
             "consent_expires_at": consent_expires_at,
-            "revoked_at": relationship_payload["revoked_at"],
-            "created_at": relationship_payload["created_at"],
-            "updated_at": relationship_payload["updated_at"],
+            "revoked_at": self._serialize_datetime_value(relationship_payload["revoked_at"]),
+            "created_at": self._serialize_datetime_value(relationship_payload["created_at"]),
+            "updated_at": self._serialize_datetime_value(relationship_payload["updated_at"]),
             "disconnect_allowed": True,
             "is_self_relationship": investor_user_id == user_id,
             "next_action": self._next_action_for_relationship_status(
@@ -2542,7 +2560,9 @@ class RIAIAMService:
                 share_status=str(relationship_payload.get("picks_share_status") or ""),
                 has_active_pick_upload=has_active_pick_upload,
             ),
-            "picks_feed_granted_at": relationship_payload.get("picks_share_granted_at"),
+            "picks_feed_granted_at": self._serialize_datetime_value(
+                relationship_payload.get("picks_share_granted_at")
+            ),
             "has_active_pick_upload": has_active_pick_upload,
             "granted_scopes": granted_scopes,
             "request_history": request_history[:8],
@@ -2568,7 +2588,7 @@ class RIAIAMService:
             "domain_summaries": raw_domain_summaries if reveal_workspace_metadata else {},
             "total_attributes": total_attributes,
             "workspace_ready": bool(granted_scopes) and total_attributes > 0,
-            "pkm_updated_at": updated_at,
+            "pkm_updated_at": self._serialize_datetime_value(updated_at),
         }
 
     async def disconnect_relationship(
@@ -3109,9 +3129,10 @@ class RIAIAMService:
                     "is_default": False,
                     "ria_user_id": row["ria_user_id"],
                     "ria_profile_id": str(row["ria_profile_id"]),
+                    "upload_id": str(row["upload_id"]) if row["upload_id"] else None,
                     "share_status": row["share_status"],
                     "share_origin": self._relationship_share_origin(row["share_metadata"]),
-                    "share_granted_at": row["share_granted_at"],
+                    "share_granted_at": self._serialize_datetime_value(row["share_granted_at"]),
                 }
                 for row in rows
             ]
@@ -3771,7 +3792,7 @@ class RIAIAMService:
     ) -> asyncpg.Record:
         row = await conn.fetchrow(
             """
-            SELECT id, user_id, verification_status
+            SELECT id, user_id, verification_status, display_name, legal_name, disclosures_url
             FROM ria_profiles
             WHERE user_id = $1
             """,
@@ -4166,12 +4187,11 @@ class RIAIAMService:
                         continue
                     latest_by_scope[scope_key] = audit_row
 
-                now_ms = self._now_ms()
-                has_active_grant = any(
-                    str(audit_row["action"] or "") == "CONSENT_GRANTED"
-                    and (audit_row["expires_at"] is None or int(audit_row["expires_at"]) > now_ms)
-                    for audit_row in latest_by_scope.values()
+                active_tokens = await ConsentDBService().get_active_tokens(
+                    user_id,
+                    agent_id=row["agent_id"],
                 )
+                has_active_grant = bool(active_tokens)
                 has_pending_request = any(
                     str(audit_row["action"] or "") == "REQUESTED"
                     for audit_row in latest_by_scope.values()

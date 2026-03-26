@@ -263,6 +263,7 @@ async def test_list_investor_pick_sources_requires_active_relationship_share(mon
     assert len(items) == 1
     assert items[0]["id"] == "ria:ria_profile_1"
     assert items[0]["state"] == "ready"
+    assert items[0]["upload_id"] == "upload_1"
     assert items[0]["share_status"] == "active"
     assert items[0]["share_origin"] == "relationship_implicit"
 
@@ -296,3 +297,114 @@ async def test_get_pick_rows_for_source_returns_empty_without_active_relationshi
     rows = await service.get_pick_rows_for_source("investor_1", "ria:ria_profile_1")
 
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_sync_relationship_from_consent_action_uses_active_tokens_over_latest_requested_row(
+    monkeypatch,
+):
+    updates: list[tuple[str, str]] = []
+    materialized: list[dict] = []
+
+    class _FakeTransaction:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConn:
+        def transaction(self):
+            return _FakeTransaction()
+
+        async def fetchrow(self, query: str, *args):
+            if "FROM consent_audit" in query and "action = 'REQUESTED'" in query:
+                return {
+                    "request_id": "req_1",
+                    "user_id": "investor_1",
+                    "agent_id": "ria:profile_1",
+                    "scope": "attr.financial.*",
+                    "metadata": {
+                        "requester_actor_type": "ria",
+                        "requester_entity_id": "11111111-1111-1111-1111-111111111111",
+                    },
+                }
+            if "FROM advisor_investor_relationships rel" in query:
+                return {
+                    "id": "relationship_1",
+                    "ria_user_id": "ria_user_1",
+                }
+            raise AssertionError(f"Unexpected fetchrow query: {query}")
+
+        async def fetch(self, query: str, *args):
+            if "FROM consent_audit" in query:
+                return [
+                    {
+                        "scope": "attr.financial.*",
+                        "action": "REQUESTED",
+                        "expires_at": 9999999999999,
+                        "issued_at": 200,
+                    },
+                    {
+                        "scope": "attr.financial.*",
+                        "action": "CONSENT_GRANTED",
+                        "expires_at": 9999999999999,
+                        "issued_at": 100,
+                    },
+                ]
+            raise AssertionError(f"Unexpected fetch query: {query}")
+
+        async def execute(self, query: str, *args):
+            if "UPDATE advisor_investor_relationships" in query:
+                updates.append((args[0], args[1]))
+                return None
+            raise AssertionError(f"Unexpected execute query: {query}")
+
+        async def close(self):
+            return None
+
+    class _FakeConsentDBService:
+        async def get_active_tokens(self, user_id: str, agent_id: str | None = None, scope=None):
+            assert user_id == "investor_1"
+            assert agent_id == "ria:profile_1"
+            assert scope is None
+            return [
+                {
+                    "scope": "attr.financial.*",
+                    "token_id": "existing_token",
+                    "expires_at": 9999999999999,
+                }
+            ]
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return True
+
+    async def _fake_materialize(self, conn, **kwargs):  # noqa: ANN001
+        _ = conn
+        materialized.append(kwargs)
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_is_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_iam_service.ConsentDBService",
+        _FakeConsentDBService,
+    )
+    monkeypatch.setattr(
+        RIAIAMService,
+        "_materialize_relationship_share_grant",
+        _fake_materialize,
+    )
+
+    await service.sync_relationship_from_consent_action(
+        user_id="investor_1",
+        request_id="req_1",
+        action="CONSENT_GRANTED",
+    )
+
+    assert updates == [("relationship_1", "approved")]
+    assert materialized and materialized[0]["relationship_id"] == "relationship_1"

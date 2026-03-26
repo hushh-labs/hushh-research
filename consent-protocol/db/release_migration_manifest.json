@@ -1,0 +1,37 @@
+{
+  "manifest_name": "canonical_release_migrations",
+  "ordered_migrations": [
+    "020_ria_iam_foundation.sql",
+    "021_runtime_persona_state.sql",
+    "022_ria_invites.sql",
+    "025_ria_pick_lists_and_bundle_notify.sql",
+    "027_relationship_disconnect_status.sql",
+    "028_professional_regulatory_capabilities.sql",
+    "030_pkm_cutover.sql",
+    "031_domain_registry_rpc_compat.sql",
+    "032_pkm_metadata_rpc_compat.sql",
+    "033_atomic_pkm_storage_rename.sql",
+    "034_pkm_upgrade_engine.sql",
+    "035_strict_zero_knowledge_consent_exports.sql",
+    "036_relationship_share_grants.sql"
+  ],
+  "groups": {
+    "iam": [
+      "020_ria_iam_foundation.sql",
+      "021_runtime_persona_state.sql",
+      "022_ria_invites.sql",
+      "025_ria_pick_lists_and_bundle_notify.sql",
+      "027_relationship_disconnect_status.sql",
+      "028_professional_regulatory_capabilities.sql",
+      "036_relationship_share_grants.sql"
+    ],
+    "pkm": [
+      "030_pkm_cutover.sql",
+      "031_domain_registry_rpc_compat.sql",
+      "032_pkm_metadata_rpc_compat.sql",
+      "033_atomic_pkm_storage_rename.sql",
+      "034_pkm_upgrade_engine.sql",
+      "035_strict_zero_knowledge_consent_exports.sql"
+    ]
+  }
+}

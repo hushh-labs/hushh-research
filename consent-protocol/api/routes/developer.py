@@ -1132,7 +1132,7 @@ async def get_scoped_export(
         else "superset",
         expires_at=token_obj.expires_at,
         export_revision=export_data.get("export_revision"),
-        export_generated_at=export_data.get("export_generated_at"),
+        export_generated_at=_optional_str(export_data.get("export_generated_at")),
         export_refresh_status=export_data.get("refresh_status"),
         encrypted_data=export_data.get("encrypted_data"),
         iv=export_data.get("iv"),

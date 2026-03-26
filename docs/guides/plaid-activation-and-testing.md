@@ -55,7 +55,7 @@ Webhook values to use:
 Use:
 
 - frontend: `http://localhost:3000`
-- backend profile: `consent-protocol/.env` or `consent-protocol/.env.local-uatdb.local`
+- backend profile: `consent-protocol/.env` or the local copy created from `consent-protocol/.env.local-uatdb.local.example`
 - webhook tunnel: ngrok or Cloudflare tunnel
 
 Example webhook target:

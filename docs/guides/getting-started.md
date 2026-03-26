@@ -167,12 +167,12 @@ For remote profiles:
 
 - Use only `local-uatdb`, `uat-remote`, or `prod-remote`
 - Use only the canonical profile files:
-  - `consent-protocol/.env.local-uatdb.local`
-  - `consent-protocol/.env.uat-remote.local`
-  - `consent-protocol/.env.prod-remote.local`
-  - `hushh-webapp/.env.local-uatdb.local`
-  - `hushh-webapp/.env.uat-remote.local`
-  - `hushh-webapp/.env.prod-remote.local`
+  - `consent-protocol/.env.local-uatdb.local.example`
+  - `consent-protocol/.env.uat-remote.local.example`
+  - `consent-protocol/.env.prod-remote.local.example`
+  - `hushh-webapp/.env.local-uatdb.local.example`
+  - `hushh-webapp/.env.uat-remote.local.example`
+  - `hushh-webapp/.env.prod-remote.local.example`
 - Do not rely on `*.dev.local`, `*.uat.local`, or `*.prod.local`
 - Do not rely on server-side localhost or production fallbacks in hosted environments
 - Do not run local UAT DB access with raw `uvicorn`; use `make backend PROFILE=local-uatdb`

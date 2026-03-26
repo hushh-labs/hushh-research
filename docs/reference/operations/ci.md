@@ -276,11 +276,16 @@ The production deploy workflow (`.github/workflows/deploy-production.yml`) enfor
 
 2. Migration governance + drift gate:
 - checks migration filename monotonicity (`consent-protocol/db/migrations`)
-- checks contract version alignment (`consent-protocol/db/schema_contract/prod_core_schema.json`)
+- checks the production-pinned schema contract (`consent-protocol/db/schema_contract/prod_core_schema.json`)
+- allows the repo to be ahead of production while production stays pinned to its approved migration floor
 - checks live DB schema contract in read-only mode
 
 3. Manifest artifact:
 - emits a production migration release manifest with logical backup evidence (`backup_object_uri`, checksum, completion timestamp)
+
+UAT deploys use a separate latest-integrated contract:
+
+- `consent-protocol/db/schema_contract/uat_integrated_schema.json`
 
 The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
 

@@ -20,12 +20,12 @@ Anything outside that list is legacy or unsupported for normal onboarding.
 
 The supported local files are:
 
-- `consent-protocol/.env.local-uatdb.local`
-- `consent-protocol/.env.uat-remote.local`
-- `consent-protocol/.env.prod-remote.local`
-- `hushh-webapp/.env.local-uatdb.local`
-- `hushh-webapp/.env.uat-remote.local`
-- `hushh-webapp/.env.prod-remote.local`
+- `consent-protocol/.env.local-uatdb.local.example`
+- `consent-protocol/.env.uat-remote.local.example`
+- `consent-protocol/.env.prod-remote.local.example`
+- `hushh-webapp/.env.local-uatdb.local.example`
+- `hushh-webapp/.env.uat-remote.local.example`
+- `hushh-webapp/.env.prod-remote.local.example`
 
 The active runtime files remain:
 
