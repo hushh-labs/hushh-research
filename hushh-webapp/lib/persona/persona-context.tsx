@@ -6,9 +6,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
@@ -49,12 +51,35 @@ function readCachedPersona(userId: string) {
   };
 }
 
+function shouldLoadRiaOnboardingStatus(
+  pathname: string,
+  personaState: PersonaState | null
+): boolean {
+  const normalized = String(pathname || "").trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.startsWith("/ria")) return true;
+
+  const activePersona = personaState?.active_persona || personaState?.last_active_persona;
+  const primaryPersona = personaState?.primary_nav_persona;
+  const riaContext = activePersona === "ria" || primaryPersona === "ria";
+
+  if (normalized.startsWith("/profile")) return riaContext;
+  if (normalized.startsWith("/consents")) return riaContext;
+  return false;
+}
+
 export function PersonaProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [personaState, setPersonaState] = useState<PersonaState | null>(null);
   const [riaOnboardingStatus, setRiaOnboardingStatus] = useState<RiaOnboardingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const pathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   const refresh = useCallback(
     async (options?: { force?: boolean }) => {
@@ -83,7 +108,10 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       setRefreshing(true);
       try {
         const idToken = await user.getIdToken();
-        const nextPersona = await RiaService.getPersonaState(idToken);
+        const nextPersona = await RiaService.getPersonaState(idToken, {
+          userId,
+          force,
+        });
         setPersonaState(nextPersona);
         cache.set(CACHE_KEYS.PERSONA_STATE(userId), nextPersona, CACHE_TTL.SESSION);
 
@@ -93,7 +121,15 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const nextOnboarding = await RiaService.getOnboardingStatus(idToken).catch(
+        if (!shouldLoadRiaOnboardingStatus(pathnameRef.current, nextPersona)) {
+          setRiaOnboardingStatus(cached.riaOnboardingStatus ?? null);
+          return;
+        }
+
+        const nextOnboarding = await RiaService.getOnboardingStatus(idToken, {
+          userId,
+          force,
+        }).catch(
           () => null as RiaOnboardingStatus | null
         );
         setRiaOnboardingStatus(nextOnboarding);
@@ -113,6 +149,22 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || !user) return;
+    if (!shouldLoadRiaOnboardingStatus(pathname, personaState)) return;
+    if (riaOnboardingStatus || refreshing) return;
+    void refresh();
+  }, [
+    authLoading,
+    isAuthenticated,
+    pathname,
+    personaState,
+    refresh,
+    refreshing,
+    riaOnboardingStatus,
+    user,
+  ]);
 
   const switchPersona = useCallback(
     async (target: Persona) => {

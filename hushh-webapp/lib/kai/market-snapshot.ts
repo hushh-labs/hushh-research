@@ -1,4 +1,5 @@
-import { ApiService, type KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import { type KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
 import { CacheService } from "@/lib/services/cache-service";
 
 export type TickerMarketSnapshot = {
@@ -177,11 +178,14 @@ export async function fetchLatestMarketSnapshot(
     daysBack?: number;
   }
 ): Promise<TickerMarketSnapshot | null> {
-  const payload = await ApiService.getKaiMarketInsights({
+  const payload = await KaiMarketHomeResourceService.getStaleFirst({
     userId: params.userId,
     vaultOwnerToken: params.vaultOwnerToken,
     symbols: [params.ticker],
     daysBack: params.daysBack ?? 7,
+    forceRefresh: false,
+    backgroundRefresh: true,
+    allowDefaultNetworkFallback: false,
   });
   return extractTickerMarketSnapshotFromKaiHome(payload, params.ticker);
 }

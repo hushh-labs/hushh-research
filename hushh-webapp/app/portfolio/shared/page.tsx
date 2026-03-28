@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 
 import {
@@ -316,7 +316,7 @@ function SnapshotView({ payload }: { payload: PortfolioSharePayload }) {
   );
 }
 
-export default function SharedPortfolioPage() {
+function SharedPortfolioPageContent() {
   const searchParams = useSearchParams();
   const token = String(searchParams.get("token") || "").trim();
 
@@ -327,4 +327,12 @@ export default function SharedPortfolioPage() {
   }
 
   return <SnapshotView payload={payload} />;
+}
+
+export default function SharedPortfolioPage() {
+  return (
+    <Suspense fallback={null}>
+      <SharedPortfolioPageContent />
+    </Suspense>
+  );
 }

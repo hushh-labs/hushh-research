@@ -35,8 +35,6 @@ import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-servi
 import { getSessionItem, removeSessionItem } from "@/lib/utils/session-storage";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePendingConsentCount } from "@/components/consent/notification-provider";
-import { useConsentSheet } from "@/components/consent/consent-sheet-controller";
 
 function statusLabel(task: DebateRunTask): string {
   if (task.status === "running") return "Running";
@@ -111,8 +109,6 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
   const router = useRouter();
   const { userId } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const { openConsentSheet } = useConsentSheet();
-  const pendingConsentCount = usePendingConsentCount();
   const [debateState, setDebateState] = useState(DebateRunManagerService.getState());
   const [appTaskState, setAppTaskState] = useState(AppBackgroundTaskService.getState());
   const [isBusy, setIsBusy] = useState<Record<string, boolean>>({});
@@ -158,7 +154,7 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
   const completedCount =
     debateTasks.filter((task) => task.status !== "running").length +
     appTasks.filter((task) => task.status !== "running").length;
-  const badgeCount = activeCount + completedCount + pendingConsentCount;
+  const badgeCount = activeCount + completedCount;
   const latestActiveTask = useMemo(() => {
     return debateTasks
       .filter((task) => task.status === "running")
@@ -272,45 +268,12 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
 
         <div className="max-h-[360px] overflow-y-auto px-3 py-4">
           <div className="overflow-hidden rounded-[20px] border border-border/50 bg-background/72">
-            <button
-              type="button"
-              className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/28"
-              onClick={() => {
-                setOpen(false);
-                openConsentSheet({ view: "pending" });
-              }}
-            >
-              <div className="flex min-w-0 items-start gap-3">
-                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-300">
-                  <Icon icon={Shield} size="sm" />
-                </span>
-                <div className="min-w-0 space-y-1">
-                  <p className="text-sm font-semibold">Consent Center</p>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {pendingConsentCount > 0
-                      ? `${pendingConsentCount} request${pendingConsentCount === 1 ? "" : "s"} waiting for review.`
-                      : "All caught up. Open the consent center anytime."}
-                  </p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {pendingConsentCount > 0 ? (
-                  <span className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-sky-500 px-2 text-[11px] font-semibold text-white">
-                    {pendingConsentCount}
-                  </span>
-                ) : null}
-                <span className="inline-flex items-center rounded-full bg-muted/72 px-3 py-1.5 text-xs font-medium text-foreground">
-                  Open
-                </span>
-              </div>
-            </button>
-
             {notifications.length === 0 ? (
               <div className="border-t border-border/40 px-3 py-6 text-center text-sm text-muted-foreground">
                 No notifications yet.
               </div>
             ) : (
-              <div className="border-t border-border/40">
+              <div>
                 {notifications.map((item) =>
                   item.kind === "debate" ? (
                     <div

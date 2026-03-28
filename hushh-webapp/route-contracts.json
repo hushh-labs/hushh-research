@@ -173,6 +173,8 @@
       "id": "consentCenterProxy",
       "webRouteFiles": [
         "hushh-webapp/app/api/consent/center/route.ts",
+        "hushh-webapp/app/api/consent/center/summary/route.ts",
+        "hushh-webapp/app/api/consent/center/list/route.ts",
         "hushh-webapp/app/api/consent/requests/route.ts",
         "hushh-webapp/app/api/consent/requests/outgoing/route.ts"
       ],
@@ -181,6 +183,8 @@
         "routerPrefix": "/api/consent",
         "paths": [
           "/center",
+          "/center/summary",
+          "/center/list",
           "/requests",
           "/requests/outgoing"
         ]

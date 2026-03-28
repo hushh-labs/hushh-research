@@ -5,7 +5,11 @@ import {
   type DomainSummary,
   PersonalKnowledgeModelService,
 } from "@/lib/services/personal-knowledge-model-service";
-import { PkmUpgradeService, type PkmUpgradeStatus } from "@/lib/services/pkm-upgrade-service";
+import {
+  PkmUpgradeRouteUnavailableError,
+  PkmUpgradeService,
+  type PkmUpgradeStatus,
+} from "@/lib/services/pkm-upgrade-service";
 import {
   buildReadableUpgradeSummary,
   runDomainUpgrade,
@@ -86,15 +90,31 @@ function descriptionForStatus(status: string, currentDomain?: string | null): st
 export class PkmUpgradeOrchestrator {
   private static inFlightByUser = new Map<string, Promise<void>>();
   private static pauseRequestedByUser = new Set<string>();
+  private static routeUnavailableForSession = false;
 
   static peekSnapshot(userId: string): PkmUpgradeSnapshot | null {
     return readSnapshot(userId);
+  }
+
+  static isRouteUnavailableForSession(): boolean {
+    return this.routeUnavailableForSession;
+  }
+
+  private static disableForSession(error: unknown): void {
+    if (this.routeUnavailableForSession) {
+      return;
+    }
+    this.routeUnavailableForSession = true;
+    console.warn("[PkmUpgradeOrchestrator] Disabling PKM upgrade orchestration for this session.", error);
   }
 
   static async pauseForLocalAuthResume(params: {
     userId: string;
     vaultOwnerToken?: string | null;
   }): Promise<void> {
+    if (this.routeUnavailableForSession) {
+      return;
+    }
     this.pauseRequestedByUser.add(params.userId);
     if (!params.vaultOwnerToken) {
       return;
@@ -151,6 +171,9 @@ export class PkmUpgradeOrchestrator {
     vaultOwnerToken: string;
     initiatedBy?: string;
   }): Promise<void> {
+    if (this.routeUnavailableForSession) {
+      return;
+    }
     this.pauseRequestedByUser.delete(params.userId);
     const existing = this.inFlightByUser.get(params.userId);
     if (existing) {
@@ -171,11 +194,21 @@ export class PkmUpgradeOrchestrator {
     vaultOwnerToken: string;
     initiatedBy?: string;
   }): Promise<void> {
-    let status = await PkmUpgradeService.startOrResume({
-      userId: params.userId,
-      vaultOwnerToken: params.vaultOwnerToken,
-      initiatedBy: params.initiatedBy || "unlock_warm",
-    });
+    let status: PkmUpgradeStatus;
+    try {
+      status = await PkmUpgradeService.startOrResume({
+        userId: params.userId,
+        vaultOwnerToken: params.vaultOwnerToken,
+        initiatedBy: params.initiatedBy || "unlock_warm",
+      });
+    } catch (error) {
+      if (error instanceof PkmUpgradeRouteUnavailableError) {
+        this.disableForSession(error);
+        clearSnapshot(params.userId);
+        return;
+      }
+      throw error;
+    }
     if (!status.run || status.upgradableDomains.length === 0) {
       const snapshot = readSnapshot(params.userId);
       if (snapshot?.taskId) {

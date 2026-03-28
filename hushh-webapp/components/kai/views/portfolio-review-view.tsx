@@ -47,7 +47,9 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   useCache,
   type PortfolioData as CachedPortfolioData,
@@ -1464,40 +1466,20 @@ export function PortfolioReviewView({
 
       const nowIso = new Date().toISOString();
       const blobLoadStartedAt = nowMs();
-      const cachedBlob = PersonalKnowledgeModelService.peekCachedFullBlob(userId);
-      let fullBlob: Record<string, unknown>;
-      let expectedDataVersion = cachedBlob?.dataVersion;
-      if (cachedBlob?.blob) {
-        fullBlob = cachedBlob.blob;
-      } else {
-        const existingFinancial =
-          (await PersonalKnowledgeModelService.loadDomainData({
-            userId,
-            domain: "financial",
-            vaultKey: effectiveVaultKey,
-            vaultOwnerToken: resolvedVaultOwnerToken,
-          }).catch(() => null)) ?? {};
-        fullBlob =
-          existingFinancial &&
-          typeof existingFinancial === "object" &&
-          !Array.isArray(existingFinancial)
-            ? { financial: existingFinancial }
-            : {};
-      }
-      if (expectedDataVersion === undefined) {
-        expectedDataVersion = PersonalKnowledgeModelService.peekCachedEncryptedBlob(userId)?.dataVersion;
-      }
+      const {
+        domainData: existingFinancialRaw,
+      } = await PkmDomainResourceService.prepareDomainWriteContext({
+        userId,
+        domain: "financial",
+        vaultKey: effectiveVaultKey,
+        vaultOwnerToken: resolvedVaultOwnerToken,
+      });
+      const existingFinancial = existingFinancialRaw ?? {};
       logSavePhase("blob load", blobLoadStartedAt);
       const mergeBuildStartedAt = nowMs();
-      const existingFinancialValue = fullBlob.financial;
-      const existingFinancial =
-        existingFinancialValue &&
-        typeof existingFinancialValue === "object" &&
-        !Array.isArray(existingFinancialValue)
-          ? ({ ...(existingFinancialValue as Record<string, unknown>) } as Record<string, unknown>)
-          : {};
 
-      const existingPortfolioCandidate = toRecord(existingFinancial.portfolio) ?? existingFinancial;
+      const existingPortfolioCandidate =
+        toRecord(existingFinancial.portfolio) ?? existingFinancial;
 
       const parsedAccountSummary = sanitizeAccountSummary(accountSummary);
       const parsedAssetAllocation = sanitizeAssetAllocation(assetAllocation);
@@ -1780,7 +1762,7 @@ export function PortfolioReviewView({
         domain_intent: {
           primary: "financial",
           source: "domain_registry_prepopulate",
-          contract_version: 1,
+          contract_version: 2,
           updated_at: nowIso,
         },
         portfolio: canonicalPortfolio,
@@ -1845,16 +1827,15 @@ export function PortfolioReviewView({
       // 4. Store canonical financial domain with full-blob merge semantics.
       const encryptStoreStartedAt = nowMs();
       const storeMergedDomain = async (vaultOwnerTokenToUse: string) =>
-        PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+        PkmWriteCoordinator.saveMergedDomain({
           userId,
-          vaultKey: effectiveVaultKey,
           domain: "financial",
-          domainData: nextFinancialDomain as unknown as Record<string, unknown>,
-          summary: financialSummary,
-          baseFullBlob: fullBlob,
-          expectedDataVersion,
-          cacheFullBlob: Boolean(cachedBlob?.blob),
+          vaultKey: effectiveVaultKey,
           vaultOwnerToken: vaultOwnerTokenToUse,
+          build: () => ({
+            domainData: nextFinancialDomain as unknown as Record<string, unknown>,
+            summary: financialSummary,
+          }),
         });
 
       let financialResult;

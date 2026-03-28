@@ -45,12 +45,31 @@ IAM_MIGRATION_FILES = (
     "027_relationship_disconnect_status.sql",
     "028_professional_regulatory_capabilities.sql",
     "036_relationship_share_grants.sql",
+    "037_actor_identity_cache.sql",
 )
 PKM_MIGRATION_FILES = (
     "030_pkm_cutover.sql",
     "031_domain_registry_rpc_compat.sql",
     "032_pkm_metadata_rpc_compat.sql",
     "033_atomic_pkm_storage_rename.sql",
+    "034_pkm_upgrade_engine.sql",
+)
+CONSENT_EVOLUTION_MIGRATION_FILES = ("035_strict_zero_knowledge_consent_exports.sql",)
+RELEASE_MIGRATION_FILES = (
+    "020_ria_iam_foundation.sql",
+    "021_runtime_persona_state.sql",
+    "022_ria_invites.sql",
+    "025_ria_pick_lists_and_bundle_notify.sql",
+    "027_relationship_disconnect_status.sql",
+    "028_professional_regulatory_capabilities.sql",
+    "030_pkm_cutover.sql",
+    "031_domain_registry_rpc_compat.sql",
+    "032_pkm_metadata_rpc_compat.sql",
+    "033_atomic_pkm_storage_rename.sql",
+    "034_pkm_upgrade_engine.sql",
+    "035_strict_zero_knowledge_consent_exports.sql",
+    "036_relationship_share_grants.sql",
+    "037_actor_identity_cache.sql",
 )
 
 
@@ -904,8 +923,8 @@ async def run_full_migration(pool: asyncpg.Pool):
     await create_kai_market_cache_entries(pool)
     print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[16/16] Applying PKM evolution migrations...")
-    await run_pkm_migration(pool)
+    print("[16/16] Applying release migrations...")
+    await run_release_migration(pool)
 
     print("\n✅ Full migration complete!")
 
@@ -950,6 +969,40 @@ async def run_pkm_migration(pool: asyncpg.Pool):
             await conn.execute(sql)
 
     print("PKM schema migration complete!")
+
+
+async def run_consent_evolution_migration(pool: asyncpg.Pool):
+    """Apply strict zero-knowledge consent export evolution."""
+    print("Running consent evolution migration (explicit mode)...")
+
+    async with pool.acquire() as conn:
+        for filename in CONSENT_EVOLUTION_MIGRATION_FILES:
+            migration_path = MIGRATIONS_DIR / filename
+            if not migration_path.exists():
+                raise FileNotFoundError(
+                    f"Consent evolution migration file missing: {migration_path}"
+                )
+            sql = migration_path.read_text(encoding="utf-8")
+            print(f"  -> applying {filename}")
+            await conn.execute(sql)
+
+    print("Consent evolution migration complete!")
+
+
+async def run_release_migration(pool: asyncpg.Pool):
+    """Apply the canonical ordered release migration manifest."""
+    print("Running release migration manifest...")
+
+    async with pool.acquire() as conn:
+        for filename in RELEASE_MIGRATION_FILES:
+            migration_path = MIGRATIONS_DIR / filename
+            if not migration_path.exists():
+                raise FileNotFoundError(f"Release migration file missing: {migration_path}")
+            sql = migration_path.read_text(encoding="utf-8")
+            print(f"  -> applying {filename}")
+            await conn.execute(sql)
+
+    print("Release migration manifest complete!")
 
 
 async def run_init_migration(pool: asyncpg.Pool):
@@ -999,8 +1052,8 @@ async def run_init_migration(pool: asyncpg.Pool):
     await create_kai_market_cache_entries(pool)
     print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[16/16] Applying PKM evolution migrations...")
-    await run_pkm_migration(pool)
+    print("[16/16] Applying release migrations...")
+    await run_release_migration(pool)
 
     print("\nAll tables initialized successfully!")
 
@@ -1076,8 +1129,10 @@ Examples:
   python db/migrate.py --init                    # First-time setup (RECOMMENDED)
   python db/migrate.py --table pkm_data  # Create single table
   python db/migrate.py --consent                 # Create all consent tables
-  python db/migrate.py --iam                     # Apply IAM schema foundation (020 + 021)
-  python db/migrate.py --pkm             # Apply PKM evolution migrations
+  python db/migrate.py --iam                     # Apply IAM schema foundation
+  python db/migrate.py --pkm                     # Apply PKM evolution migrations
+  python db/migrate.py --consent-evolution       # Apply strict consent export evolution
+  python db/migrate.py --release                 # Apply the ordered release migration manifest
   python db/migrate.py --full                    # Full reset (WARNING: DESTRUCTIVE!)
   python db/migrate.py --status                  # Show table summary
         """,
@@ -1109,6 +1164,16 @@ Examples:
         help="Apply PKM evolution migrations (029+)",
     )
     parser.add_argument(
+        "--consent-evolution",
+        action="store_true",
+        help="Apply strict zero-knowledge consent export evolution",
+    )
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Apply the canonical ordered release migration manifest",
+    )
+    parser.add_argument(
         "--full", action="store_true", help="Drop and recreate ALL tables (DESTRUCTIVE!)"
     )
     parser.add_argument(
@@ -1125,6 +1190,8 @@ Examples:
             args.consent,
             args.iam,
             args.pkm,
+            args.consent_evolution,
+            args.release,
             args.full,
             args.clear,
             args.status,
@@ -1179,6 +1246,12 @@ Examples:
 
         if args.pkm:
             await run_pkm_migration(pool)
+
+        if args.consent_evolution:
+            await run_consent_evolution_migration(pool)
+
+        if args.release:
+            await run_release_migration(pool)
 
         if args.clear:
             await clear_table(pool, args.clear)

@@ -4,15 +4,15 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { ConsentCenterView } from "@/components/consent/consent-center-view";
-import { SettingsDetailPanel } from "@/components/profile/settings-ui";
 import {
   applyConsentSheetParams,
+  buildConsentCenterHref,
   clearConsentSheetParams,
   CONSENT_LEGACY_PANEL_QUERY_KEY,
   CONSENT_LEGACY_PANEL_VALUE,
@@ -59,15 +59,18 @@ export function ConsentSheetProvider({ children }: { children: ReactNode }) {
     searchParams.get(CONSENT_SHEET_VIEW_QUERY_KEY) ?? searchParams.get("view")
   );
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const requestId = searchParams.get("requestId") || undefined;
+    const bundleId = searchParams.get("bundleId") || undefined;
+    router.replace(buildConsentCenterHref(view, { requestId, bundleId }), { scroll: false });
+  }, [isOpen, router, searchParams, view]);
+
   const openConsentSheet = useCallback(
     (options?: { view?: ConsentSheetView }) => {
-      const params = applyConsentSheetParams(new URLSearchParams(searchParamsString), {
-        ensurePrivacyTab: pathname === ROUTES.PROFILE,
-        view: options?.view,
-      });
-      router.replace(buildNextUrl(pathname, params), { scroll: false });
+      router.push(buildConsentCenterHref(options?.view), { scroll: false });
     },
-    [pathname, router, searchParamsString]
+    [router]
   );
 
   const closeConsentSheet = useCallback(() => {
@@ -88,16 +91,6 @@ export function ConsentSheetProvider({ children }: { children: ReactNode }) {
   return (
     <ConsentSheetContext.Provider value={value}>
       {children}
-      <SettingsDetailPanel
-        open={isOpen}
-        onOpenChange={(open) => {
-          if (!open) closeConsentSheet();
-        }}
-        title="Consent center"
-        description="Review pending approvals, active grants, and your consent history without leaving the current flow."
-      >
-        <ConsentCenterView embedded initialView={view} />
-      </SettingsDetailPanel>
     </ConsentSheetContext.Provider>
   );
 }

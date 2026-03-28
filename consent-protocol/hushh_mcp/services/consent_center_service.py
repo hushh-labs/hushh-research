@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -13,8 +14,12 @@ from hushh_mcp.services.ria_iam_service import (
 class ConsentCenterService:
     """Compose investor + RIA consent surfaces into one UI/MCP read model."""
 
+    _PENDING_STATUSES = {"pending", "request_pending", "sent"}
+    _ACTIVE_STATUSES = {"active"}
+
     def __init__(self) -> None:
         self._consent_db = ConsentDBService()
+        self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
 
     @staticmethod
@@ -41,7 +46,9 @@ class ConsentCenterService:
         if app_label:
             return app_label
         if metadata.get("requester_actor_type") == "ria":
-            ria_label = str(metadata.get("requester_entity_id") or "").strip()
+            ria_label = str(
+                metadata.get("requester_label") or metadata.get("requester_entity_id") or ""
+            ).strip()
             if ria_label:
                 return ria_label
         return str(agent_id or "").strip()
@@ -82,6 +89,172 @@ class ConsentCenterService:
             return "revoke"
         return "none"
 
+    @staticmethod
+    def _developer_email(metadata: dict[str, Any]) -> str | None:
+        for key in (
+            "developer_contact_email",
+            "contact_email",
+            "owner_email",
+            "requester_email",
+        ):
+            value = str(metadata.get(key) or "").strip()
+            if value:
+                return value
+        return None
+
+    @staticmethod
+    def _relationship_state(metadata: dict[str, Any], *, counterpart_type: str) -> str | None:
+        if counterpart_type != "ria":
+            return None
+        for key in ("relationship_state", "ria_relationship_state", "invite_status"):
+            value = str(metadata.get(key) or "").strip()
+            if value:
+                return value
+        return None
+
+    @staticmethod
+    def _match_text(entry: dict[str, Any], query: str) -> bool:
+        needle = query.strip().lower()
+        if not needle:
+            return True
+        haystacks = [
+            entry.get("counterpart_label"),
+            entry.get("counterpart_email"),
+            entry.get("counterpart_secondary_label"),
+            entry.get("scope"),
+            entry.get("scope_description"),
+            entry.get("reason"),
+            entry.get("status"),
+        ]
+        return any(needle in str(value or "").lower() for value in haystacks)
+
+    async def _hydrate_entry_identities(
+        self, entries: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        identity_ids = [
+            str(entry.get("counterpart_id") or "").strip()
+            for entry in entries
+            if str(entry.get("counterpart_type") or "").strip() in {"investor", "ria", "self"}
+            and str(entry.get("counterpart_id") or "").strip()
+        ]
+        identities = await self._identity.ensure_many(identity_ids)
+
+        hydrated: list[dict[str, Any]] = []
+        for entry in entries:
+            item = dict(entry)
+            counterpart_id = str(item.get("counterpart_id") or "").strip() or None
+            counterpart_type = str(item.get("counterpart_type") or "").strip() or "developer"
+            metadata = self._metadata(item.get("metadata"))
+            identity = identities.get(counterpart_id or "")
+
+            counterpart_label = str(item.get("counterpart_label") or "").strip() or None
+            counterpart_secondary_label = (
+                str(item.get("counterpart_secondary_label") or "").strip() or None
+            )
+            counterpart_email = str(item.get("counterpart_email") or "").strip().lower() or None
+
+            if counterpart_type in {"investor", "ria", "self"} and identity:
+                identity_label = str(identity.get("display_name") or "").strip() or None
+                identity_email = str(identity.get("email") or "").strip().lower() or None
+                if identity_label and (
+                    not counterpart_label or counterpart_label == counterpart_id
+                ):
+                    counterpart_label = identity_label
+                if identity_email and not counterpart_email:
+                    counterpart_email = identity_email
+                if identity_email and not counterpart_secondary_label:
+                    counterpart_secondary_label = identity_email
+
+            if counterpart_type == "developer":
+                counterpart_email = counterpart_email or self._developer_email(metadata)
+                counterpart_secondary_label = counterpart_secondary_label or counterpart_email
+            elif counterpart_type == "ria":
+                counterpart_secondary_label = (
+                    counterpart_secondary_label
+                    or counterpart_email
+                    or str(metadata.get("requester_role_label") or "").strip()
+                    or "Registered investment advisor"
+                )
+            elif counterpart_type == "investor":
+                counterpart_secondary_label = (
+                    counterpart_secondary_label
+                    or counterpart_email
+                    or str(metadata.get("subject_headline") or "").strip()
+                    or None
+                )
+            elif counterpart_type == "self":
+                counterpart_secondary_label = counterpart_secondary_label or counterpart_email
+
+            item["counterpart_label"] = counterpart_label or counterpart_id or "Requester"
+            item["counterpart_email"] = counterpart_email
+            item["counterpart_secondary_label"] = counterpart_secondary_label
+            item["technical_identity"] = {"user_id": counterpart_id} if counterpart_id else None
+            item["relationship_state"] = item.get("relationship_state") or self._relationship_state(
+                metadata,
+                counterpart_type=counterpart_type,
+            )
+            hydrated.append(item)
+        return hydrated
+
+    @staticmethod
+    def _entries_for_surface(
+        center: dict[str, Any],
+        *,
+        actor: str,
+        surface: str,
+    ) -> list[dict[str, Any]]:
+        if surface == "active":
+            return [
+                entry
+                for entry in list(center.get("active_grants") or [])
+                if ConsentCenterService._status(entry.get("status"))
+                in ConsentCenterService._ACTIVE_STATUSES
+            ]
+
+        if surface == "pending":
+            sources = (
+                [
+                    *(center.get("outgoing_requests") or []),
+                    *(center.get("invites") or []),
+                ]
+                if actor == "ria"
+                else list(center.get("incoming_requests") or [])
+            )
+            return [
+                entry
+                for entry in sources
+                if ConsentCenterService._status(entry.get("status"))
+                in ConsentCenterService._PENDING_STATUSES
+            ]
+
+        sources = list(center.get("history") or [])
+        if actor == "ria":
+            sources.extend(center.get("outgoing_requests") or [])
+            sources.extend(center.get("invites") or [])
+        return [
+            entry
+            for entry in sources
+            if ConsentCenterService._status(entry.get("status"))
+            not in (ConsentCenterService._PENDING_STATUSES | ConsentCenterService._ACTIVE_STATUSES)
+        ]
+
+    @staticmethod
+    def _status(value: Any) -> str:
+        return str(value or "").strip().lower()
+
+    @staticmethod
+    def _sort_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        def _timestamp(entry: dict[str, Any]) -> int:
+            value = entry.get("issued_at") or entry.get("expires_at")
+            if isinstance(value, (int, float)):
+                return int(value)
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
+        return sorted(entries, key=_timestamp, reverse=True)
+
     def _normalize_pending(self, item: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(item.get("developer") or "")
         metadata = self._metadata(item.get("metadata"))
@@ -108,13 +281,21 @@ class ConsentCenterService:
             or metadata.get("requester_website_url"),
             "request_id": item.get("id"),
             "invite_id": None,
-            "relationship_status": None,
+            "relationship_state": self._relationship_state(
+                metadata,
+                counterpart_type=counterpart_type,
+            ),
             "allowed_next_action": self._map_next_action(status, "incoming_request"),
             "issued_at": item.get("requestedAt"),
             "expires_at": item.get("pollTimeoutAt"),
             "approval_timeout_at": item.get("approvalTimeoutAt") or item.get("pollTimeoutAt"),
             "request_url": item.get("requestUrl"),
             "reason": item.get("reason") or metadata.get("reason"),
+            "counterpart_email": self._developer_email(metadata)
+            if counterpart_type == "developer"
+            else None,
+            "counterpart_secondary_label": None,
+            "technical_identity": {"user_id": counterpart_id} if counterpart_id else None,
             "is_scope_upgrade": bool(
                 item.get("isScopeUpgrade") or metadata.get("is_scope_upgrade")
             ),
@@ -147,12 +328,20 @@ class ConsentCenterService:
             "counterpart_website_url": metadata.get("requester_website_url"),
             "request_id": item.get("request_id"),
             "invite_id": None,
-            "relationship_status": self._map_action_to_status(item.get("action")),
+            "relationship_state": self._relationship_state(
+                metadata,
+                counterpart_type=counterpart_type,
+            ),
             "allowed_next_action": self._map_next_action(status, "active_grant"),
             "issued_at": item.get("issued_at"),
             "expires_at": item.get("expires_at"),
             "request_url": metadata.get("request_url"),
             "reason": metadata.get("reason"),
+            "counterpart_email": self._developer_email(metadata)
+            if counterpart_type == "developer"
+            else None,
+            "counterpart_secondary_label": None,
+            "technical_identity": {"user_id": counterpart_id} if counterpart_id else None,
             "is_scope_upgrade": bool(metadata.get("is_scope_upgrade")),
             "existing_granted_scopes": metadata.get("existing_granted_scopes"),
             "additional_access_summary": metadata.get("additional_access_summary"),
@@ -164,9 +353,6 @@ class ConsentCenterService:
         agent_id = str(item.get("agent_id") or "")
         counterpart_type, counterpart_id = self._counterpart(agent_id, metadata)
         status = self._map_action_to_status(item.get("action"))
-        counterpart_label = self._developer_label(agent_id, metadata)
-        if metadata.get("requester_actor_type") == "ria":
-            counterpart_label = str(metadata.get("requester_entity_id") or agent_id)
         return {
             "id": str(item.get("id") or item.get("request_id") or ""),
             "kind": "history",
@@ -176,17 +362,25 @@ class ConsentCenterService:
             "scope_description": item.get("scope_description"),
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
-            "counterpart_label": counterpart_label,
+            "counterpart_label": self._developer_label(agent_id, metadata),
             "counterpart_image_url": metadata.get("requester_image_url"),
             "counterpart_website_url": metadata.get("requester_website_url"),
             "request_id": item.get("request_id"),
             "invite_id": metadata.get("invite_id"),
-            "relationship_status": status,
+            "relationship_state": self._relationship_state(
+                metadata,
+                counterpart_type=counterpart_type,
+            ),
             "allowed_next_action": self._map_next_action(status, "history"),
             "issued_at": item.get("issued_at"),
             "expires_at": item.get("expires_at"),
             "request_url": metadata.get("request_url"),
             "reason": metadata.get("reason"),
+            "counterpart_email": self._developer_email(metadata)
+            if counterpart_type == "developer"
+            else None,
+            "counterpart_secondary_label": None,
+            "technical_identity": {"user_id": counterpart_id} if counterpart_id else None,
             "is_scope_upgrade": bool(metadata.get("is_scope_upgrade")),
             "existing_granted_scopes": metadata.get("existing_granted_scopes"),
             "additional_access_summary": metadata.get("additional_access_summary"),
@@ -261,12 +455,18 @@ class ConsentCenterService:
             "counterpart_website_url": None,
             "request_id": item.get("request_id"),
             "invite_id": metadata.get("invite_id"),
-            "relationship_status": status,
+            "relationship_state": self._relationship_state(
+                metadata,
+                counterpart_type="investor",
+            ),
             "allowed_next_action": self._map_next_action(status, "outgoing_request"),
             "issued_at": item.get("issued_at"),
             "expires_at": item.get("expires_at"),
             "request_url": metadata.get("request_url"),
             "reason": metadata.get("reason"),
+            "counterpart_email": str(item.get("subject_email") or "").strip().lower() or None,
+            "counterpart_secondary_label": item.get("subject_headline") or None,
+            "technical_identity": {"user_id": item.get("user_id")} if item.get("user_id") else None,
             "additional_access_summary": metadata.get("additional_access_summary"),
             "metadata": metadata or None,
         }
@@ -294,12 +494,19 @@ class ConsentCenterService:
             "counterpart_website_url": None,
             "request_id": item.get("accepted_request_id"),
             "invite_id": item.get("invite_id"),
-            "relationship_status": status,
+            "relationship_state": status,
             "allowed_next_action": self._map_next_action(status, "invite"),
             "issued_at": item.get("created_at"),
             "expires_at": item.get("expires_at"),
             "request_url": None,
             "reason": item.get("reason"),
+            "counterpart_email": str(item.get("target_email") or "").strip().lower() or None,
+            "counterpart_secondary_label": str(item.get("delivery_channel") or "").strip() or None,
+            "technical_identity": {
+                "user_id": item.get("target_investor_user_id"),
+            }
+            if item.get("target_investor_user_id")
+            else None,
             "metadata": {
                 "delivery_channel": item.get("delivery_channel"),
                 "duration_hours": item.get("duration_hours"),
@@ -315,28 +522,76 @@ class ConsentCenterService:
             return []
         return [self._normalize_outgoing(item) for item in items]
 
-    async def get_center(self, user_id: str) -> dict[str, Any]:
-        try:
-            persona_state = await self._ria.get_persona_state(user_id)
-        except IAMSchemaNotReadyError:
+    async def get_center(
+        self,
+        user_id: str,
+        *,
+        actor: str | None = None,
+        surface: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_actor = "ria" if actor == "ria" else "investor"
+        normalized_surface = surface if surface in {"pending", "active", "previous"} else None
+        if actor is None or normalized_actor == "ria":
+            try:
+                persona_state = await self._ria.get_persona_state(user_id)
+            except IAMSchemaNotReadyError:
+                persona_state = {
+                    "user_id": user_id,
+                    "personas": ["investor"],
+                    "last_active_persona": "investor",
+                    "investor_marketplace_opt_in": False,
+                    "iam_schema_ready": False,
+                    "mode": "compat_investor",
+                }
+        else:
             persona_state = {
                 "user_id": user_id,
                 "personas": ["investor"],
                 "last_active_persona": "investor",
+                "active_persona": "investor",
+                "primary_nav_persona": "investor",
+                "ria_setup_available": False,
+                "ria_switch_available": False,
+                "dev_ria_bypass_allowed": False,
                 "investor_marketplace_opt_in": False,
                 "iam_schema_ready": False,
                 "mode": "compat_investor",
             }
 
-        pending = await self._consent_db.get_pending_requests(user_id)
-        active = await self._consent_db.get_active_tokens(user_id)
-        history_result = await self._consent_db.get_audit_log(user_id, page=1, limit=100)
+        include_all = actor is None and normalized_surface is None
+        need_incoming = include_all or (
+            normalized_actor != "ria" and normalized_surface in {None, "pending"}
+        )
+        need_active = include_all or normalized_surface in {None, "active"}
+        need_history = include_all or normalized_surface in {None, "previous"}
+
+        pending = await self._consent_db.get_pending_requests(user_id) if need_incoming else []
+        active = await self._consent_db.get_active_tokens(user_id) if need_active else []
+        history_result = (
+            await self._consent_db.get_audit_log(user_id, page=1, limit=100)
+            if need_history
+            else {"items": []}
+        )
         self_activity_summary = await self._consent_db.get_internal_activity_summary(user_id)
-        incoming = [self._normalize_pending(item) for item in pending]
-        active_entries = [self._normalize_active(item) for item in active]
-        history_entries = [
-            self._normalize_history(item) for item in history_result.get("items", [])
-        ]
+        incoming = (
+            await self._hydrate_entry_identities(
+                [self._normalize_pending(item) for item in pending]
+            )
+            if need_incoming
+            else []
+        )
+        active_entries = (
+            await self._hydrate_entry_identities([self._normalize_active(item) for item in active])
+            if need_active
+            else []
+        )
+        history_entries = (
+            await self._hydrate_entry_identities(
+                [self._normalize_history(item) for item in history_result.get("items", [])]
+            )
+            if need_history
+            else []
+        )
         developer_requests = [item for item in incoming if item["counterpart_type"] == "developer"]
         investor_pending_groups = self._group_by_requestor(
             [item for item in incoming if item["counterpart_type"] in {"ria", "developer"}]
@@ -354,21 +609,28 @@ class ConsentCenterService:
             "invited": 0,
         }
 
-        if bool(persona_state.get("iam_schema_ready")):
+        need_ria_extras = bool(persona_state.get("iam_schema_ready")) and (
+            include_all or normalized_actor == "ria"
+        )
+
+        if need_ria_extras:
             try:
                 ria_onboarding = await self._ria.get_ria_onboarding_status(user_id)
             except (IAMSchemaNotReadyError, RIAIAMPolicyError):
                 ria_onboarding = None
             outgoing_entries = await self.list_outgoing_requests(user_id)
             try:
-                invite_entries = [
-                    self._normalize_invite(item)
-                    for item in await self._ria.list_ria_invites(user_id)
-                ]
+                invite_entries = await self._hydrate_entry_identities(
+                    [
+                        self._normalize_invite(item)
+                        for item in await self._ria.list_ria_invites(user_id)
+                    ]
+                )
             except (IAMSchemaNotReadyError, RIAIAMPolicyError):
                 invite_entries = []
             try:
-                roster = await self._ria.list_ria_clients(user_id)
+                roster_payload = await self._ria.list_ria_clients(user_id)
+                roster = list(roster_payload.get("items") or [])
             except (IAMSchemaNotReadyError, RIAIAMPolicyError):
                 roster = []
             roster_summary = {
@@ -405,4 +667,60 @@ class ConsentCenterService:
                 "previous": investor_history_groups,
             },
             "self_activity_summary": self_activity_summary,
+        }
+
+    async def get_center_summary(self, user_id: str, *, actor: str) -> dict[str, Any]:
+        center = await self.get_center(user_id, actor=actor)
+        normalized_actor = "ria" if actor == "ria" else "investor"
+        return {
+            "user_id": user_id,
+            "actor": normalized_actor,
+            "counts": {
+                "pending": len(
+                    self._entries_for_surface(center, actor=normalized_actor, surface="pending")
+                ),
+                "active": len(
+                    self._entries_for_surface(center, actor=normalized_actor, surface="active")
+                ),
+                "previous": len(
+                    self._entries_for_surface(center, actor=normalized_actor, surface="previous")
+                ),
+            },
+            "persona_state": center.get("persona_state"),
+        }
+
+    async def list_center(
+        self,
+        user_id: str,
+        *,
+        actor: str,
+        surface: str,
+        query: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        normalized_actor = "ria" if actor == "ria" else "investor"
+        normalized_surface = surface if surface in {"pending", "active", "previous"} else "pending"
+        safe_limit = max(1, min(limit, 100))
+        safe_page = max(1, page)
+
+        center = await self.get_center(user_id, actor=normalized_actor, surface=normalized_surface)
+        entries = self._sort_entries(
+            self._entries_for_surface(center, actor=normalized_actor, surface=normalized_surface)
+        )
+        filtered = [entry for entry in entries if self._match_text(entry, query or "")]
+        start = (safe_page - 1) * safe_limit
+        end = start + safe_limit
+        items = filtered[start:end]
+
+        return {
+            "user_id": user_id,
+            "actor": normalized_actor,
+            "surface": normalized_surface,
+            "query": query or "",
+            "page": safe_page,
+            "limit": safe_limit,
+            "total": len(filtered),
+            "has_more": end < len(filtered),
+            "items": items,
         }

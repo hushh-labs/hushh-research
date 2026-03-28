@@ -261,6 +261,12 @@ class UpgradeContextPayload(BaseModel):
     retry_count: Optional[int] = Field(default=None, ge=0)
 
 
+class WriteProjectionPayload(BaseModel):
+    projection_type: str = Field(..., min_length=1)
+    projection_version: int = Field(default=1, ge=1)
+    payload: dict = Field(default_factory=dict)
+
+
 class StoreDomainRequest(BaseModel):
     """Request to store domain data."""
 
@@ -288,6 +294,10 @@ class StoreDomainRequest(BaseModel):
     upgrade_context: Optional[UpgradeContextPayload] = Field(
         default=None,
         description="Optional non-secret upgrade provenance for generic PKM migration writes",
+    )
+    write_projections: List[WriteProjectionPayload] = Field(
+        default_factory=list,
+        description="Optional non-sensitive derived projections for read models and history surfaces",
     )
 
 
@@ -355,6 +365,7 @@ async def store_domain(
         source_agent=request.source_agent,
         expected_data_version=request.expected_data_version,
         upgrade_context=request.upgrade_context.model_dump() if request.upgrade_context else None,
+        write_projections=[projection.model_dump() for projection in request.write_projections],
         return_result=True,
     )
 
@@ -516,6 +527,87 @@ async def get_domain_manifest(
         response_payload.get("last_content_at")
     )
     return DomainManifestResponse(**response_payload)
+
+
+class ScopeExposureChangePayload(BaseModel):
+    scope_handle: Optional[str] = Field(default=None)
+    top_level_scope_path: Optional[str] = Field(default=None)
+    exposure_enabled: bool
+
+
+class ScopeExposureRequest(BaseModel):
+    user_id: str = Field(..., description="User's ID")
+    expected_manifest_version: Optional[int] = Field(default=None, ge=1)
+    revoke_matching_active_grants: bool = Field(default=True)
+    changes: List[ScopeExposureChangePayload] = Field(default_factory=list)
+
+
+class ScopeExposureResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    manifest_version: Optional[int] = None
+    revoked_grant_count: int = 0
+    revoked_grant_ids: List[str] = Field(default_factory=list)
+    manifest: dict = Field(default_factory=dict)
+
+
+@router.post("/domains/{domain}/scope-exposure", response_model=ScopeExposureResponse)
+async def update_scope_exposure(
+    domain: str,
+    request: ScopeExposureRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    if not request.changes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one scope exposure change is required.",
+        )
+
+    pkm_service = get_pkm_service()
+    canonical_domain = canonical_top_level_domain(domain)
+    result = await pkm_service.update_scope_exposure(
+        user_id=request.user_id,
+        domain=canonical_domain,
+        expected_manifest_version=request.expected_manifest_version,
+        changes=[change.model_dump() for change in request.changes],
+        revoke_matching_active_grants=request.revoke_matching_active_grants,
+    )
+
+    if not result.get("success"):
+        code = str(result.get("code") or "")
+        if code == "manifest_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=result.get("message") or f"No manifest found for {canonical_domain}.",
+            )
+        if code == "manifest_conflict":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "PKM_MANIFEST_CONFLICT",
+                    "message": result.get("message") or "PKM manifest changed. Refresh and retry.",
+                    "current_manifest_version": result.get("manifest_version"),
+                },
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.get("message") or "Failed to update PKM scope exposure.",
+        )
+
+    return ScopeExposureResponse(
+        success=True,
+        message=result.get("message") or "Updated PKM scope exposure.",
+        manifest_version=result.get("manifest_version"),
+        revoked_grant_count=int(result.get("revoked_grant_count") or 0),
+        revoked_grant_ids=list(result.get("revoked_grant_ids") or []),
+        manifest=dict(result.get("manifest") or {}),
+    )
 
 
 class DeleteDomainResponse(BaseModel):
@@ -946,14 +1038,28 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
     run_payload = payload.get("run")
     run_response = None
     if isinstance(run_payload, dict):
+        normalized_steps = []
+        for step in run_payload.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            normalized_steps.append(
+                PkmUpgradeStepResponse(
+                    **{
+                        **step,
+                        "created_at": _isoformat_or_none(step.get("created_at")),
+                        "updated_at": _isoformat_or_none(step.get("updated_at")),
+                    }
+                )
+            )
         run_response = PkmUpgradeRunResponse(
             **{
                 **run_payload,
-                "steps": [
-                    PkmUpgradeStepResponse(**step)
-                    for step in (run_payload.get("steps") or [])
-                    if isinstance(step, dict)
-                ],
+                "started_at": _isoformat_or_none(run_payload.get("started_at")),
+                "last_checkpoint_at": _isoformat_or_none(run_payload.get("last_checkpoint_at")),
+                "completed_at": _isoformat_or_none(run_payload.get("completed_at")),
+                "created_at": _isoformat_or_none(run_payload.get("created_at")),
+                "updated_at": _isoformat_or_none(run_payload.get("updated_at")),
+                "steps": normalized_steps,
             }
         )
     return PkmUpgradeStatusResponse(
@@ -962,7 +1068,12 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
         target_model_version=int(payload.get("target_model_version") or 1),
         upgrade_status=str(payload.get("upgrade_status") or "current"),
         upgradable_domains=[
-            PkmUpgradeDomainStateResponse(**domain_payload)
+            PkmUpgradeDomainStateResponse(
+                **{
+                    **domain_payload,
+                    "upgraded_at": _isoformat_or_none(domain_payload.get("upgraded_at")),
+                }
+            )
             for domain_payload in (payload.get("upgradable_domains") or [])
             if isinstance(domain_payload, dict)
         ],

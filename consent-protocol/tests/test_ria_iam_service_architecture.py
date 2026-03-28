@@ -227,6 +227,52 @@ def test_consent_center_outgoing_request_preserves_additional_access_summary():
     )
 
 
+def test_consent_center_pending_surface_excludes_duplicate_developer_entries():
+    center = {
+        "incoming_requests": [{"id": "req_1", "status": "pending", "kind": "incoming_request"}],
+        "developer_requests": [{"id": "req_1", "status": "pending", "kind": "incoming_request"}],
+    }
+
+    items = ConsentCenterService()._entries_for_surface(
+        center,
+        actor="investor",
+        surface="pending",
+    )
+
+    assert [item["id"] for item in items] == ["req_1"]
+
+
+def test_consent_center_pending_surface_only_returns_actionable_ria_rows():
+    center = {
+        "outgoing_requests": [
+            {"id": "req_pending", "status": "request_pending", "kind": "outgoing_request"},
+            {"id": "req_denied", "status": "denied", "kind": "outgoing_request"},
+            {"id": "req_expired", "status": "expired", "kind": "outgoing_request"},
+        ],
+        "invites": [
+            {"id": "invite_sent", "status": "sent", "kind": "invite"},
+            {"id": "invite_accepted", "status": "accepted", "kind": "invite"},
+        ],
+        "history": [
+            {"id": "history_requested", "status": "request_pending", "kind": "history"},
+            {"id": "history_denied", "status": "denied", "kind": "history"},
+        ],
+    }
+
+    service = ConsentCenterService()
+
+    pending = service._entries_for_surface(center, actor="ria", surface="pending")
+    previous = service._entries_for_surface(center, actor="ria", surface="previous")
+
+    assert [item["id"] for item in pending] == ["req_pending", "invite_sent"]
+    assert {item["id"] for item in previous} == {
+        "history_denied",
+        "req_denied",
+        "req_expired",
+        "invite_accepted",
+    }
+
+
 @pytest.mark.asyncio
 async def test_list_investor_pick_sources_requires_active_relationship_share(monkeypatch):
     class _FakeConn:

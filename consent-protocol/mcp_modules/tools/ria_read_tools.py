@@ -86,7 +86,8 @@ async def handle_get_ria_client_access_summary(args: dict) -> list[TextContent]:
         return _ok({"status": "forbidden", "reason": reason})
 
     service = RIAIAMService()
-    clients = await service.list_ria_clients(user_id)
+    clients_payload = await service.list_ria_clients(user_id)
+    clients = list(clients_payload.get("items") or [])
     approved = sum(1 for item in clients if item.get("status") == "approved")
     pending = sum(1 for item in clients if item.get("status") == "request_pending")
     return _ok(

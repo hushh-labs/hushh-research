@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 27,
+  "expected_migration_version": 37,
   "required_functions": [
     "merge_domain_summary",
     "remove_domain_summary_key",
@@ -99,6 +99,17 @@
       "requested_at",
       "last_error",
       "attempt_count",
+      "created_at",
+      "updated_at"
+    ],
+    "actor_identity_cache": [
+      "user_id",
+      "display_name",
+      "email",
+      "photo_url",
+      "email_verified",
+      "source",
+      "last_synced_at",
       "created_at",
       "updated_at"
     ],

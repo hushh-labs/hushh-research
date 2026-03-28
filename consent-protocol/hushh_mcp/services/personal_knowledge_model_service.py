@@ -1255,6 +1255,53 @@ class PersonalKnowledgeModelService:
             )
         return items
 
+    @staticmethod
+    def _extract_projection_decision_records(write_projections: list[dict] | None) -> list[dict]:
+        """Extract explicit decision projections from the canonical write envelope."""
+        if not isinstance(write_projections, list):
+            return []
+
+        for projection in write_projections:
+            if not isinstance(projection, dict):
+                continue
+            projection_type = str(projection.get("projection_type") or "").strip().lower()
+            projection_version = int(projection.get("projection_version") or 1)
+            if projection_type not in {"decision_history", "decision_history_v1"}:
+                continue
+            if projection_version != 1:
+                continue
+            payload = projection.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            raw_decisions = payload.get("decisions")
+            if not isinstance(raw_decisions, list):
+                return []
+            decisions = [row for row in raw_decisions if isinstance(row, dict)]
+            return decisions
+        return []
+
+    @staticmethod
+    def _top_level_scope_path_for_registry_entry(entry: dict | ScopeRegistryEntry | None) -> str:
+        if isinstance(entry, ScopeRegistryEntry):
+            summary_projection = entry.summary_projection or {}
+        elif isinstance(entry, dict):
+            summary_projection_raw = entry.get("summary_projection")
+            if isinstance(summary_projection_raw, str):
+                try:
+                    parsed = json.loads(summary_projection_raw)
+                    summary_projection = parsed if isinstance(parsed, dict) else {}
+                except Exception:
+                    summary_projection = {}
+            elif isinstance(summary_projection_raw, dict):
+                summary_projection = summary_projection_raw
+            else:
+                summary_projection = {}
+        else:
+            summary_projection = {}
+        return PersonalKnowledgeModelService._normalize_manifest_path(
+            summary_projection.get("top_level_scope_path")
+        )
+
     async def get_recent_decision_records(
         self,
         user_id: str,
@@ -1284,6 +1331,10 @@ class PersonalKnowledgeModelService:
                 raw_decisions = payload.get("decisions")
                 if not isinstance(raw_decisions, list):
                     continue
+                if str(payload.get("projection_mode") or "").strip().lower() == "replace_all":
+                    return [decision for decision in raw_decisions if isinstance(decision, dict)][
+                        :limit
+                    ]
                 for decision in raw_decisions:
                     if not isinstance(decision, dict):
                         continue
@@ -1368,6 +1419,273 @@ class PersonalKnowledgeModelService:
                 domain,
                 exc,
             )
+
+    async def _revoke_scope_access_tokens(
+        self,
+        *,
+        user_id: str,
+        disabled_scopes: list[str],
+    ) -> list[str]:
+        if not disabled_scopes:
+            return []
+
+        try:
+            import time
+
+            from hushh_mcp.consent.token import revoke_token
+            from hushh_mcp.services.consent_db import ConsentDBService
+            from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+            consent_service = ConsentDBService()
+            external_tokens = await consent_service.get_active_tokens(user_id)
+            internal_tokens = await consent_service.get_active_internal_tokens(user_id)
+            revoked_ids: list[str] = []
+            seen_token_ids: set[str] = set()
+
+            for token in [*external_tokens, *internal_tokens]:
+                granted_scope = str(token.get("scope") or "").strip()
+                token_id = str(token.get("token_id") or "").strip()
+                if not granted_scope or not token_id or token_id in seen_token_ids:
+                    continue
+                overlaps = any(
+                    scope_matches(granted_scope, disabled_scope)
+                    or scope_matches(disabled_scope, granted_scope)
+                    for disabled_scope in disabled_scopes
+                )
+                if not overlaps:
+                    continue
+
+                seen_token_ids.add(token_id)
+                if not token_id.startswith("REVOKED_"):
+                    revoke_token(token_id)
+                await consent_service.delete_consent_export(token_id)
+
+                event_token_id = f"REVOKED_SCOPE_{int(time.time() * 1000)}_{len(revoked_ids)}"
+                agent_id = token.get("agent_id") or token.get("developer") or "Unknown"
+                request_id = token.get("request_id")
+                await consent_service.insert_event(
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    scope=granted_scope,
+                    action="REVOKED",
+                    token_id=event_token_id,
+                    request_id=request_id,
+                    metadata={
+                        "revoked_by": "pkm_scope_exposure",
+                        "disabled_scopes": disabled_scopes,
+                    },
+                )
+                try:
+                    await RIAIAMService().sync_relationship_from_consent_action(
+                        user_id=user_id,
+                        request_id=request_id,
+                        action="REVOKED",
+                        agent_id=agent_id,
+                        scope=granted_scope,
+                    )
+                except Exception:
+                    logger.exception("ria.relationship_sync_failed action=REVOKED")
+                revoked_ids.append(token_id)
+
+            return revoked_ids
+        except Exception as exc:
+            logger.warning(
+                "Failed to revoke overlapping scope grants for user=%s scopes=%s: %s",
+                user_id,
+                disabled_scopes,
+                exc,
+            )
+            return []
+
+    async def update_scope_exposure(
+        self,
+        *,
+        user_id: str,
+        domain: str,
+        changes: list[dict],
+        expected_manifest_version: int | None = None,
+        revoke_matching_active_grants: bool = True,
+    ) -> dict[str, Any]:
+        canonical_domain = self._canonicalize_domain_key(domain)
+        result: dict[str, Any] = {
+            "success": False,
+            "code": None,
+            "message": None,
+            "manifest_version": None,
+            "revoked_grant_count": 0,
+            "revoked_grant_ids": [],
+            "manifest": {},
+        }
+        if not canonical_domain:
+            result["message"] = "Domain is required."
+            return result
+
+        current_manifest = await self.get_domain_manifest(user_id, canonical_domain)
+        if not current_manifest:
+            result["code"] = "manifest_not_found"
+            result["message"] = f"No manifest found for {canonical_domain}."
+            return result
+
+        current_manifest_version = (
+            self._to_non_negative_int(current_manifest.get("manifest_version")) or 1
+        )
+        result["manifest_version"] = current_manifest_version
+        if (
+            expected_manifest_version is not None
+            and current_manifest_version != expected_manifest_version
+        ):
+            result["code"] = "manifest_conflict"
+            result["message"] = "PKM manifest changed. Refresh and retry."
+            return result
+
+        normalized_manifest = self._normalize_manifest_payload(
+            user_id,
+            canonical_domain,
+            current_manifest,
+            self._normalize_structure_decision(
+                canonical_domain,
+                current_manifest.get("structure_decision"),
+            ),
+        )
+        current_registry_rows = (
+            current_manifest.get("scope_registry")
+            if isinstance(current_manifest.get("scope_registry"), list)
+            else []
+        )
+        exposure_by_handle: dict[str, bool] = {}
+        exposure_by_top_level: dict[str, bool] = {}
+        for row in current_registry_rows:
+            if not isinstance(row, dict):
+                continue
+            handle = self._clean_text(str(row.get("scope_handle") or ""), allow_none=True)
+            if handle:
+                exposure_by_handle[handle] = row.get("exposure_enabled") is not False
+            top_level_path = self._top_level_scope_path_for_registry_entry(row)
+            if top_level_path:
+                exposure_by_top_level[top_level_path] = row.get("exposure_enabled") is not False
+
+        for entry in normalized_manifest.scope_registry:
+            if entry.scope_handle in exposure_by_handle:
+                entry.exposure_enabled = exposure_by_handle[entry.scope_handle]
+                continue
+            top_level_path = self._top_level_scope_path_for_registry_entry(entry)
+            if top_level_path in exposure_by_top_level:
+                entry.exposure_enabled = exposure_by_top_level[top_level_path]
+
+        changed_scope_paths: set[str] = set()
+        for raw_change in changes:
+            if not isinstance(raw_change, dict):
+                continue
+            target_handle = self._clean_text(
+                str(raw_change.get("scope_handle") or ""),
+                allow_none=True,
+            )
+            target_top_level = self._normalize_manifest_path(raw_change.get("top_level_scope_path"))
+            exposure_enabled = raw_change.get("exposure_enabled") is not False
+            matched = False
+            for entry in normalized_manifest.scope_registry:
+                entry_top_level = self._top_level_scope_path_for_registry_entry(entry)
+                if target_handle and entry.scope_handle == target_handle:
+                    entry.exposure_enabled = exposure_enabled
+                    matched = True
+                    if entry_top_level:
+                        changed_scope_paths.add(entry_top_level)
+                    continue
+                if target_top_level and entry_top_level == target_top_level:
+                    entry.exposure_enabled = exposure_enabled
+                    matched = True
+                    changed_scope_paths.add(entry_top_level)
+            if not matched:
+                logger.warning(
+                    "Ignoring unknown PKM scope exposure change user=%s domain=%s handle=%s top_level=%s",
+                    user_id,
+                    canonical_domain,
+                    target_handle,
+                    target_top_level,
+                )
+
+        next_manifest_version = current_manifest_version + 1
+        now = datetime.now(UTC)
+        normalized_manifest.manifest_version = next_manifest_version
+        normalized_manifest.last_structured_at = now
+        normalized_manifest.last_content_at = now
+        normalized_manifest.summary_projection["manifest_version"] = next_manifest_version
+
+        manifest_ok = await self.upsert_domain_manifest(normalized_manifest)
+        if not manifest_ok:
+            result["message"] = "Failed to persist PKM scope exposure."
+            return result
+
+        await self.update_domain_summary(
+            user_id,
+            canonical_domain,
+            {
+                **(
+                    normalized_manifest.summary_projection
+                    if isinstance(normalized_manifest.summary_projection, dict)
+                    else {}
+                ),
+                "storage_mode": "per_domain_blob",
+                "manifest_version": next_manifest_version,
+                "path_count": len(normalized_manifest.paths),
+                "externalizable_path_count": len(
+                    [path for path in normalized_manifest.paths if path.exposure_eligibility]
+                ),
+                "top_level_scope_count": len(normalized_manifest.top_level_scope_paths),
+                "last_structured_at": now.isoformat(),
+                "last_content_at": now.isoformat(),
+                "domain_contract_version": normalized_manifest.domain_contract_version,
+                "readable_summary_version": normalized_manifest.readable_summary_version,
+                "upgraded_at": normalized_manifest.upgraded_at.isoformat()
+                if normalized_manifest.upgraded_at
+                else None,
+            },
+        )
+
+        disabled_scopes = sorted(
+            {
+                f"attr.{canonical_domain}.{top_level_path}.*"
+                for entry in normalized_manifest.scope_registry
+                for top_level_path in [self._top_level_scope_path_for_registry_entry(entry)]
+                if top_level_path and entry.exposure_enabled is False
+            }
+        )
+        revoked_grant_ids = (
+            await self._revoke_scope_access_tokens(
+                user_id=user_id,
+                disabled_scopes=disabled_scopes,
+            )
+            if revoke_matching_active_grants
+            else []
+        )
+
+        await self.record_mutation_event(
+            user_id=user_id,
+            domain=canonical_domain,
+            operation_type="scope_exposure_update",
+            path_set=sorted(changed_scope_paths),
+            source_agent="pkm_scope_manager",
+            prior_manifest_version=current_manifest_version,
+            new_manifest_version=next_manifest_version,
+            metadata={
+                "changes": [change for change in changes if isinstance(change, dict)],
+                "disabled_scopes": disabled_scopes,
+                "revoked_grant_ids": revoked_grant_ids,
+            },
+        )
+
+        refreshed_manifest = await self.get_domain_manifest(user_id, canonical_domain)
+        result.update(
+            {
+                "success": True,
+                "message": "Updated PKM scope exposure.",
+                "manifest_version": next_manifest_version,
+                "revoked_grant_count": len(revoked_grant_ids),
+                "revoked_grant_ids": revoked_grant_ids,
+                "manifest": refreshed_manifest or {},
+            }
+        )
+        return result
 
     # ==================== ATTRIBUTE OPERATIONS (DEPRECATED) ====================
     # These methods wrote to the now-removed legacy attribute tables.
@@ -1649,6 +1967,7 @@ class PersonalKnowledgeModelService:
         source_agent: Optional[str] = None,
         expected_data_version: Optional[int] = None,
         upgrade_context: Optional[dict] = None,
+        write_projections: Optional[list[dict]] = None,
         return_result: bool = False,
     ) -> bool | dict[str, Any]:
         """
@@ -1942,8 +2261,21 @@ class PersonalKnowledgeModelService:
                 },
             )
 
-            decision_records = self._extract_decision_records(summary)
-            if decision_records:
+            explicit_projection_records = self._extract_projection_decision_records(
+                write_projections
+            )
+            projection_supplied = isinstance(write_projections, list) and any(
+                isinstance(projection, dict)
+                and str(projection.get("projection_type") or "").strip().lower()
+                in {"decision_history", "decision_history_v1"}
+                for projection in write_projections
+            )
+            decision_records = (
+                explicit_projection_records
+                if projection_supplied
+                else self._extract_decision_records(summary)
+            )
+            if projection_supplied or decision_records:
                 await self.record_mutation_event(
                     user_id=user_id,
                     domain=domain,
@@ -1953,7 +2285,13 @@ class PersonalKnowledgeModelService:
                     confidence=normalized_manifest.structure_decision.get("confidence"),
                     prior_manifest_version=prior_manifest_version,
                     new_manifest_version=normalized_manifest.manifest_version,
-                    metadata={"decisions": decision_records},
+                    metadata={
+                        "decisions": decision_records,
+                        "projection_mode": "replace_all" if projection_supplied else "append",
+                        "projection_type": (
+                            "decision_history_v1" if projection_supplied else "summary_inference_v1"
+                        ),
+                    },
                 )
 
             self.supabase.table("pkm_migration_state").upsert(

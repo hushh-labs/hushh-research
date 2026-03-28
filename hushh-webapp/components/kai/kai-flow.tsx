@@ -19,7 +19,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -50,6 +49,7 @@ import {
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Capacitor } from "@capacitor/core";
@@ -622,19 +622,6 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
   return result;
 }
 
-function hasValidFinancialDomainData(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  const portfolio = record.portfolio;
-  if (portfolio && typeof portfolio === "object" && !Array.isArray(portfolio)) {
-    const portfolioRecord = portfolio as Record<string, unknown>;
-    return Array.isArray(portfolioRecord.holdings);
-  }
-  return false;
-}
-
 /**
  * Normalize holdings array to ensure unrealized_gain_loss_pct is computed.
  * This helper can be used in multiple places (checkFinancialData, handleSaveComplete).
@@ -740,6 +727,18 @@ export function KaiFlow({
   const [isPreloadingSchema, setIsPreloadingSchema] = useState(false);
   const [isConnectingPlaid, setIsConnectingPlaid] = useState(false);
   const [plaidStatus, setPlaidStatus] = useState<PlaidPortfolioStatusResponse | null>(null);
+  const {
+    data: financialResource,
+    loading: financialResourceLoading,
+    error: financialResourceError,
+    refresh: refreshFinancialResource,
+  } = useKaiFinancialResource({
+    userId,
+    vaultOwnerToken: effectiveVaultOwnerToken,
+    vaultKey,
+    enabled: Boolean(userId),
+    backgroundRefresh: true,
+  });
   
   // Streaming state for real-time progress
   const [streaming, setStreaming] = useState<StreamingState>(createInitialStreamingState);
@@ -1279,10 +1278,8 @@ export function KaiFlow({
       return null;
     }
     try {
-      const status = await PlaidPortfolioService.getStatus({
-        userId,
-        vaultOwnerToken: effectiveVaultOwnerToken,
-      });
+      const resource = await refreshFinancialResource({ force: true });
+      const status = resource?.plaidStatus ?? null;
       setPlaidStatus(status);
       return status;
     } catch (plaidError) {
@@ -1290,323 +1287,108 @@ export function KaiFlow({
       setPlaidStatus(null);
       return null;
     }
-  }, [effectiveVaultOwnerToken, userId]);
+  }, [effectiveVaultOwnerToken, refreshFinancialResource]);
+
+  useEffect(() => {
+    setPlaidStatus(financialResource?.plaidStatus ?? null);
+  }, [financialResource?.plaidStatus]);
 
   // Check PKM for financial data on mount
   useEffect(() => {
-    async function checkFinancialData() {
-      try {
-        // Import route should only perform this check during initial bootstrap.
-        // Re-running on vault token/key transitions can reset active import progress.
-        if (mode === "import" && importResumeAppliedRef.current) {
-          return;
-        }
-        if (mode === "import" && stateRef.current !== "checking") {
-          return;
-        }
-
-        // Avoid resetting active import/review UI when vault state changes mid-flow.
-        if (
-          vaultDialogOpen ||
-          stateRef.current === "importing" ||
-          stateRef.current === "import_complete" ||
-          stateRef.current === "reviewing"
-        ) {
-          return;
-        }
-
-        setState("checking");
-
-        const cachedPortfolioData = getPortfolioData(userId) ?? undefined;
-        const hasCachedPortfolioData = Boolean(
-          cachedPortfolioData &&
-            Array.isArray(cachedPortfolioData.holdings) &&
-            cachedPortfolioData.holdings.length > 0
-        );
-
-        // Dashboard-first UX: use trusted in-memory cache immediately and avoid
-        // blocking on metadata/blob reads when holdings already exist locally.
-        if (isDashboardMode && hasCachedPortfolioData && cachedPortfolioData) {
-          const normalizedCachedHoldings = normalizeHoldingsWithPct(
-            cachedPortfolioData.holdings
-          );
-          const normalizedCachedPortfolio: PortfolioData = {
-            ...cachedPortfolioData,
-            holdings: normalizedCachedHoldings,
-          };
-          setPortfolioData(userId, normalizedCachedPortfolio);
-          setFlowData({
-            hasFinancialData: true,
-            holdingsCount: normalizedCachedPortfolio.holdings?.length || 0,
-            portfolioData: normalizedCachedPortfolio,
-            holdings: normalizedCachedPortfolio.holdings?.map((h) => h.symbol) || [],
-          });
-          setOnboardingFlowActiveCookie(false);
-          void loadPlaidStatusSnapshot();
-          setState("dashboard");
-          return;
-        }
-
-        let plaidSnapshot: PlaidPortfolioStatusResponse | null = null;
-        const getPlaidPortfolio = async (): Promise<PortfolioData | null> => {
-          if (!effectiveVaultOwnerToken) return null;
-          if (!plaidSnapshot) {
-            plaidSnapshot = await loadPlaidStatusSnapshot();
-          }
-          const portfolio = plaidSnapshot?.aggregate?.portfolio_data || null;
-          return hasPortfolioHoldings(portfolio) ? portfolio : null;
-        };
-
-        // Fetch user PKM metadata
-        const metadata = await PersonalKnowledgeModelService.getMetadata(userId, false, effectiveVaultOwnerToken);
-
-        // Check if financial domain exists and has data
-        const financialDomain = metadata.domains.find(
-          (d) => d.key === "financial"
-        );
-
-        const hasFinancialData =
-          financialDomain && financialDomain.attributeCount > 0;
-        if (hasFinancialData) {
-          // Prefer CacheProvider (in-memory) for reuse with Manage page
-          let portfolioData: PortfolioData | undefined = hasCachedPortfolioData
-            ? cachedPortfolioData
-            : undefined;
-
-          if (!portfolioData && vaultKey) {
-            // No cache - try targeted financial PKM decryption.
-            console.log("[KaiFlow] No cache, attempting to decrypt the financial PKM domain...");
-            try {
-              const rawFinancial = await PersonalKnowledgeModelService.loadDomainData({
-                userId,
-                domain: "financial",
-                vaultKey,
-                vaultOwnerToken: effectiveVaultOwnerToken,
-              });
-              if (!hasValidFinancialDomainData(rawFinancial)) {
-                console.warn(
-                  "[KaiFlow] Financial domain metadata exists but encrypted blob has no valid financial holdings shape."
-                );
-                portfolioData = undefined;
-              }
-
-              // Normalize Review-format → Dashboard-format field names
-              if (hasValidFinancialDomainData(rawFinancial)) {
-                portfolioData = normalizeStoredPortfolio(rawFinancial) as PortfolioData;
-                console.log("[KaiFlow] Successfully decrypted portfolio data from PKM");
-              }
-            } catch (decryptError) {
-              // Handle encryption key mismatch or corrupted data
-              console.error("[KaiFlow] Failed to decrypt the financial PKM domain:", decryptError);
-              
-              // Check if this is a decryption error (key mismatch)
-              const errorMessage = decryptError instanceof Error ? decryptError.message : "";
-              if (errorMessage.includes("decrypt") || errorMessage.includes("tag") || errorMessage.includes("authentication")) {
-                console.warn("[KaiFlow] Possible encryption key mismatch - clearing cache and prompting re-import");
-                invalidateDomain(userId, "financial");
-                portfolioData = undefined;
-              }
-              
-              // For other errors, continue without portfolio data - user can re-import
-            }
-          }
-          if (!portfolioData && !vaultKey) {
-            // Financial metadata exists, but we cannot decrypt without a vault key.
-          }
-
-          // Ensure holdings have unrealized_gain_loss_pct computed
-          // This handles data loaded from cache/PKM that may not have been normalized
-          if (portfolioData?.holdings) {
-            portfolioData.holdings = normalizeHoldingsWithPct(portfolioData.holdings);
-            console.log("[KaiFlow] Normalized holdings with unrealized_gain_loss_pct");
-          }
-
-          // Update cache with normalized data
-          if (portfolioData) {
-            setPortfolioData(userId, portfolioData);
-          }
-
-          const holdingsCount =
-            (Array.isArray(portfolioData?.holdings) && portfolioData?.holdings.length) || 0;
-
-          if (holdingsCount === 0) {
-            const plaidPortfolio = await getPlaidPortfolio();
-            if (plaidPortfolio) {
-              setFlowData({
-                hasFinancialData: true,
-                holdingsCount: plaidPortfolio.holdings?.length || 0,
-                portfolioData,
-                holdings: plaidPortfolio.holdings?.map((holding) => holding.symbol) || [],
-              });
-              if (isDashboardMode) {
-                setOnboardingFlowActiveCookie(false);
-                setState("dashboard");
-              } else {
-                setState("import_required");
-              }
-              return;
-            }
-            setFlowData({
-              hasFinancialData: false,
-              holdingsCount: 0,
-              portfolioData: undefined,
-              holdings: [],
-            });
-            if (isDashboardMode) {
-              setOnboardingFlowActiveCookie(false);
-              setState("dashboard");
-            } else {
-              setState("import_required");
-            }
-            return;
-          }
-
-          // User has financial data - show dashboard
-          setFlowData({
-            hasFinancialData: true,
-            holdingsCount,
-            portfolioData,
-            holdings: portfolioData?.holdings?.map(h => h.symbol) || [],
-          });
-          if (isDashboardMode) {
-            // Heal stale onboarding-flow cookies after a successful import/resume.
-            setOnboardingFlowActiveCookie(false);
-          }
-          setState(isDashboardMode ? "dashboard" : "import_required");
-        } else {
-          // Metadata can temporarily report an empty financial domain during startup/race conditions.
-          // If we already have a portfolio cached for this user, trust it instead of bouncing to import.
-          if (hasCachedPortfolioData && cachedPortfolioData) {
-            const normalizedCachedHoldings = normalizeHoldingsWithPct(
-              cachedPortfolioData.holdings
-            );
-            const normalizedCachedPortfolio: PortfolioData = {
-              ...cachedPortfolioData,
-              holdings: normalizedCachedHoldings,
-            };
-            setPortfolioData(userId, normalizedCachedPortfolio);
-            setFlowData({
-              hasFinancialData: true,
-              holdingsCount: normalizedCachedPortfolio.holdings?.length || 0,
-              portfolioData: normalizedCachedPortfolio,
-              holdings: normalizedCachedPortfolio.holdings?.map((h) => h.symbol) || [],
-            });
-            if (isDashboardMode) {
-              setOnboardingFlowActiveCookie(false);
-            }
-            void loadPlaidStatusSnapshot();
-            setState(isDashboardMode ? "dashboard" : "import_required");
-            return;
-          }
-
-          // Secondary fallback: metadata can lag while full blob already contains holdings.
-          if (vaultKey && effectiveVaultOwnerToken) {
-            try {
-              const rawFinancial = await PersonalKnowledgeModelService.loadDomainData({
-                userId,
-                domain: "financial",
-                vaultKey,
-                vaultOwnerToken: effectiveVaultOwnerToken,
-              });
-              if (hasValidFinancialDomainData(rawFinancial)) {
-                let recoveredPortfolioData = normalizeStoredPortfolio(rawFinancial) as PortfolioData;
-                if (recoveredPortfolioData.holdings) {
-                  recoveredPortfolioData = {
-                    ...recoveredPortfolioData,
-                    holdings: normalizeHoldingsWithPct(recoveredPortfolioData.holdings),
-                  };
-                }
-                setPortfolioData(userId, recoveredPortfolioData);
-                setFlowData({
-                  hasFinancialData: true,
-                  holdingsCount: recoveredPortfolioData.holdings?.length || 0,
-                  portfolioData: recoveredPortfolioData,
-                  holdings: recoveredPortfolioData.holdings?.map((h) => h.symbol) || [],
-                });
-                if (isDashboardMode) {
-                  setOnboardingFlowActiveCookie(false);
-                }
-                void loadPlaidStatusSnapshot();
-                setState(isDashboardMode ? "dashboard" : "import_required");
-                return;
-              }
-            } catch (fallbackError) {
-              console.warn(
-                "[KaiFlow] Metadata reported no financial domain and full-blob fallback failed:",
-                fallbackError
-              );
-            }
-          }
-
-          const plaidPortfolio = await getPlaidPortfolio();
-          if (plaidPortfolio) {
-            setFlowData({
-              hasFinancialData: true,
-              holdingsCount: plaidPortfolio.holdings?.length || 0,
-              portfolioData: undefined,
-              holdings: plaidPortfolio.holdings?.map((holding) => holding.symbol) || [],
-            });
-            if (isDashboardMode) {
-              setOnboardingFlowActiveCookie(false);
-              setState("dashboard");
-              return;
-            }
-            setState("import_required");
-            return;
-          }
-
-          // No financial data.
-          // Ensure stale frontend cache never leaks into first-time user experience.
-          invalidateDomain(userId, "financial");
-          setFlowData({ hasFinancialData: false });
-          if (isDashboardMode) {
-            // Stay on dashboard route and show import CTA instead of hard-redirecting.
-            // This avoids navigation thrash during transient metadata issues.
-            setState("dashboard");
-            return;
-          }
-          setState("import_required");
-        }
-      } catch (err) {
-        console.warn("[KaiFlow] Error checking financial data:", err);
-        const plaidPortfolio = await loadPlaidStatusSnapshot()
-          .then((status) => {
-            const portfolio = status?.aggregate?.portfolio_data || null;
-            return hasPortfolioHoldings(portfolio) ? portfolio : null;
-          })
-          .catch(() => null);
-        if (plaidPortfolio) {
-          setFlowData({
-            hasFinancialData: true,
-            holdingsCount: plaidPortfolio.holdings?.length || 0,
-            portfolioData: undefined,
-            holdings: plaidPortfolio.holdings?.map((holding) => holding.symbol) || [],
-          });
-          setState("dashboard");
-          return;
-        }
-        // Keep dashboard stable on transient failures instead of forcing import redirect.
-        if (isDashboardMode) {
-          setState("dashboard");
-          return;
-        }
-        setFlowData({ hasFinancialData: false });
-        setState("import_required");
-      }
+    if (mode === "import" && importResumeAppliedRef.current) {
+      return;
+    }
+    if (mode === "import" && stateRef.current !== "checking") {
+      return;
+    }
+    if (
+      vaultDialogOpen ||
+      stateRef.current === "importing" ||
+      stateRef.current === "import_complete" ||
+      stateRef.current === "reviewing"
+    ) {
+      return;
     }
 
-    checkFinancialData();
+    if (financialResourceLoading) {
+      setState("checking");
+      return;
+    }
+
+    const cachedPortfolioData = getPortfolioData(userId) ?? undefined;
+    const normalizedCachedPortfolio =
+      cachedPortfolioData && Array.isArray(cachedPortfolioData.holdings)
+        ? ({
+            ...cachedPortfolioData,
+            holdings: normalizeHoldingsWithPct(cachedPortfolioData.holdings),
+          } as PortfolioData)
+        : null;
+    const statementPortfolio =
+      financialResource?.statementPortfolio ??
+      (normalizedCachedPortfolio && hasPortfolioHoldings(normalizedCachedPortfolio)
+        ? normalizedCachedPortfolio
+        : null);
+    const plaidPortfolio = financialResource?.plaidPortfolio ?? plaidPortfolioData ?? null;
+    const primaryPortfolio = financialResource?.activePortfolio ?? statementPortfolio ?? plaidPortfolio;
+
+    if (normalizedCachedPortfolio) {
+      setPortfolioData(userId, normalizedCachedPortfolio);
+    }
+    if (statementPortfolio) {
+      setPortfolioData(userId, statementPortfolio);
+    }
+
+    if (primaryPortfolio && hasPortfolioHoldings(primaryPortfolio)) {
+      setFlowData({
+        hasFinancialData: true,
+        holdingsCount: primaryPortfolio.holdings?.length || 0,
+        portfolioData: statementPortfolio ?? undefined,
+        holdings: primaryPortfolio.holdings?.map((holding) => holding.symbol) || [],
+      });
+      if (isDashboardMode) {
+        setOnboardingFlowActiveCookie(false);
+      }
+      setState(isDashboardMode ? "dashboard" : "import_required");
+      return;
+    }
+
+    if (financialResource?.hasFinancialData && plaidPortfolio) {
+      setFlowData({
+        hasFinancialData: true,
+        holdingsCount: plaidPortfolio.holdings?.length || 0,
+        portfolioData: statementPortfolio ?? undefined,
+        holdings: plaidPortfolio.holdings?.map((holding) => holding.symbol) || [],
+      });
+      if (isDashboardMode) {
+        setOnboardingFlowActiveCookie(false);
+      }
+      setState(isDashboardMode ? "dashboard" : "import_required");
+      return;
+    }
+
+    if (financialResourceError) {
+      console.warn("[KaiFlow] Shared financial resource failed:", financialResourceError);
+    }
+
+    invalidateDomain(userId, "financial");
+    setFlowData({ hasFinancialData: false });
+    if (isDashboardMode) {
+      setState("dashboard");
+      return;
+    }
+    setState("import_required");
   }, [
-    mode,
-    userId,
-    vaultKey,
-    effectiveVaultOwnerToken,
+    financialResource,
+    financialResourceError,
+    financialResourceLoading,
     getPortfolioData,
-    setPortfolioData,
     invalidateDomain,
     isDashboardMode,
+    mode,
+    plaidPortfolioData,
+    setPortfolioData,
+    userId,
     vaultDialogOpen,
-    loadPlaidStatusSnapshot,
   ]);
 
   // Notify parent of state changes

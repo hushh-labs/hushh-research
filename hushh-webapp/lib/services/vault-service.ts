@@ -11,7 +11,12 @@ import {
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { auth } from "@/lib/firebase/config";
 import { apiJson } from "@/lib/services/api-client";
-import { getLocalItem, getSessionItem } from "@/lib/utils/session-storage";
+import {
+  getLocalItem,
+  getSessionItem,
+  removeSessionItem,
+  setSessionItem,
+} from "@/lib/utils/session-storage";
 import type {
   GeneratedVaultProvisionResult,
   GeneratedVaultSupport,
@@ -53,6 +58,7 @@ export interface VaultState {
 
 export class VaultService {
   private static readonly VAULT_STATE_CACHE_TTL_MS = 3 * 60 * 1000;
+  private static readonly VAULT_CHECK_SESSION_TTL_MS = 30 * 60 * 1000;
   private static readonly ALLOWED_METHODS: VaultMethod[] = [
     "passphrase",
     "generated_default_native_biometric",
@@ -66,7 +72,55 @@ export class VaultService {
       cachedAt: number;
     }
   >();
+  private static vaultCheckInflight = new Map<string, Promise<boolean>>();
   private static vaultStateInflight = new Map<string, Promise<VaultState>>();
+
+  private static vaultCheckSessionKey(userId: string): string {
+    return `vault_check:${userId}`;
+  }
+
+  private static readSessionVaultCheck(userId: string): boolean | null {
+    const raw = getSessionItem(this.vaultCheckSessionKey(userId));
+    if (!raw) return null;
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        exists?: boolean;
+        cachedAt?: number;
+      };
+      if (
+        typeof parsed?.exists !== "boolean" ||
+        typeof parsed?.cachedAt !== "number"
+      ) {
+        removeSessionItem(this.vaultCheckSessionKey(userId));
+        return null;
+      }
+
+      if (Date.now() - parsed.cachedAt > this.VAULT_CHECK_SESSION_TTL_MS) {
+        removeSessionItem(this.vaultCheckSessionKey(userId));
+        return null;
+      }
+
+      return parsed.exists;
+    } catch {
+      removeSessionItem(this.vaultCheckSessionKey(userId));
+      return null;
+    }
+  }
+
+  private static writeSessionVaultCheck(userId: string, exists: boolean): void {
+    try {
+      setSessionItem(
+        this.vaultCheckSessionKey(userId),
+        JSON.stringify({
+          exists,
+          cachedAt: Date.now(),
+        })
+      );
+    } catch {
+      // Ignore session persistence failures.
+    }
+  }
 
   private static normalizeNullableString(value: unknown): string | undefined {
     if (typeof value !== "string") return undefined;
@@ -100,10 +154,13 @@ export class VaultService {
   static invalidateVaultStateCache(userId?: string): void {
     if (userId) {
       this.vaultStateCache.delete(userId);
+      this.vaultCheckInflight.delete(userId);
       this.vaultStateInflight.delete(userId);
+      removeSessionItem(this.vaultCheckSessionKey(userId));
       return;
     }
     this.vaultStateCache.clear();
+    this.vaultCheckInflight.clear();
     this.vaultStateInflight.clear();
   }
 
@@ -680,51 +737,70 @@ export class VaultService {
     if (cached !== null && cached !== undefined) {
       return cached;
     }
+    const sessionCached = this.readSessionVaultCheck(userId);
+    if (sessionCached !== null) {
+      cache.set(cacheKey, sessionCached);
+      return sessionCached;
+    }
+    const inflight = this.vaultCheckInflight.get(userId);
+    if (inflight) {
+      return inflight;
+    }
 
     console.log("🔐 [VaultService] checkVault called for:", userId);
 
-    let hasVault: boolean;
+    const request = (async () => {
+      let hasVault: boolean;
 
-    if (Capacitor.isNativePlatform()) {
-      console.log("🔐 [VaultService] Using native plugin for checkVault");
-      try {
+      if (Capacitor.isNativePlatform()) {
+        console.log("🔐 [VaultService] Using native plugin for checkVault");
+        try {
+          const authToken = await this.getFirebaseToken();
+          console.log(
+            "🔐 [VaultService] Got auth token:",
+            authToken ? "yes" : "no"
+          );
+          const result = await HushhVault.hasVault({ userId, authToken });
+          console.log("🔐 [VaultService] hasVault result:", result);
+          hasVault = result.exists;
+        } catch (error) {
+          console.error("❌ [VaultService] Native hasVault error:", error);
+          throw error;
+        }
+      } else {
+        // Web: use API route with Firebase auth
+        console.log("🌐 [VaultService] Using API for checkVault");
+        const url = this.getApiUrl(`/api/vault/check?userId=${userId}`);
+
         const authToken = await this.getFirebaseToken();
-        console.log(
-          "🔐 [VaultService] Got auth token:",
-          authToken ? "yes" : "no"
-        );
-        const result = await HushhVault.hasVault({ userId, authToken });
-        console.log("🔐 [VaultService] hasVault result:", result);
-        hasVault = result.exists;
-      } catch (error) {
-        console.error("❌ [VaultService] Native hasVault error:", error);
-        throw error;
-      }
-    } else {
-      // Web: use API route with Firebase auth
-      console.log("🌐 [VaultService] Using API for checkVault");
-      const url = this.getApiUrl(`/api/vault/check?userId=${userId}`);
+        const headers: HeadersInit = {};
+        if (authToken) {
+          headers["Authorization"] = `Bearer ${authToken}`;
+        }
 
-      const authToken = await this.getFirebaseToken();
-      const headers: HeadersInit = {};
-      if (authToken) {
-        headers["Authorization"] = `Bearer ${authToken}`;
+        const response = await fetch(url, {
+          headers,
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!response.ok) {
+          console.error("❌ [VaultService] checkVault failed:", response.status);
+          throw new Error("Vault check failed");
+        }
+        const data = await response.json();
+        hasVault = data.hasVault;
       }
 
-      const response = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!response.ok) {
-        console.error("❌ [VaultService] checkVault failed:", response.status);
-        throw new Error("Vault check failed");
+      CacheSyncService.onVaultStateChanged(userId, { hasVault });
+      this.writeSessionVaultCheck(userId, hasVault);
+      return hasVault;
+    })().finally(() => {
+      if (this.vaultCheckInflight.get(userId) === request) {
+        this.vaultCheckInflight.delete(userId);
       }
-      const data = await response.json();
-      hasVault = data.hasVault;
-    }
+    });
 
-    CacheSyncService.onVaultStateChanged(userId, { hasVault });
-    return hasVault;
+    this.vaultCheckInflight.set(userId, request);
+    return request;
   }
 
   /**
@@ -732,6 +808,7 @@ export class VaultService {
    */
   static setVaultCheckCache(userId: string, exists: boolean): void {
     CacheSyncService.onVaultStateChanged(userId, { hasVault: exists });
+    this.writeSessionVaultCheck(userId, exists);
   }
 
   /**
@@ -821,6 +898,7 @@ export class VaultService {
       try {
         const normalized = this.normalizeVaultState(payload);
         this.setCachedVaultState(userId, normalized);
+        this.writeSessionVaultCheck(userId, true);
         return normalized;
       } catch (error) {
         const message =

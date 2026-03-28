@@ -22,7 +22,7 @@ import { CacheProvider } from "@/lib/cache/cache-context";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
-import { resolveAppRouteLayoutMode } from "@/lib/navigation/app-route-layout";
+import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { TopAppBar } from "@/components/app-ui/top-app-bar";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
@@ -42,38 +42,55 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
-import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 
 interface ProvidersProps {
   children: ReactNode;
 }
 
+function readCustomVar(
+  style: CSSProperties,
+  key: string
+): string {
+  const value = (style as Record<string, string | number | undefined>)[key];
+  return value === undefined || value === null ? "" : String(value).trim();
+}
+
 export function Providers({ children }: ProvidersProps) {
   const pathname = usePathname();
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
-  const routeLayoutMode = useMemo(() => resolveAppRouteLayoutMode(pathname), [pathname]);
+  const routeLayout = useMemo(() => resolveAppRouteLayout(pathname), [pathname]);
+  const routeLayoutMode = routeLayout.mode;
   const topShellRouteProfile = useMemo(
     () => resolveTopShellRouteProfile(pathname),
     [pathname]
   );
   const topShellMetrics = topShellRouteProfile.metrics;
-  const topShellBreadcrumb = useMemo(() => resolveTopShellBreadcrumb(pathname), [pathname]);
   const hideGlobalChrome = !topShellMetrics.shellVisible;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow;
+  const signedInShellContentOffset = useMemo(
+    () =>
+      resolveSignedInShellContentOffset({
+        shellVisible: topShellMetrics.shellVisible,
+        routeLayoutMode,
+        localOffset: routeLayout.pageTopLocalOffset,
+      }),
+    [routeLayout.pageTopLocalOffset, routeLayoutMode, topShellMetrics.shellVisible]
+  );
   const topShellRouteStyle = useMemo(
     () =>
       ({
+        ...signedInShellContentOffset.style,
         "--top-tabs-gap": "0px",
         "--top-tabs-total": topShellMetrics.hasTabs
           ? "calc(var(--top-tabs-h) + var(--top-tabs-gap))"
           : "0px",
-        "--top-subnav-total": topShellBreadcrumb
-          ? "calc(var(--top-subnav-h) + var(--top-subnav-gap))"
-          : "0px",
+        "--top-subnav-total": "0px",
         "--top-systembar-row-gap": "4px",
         "--top-fade-active": topShellMetrics.hasTabs ? "22px" : "18px",
-        "--top-content-pad": "var(--top-shell-reserved-height)",
+        "--top-content-pad":
+          "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",
         "--kai-route-content-gap": topShellMetrics.hasTabs ? "28px" : "20px",
         "--kai-route-content-gap-sm": topShellMetrics.hasTabs ? "32px" : "24px",
         "--app-top-shell-visible": topShellMetrics.shellVisible ? "1" : "0",
@@ -90,12 +107,13 @@ export function Providers({ children }: ProvidersProps) {
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
+        "--bottom-chrome-hide-distance": "var(--bottom-chrome-full-height)",
         "--app-scroll-bottom-pad": "var(--bottom-chrome-stack-height)",
       } as CSSProperties),
     [
       chromeState.hideCommandBar,
+      signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
-      topShellBreadcrumb,
       topShellMetrics.hasTabs,
       topShellMetrics.shellVisible,
     ]
@@ -133,6 +151,49 @@ export function Providers({ children }: ProvidersProps) {
     resetKaiBottomChromeVisibility();
   }, [pathname]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const mirroredVars = [
+      "--page-top-start",
+      "--page-top-local-offset",
+      "--app-top-mask-tail-clearance",
+      "--app-top-content-offset",
+      "--app-fullscreen-flow-content-offset",
+      "--app-top-shell-visible",
+      "--app-top-offset-mode",
+    ];
+    const previousValues = new Map<string, string>();
+
+    mirroredVars.forEach((key) => {
+      previousValues.set(key, root.style.getPropertyValue(key));
+      const nextValue =
+        readCustomVar(topShellRouteStyle, key) ||
+        readCustomVar(signedInShellContentOffset.style, key);
+      if (nextValue) {
+        root.style.setProperty(key, nextValue);
+      }
+    });
+
+    root.dataset.appShellOffsetMode = signedInShellContentOffset.mode;
+    root.dataset.appShellRouteLayout = routeLayoutMode;
+    root.dataset.appTopShellProfile = topShellRouteProfile.id;
+
+    return () => {
+      mirroredVars.forEach((key) => {
+        const previous = previousValues.get(key) || "";
+        if (previous) {
+          root.style.setProperty(key, previous);
+        } else {
+          root.style.removeProperty(key);
+        }
+      });
+      delete root.dataset.appShellOffsetMode;
+      delete root.dataset.appShellRouteLayout;
+      delete root.dataset.appTopShellProfile;
+    };
+  }, [routeLayoutMode, signedInShellContentOffset.mode, signedInShellContentOffset.style, topShellRouteProfile.id, topShellRouteStyle]);
+
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
       <ObservabilityRouteObserver />
@@ -154,9 +215,13 @@ export function Providers({ children }: ProvidersProps) {
                           className="flex flex-col flex-1 min-h-0"
                           style={topShellRouteStyle}
                           data-top-shell-profile={topShellRouteProfile.id}
+                          data-app-shell-root="true"
+                          data-app-shell-offset-mode={signedInShellContentOffset.mode}
                         >
                           <Navbar />
-                          <TopAppBar />
+                          <Suspense fallback={null}>
+                            <TopAppBar />
+                          </Suspense>
                           <VaultContext.Consumer>
                             {(vault) =>
                               showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
@@ -168,12 +233,15 @@ export function Providers({ children }: ProvidersProps) {
                                     className="w-full bar-glass bar-glass-bottom"
                                     style={
                                       {
-                                        height: `calc(var(--bottom-chrome-full-height) - (${hideBottomChromeGlassProgress} * var(--app-bottom-fixed-ui)))`,
-                                        "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.46)",
-                                        "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.64)",
-                                        "--app-bar-glass-blur": "2px",
+                                        height: "var(--bottom-chrome-full-height)",
+                                        transform:
+                                          "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
+                                        "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
+                                        "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
+                                        "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
+                                        "--app-bar-glass-blur": "6px",
                                         "--app-bar-shadow": "none",
-                                        "--app-bar-mask-overscan": "22px",
+                                        "--app-bar-mask-overscan": "30px",
                                       } as CSSProperties
                                     }
                                   />
@@ -200,8 +268,12 @@ export function Providers({ children }: ProvidersProps) {
                                 : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
                             }
                           >
+                            {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
+                              <div data-app-shell-top-spacer="true" aria-hidden />
+                            ) : null}
                             <div
                               ref={pageRef}
+                              data-app-shell-content="true"
                               className={shouldLockFullscreenRoot ? "min-h-0 h-full" : "min-h-0"}
                             >
                               {children}
@@ -227,9 +299,13 @@ export function Providers({ children }: ProvidersProps) {
                         className="flex flex-col flex-1 min-h-0"
                         style={topShellRouteStyle}
                         data-top-shell-profile={topShellRouteProfile.id}
+                        data-app-shell-root="true"
+                        data-app-shell-offset-mode={signedInShellContentOffset.mode}
                       >
                         <Navbar />
-                        <TopAppBar />
+                        <Suspense fallback={null}>
+                          <TopAppBar />
+                        </Suspense>
                         <VaultContext.Consumer>
                           {(vault) =>
                             showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
@@ -241,12 +317,15 @@ export function Providers({ children }: ProvidersProps) {
                                   className="w-full bar-glass bar-glass-bottom"
                                   style={
                                     {
-                                      height: `calc(var(--bottom-chrome-full-height) - (${hideBottomChromeGlassProgress} * var(--app-bottom-fixed-ui)))`,
-                                      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.46)",
-                                      "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.64)",
-                                      "--app-bar-glass-blur": "2px",
+                                      height: "var(--bottom-chrome-full-height)",
+                                      transform:
+                                        "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
+                                      "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
+                                      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
+                                      "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
+                                      "--app-bar-glass-blur": "6px",
                                       "--app-bar-shadow": "none",
-                                      "--app-bar-mask-overscan": "22px",
+                                      "--app-bar-mask-overscan": "30px",
                                     } as CSSProperties
                                   }
                                 />
@@ -276,8 +355,12 @@ export function Providers({ children }: ProvidersProps) {
                               : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
                           }
                         >
+                          {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
+                            <div data-app-shell-top-spacer="true" aria-hidden />
+                          ) : null}
                           <div
                             ref={pageRef}
+                            data-app-shell-content="true"
                             className={shouldLockFullscreenRoot ? "min-h-0 h-full" : "min-h-0"}
                           >
                             {children}

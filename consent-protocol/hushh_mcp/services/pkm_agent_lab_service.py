@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -188,6 +189,20 @@ _ENTITY_STATUS_ACTIVE = "active"
 _ENTITY_STATUS_CORRECTED = "corrected"
 _ENTITY_STATUS_DELETED = "deleted"
 _MAX_PREVIEW_CARDS = 4
+_PREVIEW_CACHE_TTL_SECONDS = max(
+    60,
+    int(os.getenv("PKM_AGENT_LAB_PREVIEW_CACHE_TTL_SECONDS", "300") or "300"),
+)
+_AGENT_CONTRACT_TIMEOUT_SECONDS = max(
+    1.5,
+    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "4") or "4"),
+)
+_PREVIEW_TOTAL_BUDGET_SECONDS = max(
+    4.0,
+    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "12") or "12"),
+)
+_PREVIEW_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _SOFT_ONTOLOGY_KEYS = tuple(
     entry.domain_key
     for entry in CANONICAL_DOMAIN_REGISTRY
@@ -435,6 +450,51 @@ class PKMAgentLabService:
             logger.warning("pkm.agent_lab_client_unavailable error=%s", exc)
             self._client = None
         return self._client
+
+    @staticmethod
+    def _preview_cache_key(
+        *,
+        user_id: str,
+        message: str,
+        current_domains: list[str],
+        simulated_state: dict[str, Any] | None,
+        model_override: str | None,
+        strict_small_model: bool,
+        domain_registry_override: list[dict[str, Any]] | None,
+    ) -> str:
+        material = json.dumps(
+            {
+                "user_id": user_id,
+                "message": message.strip(),
+                "current_domains": sorted(current_domains),
+                "simulated_state": simulated_state or {},
+                "model_override": model_override or "",
+                "strict_small_model": strict_small_model,
+                "domain_registry_override": domain_registry_override or [],
+            },
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _get_cached_structure_preview(cls, cache_key: str) -> dict[str, Any] | None:
+        cached = _PREVIEW_CACHE.get(cache_key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at <= time.time():
+            _PREVIEW_CACHE.pop(cache_key, None)
+            return None
+        return deepcopy(payload)
+
+    @classmethod
+    def _set_cached_structure_preview(cls, cache_key: str, payload: dict[str, Any]) -> None:
+        _PREVIEW_CACHE[cache_key] = (
+            time.time() + _PREVIEW_CACHE_TTL_SECONDS,
+            deepcopy(payload),
+        )
 
     @staticmethod
     def _normalize_segment(value: str) -> str:
@@ -823,9 +883,20 @@ class PKMAgentLabService:
         prompt: str,
         response_schema: dict[str, Any],
         model_override: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any] | None:
         if self.client is None:
             return None
+        effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
+        if timeout_seconds is not None:
+            if timeout_seconds <= 0.25:
+                logger.info(
+                    "pkm.agent_contract_skipped_budget agent=%s timeout_seconds=%s",
+                    getattr(manifest, "id", "unknown"),
+                    round(timeout_seconds, 3),
+                )
+                return None
+            effective_timeout = max(0.25, min(_AGENT_CONTRACT_TIMEOUT_SECONDS, timeout_seconds))
         try:
             from google.genai import types as genai_types
 
@@ -835,10 +906,13 @@ class PKMAgentLabService:
                 automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
                 response_schema=response_schema,
             )
-            response = await self.client.aio.models.generate_content(
-                model=model_override or manifest.model or GEMINI_MODEL,
-                contents=prompt,
-                config=config,
+            response = await asyncio.wait_for(
+                self.client.aio.models.generate_content(
+                    model=model_override or manifest.model or GEMINI_MODEL,
+                    contents=prompt,
+                    config=config,
+                ),
+                timeout=effective_timeout,
             )
             parsed = (
                 response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
@@ -846,6 +920,13 @@ class PKMAgentLabService:
             if parsed is None:
                 parsed = json.loads((response.text or "").strip() or "{}")
             return parsed if isinstance(parsed, dict) else None
+        except asyncio.TimeoutError:
+            logger.warning(
+                "pkm.agent_contract_timeout agent=%s timeout_seconds=%s",
+                getattr(manifest, "id", "unknown"),
+                round(effective_timeout, 3),
+            )
+            return None
         except Exception as exc:
             logger.warning(
                 "pkm.agent_contract_failed agent=%s error=%s",
@@ -853,6 +934,12 @@ class PKMAgentLabService:
                 exc,
             )
             return None
+
+    @staticmethod
+    def _remaining_preview_budget_seconds(deadline: float | None) -> float | None:
+        if deadline is None:
+            return None
+        return max(0.0, deadline - time.perf_counter())
 
     @classmethod
     def _build_state_summary(cls, simulated_state: dict[str, Any] | None) -> dict[str, Any]:
@@ -2747,6 +2834,7 @@ class PKMAgentLabService:
         model_override: str | None = None,
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
+        deadline: float | None = None,
     ) -> dict[str, Any]:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
@@ -2770,6 +2858,7 @@ class PKMAgentLabService:
             ),
             response_schema=_FINANCIAL_GUARD_SCHEMA,
             model_override=model_override,
+            timeout_seconds=self._remaining_preview_budget_seconds(deadline),
         )
         financial_guard_used_fallback = financial_guard_raw is None
         financial_guard = self._sanitize_financial_guard_decision(
@@ -2831,6 +2920,7 @@ class PKMAgentLabService:
                     ),
                     response_schema=_INTENT_FRAME_SCHEMA,
                     model_override=model_override,
+                    timeout_seconds=self._remaining_preview_budget_seconds(deadline),
                 )
                 intent_used_fallback = intent_raw is None
                 intent_frame = self._sanitize_intent_frame(
@@ -2862,6 +2952,7 @@ class PKMAgentLabService:
                     ),
                     response_schema=_MERGE_DECISION_SCHEMA,
                     model_override=model_override,
+                    timeout_seconds=self._remaining_preview_budget_seconds(deadline),
                 )
                 merge_used_fallback = merge_raw is None
             merge_decision = self._sanitize_merge_decision(
@@ -2895,6 +2986,7 @@ class PKMAgentLabService:
                     ),
                     response_schema=_STRUCTURE_PREVIEW_SCHEMA,
                     model_override=model_override,
+                    timeout_seconds=self._remaining_preview_budget_seconds(deadline),
                 )
                 structure_used_fallback = structure_raw is None
             normalized_preview = self._normalize_structure_preview(
@@ -2964,150 +3056,216 @@ class PKMAgentLabService:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
-        errors: list[str] = []
-
-        segmentation_started_at = time.perf_counter()
-        segmentation_raw = await self._run_agent_contract(
-            manifest=self.memory_segmentation_manifest,
-            prompt=self._build_memory_segmentation_prompt(
-                message=message,
-                strict_small_model=strict_small_model,
-            ),
-            response_schema=_SEGMENTATION_SCHEMA,
+        preview_cache_key = self._preview_cache_key(
+            user_id=user_id,
+            message=message,
+            current_domains=normalized_domains,
+            simulated_state=simulated_state,
             model_override=model_override,
+            strict_small_model=strict_small_model,
+            domain_registry_override=domain_registry_override,
         )
-        segmentation_latency_ms = round((time.perf_counter() - segmentation_started_at) * 1000, 2)
-        segmentation_used_fallback = segmentation_raw is None
-        if segmentation_used_fallback:
-            errors.append("memory_segmentation_agent_fallback")
+        cached_preview = self._get_cached_structure_preview(preview_cache_key)
+        if cached_preview is not None:
+            logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
+            return cached_preview
+        inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
+        if inflight_preview is not None:
+            logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
+            return deepcopy(await inflight_preview)
 
-        segmented_messages = self._sanitize_segmented_messages(segmentation_raw, message=message)
-        total_segments_detected = len(segmented_messages)
-        split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS
-        preview_results: list[dict[str, Any]] = []
-        preview_cards: list[dict[str, Any]] = []
-        preview_latencies_ms: list[float] = []
+        async def _build_preview() -> dict[str, Any]:
+            errors: list[str] = []
+            preview_deadline = time.perf_counter() + _PREVIEW_TOTAL_BUDGET_SECONDS
 
-        for index, segment in enumerate(segmented_messages[:_MAX_PREVIEW_CARDS], start=1):
-            source_text = self._safe_excerpt(str(segment.get("source_text") or ""), limit=400)
-            if not source_text:
-                continue
-            preview_started_at = time.perf_counter()
-            preview = await self._generate_single_structure_preview(
-                user_id=user_id,
-                message=source_text,
-                current_domains=normalized_domains,
-                simulated_state=simulated_state,
+            segmentation_started_at = time.perf_counter()
+            segmentation_raw = await self._run_agent_contract(
+                manifest=self.memory_segmentation_manifest,
+                prompt=self._build_memory_segmentation_prompt(
+                    message=message,
+                    strict_small_model=strict_small_model,
+                ),
+                response_schema=_SEGMENTATION_SCHEMA,
                 model_override=model_override,
-                strict_small_model=strict_small_model,
-                domain_registry_override=domain_registry_override,
+                timeout_seconds=self._remaining_preview_budget_seconds(preview_deadline),
             )
-            preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
-            preview_latencies_ms.append(preview_latency_ms)
-            preview_results.append(preview)
-            card_id = f"card_{index:02d}"
-            preview_cards.append(
-                self._build_preview_card(
-                    card_id=card_id,
-                    source_text=source_text,
-                    preview=preview,
+            segmentation_latency_ms = round(
+                (time.perf_counter() - segmentation_started_at) * 1000, 2
+            )
+            segmentation_used_fallback = segmentation_raw is None
+            if segmentation_used_fallback:
+                errors.append("memory_segmentation_agent_fallback")
+
+            segmented_messages = self._sanitize_segmented_messages(
+                segmentation_raw, message=message
+            )
+            total_segments_detected = len(segmented_messages)
+            split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS
+            preview_results: list[dict[str, Any]] = []
+            preview_cards: list[dict[str, Any]] = []
+            preview_latencies_ms: list[float] = []
+
+            async def _build_preview_entry(
+                index: int, segment: dict[str, Any]
+            ) -> dict[str, Any] | None:
+                source_text = self._safe_excerpt(str(segment.get("source_text") or ""), limit=400)
+                if not source_text:
+                    return None
+                preview_started_at = time.perf_counter()
+                preview = await self._generate_single_structure_preview(
+                    user_id=user_id,
+                    message=source_text,
+                    current_domains=normalized_domains,
                     simulated_state=simulated_state,
+                    model_override=model_override,
+                    strict_small_model=strict_small_model,
+                    domain_registry_override=domain_registry_override,
+                    deadline=preview_deadline,
                 )
+                preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
+                card_id = f"card_{index:02d}"
+                return {
+                    "preview": preview,
+                    "latency_ms": preview_latency_ms,
+                    "card": self._build_preview_card(
+                        card_id=card_id,
+                        source_text=source_text,
+                        preview=preview,
+                        simulated_state=simulated_state,
+                    ),
+                }
+
+            preview_entries = await asyncio.gather(
+                *[
+                    _build_preview_entry(index, segment)
+                    for index, segment in enumerate(
+                        segmented_messages[:_MAX_PREVIEW_CARDS], start=1
+                    )
+                ]
             )
-            if preview.get("error"):
-                errors.append(str(preview.get("error")))
 
-        primary_preview = next(
-            (result for result in preview_results if result.get("write_mode") != "do_not_save"),
-            preview_results[0] if preview_results else None,
-        )
-        preview_summary = self._aggregate_preview_summary(
-            preview_cards=preview_cards,
-            split_recommended=split_recommended,
-            total_segments_detected=total_segments_detected,
-        )
-        context_plan = self._context_plan_from_cards(preview_cards)
-        total_latency_ms = round((time.perf_counter() - total_started_at) * 1000, 2)
-        performance = {
-            "total_latency_ms": total_latency_ms,
-            "stage_latencies_ms": {
-                "memory_segmentation": segmentation_latency_ms,
-                "preview_cards_total": round(sum(preview_latencies_ms), 2),
-                "preview_cards_average": round(
-                    sum(preview_latencies_ms) / len(preview_latencies_ms), 2
-                )
-                if preview_latencies_ms
-                else 0.0,
-            },
-            "cards_returned": len(preview_cards),
-            "context_domains_considered": normalized_domains,
-            "context_domains_loaded": context_plan.get("candidate_domains") or [],
-            "context_domains_decrypted": [],
-            "context_segments_loaded": context_plan.get("candidate_segment_ids") or [],
-            "strategy": "metadata_first_targeted_segments",
-        }
+            for entry in preview_entries:
+                if entry is None:
+                    continue
+                preview = entry["preview"]
+                preview_latencies_ms.append(float(entry["latency_ms"]))
+                preview_results.append(preview)
+                preview_cards.append(entry["card"])
+                if preview.get("error"):
+                    errors.append(str(preview.get("error")))
 
-        if primary_preview is None:
-            empty_manifest = self._build_manifest_from_payload(
-                user_id=user_id,
-                domain="professional",
-                payload={},
-                structure_decision={
-                    "action": "create_domain",
-                    "target_domain": "professional",
-                    "json_paths": [],
-                    "top_level_scope_paths": [],
-                    "externalizable_paths": [],
-                    "summary_projection": {},
-                    "sensitivity_labels": {},
-                    "confidence": 0.0,
-                    "source_agent": "pkm_structure_agent",
-                    "contract_version": 1,
+            primary_preview = next(
+                (result for result in preview_results if result.get("write_mode") != "do_not_save"),
+                preview_results[0] if preview_results else None,
+            )
+            preview_summary = self._aggregate_preview_summary(
+                preview_cards=preview_cards,
+                split_recommended=split_recommended,
+                total_segments_detected=total_segments_detected,
+            )
+            context_plan = self._context_plan_from_cards(preview_cards)
+            total_latency_ms = round((time.perf_counter() - total_started_at) * 1000, 2)
+            performance = {
+                "total_latency_ms": total_latency_ms,
+                "stage_latencies_ms": {
+                    "memory_segmentation": segmentation_latency_ms,
+                    "preview_cards_total": round(sum(preview_latencies_ms), 2),
+                    "preview_cards_average": round(
+                        sum(preview_latencies_ms) / len(preview_latencies_ms), 2
+                    )
+                    if preview_latencies_ms
+                    else 0.0,
                 },
-            )
-            return {
-                "agent_id": self.memory_segmentation_manifest.id,
-                "agent_name": self.memory_segmentation_manifest.name,
-                "model": model_override or self.memory_segmentation_manifest.model or GEMINI_MODEL,
-                "used_fallback": True,
-                "intent_used_fallback": False,
-                "structure_used_fallback": False,
-                "error": "; ".join(self._unique_list(errors or ["memory_segmentation_no_output"])),
-                "routing_decision": "non_financial_or_ephemeral",
-                "intent_frame": {},
-                "merge_decision": {},
-                "candidate_payload": {},
-                "structure_decision": empty_manifest["structure_decision"],
-                "write_mode": "do_not_save",
-                "primary_json_path": None,
-                "target_entity_scope": None,
-                "validation_hints": [
-                    "preview_generation_failed",
-                    *(["split_recommended"] if split_recommended else []),
-                ],
-                "manifest_draft": empty_manifest,
+                "cards_returned": len(preview_cards),
+                "context_domains_considered": normalized_domains,
+                "context_domains_loaded": context_plan.get("candidate_domains") or [],
+                "context_domains_decrypted": [],
+                "context_segments_loaded": context_plan.get("candidate_segment_ids") or [],
+                "strategy": "metadata_first_targeted_segments",
+                "budget_seconds": _PREVIEW_TOTAL_BUDGET_SECONDS,
+                "budget_remaining_seconds": round(
+                    self._remaining_preview_budget_seconds(preview_deadline) or 0.0, 3
+                ),
+            }
+
+            if primary_preview is None:
+                empty_manifest = self._build_manifest_from_payload(
+                    user_id=user_id,
+                    domain="professional",
+                    payload={},
+                    structure_decision={
+                        "action": "create_domain",
+                        "target_domain": "professional",
+                        "json_paths": [],
+                        "top_level_scope_paths": [],
+                        "externalizable_paths": [],
+                        "summary_projection": {},
+                        "sensitivity_labels": {},
+                        "confidence": 0.0,
+                        "source_agent": "pkm_structure_agent",
+                        "contract_version": 1,
+                    },
+                )
+                response_payload = {
+                    "agent_id": self.memory_segmentation_manifest.id,
+                    "agent_name": self.memory_segmentation_manifest.name,
+                    "model": model_override
+                    or self.memory_segmentation_manifest.model
+                    or GEMINI_MODEL,
+                    "used_fallback": True,
+                    "intent_used_fallback": False,
+                    "structure_used_fallback": False,
+                    "error": "; ".join(
+                        self._unique_list(errors or ["memory_segmentation_no_output"])
+                    ),
+                    "routing_decision": "non_financial_or_ephemeral",
+                    "intent_frame": {},
+                    "merge_decision": {},
+                    "candidate_payload": {},
+                    "structure_decision": empty_manifest["structure_decision"],
+                    "write_mode": "do_not_save",
+                    "primary_json_path": None,
+                    "target_entity_scope": None,
+                    "validation_hints": [
+                        "preview_generation_failed",
+                        *(["split_recommended"] if split_recommended else []),
+                    ],
+                    "manifest_draft": empty_manifest,
+                    "preview_cards": preview_cards,
+                    "preview_summary": preview_summary,
+                    "performance": performance,
+                    "context_plan": context_plan,
+                }
+                self._set_cached_structure_preview(preview_cache_key, response_payload)
+                return response_payload
+
+            validation_hints = list(primary_preview.get("validation_hints") or [])
+            if split_recommended and "split_recommended" not in validation_hints:
+                validation_hints.append("split_recommended")
+
+            response_payload = {
+                **primary_preview,
+                "used_fallback": bool(
+                    primary_preview.get("used_fallback") or segmentation_used_fallback
+                ),
+                "error": "; ".join(self._unique_list(errors)) or primary_preview.get("error"),
+                "validation_hints": self._unique_list(validation_hints),
                 "preview_cards": preview_cards,
                 "preview_summary": preview_summary,
                 "performance": performance,
                 "context_plan": context_plan,
             }
+            self._set_cached_structure_preview(preview_cache_key, response_payload)
+            return response_payload
 
-        validation_hints = list(primary_preview.get("validation_hints") or [])
-        if split_recommended and "split_recommended" not in validation_hints:
-            validation_hints.append("split_recommended")
-
-        return {
-            **primary_preview,
-            "used_fallback": bool(
-                primary_preview.get("used_fallback") or segmentation_used_fallback
-            ),
-            "error": "; ".join(self._unique_list(errors)) or primary_preview.get("error"),
-            "validation_hints": self._unique_list(validation_hints),
-            "preview_cards": preview_cards,
-            "preview_summary": preview_summary,
-            "performance": performance,
-            "context_plan": context_plan,
-        }
+        task = asyncio.create_task(_build_preview())
+        _PREVIEW_INFLIGHT[preview_cache_key] = task
+        try:
+            return deepcopy(await task)
+        finally:
+            current = _PREVIEW_INFLIGHT.get(preview_cache_key)
+            if current is task:
+                _PREVIEW_INFLIGHT.pop(preview_cache_key, None)
 
 
 _pkm_agent_lab_service: PKMAgentLabService | None = None

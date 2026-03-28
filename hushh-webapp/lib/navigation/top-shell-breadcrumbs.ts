@@ -8,6 +8,8 @@ export type TopShellBreadcrumbItem = {
 export type TopShellBreadcrumbConfig = {
   backHref: string;
   items: TopShellBreadcrumbItem[];
+  width?: "content" | "profile";
+  align?: "start" | "center";
 };
 
 function titleizeSegment(segment: string): string {
@@ -18,7 +20,40 @@ function titleizeSegment(segment: string): string {
     .join(" ");
 }
 
-export function resolveTopShellBreadcrumb(pathname: string): TopShellBreadcrumbConfig | null {
+function normalizeInternalHref(value: string | null | undefined): string | null {
+  const next = String(value || "").trim();
+  if (!next.startsWith("/")) return null;
+  if (next.startsWith("//")) return null;
+  return next;
+}
+
+function labelForRoute(href: string): string {
+  if (href.startsWith(ROUTES.RIA_HOME)) return "RIA";
+  if (href.startsWith(ROUTES.PROFILE)) return "Profile";
+  if (href.startsWith(ROUTES.MARKETPLACE)) return "Marketplace";
+  if (href.startsWith(ROUTES.KAI_HOME)) return "Kai";
+  if (href === ROUTES.HOME) return "Home";
+  return "Back";
+}
+
+export function resolveTopShellBreadcrumb(
+  pathname: string,
+  searchParams?: URLSearchParams | { get(name: string): string | null } | null
+): TopShellBreadcrumbConfig | null {
+  if (pathname === ROUTES.CONSENTS) {
+    const originHref = normalizeInternalHref(searchParams?.get("from"));
+    const backHref = originHref || ROUTES.KAI_HOME;
+    return {
+      backHref,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "Home", href: backHref },
+        { label: "Consent center" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.PROFILE || !pathname.startsWith(`${ROUTES.PROFILE}/`)) {
     return null;
   }
@@ -26,6 +61,8 @@ export function resolveTopShellBreadcrumb(pathname: string): TopShellBreadcrumbC
   if (pathname === `${ROUTES.PROFILE}/pkm` || pathname === `${ROUTES.PROFILE}/pkm-agent-lab`) {
     return {
       backHref: `${ROUTES.PROFILE}?tab=account`,
+      width: "profile",
+      align: "center",
       items: [
         { label: "Profile", href: `${ROUTES.PROFILE}?tab=account` },
         { label: "PKM Agent" },
@@ -46,6 +83,7 @@ export function resolveTopShellBreadcrumb(pathname: string): TopShellBreadcrumbC
 
   return {
     backHref: `${ROUTES.PROFILE}?tab=account`,
+    width: "profile",
     items: [
       { label: "Profile", href: `${ROUTES.PROFILE}?tab=account` },
       { label: titleizeSegment(firstSegment) },

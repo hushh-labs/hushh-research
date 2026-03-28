@@ -54,6 +54,8 @@ _TABLE_EXISTS_CACHE: dict[str, bool] = {}
 _IAM_SCHEMA_READY_CACHE = False
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
 _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
+_PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
+_PERSONA_STATE_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
 
 
 class RIAIAMPolicyError(Exception):
@@ -108,6 +110,36 @@ class RIAIAMService:
         self._verification_gateway = VerificationGateway(FinraVerificationAdapter())
 
     @staticmethod
+    def _read_cached_persona_state(user_id: str) -> dict[str, Any] | None:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        cached = _PERSONA_STATE_CACHE.get(normalized_user_id)
+        if not cached:
+            return None
+        cached_at, payload = cached
+        if datetime.now(timezone.utc) - cached_at > _PERSONA_STATE_CACHE_TTL:
+            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
+            return None
+        return dict(payload)
+
+    @staticmethod
+    def _write_cached_persona_state(user_id: str, payload: dict[str, Any]) -> None:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return
+        _PERSONA_STATE_CACHE[normalized_user_id] = (
+            datetime.now(timezone.utc),
+            dict(payload),
+        )
+
+    @staticmethod
+    def _invalidate_cached_persona_state(user_id: str) -> None:
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id:
+            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
+
+    @staticmethod
     def _env_truthy(name: str, fallback: str = "false") -> bool:
         raw = str(os.getenv(name, fallback)).strip().lower()
         return raw in {"1", "true", "yes", "on"}
@@ -146,6 +178,31 @@ class RIAIAMService:
     def _now_ms() -> int:
         return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
+    @staticmethod
+    def _normalize_search_query(value: str | None) -> str:
+        return str(value or "").strip().lower()
+
+    @classmethod
+    def _matches_search(cls, item: dict[str, Any], query: str | None) -> bool:
+        needle = cls._normalize_search_query(query)
+        if not needle:
+            return True
+        haystacks = [
+            item.get("investor_display_name"),
+            item.get("investor_email"),
+            item.get("investor_secondary_label"),
+            item.get("investor_headline"),
+            item.get("status"),
+            item.get("relationship_status"),
+            item.get("next_action"),
+        ]
+        return any(needle in str(value or "").lower() for value in haystacks)
+
+    @staticmethod
+    def _normalize_client_status_filter(value: str | None) -> str | None:
+        normalized = str(value or "").strip().lower()
+        return normalized or None
+
     async def _conn(self) -> asyncpg.Connection:
         pool = await get_pool()
         connection = await pool.acquire()
@@ -159,6 +216,36 @@ class RIAIAMService:
         if exists:
             _TABLE_EXISTS_CACHE[table_name] = True
         return exists
+
+    async def _investor_identity_projection(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        user_id_sql: str,
+        marketplace_alias: str = "mp",
+    ) -> tuple[str, str]:
+        if await self._table_exists(conn, "actor_identity_cache"):
+            return (
+                f"""
+                COALESCE(aic.display_name, {marketplace_alias}.display_name, {user_id_sql}) AS investor_display_name,
+                aic.email AS investor_email,
+                COALESCE(aic.email, {marketplace_alias}.headline) AS investor_secondary_label,
+                {marketplace_alias}.headline AS investor_headline
+                """.strip(),
+                f"""
+                LEFT JOIN actor_identity_cache aic
+                  ON aic.user_id = {user_id_sql}
+                """.strip(),
+            )
+        return (
+            f"""
+            COALESCE({marketplace_alias}.display_name, {user_id_sql}) AS investor_display_name,
+            NULL::TEXT AS investor_email,
+            {marketplace_alias}.headline AS investor_secondary_label,
+            {marketplace_alias}.headline AS investor_headline
+            """.strip(),
+            "",
+        )
 
     async def _is_iam_schema_ready(self, conn: asyncpg.Connection) -> bool:
         global _IAM_SCHEMA_READY_CACHE
@@ -521,9 +608,13 @@ class RIAIAMService:
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
+            self._invalidate_cached_persona_state(user_id)
             await conn.close()
 
     async def get_persona_state(self, user_id: str) -> dict[str, Any]:
+        cached = self._read_cached_persona_state(user_id)
+        if cached is not None:
+            return cached
         conn = await self._conn()
         try:
             async with conn.transaction():
@@ -534,7 +625,7 @@ class RIAIAMService:
                     last_persona = await self._get_runtime_last_persona(conn, user_id)
                     safe_last = "investor" if last_persona == "ria" else last_persona
                     await self._set_runtime_last_persona(conn, user_id, safe_last)
-                    return self._persona_response(
+                    response = self._persona_response(
                         user_id=user_id,
                         personas=["investor"],
                         last_active_persona=safe_last,
@@ -543,6 +634,8 @@ class RIAIAMService:
                         mode="compat_investor",
                         dev_ria_bypass_allowed=False,
                     )
+                    self._write_cached_persona_state(user_id, response)
+                    return response
 
                 row = await self._ensure_actor_profile_row(conn, user_id)
                 actor_last_persona = self._normalize_persona(str(row["last_active_persona"]))
@@ -557,7 +650,7 @@ class RIAIAMService:
                     user_id,
                     effective_last_persona,
                 )
-                return self._persona_response(
+                response = self._persona_response(
                     user_id=str(row["user_id"]),
                     personas=list(row["personas"] or []),
                     last_active_persona=effective_last_persona,
@@ -566,6 +659,8 @@ class RIAIAMService:
                     mode="full",
                     dev_ria_bypass_allowed=self._is_dev_bypass_allowed(user_id),
                 )
+                self._write_cached_persona_state(user_id, response)
+                return response
         except asyncpg.exceptions.UndefinedTableError as exc:
             logger.warning("iam.schema_not_ready fallback user_id=%s", user_id)
             raise IAMSchemaNotReadyError() from exc
@@ -585,7 +680,7 @@ class RIAIAMService:
                             "RIA persona is unavailable until IAM schema migration is applied."
                         )
                     await self._set_runtime_last_persona(conn, user_id, "investor")
-                    return self._persona_response(
+                    response = self._persona_response(
                         user_id=user_id,
                         personas=["investor"],
                         last_active_persona="investor",
@@ -594,12 +689,14 @@ class RIAIAMService:
                         mode="compat_investor",
                         dev_ria_bypass_allowed=False,
                     )
+                    self._write_cached_persona_state(user_id, response)
+                    return response
                 current = await self._ensure_actor_profile_row(conn, user_id)
                 current_personas = list(current["personas"] or [])
 
                 if target == "ria" and "ria" not in current_personas:
                     await self._set_runtime_last_persona(conn, user_id, "ria")
-                    return self._persona_response(
+                    response = self._persona_response(
                         user_id=str(current["user_id"]),
                         personas=current_personas,
                         last_active_persona="ria",
@@ -608,6 +705,8 @@ class RIAIAMService:
                         mode="full",
                         dev_ria_bypass_allowed=self._is_dev_bypass_allowed(user_id),
                     )
+                    self._write_cached_persona_state(user_id, response)
+                    return response
 
                 row = await conn.fetchrow(
                     """
@@ -628,7 +727,7 @@ class RIAIAMService:
                     user_id,
                     str(row["last_active_persona"]),
                 )
-                return self._persona_response(
+                response = self._persona_response(
                     user_id=str(row["user_id"]),
                     personas=list(row["personas"] or []),
                     last_active_persona=str(row["last_active_persona"]),
@@ -637,9 +736,12 @@ class RIAIAMService:
                     mode="full",
                     dev_ria_bypass_allowed=self._is_dev_bypass_allowed(user_id),
                 )
+                self._write_cached_persona_state(user_id, response)
+                return response
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
+            self._invalidate_cached_persona_state(user_id)
             await conn.close()
 
     async def set_marketplace_opt_in(self, user_id: str, enabled: bool) -> dict[str, Any]:
@@ -696,6 +798,7 @@ class RIAIAMService:
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
+            self._invalidate_cached_persona_state(user_id)
             await conn.close()
 
     async def _load_scope_template(
@@ -2114,12 +2217,101 @@ class RIAIAMService:
         finally:
             await conn.close()
 
-    async def list_ria_clients(self, user_id: str) -> list[dict[str, Any]]:
+    async def get_ria_home(self, user_id: str) -> dict[str, Any]:
+        onboarding = await self.get_ria_onboarding_status(user_id)
+        clients_payload = await self.list_ria_clients(user_id, page=1, limit=100)
+        clients = list(clients_payload.get("items") or [])
+        uploads = await self.list_ria_pick_uploads(user_id)
+        active_rows = await self.get_active_ria_pick_rows(user_id)
+
+        verification_status = str(
+            onboarding.get("advisory_status") or onboarding.get("verification_status") or "draft"
+        )
+        active_upload = next(
+            (item for item in uploads if str(item.get("status") or "") == "active"),
+            uploads[0] if uploads else None,
+        )
+
+        if verification_status in {"active", "verified", "bypassed"}:
+            primary_action = {
+                "label": "Open clients",
+                "href": "/ria/clients",
+                "description": "Relationships and requests are ready to manage.",
+            }
+        elif verification_status == "submitted":
+            primary_action = {
+                "label": "Review verification",
+                "href": "/ria/onboarding",
+                "description": "Verification is still in review before advisor actions fully unlock.",
+            }
+        else:
+            primary_action = {
+                "label": "Finish setup",
+                "href": "/ria/onboarding",
+                "description": "Complete the trust profile before requesting investor data.",
+            }
+
+        needs_attention = []
+        for item in clients:
+            status = str(item.get("status") or "")
+            if status not in {"request_pending", "invited", "revoked", "expired", "disconnected"}:
+                continue
+            client_id = str(item.get("investor_user_id") or "").strip()
+            needs_attention.append(
+                {
+                    "id": str(item.get("id") or client_id or ""),
+                    "title": item.get("investor_display_name") or "Investor",
+                    "subtitle": item.get("investor_secondary_label")
+                    or item.get("investor_email")
+                    or item.get("investor_headline")
+                    or item.get("next_action")
+                    or "",
+                    "status": status,
+                    "next_action": item.get("next_action"),
+                    "href": f"/ria/workspace?clientId={client_id}" if client_id else "/ria/clients",
+                }
+            )
+
+        return {
+            "onboarding": onboarding,
+            "verification_status": verification_status,
+            "primary_action": primary_action,
+            "counts": {
+                "active_clients": len(
+                    [item for item in clients if str(item.get("status") or "") == "approved"]
+                ),
+                "needs_attention": len(needs_attention),
+                "invites": len(
+                    [item for item in clients if str(item.get("status") or "") == "invited"]
+                ),
+            },
+            "needs_attention": needs_attention[:5],
+            "active_picks": {
+                "status": "ready" if active_upload else "empty",
+                "active_upload_label": active_upload.get("label") if active_upload else None,
+                "active_rows": len(active_rows),
+                "history_count": len(uploads),
+            },
+        }
+
+    async def list_ria_clients(
+        self,
+        user_id: str,
+        *,
+        query: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
+            identity_select_sql, identity_join_sql = await self._investor_identity_projection(
+                conn,
+                user_id_sql="rel.investor_user_id",
+            )
             relationship_rows = await conn.fetch(
-                """
+                f"""
                 SELECT
                   rel.id,
                   rel.investor_user_id,
@@ -2128,8 +2320,7 @@ class RIAIAMService:
                   rel.last_request_id,
                   rel.consent_granted_at,
                   rel.revoked_at,
-                  mp.display_name AS investor_display_name,
-                  mp.headline AS investor_headline,
+                  {identity_select_sql},
                   invite.id AS invite_id,
                   invite.invite_token,
                   invite.source AS acquisition_source,
@@ -2144,6 +2335,7 @@ class RIAIAMService:
                   (active_upload.id IS NOT NULL) AS has_active_pick_upload
                 FROM ria_profiles rp
                 JOIN advisor_investor_relationships rel ON rel.ria_profile_id = rp.id
+                {identity_join_sql}
                 LEFT JOIN marketplace_public_profiles mp
                   ON mp.user_id = rel.investor_user_id AND mp.profile_type = 'investor'
                 LEFT JOIN LATERAL (
@@ -2300,6 +2492,10 @@ class RIAIAMService:
                         "scope_template_id": payload.get("scope_template_id"),
                         "is_invite_only": True,
                         "relationship_status": "invited",
+                        "investor_email": payload.get("target_email"),
+                        "investor_secondary_label": payload.get("target_email")
+                        or payload.get("target_phone")
+                        or "Invite pending",
                         "relationship_shares": [],
                         "picks_feed_status": self._picks_feed_status(
                             relationship_status="invited",
@@ -2313,8 +2509,37 @@ class RIAIAMService:
                         == user_id,
                     }
                 )
+            normalized_status = self._normalize_client_status_filter(status)
+            filtered = [
+                item
+                for item in items
+                if self._matches_search(item, query)
+                and (
+                    normalized_status is None
+                    or str(item.get("status") or "").strip().lower() == normalized_status
+                )
+            ]
+            filtered.sort(
+                key=lambda item: str(
+                    item.get("consent_granted_at")
+                    or item.get("invite_expires_at")
+                    or item.get("id")
+                    or ""
+                ),
+                reverse=True,
+            )
+            safe_limit = max(1, min(int(limit or 50), 100))
+            safe_page = max(1, int(page or 1))
+            start = (safe_page - 1) * safe_limit
+            end = start + safe_limit
 
-            return items
+            return {
+                "items": filtered[start:end],
+                "total": len(filtered),
+                "page": safe_page,
+                "limit": safe_limit,
+                "has_more": end < len(filtered),
+            }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
@@ -2329,8 +2554,12 @@ class RIAIAMService:
         try:
             await self._ensure_iam_schema_ready(conn)
             ria = await self._get_ria_profile_by_user(conn, user_id)
+            identity_select_sql, identity_join_sql = await self._investor_identity_projection(
+                conn,
+                user_id_sql="rel.investor_user_id",
+            )
             relationship = await conn.fetchrow(
-                """
+                f"""
                 SELECT
                   rel.id,
                   rel.investor_user_id,
@@ -2341,8 +2570,7 @@ class RIAIAMService:
                   rel.revoked_at,
                   rel.created_at,
                   rel.updated_at,
-                  mp.display_name AS investor_display_name,
-                  mp.headline AS investor_headline,
+                  {identity_select_sql},
                   picks_share.id AS picks_share_id,
                   picks_share.status AS picks_share_status,
                   picks_share.granted_at AS picks_share_granted_at,
@@ -2350,6 +2578,7 @@ class RIAIAMService:
                   picks_share.metadata AS picks_share_metadata,
                   (active_upload.id IS NOT NULL) AS has_active_pick_upload
                 FROM advisor_investor_relationships rel
+                {identity_join_sql}
                 LEFT JOIN marketplace_public_profiles mp
                   ON mp.user_id = rel.investor_user_id
                   AND mp.profile_type = 'investor'
@@ -2522,6 +2751,8 @@ class RIAIAMService:
         return {
             "investor_user_id": investor_user_id,
             "investor_display_name": relationship_payload["investor_display_name"],
+            "investor_email": relationship_payload.get("investor_email"),
+            "investor_secondary_label": relationship_payload.get("investor_secondary_label"),
             "investor_headline": relationship_payload["investor_headline"],
             "relationship_status": relationship_status,
             "granted_scope": relationship_payload["granted_scope"],
@@ -3881,8 +4112,12 @@ class RIAIAMService:
         try:
             await self._ensure_iam_schema_ready(conn)
             ria = await self._get_ria_profile_by_user(conn, user_id)
+            identity_select_sql, identity_join_sql = await self._investor_identity_projection(
+                conn,
+                user_id_sql="rel.investor_user_id",
+            )
             relationship = await conn.fetchrow(
-                """
+                f"""
                 SELECT
                   rel.id,
                   rel.status,
@@ -3890,8 +4125,7 @@ class RIAIAMService:
                   rel.last_request_id,
                   rel.consent_granted_at,
                   rel.revoked_at,
-                  mp.display_name AS investor_display_name,
-                  mp.headline AS investor_headline,
+                  {identity_select_sql},
                   picks_share.id AS picks_share_id,
                   picks_share.status AS picks_share_status,
                   picks_share.granted_at AS picks_share_granted_at,
@@ -3899,6 +4133,7 @@ class RIAIAMService:
                   picks_share.metadata AS picks_share_metadata,
                   (active_upload.id IS NOT NULL) AS has_active_pick_upload
                 FROM advisor_investor_relationships rel
+                {identity_join_sql}
                 LEFT JOIN marketplace_public_profiles mp
                   ON mp.user_id = rel.investor_user_id
                   AND mp.profile_type = 'investor'
@@ -4001,6 +4236,10 @@ class RIAIAMService:
                     "domain_summaries": {},
                     "total_attributes": 0,
                     "investor_display_name": relationship_payload["investor_display_name"],
+                    "investor_email": relationship_payload.get("investor_email"),
+                    "investor_secondary_label": relationship_payload.get(
+                        "investor_secondary_label"
+                    ),
                     "investor_headline": relationship_payload["investor_headline"],
                     "relationship_status": relationship_payload["status"],
                     "scope": granted_scopes[0]["scope"],
@@ -4041,6 +4280,8 @@ class RIAIAMService:
             return {
                 "investor_user_id": investor_user_id,
                 "investor_display_name": relationship_payload["investor_display_name"],
+                "investor_email": relationship_payload.get("investor_email"),
+                "investor_secondary_label": relationship_payload.get("investor_secondary_label"),
                 "investor_headline": relationship_payload["investor_headline"],
                 "workspace_ready": True,
                 "available_domains": available_domains,

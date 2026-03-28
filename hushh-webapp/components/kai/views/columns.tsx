@@ -21,6 +21,8 @@ import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
 // Extended type to include version number computed at runtime
 export type HistoryEntryWithVersion = AnalysisHistoryEntry & {
   version: number;
+  companyName?: string;
+  searchText?: string;
 };
 
 interface ColumnsProps {
@@ -132,7 +134,12 @@ export const getColumns = ({
       return (
         <div className="flex flex-col">
           <span className="font-bold text-base">{entry.ticker}</span>
-          <span className="text-xs text-muted-foreground">v{entry.version}</span>
+          <span className="text-xs text-muted-foreground">
+            {entry.companyName ? entry.companyName : `Version ${entry.version}`}
+          </span>
+          {entry.companyName ? (
+            <span className="text-[11px] text-muted-foreground/80">v{entry.version}</span>
+          ) : null}
         </div>
       );
     },

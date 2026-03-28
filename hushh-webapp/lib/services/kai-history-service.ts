@@ -20,12 +20,14 @@
 
 import { PersonalKnowledgeModelService } from "./personal-knowledge-model-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
 
 const MAX_HISTORY_PER_TICKER = 3;
 const FINANCIAL_DOMAIN = "financial";
 const FINANCIAL_SCHEMA_VERSION = 3;
-const FINANCIAL_CONTRACT_VERSION = 1;
+const FINANCIAL_CONTRACT_VERSION = currentDomainContractVersion(FINANCIAL_DOMAIN);
 const FINANCIAL_INTENT_MAP = [
   "portfolio",
   "profile",
@@ -216,6 +218,46 @@ function buildHistorySummary(
   return summary;
 }
 
+function flattenHistoryEntries(historyMap: AnalysisHistoryMap): AnalysisHistoryEntry[] {
+  return Object.values(historyMap)
+    .flatMap((entries) => entries)
+    .sort((left, right) => {
+      const leftEpoch = toEpochMs(left.timestamp) ?? 0;
+      const rightEpoch = toEpochMs(right.timestamp) ?? 0;
+      return rightEpoch - leftEpoch;
+    });
+}
+
+function buildDecisionProjection(historyMap: AnalysisHistoryMap): Array<Record<string, unknown>> {
+  return flattenHistoryEntries(historyMap).map((entry, index) => ({
+    id: index + 1,
+    ticker: entry.ticker,
+    decision_type: String(entry.decision || "").toUpperCase(),
+    confidence: Number(entry.confidence || 0),
+    created_at: entry.timestamp,
+    metadata: {
+      consensus_reached: entry.consensus_reached,
+      final_statement: entry.final_statement,
+      agent_votes: entry.agent_votes,
+      stream_id: extractStreamId(entry),
+      debate_run_id: extractRunId(entry),
+      source: "analysis_history",
+    },
+  }));
+}
+
+function buildDecisionWriteProjections(historyMap: AnalysisHistoryMap) {
+  return [
+    {
+      projectionType: "decision_history_v1",
+      projectionVersion: 1,
+      payload: {
+        decisions: buildDecisionProjection(historyMap),
+      },
+    },
+  ] as const;
+}
+
 function selectFinancialDomain(fullBlob: Record<string, unknown>): Record<string, unknown> {
   const raw = fullBlob[FINANCIAL_DOMAIN];
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -322,82 +364,66 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, entry } = params;
 
     try {
-      // 1. Fetch only the financial domain we need for history persistence.
-      const existingFinancialDomain = await PersonalKnowledgeModelService.loadDomainData({
+      const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
-        domain: FINANCIAL_DOMAIN,
         vaultKey,
         vaultOwnerToken,
-      }).catch((e) => {
-        console.warn("[KaiHistory] Could not fetch/decrypt financial domain, starting fresh:", e);
-        return null;
-      });
-      const fullBlob =
-        existingFinancialDomain &&
-        typeof existingFinancialDomain === "object" &&
-        !Array.isArray(existingFinancialDomain)
-          ? { [FINANCIAL_DOMAIN]: existingFinancialDomain }
-          : ({} as Record<string, unknown>);
+        domain: FINANCIAL_DOMAIN,
+        build: async ({ currentDomainData, baseFullBlob }) => {
+          const fullBlob =
+            baseFullBlob && Object.keys(baseFullBlob).length > 0
+              ? baseFullBlob
+              : currentDomainData && Object.keys(currentDomainData).length > 0
+                ? { [FINANCIAL_DOMAIN]: currentDomainData }
+                : ({} as Record<string, unknown>);
 
-      // 2. Get or create the history map
-      const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
+          const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
+          const tickerHistory = historyMap[entry.ticker] || [];
+          const incomingRunId = extractRunId(entry);
 
-      // 3. Get or create the ticker array
-      const tickerHistory = historyMap[entry.ticker] || [];
-      const incomingRunId = extractRunId(entry);
-
-      if (incomingRunId) {
-        const existingIndex = tickerHistory.findIndex(
-          (candidate) => extractRunId(candidate) === incomingRunId
-        );
-        if (existingIndex >= 0) {
-          const existing = tickerHistory[existingIndex];
-          if (existing) {
-            const sameTimestamp = timestampsMatch(existing.timestamp, entry.timestamp);
-            const sameDecision = String(existing.decision || "") === String(entry.decision || "");
-            const sameConfidence = Number(existing.confidence || 0) === Number(entry.confidence || 0);
-            if (sameTimestamp && sameDecision && sameConfidence) {
-              // Idempotent no-op for duplicate save attempts.
-              return true;
+          if (incomingRunId) {
+            const existingIndex = tickerHistory.findIndex(
+              (candidate) => extractRunId(candidate) === incomingRunId
+            );
+            if (existingIndex >= 0) {
+              const existing = tickerHistory[existingIndex];
+              if (existing) {
+                const sameTimestamp = timestampsMatch(existing.timestamp, entry.timestamp);
+                const sameDecision =
+                  String(existing.decision || "") === String(entry.decision || "");
+                const sameConfidence =
+                  Number(existing.confidence || 0) === Number(entry.confidence || 0);
+                if (sameTimestamp && sameDecision && sameConfidence) {
+                  throw new Error("KAI_HISTORY_IDEMPOTENT_NOOP");
+                }
+              }
+              tickerHistory.splice(existingIndex, 1);
             }
           }
-          tickerHistory.splice(existingIndex, 1);
-        }
-      }
 
-      // 4. Prepend new entry (newest first)
-      tickerHistory.unshift(entry);
+          tickerHistory.unshift(entry);
+          if (tickerHistory.length > MAX_HISTORY_PER_TICKER) {
+            tickerHistory.splice(MAX_HISTORY_PER_TICKER);
+          }
 
-      // 5. FIFO: remove oldest if exceeds max
-      if (tickerHistory.length > MAX_HISTORY_PER_TICKER) {
-        tickerHistory.splice(MAX_HISTORY_PER_TICKER);
-      }
-
-      // 6. Update the map
-      historyMap[entry.ticker] = tickerHistory;
-      const summary = buildHistorySummary(historyMap, entry.ticker, entry.timestamp);
-      const nowIso = new Date().toISOString();
-      const nextFinancialDomain = buildFinancialDomainWithHistory({
-        fullBlob,
-        historyMap,
-        nowIso,
-      });
-
-      // 7. Re-encrypt and store merged domain
-      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-        userId,
-        vaultKey,
-        domain: FINANCIAL_DOMAIN,
-        domainData: nextFinancialDomain,
-        summary,
-        baseFullBlob: fullBlob,
-        cacheFullBlob: false,
-        vaultOwnerToken,
+          historyMap[entry.ticker] = tickerHistory;
+          const nowIso = new Date().toISOString();
+          return {
+            domainData: buildFinancialDomainWithHistory({
+              fullBlob,
+              historyMap,
+              nowIso,
+            }),
+            summary: buildHistorySummary(historyMap, entry.ticker, entry.timestamp),
+            writeProjections: [...buildDecisionWriteProjections(historyMap)],
+          };
+        },
       });
 
       // Invalidate caches after successful save
       if (result.success) {
-        CacheSyncService.onAnalysisHistoryStored(userId, historyMap, entry.ticker);
+        const savedHistoryMap = extractHistoryMap(result.fullBlob);
+        CacheSyncService.onAnalysisHistoryStored(userId, savedHistoryMap, entry.ticker);
         CacheSyncService.onAnalysisHistoryMutated(userId, entry.ticker, {
           preserveHistoryCache: true,
         });
@@ -405,6 +431,9 @@ export class KaiHistoryService {
 
       return result.success;
     } catch (error) {
+      if (error instanceof Error && error.message === "KAI_HISTORY_IDEMPOTENT_NOOP") {
+        return true;
+      }
       console.error("[KaiHistory] Failed to save analysis:", error);
       return false;
     }
@@ -478,96 +507,95 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, ticker, timestamp, streamId } = params;
 
     try {
-      // 1. Fetch only the financial domain needed for the delete operation.
-      const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
+      const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
-        domain: FINANCIAL_DOMAIN,
         vaultKey,
         vaultOwnerToken,
-      }).catch(() => ({} as Record<string, unknown>));
-      const fullBlob =
-        financialDomain && typeof financialDomain === "object" && !Array.isArray(financialDomain)
-          ? { [FINANCIAL_DOMAIN]: financialDomain }
-          : ({} as Record<string, unknown>);
+        domain: FINANCIAL_DOMAIN,
+        build: async ({ currentDomainData, baseFullBlob }) => {
+          const fullBlob =
+            baseFullBlob && Object.keys(baseFullBlob).length > 0
+              ? baseFullBlob
+              : currentDomainData && Object.keys(currentDomainData).length > 0
+                ? { [FINANCIAL_DOMAIN]: currentDomainData }
+                : ({} as Record<string, unknown>);
 
-      // 2. Modify
-      const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
-      const tickerKey = normalizeTickerKey(historyMap, ticker);
-      if (!tickerKey) return false;
-
-      const wantedTimestamp = String(timestamp || "").trim();
-      const wantedStreamId =
-        typeof streamId === "string" && streamId.trim().length > 0
-          ? streamId.trim()
-          : null;
-
-      const currentTickerHistory = historyMap[tickerKey] ?? [];
-      if (currentTickerHistory.length === 0) return false;
-
-      const originalLen = currentTickerHistory.length;
-      let nextTickerHistory = currentTickerHistory;
-
-      if (wantedTimestamp.length === 0 && wantedStreamId === null) {
-        // Fallback: if no stable identifiers are available, remove the newest entry.
-        nextTickerHistory = currentTickerHistory.slice(1);
-      } else {
-        nextTickerHistory = currentTickerHistory.filter((entry) => {
-          const byTimestamp =
-            wantedTimestamp.length > 0 &&
-            timestampsMatch(String(entry.timestamp || ""), wantedTimestamp);
-          const byStreamId =
-            wantedStreamId !== null && extractStreamId(entry) === wantedStreamId;
-          return !(byTimestamp || byStreamId);
-        });
-
-        // Last-resort guard for broken historical rows that cannot be matched by timestamp/stream id.
-        if (nextTickerHistory.length === originalLen) {
-          // No stream_id means we likely came from the latest-row table action.
-          // Drop newest entry so users are never stuck with an undeletable row.
-          if (wantedStreamId === null) {
-            nextTickerHistory = currentTickerHistory.slice(1);
-          } else if (originalLen === 1) {
-            nextTickerHistory = [];
+          const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
+          const tickerKey = normalizeTickerKey(historyMap, ticker);
+          if (!tickerKey) {
+            throw new Error("KAI_HISTORY_NOT_FOUND");
           }
-        }
-      }
 
-      historyMap[tickerKey] = nextTickerHistory;
+          const wantedTimestamp = String(timestamp || "").trim();
+          const wantedStreamId =
+            typeof streamId === "string" && streamId.trim().length > 0
+              ? streamId.trim()
+              : null;
 
-      if (historyMap[tickerKey].length === 0) {
-        delete historyMap[tickerKey];
-      }
+          const currentTickerHistory = historyMap[tickerKey] ?? [];
+          if (currentTickerHistory.length === 0) {
+            throw new Error("KAI_HISTORY_NOT_FOUND");
+          }
 
-      if (historyMap[tickerKey]?.length === originalLen && historyMap[tickerKey]) {
-        return false; // No change
-      }
+          const originalLen = currentTickerHistory.length;
+          let nextTickerHistory = currentTickerHistory;
 
-      // 3. Encrypt & Save
-      const nowIso = new Date().toISOString();
-      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-        userId,
-        vaultKey,
-        domain: FINANCIAL_DOMAIN,
-        domainData: buildFinancialDomainWithHistory({
-          fullBlob,
-          historyMap,
-          nowIso,
-        }),
-        summary: buildHistorySummary(historyMap),
-        baseFullBlob: fullBlob,
-        cacheFullBlob: false,
-        vaultOwnerToken,
+          if (wantedTimestamp.length === 0 && wantedStreamId === null) {
+            nextTickerHistory = currentTickerHistory.slice(1);
+          } else {
+            nextTickerHistory = currentTickerHistory.filter((entry) => {
+              const byTimestamp =
+                wantedTimestamp.length > 0 &&
+                timestampsMatch(String(entry.timestamp || ""), wantedTimestamp);
+              const byStreamId =
+                wantedStreamId !== null && extractStreamId(entry) === wantedStreamId;
+              return !(byTimestamp || byStreamId);
+            });
+
+            if (nextTickerHistory.length === originalLen) {
+              if (wantedStreamId === null) {
+                nextTickerHistory = currentTickerHistory.slice(1);
+              } else if (originalLen === 1) {
+                nextTickerHistory = [];
+              }
+            }
+          }
+
+          historyMap[tickerKey] = nextTickerHistory;
+          if (historyMap[tickerKey].length === 0) {
+            delete historyMap[tickerKey];
+          }
+          if (historyMap[tickerKey]?.length === originalLen && historyMap[tickerKey]) {
+            throw new Error("KAI_HISTORY_NOT_FOUND");
+          }
+
+          const nowIso = new Date().toISOString();
+          return {
+            domainData: buildFinancialDomainWithHistory({
+              fullBlob,
+              historyMap,
+              nowIso,
+            }),
+            summary: buildHistorySummary(historyMap),
+            writeProjections: [...buildDecisionWriteProjections(historyMap)],
+          };
+        },
       });
 
       if (result.success) {
-        CacheSyncService.onAnalysisHistoryStored(userId, historyMap, tickerKey);
-        CacheSyncService.onAnalysisHistoryMutated(userId, tickerKey, {
+        const nextMap = extractHistoryMap(result.fullBlob);
+        const resolvedTickerKey = normalizeTickerKey(nextMap, ticker) || ticker;
+        CacheSyncService.onAnalysisHistoryStored(userId, nextMap, resolvedTickerKey);
+        CacheSyncService.onAnalysisHistoryMutated(userId, resolvedTickerKey, {
           preserveHistoryCache: true,
         });
       }
 
       return result.success;
     } catch (error) {
+      if (error instanceof Error && error.message === "KAI_HISTORY_NOT_FOUND") {
+        return false;
+      }
       console.error("[KaiHistory] Failed to delete entry:", error);
       return false;
     }
@@ -585,50 +613,52 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, ticker } = params;
 
     try {
-      // 1. Fetch only the financial domain needed for the delete operation.
-      const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
-        userId,
-        domain: FINANCIAL_DOMAIN,
-        vaultKey,
-        vaultOwnerToken,
-      }).catch(() => ({} as Record<string, unknown>));
-      const fullBlob =
-        financialDomain && typeof financialDomain === "object" && !Array.isArray(financialDomain)
-          ? { [FINANCIAL_DOMAIN]: financialDomain }
-          : ({} as Record<string, unknown>);
-
-      // 2. Modify
-      const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
-      const tickerKey = normalizeTickerKey(historyMap, ticker);
-      if (!tickerKey) return false;
-
-      delete historyMap[tickerKey];
-      // 3. Encrypt & Save
-      const nowIso = new Date().toISOString();
-      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
         vaultKey,
-        domain: FINANCIAL_DOMAIN,
-        domainData: buildFinancialDomainWithHistory({
-          fullBlob,
-          historyMap,
-          nowIso,
-        }),
-        summary: buildHistorySummary(historyMap),
-        baseFullBlob: fullBlob,
-        cacheFullBlob: false,
         vaultOwnerToken,
+        domain: FINANCIAL_DOMAIN,
+        build: async ({ currentDomainData, baseFullBlob }) => {
+          const fullBlob =
+            baseFullBlob && Object.keys(baseFullBlob).length > 0
+              ? baseFullBlob
+              : currentDomainData && Object.keys(currentDomainData).length > 0
+                ? { [FINANCIAL_DOMAIN]: currentDomainData }
+                : ({} as Record<string, unknown>);
+
+          const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
+          const tickerKey = normalizeTickerKey(historyMap, ticker);
+          if (!tickerKey) {
+            throw new Error("KAI_HISTORY_NOT_FOUND");
+          }
+
+          delete historyMap[tickerKey];
+          const nowIso = new Date().toISOString();
+          return {
+            domainData: buildFinancialDomainWithHistory({
+              fullBlob,
+              historyMap,
+              nowIso,
+            }),
+            summary: buildHistorySummary(historyMap),
+            writeProjections: [...buildDecisionWriteProjections(historyMap)],
+          };
+        },
       });
 
       if (result.success) {
-        CacheSyncService.onAnalysisHistoryStored(userId, historyMap, tickerKey);
-        CacheSyncService.onAnalysisHistoryMutated(userId, tickerKey, {
+        const nextMap = extractHistoryMap(result.fullBlob);
+        CacheSyncService.onAnalysisHistoryStored(userId, nextMap);
+        CacheSyncService.onAnalysisHistoryMutated(userId, ticker, {
           preserveHistoryCache: true,
         });
       }
 
       return result.success;
     } catch (error) {
+      if (error instanceof Error && error.message === "KAI_HISTORY_NOT_FOUND") {
+        return false;
+      }
       console.error("[KaiHistory] Failed to delete ticker history:", error);
       return false;
     }

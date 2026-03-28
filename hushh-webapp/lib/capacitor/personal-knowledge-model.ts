@@ -92,6 +92,11 @@ export interface HushhPersonalKnowledgeModelPlugin {
     summary: Record<string, unknown>;
     structureDecision?: Record<string, unknown>;
     manifest?: Record<string, unknown>;
+    writeProjections?: Array<{
+      projectionType: string;
+      projectionVersion?: number;
+      payload: Record<string, unknown>;
+    }>;
     expectedDataVersion?: number;
     upgradeContext?: {
       runId: string;

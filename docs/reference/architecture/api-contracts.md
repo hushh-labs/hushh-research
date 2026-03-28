@@ -120,11 +120,12 @@ RIA relationship bundle note:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| POST | `/api/pkm/store-domain` | Store encrypted PKM domain data + update index |
+| POST | `/api/pkm/store-domain` | Store encrypted PKM domain data + update index; accepts optional non-sensitive `write_projections[]` for derived read models such as decision history |
 | GET | `/api/pkm/data/{user_id}` | Get full encrypted PKM payload |
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
 | DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
+| POST | `/api/pkm/domains/{domain}/scope-exposure` | Enable/disable top-level PKM section exposure and revoke overlapping active grants |
 | GET | `/api/pkm/upgrade/status/{user_id}` | Get generic PKM upgrade status + resumable run metadata |
 | POST | `/api/pkm/upgrade/start-or-resume` | Start or resume a client-side PKM upgrade run |
 | POST | `/api/pkm/upgrade/runs/{run_id}/status` | Update run-level PKM upgrade status |
@@ -201,7 +202,7 @@ Operational note:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/kai/decisions/{user_id}` | Decision history from domain summaries |
+| GET | `/api/kai/decisions/{user_id}` | Decision history from PKM `decision_projection` events with summary fallback only for legacy users |
 
 #### Kai Personalization
 
@@ -272,10 +273,15 @@ Security invariant:
 | POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
 | POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
 | DELETE | `/api/pkm/attributes/{uid}/{domain}/{key}` | Client-side BYOK operation |
-| POST | `/api/kai/decision/store` | `POST /api/pkm/store-domain` with domain=`financial` |
+| POST | `/api/kai/decision/store` | `POST /api/pkm/store-domain` with domain=`financial`; first-party flows now attach `write_projections[]` instead of relying on legacy summary inference |
 | GET | `/api/kai/decision/{id}` | `GET /api/kai/decisions/{user_id}` |
 | DELETE | `/api/kai/decision/{id}` | `POST /api/pkm/store-domain` with domain=`financial` |
 | `*` | `/api/identity/*` | Removed from app surface; compatibility stubs return `410` |
+
+Notes:
+- First-party PKM writes are version-aware through the frontend `PkmWriteCoordinator`; stale domains may trigger resumable client-side PKM upgrade before save.
+- Debate/analysis history remains encrypted in `financial.analysis_history` and mirrors a privacy-safe `decision_history_v1` projection for backend/read-model consumers.
+- Current history retention is `3` saved versions per ticker, newest first.
 
 ---
 

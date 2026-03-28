@@ -50,6 +50,13 @@ def test_store_domain_forwards_upgrade_context(monkeypatch):
                 "new_readable_summary_version": 1,
                 "retry_count": 0,
             },
+            "write_projections": [
+                {
+                    "projection_type": "decision_history_v1",
+                    "projection_version": 1,
+                    "payload": {"decisions": []},
+                }
+            ],
         },
     )
 
@@ -61,6 +68,63 @@ def test_store_domain_forwards_upgrade_context(monkeypatch):
         "prior_readable_summary_version": 0,
         "new_readable_summary_version": 1,
         "retry_count": 0,
+    }
+    assert captured["write_projections"] == [
+        {
+            "projection_type": "decision_history_v1",
+            "projection_version": 1,
+            "payload": {"decisions": []},
+        }
+    ]
+
+
+def test_scope_exposure_route_forwards_payload(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _FakePkmService:
+        async def update_scope_exposure(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "success": True,
+                "message": "Updated PKM scope exposure.",
+                "manifest_version": 5,
+                "revoked_grant_count": 2,
+                "revoked_grant_ids": ["token_a", "token_b"],
+                "manifest": {"domain": "financial", "manifest_version": 5},
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/pkm/domains/financial/scope-exposure",
+        json={
+            "user_id": "user_123",
+            "expected_manifest_version": 4,
+            "revoke_matching_active_grants": True,
+            "changes": [
+                {
+                    "scope_handle": "s_demo",
+                    "top_level_scope_path": "portfolio",
+                    "exposure_enabled": False,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "user_id": "user_123",
+        "domain": "financial",
+        "expected_manifest_version": 4,
+        "changes": [
+            {
+                "scope_handle": "s_demo",
+                "top_level_scope_path": "portfolio",
+                "exposure_enabled": False,
+            }
+        ],
+        "revoke_matching_active_grants": True,
     }
 
 

@@ -186,10 +186,11 @@ export function KaiPreferencesWizard(props: {
 
   return (
     <main
+      data-top-content-anchor={layout === "page" ? "true" : undefined}
       className={cn(
         "w-full bg-transparent flex flex-col",
         layout === "page"
-          ? "min-h-[100dvh] px-6 pt-[calc(var(--top-shell-reserved-height,0px)+16px)] pb-[var(--app-screen-footer-pad)]"
+          ? "min-h-[100dvh] px-6 pt-[var(--app-fullscreen-flow-content-offset)] pb-[var(--app-screen-footer-pad)]"
           : "min-h-0 px-4 pt-4 pb-4"
       )}
     >

@@ -15,11 +15,15 @@ from api.routes.pkm_routes_shared import (
     DomainManifestResponse,
     DomainRegistryResponse,
     PersonalKnowledgeModelMetadataResponse,
+    PkmUpgradeStatusResponse,
     ReconcilePkmResponse,
+    StartOrResumeUpgradeRequest,
     StockContextRequest,
     StockContextResponse,
     StoreDomainRequest,
     StoreDomainResponse,
+    UpdateUpgradeRunRequest,
+    UpdateUpgradeStepRequest,
     UserScopesResponse,
 )
 from api.routes.pkm_routes_shared import (
@@ -44,13 +48,25 @@ from api.routes.pkm_routes_shared import (
     get_stock_context as _get_stock_context,
 )
 from api.routes.pkm_routes_shared import (
+    get_upgrade_status as _get_upgrade_status,
+)
+from api.routes.pkm_routes_shared import (
     get_user_scopes as _get_user_scopes,
 )
 from api.routes.pkm_routes_shared import (
     reconcile_pkm_index as _reconcile_pkm_index,
 )
 from api.routes.pkm_routes_shared import (
+    start_or_resume_upgrade as _start_or_resume_upgrade,
+)
+from api.routes.pkm_routes_shared import (
     store_domain as _store_domain,
+)
+from api.routes.pkm_routes_shared import (
+    update_upgrade_run_status as _update_upgrade_run_status,
+)
+from api.routes.pkm_routes_shared import (
+    update_upgrade_step as _update_upgrade_step,
 )
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 
@@ -189,3 +205,38 @@ async def preview_pkm_structure(
         simulated_state=request.simulated_state,
     )
     return PKMAgentLabStructureResponse(**payload)
+
+
+@router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
+async def get_upgrade_status(
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _get_upgrade_status(user_id, token_data)
+
+
+@router.post("/upgrade/start-or-resume", response_model=PkmUpgradeStatusResponse)
+async def start_or_resume_upgrade(
+    request: StartOrResumeUpgradeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _start_or_resume_upgrade(request, token_data)
+
+
+@router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_run_status(
+    run_id: str,
+    request: UpdateUpgradeRunRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _update_upgrade_run_status(run_id, request, token_data)
+
+
+@router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_step(
+    run_id: str,
+    domain: str,
+    request: UpdateUpgradeStepRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _update_upgrade_step(run_id, domain, request, token_data)

@@ -104,6 +104,7 @@ html body[data-scroll-locked] {
   /* Runtime-measured bottom fixed UI (Navbar / floating theme pill). Overridden by navbar at runtime. */
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-chrome-lift: 0px;
+  --bottom-chrome-fade-overscan: 34px;
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)
   );
@@ -126,10 +127,21 @@ html body[data-scroll-locked] {
   --top-shell-safe-area: var(--app-safe-area-top-effective);
   --top-inset: var(--top-shell-safe-area);
   --top-bar-h: 44px;
+  --top-bar-side-w: 98px;
   --top-tabs-h: var(--kai-route-tabs-height);
   --top-tabs-gap: var(--kai-route-tabs-content-gap);
   --top-tabs-total: 0px;
+  --top-subnav-h: 30px;
+  --top-subnav-gap: 12px;
   --top-fade-active: 14px;
+  --top-content-safe-gap: 14px;
+  --page-top-body-gap: 18px;
+  /* Single visual clearance between the fixed top shell and the first page block.
+   * `--page-top-start` is the body-start gap token designers inspect/tune directly.
+   * The actual structural spacer adds reserved shell height on top of this value. */
+  --page-top-start: 75px;
+  --app-top-body-start-gap: var(--page-top-start);
+  --page-top-local-offset: 0px;
   --top-systembar-row-gap: 4px;
   --top-shell-row-gap: var(--top-systembar-row-gap);
   --top-shell-reserved-height: calc(
@@ -138,20 +150,30 @@ html body[data-scroll-locked] {
   --top-shell-visual-height: calc(var(--top-shell-reserved-height) + var(--top-fade-active));
   --top-shell-h: var(--top-shell-reserved-height);
   --top-glass-h: var(--top-shell-visual-height);
-  --top-content-pad: var(--top-shell-reserved-height);
-  --page-top-start: max(96px, calc(var(--top-shell-reserved-height) + 20px));
+  --app-top-mask-tail-clearance: calc(
+    var(--page-top-start) + var(--page-top-local-offset)
+  );
+  --app-top-content-offset: calc(
+    var(--top-shell-reserved-height) + var(--app-top-mask-tail-clearance)
+  );
+  --app-fullscreen-flow-content-offset: calc(
+    var(--top-shell-reserved-height) + var(--app-top-mask-tail-clearance)
+  );
+  --top-content-pad: calc(
+    var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap)
+  );
   --page-inline-gutter-standard: 20px;
   --page-surface-overscan: 14px;
   --page-surface-gap-standard: 18px;
   --page-surface-gap-compact: 14px;
-  --page-header-stack-gap: 24px;
-  --page-header-row-gap: 20px;
-  --page-header-copy-gap: 14px;
+  --page-header-stack-gap: 10px;
+  --page-header-row-gap: 10px;
+  --page-header-copy-gap: 4px;
   --page-header-actions-gap: 10px;
-  --page-header-section-gap: 40px;
-  --section-header-stack-gap: 18px;
-  --section-header-row-gap: 16px;
-  --section-header-copy-gap: 12px;
+  --page-header-section-gap: 14px;
+  --section-header-stack-gap: 8px;
+  --section-header-row-gap: 10px;
+  --section-header-copy-gap: 6px;
   --section-header-actions-gap: 10px;
   --surface-shadow-overscan: 14px;
   --surface-stack-gap-standard: 22px;
@@ -316,18 +338,24 @@ html body[data-scroll-locked] {
 
 @media (min-width: 640px) {
   :root {
+    --top-bar-side-w: 106px;
+    --top-content-safe-gap: 16px;
+    --page-top-body-gap: 22px;
+    --app-top-body-start-gap: 75px;
+    --bottom-chrome-fade-overscan: 38px;
+    --top-subnav-gap: 14px;
     --page-inline-gutter-standard: 28px;
     --page-surface-overscan: 18px;
     --page-surface-gap-standard: 22px;
     --page-surface-gap-compact: 18px;
-    --page-header-stack-gap: 28px;
-    --page-header-row-gap: 22px;
-    --page-header-copy-gap: 16px;
+    --page-header-stack-gap: 12px;
+    --page-header-row-gap: 12px;
+    --page-header-copy-gap: 6px;
     --page-header-actions-gap: 12px;
-    --page-header-section-gap: 44px;
-    --section-header-stack-gap: 20px;
-    --section-header-row-gap: 18px;
-    --section-header-copy-gap: 14px;
+    --page-header-section-gap: 16px;
+    --section-header-stack-gap: 10px;
+    --section-header-row-gap: 12px;
+    --section-header-copy-gap: 8px;
     --section-header-actions-gap: 12px;
     --surface-shadow-overscan: 18px;
     --surface-stack-gap-standard: 24px;
@@ -337,11 +365,23 @@ html body[data-scroll-locked] {
 
 .native-ios {
   --app-top-safe-offset: 2px;
-  --page-top-start: calc(var(--top-shell-reserved-height) + 20px);
 }
 
 .app-page-shell {
-  padding-top: var(--page-top-start);
+  padding-left: var(--page-inline-gutter-standard);
+  padding-right: var(--page-inline-gutter-standard);
+}
+
+[data-app-shell-top-spacer="true"] {
+  height: var(--app-top-content-offset);
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.fullscreen-flow-shell {
+  min-height: calc(100dvh - var(--app-fullscreen-flow-content-offset, 0px));
+  padding-top: var(--app-fullscreen-flow-content-offset);
+  padding-bottom: var(--app-screen-footer-pad);
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
 }
@@ -882,10 +922,10 @@ md-ripple.morphy-md-ripple {
   opacity: 1;
   background: linear-gradient(
     to top,
-    rgba(255, 255, 255, 0.15) 0%,
-    rgba(255, 255, 255, 0.1) 44%,
-    rgba(255, 255, 255, 0.045) 74%,
-    rgba(255, 255, 255, 0.015) 90%,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0.14) 44%,
+    rgba(255, 255, 255, 0.065) 74%,
+    rgba(255, 255, 255, 0.02) 90%,
     transparent 100%
   );
 }
@@ -893,10 +933,10 @@ md-ripple.morphy-md-ripple {
 .dark .bar-glass-bottom::after {
   background: linear-gradient(
     to top,
-    rgba(17, 20, 27, 0.15) 0%,
-    rgba(17, 20, 27, 0.1) 44%,
-    rgba(17, 20, 27, 0.045) 74%,
-    rgba(17, 20, 27, 0.015) 90%,
+    rgba(17, 20, 27, 0.2) 0%,
+    rgba(17, 20, 27, 0.135) 44%,
+    rgba(17, 20, 27, 0.06) 74%,
+    rgba(17, 20, 27, 0.02) 90%,
     transparent 100%
   );
 }

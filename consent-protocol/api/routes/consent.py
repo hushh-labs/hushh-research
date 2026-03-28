@@ -14,7 +14,7 @@ import logging
 import time
 from typing import Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -470,6 +470,35 @@ async def cancel_consent(
 async def get_consent_center(firebase_uid: str = Depends(require_firebase_auth)):
     service = ConsentCenterService()
     return await service.get_center(firebase_uid)
+
+
+@router.get("/center/summary")
+async def get_consent_center_summary(
+    actor: str = Query(default="investor"),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = ConsentCenterService()
+    return await service.get_center_summary(firebase_uid, actor=actor)
+
+
+@router.get("/center/list")
+async def get_consent_center_list(
+    actor: str = Query(default="investor"),
+    surface: str = Query(default="pending"),
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = ConsentCenterService()
+    return await service.list_center(
+        firebase_uid,
+        actor=actor,
+        surface=surface,
+        query=q,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.get("/requests/outgoing")

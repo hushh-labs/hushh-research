@@ -1,0 +1,187 @@
+[
+  {
+    "route": "/",
+    "mode": "hidden",
+    "exemptionReason": "Public landing route uses chrome-free marketing layout."
+  },
+  {
+    "route": "/developers",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/developers/developer-docs-hub.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion"]
+    }
+  },
+  {
+    "route": "/login",
+    "mode": "hidden",
+    "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell."
+  },
+  {
+    "route": "/logout",
+    "mode": "hidden",
+    "exemptionReason": "Logout route is a transitional auth screen, not a standard content page."
+  },
+  {
+    "route": "/labs/profile-appearance",
+    "mode": "hidden",
+    "exemptionReason": "Labs route is intentionally isolated from the primary app shell."
+  },
+  {
+    "route": "/consents",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/consent/consent-center-page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/kai",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/views/kai-market-preview-view.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/kai/analysis",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/kai/analysis/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/kai/dashboard",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical portfolio/dashboard entry."
+  },
+  {
+    "route": "/kai/dashboard/analysis",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical analysis entry.",
+    "shellVerification": {
+      "file": "app/kai/dashboard/analysis/page.tsx",
+      "includes": ["AppPageShell"]
+    }
+  },
+  {
+    "route": "/kai/import",
+    "mode": "flow",
+    "shellVerification": {
+      "file": "app/kai/import/page.tsx",
+      "includes": ["FullscreenFlowShell", "KaiFlow"]
+    }
+  },
+  {
+    "route": "/kai/investments",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/views/investments-master-view.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/kai/onboarding",
+    "mode": "flow",
+    "exemptionReason": "Fullscreen onboarding flow owns its own shell and safe-area spacing."
+  },
+  {
+    "route": "/kai/optimize",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/kai/optimize/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "PageHeader"]
+    }
+  },
+  {
+    "route": "/kai/plaid/oauth/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/kai/plaid/oauth/return/page.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion"]
+    }
+  },
+  {
+    "route": "/kai/portfolio",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/kai/portfolio/page.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion"]
+    }
+  },
+  {
+    "route": "/marketplace",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-page-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/marketplace/ria",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-page-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/profile",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/ria",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-page-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/ria/clients",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-page-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/ria/onboarding",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-page-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/ria/picks",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-page-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/ria/requests",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility alias routes into the shared consent workspace."
+  },
+  {
+    "route": "/ria/settings",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility alias routes into the canonical profile/settings surface."
+  },
+  {
+    "route": "/ria/workspace",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-page-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  }
+]
