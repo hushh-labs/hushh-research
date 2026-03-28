@@ -43,6 +43,7 @@ except EnvironmentError as e:
     sys.exit(1)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+CONSENT_EVOLUTION_MIGRATION_FILES = ("035_strict_zero_knowledge_consent_exports.sql",)
 RELEASE_MANIFEST_PATH = Path(__file__).resolve().parent / "release_migration_manifest.json"
 
 
@@ -979,6 +980,24 @@ async def run_release_migration(pool: asyncpg.Pool):
     await apply_migration_files(pool, RELEASE_MIGRATION_FILES, label="release schema")
 
 
+async def run_consent_evolution_migration(pool: asyncpg.Pool):
+    """Apply strict zero-knowledge consent export evolution."""
+    print("Running consent evolution migration (explicit mode)...")
+
+    async with pool.acquire() as conn:
+        for filename in CONSENT_EVOLUTION_MIGRATION_FILES:
+            migration_path = MIGRATIONS_DIR / filename
+            if not migration_path.exists():
+                raise FileNotFoundError(
+                    f"Consent evolution migration file missing: {migration_path}"
+                )
+            sql = migration_path.read_text(encoding="utf-8")
+            print(f"  -> applying {filename}")
+            await conn.execute(sql)
+
+    print("Consent evolution migration complete!")
+
+
 async def run_init_migration(pool: asyncpg.Pool):
     """
     Initialize all tables in correct dependency order.
@@ -1108,9 +1127,10 @@ Examples:
   python db/migrate.py --init                    # First-time setup (RECOMMENDED)
   python db/migrate.py --table pkm_data  # Create single table
   python db/migrate.py --consent                 # Create all consent tables
-  python db/migrate.py --iam                     # Apply IAM schema foundation lane
-  python db/migrate.py --pkm                     # Apply PKM evolution lane (030-035)
-  python db/migrate.py --release                 # Apply the full canonical release lane
+  python db/migrate.py --iam                     # Apply IAM schema foundation
+  python db/migrate.py --pkm                     # Apply PKM evolution migrations
+  python db/migrate.py --consent-evolution       # Apply strict consent export evolution
+  python db/migrate.py --release                 # Apply the ordered release migration manifest
   python db/migrate.py --full                    # Full reset (WARNING: DESTRUCTIVE!)
   python db/migrate.py --status                  # Show table summary
         """,
@@ -1147,6 +1167,16 @@ Examples:
         help="Apply the full canonical release lane from release_migration_manifest.json",
     )
     parser.add_argument(
+        "--consent-evolution",
+        action="store_true",
+        help="Apply strict zero-knowledge consent export evolution",
+    )
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Apply the canonical ordered release migration manifest",
+    )
+    parser.add_argument(
         "--full", action="store_true", help="Drop and recreate ALL tables (DESTRUCTIVE!)"
     )
     parser.add_argument(
@@ -1163,6 +1193,7 @@ Examples:
             args.consent,
             args.iam,
             args.pkm,
+            args.consent_evolution,
             args.release,
             args.full,
             args.clear,
@@ -1219,6 +1250,8 @@ Examples:
         if args.pkm:
             await run_pkm_migration(pool)
 
+        if args.consent_evolution:
+            await run_consent_evolution_migration(pool)
         if args.release:
             await run_release_migration(pool)
 

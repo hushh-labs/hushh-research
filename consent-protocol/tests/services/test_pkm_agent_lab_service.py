@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -686,3 +687,103 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
     assert result["preview_cards"][0]["target_domain"] == "health"
     assert result["preview_cards"][1]["target_domain"] == "food"
     assert result["context_plan"]["candidate_domains"] == ["health", "food"]
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch):
+    service = PKMAgentLabService()
+
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(return_value=_single_segment("Remember that I prefer short city breaks.")),
+    )
+    preview_stub = AsyncMock(
+        return_value={
+            "agent_id": "pkm_structure_agent",
+            "agent_name": "PKM Structure Agent",
+            "model": "test-model",
+            "used_fallback": True,
+            "intent_used_fallback": True,
+            "structure_used_fallback": True,
+            "error": None,
+            "routing_decision": "non_financial_or_ephemeral",
+            "intent_frame": {
+                "save_class": "durable",
+                "intent_class": "travel",
+                "mutation_intent": "create",
+                "requires_confirmation": False,
+                "confirmation_reason": "",
+                "candidate_domain_choices": [{"domain_key": "travel", "recommended": True}],
+                "confidence": 0.9,
+                "source_agent": "memory_intent_agent",
+                "contract_version": 1,
+            },
+            "merge_decision": {
+                "merge_mode": "create_entity",
+                "target_domain": "travel",
+                "target_entity_id": "mem_travel_pref",
+                "target_entity_path": "preferences.entities.mem_travel_pref",
+                "match_confidence": 0.9,
+                "match_reason": "New travel preference.",
+                "source_agent": "memory_merge_agent",
+                "contract_version": 1,
+            },
+            "candidate_payload": {
+                "preferences": {
+                    "entities": {
+                        "mem_travel_pref": {
+                            "entity_id": "mem_travel_pref",
+                            "summary": "Remember that I prefer short city breaks.",
+                            "status": "active",
+                        }
+                    }
+                }
+            },
+            "structure_decision": {
+                "action": "create_domain",
+                "target_domain": "travel",
+                "json_paths": ["preferences"],
+                "top_level_scope_paths": ["preferences"],
+                "externalizable_paths": ["preferences"],
+                "summary_projection": {},
+                "sensitivity_labels": {},
+                "confidence": 0.9,
+                "source_agent": "pkm_structure_agent",
+                "contract_version": 1,
+            },
+            "write_mode": "can_save",
+            "primary_json_path": "preferences",
+            "target_entity_scope": "preferences",
+            "validation_hints": [],
+            "manifest_draft": {
+                "domain": "travel",
+                "paths": [],
+                "structure_decision": {},
+                "summary_projection": {},
+            },
+        }
+    )
+    monkeypatch.setattr(service, "_generate_single_structure_preview", preview_stub)
+
+    first, second = await asyncio.gather(
+        service.generate_structure_preview(
+            user_id="user-async",
+            message="Remember that I prefer short city breaks.",
+            current_domains=["travel"],
+        ),
+        service.generate_structure_preview(
+            user_id="user-async",
+            message="Remember that I prefer short city breaks.",
+            current_domains=["travel"],
+        ),
+    )
+
+    assert first["structure_decision"]["target_domain"] == "travel"
+    assert second["structure_decision"]["target_domain"] == "travel"
+    assert preview_stub.await_count == 1

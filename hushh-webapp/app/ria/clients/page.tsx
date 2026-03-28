@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   BadgeCheck,
@@ -13,10 +13,8 @@ import {
   Unplug,
   UserRound,
 } from "lucide-react";
-import { toast } from "sonner";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
-import { SurfaceInset } from "@/components/app-ui/surfaces";
 import {
   SettingsDetailPanel,
   SettingsGroup,
@@ -34,16 +32,19 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
+import { buildRiaConsentManagerHref } from "@/lib/consent/consent-sheet-route";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildRiaWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
-  isIAMSchemaNotReadyError,
   RiaService,
   type RiaAvailableScopeMetadata,
   type RiaClientAccess,
   type RiaClientDetail,
+  type RiaClientListResponse,
   type RiaRequestScopeTemplate,
 } from "@/lib/services/ria-service";
 
@@ -230,15 +231,19 @@ function picksFeedHelper(item: {
 export default function RiaClientsPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { riaCapability, riaOnboardingStatus } = usePersonaState();
+  const {
+    riaCapability,
+    riaOnboardingStatus,
+    loading: personaLoading,
+    refreshing: personaRefreshing,
+  } = usePersonaState();
   const advisoryVerificationStatus =
     riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
 
-  const [items, setItems] = useState<RiaClientAccess[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [iamUnavailable, setIamUnavailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim());
 
   const [invitePanelOpen, setInvitePanelOpen] = useState(false);
   const [savingInvite, setSavingInvite] = useState(false);
@@ -260,6 +265,33 @@ export default function RiaClientsPage() {
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
 
+  const clientsResource = useStaleResource<RiaClientListResponse>({
+    cacheKey: user?.uid
+      ? `ria_clients_${user.uid}_${deferredSearchQuery}_all_${page}_24`
+      : "ria_clients_guest",
+    enabled: Boolean(user?.uid && (riaCapability !== "setup" || personaRefreshing)),
+    load: async () => {
+      if (!user?.uid) {
+        throw new Error("Sign in to access the client roster");
+      }
+      const idToken = await user.getIdToken();
+      return RiaService.listClients(idToken, {
+        userId: user.uid,
+        q: deferredSearchQuery,
+        page,
+        limit: 24,
+      });
+    },
+  });
+
+  const items = clientsResource.data?.items || [];
+  const totalItems = clientsResource.data?.total || 0;
+  const hasMore = clientsResource.data?.has_more || false;
+  const loading = clientsResource.loading;
+  const refreshing = clientsResource.refreshing;
+  const iamUnavailable = Boolean(clientsResource.error?.includes("IAM schema"));
+  const rosterError = iamUnavailable ? null : clientsResource.error;
+
   async function copyInviteLink(inviteToken: string, marker: string) {
     try {
       const copied = await copyToClipboard(buildInviteLink(inviteToken));
@@ -276,32 +308,9 @@ export default function RiaClientsPage() {
     }
   }
 
-  async function loadClients(options?: { silent?: boolean }) {
-    if (riaCapability === "setup" || !user) {
-      setLoading(false);
-      return;
-    }
-
-    const silent = options?.silent === true;
-    try {
-      if (silent) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      setIamUnavailable(false);
-      setError(null);
-      const idToken = await user.getIdToken();
-      const next = await RiaService.listClients(idToken);
-      setItems(next);
-    } catch (loadError) {
-      setItems([]);
-      setIamUnavailable(isIAMSchemaNotReadyError(loadError));
-      setError(loadError instanceof Error ? loadError.message : "Failed to load RIA clients");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  async function refreshClients(force = false) {
+    setError(null);
+    await clientsResource.refresh({ force });
   }
 
   async function loadClientDetail(investorUserId: string) {
@@ -310,7 +319,9 @@ export default function RiaClientsPage() {
       setDetailLoading(true);
       setDetailError(null);
       const idToken = await user.getIdToken();
-      const payload = await RiaService.getClientDetail(idToken, investorUserId);
+      const payload = await RiaService.getClientDetail(idToken, investorUserId, {
+        userId: user.uid,
+      });
       setDetail(payload);
       const nextTemplate = payload.requestable_scope_templates[0] || null;
       setSelectedTemplateId(nextTemplate?.template_id || "");
@@ -326,15 +337,10 @@ export default function RiaClientsPage() {
   }
 
   useEffect(() => {
-    if (riaCapability === "setup") {
+    if (!personaLoading && !personaRefreshing && riaCapability === "setup") {
       router.replace(ROUTES.RIA_ONBOARDING);
     }
-  }, [riaCapability, router]);
-
-  useEffect(() => {
-    void loadClients();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [riaCapability, user]);
+  }, [personaLoading, personaRefreshing, riaCapability, router]);
 
   const sortedItems = useMemo(
     () =>
@@ -435,7 +441,7 @@ export default function RiaClientsPage() {
       setInviteEmail("");
       setInvitePhone("");
       setInviteReason("");
-      await loadClients({ silent: true });
+      await refreshClients(true);
     } catch (inviteError) {
       setError(inviteError instanceof Error ? inviteError.message : "Failed to create invite");
     } finally {
@@ -454,10 +460,9 @@ export default function RiaClientsPage() {
         investor_user_id: detail.investor_user_id,
       });
       toast.success("Relationship disconnected", {
-        description:
-          "Advisor access was revoked immediately. History stays intact if you reconnect later.",
+        description: "Access ended immediately. History stays available if you reconnect.",
       });
-      await loadClients({ silent: true });
+      await refreshClients(true);
       await loadClientDetail(detail.investor_user_id);
     } catch (disconnectError) {
       toast.error(
@@ -487,11 +492,10 @@ export default function RiaClientsPage() {
         reason: requestReason.trim() || undefined,
       });
       toast.success("Consent request sent", {
-        description:
-          "The investor can now approve this bundle from the shared consent workspace.",
+        description: "The investor can now review this bundle.",
       });
       setRequestReason("");
-      await loadClients({ silent: true });
+      await refreshClients(true);
       await loadClientDetail(detail.investor_user_id);
     } catch (requestError) {
       toast.error(
@@ -504,14 +508,21 @@ export default function RiaClientsPage() {
     }
   }
 
+  const consentManagerHref = buildRiaConsentManagerHref("pending", {
+    from: ROUTES.RIA_CLIENTS,
+  });
+
   return (
     <>
       <RiaPageShell
         eyebrow="Clients"
-        title="Keep relationships simple and readable"
-        description="Everything here moves through the same lifecycle: connect, request access, review approval, then open the workspace."
+        title="Client roster"
+        description="Scan connected, pending, and invited relationships first. Open the panel only when you need the full relationship detail."
         actions={
           <>
+            <Button asChild variant="none" effect="fade">
+              <Link href={consentManagerHref}>Consent manager</Link>
+            </Button>
             <Button
               variant="blue-gradient"
               effect="fill"
@@ -520,16 +531,14 @@ export default function RiaClientsPage() {
               <MailPlus className="mr-2 h-4 w-4" />
               New invite
             </Button>
-            <Button asChild variant="none" effect="fade">
-              <Link href={ROUTES.CONSENTS}>Open consents</Link>
-            </Button>
           </>
         }
         statusPanel={
           iamUnavailable ? null : (
             <RiaStatusPanel
               title="Relationship readiness"
-              description="This page should tell you what is ready before it tells you everything that ever happened."
+              description="Make the roster scannable before opening a relationship. Readiness, pending work, and invite drift stay visible here."
+              dataTestId="ria-clients-primary"
               items={[
                 {
                   label: "Verification",
@@ -572,22 +581,22 @@ export default function RiaClientsPage() {
 
         {!iamUnavailable ? (
           <>
-            <RiaSurface className="space-y-4 p-5 sm:p-6">
+            <RiaSurface className="space-y-4 p-4 sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold tracking-tight text-foreground">
-                    One roster, one consent workspace, one next step.
+                    Search, refresh, then select a relationship.
                   </p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Relationships stay grouped into Connected, Pending, and Invites so the advisor
-                    always knows what action to take next.
+                    The roster stays calm on the surface. Invite creation, request bundles, and
+                    disconnect flows only open when you select a client.
                   </p>
                 </div>
                 <Button
                   variant="none"
                   effect="fade"
                   size="sm"
-                  onClick={() => void loadClients({ silent: true })}
+                  onClick={() => void refreshClients(true)}
                   disabled={refreshing}
                 >
                   {refreshing ? (
@@ -596,15 +605,38 @@ export default function RiaClientsPage() {
                   Refresh roster
                 </Button>
               </div>
-              {error ? <p className="text-sm text-red-500">{error}</p> : null}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => {
+                    setSearchQuery(event.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Search by name, email, or relationship state"
+                  className="sm:max-w-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {totalItems > 0
+                    ? `${totalItems} matching relationship${totalItems === 1 ? "" : "s"}`
+                    : "Search stays warm from cache when available."}
+                </p>
+              </div>
+              {error || rosterError ? (
+                <p className="text-sm text-red-500">{error || rosterError}</p>
+              ) : null}
             </RiaSurface>
 
-            {sections.map((section) => {
+            <div className="space-y-5" data-testid="ria-clients-roster">
+              {sections.map((section) => {
               const sectionCopy = SECTION_COPY[section.key];
               return (
-                <section key={section.key} className="space-y-3">
+                <section
+                  key={section.key}
+                  className="space-y-3"
+                  data-testid={`ria-clients-${section.key}`}
+                >
                   <SectionHeader
-                    eyebrow="Relationships"
+                    eyebrow="Roster"
                     title={sectionCopy.title}
                     description={sectionCopy.description}
                     icon={
@@ -634,15 +666,12 @@ export default function RiaClientsPage() {
 
                         if (!item.investor_user_id) {
                           return (
-                            <div
+                            <SettingsRow
                               key={item.id}
-                              className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
-                            >
-                              <div className="space-y-1">
+                              icon={MailPlus}
+                              title={
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <p className="text-sm font-medium tracking-tight text-foreground">
-                                    {label}
-                                  </p>
+                                  <span>{label}</span>
                                   <Badge
                                     variant="outline"
                                     className={statusBadgeClass(item.status)}
@@ -650,24 +679,34 @@ export default function RiaClientsPage() {
                                     {formatStatusLabel(item.status)}
                                   </Badge>
                                 </div>
-                                <p className="text-xs leading-5 text-muted-foreground">
-                                  {item.delivery_channel || "share link"} · {nextStepCopy(item)}
-                                </p>
-                              </div>
-                              {item.invite_token ? (
-                                <Button
-                                  variant="none"
-                                  effect="fade"
-                                  size="sm"
-                                  onClick={() =>
-                                    void copyInviteLink(item.invite_token || "", String(item.id))
-                                  }
-                                >
-                                  <Copy className="mr-2 h-4 w-4" />
-                                  {copiedInviteId === String(item.id) ? "Copied" : "Copy invite"}
-                                </Button>
-                              ) : null}
-                            </div>
+                              }
+                              description={
+                                [
+                                  item.investor_email ||
+                                    item.investor_secondary_label ||
+                                    item.delivery_channel ||
+                                    "share link",
+                                  nextStepCopy(item),
+                                ].join(" · ")
+                              }
+                              trailing={
+                                item.invite_token ? (
+                                  <Button
+                                    variant="none"
+                                    effect="fade"
+                                    size="sm"
+                                    onClick={() =>
+                                      void copyInviteLink(item.invite_token || "", String(item.id))
+                                    }
+                                  >
+                                    <Copy className="mr-2 h-4 w-4" />
+                                    {copiedInviteId === String(item.id) ? "Copied" : "Copy invite"}
+                                  </Button>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Invite only</span>
+                                )
+                              }
+                            />
                           );
                         }
 
@@ -686,7 +725,12 @@ export default function RiaClientsPage() {
                                 ) : null}
                               </div>
                             }
-                            description={item.investor_headline || nextStepCopy(item)}
+                            description={
+                              item.investor_email ||
+                              item.investor_secondary_label ||
+                              item.investor_headline ||
+                              nextStepCopy(item)
+                            }
                             trailing={
                               item.status === "approved" ? (
                                 <span className="text-xs text-muted-foreground">
@@ -711,7 +755,33 @@ export default function RiaClientsPage() {
                   </SettingsGroup>
                 </section>
               );
-            })}
+              })}
+            </div>
+            <RiaSurface className="p-4">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>Page {page}</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    disabled={!hasMore}
+                    onClick={() => setPage((current) => current + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </RiaSurface>
           </>
         ) : null}
       </RiaPageShell>
@@ -870,44 +940,39 @@ export default function RiaClientsPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <SurfaceInset className="p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      Granted scopes
-                    </p>
-                    <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">
-                      {detail.granted_scopes.length}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {detail.consent_expires_at
+                <SettingsGroup embedded title="Relationship state">
+                  <SettingsRow
+                    title="Granted scopes"
+                    description={
+                      detail.consent_expires_at
                         ? `Access expires ${formatDate(detail.consent_expires_at)}`
-                        : "No active expiry yet."}
-                    </p>
-                  </SurfaceInset>
-                  <SurfaceInset className="p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      Metadata availability
-                    </p>
-                    <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">
-                      {detail.available_scope_metadata.length}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {detail.available_domains.length} indexed domains across{" "}
-                      {detail.total_attributes} tracked attributes.
-                    </p>
-                  </SurfaceInset>
-                  <SurfaceInset className="p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      Advisor picks
-                    </p>
-                    <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">
-                      {formatPicksFeedStatus(detail.picks_feed_status)}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {picksFeedHelper(detail)}
-                    </p>
-                  </SurfaceInset>
-                </div>
+                        : "No active expiry yet."
+                    }
+                    trailing={
+                      <span className="text-xs text-muted-foreground">
+                        {detail.granted_scopes.length} active
+                      </span>
+                    }
+                  />
+                  <SettingsRow
+                    title="Metadata availability"
+                    description={`${detail.available_domains.length} indexed domains across ${detail.total_attributes} tracked attributes.`}
+                    trailing={
+                      <span className="text-xs text-muted-foreground">
+                        {detail.available_scope_metadata.length} visible
+                      </span>
+                    }
+                  />
+                  <SettingsRow
+                    title="Advisor picks"
+                    description={picksFeedHelper(detail)}
+                    trailing={
+                      <span className="text-xs text-muted-foreground">
+                        {formatPicksFeedStatus(detail.picks_feed_status)}
+                      </span>
+                    }
+                  />
+                </SettingsGroup>
               </RiaSurface>
 
               {detail.is_self_relationship ? (
@@ -1023,7 +1088,7 @@ export default function RiaClientsPage() {
                           Send request bundle
                         </Button>
                         <Button asChild variant="none" effect="fade">
-                          <Link href={ROUTES.CONSENTS}>Open shared consent workspace</Link>
+                          <Link href={consentManagerHref}>Open consent manager</Link>
                         </Button>
                       </div>
                     </>

@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Download, FileSpreadsheet, Loader2, Upload, Waves } from "lucide-react";
-import { toast } from "sonner";
 
 import {
   RiaCompatibilityState,
@@ -16,9 +15,11 @@ import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
+import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
-import { usePersonaState } from "@/lib/persona/persona-context";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
+import { usePersonaState } from "@/lib/persona/persona-context";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
@@ -45,56 +46,48 @@ function formatDate(value?: string | null) {
 }
 
 export default function RiaPicksPage() {
+  const router = useRouter();
   const { user } = useAuth();
-  const { riaCapability } = usePersonaState();
-  const [uploads, setUploads] = useState<RiaPickUploadRecord[]>([]);
-  const [activeRows, setActiveRows] = useState<RiaPickRow[]>([]);
+  const {
+    riaCapability,
+    loading: personaLoading,
+    refreshing: personaRefreshing,
+  } = usePersonaState();
   const [label, setLabel] = useState("");
   const [fileName, setFileName] = useState<string>("");
   const [fileContent, setFileContent] = useState<string>("");
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [iamUnavailable, setIamUnavailable] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const picksResource = useStaleResource<{
+    items: RiaPickUploadRecord[];
+    active_rows: RiaPickRow[];
+  }>({
+    cacheKey: user?.uid ? `ria_picks_${user.uid}` : "ria_picks_guest",
+    enabled: Boolean(user?.uid && (riaCapability !== "setup" || personaRefreshing)),
+    load: async () => {
+      if (!user?.uid) {
+        throw new Error("Sign in to manage advisor picks");
+      }
+      const idToken = await user.getIdToken();
+      return RiaService.listPicks(idToken, { userId: user.uid });
+    },
+  });
+
+  const uploads = picksResource.data?.items || [];
+  const activeRows = picksResource.data?.active_rows || [];
+  const loading = picksResource.loading;
+  const error = picksResource.error;
+  const iamUnavailable = Boolean(error && isIAMSchemaNotReadyError(new Error(error)));
+
+  useEffect(() => {
+    if (!personaLoading && !personaRefreshing && riaCapability === "setup") {
+      router.replace(ROUTES.RIA_ONBOARDING);
+    }
+  }, [personaLoading, personaRefreshing, riaCapability, router]);
 
   const activeUpload = useMemo(
     () => uploads.find((item) => item.status === "active") || uploads[0] || null,
     [uploads]
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      if (!user || riaCapability === "setup") {
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        setIamUnavailable(false);
-        setError(null);
-        const idToken = await user.getIdToken();
-        const payload = await RiaService.listPicks(idToken);
-        if (cancelled) return;
-        setUploads(payload.items);
-        setActiveRows(payload.active_rows);
-      } catch (loadError) {
-        if (cancelled) return;
-        setUploads([]);
-        setActiveRows([]);
-        setIamUnavailable(isIAMSchemaNotReadyError(loadError));
-        setError(loadError instanceof Error ? loadError.message : "Failed to load picks");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [riaCapability, user]);
 
   async function onFileSelected(file: File | null) {
     if (!file) {
@@ -110,7 +103,6 @@ export default function RiaPicksPage() {
     if (!user || !fileContent.trim()) return;
     try {
       setSubmitting(true);
-      setError(null);
       const idToken = await user.getIdToken();
       await RiaService.uploadPicks(idToken, {
         csv_content: fileContent,
@@ -123,11 +115,9 @@ export default function RiaPicksPage() {
       setLabel("");
       setFileName("");
       setFileContent("");
-      const payload = await RiaService.listPicks(idToken);
-      setUploads(payload.items);
-      setActiveRows(payload.active_rows);
+      await picksResource.refresh({ force: true });
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Failed to upload picks");
+      toast.error(uploadError instanceof Error ? uploadError.message : "Failed to upload picks");
     } finally {
       setSubmitting(false);
     }
@@ -136,14 +126,15 @@ export default function RiaPicksPage() {
   return (
     <RiaPageShell
       eyebrow="RIA Picks"
-      title="Manage the active advisor list that investors will compare against"
-      description="Upload one active CSV-backed picks list at a time. Each new upload becomes the active list while older uploads remain in history."
+      title="Advisor picks feed"
+      description="Keep one current investor-facing list live, keep prior uploads traceable, and avoid turning this into a reporting dashboard."
       icon={FileSpreadsheet}
       statusPanel={
         iamUnavailable ? null : (
           <RiaStatusPanel
             title="List state before row detail"
             description="Keep the active upload, history depth, and current row count visible before the advisor starts editing files or reviewing rows."
+            dataTestId="ria-picks-primary"
             items={[
               {
                 label: "Active upload",
@@ -174,17 +165,12 @@ export default function RiaPicksPage() {
         )
       }
       actions={
-        <>
-          <Button asChild variant="none" effect="fade">
-            <a href="/templates/ria-picks-template.csv" download>
-              <Download className="mr-2 h-4 w-4" />
-              Download template
-            </a>
-          </Button>
-          <Button asChild variant="none" effect="fade">
-            <Link href={ROUTES.CONSENTS}>Open consent center</Link>
-          </Button>
-        </>
+        <Button asChild variant="none" effect="fade">
+          <a href="/templates/ria-picks-template.csv" download>
+            <Download className="mr-2 h-4 w-4" />
+            Download template
+          </a>
+        </Button>
       }
     >
       {iamUnavailable ? (
@@ -195,12 +181,12 @@ export default function RiaPicksPage() {
       ) : null}
 
       {!iamUnavailable ? (
-        <div className="grid gap-5 lg:grid-cols-[1.05fr_1.45fr]">
-          <section className="space-y-3">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+          <section className="space-y-3" data-testid="ria-picks-upload">
             <SectionHeader
               eyebrow="Upload"
               title="Drop in the next active picks list"
-              description="Use the provided template so the parser can activate the upload atomically and preserve previous versions as history."
+              description="Cached state stays visible while fresh upload history syncs quietly in the background."
               icon={Upload}
             />
             <RiaSurface className="space-y-4 p-4">
@@ -219,7 +205,7 @@ export default function RiaPicksPage() {
                   Ready to upload: <span className="font-medium text-foreground">{fileName}</span>
                 </p>
               ) : null}
-              {error ? <p className="text-sm text-red-500">{error}</p> : null}
+              {error && !iamUnavailable ? <p className="text-sm text-red-500">{error}</p> : null}
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="blue-gradient"
@@ -245,12 +231,17 @@ export default function RiaPicksPage() {
               description="The active upload is the advisor list that later search and market comparisons can resolve for linked investors."
               icon={Waves}
             />
-            <RiaSurface className="space-y-4 p-4">
+            <RiaSurface className="space-y-4 p-4" data-testid="ria-picks-active">
               {loading ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading picks...
                 </div>
+              ) : null}
+              {!loading && picksResource.refreshing ? (
+                <p className="text-xs text-muted-foreground">
+                  Refreshing the active advisor feed in the background.
+                </p>
               ) : null}
               {!loading && activeRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -295,7 +286,7 @@ export default function RiaPicksPage() {
               description="New uploads replace the active list, but older uploads remain in history so the advisor can audit what changed."
               icon={FileSpreadsheet}
             />
-            <RiaSurface className="p-4">
+            <RiaSurface className="p-4" data-testid="ria-picks-history">
               <SettingsGroup>
                 {uploads.map((upload) => (
                   <SettingsRow
@@ -320,9 +311,11 @@ export default function RiaPicksPage() {
                   />
                 ))}
                 {!loading && uploads.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No upload history yet.
-                  </p>
+                  <SettingsRow
+                    icon={FileSpreadsheet}
+                    title="No upload history yet"
+                    description="Upload the first CSV to create an investor-facing picks feed."
+                  />
                 ) : null}
               </SettingsGroup>
             </RiaSurface>

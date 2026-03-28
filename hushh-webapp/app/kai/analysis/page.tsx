@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, BarChart3, X } from "lucide-react";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -103,7 +103,7 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
   );
 }
 
-export default function KaiAnalysisPage() {
+function KaiAnalysisPageContent() {
   const pageOpenedAtRef = useRef(Date.now());
   const workspaceTopRef = useRef<HTMLDivElement | null>(null);
   const summaryLoadingToastIdRef = useRef<string | number | null>(null);
@@ -815,6 +815,7 @@ export default function KaiAnalysisPage() {
             vaultOwnerToken={vaultOwnerToken || ""}
             onSelectTicker={handleSelectTicker}
             onViewHistory={handleViewHistory}
+            showDebateInputs={false}
           />
             </SurfaceStack>
           </AppPageContentRegion>
@@ -827,5 +828,13 @@ export default function KaiAnalysisPage() {
         </AppPageShell>
       ) : null}
     </>
+  );
+}
+
+export default function KaiAnalysisPage() {
+  return (
+    <Suspense fallback={<HushhLoader label="Loading analysis..." variant="fullscreen" />}>
+      <KaiAnalysisPageContent />
+    </Suspense>
   );
 }

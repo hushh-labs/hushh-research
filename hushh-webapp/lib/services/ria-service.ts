@@ -100,6 +100,8 @@ export interface RiaClientAccess {
   granted_scope?: string | null;
   last_request_id?: string | null;
   investor_display_name?: string | null;
+  investor_email?: string | null;
+  investor_secondary_label?: string | null;
   investor_headline?: string | null;
   acquisition_source?: string | null;
   invite_status?: string | null;
@@ -152,6 +154,8 @@ export interface RiaClientRequestSummary {
 export interface RiaClientDetail {
   investor_user_id: string;
   investor_display_name?: string | null;
+  investor_email?: string | null;
+  investor_secondary_label?: string | null;
   investor_headline?: string | null;
   relationship_status: string;
   granted_scope?: string | null;
@@ -204,6 +208,43 @@ export interface RiaRequestRecord {
   metadata?: Record<string, unknown>;
   subject_display_name?: string | null;
   subject_headline?: string | null;
+}
+
+export interface RiaClientListResponse {
+  items: RiaClientAccess[];
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
+}
+
+export interface RiaHomeResponse {
+  onboarding: RiaOnboardingStatus;
+  verification_status: string;
+  primary_action: {
+    label: string;
+    href: string;
+    description: string;
+  };
+  counts: {
+    active_clients: number;
+    needs_attention: number;
+    invites: number;
+  };
+  needs_attention: Array<{
+    id: string;
+    title: string;
+    subtitle?: string | null;
+    status: string;
+    next_action?: string | null;
+    href: string;
+  }>;
+  active_picks: {
+    status: string;
+    active_upload_label?: string | null;
+    active_rows: number;
+    history_count: number;
+  };
 }
 
 export interface RiaRequestScopeMetadata {
@@ -312,6 +353,11 @@ interface FetchOptions {
   idToken?: string;
 }
 
+interface CachedReadOptions {
+  userId?: string;
+  force?: boolean;
+}
+
 interface ErrorPayload {
   detail?: string;
   error?: string;
@@ -384,12 +430,72 @@ async function authFetch(path: string, options: FetchOptions): Promise<Response>
 }
 
 export class RiaService {
-  static async getPersonaState(idToken: string): Promise<PersonaState> {
-    const response = await authFetch("/api/iam/persona", {
-      method: "GET",
-      idToken,
+  private static inflight = new Map<string, Promise<unknown>>();
+
+  private static readCached<T>(key: string, force?: boolean): T | null {
+    if (force) return null;
+    return CacheService.getInstance().get<T>(key);
+  }
+
+  private static writeCached<T>(key: string, value: T, ttl: number = CACHE_TTL.SHORT): T {
+    CacheService.getInstance().set(key, value, ttl);
+    return value;
+  }
+
+  private static async runDeduped<T>(key: string, factory: () => Promise<T>): Promise<T> {
+    const inflight = this.inflight.get(key) as Promise<T> | undefined;
+    if (inflight) {
+      return inflight;
+    }
+
+    const request = factory().finally(() => {
+      if (this.inflight.get(key) === request) {
+        this.inflight.delete(key);
+      }
     });
-    return toJsonOrThrow<PersonaState>(response);
+    this.inflight.set(key, request);
+    return request;
+  }
+
+  private static async readCachedOrFetch<T>(params: {
+    cacheKey: string | null;
+    force?: boolean;
+    ttl?: number;
+    inflightKey: string;
+    loader: () => Promise<T>;
+  }): Promise<T> {
+    if (params.cacheKey) {
+      const cached = this.readCached<T>(params.cacheKey, params.force);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    const payload = await this.runDeduped(params.inflightKey, params.loader);
+    if (params.cacheKey) {
+      return this.writeCached(params.cacheKey, payload, params.ttl);
+    }
+    return payload;
+  }
+
+  static async getPersonaState(
+    idToken: string,
+    options?: CachedReadOptions
+  ): Promise<PersonaState> {
+    const cacheKey = options?.userId ? CACHE_KEYS.PERSONA_STATE(options.userId) : null;
+    return this.readCachedOrFetch({
+      cacheKey,
+      force: options?.force,
+      ttl: CACHE_TTL.SESSION,
+      inflightKey: cacheKey || "ria_persona_state",
+      loader: async () => {
+        const response = await authFetch("/api/iam/persona", {
+          method: "GET",
+          idToken,
+        });
+        return toJsonOrThrow<PersonaState>(response);
+      },
+    });
   }
 
   static async switchPersona(idToken: string, persona: Persona): Promise<PersonaState> {
@@ -503,12 +609,24 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
-  static async getOnboardingStatus(idToken: string): Promise<RiaOnboardingStatus> {
-    const response = await authFetch("/api/ria/onboarding/status", {
-      method: "GET",
-      idToken,
+  static async getOnboardingStatus(
+    idToken: string,
+    options?: CachedReadOptions
+  ): Promise<RiaOnboardingStatus> {
+    const cacheKey = options?.userId ? CACHE_KEYS.RIA_ONBOARDING_STATUS(options.userId) : null;
+    return this.readCachedOrFetch({
+      cacheKey,
+      force: options?.force,
+      ttl: CACHE_TTL.SHORT,
+      inflightKey: cacheKey || "ria_onboarding_status",
+      loader: async () => {
+        const response = await authFetch("/api/ria/onboarding/status", {
+          method: "GET",
+          idToken,
+        });
+        return toJsonOrThrow<RiaOnboardingStatus>(response);
+      },
     });
-    return toJsonOrThrow<RiaOnboardingStatus>(response);
   }
 
   static async activateDevRia(
@@ -572,24 +690,85 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
-  static async listClients(idToken: string): Promise<RiaClientAccess[]> {
-    const response = await authFetch("/api/ria/clients", {
-      method: "GET",
-      idToken,
+  static async getHome(
+    idToken: string,
+    options: CachedReadOptions & { userId: string }
+  ): Promise<RiaHomeResponse> {
+    const cacheKey = CACHE_KEYS.RIA_HOME(options.userId);
+    return this.readCachedOrFetch({
+      cacheKey,
+      force: options.force,
+      ttl: CACHE_TTL.SHORT,
+      inflightKey: cacheKey,
+      loader: async () => {
+        const response = await authFetch("/api/ria/home", {
+          method: "GET",
+          idToken,
+        });
+        return toJsonOrThrow<RiaHomeResponse>(response);
+      },
     });
-    const payload = await toJsonOrThrow<{ items: RiaClientAccess[] }>(response);
-    return payload.items;
+  }
+
+  static async listClients(
+    idToken: string,
+    options?: CachedReadOptions & {
+      q?: string;
+      status?: string;
+      page?: number;
+      limit?: number;
+    }
+  ): Promise<RiaClientListResponse> {
+    const query = new URLSearchParams();
+    if (options?.q) query.set("q", options.q);
+    if (options?.status) query.set("status", options.status);
+    query.set("page", String(options?.page || 1));
+    query.set("limit", String(options?.limit || 50));
+    const queryKey = `${options?.q || ""}_${options?.status || ""}_${options?.page || 1}_${options?.limit || 50}`;
+    const cacheKey = options?.userId
+      ? CACHE_KEYS.RIA_CLIENTS(
+          options.userId,
+          options.q || "",
+          options.status || "",
+          options?.page || 1,
+          options?.limit || 50
+        )
+      : null;
+    return this.readCachedOrFetch({
+      cacheKey,
+      force: options?.force,
+      ttl: CACHE_TTL.SHORT,
+      inflightKey: cacheKey || `ria_clients_${queryKey}`,
+      loader: async () => {
+        const response = await authFetch(`/api/ria/clients?${query.toString()}`, {
+          method: "GET",
+          idToken,
+        });
+        return toJsonOrThrow<RiaClientListResponse>(response);
+      },
+    });
   }
 
   static async getClientDetail(
     idToken: string,
-    investorUserId: string
+    investorUserId: string,
+    options?: CachedReadOptions
   ): Promise<RiaClientDetail> {
-    const response = await authFetch(`/api/ria/clients/${encodeURIComponent(investorUserId)}`, {
-      method: "GET",
-      idToken,
+    const cacheKey =
+      options?.userId ? CACHE_KEYS.RIA_CLIENT_DETAIL(options.userId, investorUserId) : null;
+    return this.readCachedOrFetch({
+      cacheKey,
+      force: options?.force,
+      ttl: CACHE_TTL.SHORT,
+      inflightKey: cacheKey || `ria_client_detail_${investorUserId}`,
+      loader: async () => {
+        const response = await authFetch(`/api/ria/clients/${encodeURIComponent(investorUserId)}`, {
+          method: "GET",
+          idToken,
+        });
+        return toJsonOrThrow<RiaClientDetail>(response);
+      },
     });
-    return toJsonOrThrow<RiaClientDetail>(response);
   }
 
   static async listRequests(idToken: string): Promise<RiaRequestRecord[]> {
@@ -601,13 +780,25 @@ export class RiaService {
     return payload.items;
   }
 
-  static async listRequestBundles(idToken: string): Promise<RiaRequestBundleRecord[]> {
-    const response = await authFetch("/api/ria/request-bundles", {
-      method: "GET",
-      idToken,
+  static async listRequestBundles(
+    idToken: string,
+    options?: CachedReadOptions
+  ): Promise<RiaRequestBundleRecord[]> {
+    const cacheKey = options?.userId ? `ria_request_bundles_${options.userId}` : null;
+    return this.readCachedOrFetch({
+      cacheKey,
+      force: options?.force,
+      ttl: CACHE_TTL.SHORT,
+      inflightKey: cacheKey || "ria_request_bundles",
+      loader: async () => {
+        const response = await authFetch("/api/ria/request-bundles", {
+          method: "GET",
+          idToken,
+        });
+        const payload = await toJsonOrThrow<{ items: RiaRequestBundleRecord[] }>(response);
+        return payload.items;
+      },
     });
-    const payload = await toJsonOrThrow<{ items: RiaRequestBundleRecord[] }>(response);
-    return payload.items;
   }
 
   static async listRequestScopes(idToken: string): Promise<RiaRequestScopeTemplate[]> {
@@ -619,13 +810,22 @@ export class RiaService {
     return payload.items;
   }
 
-  static async listInvites(idToken: string): Promise<RiaInviteRecord[]> {
-    const response = await authFetch("/api/ria/invites", {
-      method: "GET",
-      idToken,
+  static async listInvites(idToken: string, options?: CachedReadOptions): Promise<RiaInviteRecord[]> {
+    const cacheKey = options?.userId ? `ria_invites_${options.userId}` : null;
+    return this.readCachedOrFetch({
+      cacheKey,
+      force: options?.force,
+      ttl: CACHE_TTL.SHORT,
+      inflightKey: cacheKey || "ria_invites",
+      loader: async () => {
+        const response = await authFetch("/api/ria/invites", {
+          method: "GET",
+          idToken,
+        });
+        const payload = await toJsonOrThrow<{ items: RiaInviteRecord[] }>(response);
+        return payload.items;
+      },
     });
-    const payload = await toJsonOrThrow<{ items: RiaInviteRecord[] }>(response);
-    return payload.items;
   }
 
   static async createInvites(
@@ -709,10 +909,13 @@ export class RiaService {
 
   static async getWorkspace(
     idToken: string,
-    investorUserId: string
+    investorUserId: string,
+    options?: CachedReadOptions
   ): Promise<{
     investor_user_id: string;
     investor_display_name?: string | null;
+    investor_email?: string | null;
+    investor_secondary_label?: string | null;
     investor_headline?: string | null;
     workspace_ready: boolean;
     available_domains: string[];
@@ -739,9 +942,48 @@ export class RiaService {
       expires_at?: number | string | null;
       issued_at?: number | string | null;
     }>;
-    consent_expires_at?: number | string | null;
-    updated_at?: string;
-  }> {
+      consent_expires_at?: number | string | null;
+      updated_at?: string;
+    }> {
+    const cacheKey =
+      options?.userId ? CACHE_KEYS.RIA_WORKSPACE(options.userId, investorUserId) : null;
+    if (cacheKey) {
+      const cached = this.readCached<{
+        investor_user_id: string;
+        investor_display_name?: string | null;
+        investor_email?: string | null;
+        investor_secondary_label?: string | null;
+        investor_headline?: string | null;
+        workspace_ready: boolean;
+        available_domains: string[];
+        domain_summaries: Record<string, unknown>;
+        total_attributes: number;
+        relationship_status: string;
+        scope: string;
+        relationship_shares?: Array<{
+          grant_key: string;
+          label: string;
+          description: string;
+          status: string;
+          share_origin?: string | null;
+          granted_at?: string | null;
+          revoked_at?: string | null;
+          has_active_pick_upload?: boolean;
+        }>;
+        picks_feed_status?: string | null;
+        picks_feed_granted_at?: string | null;
+        has_active_pick_upload?: boolean;
+        granted_scopes?: Array<{
+          scope: string;
+          label: string;
+          expires_at?: number | string | null;
+          issued_at?: number | string | null;
+        }>;
+        consent_expires_at?: number | string | null;
+        updated_at?: string;
+      }>(cacheKey, options?.force);
+      if (cached) return cached;
+    }
     const response = await authFetch(
       `/api/ria/workspace/${encodeURIComponent(investorUserId)}`,
       {
@@ -749,18 +991,64 @@ export class RiaService {
         idToken,
       }
     );
-    return toJsonOrThrow(response);
+    const payload = await toJsonOrThrow<{
+      investor_user_id: string;
+      investor_display_name?: string | null;
+      investor_email?: string | null;
+      investor_secondary_label?: string | null;
+      investor_headline?: string | null;
+      workspace_ready: boolean;
+      available_domains: string[];
+      domain_summaries: Record<string, unknown>;
+      total_attributes: number;
+      relationship_status: string;
+      scope: string;
+      relationship_shares?: Array<{
+        grant_key: string;
+        label: string;
+        description: string;
+        status: string;
+        share_origin?: string | null;
+        granted_at?: string | null;
+        revoked_at?: string | null;
+        has_active_pick_upload?: boolean;
+      }>;
+      picks_feed_status?: string | null;
+      picks_feed_granted_at?: string | null;
+      has_active_pick_upload?: boolean;
+      granted_scopes?: Array<{
+        scope: string;
+        label: string;
+        expires_at?: number | string | null;
+        issued_at?: number | string | null;
+      }>;
+      consent_expires_at?: number | string | null;
+      updated_at?: string;
+    }>(response);
+    return cacheKey ? this.writeCached(cacheKey, payload, CACHE_TTL.SHORT) : payload;
   }
 
-  static async listPicks(idToken: string): Promise<{
+  static async listPicks(
+    idToken: string,
+    options?: CachedReadOptions
+  ): Promise<{
     items: RiaPickUploadRecord[];
     active_rows: RiaPickRow[];
   }> {
+    const cacheKey = options?.userId ? CACHE_KEYS.RIA_PICKS(options.userId) : null;
+    if (cacheKey) {
+      const cached = this.readCached<{ items: RiaPickUploadRecord[]; active_rows: RiaPickRow[] }>(
+        cacheKey,
+        options?.force
+      );
+      if (cached) return cached;
+    }
     const response = await authFetch("/api/ria/picks", {
       method: "GET",
       idToken,
     });
-    return toJsonOrThrow(response);
+    const payload = await toJsonOrThrow<{ items: RiaPickUploadRecord[]; active_rows: RiaPickRow[] }>(response);
+    return cacheKey ? this.writeCached(cacheKey, payload, CACHE_TTL.SHORT) : payload;
   }
 
   static async uploadPicks(

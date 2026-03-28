@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
@@ -249,6 +250,29 @@ function clearQueuedPendingConsents(userId: string) {
   }
 }
 
+function shouldPrioritizeConsentHydration(pathname: string): boolean {
+  const normalized = String(pathname || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith("/profile") ||
+    normalized.startsWith("/ria")
+  );
+}
+
+function shouldPrioritizeConsentRealtime(pathname: string): boolean {
+  const normalized = String(pathname || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith("/consents") ||
+    normalized.startsWith("/profile") ||
+    normalized.startsWith("/ria")
+  );
+}
+
+function isConsentWorkspaceRoute(pathname: string): boolean {
+  return String(pathname || "").trim().toLowerCase().startsWith("/consents");
+}
+
 const ConsentNotificationStateContext = createContext<ConsentNotificationStateValue>({
   deliveryMode: "inbox_only",
   deliveryDetail: null,
@@ -266,6 +290,7 @@ export function ConsentNotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   const [pendingCount, setPendingCount] = useState(0);
   const [deliveryMode, setDeliveryMode] =
@@ -330,6 +355,7 @@ export function ConsentNotificationProvider({
           <div className="flex gap-2 justify-center">
             <button
               onClick={() => {
+                toast.dismiss(toastKey);
                 assignWindowLocation(reviewHref);
               }}
               className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
@@ -337,7 +363,10 @@ export function ConsentNotificationProvider({
               Review request
             </button>
             <button
-              onClick={() => handleDeny(consent.id)}
+              onClick={() => {
+                toast.dismiss(toastKey);
+                void handleDeny(consent.id);
+              }}
               className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
             >
               <Icon icon={X} size="sm" /> Deny
@@ -346,7 +375,7 @@ export function ConsentNotificationProvider({
         </div>,
         {
           id: toastKey,
-          duration: Infinity,
+          duration: 9000,
           position: "top-center",
         }
       );
@@ -443,8 +472,16 @@ export function ConsentNotificationProvider({
     if (!initStatus || initStatus === "push_active") return;
 
     let cancelled = false;
-    let reconnectTimer: number | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleHandle: number | null = null;
+    let delayedConnectTimer: ReturnType<typeof setTimeout> | null = null;
     const abortController = new AbortController();
+    const prioritizeRealtime = shouldPrioritizeConsentRealtime(pathname);
+
+    if (!prioritizeRealtime) {
+      setDeliveryMode(initStatus === "push_blocked" ? "push_blocked" : "inbox_only");
+      return;
+    }
 
     const connect = async () => {
       try {
@@ -522,22 +559,51 @@ export function ConsentNotificationProvider({
         setDeliveryDetail(
           error instanceof Error ? error.message : "consent_sse_failed"
         );
-        reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = globalThis.setTimeout(() => {
           void connect();
-        }, 3000);
+        }, prioritizeRealtime ? 3000 : 6000);
       }
     };
 
-    void connect();
+    if (prioritizeRealtime) {
+      void connect();
+    } else if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      idleHandle = requestIdle(() => {
+        void connect();
+      }, { timeout: 5000 });
+
+      return () => {
+        cancelled = true;
+        abortController.abort();
+        if (reconnectTimer) {
+          globalThis.clearTimeout(reconnectTimer);
+        }
+        if (idleHandle !== null) {
+          cancelIdle(idleHandle);
+        }
+      };
+    } else {
+      delayedConnectTimer = globalThis.setTimeout(() => {
+        void connect();
+      }, 3000);
+    }
 
     return () => {
       cancelled = true;
       abortController.abort();
       if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
+        globalThis.clearTimeout(reconnectTimer);
+      }
+      if (delayedConnectTimer) {
+        globalThis.clearTimeout(delayedConnectTimer);
       }
     };
-  }, [fcmInitStatus, user]);
+  }, [fcmInitStatus, pathname, user]);
 
   useEffect(() => {
     if (!user || isVaultUnlocked) return;
@@ -602,44 +668,82 @@ export function ConsentNotificationProvider({
 
     let cancelled = false;
 
-    (async () => {
+    const queuedPending = readQueuedPendingConsents(uid);
+    if (!cancelled && queuedPending.length > 0) {
+      setPendingCount((prev) => Math.max(prev, queuedPending.length));
+      queuedPending.forEach((consent) => showConsentToast(consent));
+      clearQueuedPendingConsents(uid);
+    }
+
+    const cachedPending = CacheService.getInstance().peek<PendingConsent[]>(
+      CACHE_KEYS.PENDING_CONSENTS(uid)
+    );
+    const hasCachedPending = Array.isArray(cachedPending?.data) && cachedPending.data.length > 0;
+    if (!cancelled && Array.isArray(cachedPending?.data)) {
+      setPendingCount(cachedPending.data.length);
+      cachedPending.data.forEach((consent) => showConsentToast(consent));
+      if (cachedPending.isFresh) {
+        return;
+      }
+    }
+
+    const runFetch = async () => {
       try {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) return;
-
-        const queuedPending = readQueuedPendingConsents(uid);
-        if (!cancelled && queuedPending.length > 0) {
-          setPendingCount((prev) => Math.max(prev, queuedPending.length));
-          queuedPending.forEach((consent) => showConsentToast(consent));
-          clearQueuedPendingConsents(uid);
-        }
-
-        const cachedPending = CacheService.getInstance().peek<PendingConsent[]>(
-          CACHE_KEYS.PENDING_CONSENTS(uid)
-        );
-        if (!cancelled && Array.isArray(cachedPending?.data)) {
-          setPendingCount(cachedPending.data.length);
-          cachedPending.data.forEach((consent) => showConsentToast(consent));
-          if (cachedPending.isFresh) {
-            return;
-          }
-        }
-
         const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
         if (cancelled) return;
         setPendingCount(pending.length);
-
-        // Show toasts for any that we haven't seen yet
         pending.forEach((consent) => showConsentToast(consent));
       } catch (err) {
         console.error("[NotificationProvider] Initial fetch error:", err);
       }
-    })();
+    };
+
+    const prioritizeFetch =
+      queuedPending.length > 0 || shouldPrioritizeConsentHydration(pathname);
+    const shouldFetchInBackground =
+      !isConsentWorkspaceRoute(pathname) &&
+      (prioritizeFetch || hasCachedPending);
+
+    if (prioritizeFetch && shouldFetchInBackground) {
+      void runFetch();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!shouldFetchInBackground) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      const handle = requestIdle(() => {
+        void runFetch();
+      }, { timeout: 4000 });
+
+      return () => {
+        cancelled = true;
+        cancelIdle(handle);
+      };
+    }
+
+    const timeoutId = globalThis.setTimeout(() => {
+      void runFetch();
+    }, 2000);
 
     return () => {
       cancelled = true;
+      globalThis.clearTimeout(timeoutId);
     };
-  }, [isVaultUnlocked, user?.uid, showConsentToast, getVaultOwnerToken]);
+  }, [getVaultOwnerToken, isVaultUnlocked, pathname, showConsentToast, user?.uid]);
 
   return (
     <ConsentNotificationStateContext.Provider

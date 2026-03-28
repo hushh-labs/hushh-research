@@ -8,6 +8,69 @@ const CANONICAL_PROFILES = ['local-uatdb', 'uat-remote', 'prod-remote'];
 
 const repoRoot = path.resolve(__dirname, '../..');
 const webRoot = path.resolve(__dirname, '..');
+const nextBuildRoot = path.join(webRoot, '.next');
+
+function runCommand(command, args, options = {}) {
+  return spawnSync(command, args, {
+    cwd: options.cwd || repoRoot,
+    stdio: options.stdio || 'pipe',
+    env: options.env || process.env,
+    encoding: 'utf8',
+  });
+}
+
+function listenerPids(port) {
+  const result = runCommand('lsof', ['-t', '-nP', `-iTCP:${port}`, '-sTCP:LISTEN']);
+  if (result.status !== 0 && !String(result.stderr || '').includes('No such file')) {
+    return [];
+  }
+  return String(result.stdout || '')
+    .split(/\s+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function isManagedFrontendProcess(pid) {
+  const result = runCommand('ps', ['-o', 'command=', '-p', String(pid)]);
+  if (result.status !== 0) {
+    return false;
+  }
+  const command = String(result.stdout || '');
+  return command.includes('next dev') && command.includes(path.join('hushh-research', 'hushh-webapp'));
+}
+
+function stopExistingManagedFrontend() {
+  const pids = listenerPids(3000);
+  if (pids.length === 0) {
+    return;
+  }
+
+  const safeToKill = pids.every((pid) => isManagedFrontendProcess(pid));
+  if (!safeToKill) {
+    console.error(
+      'Port 3000 is already in use by a non-managed process. Stop it before launching the Hushh frontend.'
+    );
+    process.exit(1);
+  }
+
+  console.log('Stopping existing managed frontend on :3000...');
+  for (const pid of pids) {
+    try {
+      process.kill(Number(pid), 'SIGTERM');
+    } catch {
+      // ignore stale pid
+    }
+  }
+}
+
+function cleanNextBuildArtifacts() {
+  if (!fs.existsSync(nextBuildRoot)) {
+    return;
+  }
+
+  console.log('Cleaning stale .next build artifacts before starting the frontend...');
+  fs.rmSync(nextBuildRoot, { recursive: true, force: true });
+}
 
 function parseArgs(argv) {
   const passthrough = [];
@@ -109,6 +172,8 @@ async function main() {
 
   ensureWebDependenciesReady();
   activateProfile(profile);
+  stopExistingManagedFrontend();
+  cleanNextBuildArtifacts();
 
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const args = ['run', 'dev:next'];

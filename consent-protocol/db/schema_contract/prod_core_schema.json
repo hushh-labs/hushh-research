@@ -102,6 +102,17 @@
       "created_at",
       "updated_at"
     ],
+    "actor_identity_cache": [
+      "user_id",
+      "display_name",
+      "email",
+      "photo_url",
+      "email_verified",
+      "source",
+      "last_synced_at",
+      "created_at",
+      "updated_at"
+    ],
     "kai_market_cache_entries": [
       "cache_key",
       "payload_json",

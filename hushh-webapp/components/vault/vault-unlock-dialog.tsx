@@ -40,6 +40,7 @@ export function VaultUnlockDialog({
       }}
     >
       <DialogContent
+        showCloseButton={false}
         className="left-1/2 top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] z-[520] w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] -translate-x-1/2 translate-y-0 border-none bg-transparent p-0 shadow-none sm:top-[50%] sm:max-w-md sm:-translate-y-1/2"
         onEscapeKeyDown={(event) => {
           if (!dismissible) event.preventDefault();

@@ -168,25 +168,39 @@ class CacheService {
       CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
+      CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
       CACHE_KEYS.ACTIVE_CONSENTS(userId),
       CACHE_KEYS.PENDING_CONSENTS(userId),
       CACHE_KEYS.CONSENT_AUDIT_LOG(userId),
       CACHE_KEYS.CONSENT_CENTER(userId, "all"),
+      CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"),
+      CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"),
       CACHE_KEYS.PORTFOLIO_DATA(userId),
+      CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId),
+      CACHE_KEYS.DEVELOPER_ACCESS(userId),
+      CACHE_KEYS.PKM_UPGRADE_STATUS(userId),
       CACHE_KEYS.KAI_PROFILE(userId),
       CACHE_KEYS.ANALYSIS_HISTORY(userId),
       CACHE_KEYS.PERSONA_STATE(userId),
       CACHE_KEYS.RIA_ONBOARDING_STATUS(userId),
       CACHE_KEYS.RIA_ROSTER_SUMMARY(userId),
+      CACHE_KEYS.RIA_HOME(userId),
+      CACHE_KEYS.RIA_PICKS(userId),
     ]);
 
     for (const key of this.cache.keys()) {
       if (
+        key.startsWith(`pkm_domain_resource_${userId}_`) ||
         key.startsWith(`domain_data_${userId}_`) ||
         key.startsWith(`domain_blob_${userId}_`) ||
         key.startsWith(`stock_context_${userId}_`) ||
         key.startsWith(`kai_market_home_${userId}_`) ||
         key.startsWith(`consent_center_${userId}_`) ||
+        key.startsWith(`consent_center_summary_${userId}_`) ||
+        key.startsWith(`consent_center_list_${userId}_`) ||
+        key.startsWith(`ria_clients_${userId}_`) ||
+        key.startsWith(`ria_client_detail_${userId}_`) ||
+        key.startsWith(`ria_workspace_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
         key.startsWith(`marketplace_investors_`)
       ) {
@@ -254,18 +268,42 @@ export const CACHE_KEYS = {
   PKM_DECRYPTED_BLOB: (userId: string) => `pkm_decrypted_blob_${userId}`,
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
+  PRE_VAULT_BOOTSTRAP: (userId: string) => `pre_vault_bootstrap_${userId}`,
+  DEVELOPER_ACCESS: (userId: string) => `developer_access_${userId}`,
   ACTIVE_CONSENTS: (userId: string) => `active_consents_${userId}`,
   PORTFOLIO_DATA: (userId: string) => `portfolio_data_${userId}`,
+  KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
+  PKM_DOMAIN_RESOURCE: (userId: string, domain: string, segmentSignature: string) =>
+    `pkm_domain_resource_${userId}_${domain}_${segmentSignature}`,
   DOMAIN_DATA: (userId: string, domain: string) => `domain_data_${userId}_${domain}`,
   ENCRYPTED_DOMAIN_BLOB: (userId: string, domain: string) => `domain_blob_${userId}_${domain}`,
   PENDING_CONSENTS: (userId: string) => `pending_consents_${userId}`,
   CONSENT_AUDIT_LOG: (userId: string) => `consent_audit_log_${userId}`,
   CONSENT_CENTER: (userId: string, scopeKey: string) => `consent_center_${userId}_${scopeKey}`,
+  CONSENT_CENTER_SUMMARY: (userId: string, actor: string) =>
+    `consent_center_summary_${userId}_${actor}`,
+  CONSENT_CENTER_LIST: (
+    userId: string,
+    actor: string,
+    surface: string,
+    query: string,
+    page: number,
+    limit: number
+  ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
   RIA_ROSTER_SUMMARY: (userId: string) => `ria_roster_summary_${userId}`,
+  RIA_HOME: (userId: string) => `ria_home_${userId}`,
+  RIA_CLIENTS: (userId: string, query: string, status: string, page: number, limit: number) =>
+    `ria_clients_${userId}_${query}_${status}_${page}_${limit}`,
+  RIA_CLIENT_DETAIL: (userId: string, investorUserId: string) =>
+    `ria_client_detail_${userId}_${investorUserId}`,
+  RIA_WORKSPACE: (userId: string, investorUserId: string) =>
+    `ria_workspace_${userId}_${investorUserId}`,
+  RIA_PICKS: (userId: string) => `ria_picks_${userId}`,
   KAI_PROFILE: (userId: string) => `kai_profile_${userId}`,
   ANALYSIS_HISTORY: (userId: string) => `analysis_history_${userId}`,
+  PKM_UPGRADE_STATUS: (userId: string) => `pkm_upgrade_status_${userId}`,
   STOCK_CONTEXT: (userId: string, ticker: string) => `stock_context_${userId}_${ticker}`,
   KAI_MARKET_HOME: (
     userId: string,

@@ -1,7 +1,18 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import type { PkmUpgradeDomainState } from "@/lib/services/personal-knowledge-model-service";
+
+export class PkmUpgradeRouteUnavailableError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PkmUpgradeRouteUnavailableError";
+    this.status = status;
+  }
+}
 
 export type PkmUpgradeStep = {
   runId: string;
@@ -145,6 +156,12 @@ async function requestStatus(
   const response = await ApiService.apiFetch(url, options);
   if (!response.ok) {
     const detail = await response.text();
+    if (response.status === 404 && url.includes("/api/pkm/upgrade")) {
+      throw new PkmUpgradeRouteUnavailableError(
+        `${context}: ${response.status}${detail ? ` - ${detail}` : ""}`,
+        response.status
+      );
+    }
     throw new Error(`${context}: ${response.status}${detail ? ` - ${detail}` : ""}`);
   }
   return mapStatus((await response.json()) as Record<string, unknown>);
@@ -152,18 +169,52 @@ async function requestStatus(
 
 export class PkmUpgradeService {
   private static readonly API_PREFIX = "/api/pkm/upgrade";
+  private static readonly inflight = new Map<string, Promise<PkmUpgradeStatus>>();
+
+  private static getCacheKey(userId: string): string {
+    return CACHE_KEYS.PKM_UPGRADE_STATUS(userId);
+  }
+
+  private static invalidateStatus(userId: string): void {
+    const cacheKey = this.getCacheKey(userId);
+    CacheService.getInstance().invalidate(cacheKey);
+    this.inflight.delete(cacheKey);
+  }
 
   static async getStatus(params: {
     userId: string;
     vaultOwnerToken?: string;
+    force?: boolean;
   }): Promise<PkmUpgradeStatus> {
-    return requestStatus(
+    const cacheKey = this.getCacheKey(params.userId);
+    if (!params.force) {
+      const cached = CacheService.getInstance().get<PkmUpgradeStatus>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      const inflight = this.inflight.get(cacheKey);
+      if (inflight) {
+        return inflight;
+      }
+    }
+
+    const request = requestStatus(
       `${this.API_PREFIX}/status/${params.userId}`,
       {
         headers: authHeaders(params.vaultOwnerToken),
       },
       "Failed to get PKM upgrade status"
-    );
+    ).then((payload) => {
+      CacheService.getInstance().set(cacheKey, payload, CACHE_TTL.SHORT);
+      return payload;
+    });
+
+    this.inflight.set(cacheKey, request);
+    return request.finally(() => {
+      if (this.inflight.get(cacheKey) === request) {
+        this.inflight.delete(cacheKey);
+      }
+    });
   }
 
   static async startOrResume(params: {
@@ -171,6 +222,7 @@ export class PkmUpgradeService {
     vaultOwnerToken?: string;
     initiatedBy?: string;
   }): Promise<PkmUpgradeStatus> {
+    this.invalidateStatus(params.userId);
     return requestStatus(
       `${this.API_PREFIX}/start-or-resume`,
       {
@@ -185,7 +237,10 @@ export class PkmUpgradeService {
         }),
       },
       "Failed to start or resume PKM upgrade"
-    );
+    ).then((payload) => {
+      CacheService.getInstance().set(this.getCacheKey(params.userId), payload, CACHE_TTL.SHORT);
+      return payload;
+    });
   }
 
   static async updateRunStatus(params: {
@@ -196,6 +251,7 @@ export class PkmUpgradeService {
     lastError?: string | null;
     vaultOwnerToken?: string;
   }): Promise<PkmUpgradeStatus> {
+    this.invalidateStatus(params.userId);
     return requestStatus(
       `${this.API_PREFIX}/runs/${params.runId}/status`,
       {
@@ -212,7 +268,10 @@ export class PkmUpgradeService {
         }),
       },
       "Failed to update PKM upgrade run"
-    );
+    ).then((payload) => {
+      CacheService.getInstance().set(this.getCacheKey(params.userId), payload, CACHE_TTL.SHORT);
+      return payload;
+    });
   }
 
   static async updateStep(params: {
@@ -226,6 +285,7 @@ export class PkmUpgradeService {
     lastCompletedManifestVersion?: number;
     vaultOwnerToken?: string;
   }): Promise<PkmUpgradeStatus> {
+    this.invalidateStatus(params.userId);
     return requestStatus(
       `${this.API_PREFIX}/runs/${params.runId}/steps/${encodeURIComponent(params.domain)}`,
       {
@@ -244,7 +304,10 @@ export class PkmUpgradeService {
         }),
       },
       "Failed to update PKM upgrade step"
-    );
+    ).then((payload) => {
+      CacheService.getInstance().set(this.getCacheKey(params.userId), payload, CACHE_TTL.SHORT);
+      return payload;
+    });
   }
 
   static async completeRun(params: {
@@ -252,6 +315,7 @@ export class PkmUpgradeService {
     userId: string;
     vaultOwnerToken?: string;
   }): Promise<PkmUpgradeStatus> {
+    this.invalidateStatus(params.userId);
     return requestStatus(
       `${this.API_PREFIX}/runs/${params.runId}/complete`,
       {
@@ -265,7 +329,10 @@ export class PkmUpgradeService {
         }),
       },
       "Failed to complete PKM upgrade run"
-    );
+    ).then((payload) => {
+      CacheService.getInstance().set(this.getCacheKey(params.userId), payload, CACHE_TTL.SHORT);
+      return payload;
+    });
   }
 
   static async failRun(params: {
@@ -274,6 +341,7 @@ export class PkmUpgradeService {
     lastError?: string | null;
     vaultOwnerToken?: string;
   }): Promise<PkmUpgradeStatus> {
+    this.invalidateStatus(params.userId);
     return requestStatus(
       `${this.API_PREFIX}/runs/${params.runId}/fail`,
       {
@@ -289,6 +357,9 @@ export class PkmUpgradeService {
         }),
       },
       "Failed to fail PKM upgrade run"
-    );
+    ).then((payload) => {
+      CacheService.getInstance().set(this.getCacheKey(params.userId), payload, CACHE_TTL.SHORT);
+      return payload;
+    });
   }
 }

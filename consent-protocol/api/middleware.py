@@ -15,6 +15,7 @@ from fastapi import Header, HTTPException, status
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,10 @@ async def require_firebase_auth(
 
     try:
         firebase_uid = verify_firebase_bearer(authorization)
+        try:
+            ActorIdentityService().schedule_sync_from_firebase(firebase_uid)
+        except Exception as identity_error:
+            logger.debug("Actor identity warmup skipped for %s: %s", firebase_uid, identity_error)
         return firebase_uid
     except HTTPException:
         raise

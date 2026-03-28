@@ -27,8 +27,9 @@ describe("interaction and cache contract", () => {
     expect(topAppBar).toContain('<Check className="ml-auto h-4 w-4 text-current" />');
     expect(topAppBar).toContain('<Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />');
     expect(taskCenter).toContain("Notifications");
-    expect(taskCenter).toContain("Consent Center");
-    expect(taskCenter).toContain('openConsentSheet({ view: "pending" })');
+    expect(topAppBar).toContain('href={ROUTES.CONSENTS}');
+    expect(taskCenter).not.toContain("Consent Center");
+    expect(taskCenter).not.toContain('openConsentSheet({ view: "pending" })');
     expect(taskCenter).not.toContain("Notification delivery");
     expect(taskCenter).not.toContain("BellRing");
     expect(taskCenter).not.toContain("useConsentNotificationState");

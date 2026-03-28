@@ -42,6 +42,23 @@ function assertContains(relPath, snippets) {
   }
 }
 
+function assertContainsAny(relPath, snippetGroups) {
+  if (!exists(relPath)) {
+    fail(`Missing required file: ${relPath}`);
+    return;
+  }
+
+  const src = read(relPath);
+  const matched = snippetGroups.some((group) => group.every((snippet) => src.includes(snippet)));
+  if (!matched) {
+    fail(
+      `${relPath} missing required cache-coherence hook set: ${snippetGroups
+        .map((group) => `[${group.join(", ")}]`)
+        .join(" OR ")}`
+    );
+  }
+}
+
 function assertNotContains(relPath, snippets) {
   if (!exists(relPath)) {
     fail(`Missing required file: ${relPath}`);
@@ -96,6 +113,70 @@ function checkBypassPatterns() {
       "components/kai/views/manage-portfolio-view.tsx",
       ["CacheService.getInstance().invalidate(", "CACHE_KEYS.PKM_METADATA"],
     ],
+    [
+      "components/kai/views/kai-market-preview-view.tsx",
+      [
+        "ApiService.getKaiMarketInsights(",
+        "persistKaiMarketHomePayload(",
+        "parseStoredKaiHomeCache(",
+        "getSessionItem(",
+      ],
+    ],
+    [
+      "components/kai/debate-stream-view.tsx",
+      ["ApiService.getKaiMarketInsights("],
+    ],
+    [
+      "lib/kai/market-snapshot.ts",
+      ["ApiService.getKaiMarketInsights("],
+    ],
+    [
+      "lib/kai/brokerage/use-portfolio-sources.ts",
+      [
+        "PersonalKnowledgeModelService.peekCachedFullBlob(",
+        "PersonalKnowledgeModelService.peekCachedEncryptedBlob(",
+        "PersonalKnowledgeModelService.loadDomainData(",
+      ],
+    ],
+    [
+      "lib/kai/kai-financial-resource.ts",
+      [
+        "PersonalKnowledgeModelService.peekCachedFullBlob(",
+        "PersonalKnowledgeModelService.peekCachedEncryptedBlob(",
+      ],
+    ],
+    [
+      "components/kai/views/manage-portfolio-view.tsx",
+      ["PersonalKnowledgeModelService.loadDomainData("],
+    ],
+    [
+      "components/kai/views/dashboard-master-view.tsx",
+      ["PersonalKnowledgeModelService.loadDomainData("],
+    ],
+    [
+      "components/kai/views/portfolio-review-view.tsx",
+      [
+        "PersonalKnowledgeModelService.peekCachedFullBlob(",
+        "PersonalKnowledgeModelService.peekCachedEncryptedBlob(",
+        "PersonalKnowledgeModelService.loadDomainData(",
+      ],
+    ],
+    [
+      "components/kai/views/kai-market-preview-view.tsx",
+      ["localStorage", "sessionStorage"],
+    ],
+    [
+      "lib/kai/kai-market-home-resource.ts",
+      ["localStorage", "sessionStorage", "getSessionItem(", "setSessionItem("],
+    ],
+    [
+      "lib/kai/kai-financial-resource.ts",
+      ["localStorage", "sessionStorage", "getSessionItem(", "setSessionItem("],
+    ],
+    [
+      "lib/pkm/pkm-domain-resource.ts",
+      ["localStorage", "sessionStorage", "getSessionItem(", "setSessionItem("],
+    ],
   ];
 
   for (const [relPath, snippets] of bypassChecks) {
@@ -103,6 +184,36 @@ function checkBypassPatterns() {
   }
 
   ok("No direct cache invalidation bypasses in critical mutation paths");
+}
+
+function checkHotRouteResourcePolicy() {
+  const required = [
+    ["components/kai/views/kai-market-preview-view.tsx", ["KaiMarketHomeResourceService"]],
+    ["components/kai/debate-stream-view.tsx", ["fetchLatestMarketSnapshot("]],
+    ["lib/kai/kai-financial-resource.ts", ["PkmDomainResourceService"]],
+    [
+      "components/kai/views/manage-portfolio-view.tsx",
+      ["PkmDomainResourceService.getStaleFirst("],
+    ],
+  ];
+
+  for (const [relPath, snippets] of required) {
+    assertContains(relPath, snippets);
+  }
+
+  assertContainsAny("lib/kai/brokerage/use-portfolio-sources.ts", [
+    ["PkmWriteCoordinator.saveMergedDomain("],
+    ["PkmDomainResourceService.prepareDomainWriteContext("],
+  ]);
+  assertContainsAny("components/kai/views/manage-portfolio-view.tsx", [
+    ["PkmDomainResourceService.getStaleFirst(", "PkmWriteCoordinator.saveMergedDomain("],
+    ["PkmDomainResourceService.getStaleFirst(", "PkmDomainResourceService.prepareDomainWriteContext("],
+  ]);
+  assertContainsAny("components/kai/views/portfolio-review-view.tsx", [
+    ["PkmWriteCoordinator.saveMergedDomain(", "PkmDomainResourceService.prepareDomainWriteContext("],
+  ]);
+
+  ok("Hot Kai routes are wired to shared PKM/market resources");
 }
 
 function checkMutationServiceHints() {
@@ -135,6 +246,7 @@ function checkMutationServiceHints() {
 function main() {
   checkRequiredCoordinatorUsage();
   checkBypassPatterns();
+  checkHotRouteResourcePolicy();
   checkMutationServiceHints();
 
   if (process.exitCode) {

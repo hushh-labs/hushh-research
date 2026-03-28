@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 
-export default function LegacyKaiDashboardAnalysisRedirect() {
+function LegacyKaiDashboardAnalysisRedirectContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -19,5 +19,13 @@ export default function LegacyKaiDashboardAnalysisRedirect() {
     <AppPageShell as="div" width="content" className="flex min-h-72 items-center justify-center">
       <HushhLoader variant="inline" label="Redirecting to analysis…" />
     </AppPageShell>
+  );
+}
+
+export default function LegacyKaiDashboardAnalysisRedirect() {
+  return (
+    <Suspense fallback={<HushhLoader variant="inline" label="Redirecting to analysis…" />}>
+      <LegacyKaiDashboardAnalysisRedirectContent />
+    </Suspense>
   );
 }

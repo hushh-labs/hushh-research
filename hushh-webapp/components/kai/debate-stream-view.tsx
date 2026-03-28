@@ -16,7 +16,6 @@ import {
 } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ApiService } from "@/lib/services/api-service";
 import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
@@ -31,9 +30,11 @@ import {
   type DebateRunTask,
 } from "@/lib/services/debate-run-manager";
 import {
+  fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
   pickPreferredMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
   getInitialRoundCollapseState,
@@ -186,8 +187,6 @@ function getErrorDisplay(errorType: ErrorType, retryIn?: number): { icon: React.
 // ============================================================================
 // Constants
 // ============================================================================
-
-const HEADER_MARKET_QUOTE_TTL_MS = 10 * 60 * 1000;
 
 const TICKER_SYMBOL_REGEX = /^[A-Z][A-Z0-9.\-]{0,5}$/;
 
@@ -823,7 +822,6 @@ export function DebateStreamView({
       return;
     }
     let cancelled = false;
-    const cache = CacheService.getInstance();
     const cached = getCachedHeaderQuote(userId, normalizedTicker);
     setHeaderQuoteLoading(Boolean(vaultOwnerToken) && !cached);
     if (!cancelled) {
@@ -839,21 +837,15 @@ export function DebateStreamView({
 
     void (async () => {
       try {
-        const payload = await ApiService.getKaiMarketInsights({
+        const liveQuote = await fetchLatestMarketSnapshot({
           userId,
           vaultOwnerToken,
-          symbols: [normalizedTicker],
+          ticker: normalizedTicker,
           daysBack: 7,
         });
-        const liveQuote = extractHeaderQuoteFromKaiHome(payload, normalizedTicker);
         if (!cancelled) {
           setHeaderMarketQuote((prev) => pickPreferredHeaderQuote(prev, liveQuote));
         }
-        cache.set(
-          CACHE_KEYS.KAI_MARKET_HOME(userId, normalizedTicker, 7),
-          payload,
-          HEADER_MARKET_QUOTE_TTL_MS
-        );
       } catch {
         // Non-blocking: keep best known cached quote in header.
       } finally {
@@ -1264,12 +1256,22 @@ export function DebateStreamView({
           : extractDebatePortfolioContext(userId);
       if (!hasRequiredDebateContext(portfolioContext) && vaultKey) {
         try {
-          const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
-            userId,
-            domain: "financial",
-            vaultKey,
-            vaultOwnerToken,
-          });
+          const financialDomain =
+            (
+              await PkmDomainResourceService.getStaleFirst({
+                userId,
+                domain: "financial",
+                vaultKey,
+                vaultOwnerToken,
+                backgroundRefresh: false,
+              })
+            )?.data ??
+            (await PersonalKnowledgeModelService.loadDomainData({
+              userId,
+              domain: "financial",
+              vaultKey,
+              vaultOwnerToken,
+            }));
           const hydratedContext =
             extractDebatePortfolioContext(userId, financialDomain ?? undefined) ??
             portfolioContext;

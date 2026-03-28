@@ -220,6 +220,11 @@ export class HushhPersonalKnowledgeModelWeb
     summary: Record<string, unknown>;
     structureDecision?: Record<string, unknown>;
     manifest?: Record<string, unknown>;
+    writeProjections?: Array<{
+      projectionType: string;
+      projectionVersion?: number;
+      payload: Record<string, unknown>;
+    }>;
     expectedDataVersion?: number;
     upgradeContext?: {
       runId: string;
@@ -256,6 +261,11 @@ export class HushhPersonalKnowledgeModelWeb
         summary: options.summary,
         structure_decision: options.structureDecision,
         manifest: options.manifest,
+        write_projections: (options.writeProjections || []).map((projection) => ({
+          projection_type: projection.projectionType,
+          projection_version: projection.projectionVersion || 1,
+          payload: projection.payload,
+        })),
         expected_data_version:
           Number.isFinite(options.expectedDataVersion) && options.expectedDataVersion !== undefined
             ? Math.max(0, Number(options.expectedDataVersion))

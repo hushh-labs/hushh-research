@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -89,6 +89,8 @@ class RIAMarketplaceDiscoverabilityRequest(BaseModel):
 class RIAClientDetailResponse(BaseModel):
     investor_user_id: str
     investor_display_name: str | None = None
+    investor_email: str | None = None
+    investor_secondary_label: str | None = None
     investor_headline: str | None = None
     relationship_status: str
     granted_scope: str | None = None
@@ -193,6 +195,15 @@ async def onboarding_status(firebase_uid: str = Depends(require_firebase_auth)):
         return _iam_schema_not_ready_response(str(exc))
 
 
+@router.get("/home")
+async def ria_home(firebase_uid: str = Depends(require_firebase_auth)):
+    service = RIAIAMService()
+    try:
+        return await service.get_ria_home(firebase_uid)
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
+
+
 @router.get("/firms")
 async def ria_firms(firebase_uid: str = Depends(require_firebase_auth)):
     service = RIAIAMService()
@@ -203,10 +214,25 @@ async def ria_firms(firebase_uid: str = Depends(require_firebase_auth)):
 
 
 @router.get("/clients")
-async def ria_clients(firebase_uid: str = Depends(require_firebase_auth)):
+async def ria_clients(
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
     service = RIAIAMService()
     try:
-        return {"items": await service.list_ria_clients(firebase_uid)}
+        params: dict[str, str | int] = {}
+        if q:
+            params["query"] = q
+        if status:
+            params["status"] = status
+        if page != 1:
+            params["page"] = page
+        if limit != 50:
+            params["limit"] = limit
+        return await service.list_ria_clients(firebase_uid, **params)
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
 

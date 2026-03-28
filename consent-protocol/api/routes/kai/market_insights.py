@@ -19,7 +19,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_vault_owner_token
-from hushh_mcp.operons.kai.fetchers import fetch_market_data, fetch_market_news
+from hushh_mcp.operons.kai.fetchers import (
+    fetch_market_data,
+    fetch_market_data_batch,
+    fetch_market_news,
+)
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -52,6 +56,7 @@ DEFAULT_PICK_SOURCE_ID = "default"
 WATCHLIST_MAX = 8
 NEWS_SYMBOL_MAX = 3
 NEWS_ROWS_MAX = 12
+RENAISSANCE_QUOTE_SYMBOL_MAX = 12
 QUOTE_FANOUT_CONCURRENCY = 4
 RECOMMENDATION_FANOUT_CONCURRENCY = 4
 NEWS_FANOUT_CONCURRENCY = 2
@@ -195,12 +200,6 @@ def _pick_source_roster_signature(ria_sources: list[dict[str, Any]]) -> str:
     return "|".join(sorted(parts))
 
 
-def _pick_row_value(row: Any, key: str) -> Any:
-    if isinstance(row, dict):
-        return row.get(key)
-    return getattr(row, key, None)
-
-
 async def _resolve_pick_source_rows(
     user_id: str,
     active_pick_source: str,
@@ -272,6 +271,14 @@ def _safe_int(value: Any) -> int | None:
         return int(out)
     except Exception:
         return None
+
+
+def _pick_row_value(row: Any, key: str, default: Any = None) -> Any:
+    if isinstance(row, dict):
+        value = row.get(key, default)
+        return default if value is None else value
+    value = getattr(row, key, default)
+    return default if value is None else value
 
 
 def _is_recommendation_gap_text(detail: str | None) -> bool:
@@ -1108,7 +1115,12 @@ async def _fetch_sector_rotation_from_etf_quotes(
     ) -> tuple[str, dict[str, Any] | None]:
         async with semaphore:
             try:
-                quote = await fetch_market_data(etf_symbol, user_id, consent_token)
+                quote = await fetch_market_data(
+                    etf_symbol,
+                    user_id,
+                    consent_token,
+                    allow_slow_fallbacks=False,
+                )
                 return sector_name, quote or {}
             except Exception as exc:
                 logger.debug(
@@ -1597,10 +1609,10 @@ async def get_market_insights(
             ria_sources=ria_source_roster,
         )
         renaissance_symbols = [
-            str(_pick_row_value(stock, "ticker") or "").strip().upper()
+            str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
             for stock in renaissance_rows_source
-            if str(_pick_row_value(stock, "ticker") or "").strip()
-        ]
+            if str(_pick_row_value(stock, "ticker", "") or "").strip()
+        ][:RENAISSANCE_QUOTE_SYMBOL_MAX]
 
         core_symbols = ["SPY", "QQQ"]
         symbol_set = sorted({*watchlist_symbols, *core_symbols, *renaissance_symbols})
@@ -1609,13 +1621,40 @@ async def get_market_insights(
         async def fetch_quotes_bundle() -> dict[str, Any]:
             quotes_by_symbol: dict[str, dict[str, Any]] = {}
             statuses: dict[str, str] = {}
+            unresolved_symbols = list(symbol_set)
+
+            try:
+                batch_quotes = await fetch_market_data_batch(symbol_set, user_id, consent_token)
+            except Exception as exc:
+                logger.debug("[Kai Market] quote batch failed: %s", exc)
+                batch_quotes = {}
+
+            if batch_quotes:
+                next_unresolved: list[str] = []
+                for symbol in unresolved_symbols:
+                    payload = batch_quotes.get(symbol) if isinstance(batch_quotes, dict) else None
+                    price = _safe_float((payload or {}).get("price"))
+                    if price is None:
+                        next_unresolved.append(symbol)
+                        continue
+                    quotes_by_symbol[symbol] = payload or {}
+                    statuses[f"quote:{symbol}"] = "ok"
+                    market_insights_cache.append_series_point(f"quote:{symbol}", price)
+                    if symbol == "SPY":
+                        market_insights_cache.append_series_point("sparkline:SPY", price)
+                unresolved_symbols = next_unresolved
 
             semaphore = asyncio.Semaphore(QUOTE_FANOUT_CONCURRENCY)
 
             async def fetch_symbol_quote(symbol: str) -> tuple[str, dict[str, Any], str]:
                 async with semaphore:
                     try:
-                        quote = await fetch_market_data(symbol, user_id, consent_token)
+                        quote = await fetch_market_data(
+                            symbol,
+                            user_id,
+                            consent_token,
+                            allow_slow_fallbacks=False,
+                        )
                         payload = quote or {}
                         price = _safe_float(payload.get("price"))
                         if price is not None:
@@ -1627,7 +1666,9 @@ async def get_market_insights(
                         logger.debug("[Kai Market] quote failed for %s: %s", symbol, exc)
                         return symbol, {}, _provider_status_from_exception(exc)
 
-            results = await asyncio.gather(*(fetch_symbol_quote(symbol) for symbol in symbol_set))
+            results = await asyncio.gather(
+                *(fetch_symbol_quote(symbol) for symbol in unresolved_symbols)
+            )
             degraded_quotes: list[str] = []
             for symbol, payload, status_value in results:
                 quotes_by_symbol[symbol] = payload
@@ -1794,21 +1835,21 @@ async def get_market_insights(
             stale = stale or row_stale
 
         for stock in renaissance_rows_source:
-            symbol = str(_pick_row_value(stock, "ticker") or "").strip().upper()
-            tier = str(_pick_row_value(stock, "tier") or "").strip().upper() or None
+            tier = str(_pick_row_value(stock, "tier", "") or "").strip().upper() or None
+            symbol = str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
             quote = quote_map.get(symbol) if isinstance(quote_map, dict) else None
             quote_source = str((quote or {}).get("source") or "").strip() or "Unknown"
             renaissance_rows.append(
                 {
                     "symbol": symbol,
-                    "company_name": str(_pick_row_value(stock, "company_name") or symbol),
-                    "sector": str(_pick_row_value(stock, "sector") or "").strip() or None,
+                    "company_name": str(_pick_row_value(stock, "company_name", symbol) or symbol),
+                    "sector": str(_pick_row_value(stock, "sector", "") or "").strip() or None,
                     "tier": tier,
-                    "tier_rank": int(_pick_row_value(stock, "tier_rank") or 0),
+                    "tier_rank": int(_pick_row_value(stock, "tier_rank", 0) or 0),
                     "conviction_weight": float(TIER_WEIGHTS.get(tier or "", 0.5)),
                     "recommendation_bias": _recommendation_bias_from_tier(tier),
                     "investment_thesis": str(
-                        _pick_row_value(stock, "investment_thesis") or ""
+                        _pick_row_value(stock, "investment_thesis", "") or ""
                     ).strip()
                     or None,
                     "fcf_billions": _safe_float(_pick_row_value(stock, "fcf_billions")),

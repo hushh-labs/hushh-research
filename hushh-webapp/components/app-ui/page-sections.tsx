@@ -99,20 +99,24 @@ export function PageHeader({
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
-    <header className={cn("space-y-[var(--page-header-stack-gap)]", className)}>
+    <header
+      className={cn("space-y-[var(--page-header-stack-gap)]", className)}
+      data-slot="page-header"
+      data-page-primary="true"
+    >
       <div className="flex flex-col gap-[var(--page-header-row-gap)] lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-3xl min-w-0 space-y-[var(--page-header-copy-gap)]">
-          <div className="flex items-center gap-4 sm:gap-5">
+          <div className="flex items-center gap-3 sm:gap-4">
             <HeaderLeading
               icon={icon}
               leading={leading}
               iconSize="lg"
               iconClassName={cn(
-                "inline-flex h-12 w-12 shrink-0 self-center items-center justify-center rounded-[22px] border sm:h-14 sm:w-14",
+                "inline-flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-[18px] border sm:h-11 sm:w-11 sm:rounded-[20px]",
                 styles.icon
               )}
             />
-            <div className="min-w-0 space-y-1.5 sm:space-y-2">
+            <div className="min-w-0 space-y-1">
               {eyebrow ? (
                 <p
                   className={cn(
@@ -123,13 +127,13 @@ export function PageHeader({
                   {eyebrow}
                 </p>
               ) : null}
-              <h1 className="text-[clamp(1.56rem,3.7vw,2.3rem)] font-semibold tracking-tight leading-[1.04] text-foreground">
+              <h1 className="text-[clamp(1.38rem,3.2vw,2.05rem)] font-semibold tracking-tight leading-[1.04] text-foreground">
                 {title}
               </h1>
             </div>
           </div>
           {description ? (
-            <div className="max-w-2xl text-sm leading-7 text-muted-foreground sm:text-[15px]">
+            <div className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
               {description}
             </div>
           ) : null}
@@ -167,17 +171,17 @@ export function SectionHeader({
     <div className={cn("space-y-[var(--section-header-stack-gap)]", className)}>
       <div className="flex flex-col gap-[var(--section-header-row-gap)] sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-[var(--section-header-copy-gap)]">
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <HeaderLeading
               icon={icon}
               leading={leading}
               iconSize="md"
               iconClassName={cn(
-                "inline-flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-[18px] border sm:h-11 sm:w-11",
+                "inline-flex h-9 w-9 shrink-0 self-center items-center justify-center rounded-[16px] border sm:h-10 sm:w-10 sm:rounded-[18px]",
                 styles.icon
               )}
             />
-            <div className="min-w-0 space-y-1.5 sm:space-y-2">
+            <div className="min-w-0 space-y-1">
               {eyebrow ? (
                 <p
                   className={cn(
@@ -188,7 +192,7 @@ export function SectionHeader({
                   {eyebrow}
                 </p>
               ) : null}
-              <h2 className="text-base font-semibold tracking-tight leading-[1.08] text-foreground sm:text-lg">
+              <h2 className="text-[15px] font-semibold tracking-tight leading-[1.08] text-foreground sm:text-[17px]">
                 {title}
               </h2>
             </div>

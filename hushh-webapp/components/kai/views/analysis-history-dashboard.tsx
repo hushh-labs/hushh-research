@@ -288,6 +288,57 @@ function buildDebateInputsSnapshot(
   };
 }
 
+function toTextCandidate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function extractCompanyName(entry: AnalysisHistoryEntry, canonicalTicker: string): string | undefined {
+  const rawCard = isRecord(entry.raw_card) ? entry.raw_card : null;
+  const quote = rawCard && isRecord(rawCard.quote) ? rawCard.quote : null;
+  const marketSnapshot =
+    rawCard && isRecord(rawCard.market_snapshot) ? rawCard.market_snapshot : null;
+  const candidates = [
+    toTextCandidate(rawCard?.company_name),
+    toTextCandidate(rawCard?.companyName),
+    toTextCandidate(rawCard?.security_name),
+    toTextCandidate(rawCard?.securityName),
+    toTextCandidate(rawCard?.entity_name),
+    toTextCandidate(quote?.company_name),
+    toTextCandidate(marketSnapshot?.company_name),
+    toTextCandidate(rawCard?.name),
+    toTextCandidate(rawCard?.title),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (candidate.toUpperCase() === canonicalTicker) continue;
+    return candidate;
+  }
+
+  return undefined;
+}
+
+function buildSearchText(
+  entry: AnalysisHistoryEntry,
+  canonicalTicker: string,
+  companyName?: string
+): string {
+  const rawCard = isRecord(entry.raw_card) ? entry.raw_card : null;
+  const parts = [
+    canonicalTicker,
+    companyName,
+    toTextCandidate(entry.final_statement),
+    toTextCandidate(rawCard?.short_recommendation),
+    toTextCandidate(rawCard?.fundamental_summary),
+    toTextCandidate(rawCard?.sentiment_summary),
+    toTextCandidate(rawCard?.valuation_summary),
+  ].filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(parts)).join(" ");
+}
+
 /**
  * Dedupe history table to one row per ticker.
  *
@@ -314,14 +365,19 @@ function processHistory(map: AnalysisHistoryMap): HistoryEntryWithVersion[] {
       (a, b) => epochOf(a.timestamp) - epochOf(b.timestamp)
     );
 
-    const withVersions: HistoryEntryWithVersion[] = sortedByDateAsc.map((entry, index) => ({
-      ...entry,
-      ticker:
-        typeof entry.ticker === "string" && entry.ticker.trim().length > 0
-          ? entry.ticker
-          : canonicalTicker,
-      version: index + 1,
-    }));
+    const withVersions: HistoryEntryWithVersion[] = sortedByDateAsc.map((entry, index) => {
+      const companyName = extractCompanyName(entry, canonicalTicker);
+      return {
+        ...entry,
+        ticker:
+          typeof entry.ticker === "string" && entry.ticker.trim().length > 0
+            ? entry.ticker
+            : canonicalTicker,
+        companyName,
+        searchText: buildSearchText(entry, canonicalTicker, companyName),
+        version: index + 1,
+      };
+    });
 
     // Latest is the newest timestamp
     const latest = withVersions[withVersions.length - 1];
@@ -941,7 +997,8 @@ export function AnalysisHistoryDashboard({
         columns={columns}
         data={entries}
         searchKey="ticker"
-        searchPlaceholder="Search analysis history by ticker..."
+        globalSearchKeys={["ticker", "companyName", "searchText"]}
+        searchPlaceholder="Search analysis history by ticker or company..."
         enableSearch
         filterKey="decision"
         filterOptions={[

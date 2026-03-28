@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { ROUTES } from "@/lib/navigation/routes";
 import { RiaService, type MarketplaceRia } from "@/lib/services/ria-service";
 
-export default function MarketplaceRiaProfilePage() {
+function MarketplaceRiaProfilePageContent() {
   const searchParams = useSearchParams();
   const riaId = useMemo(() => searchParams.get("riaId")?.trim() || "", [searchParams]);
   const [profile, setProfile] = useState<MarketplaceRia | null>(null);
@@ -131,5 +131,13 @@ export default function MarketplaceRiaProfilePage() {
         </>
       ) : null}
     </RiaPageShell>
+  );
+}
+
+export default function MarketplaceRiaProfilePage() {
+  return (
+    <Suspense fallback={null}>
+      <MarketplaceRiaProfilePageContent />
+    </Suspense>
   );
 }

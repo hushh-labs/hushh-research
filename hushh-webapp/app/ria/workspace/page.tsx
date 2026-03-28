@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ClipboardList, Loader2, Shield, Unplug, Waves } from "lucide-react";
-import { toast } from "sonner";
+import {
+  ClipboardList,
+  Loader2,
+  MailPlus,
+  Shield,
+  Unplug,
+  Waves,
+} from "lucide-react";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
-import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import {
   RiaCompatibilityState,
@@ -20,7 +25,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildRiaConsentManagerHref } from "@/lib/consent/consent-sheet-route";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { buildRiaWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import {
   isIAMSchemaNotReadyError,
@@ -119,14 +127,27 @@ function visibleScopesForTemplate(
     .filter((scope): scope is RiaAvailableScopeMetadata => Boolean(scope));
 }
 
-export default function RiaWorkspacePage() {
+function RiaWorkspacePageContent() {
   const searchParams = useSearchParams();
   const clientId = useMemo(() => searchParams.get("clientId")?.trim() || "", [searchParams]);
   const { user } = useAuth();
+  const cache = useMemo(() => CacheService.getInstance(), []);
+  const detailCacheKey =
+    user?.uid && clientId ? CACHE_KEYS.RIA_CLIENT_DETAIL(user.uid, clientId) : null;
+  const workspaceCacheKey =
+    user?.uid && clientId ? CACHE_KEYS.RIA_WORKSPACE(user.uid, clientId) : null;
+  const cachedDetail = useMemo(
+    () => (detailCacheKey ? cache.peek<RiaClientDetail>(detailCacheKey) : null),
+    [cache, detailCacheKey]
+  );
+  const cachedWorkspace = useMemo(
+    () => (workspaceCacheKey ? cache.peek<WorkspacePayload>(workspaceCacheKey) : null),
+    [cache, workspaceCacheKey]
+  );
 
-  const [detail, setDetail] = useState<RiaClientDetail | null>(null);
-  const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<RiaClientDetail | null>(cachedDetail?.data ?? null);
+  const [workspace, setWorkspace] = useState<WorkspacePayload | null>(cachedWorkspace?.data ?? null);
+  const [loading, setLoading] = useState(!cachedDetail?.data && !cachedWorkspace?.data);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [iamUnavailable, setIamUnavailable] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
@@ -134,6 +155,11 @@ export default function RiaWorkspacePage() {
   const [requestReason, setRequestReason] = useState("");
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+
+  useEffect(() => {
+    setDetail(cachedDetail?.data ?? null);
+    setWorkspace(cachedWorkspace?.data ?? null);
+  }, [cachedDetail?.timestamp, cachedWorkspace?.timestamp, clientId]);
 
   useEffect(() => {
     if (!clientId) {
@@ -154,11 +180,13 @@ export default function RiaWorkspacePage() {
 
     async function load() {
       try {
-        setLoading(true);
+        setLoading(!cachedDetail?.data && !cachedWorkspace?.data);
         setDetailError(null);
         setIamUnavailable(false);
         const idToken = await currentUser.getIdToken();
-        const clientDetail = await RiaService.getClientDetail(idToken, clientId);
+        const clientDetail = await RiaService.getClientDetail(idToken, clientId, {
+          userId: currentUser.uid,
+        });
         if (cancelled) return;
         setDetail(clientDetail);
         const defaultTemplate = clientDetail.requestable_scope_templates[0] || null;
@@ -167,7 +195,9 @@ export default function RiaWorkspacePage() {
 
         if (clientDetail.granted_scopes.length > 0) {
           try {
-            const workspacePayload = await RiaService.getWorkspace(idToken, clientId);
+            const workspacePayload = await RiaService.getWorkspace(idToken, clientId, {
+              userId: currentUser.uid,
+            });
             if (!cancelled) {
               setWorkspace(workspacePayload);
             }
@@ -205,7 +235,7 @@ export default function RiaWorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [clientId, user]);
+  }, [cachedDetail?.data, cachedWorkspace?.data, clientId, user]);
 
   const activeTemplate =
     detail?.requestable_scope_templates.find(
@@ -218,6 +248,9 @@ export default function RiaWorkspacePage() {
     () => (detail ? visibleScopesForTemplate(detail, activeTemplate) : []),
     [activeTemplate, detail]
   );
+  const consentManagerHref = buildRiaConsentManagerHref("pending", {
+    from: buildRiaWorkspaceRoute(clientId),
+  });
 
   async function refreshWorkspace() {
     if (!user || !clientId) return;
@@ -225,8 +258,8 @@ export default function RiaWorkspacePage() {
       setLoading(true);
       const idToken = await user.getIdToken();
       const [clientDetail, workspacePayload] = await Promise.all([
-        RiaService.getClientDetail(idToken, clientId),
-        RiaService.getWorkspace(idToken, clientId).catch(() => null),
+        RiaService.getClientDetail(idToken, clientId, { userId: user.uid }),
+        RiaService.getWorkspace(idToken, clientId, { userId: user.uid }).catch(() => null),
       ]);
       setDetail(clientDetail);
       setWorkspace(workspacePayload);
@@ -255,8 +288,7 @@ export default function RiaWorkspacePage() {
         investor_user_id: detail.investor_user_id,
       });
       toast.success("Relationship disconnected", {
-        description:
-          "Advisor access was revoked immediately. You can reconnect later without losing history.",
+        description: "Access ended immediately. History stays available if you reconnect.",
       });
       await refreshWorkspace();
     } catch (error) {
@@ -283,7 +315,7 @@ export default function RiaWorkspacePage() {
         reason: requestReason.trim() || undefined,
       });
       toast.success("Consent request sent", {
-        description: "The investor can now review this bundle from the shared consent workspace.",
+        description: "The investor can now review this bundle.",
       });
       setRequestReason("");
       await refreshWorkspace();
@@ -299,24 +331,22 @@ export default function RiaWorkspacePage() {
       eyebrow="Workspace"
       title={detail?.investor_display_name || "Investor workspace"}
       description={
+        detail?.investor_email ||
+        detail?.investor_secondary_label ||
         detail?.investor_headline ||
         "Consent-gated access stays grounded here: relationship state first, readable data second."
       }
       actions={
-        <>
-          <Button asChild variant="none" effect="fade">
-            <Link href={ROUTES.RIA_CLIENTS}>Back to clients</Link>
-          </Button>
-          <Button asChild variant="blue-gradient" effect="fill">
-            <Link href={ROUTES.CONSENTS}>Open consents</Link>
-          </Button>
-        </>
+        <Button asChild variant="none" effect="fade">
+          <Link href={ROUTES.RIA_CLIENTS}>Back to clients</Link>
+        </Button>
       }
       statusPanel={
         iamUnavailable || !detail ? null : (
           <RiaStatusPanel
             title="Workspace state"
             description="This route should answer whether access is active before it tries to show any data detail."
+            dataTestId="ria-workspace-primary"
             items={[
               {
                 label: "Relationship",
@@ -414,38 +444,40 @@ export default function RiaWorkspacePage() {
                   })}
                 </p>
               </div>
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={() => void handleDisconnect()}
-                disabled={disconnecting}
-              >
-                {disconnecting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Unplug className="mr-2 h-4 w-4" />
-                )}
-                Disconnect
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="none" effect="fade" size="sm">
+                  <Link href={consentManagerHref}>Consent manager</Link>
+                </Button>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  onClick={() => void handleDisconnect()}
+                  disabled={disconnecting}
+                >
+                  {disconnecting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Unplug className="mr-2 h-4 w-4" />
+                  )}
+                  Disconnect
+                </Button>
+              </div>
             </div>
 
             {!workspace && detail.granted_scopes.length === 0 ? (
-              <SurfaceInset className="border-primary/20 bg-primary/6 p-4">
-                <p className="text-sm font-medium text-foreground">
-                  This workspace is still locked.
-                </p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Relationship metadata is available, but the investor has not granted any active
-                  scopes yet. Request access below to move this relationship into a readable
-                  workspace.
-                </p>
-              </SurfaceInset>
+              <SettingsGroup embedded>
+                <SettingsRow
+                  icon={Shield}
+                  title="This workspace is still metadata-only"
+                  description="Relationship metadata is available, but the investor has not granted any active scopes yet. Request access below to move this relationship into a readable workspace."
+                />
+              </SettingsGroup>
             ) : null}
           </RiaSurface>
 
           <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-            <section className="space-y-3">
+            <section className="space-y-3" data-testid="ria-workspace-access">
               <SectionHeader
                 eyebrow="Access"
                 title="Granted scopes"
@@ -560,23 +592,28 @@ export default function RiaWorkspacePage() {
                       placeholder="Optional context for the investor"
                     />
 
-                    <Button
-                      variant="blue-gradient"
-                      effect="fill"
-                      onClick={() => void handleRequestAccess()}
-                      disabled={requestingAccess || availableScopeOptions.length === 0}
-                    >
-                      {requestingAccess ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : null}
-                      Send request bundle
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="blue-gradient"
+                        effect="fill"
+                        onClick={() => void handleRequestAccess()}
+                        disabled={requestingAccess || availableScopeOptions.length === 0}
+                      >
+                        {requestingAccess ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        Send request bundle
+                      </Button>
+                      <Button asChild variant="none" effect="fade">
+                        <Link href={consentManagerHref}>Open consent manager</Link>
+                      </Button>
+                    </div>
                   </>
                 )}
               </RiaSurface>
             </section>
 
-            <section className="space-y-3">
+            <section className="space-y-3" data-testid="ria-workspace-data">
               <SectionHeader
                 eyebrow="Data view"
                 title="Workspace summary"
@@ -586,24 +623,26 @@ export default function RiaWorkspacePage() {
               <RiaSurface className="space-y-4 p-4">
                 {workspace ? (
                   <>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-[20px] border border-border/60 bg-background/70 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                          Domains
-                        </p>
-                        <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">
-                          {workspace.available_domains.length}
-                        </p>
-                      </div>
-                      <div className="rounded-[20px] border border-border/60 bg-background/70 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                          Attributes
-                        </p>
-                        <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">
-                          {workspace.total_attributes}
-                        </p>
-                      </div>
-                    </div>
+                    <SettingsGroup embedded>
+                      <SettingsRow
+                        title="Indexed domains"
+                        description="Readable data domains currently available to this workspace."
+                        trailing={
+                          <span className="text-xs text-muted-foreground">
+                            {workspace.available_domains.length}
+                          </span>
+                        }
+                      />
+                      <SettingsRow
+                        title="Tracked attributes"
+                        description="Attributes available across the granted domain set."
+                        trailing={
+                          <span className="text-xs text-muted-foreground">
+                            {workspace.total_attributes}
+                          </span>
+                        }
+                      />
+                    </SettingsGroup>
                     <SettingsGroup>
                       {workspace.available_domains.length === 0 ? (
                         <div className="px-4 py-4 text-sm text-muted-foreground">
@@ -626,16 +665,127 @@ export default function RiaWorkspacePage() {
                     </SettingsGroup>
                   </>
                 ) : (
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    The readable workspace summary will appear here after the investor approves an
-                    active scope bundle and the Personal Knowledge Model is indexed.
-                  </p>
+                  <SettingsGroup embedded>
+                    <SettingsRow
+                      icon={Waves}
+                      title="Readable data is not available yet"
+                      description="The workspace summary appears after the investor approves an active scope bundle and the Personal Knowledge Model is indexed."
+                    />
+                    <SettingsRow
+                      icon={Shield}
+                      title="Metadata still helps"
+                      description={`You can already review ${detail.available_scope_metadata.length} available metadata scope${detail.available_scope_metadata.length === 1 ? "" : "s"} before asking for access.`}
+                    />
+                  </SettingsGroup>
                 )}
               </RiaSurface>
+            </section>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-2" data-testid="ria-workspace-secondary">
+            <section className="space-y-3">
+              <SectionHeader
+                eyebrow="Metadata"
+                title="Visible before consent"
+                description="This stays metadata-only until the investor grants active scopes."
+                icon={Shield}
+              />
+              <SettingsGroup>
+                {detail.available_scope_metadata.length === 0 ? (
+                  <div className="px-4 py-4 text-sm text-muted-foreground">
+                    No investor-specific scope metadata is indexed yet.
+                  </div>
+                ) : (
+                  detail.available_scope_metadata.map((scope) => (
+                    <SettingsRow
+                      key={scope.scope}
+                      icon={scope.summary_only ? ClipboardList : Shield}
+                      title={scope.label}
+                      description={scope.description}
+                      trailing={
+                        <div className="flex items-center gap-2">
+                          {scope.domain_key ? (
+                            <Badge variant="outline" className="text-[10px] uppercase">
+                              {scope.domain_key}
+                            </Badge>
+                          ) : null}
+                          <Badge variant="secondary">
+                            {scope.summary_only ? "Summary" : "Full model"}
+                          </Badge>
+                        </div>
+                      }
+                    />
+                  ))
+                )}
+              </SettingsGroup>
+            </section>
+
+            <section className="space-y-3">
+              <SectionHeader
+                eyebrow="History"
+                title="Recent relationship activity"
+                description="Keep the latest request and invite events visible without another dashboard."
+                icon={MailPlus}
+              />
+              <SettingsGroup>
+                {detail.request_history.length === 0 && detail.invite_history.length === 0 ? (
+                  <div className="px-4 py-4 text-sm text-muted-foreground">
+                    No relationship events yet.
+                  </div>
+                ) : (
+                  <>
+                    {detail.request_history.slice(0, 4).map((request) => (
+                      <SettingsRow
+                        key={request.request_id || request.scope || request.action}
+                        icon={ClipboardList}
+                        title={request.scope_metadata?.label || request.scope || "Request"}
+                        description={formatStatusLabel(request.action)}
+                        trailing={
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(request.issued_at) || "Just now"}
+                          </span>
+                        }
+                      />
+                    ))}
+                    {detail.invite_history.slice(0, 3).map((invite) => (
+                      <SettingsRow
+                        key={invite.invite_id}
+                        icon={MailPlus}
+                        title={
+                          invite.target_display_name ||
+                          invite.target_email ||
+                          invite.target_phone ||
+                          "Invite"
+                        }
+                        description={formatStatusLabel(invite.status)}
+                        trailing={
+                          invite.invite_token ? (
+                            <Button asChild variant="none" effect="fade" size="sm">
+                              <Link href={consentManagerHref}>Open</Link>
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(invite.expires_at) || "In flight"}
+                            </span>
+                          )
+                        }
+                      />
+                    ))}
+                  </>
+                )}
+              </SettingsGroup>
             </section>
           </div>
         </>
       ) : null}
     </RiaPageShell>
+  );
+}
+
+export default function RiaWorkspacePage() {
+  return (
+    <Suspense fallback={null}>
+      <RiaWorkspacePageContent />
+    </Suspense>
   );
 }

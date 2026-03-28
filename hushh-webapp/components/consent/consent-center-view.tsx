@@ -185,12 +185,25 @@ function getEntriesForSurfaceView(
   if (!center) return [];
 
   if (surfaceView === "active") return center.active_grants;
-  if (surfaceView === "previous") return center.history;
+  if (surfaceView === "previous") {
+    const previousEntries =
+      actor === "ria"
+        ? [...center.history, ...center.outgoing_requests, ...center.invites]
+        : center.history;
+    return previousEntries.filter((entry) => {
+      const status = String(entry.status || "").toLowerCase();
+      return !["pending", "request_pending", "sent", "active"].includes(status);
+    });
+  }
 
-  const pendingEntries =
+  const pendingEntries = (
     actor === "ria"
       ? [...center.outgoing_requests, ...center.invites]
-      : [...center.incoming_requests, ...center.developer_requests];
+      : [...center.incoming_requests]
+  ).filter((entry) => {
+    const status = String(entry.status || "").toLowerCase();
+    return ["pending", "request_pending", "sent"].includes(status);
+  });
 
   return pendingEntries.sort((left, right) => {
     const leftTime = left.issued_at ? new Date(String(left.issued_at)).getTime() : 0;
@@ -205,11 +218,8 @@ function getViewCount(
   surfaceView: ConsentSurfaceView
 ) {
   if (!center) return 0;
-  if (surfaceView === "active") return center.summary.active_grants;
-  if (surfaceView === "previous") return center.summary.history;
-  return actor === "ria"
-    ? center.summary.outgoing_requests + center.summary.invites
-    : center.summary.incoming_requests + center.summary.developer_requests;
+  if (surfaceView === "active") return center.active_grants.length;
+  return getEntriesForSurfaceView(center, actor, surfaceView).length;
 }
 
 function emptyStateCopy(actor: ConsentCenterActor, surfaceView: ConsentSurfaceView) {
@@ -567,8 +577,7 @@ export function ConsentCenterView({
           ria_profile_id: counterpartType === "ria" ? String(entry.counterpart_id) : undefined,
         });
         toast.success("Relationship disconnected", {
-          description:
-            "Live access was revoked immediately. Consent history stays visible for audit.",
+          description: "Access ended immediately. Consent history stays visible.",
         });
         await loadCenter({ force: true, silent: true });
       } catch (disconnectError) {
