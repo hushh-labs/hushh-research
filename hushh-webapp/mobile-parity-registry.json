@@ -16,7 +16,7 @@
     "consentsPage",
     "developersPage",
     "profilePage",
-    "pkmViewerPage",
+    "pkmRedirectPage",
     "pkmAgentLabPage",
     "marketplacePage",
     "marketplaceRiaProfilePage",
@@ -27,6 +27,7 @@
     "riaPicksPage",
     "riaWorkspacePage",
     "riaSettingsPage",
+    "portfolioSharedPage",
     "logoutPage",
     "legacyAnalysisRedirectPage"
   ],

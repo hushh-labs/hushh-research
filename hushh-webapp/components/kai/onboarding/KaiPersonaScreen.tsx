@@ -52,7 +52,10 @@ export function KaiPersonaScreen(props: {
   const icon = cfg.icon;
 
   return (
-    <main className="min-h-[100dvh] w-full bg-transparent flex flex-col px-8 pt-[calc(var(--top-shell-reserved-height,0px)+12px)] pb-[var(--app-screen-footer-pad)]">
+    <main
+      data-top-content-anchor="true"
+      className="min-h-[100dvh] w-full bg-transparent flex flex-col px-8 pt-[var(--app-fullscreen-flow-content-offset)] pb-[var(--app-screen-footer-pad)]"
+    >
       <div className="w-full max-w-md mx-auto flex-1 min-h-0 flex items-start sm:items-center">
         <section className="relative w-full py-4">
           <div className="relative z-10 space-y-6 text-left">

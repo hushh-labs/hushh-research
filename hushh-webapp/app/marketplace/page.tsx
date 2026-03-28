@@ -44,11 +44,11 @@ export default function MarketplacePage() {
       if (!user) return;
       try {
         const idToken = await user.getIdToken();
-        const nextClients = await RiaService.listClients(idToken).catch(
-          () => [] as RiaClientAccess[]
-        );
+        const nextClients = await RiaService.listClients(idToken, {
+          userId: user.uid,
+        }).catch(() => ({ items: [] as RiaClientAccess[], total: 0, page: 1, limit: 50, has_more: false }));
         if (!cancelled) {
-          setRelationships(nextClients);
+          setRelationships(nextClients.items);
         }
       } catch {
         if (!cancelled) {
@@ -125,8 +125,8 @@ export default function MarketplacePage() {
           },
         ],
       });
-      const nextClients = await RiaService.listClients(idToken);
-      setRelationships(nextClients);
+      const nextClients = await RiaService.listClients(idToken, { userId: user.uid });
+      setRelationships(nextClients.items);
     } finally {
       setActionLoadingUserId(null);
     }

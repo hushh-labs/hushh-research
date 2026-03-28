@@ -28,7 +28,9 @@ export class PostAuthRouteService {
 
     if (params.idToken && canOverrideWithPersona) {
       try {
-        const personaState = await RiaService.getPersonaState(params.idToken);
+        const personaState = await RiaService.getPersonaState(params.idToken, {
+          userId: params.userId,
+        });
         if (personaState.iam_schema_ready && personaState.active_persona === "ria") {
           return ROUTES.RIA_HOME;
         }

@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.middlewares.rate_limit import limiter
-from api.utils.firebase_admin import ensure_firebase_admin
+from api.utils.firebase_admin import ensure_firebase_admin, get_firebase_auth_app
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,10 @@ async def issue_app_review_mode_session(request: Request):
     try:
         from firebase_admin import auth as firebase_auth
 
-        custom_token = firebase_auth.create_custom_token(reviewer_uid)
+        custom_token = firebase_auth.create_custom_token(
+            reviewer_uid,
+            app=get_firebase_auth_app(),
+        )
         token_str = (
             custom_token.decode("utf-8") if isinstance(custom_token, bytes) else str(custom_token)
         )

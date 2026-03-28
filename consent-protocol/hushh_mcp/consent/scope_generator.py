@@ -350,6 +350,8 @@ class DynamicScopeGenerator:
         registry_rows = registry_result.data or []
 
         registry_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
+        enabled_top_levels_by_domain: dict[str, set[str]] = {}
+        all_top_levels_by_domain: dict[str, set[str]] = {}
         known_domains = set(index_domains)
         for row in manifest_rows:
             if not isinstance(row, dict):
@@ -374,14 +376,22 @@ class DynamicScopeGenerator:
                 summary_projection.get("top_level_scope_path")
             )
             if domain and top_level_path:
+                all_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
+                if row.get("exposure_enabled") is not False:
+                    enabled_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
                 registry_by_top_level[(domain, top_level_path)] = {
                     "registry_handle": str(row.get("scope_handle") or "").strip() or None,
                     "label": str(row.get("scope_label") or "").strip() or None,
                     "manifest_revision": row.get("manifest_version"),
                     "source_kind": "pkm_scope_registry",
+                    "exposure_enabled": row.get("exposure_enabled") is not False,
                 }
 
         for domain in sorted(known_domains):
+            domain_top_levels = all_top_levels_by_domain.get(domain, set())
+            enabled_top_levels = enabled_top_levels_by_domain.get(domain, set())
+            if domain_top_levels and enabled_top_levels != domain_top_levels:
+                continue
             _upsert_scope_entry(
                 {
                     "scope": self.generate_domain_wildcard(domain),
@@ -411,6 +421,8 @@ class DynamicScopeGenerator:
             ]
             for path in [path for path in top_level_paths if path]:
                 registry_meta = registry_by_top_level.get((domain, path), {})
+                if registry_meta.get("exposure_enabled") is False:
+                    continue
                 _upsert_scope_entry(
                     {
                         "scope": f"{self.SCOPE_PREFIX}{domain}.{path}{self.WILDCARD_SUFFIX}",
@@ -433,6 +445,8 @@ class DynamicScopeGenerator:
                 manifest_externalizable_paths.add((domain, path))
                 top_level = path.split(".", 1)[0]
                 registry_meta = registry_by_top_level.get((domain, top_level), {})
+                if registry_meta.get("exposure_enabled") is False:
+                    continue
                 _upsert_scope_entry(
                     {
                         "scope": self.generate_scope(domain, path),
@@ -460,6 +474,8 @@ class DynamicScopeGenerator:
                 continue
             top_level = path.split(".", 1)[0]
             registry_meta = registry_by_top_level.get((domain, top_level), {})
+            if registry_meta.get("exposure_enabled") is False:
+                continue
             _upsert_scope_entry(
                 {
                     "scope": self.generate_scope(domain, path),

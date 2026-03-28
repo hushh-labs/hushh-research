@@ -208,16 +208,9 @@ export function CacheProvider({ children }: CacheProviderProps) {
   );
 
   const getPersonalKnowledgeModelMetadata = useCallback(
-    (userId: string): PersonalKnowledgeModelMetadata | null => {
-      const cached = cache.get<PersonalKnowledgeModelMetadata>(
-        CACHE_KEYS.PKM_METADATA(userId)
-      );
-      if (cached && !pkmMetadata) {
-        setPersonalKnowledgeModelMetadataState(cached);
-      }
-      return cached;
-    },
-    [cache, pkmMetadata]
+    (userId: string): PersonalKnowledgeModelMetadata | null =>
+      cache.get<PersonalKnowledgeModelMetadata>(CACHE_KEYS.PKM_METADATA(userId)),
+    [cache]
   );
 
   // Portfolio Data
@@ -233,18 +226,10 @@ export function CacheProvider({ children }: CacheProviderProps) {
 
   const getPortfolioData = useCallback(
     (userId: string): PortfolioData | null => {
-      // Check CacheService (synchronous, always up-to-date)
-      const cached =
+      return (
         cache.get<PortfolioData>(CACHE_KEYS.PORTFOLIO_DATA(userId)) ??
-        cache.get<PortfolioData>(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
-
-      // Update React state if we found data (for reactivity in consuming components)
-      if (cached) {
-        // Keep canonical portfolio key fresh when data came from domain mirror.
-        cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), cached, CACHE_TTL.SESSION);
-        setPortfolioDataState(cached);
-      }
-      return cached;
+        cache.get<PortfolioData>(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))
+      );
     },
     [cache]
   );
@@ -259,14 +244,9 @@ export function CacheProvider({ children }: CacheProviderProps) {
   );
 
   const getVaultStatus = useCallback(
-    (userId: string): VaultStatus | null => {
-      const cached = cache.get<VaultStatus>(CACHE_KEYS.VAULT_STATUS(userId));
-      if (cached && !vaultStatus) {
-        setVaultStatusState(cached);
-      }
-      return cached;
-    },
-    [cache, vaultStatus]
+    (userId: string): VaultStatus | null =>
+      cache.get<VaultStatus>(CACHE_KEYS.VAULT_STATUS(userId)),
+    [cache]
   );
 
   // Active Consents
@@ -279,16 +259,9 @@ export function CacheProvider({ children }: CacheProviderProps) {
   );
 
   const getActiveConsents = useCallback(
-    (userId: string): ActiveConsent[] | null => {
-      const cached = cache.get<ActiveConsent[]>(
-        CACHE_KEYS.ACTIVE_CONSENTS(userId)
-      );
-      if (cached && activeConsents.length === 0) {
-        setActiveConsentsState(cached);
-      }
-      return cached;
-    },
-    [cache, activeConsents.length]
+    (userId: string): ActiveConsent[] | null =>
+      cache.get<ActiveConsent[]>(CACHE_KEYS.ACTIVE_CONSENTS(userId)),
+    [cache]
   );
 
   // Invalidation

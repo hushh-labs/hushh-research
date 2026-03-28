@@ -1,32 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-
+import { useEffect, useMemo, useState, type InputHTMLAttributes } from "react";
+import { useRouter } from "next/navigation";
 import {
-  RiaCompatibilityState,
-  RiaPageShell,
-  RiaStatusPanel,
-  RiaSurface,
-} from "@/components/ria/ria-page-shell";
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Loader2,
+  ShieldCheck,
+  ShieldQuestion,
+} from "lucide-react";
+
+import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader, SurfaceInset } from "@/components/app-ui/surfaces";
+import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { RiaCompatibilityState, RiaPageShell } from "@/components/ria/ria-page-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
+import { cn } from "@/lib/utils";
+import {
+  buildRiaOnboardingSteps,
+  canContinueRiaOnboardingStep,
+  getRequestedCapabilityLabels,
+  getRiaOnboardingStepIndex,
+  normalizeRiaOnboardingDraft,
+  resolveRiaOnboardingStepId,
+  type RiaCapability,
+  type RiaOnboardingDraft,
+  type RiaOnboardingStep,
+  type RiaOnboardingStepId,
+} from "@/lib/ria/ria-onboarding-flow";
+import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
+  type MarketplaceRia,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
 import { usePersonaState } from "@/lib/persona/persona-context";
-
-const STEPS = [
-  "Welcome",
-  "Identity",
-  "Credentials",
-  "Firm",
-  "Public Profile",
-  "Preferences",
-  "Activate",
-] as const;
 
 function formatVerificationStatus(
   status?: string | null,
@@ -51,133 +64,271 @@ function formatVerificationStatus(
   }
 }
 
-function verificationTone(status?: string | null): "neutral" | "warning" | "success" | "critical" {
-  switch (status) {
-    case "active":
-    case "verified":
-    case "bypassed":
-      return "success";
-    case "submitted":
-      return "warning";
-    case "rejected":
-      return "critical";
-    case "draft":
-    default:
-      return "neutral";
-  }
+function compactDate(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString();
 }
 
-const STEP_CONTEXT = [
-  {
-    decision: "Why should an investor trust this advisor shell at all?",
-    detail:
-      "Lead with verification and consent boundaries first. The product only earns access after the trust surface is clear.",
-  },
-  {
-    decision: "What name should an investor recognize immediately?",
-    detail:
-      "Use the professional identity clients already know. This name will carry into the marketplace, invite confirmation, and consent flow.",
-  },
-  {
-    decision: "Can the system verify this advisor against regulatory records?",
-    detail:
-      "Verification stays fail-closed. Advisory access is hard-gated on official IAPD verification, while broker capability follows a separate verification lane.",
-  },
-  {
-    decision: "What firm context helps investors place the advisor correctly?",
-    detail:
-      "Capture only the primary firm and role here. Additional memberships can be managed later without making onboarding feel like back-office data entry.",
-  },
-  {
-    decision: "What should an investor see before accepting an invite?",
-    detail:
-      "Keep the public profile brief, specific, and credible. This is the trust layer that appears before any consent request exists.",
-  },
-  {
-    decision: "How should Kai communicate once the advisor is live?",
-    detail:
-      "Choose a stable default. Avoid deep preference debt during onboarding and leave nuanced tuning for the operational settings surface.",
-  },
-  {
-    decision: "Is the advisor ready to enter the live RIA workspace?",
-    detail:
-      "Activation should confirm status, not ask for more work. Once submitted, the next step is client acquisition and consent management.",
-  },
-] as const;
+const FALLBACK_STEP: RiaOnboardingStep = {
+  id: "capabilities",
+  eyebrow: "Capability",
+  title: "Which professional lane are you activating first?",
+  description:
+    "Choose the trust lane Kai should verify. Advisory unlocks the current RIA workflow. Brokerage stays tracked separately.",
+};
+
+function draftFromStatus(
+  status: RiaOnboardingStatus | null,
+  publicProfile: MarketplaceRia | null
+): Partial<RiaOnboardingDraft> {
+  const requestedCapabilities = Array.isArray(status?.requested_capabilities)
+    ? (status?.requested_capabilities.filter(
+        (value): value is RiaCapability => value === "advisory" || value === "brokerage"
+      ) as RiaCapability[])
+    : [];
+
+  return {
+    requestedCapabilities,
+    displayName: status?.display_name || "",
+    individualLegalName: status?.individual_legal_name || status?.legal_name || "",
+    individualCrd: status?.individual_crd || status?.finra_crd || "",
+    advisoryFirmName: status?.advisory_firm_legal_name || "",
+    advisoryFirmIapdNumber: status?.advisory_firm_iapd_number || status?.sec_iard || "",
+    brokerFirmName: status?.broker_firm_legal_name || "",
+    brokerFirmCrd: status?.broker_firm_crd || "",
+    headline: publicProfile?.headline || "",
+    strategySummary: publicProfile?.strategy_summary || "",
+  };
+}
+
+function buildSubmitPayload(draft: RiaOnboardingDraft) {
+  const advisoryEnabled = draft.requestedCapabilities.includes("advisory");
+  const brokerageEnabled = draft.requestedCapabilities.includes("brokerage");
+
+  return {
+    display_name: draft.displayName.trim(),
+    requested_capabilities: draft.requestedCapabilities,
+    individual_legal_name: draft.individualLegalName.trim() || undefined,
+    individual_crd: draft.individualCrd.trim() || undefined,
+    advisory_firm_legal_name: advisoryEnabled ? draft.advisoryFirmName.trim() || undefined : undefined,
+    advisory_firm_iapd_number:
+      advisoryEnabled ? draft.advisoryFirmIapdNumber.trim() || undefined : undefined,
+    broker_firm_legal_name: brokerageEnabled ? draft.brokerFirmName.trim() || undefined : undefined,
+    broker_firm_crd: brokerageEnabled ? draft.brokerFirmCrd.trim() || undefined : undefined,
+    strategy: draft.strategySummary.trim() || undefined,
+  };
+}
+
+function latestVerificationCopy(status: RiaOnboardingStatus | null): string {
+  const latest = status?.latest_advisory_event || status?.latest_verification_event;
+  if (!latest) return "Verification starts after you submit this trust profile.";
+  const outcome = latest.outcome || "latest check";
+  const checkedAt = compactDate(latest.checked_at);
+  return checkedAt ? `${outcome} on ${checkedAt}` : outcome;
+}
+
+function StepChoice({
+  active,
+  label,
+  description,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full rounded-[24px] border px-4 py-4 text-left transition-colors",
+        active
+          ? "border-foreground/15 bg-foreground text-background shadow-[0_18px_36px_rgba(15,23,42,0.12)]"
+          : "border-border/70 bg-background/75 hover:border-border hover:bg-background"
+      )}
+    >
+      <div className="space-y-1">
+        <p className={cn("text-sm font-semibold", active ? "text-background" : "text-foreground")}>
+          {label}
+        </p>
+        <p className={cn("text-sm leading-6", active ? "text-background/78" : "text-muted-foreground")}>
+          {description}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+function TextField({
+  label,
+  placeholder,
+  value,
+  onChange,
+  inputMode,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
+}) {
+  return (
+    <label className="space-y-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        inputMode={inputMode}
+        className="min-h-12 w-full rounded-[22px] border border-border/70 bg-background/90 px-4 text-sm outline-none transition-[border-color,box-shadow] focus:border-foreground/30 focus:shadow-[0_0_0_4px_rgba(15,23,42,0.06)]"
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function TextAreaField({
+  label,
+  placeholder,
+  value,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="space-y-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+        {label}
+      </span>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-28 w-full resize-none rounded-[22px] border border-border/70 bg-background/90 px-4 py-3 text-sm leading-6 outline-none transition-[border-color,box-shadow] focus:border-foreground/30 focus:shadow-[0_0_0_4px_rgba(15,23,42,0.06)]"
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function ReviewField({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="text-sm font-medium text-foreground">{value}</p>
+      {helper ? <p className="text-sm text-muted-foreground">{helper}</p> : null}
+    </div>
+  );
+}
 
 export default function RiaOnboardingPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { devRiaBypassAllowed, refresh: refreshPersonaState } = usePersonaState();
-  const [step, setStep] = useState(0);
-  const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [iamUnavailable, setIamUnavailable] = useState(false);
 
-  const [displayName, setDisplayName] = useState("");
-  const [requestAdvisory, setRequestAdvisory] = useState(true);
-  const [individualLegalName, setIndividualLegalName] = useState("");
-  const [individualCrd, setIndividualCrd] = useState("");
-  const [advisoryFirmIapdNumber, setAdvisoryFirmIapdNumber] = useState("");
-  const [advisoryFirmName, setAdvisoryFirmName] = useState("");
-  const [brokerFirmName, setBrokerFirmName] = useState("");
-  const [brokerFirmCrd, setBrokerFirmCrd] = useState("");
-  const [requestBrokerage, setRequestBrokerage] = useState(false);
-  const [firmRole, setFirmRole] = useState("");
-  const [bio, setBio] = useState("");
-  const [strategy, setStrategy] = useState("");
-  const [disclosuresUrl, setDisclosuresUrl] = useState("");
-  const [headline, setHeadline] = useState("");
-  const [communicationStyle, setCommunicationStyle] = useState("balanced");
-  const [alertCadence, setAlertCadence] = useState("daily_digest");
+  const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
+  const [draft, setDraft] = useState<RiaOnboardingDraft>(
+    normalizeRiaOnboardingDraft(undefined)
+  );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [iamUnavailable, setIamUnavailable] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const [shouldPersistDraft, setShouldPersistDraft] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadStatus() {
+    async function loadState() {
       if (!user) {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setDraftReady(true);
+          setShouldPersistDraft(false);
+        }
         return;
       }
 
+      setLoading(true);
+      setError(null);
+      setIamUnavailable(false);
       try {
-        setLoading(true);
-        setIamUnavailable(false);
         const idToken = await user.getIdToken();
-        const next = await RiaService.getOnboardingStatus(idToken);
+        const localDraft = await RiaOnboardingDraftLocalService.load(user.uid);
+        const nextStatus = await RiaService.getOnboardingStatus(idToken, {
+          userId: user.uid,
+        });
+        const publicProfile = nextStatus?.ria_profile_id
+          ? await RiaService.getRiaPublicProfile(nextStatus.ria_profile_id).catch(() => null)
+          : null;
         if (cancelled) return;
-        setStatus(next);
-        const requestedCapabilities = next.requested_capabilities || ["advisory"];
-        setDisplayName(next.display_name || "");
-        setRequestAdvisory(
-          requestedCapabilities.length === 0 || requestedCapabilities.includes("advisory")
-        );
-        setIndividualLegalName(next.individual_legal_name || next.legal_name || "");
-        setIndividualCrd(next.individual_crd || next.finra_crd || "");
-        setAdvisoryFirmIapdNumber(next.advisory_firm_iapd_number || next.sec_iard || "");
-        setAdvisoryFirmName(next.advisory_firm_legal_name || "");
-        setBrokerFirmName(next.broker_firm_legal_name || "");
-        setBrokerFirmCrd(next.broker_firm_crd || "");
-        setRequestBrokerage(requestedCapabilities.includes("brokerage"));
+
+        const seeded = normalizeRiaOnboardingDraft({
+          ...draftFromStatus(nextStatus, publicProfile),
+          ...localDraft,
+        });
+        const currentStepId = resolveRiaOnboardingStepId(seeded, localDraft?.currentStepId);
+
+        setStatus(nextStatus);
+        setDraft({ ...seeded, currentStepId });
+        setShouldPersistDraft(true);
       } catch (loadError) {
         if (!cancelled) {
-          setStatus(null);
-          setIamUnavailable(isIAMSchemaNotReadyError(loadError));
+          if (isIAMSchemaNotReadyError(loadError)) {
+            setIamUnavailable(true);
+          } else {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Failed to load RIA onboarding."
+            );
+          }
         }
       } finally {
         if (!cancelled) {
           setLoading(false);
+          setDraftReady(true);
         }
       }
     }
 
-    void loadStatus();
+    void loadState();
     return () => {
       cancelled = true;
     };
   }, [user]);
 
+  useEffect(() => {
+    if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
+    void RiaOnboardingDraftLocalService.save(user.uid, draft);
+  }, [draft, draftReady, iamUnavailable, shouldPersistDraft, user]);
+
+  const steps = useMemo(() => buildRiaOnboardingSteps(draft), [draft]);
+  const currentStepIndex = useMemo(
+    () => getRiaOnboardingStepIndex(draft, draft.currentStepId),
+    [draft]
+  );
+  const currentStep = steps[currentStepIndex] ?? steps[0] ?? FALLBACK_STEP;
+  const canContinue = canContinueRiaOnboardingStep(currentStep.id, draft);
   const advisoryVerificationStatus = status?.advisory_status || status?.verification_status || "draft";
   const brokerageVerificationStatus = status?.brokerage_status || "draft";
   const advisoryAccessReady =
@@ -188,670 +339,527 @@ export default function RiaOnboardingPage() {
     brokerageVerificationStatus === "active" ||
     brokerageVerificationStatus === "verified" ||
     brokerageVerificationStatus === "bypassed";
-  const requestedCapabilities = [
-    requestAdvisory ? "advisory" : null,
-    requestBrokerage ? "brokerage" : null,
-  ].filter((value): value is string => Boolean(value));
-  const canProceed = useMemo(() => {
-    if (step === 1) return Boolean(displayName.trim() && (requestAdvisory || requestBrokerage));
-    if (step === 2) return Boolean(individualLegalName.trim() && individualCrd.trim());
-    if (step === 3) {
-      if (!requestAdvisory && !requestBrokerage) return false;
-      if (requestAdvisory && (!advisoryFirmName.trim() || !advisoryFirmIapdNumber.trim())) {
-        return false;
-      }
-      if (requestBrokerage && (!brokerFirmName.trim() || !brokerFirmCrd.trim())) return false;
-      return true;
-    }
-    if (step === 4) return Boolean(strategy.trim() || bio.trim() || headline.trim());
-    return true;
-  }, [
-    advisoryFirmIapdNumber,
-    advisoryFirmName,
-    bio,
-    brokerFirmCrd,
-    brokerFirmName,
-    displayName,
-    headline,
-    individualCrd,
-    individualLegalName,
-    requestAdvisory,
-    requestBrokerage,
-    step,
-    strategy,
-  ]);
-  const currentStepContext = STEP_CONTEXT[step] ?? STEP_CONTEXT[0];
-  const verificationLabel = formatVerificationStatus(advisoryVerificationStatus, loading);
-  const verificationHelper = status?.latest_advisory_event || status?.latest_verification_event
-    ? `${(status?.latest_advisory_event || status?.latest_verification_event)?.outcome} • ${new Date((status?.latest_advisory_event || status?.latest_verification_event)!.checked_at).toLocaleDateString()}`
-    : advisoryVerificationStatus === "draft" || !advisoryVerificationStatus
-      ? "Verification starts after activation"
-      : "Verification updates appear here first";
-  const nextUnlock =
-    advisoryAccessReady
-      ? "RIA workspace available"
-      : brokerageAccessReady
-        ? "Broker capability verified"
-      : step === STEPS.length - 1
-        ? "Waiting on verification"
-        : "Complete onboarding to submit";
+  const capabilityLabels = getRequestedCapabilityLabels(draft);
+  const progressValue = Math.round(((currentStepIndex + 1) / Math.max(steps.length, 1)) * 100);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function updateDraft(patch: Partial<RiaOnboardingDraft>) {
+    setNotice(null);
+    setError(null);
+    setShouldPersistDraft(true);
+    setDraft((current) => {
+      const next = normalizeRiaOnboardingDraft({
+        ...current,
+        ...patch,
+      });
+      return {
+        ...next,
+        currentStepId: resolveRiaOnboardingStepId(next, next.currentStepId),
+      };
+    });
+  }
+
+  function moveToStep(stepId: RiaOnboardingStepId) {
+    setDraft((current) => ({
+      ...current,
+      currentStepId: resolveRiaOnboardingStepId(current, stepId),
+    }));
+  }
+
+  function handleBack() {
+    if (saving || currentStepIndex <= 0) return;
+    moveToStep(steps[currentStepIndex - 1]?.id ?? steps[0]?.id ?? FALLBACK_STEP.id);
+  }
+
+  function handleContinue() {
+    if (!canContinue || saving) return;
+    if (currentStep.id === "review") {
+      void handleSubmit();
+      return;
+    }
+    moveToStep(steps[currentStepIndex + 1]?.id ?? currentStep.id);
+  }
+
+  async function finalizeSubmission(mode: "submit" | "dev_activate") {
     if (!user) return;
 
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const idToken = await user.getIdToken();
-      const result = await RiaService.submitOnboarding(idToken, {
-        display_name: displayName,
-        requested_capabilities: requestedCapabilities,
-        individual_legal_name: individualLegalName || undefined,
-        individual_crd: individualCrd || undefined,
-        advisory_firm_legal_name: advisoryFirmName || undefined,
-        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
-        broker_firm_legal_name: brokerFirmName || undefined,
-        broker_firm_crd: brokerFirmCrd || undefined,
-        bio: bio || undefined,
-        strategy: strategy || undefined,
-        disclosures_url: disclosuresUrl || undefined,
-        primary_firm_role: firmRole || undefined,
-      });
+      const payload = buildSubmitPayload(draft);
+      const result =
+        mode === "submit"
+          ? await RiaService.submitOnboarding(idToken, payload)
+          : await RiaService.activateDevRia(idToken, payload);
+
       setStatus((current) => ({
         ...(current || { exists: true }),
-        display_name: displayName,
+        display_name: draft.displayName.trim(),
         requested_capabilities: result.requested_capabilities,
-        individual_legal_name: individualLegalName || undefined,
-        individual_crd: individualCrd || undefined,
-        advisory_firm_legal_name: advisoryFirmName || undefined,
-        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
-        broker_firm_legal_name: brokerFirmName || undefined,
-        broker_firm_crd: brokerFirmCrd || undefined,
+        individual_legal_name: draft.individualLegalName.trim() || undefined,
+        individual_crd: draft.individualCrd.trim() || undefined,
+        advisory_firm_legal_name: draft.advisoryFirmName.trim() || undefined,
+        advisory_firm_iapd_number: draft.advisoryFirmIapdNumber.trim() || undefined,
+        broker_firm_legal_name: draft.brokerFirmName.trim() || undefined,
+        broker_firm_crd: draft.brokerFirmCrd.trim() || undefined,
         verification_status: result.verification_status,
         advisory_status: result.advisory_status,
         brokerage_status: result.brokerage_status,
+        dev_ria_bypass_allowed: mode === "dev_activate" ? true : current?.dev_ria_bypass_allowed,
       }));
 
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
         enabled: true,
-        headline: headline || undefined,
-        strategy_summary: strategy || undefined,
+        headline: draft.headline.trim() || undefined,
+        strategy_summary: draft.strategySummary.trim() || undefined,
       }).catch(() => null);
       await refreshPersonaState({ force: true });
+      await RiaOnboardingDraftLocalService.clear(user.uid);
+      setShouldPersistDraft(false);
 
-      setStep(STEPS.length - 1);
+      setNotice(
+        mode === "dev_activate"
+          ? "Developer activation completed. The RIA workspace is ready in this environment."
+          : "Onboarding submitted. Kai will keep the verification lane fail-closed until trust clears."
+      );
+      moveToStep("review");
     } catch (submitError) {
       if (isIAMSchemaNotReadyError(submitError)) {
         setIamUnavailable(true);
       }
-      setError(submitError instanceof Error ? submitError.message : "Failed to submit onboarding");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function onDevActivate() {
-    if (!user) return;
-
-    setSaving(true);
-    setError(null);
-    try {
-      const idToken = await user.getIdToken();
-      const result = await RiaService.activateDevRia(idToken, {
-        display_name:
-          displayName || individualLegalName || user.displayName || user.email || "RIA User",
-        requested_capabilities: requestedCapabilities,
-        individual_legal_name: individualLegalName || undefined,
-        individual_crd: individualCrd || undefined,
-        advisory_firm_legal_name: advisoryFirmName || undefined,
-        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
-        broker_firm_legal_name: brokerFirmName || undefined,
-        broker_firm_crd: brokerFirmCrd || undefined,
-        bio: bio || undefined,
-        strategy: strategy || undefined,
-        disclosures_url: disclosuresUrl || undefined,
-        primary_firm_role: firmRole || undefined,
-      });
-      setStatus((current) => ({
-        ...(current || { exists: true }),
-        display_name:
-          displayName || individualLegalName || user.displayName || user.email || "RIA User",
-        requested_capabilities: result.requested_capabilities,
-        individual_legal_name: individualLegalName || undefined,
-        individual_crd: individualCrd || undefined,
-        advisory_firm_legal_name: advisoryFirmName || undefined,
-        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
-        broker_firm_legal_name: brokerFirmName || undefined,
-        broker_firm_crd: brokerFirmCrd || undefined,
-        verification_status: result.verification_status,
-        advisory_status: result.advisory_status,
-        brokerage_status: result.brokerage_status,
-        dev_ria_bypass_allowed: true,
-      }));
-
-      await RiaService.setRiaMarketplaceDiscoverability(idToken, {
-        enabled: true,
-        headline: headline || undefined,
-        strategy_summary: strategy || undefined,
-      }).catch(() => null);
-      await refreshPersonaState({ force: true });
-      setStep(STEPS.length - 1);
-    } catch (activateError) {
-      if (isIAMSchemaNotReadyError(activateError)) {
-        setIamUnavailable(true);
-      }
       setError(
-        activateError instanceof Error ? activateError.message : "Failed to activate dev RIA"
+        submitError instanceof Error ? submitError.message : "Failed to submit onboarding."
       );
     } finally {
       setSaving(false);
     }
   }
 
-  function renderStep() {
-    switch (step) {
-      case 0:
-        return (
-          <RiaSurface className="bg-gradient-to-br from-primary/10 via-card/95 to-card/88">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-              Verified advisory activation
-            </p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
-              Build trust before you ask for data
-            </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              This onboarding keeps the compliance-heavy work focused and short: identity,
-              credentials, firm context, public profile, then activation. Verification stays
-              fail-closed the whole time.
-            </p>
-          </RiaSurface>
-        );
-      case 1:
-        return (
-          <RiaSurface>
-            <h2 className="text-xl font-semibold text-foreground">Identity</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Start with the professional name clients should recognize immediately.
-            </p>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="space-y-3 rounded-3xl border border-border bg-background/80 p-4 md:col-span-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Requested capabilities
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setRequestAdvisory((current) => !current || !requestBrokerage)}
-                    className={`min-h-11 rounded-full px-4 text-sm font-medium ${
-                      requestAdvisory
-                        ? "bg-foreground text-background"
-                        : "border border-border bg-background text-foreground"
-                    }`}
-                  >
-                    Advisory
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRequestBrokerage((current) => !current || !requestAdvisory)}
-                    className={`min-h-11 rounded-full px-4 text-sm font-medium ${
-                      requestBrokerage
-                        ? "bg-foreground text-background"
-                        : "border border-border bg-background text-foreground"
-                    }`}
-                  >
-                    Brokerage
-                  </button>
-                </div>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Advisory unlocks the current RIA workspace after IAPD verification. Brokerage is
-                  tracked separately and does not imply advisory approval.
-                </p>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Display name
-                </span>
-                <input
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="Manish Sainani"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Individual legal name
-                </span>
-                <input
-                  value={individualLegalName}
-                  onChange={(event) => setIndividualLegalName(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="Full legal adviser or broker name"
-                />
-              </label>
-            </div>
-          </RiaSurface>
-        );
-      case 2:
-        return (
-          <RiaSurface>
-            <h2 className="text-xl font-semibold text-foreground">Credentials</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Both capability lanes rely on the individual legal name and the official CRD used for
-              regulator matching. Advisory also requires the adviser firm IAPD record in the next
-              step.
-            </p>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Individual CRD
-                </span>
-                <input
-                  value={individualCrd}
-                  onChange={(event) => setIndividualCrd(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="CRD number"
-                />
-              </label>
-            </div>
-            <p className="mt-4 text-xs text-muted-foreground">
-              We require the professional legal name and CRD before any advisory or brokerage
-              verification can start.
-            </p>
-          </RiaSurface>
-        );
-      case 3:
-        return (
-          <RiaSurface>
-            <h2 className="text-xl font-semibold text-foreground">Firm</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Capture the official firm records for each requested capability. Advisory uses the
-              IAPD/IARD firm number. Brokerage uses the broker-dealer firm CRD.
-            </p>
-            <div className="mt-5 space-y-6">
-              {requestAdvisory ? (
-                <div className="grid gap-4 rounded-3xl border border-border bg-background/80 p-4 md:grid-cols-2">
-                  <div className="md:col-span-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                      Advisory firm
-                    </p>
-                  </div>
-                  <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Firm legal name
-                    </span>
-                    <input
-                      value={advisoryFirmName}
-                      onChange={(event) => setAdvisoryFirmName(event.target.value)}
-                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                      placeholder="Registered advisory firm name"
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Firm IAPD number
-                    </span>
-                    <input
-                      value={advisoryFirmIapdNumber}
-                      onChange={(event) => setAdvisoryFirmIapdNumber(event.target.value)}
-                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                      placeholder="IAPD / IARD number"
-                    />
-                  </label>
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Role title
-                    </span>
-                    <input
-                      value={firmRole}
-                      onChange={(event) => setFirmRole(event.target.value)}
-                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                      placeholder="Founding advisor, partner, CIO..."
-                    />
-                  </label>
-                </div>
-              ) : null}
+  async function handleSubmit() {
+    if (advisoryAccessReady) {
+      router.push(ROUTES.RIA_HOME);
+      return;
+    }
+    await finalizeSubmission("submit");
+  }
 
-              {requestBrokerage ? (
-                <div className="grid gap-4 rounded-3xl border border-border bg-background/80 p-4 md:grid-cols-2">
-                  <div className="md:col-span-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                      Broker firm
-                    </p>
-                  </div>
-                  <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Firm legal name
-                    </span>
-                    <input
-                      value={brokerFirmName}
-                      onChange={(event) => setBrokerFirmName(event.target.value)}
-                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                      placeholder="Registered broker-dealer name"
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Firm CRD
-                    </span>
-                    <input
-                      value={brokerFirmCrd}
-                      onChange={(event) => setBrokerFirmCrd(event.target.value)}
-                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                      placeholder="Broker-dealer firm CRD"
-                    />
-                  </label>
-                </div>
-              ) : null}
-            </div>
-          </RiaSurface>
-        );
-      case 4:
+  async function handleDevActivate() {
+    await finalizeSubmission("dev_activate");
+  }
+
+  function renderQuestion(step: RiaOnboardingStep) {
+    switch (step.id) {
+      case "capabilities":
         return (
-          <RiaSurface>
-            <h2 className="text-xl font-semibold text-foreground">Public profile</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              This becomes the trust layer on marketplace cards and invite confirmations.
-            </p>
-            <div className="mt-5 space-y-4">
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Headline
-                </span>
-                <input
-                  value={headline}
-                  onChange={(event) => setHeadline(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="Tax-aware wealth planning for cross-border founders"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Advisory strategy
-                </span>
-                <textarea
-                  value={strategy}
-                  onChange={(event) => setStrategy(event.target.value)}
-                  className="min-h-28 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
-                  placeholder="What clients should understand about your style and specialization"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Bio
-                </span>
-                <textarea
-                  value={bio}
-                  onChange={(event) => setBio(event.target.value)}
-                  className="min-h-24 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
-                  placeholder="Professional background and client promise"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Disclosures URL
-                </span>
-                <input
-                  value={disclosuresUrl}
-                  onChange={(event) => setDisclosuresUrl(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="https://..."
-                />
-              </label>
+          <div className="space-y-4">
+            <div className="grid gap-3">
+              <StepChoice
+                active={draft.requestedCapabilities.includes("advisory")}
+                label="Advisory"
+                description="Unlock the current RIA workflow once IAPD verification passes."
+                onClick={() => {
+                  const next: RiaCapability[] = draft.requestedCapabilities.includes("advisory")
+                    ? draft.requestedCapabilities.filter((value) => value !== "advisory")
+                    : [...draft.requestedCapabilities, "advisory"];
+                  updateDraft({ requestedCapabilities: next.length > 0 ? next : ["advisory"] });
+                }}
+              />
+              <StepChoice
+                active={draft.requestedCapabilities.includes("brokerage")}
+                label="Brokerage"
+                description="Track broker capability separately without implying advisory approval."
+                onClick={() => {
+                  const next: RiaCapability[] = draft.requestedCapabilities.includes("brokerage")
+                    ? draft.requestedCapabilities.filter((value) => value !== "brokerage")
+                    : [...draft.requestedCapabilities, "brokerage"];
+                  updateDraft({ requestedCapabilities: next.length > 0 ? next : ["advisory"] });
+                }}
+              />
             </div>
-          </RiaSurface>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Start with the lane that matters first. Kai will only surface the workflow once the
+              relevant verification clears.
+            </p>
+          </div>
         );
-      case 5:
+      case "display_name":
         return (
-          <RiaSurface>
-            <h2 className="text-xl font-semibold text-foreground">Preferences</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Keep this simple. The first version optimizes for clarity and operational cadence, not
-              deep configuration debt.
+          <div className="space-y-4">
+            <TextField
+              label="Display name"
+              placeholder="Manish Sainani"
+              value={draft.displayName}
+              onChange={(value) => updateDraft({ displayName: value })}
+            />
+            <p className="text-sm leading-6 text-muted-foreground">
+              Investors should recognize this name immediately on discovery cards, relationship
+              requests, and consent prompts.
             </p>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Communication style
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {["concise", "balanced", "detailed"].map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setCommunicationStyle(option)}
-                      className={`min-h-11 rounded-full px-4 text-sm font-medium ${
-                        communicationStyle === option
-                          ? "bg-foreground text-background"
-                          : "border border-border bg-background text-foreground"
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Alert cadence
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {["live", "daily_digest", "weekly"].map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setAlertCadence(option)}
-                      className={`min-h-11 rounded-full px-4 text-sm font-medium ${
-                        alertCadence === option
-                          ? "bg-foreground text-background"
-                          : "border border-border bg-background text-foreground"
-                      }`}
-                    >
-                      {option.replace("_", " ")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </RiaSurface>
+          </div>
         );
-      default:
+      case "legal_identity":
         return (
-          <RiaSurface className="bg-gradient-to-br from-primary/10 via-card/95 to-card/88">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-              Activation state
-            </p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
-              {advisoryAccessReady
-                ? "Verification passed. Advisory workspace is ready."
-                : brokerageAccessReady
-                  ? "Broker capability verified. Advisory workspace is still gated."
-                  : "Onboarding submitted. Verification is in progress."}
-            </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Communication style is set to <strong>{communicationStyle}</strong> and cadence to{" "}
-              <strong>{alertCadence.replace("_", " ")}</strong>. Public profile data is staged, and
-              discoverability only turns on after the advisory lane reaches a trusted state.
-            </p>
-            {advisoryAccessReady ? (
-              <div className="mt-5 flex flex-wrap gap-3">
-                <Link
-                  href={ROUTES.RIA_HOME}
-                  className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background"
-                >
-                  Open RIA Home
-                </Link>
-                <Link
-                  href={ROUTES.RIA_CLIENTS}
-                  className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background/60 px-4 text-sm font-medium text-foreground"
-                >
-                  Open Clients
-                </Link>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField
+              label="Individual legal name"
+              placeholder="Full legal adviser or broker name"
+              value={draft.individualLegalName}
+              onChange={(value) => updateDraft({ individualLegalName: value })}
+            />
+            <TextField
+              label="Individual CRD"
+              placeholder="CRD number"
+              value={draft.individualCrd}
+              inputMode="numeric"
+              onChange={(value) => updateDraft({ individualCrd: value })}
+            />
+          </div>
+        );
+      case "advisory_firm":
+        return (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField
+              label="Advisory firm name"
+              placeholder="Registered advisory firm name"
+              value={draft.advisoryFirmName}
+              onChange={(value) => updateDraft({ advisoryFirmName: value })}
+            />
+            <TextField
+              label="Firm IAPD / IARD"
+              placeholder="IAPD / IARD number"
+              value={draft.advisoryFirmIapdNumber}
+              inputMode="numeric"
+              onChange={(value) => updateDraft({ advisoryFirmIapdNumber: value })}
+            />
+          </div>
+        );
+      case "broker_firm":
+        return (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField
+              label="Broker firm name"
+              placeholder="Registered broker-dealer name"
+              value={draft.brokerFirmName}
+              onChange={(value) => updateDraft({ brokerFirmName: value })}
+            />
+            <TextField
+              label="Firm CRD"
+              placeholder="Broker-dealer firm CRD"
+              value={draft.brokerFirmCrd}
+              inputMode="numeric"
+              onChange={(value) => updateDraft({ brokerFirmCrd: value })}
+            />
+          </div>
+        );
+      case "public_profile":
+        return (
+          <div className="space-y-4">
+            <TextField
+              label="Headline"
+              placeholder="Tax-aware wealth planning for cross-border founders"
+              value={draft.headline}
+              onChange={(value) => updateDraft({ headline: value })}
+            />
+            <TextAreaField
+              label="Short strategy summary"
+              placeholder="Describe the style and specialization investors should understand in one calm, credible paragraph."
+              value={draft.strategySummary}
+              onChange={(value) => updateDraft({ strategySummary: value })}
+            />
+          </div>
+        );
+      case "review":
+        return (
+          <div className="space-y-5">
+            {notice ? (
+              <div className="rounded-[24px] border border-emerald-500/20 bg-emerald-500/8 px-4 py-4 text-sm text-foreground">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                  <p className="leading-6">{notice}</p>
+                </div>
               </div>
             ) : null}
-          </RiaSurface>
+
+            <SettingsGroup
+              embedded
+              eyebrow="Capabilities"
+              title="The professional lanes Kai will activate"
+            >
+              <SettingsRow
+                title={capabilityLabels.length > 0 ? capabilityLabels.join(" + ") : "None selected"}
+                description="Advisory unlocks the current workspace. Brokerage remains a separate trust lane."
+              />
+            </SettingsGroup>
+
+            <SettingsGroup
+              embedded
+              eyebrow="Verification"
+              title="Regulatory identity Kai will verify"
+            >
+              <SettingsRow
+                title={draft.displayName.trim() || "Display name missing"}
+                description="Investor-facing professional identity"
+              />
+              <SettingsRow
+                title={draft.individualLegalName.trim() || "Legal name missing"}
+                description={`CRD ${draft.individualCrd.trim() || "not provided yet"}`}
+              />
+              {draft.requestedCapabilities.includes("advisory") ? (
+                <SettingsRow
+                  title={draft.advisoryFirmName.trim() || "Advisory firm missing"}
+                  description={`IAPD / IARD ${draft.advisoryFirmIapdNumber.trim() || "not provided yet"}`}
+                />
+              ) : null}
+              {draft.requestedCapabilities.includes("brokerage") ? (
+                <SettingsRow
+                  title={draft.brokerFirmName.trim() || "Broker firm missing"}
+                  description={`Firm CRD ${draft.brokerFirmCrd.trim() || "not provided yet"}`}
+                />
+              ) : null}
+            </SettingsGroup>
+
+            <SettingsGroup
+              embedded
+              eyebrow="Trust Surface"
+              title="What investors will see first"
+            >
+              <SettingsRow
+                title={draft.headline.trim() || "Headline still missing"}
+                description="Marketplace and invite headline"
+              />
+              <SettingsRow
+                title={draft.strategySummary.trim() || "Short strategy summary still missing"}
+                description="A short, credible summary is enough for onboarding v1."
+              />
+            </SettingsGroup>
+
+            {advisoryAccessReady ? (
+              <div className="rounded-[24px] border border-foreground/10 bg-foreground text-background px-4 py-4">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="mt-0.5 h-4 w-4" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">Verification passed. Your RIA workspace is ready.</p>
+                    <p className="text-sm text-background/78">
+                      The trust surface is active, and you can move into relationship building and consent flows.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Link
+                        href={ROUTES.RIA_HOME}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full bg-background px-4 text-sm font-medium text-foreground"
+                      >
+                        Open RIA Home
+                      </Link>
+                      <Link
+                        href={ROUTES.RIA_CLIENTS}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full border border-background/20 px-4 text-sm font-medium text-background"
+                      >
+                        Open Clients
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
         );
+      default:
+        return null;
     }
   }
 
   return (
     <RiaPageShell
       eyebrow="Professional Onboarding"
-      title="Verify the licensed professional before unlocking the workflow"
-      description="Progressive disclosure keeps onboarding short: identity, regulatory records, firm context, and the public trust surface clients will actually see."
-      statusPanel={
-        iamUnavailable ? null : (
-          <RiaStatusPanel
-            title="Verification state is the primary control point"
-            description="Keep the regulatory status visible while the form moves forward. Investors should never feel that trust state is hidden below the fold."
-            items={[
-              {
-                label: "Verification",
-                value: verificationLabel,
-                helper: verificationHelper,
-                tone: verificationTone(advisoryVerificationStatus),
-              },
-              ...(requestBrokerage
-                ? [
-                    {
-                      label: "Brokerage",
-                      value: formatVerificationStatus(
-                        brokerageVerificationStatus,
-                        false,
-                        "brokerage"
-                      ),
-                      helper:
-                        brokerageAccessReady
-                          ? "Broker capability cleared its separate verification lane."
-                          : "Broker capability remains isolated from advisory access.",
-                      tone: verificationTone(brokerageVerificationStatus),
-                    },
-                  ]
-                : []),
-              {
-                label: "Capabilities",
-                value:
-                  requestedCapabilities.length > 0
-                    ? requestedCapabilities.join(" + ")
-                    : "None selected",
-                helper: "Advisory unlocks the current workspace. Brokerage stays separate.",
-                tone: "neutral",
-              },
-              {
-                label: "Step",
-                value: `${step + 1} / ${STEPS.length}`,
-                helper: STEPS[step],
-                tone: "neutral",
-              },
-              {
-                label: "Next unlock",
-                value: nextUnlock,
-                helper:
-                  advisoryAccessReady
-                    ? "Marketplace and client acquisition are available"
-                    : brokerageAccessReady
-                      ? "Broker evidence is stored, but advisory workflows stay gated"
-                    : "Requests stay gated until trusted status is reached",
-                tone:
-                  advisoryAccessReady
-                    ? "success"
-                    : "warning",
-              },
-              {
-                label: "Profile identity",
-                value: displayName || individualLegalName || user?.displayName || "Not set",
-                helper: "This name appears in invites and public discovery",
-                tone: "neutral",
-              },
-            ]}
-            actions={
-              advisoryAccessReady ? (
-                <Link
-                  href={ROUTES.RIA_HOME}
-                  className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background"
-                >
-                  Open RIA Home
-                </Link>
-              ) : null
-            }
-          />
-        )
-      }
+      title="Build the advisor trust surface before Kai unlocks the workflow"
+      description="A calmer onboarding interview for trust-critical identity, verification records, and the short public profile investors see first."
     >
       {iamUnavailable ? (
         <RiaCompatibilityState
           title="RIA onboarding is unavailable in this environment"
-          description="The app is currently connected to an IAM-incomplete database. The UI is ready, but backend activation still requires the IAM migrations and verification tables."
+          description="The UI is ready, but backend activation still requires the IAM migrations and verification tables."
         />
       ) : null}
 
-      <RiaSurface className="flex flex-wrap items-center gap-3">
-        {STEPS.map((label, index) => (
-          <div
-            key={label}
-            className={`flex min-h-11 items-center rounded-full px-4 text-sm font-medium ${
-              index === step
-                ? "bg-foreground text-background"
-                : index < step
-                  ? "border border-primary/20 bg-primary/10 text-primary"
-                  : "border border-border bg-background text-muted-foreground"
-            }`}
-          >
-            {index + 1}. {label}
-          </div>
-        ))}
-      </RiaSurface>
-
-      <RiaSurface className="bg-gradient-to-br from-primary/10 via-card/95 to-card/88">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-          Step {step + 1} of {STEPS.length}
-        </p>
-        <h2 className="mt-2 text-xl font-semibold text-foreground">{currentStepContext.decision}</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          {currentStepContext.detail}
-        </p>
-      </RiaSurface>
-
       {!iamUnavailable ? (
-        <form className="space-y-5" onSubmit={onSubmit}>
-          {renderStep()}
+        <div className="space-y-5">
+          <SurfaceInset className="space-y-4 px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
+                  Trust summary
+                </p>
+                <h2 className="text-sm font-semibold">Keep the verification state visible, not heavy</h2>
+                <p className="max-w-3xl text-sm text-muted-foreground">
+                  This summary stays persistent while the wizard keeps attention on one decision at a time.
+                </p>
+              </div>
+              {loading ? (
+                <Badge variant="secondary">
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  Loading
+                </Badge>
+              ) : (
+                <Badge variant="secondary">
+                  {formatVerificationStatus(advisoryVerificationStatus, false)}
+                </Badge>
+              )}
+            </div>
 
-          {error ? <p className="text-sm text-red-500">{error}</p> : null}
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">
+                {capabilityLabels.length > 0 ? capabilityLabels.join(" + ") : "No capabilities selected"}
+              </Badge>
+              <Badge variant="secondary">
+                {advisoryAccessReady
+                  ? "RIA workspace ready"
+                  : brokerageAccessReady
+                    ? "Broker lane verified"
+                    : "Activation still gated"}
+              </Badge>
+              {draft.displayName.trim() ? (
+                <Badge variant="secondary">{draft.displayName.trim()}</Badge>
+              ) : null}
+            </div>
 
-          <div className="flex flex-wrap justify-end gap-3">
-            {step < STEPS.length - 1 ? (
-              <div className="flex flex-wrap gap-3">
-                {step === STEPS.length - 2 && devRiaBypassAllowed ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <ReviewField
+                label="Verification"
+                value={formatVerificationStatus(advisoryVerificationStatus, loading)}
+                helper={latestVerificationCopy(status)}
+              />
+              {draft.requestedCapabilities.includes("brokerage") ? (
+                <ReviewField
+                  label="Brokerage"
+                  value={formatVerificationStatus(brokerageVerificationStatus, false, "brokerage")}
+                  helper="Broker capability stays isolated from advisory access."
+                />
+              ) : null}
+              <ReviewField
+                label="Current focus"
+                value={`Step ${currentStepIndex + 1} of ${steps.length}`}
+                helper={currentStep?.title}
+              />
+              <ReviewField
+                label="Investor identity"
+                value={draft.displayName.trim() || user?.displayName || user?.email || "Not set yet"}
+                helper="The name carried into invites and consent prompts."
+              />
+            </div>
+          </SurfaceInset>
+
+          <SurfaceCard className="mx-auto w-full max-w-3xl">
+            <SurfaceCardHeader className="space-y-4 border-b border-border/60">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
+                  {currentStep?.eyebrow}
+                </p>
+                <Badge variant="secondary">
+                  {currentStepIndex + 1} / {steps.length}
+                </Badge>
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-[clamp(1.3rem,3vw,2rem)] font-semibold tracking-tight text-foreground">
+                  {currentStep?.title}
+                </h2>
+                <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                  {currentStep?.description}
+                </p>
+              </div>
+              <Progress value={progressValue} className="h-1.5 rounded-full bg-muted" />
+            </SurfaceCardHeader>
+
+            <SurfaceCardContent className="space-y-6 pt-6">
+              {loading ? (
+                <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading RIA onboarding...
+                </div>
+              ) : !user ? (
+                <div className="rounded-[24px] border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                  Sign in to continue the RIA onboarding flow.
+                </div>
+              ) : (
+                renderQuestion(currentStep)
+              )}
+
+              {error ? (
+                <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
+                  {error}
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-5">
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  disabled={saving || currentStepIndex === 0}
+                  className={cn(
+                    "inline-flex min-h-11 items-center rounded-full px-4 text-sm font-medium transition-colors",
+                    currentStepIndex === 0
+                      ? "invisible pointer-events-none"
+                      : "border border-border bg-background text-foreground hover:bg-muted/40 disabled:opacity-60"
+                  )}
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </button>
+
+                <div className="flex flex-wrap gap-2">
+                  {currentStep.id === "review" && devRiaBypassAllowed && !advisoryAccessReady ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleDevActivate()}
+                      disabled={saving}
+                      className="inline-flex min-h-11 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/40 disabled:opacity-60"
+                    >
+                      {saving ? "Activating..." : "Bypass in Dev / UAT"}
+                    </button>
+                  ) : null}
+
                   <button
                     type="button"
-                    disabled={saving}
-                    onClick={() => void onDevActivate()}
-                    className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground disabled:opacity-60"
+                    onClick={handleContinue}
+                    disabled={loading || !user || !canContinue || saving}
+                    className="inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
                   >
-                    {saving ? "Activating..." : "Bypass In Dev/UAT"}
+                    {saving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {currentStep.id === "review" && !advisoryAccessReady
+                          ? "Submitting..."
+                          : "Saving..."}
+                      </>
+                    ) : currentStep.id === "review" ? (
+                      advisoryAccessReady ? (
+                        "Open RIA Home"
+                      ) : (
+                        "Submit for verification"
+                      )
+                    ) : (
+                      <>
+                        Continue
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
                   </button>
-                ) : null}
-                <button
-                  type={step === STEPS.length - 2 ? "submit" : "button"}
-                  disabled={!canProceed || saving}
-                  onClick={
-                    step === STEPS.length - 2
-                      ? undefined
-                      : () => setStep((value) => Math.min(STEPS.length - 1, value + 1))
-                  }
-                  className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60"
-                >
-                  {step === STEPS.length - 2
-                    ? saving
-                      ? "Submitting..."
-                      : "Submit for verification"
-                    : "Continue"}
-                </button>
+                </div>
               </div>
-            ) : null}
-          </div>
-        </form>
+            </SurfaceCardContent>
+          </SurfaceCard>
+
+          <SurfaceInset className="space-y-3 px-4 py-4">
+            <div className="flex items-start gap-3">
+              <ShieldQuestion className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Deferred for later settings</p>
+                <p className="text-sm text-muted-foreground">
+                  Long bio, disclosures URL, firm role, communication style, and alert cadence now stay out of onboarding so activation feels shorter and clearer.
+                </p>
+              </div>
+            </div>
+          </SurfaceInset>
+        </div>
       ) : null}
     </RiaPageShell>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -30,7 +30,6 @@ import {
   SettingsRow,
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
-import { useConsentSheet } from "@/components/consent/consent-sheet-controller";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -206,7 +205,7 @@ function tabForPanel(panel: ProfilePanel | null, fallback: ProfileTab): ProfileT
   return fallback;
 }
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const canShowPkmAgentLab = resolveAppEnvironment() !== "production";
   const router = useRouter();
   const pathname = usePathname();
@@ -217,7 +216,6 @@ export default function ProfilePage() {
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = usePendingConsentCount();
-  const { openConsentSheet } = useConsentSheet();
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
@@ -1102,7 +1100,7 @@ export default function ProfilePage() {
                 }
                 chevron
                 stackTrailingOnMobile
-                onClick={() => openConsentSheet({ view: "pending" })}
+                onClick={() => router.push(ROUTES.CONSENTS)}
               />
               <SettingsRow
                 icon={RefreshCw}
@@ -1527,5 +1525,13 @@ export default function ProfilePage() {
         />
       )}
     </AppPageShell>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={null}>
+      <ProfilePageContent />
+    </Suspense>
   );
 }

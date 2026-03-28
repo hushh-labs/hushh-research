@@ -1,7 +1,6 @@
 import type { PortfolioData } from "@/lib/cache/cache-context";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
-import { removeSessionItemsByPrefix } from "@/lib/utils/session-storage";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -224,12 +223,32 @@ function patchMetadataDomain(
  * Services/components should call this instead of ad-hoc invalidation logic.
  */
 export class CacheSyncService {
+  private static invalidateKaiFinancialResource(userId: string): void {
+    const cache = CacheService.getInstance();
+    cache.invalidate(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId));
+    void import("@/lib/kai/kai-financial-resource")
+      .then(({ KaiFinancialResourceService }) => {
+        KaiFinancialResourceService.invalidate(userId, { includeDevice: false });
+      })
+      .catch(() => undefined);
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) => {
+        PkmDomainResourceService.invalidateDomain(userId, "financial", {
+          includeDevice: false,
+        });
+      })
+      .catch(() => undefined);
+  }
+
   private static onKaiMarketContextChanged(userId: string): void {
     const cache = CacheService.getInstance();
     cache.invalidatePattern(`kai_market_home_${userId}_`);
     cache.invalidatePattern(`kai_dashboard_profile_picks_${userId}_`);
-    removeSessionItemsByPrefix(`kai_market_home_session_${userId}_`);
-    removeSessionItemsByPrefix(`kai_market_home_last_known_${userId}_`);
+    void import("@/lib/kai/kai-market-home-resource")
+      .then(({ KaiMarketHomeResourceService }) => {
+        KaiMarketHomeResourceService.invalidateUser(userId, { includeDevice: false });
+      })
+      .catch(() => undefined);
     void import("@/lib/services/unlock-warm-orchestrator")
       .then(({ UnlockWarmOrchestrator }) => {
         UnlockWarmOrchestrator.invalidateForUser(userId);
@@ -281,12 +300,20 @@ export class CacheSyncService {
           CACHE_TTL.SESSION
         );
       }
+      this.invalidateKaiFinancialResource(userId);
       // IMPORTANT: Preserve existing financial portfolio cache on profile-only
       // writes (e.g. onboarding/nav-tour sync). Invalidating here causes
       // transient "import portfolio" gating despite a successful save.
     } else {
       cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     }
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) => {
+        PkmDomainResourceService.invalidateDomain(userId, domain, {
+          includeDevice: false,
+        });
+      })
+      .catch(() => undefined);
 
     if (options?.encryptedBlob) {
       cache.set(
@@ -328,8 +355,16 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) => {
+        PkmDomainResourceService.invalidateDomain(userId, domain, {
+          includeDevice: true,
+        });
+      })
+      .catch(() => undefined);
     if (domain === "financial") {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
+      this.invalidateKaiFinancialResource(userId);
     }
   }
 
@@ -343,6 +378,7 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), portfolioData, CACHE_TTL.SESSION);
     cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), portfolioData, CACHE_TTL.SESSION);
+    this.invalidateKaiFinancialResource(userId);
     this.onKaiMarketContextChanged(userId);
     if (options?.invalidateMetadata !== false) {
       cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
@@ -350,6 +386,7 @@ export class CacheSyncService {
   }
 
   static onPlaidSourceProjected(userId: string): void {
+    this.invalidateKaiFinancialResource(userId);
     this.onKaiMarketContextChanged(userId);
   }
 
@@ -366,6 +403,9 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.VAULT_CHECK(userId));
     }
     cache.invalidate(CACHE_KEYS.VAULT_STATUS(userId));
+    if (options?.hasVault === false) {
+      this.invalidateKaiFinancialResource(userId);
+    }
   }
 
   static onConsentMutated(userId: string): void {
@@ -374,7 +414,14 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.PENDING_CONSENTS(userId));
     cache.invalidate(CACHE_KEYS.CONSENT_AUDIT_LOG(userId));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
+    cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
+    cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
+    cache.invalidatePattern(`consent_center_list_${userId}_`);
+    cache.invalidatePattern(`ria_clients_${userId}_`);
+    cache.invalidatePattern(`ria_client_detail_${userId}_`);
+    cache.invalidatePattern(`ria_workspace_${userId}_`);
     cache.invalidate(CACHE_KEYS.VAULT_STATUS(userId));
     this.onKaiMarketContextChanged(userId);
   }
@@ -391,7 +438,14 @@ export class CacheSyncService {
     }
     cache.invalidate(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
+    cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
+    cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
+    cache.invalidatePattern(`consent_center_list_${userId}_`);
+    cache.invalidatePattern(`ria_clients_${userId}_`);
+    cache.invalidatePattern(`ria_client_detail_${userId}_`);
+    cache.invalidatePattern(`ria_workspace_${userId}_`);
     this.onKaiMarketContextChanged(userId);
   }
 
@@ -399,6 +453,7 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.PERSONA_STATE(userId));
     cache.invalidate(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
+    cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidatePattern("marketplace_rias_");
     cache.invalidatePattern("marketplace_investors_");
   }
@@ -421,6 +476,7 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
     cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
+    this.invalidateKaiFinancialResource(userId);
     if (ticker) {
       cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker.toUpperCase()));
     }

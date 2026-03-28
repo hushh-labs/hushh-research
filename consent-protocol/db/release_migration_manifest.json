@@ -13,7 +13,8 @@
     "033_atomic_pkm_storage_rename.sql",
     "034_pkm_upgrade_engine.sql",
     "035_strict_zero_knowledge_consent_exports.sql",
-    "036_relationship_share_grants.sql"
+    "036_relationship_share_grants.sql",
+    "037_actor_identity_cache.sql"
   ],
   "groups": {
     "iam": [
@@ -23,7 +24,8 @@
       "025_ria_pick_lists_and_bundle_notify.sql",
       "027_relationship_disconnect_status.sql",
       "028_professional_regulatory_capabilities.sql",
-      "036_relationship_share_grants.sql"
+      "036_relationship_share_grants.sql",
+      "037_actor_identity_cache.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

@@ -1,6 +1,6 @@
 "use client";
 
-import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
+import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 
 export class PostUnlockSyncService {
   static async run(params: {
@@ -12,11 +12,19 @@ export class PostUnlockSyncService {
     metadataWarmed: boolean;
     financialWarmed: boolean;
   }> {
-    const warmed = await UnlockWarmOrchestrator.run(params);
+    const syncResult = await KaiProfileSyncService.syncPendingToVault({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch((error) => {
+      console.warn("[PostUnlockSyncService] Pending onboarding sync failed:", error);
+      return { synced: false };
+    });
+
     return {
-      onboardingSynced: warmed.onboardingSynced,
-      metadataWarmed: warmed.metadataWarmed,
-      financialWarmed: warmed.financialWarmed,
+      onboardingSynced: Boolean(syncResult.synced),
+      metadataWarmed: false,
+      financialWarmed: false,
     };
   }
 }

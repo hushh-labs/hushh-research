@@ -17,7 +17,7 @@
  * evaluates correctly in both environments.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -29,11 +29,12 @@ import {
   Loader2,
   LogOut,
   MoreHorizontal,
+  Shield,
   Trash2,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/lib/morphy-ux/button";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -66,6 +67,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
+import { usePendingConsentCount } from "@/components/consent/notification-provider";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
@@ -73,15 +75,11 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
-import Link from "next/link";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+  buildConsentCenterHref,
+  buildRiaConsentManagerHref,
+} from "@/lib/consent/consent-sheet-route";
+import Link from "next/link";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
 export {
@@ -94,7 +92,10 @@ export {
 
 /* ── Constants ─────────────────────────────────────────────────────── */
 export const TOP_SHELL_ICON_BUTTON_CLASSNAME =
-  "relative grid h-10 w-10 place-items-center rounded-full border border-border/60 bg-background/70 shadow-sm backdrop-blur-sm transition-colors hover:bg-muted/50 active:bg-muted/80";
+  "relative grid h-10 w-10 place-items-center rounded-full border border-border/55 bg-background/72 text-foreground shadow-[0_16px_34px_-22px_rgba(15,23,42,0.28)] backdrop-blur-md transition-colors hover:bg-background/88 active:bg-muted/62";
+
+const TOP_SHELL_TITLE_PILL_CLASSNAME =
+  "group relative inline-flex min-h-10 min-w-0 max-w-full items-center justify-center gap-2 overflow-hidden rounded-full border border-transparent bg-background/42 px-3.5 py-1.5 text-[15px] font-semibold tracking-tight text-foreground shadow-[0_18px_34px_-28px_rgba(15,23,42,0.32)] backdrop-blur-md transition-colors hover:bg-background/68 sm:px-4 sm:text-base";
 
 /* ── Stubs (kept for import stability) ─────────────────────────────── */
 export function TopBarBackground() { return null; }
@@ -122,9 +123,14 @@ function getTopBarTitle(
     return { label: "Developers", icon: Code2, interactive: false as const };
   }
 
+  const isRiaShellRoute =
+    pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`);
+  if (isRiaShellRoute) {
+    return { label: "RIA", icon: BriefcaseBusiness, interactive: true as const };
+  }
+
   const isPersonaShellRoute =
     pathname.startsWith(ROUTES.KAI_HOME) ||
-    pathname.startsWith(ROUTES.RIA_HOME) ||
     pathname.startsWith(ROUTES.MARKETPLACE) ||
     pathname.startsWith(ROUTES.CONSENTS) ||
     pathname.startsWith(ROUTES.PROFILE);
@@ -155,6 +161,7 @@ interface TopAppBarProps {
 
 export function TopAppBar({ className }: TopAppBarProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isVaultUnlocked } = useVault();
   const {
     activePersona,
@@ -166,21 +173,26 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
   const topShellMetrics = useMemo(() => resolveTopShellMetrics(pathname), [pathname]);
-  const topShellBreadcrumb = useMemo(() => resolveTopShellBreadcrumb(pathname), [pathname]);
+  const topShellBreadcrumb = useMemo(
+    () => resolveTopShellBreadcrumb(pathname, searchParams),
+    [pathname, searchParams]
+  );
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
+  const pendingConsentCount = usePendingConsentCount();
   const centerTitle = useMemo(
     () => getTopBarTitle(pathname, activePersona),
     [activePersona, pathname]
   );
+  const consentCenterHref = useMemo(() => {
+    const from = activePersona === "ria" ? ROUTES.RIA_HOME : ROUTES.KAI_HOME;
+    return activePersona === "ria"
+      ? buildRiaConsentManagerHref("pending", { from })
+      : buildConsentCenterHref("pending", { from });
+  }, [activePersona]);
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(null);
-
-  useEffect(() => {
-    router.prefetch(lastKaiPath || ROUTES.KAI_HOME);
-    router.prefetch(lastRiaPath || riaEntryRoute);
-  }, [lastKaiPath, lastRiaPath, riaEntryRoute, router]);
 
   const handlePersonaSelect = useCallback(
     async (target: Persona) => {
@@ -221,18 +233,18 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const topGlassHeight = useMemo(
     () =>
       showKaiTabs
-        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${tabsScrollHideProgress}) * var(--top-tabs-h)) + var(--top-subnav-total) + var(--top-fade-active))`
+        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${tabsScrollHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
         : "var(--top-shell-visual-height)",
     [showKaiTabs, tabsScrollHideProgress]
   );
 
   const topGlassStyle = useMemo<React.CSSProperties>(
     () => ({
-      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.52)",
-      "--app-bar-glass-bg-dark": "rgba(12, 15, 21, 0.58)",
+      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.6)",
+      "--app-bar-glass-bg-dark": "rgba(12, 15, 21, 0.56)",
       "--app-bar-glass-blur": "6px",
       "--app-bar-shadow": "none",
-      "--app-bar-mask-overscan": "26px",
+      "--app-bar-mask-overscan": "18px",
     } as React.CSSProperties),
     []
   );
@@ -255,98 +267,109 @@ export function TopAppBar({ className }: TopAppBarProps) {
           <div className="h-full w-full bar-glass bar-glass-top" style={topGlassStyle} />
         </div>
 
-        <div className="pointer-events-none relative mx-auto flex h-full w-full max-w-[540px] flex-col justify-end px-4 sm:px-6">
+        <div className="pointer-events-none relative mx-auto flex h-full w-full max-w-4xl flex-col justify-end px-5 sm:px-7">
           <div
             data-testid="top-app-bar-row"
             className="pointer-events-none relative h-[var(--top-bar-h)] w-full shrink-0"
           >
-            <div className="pointer-events-none grid h-full w-full grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2">
-              <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-                {topShellBreadcrumb ? (
-                  <button
-                    type="button"
-                    className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
-                    aria-label="Go back"
-                    onClick={() => {
-                      if (typeof window !== "undefined" && window.history.length > 1) {
-                        router.back();
-                        return;
-                      }
-                      router.push(topShellBreadcrumb.backHref);
-                    }}
-                  >
-                    <ArrowLeft className="h-5 w-5" />
-                  </button>
-                ) : (
-                  <div className="h-11 w-11" aria-hidden />
-                )}
+            <div
+              data-testid="top-app-bar-breadcrumb-row"
+              className="pointer-events-none flex h-full w-full items-center gap-3 sm:gap-4"
+            >
+              <div
+                data-testid="top-app-bar-nav-slot"
+                className="pointer-events-none flex h-full shrink-0 items-center justify-start"
+                style={{ width: "var(--top-bar-side-w)" }}
+              >
+                <div className="pointer-events-auto flex h-10 w-10 items-center justify-center">
+                  {topShellBreadcrumb ? (
+                    <button
+                      type="button"
+                      className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
+                      aria-label="Go back"
+                      onClick={() => {
+                        if (typeof window !== "undefined" && window.history.length > 1) {
+                          router.back();
+                          return;
+                        }
+                        router.push(topShellBreadcrumb.backHref);
+                      }}
+                    >
+                      <ArrowLeft className="h-5 w-5" />
+                    </button>
+                  ) : <div className="h-10 w-10" aria-hidden />}
+                </div>
               </div>
 
-              <div className="pointer-events-none flex min-w-0 items-center justify-center">
+              <div className="pointer-events-none flex min-w-0 flex-1 items-center justify-center">
                 {centerTitle ? (
                   centerTitle.interactive ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          data-tour-id="nav-role-switch"
-                          className="group relative inline-flex min-w-0 max-w-full flex-none items-center justify-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-base font-semibold tracking-tight text-foreground transition-colors hover:bg-muted/40 sm:text-lg"
-                          aria-label="Switch role"
-                        >
-                          <span className="relative z-10 inline-flex min-w-0 max-w-full items-center gap-2">
-                            <Icon
-                              icon={switchingPersona ? Loader2 : centerTitle.icon!}
-                              size="sm"
-                              className={cn(
-                                "shrink-0 text-current",
-                                switchingPersona ? "animate-spin" : ""
-                              )}
-                            />
-                            <span className="truncate">
-                              {switchingPersona
-                                ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
-                                : centerTitle.label}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            data-tour-id="nav-role-switch"
+                            data-testid="top-app-bar-title"
+                            className={TOP_SHELL_TITLE_PILL_CLASSNAME}
+                            aria-label="Switch role"
+                          >
+                            <span className="relative z-10 inline-flex min-w-0 max-w-full items-center gap-2">
+                              <Icon
+                                icon={switchingPersona ? Loader2 : centerTitle.icon!}
+                                size="sm"
+                                className={cn(
+                                  "shrink-0 text-current",
+                                  switchingPersona ? "animate-spin" : ""
+                                )}
+                              />
+                              <span className="truncate">
+                                {switchingPersona
+                                  ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+                                  : centerTitle.label}
+                              </span>
+                              <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
                             </span>
-                            <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
-                          </span>
-                          <MaterialRipple variant="none" effect="fade" className="z-0" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="center" className="min-w-[200px]">
-                        <DropdownMenuItem
-                          onClick={() => void handlePersonaSelect("investor")}
-                          disabled={switchingPersona !== null}
-                          className="group"
-                        >
-                          <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
-                            <UserRound className="h-4 w-4 text-current" />
-                            <span>Investor</span>
-                          </div>
-                          {activePersona === "investor" ? (
-                            <Check className="ml-auto h-4 w-4 text-current" />
-                          ) : null}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => void handlePersonaSelect("ria")}
-                          disabled={switchingPersona !== null}
-                          className="group"
-                        >
-                          <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
-                            <BriefcaseBusiness className="h-4 w-4 text-current" />
-                            <span>{riaCapability === "switch" ? "RIA" : "Set up RIA"}</span>
-                          </div>
-                          {switchingPersona === "ria" ? (
-                            <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />
-                          ) : activePersona === "ria" ? (
-                            <Check className="ml-auto h-4 w-4 text-current" />
-                          ) : null}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                            <MaterialRipple variant="none" effect="fade" className="z-0" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="center" className="min-w-[200px]">
+                          <DropdownMenuItem
+                            onClick={() => void handlePersonaSelect("investor")}
+                            disabled={switchingPersona !== null}
+                            className="group"
+                          >
+                            <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
+                              <UserRound className="h-4 w-4 text-current" />
+                              <span>Investor</span>
+                            </div>
+                            {activePersona === "investor" ? (
+                              <Check className="ml-auto h-4 w-4 text-current" />
+                            ) : null}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => void handlePersonaSelect("ria")}
+                            disabled={switchingPersona !== null}
+                            className="group"
+                          >
+                            <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
+                              <BriefcaseBusiness className="h-4 w-4 text-current" />
+                              <span>{riaCapability === "switch" ? "RIA" : "Set up RIA"}</span>
+                            </div>
+                            {switchingPersona === "ria" ? (
+                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />
+                            ) : activePersona === "ria" ? (
+                              <Check className="ml-auto h-4 w-4 text-current" />
+                            ) : null}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   ) : (
-                    <div className="inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-full px-3 py-1.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                    <div
+                      data-testid="top-app-bar-title"
+                      className={cn(TOP_SHELL_TITLE_PILL_CLASSNAME, "pointer-events-auto")}
+                    >
                       {centerTitle.icon ? (
                         <Icon icon={centerTitle.icon} size="sm" className="shrink-0 text-current" />
                       ) : null}
@@ -356,72 +379,54 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 ) : null}
               </div>
 
-              <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-                {showOnboardingActions ? (
-                  <OnboardingRouteActions />
-                ) : isVaultUnlocked ? (
-                  <DebateTaskCenter triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
-                ) : topShellBreadcrumb ? (
-                  <button
-                    type="button"
-                    className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
-                    aria-label="Notifications unavailable until your vault is unlocked"
-                    disabled
-                  >
-                    <Bell className="h-5 w-5 opacity-65" />
-                  </button>
-                ) : (
-                  <div className="h-11 w-11" aria-hidden />
-                )}
+              <div
+                className="pointer-events-none flex h-full shrink-0 items-center justify-end"
+                style={{ width: "var(--top-bar-side-w)" }}
+              >
+                <div
+                  data-testid="top-app-bar-actions"
+                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2"
+                >
+                  {showOnboardingActions ? (
+                    <OnboardingRouteActions />
+                  ) : (
+                    <>
+                      <Link
+                        href={consentCenterHref}
+                        prefetch={false}
+                        className={cn(
+                          TOP_SHELL_ICON_BUTTON_CLASSNAME,
+                          "inline-flex h-10 w-10 items-center justify-center"
+                        )}
+                        aria-label="Open consent center"
+                      >
+                        <Shield className="h-5 w-5" />
+                        {pendingConsentCount > 0 ? (
+                          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
+                            {pendingConsentCount}
+                          </span>
+                        ) : null}
+                      </Link>
+
+                      {isVaultUnlocked ? (
+                        <DebateTaskCenter triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
+                      ) : topShellBreadcrumb ? (
+                        <button
+                          type="button"
+                          className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
+                          aria-label="Notifications unavailable until your vault is unlocked"
+                          disabled
+                        >
+                          <Bell className="h-5 w-5 opacity-65" />
+                        </button>
+                      ) : null}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          {topShellBreadcrumb ? (
-            <div
-              className="pointer-events-none relative mt-[var(--top-subnav-gap)] h-[var(--top-subnav-h)] w-full shrink-0"
-              data-testid="top-app-bar-breadcrumb-row"
-            >
-              <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-center px-3">
-                <div className="pointer-events-auto min-w-0 max-w-full rounded-full border border-border/45 bg-background/45 px-3 py-1 shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] backdrop-blur-sm">
-                  <Breadcrumb>
-                    <BreadcrumbList className="flex flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap">
-                      {topShellBreadcrumb.items.map((item, index) => {
-                        const isLast = index === topShellBreadcrumb.items.length - 1;
-                        return (
-                          <Fragment key={`${item.label}-${index}`}>
-                            <BreadcrumbItem className="min-w-0">
-                              {isLast ? (
-                                <BreadcrumbPage className="truncate text-[11px] font-medium text-foreground/85 sm:text-xs">
-                                  {item.label}
-                                </BreadcrumbPage>
-                              ) : item.href ? (
-                                <BreadcrumbLink asChild>
-                                  <Link
-                                    href={item.href}
-                                    className="truncate text-[11px] text-muted-foreground transition-colors hover:text-foreground sm:text-xs"
-                                  >
-                                    {item.label}
-                                  </Link>
-                                </BreadcrumbLink>
-                              ) : (
-                                <span className="truncate text-[11px] text-muted-foreground sm:text-xs">
-                                  {item.label}
-                                </span>
-                              )}
-                            </BreadcrumbItem>
-                            {!isLast ? (
-                              <BreadcrumbSeparator className="text-muted-foreground/70 [&>svg]:size-3" />
-                            ) : null}
-                          </Fragment>
-                        );
-                      })}
-                    </BreadcrumbList>
-                  </Breadcrumb>
-                </div>
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
     </div>

@@ -128,6 +128,24 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
             "target_domain": "financial",
             "json_paths": ["portfolio", "portfolio.holdings", "profile.risk_score"],
         },
+        write_projections=[
+            {
+                "projection_type": "decision_history_v1",
+                "projection_version": 1,
+                "payload": {
+                    "decisions": [
+                        {
+                            "id": 1,
+                            "ticker": "AAPL",
+                            "decision_type": "BUY",
+                            "confidence": 0.91,
+                            "created_at": "2026-03-27T12:00:00Z",
+                            "metadata": {"source": "analysis_history"},
+                        }
+                    ]
+                },
+            }
+        ],
         return_result=True,
     )
 
@@ -171,6 +189,7 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert [event["operation_type"] for event in recorded_events] == [
         "structure_create",
         "content_write",
+        "decision_projection",
     ]
     assert recorded_events[0]["metadata"]["readable"]["readable_summary"] == (
         "Kai saved a readable financial update."
@@ -178,6 +197,8 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert recorded_events[1]["metadata"]["readable"]["readable_event_summary"] == (
         "Updated Financial."
     )
+    assert recorded_events[2]["metadata"]["projection_mode"] == "replace_all"
+    assert recorded_events[2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
     queue_refreshes.assert_awaited_once()
 
     migration_upsert = service._supabase.tables["pkm_migration_state"].last_upsert_data
@@ -215,6 +236,57 @@ async def test_store_domain_data_uses_legacy_blob_version_for_initial_domain_con
     assert result["conflict"] is True
     assert result["data_version"] == 4
     assert result["updated_at"] == "2026-03-20T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_get_recent_decision_records_prefers_replace_all_projection():
+    class _SupabaseWithRaw:
+        def execute_raw(self, _query, _params):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "metadata": {
+                            "projection_mode": "replace_all",
+                            "decisions": [
+                                {
+                                    "ticker": "GOOGL",
+                                    "decision_type": "HOLD",
+                                    "confidence": 0.62,
+                                    "created_at": "2026-03-27T13:00:00Z",
+                                }
+                            ],
+                        },
+                        "created_at": "2026-03-27T13:00:00Z",
+                    },
+                    {
+                        "metadata": {
+                            "decisions": [
+                                {
+                                    "ticker": "AAPL",
+                                    "decision_type": "BUY",
+                                    "confidence": 0.91,
+                                    "created_at": "2026-03-27T12:00:00Z",
+                                }
+                            ]
+                        },
+                        "created_at": "2026-03-27T12:00:00Z",
+                    },
+                ]
+            )
+
+    service = PersonalKnowledgeModelService()
+    service._supabase = _SupabaseWithRaw()
+
+    result = await service.get_recent_decision_records("user-9")
+
+    assert result == [
+        {
+            "ticker": "GOOGL",
+            "decision_type": "HOLD",
+            "confidence": 0.62,
+            "created_at": "2026-03-27T13:00:00Z",
+        }
+    ]
 
 
 @pytest.mark.asyncio

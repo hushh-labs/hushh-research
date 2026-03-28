@@ -162,6 +162,11 @@ export function KaiCommandPalette({
   const [remoteSearchError, setRemoteSearchError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!open) {
+      setLoadingUniverse(false);
+      return;
+    }
+
     let cancelled = false;
 
     void (async () => {
@@ -189,9 +194,15 @@ export function KaiCommandPalette({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [open]);
 
   useEffect(() => {
+    if (!open) {
+      setRemoteMatches([]);
+      setRemoteSearchError(null);
+      return;
+    }
+
     let cancelled = false;
     const q = query.trim();
     if (q.length < 2) {

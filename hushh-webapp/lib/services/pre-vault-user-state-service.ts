@@ -3,6 +3,7 @@
 import { Capacitor } from "@capacitor/core";
 import { apiJson } from "@/lib/services/api-client";
 import { AuthService } from "@/lib/services/auth-service";
+import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 
 export type VaultStatus = "placeholder" | "active";
 
@@ -30,6 +31,8 @@ type PreVaultStateUpdatePayload = {
   preNavTourCompletedAt?: number | null;
   preNavTourSkippedAt?: number | null;
 };
+
+const bootstrapInflight = new Map<string, Promise<PreVaultUserState>>();
 
 function toMillis(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -85,17 +88,44 @@ async function getAuthHeader(): Promise<string> {
 }
 
 export class PreVaultUserStateService {
-  static async bootstrapState(userId: string): Promise<PreVaultUserState> {
+  static async bootstrapState(
+    userId: string,
+    options?: { force?: boolean }
+  ): Promise<PreVaultUserState> {
+    const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId);
+    if (!options?.force) {
+      const cached = CacheService.getInstance().get<PreVaultUserState>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      const inflight = bootstrapInflight.get(cacheKey);
+      if (inflight) {
+        return inflight;
+      }
+    }
+
     const authorization = await getAuthHeader();
-    const payload = await apiJson<BootstrapStateResponse>(resolvePreVaultPath("bootstrap-state"), {
+    const request = apiJson<BootstrapStateResponse>(resolvePreVaultPath("bootstrap-state"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: authorization,
       },
       body: JSON.stringify({ userId }),
-    });
-    return normalizeResponse(userId, payload);
+    })
+      .then((payload) => {
+        const normalized = normalizeResponse(userId, payload);
+        CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SHORT);
+        return normalized;
+      })
+      .finally(() => {
+        if (bootstrapInflight.get(cacheKey) === request) {
+          bootstrapInflight.delete(cacheKey);
+        }
+      });
+
+    bootstrapInflight.set(cacheKey, request);
+    return request;
   }
 
   static async updatePreVaultState(
@@ -111,7 +141,13 @@ export class PreVaultUserStateService {
       },
       body: JSON.stringify({ userId, ...updates }),
     });
-    return normalizeResponse(userId, payload);
+    const normalized = normalizeResponse(userId, payload);
+    CacheService.getInstance().set(
+      CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
+      normalized,
+      CACHE_TTL.SHORT
+    );
+    return normalized;
   }
 
   static isOnboardingResolved(state: PreVaultUserState | null | undefined): boolean {

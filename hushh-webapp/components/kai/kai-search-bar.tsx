@@ -72,11 +72,13 @@ export function KaiSearchBar({
   return (
     <>
       <div
-        className="pointer-events-none fixed inset-x-0 z-[130] flex justify-center px-4"
+        className="pointer-events-none fixed inset-x-0 z-[130] flex justify-center px-4 transform-gpu will-change-transform"
         style={
           {
             bottom:
-              "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px) - (var(--bottom-chrome-progress, 0) * var(--app-bottom-fixed-ui)))",
+              "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))",
+            transform:
+              "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
             "--bottom-chrome-progress": String(hideBottomChromeProgress),
           } as CSSProperties
         }
@@ -90,19 +92,23 @@ export function KaiSearchBar({
               size="default"
               data-tour-id="kai-command-bar"
               className={cn(
-                "chrome-bottom-foreground h-12 justify-start rounded-full px-4 pr-12 text-sm text-muted-foreground",
+                "group chrome-bottom-foreground h-12 justify-start rounded-full border border-border/55 bg-background/76 px-4 pr-12 text-sm text-muted-foreground shadow-[0_16px_34px_-24px_rgba(15,23,42,0.24)] backdrop-blur-xl transition-[border-color,background-color,color,box-shadow] duration-200 hover:border-sky-500/35 hover:bg-sky-500/[0.08] hover:text-sky-700 hover:shadow-[0_18px_36px_-24px_rgba(14,165,233,0.24)] dark:hover:text-sky-200",
                 disabled && "pointer-events-none opacity-50"
               )}
               onClick={() => setOpen(true)}
             >
-              <Icon icon={Search} size="sm" className="mr-2 text-muted-foreground" />
+              <Icon
+                icon={Search}
+                size="sm"
+                className="mr-2 text-muted-foreground transition-colors duration-200 group-hover:text-sky-600 dark:group-hover:text-sky-300"
+              />
               Analyze, dashboard, consent with Kai
             </Button>
             <button
               type="button"
               aria-label="Hushh Voice (Coming soon)"
               data-no-route-swipe
-              className="absolute right-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+              className="absolute right-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-[background-color,color,box-shadow] duration-200 hover:bg-sky-500/[0.1] hover:text-sky-700 hover:shadow-[0_14px_28px_-24px_rgba(14,165,233,0.55)] dark:hover:text-sky-200"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();

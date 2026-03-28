@@ -6,15 +6,21 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
+import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
+const hotPost = createHotGetJsonCache({
+  freshTtlMs: 30 * 1000,
+  staleTtlMs: 5 * 60 * 1000,
+});
 
 export async function POST(request: NextRequest) {
   const requestId = resolveRequestId(request);
+  let hotCacheKey: string | null = null;
 
   try {
     const body = (await request.json().catch(() => ({}))) as { userId?: string };
@@ -39,29 +45,71 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const response = await fetch(`${PYTHON_API_URL}/db/vault/bootstrap-state`, {
-      method: "POST",
-      headers: createUpstreamHeaders(requestId, {
-        "Content-Type": "application/json",
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      }),
-      body: JSON.stringify({
-        ...(body.userId ? { userId: body.userId } : {}),
-      }),
-    });
+    hotCacheKey = authHeader ? `${body.userId || "self"}:${authHeader}` : null;
+    if (hotCacheKey) {
+      const cached = hotPost.read(hotCacheKey);
+      if (cached) {
+        return withRequestIdJson(requestId, cached.payload, { status: cached.status });
+      }
 
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return withRequestIdJson(
-        requestId,
-        { error: payload?.error || payload?.detail || "Backend error" },
-        { status: response.status }
-      );
+      const existing = hotPost.getInflight(hotCacheKey);
+      if (existing) {
+        const deduped = await existing;
+        return withRequestIdJson(requestId, deduped.payload, { status: deduped.status });
+      }
     }
 
-    return withRequestIdJson(requestId, payload);
+    const load = (async () => {
+      const response = await fetch(`${PYTHON_API_URL}/db/vault/bootstrap-state`, {
+        method: "POST",
+        headers: createUpstreamHeaders(requestId, {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        }),
+        signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({
+          ...(body.userId ? { userId: body.userId } : {}),
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      return {
+        status: response.status,
+        payload: response.ok
+          ? payload
+          : { error: payload?.error || payload?.detail || "Backend error" },
+      };
+    })();
+
+    if (hotCacheKey) {
+      hotPost.setInflight(hotCacheKey, load);
+    }
+
+    const result = await load;
+    if (hotCacheKey && result.status < 500) {
+      hotPost.write(hotCacheKey, result);
+    }
+
+    if (hotCacheKey && result.status >= 500) {
+      const stale = hotPost.read(hotCacheKey, { allowStale: true });
+      if (stale) {
+        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
+      }
+    }
+
+    return withRequestIdJson(requestId, result.payload, { status: result.status });
   } catch (error) {
     console.error(`[API] request_id=${requestId} vault_bootstrap_state error:`, error);
+    if (hotCacheKey) {
+      const stale = hotPost.read(hotCacheKey, { allowStale: true });
+      if (stale) {
+        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
+      }
+    }
     return withRequestIdJson(requestId, { error: "Internal server error" }, { status: 500 });
+  } finally {
+    if (hotCacheKey) {
+      hotPost.clearInflight(hotCacheKey);
+    }
   }
 }

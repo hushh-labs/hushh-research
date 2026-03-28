@@ -45,6 +45,10 @@ _MARKET_DATA_CACHE_TTL_SECONDS = max(
     60,
     int(os.getenv("KAI_MARKET_DATA_CACHE_TTL_SECONDS", "600") or "600"),
 )
+_YFINANCE_TIMEOUT_COOLDOWN_SECONDS = max(
+    60,
+    int(os.getenv("KAI_YFINANCE_TIMEOUT_COOLDOWN_SECONDS", "180") or "180"),
+)
 
 
 def _provider_in_cooldown(key: str) -> bool:
@@ -65,6 +69,24 @@ def _mark_provider_cooldown(key: str, status_code: int | None) -> None:
     if not duration:
         return
     _PROVIDER_COOLDOWNS[key] = time.time() + duration
+
+
+def _mark_provider_cooldown_for_duration(key: str, duration_seconds: int) -> None:
+    if duration_seconds <= 0:
+        return
+    _PROVIDER_COOLDOWNS[key] = time.time() + int(duration_seconds)
+
+
+def _provider_cooldown_key(provider_name: str, symbol: str) -> str | None:
+    if provider_name == "yfinance":
+        return f"yfinance:{symbol}"
+    if provider_name == "yahoo_quote_fast":
+        return "yahoo_quote_fast:global"
+    if provider_name == "finnhub":
+        return "finnhub:global"
+    if provider_name == "pmp":
+        return "pmp:global"
+    return None
 
 
 def _market_data_cache_key(symbol: str, *, finnhub_enabled: bool, pmp_enabled: bool) -> str:
@@ -128,6 +150,8 @@ async def _fetch_yahoo_quote_fast(ticker: str) -> Dict[str, Any]:
 
     NOTE: This is public market data (no user data). Consent is still enforced by the caller.
     """
+    if _provider_in_cooldown("yahoo_quote_fast:global"):
+        raise RuntimeError("yahoo_quote_fast_provider_cooldown")
     url = "https://query1.finance.yahoo.com/v7/finance/quote"
     params = {"symbols": ticker.upper()}
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
@@ -135,6 +159,8 @@ async def _fetch_yahoo_quote_fast(ticker: str) -> Dict[str, Any]:
     timeout = httpx.Timeout(connect=3.0, read=4.0, write=4.0, pool=3.0)
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         res = await client.get(url, params=params)
+        if not res.is_success:
+            _mark_provider_cooldown("yahoo_quote_fast:global", res.status_code)
         res.raise_for_status()
         data = res.json() or {}
         results = ((data.get("quoteResponse") or {}).get("result")) or []
@@ -519,7 +545,7 @@ async def _fetch_yfinance_quote(ticker: str) -> Dict[str, Any]:
         return await asyncio.to_thread(_blocking_fetch)
 
     try:
-        info = await asyncio.wait_for(_get_info(), timeout=8.0)
+        info = await asyncio.wait_for(_get_info(), timeout=3.5)
     except asyncio.TimeoutError as exc:
         raise RuntimeError("yfinance_timeout") from exc
 
@@ -609,9 +635,14 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
                     "ticker": symbol,
                     "price": row.get("regularMarketPrice") or 0,
                     "change_percent": row.get("regularMarketChangePercent") or 0,
+                    "volume": row.get("regularMarketVolume") or 0,
                     "market_cap": row.get("marketCap") or 0,
                     "pe_ratio": row.get("trailingPE") or 0,
                     "pb_ratio": row.get("priceToBook") or 0,
+                    "dividend_yield": row.get("trailingAnnualDividendYield") or 0,
+                    "company_name": row.get("longName") or row.get("shortName") or symbol,
+                    "sector": row.get("sector") or "Unknown",
+                    "industry": row.get("industry") or "Unknown",
                     "source": "Yahoo Quote (Peers)",
                     "fetched_at": datetime.utcnow().isoformat(),
                     "ttl_seconds": 60,
@@ -619,6 +650,91 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
                 }
             )
         return parsed
+
+
+async def fetch_market_data_batch(
+    tickers: List[str],
+    user_id: UserID,
+    consent_token: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch a batch of market quotes using one public Yahoo request before per-symbol fallbacks."""
+    valid, reason, token = validate_token(
+        consent_token,
+        ConsentScope("agent.kai.analyze"),
+    )
+
+    if not valid:
+        logger.error(f"[Market Data Batch Fetcher] TrustLink validation failed: {reason}")
+        raise PermissionError(f"Market data access denied: {reason}")
+
+    if token.user_id != user_id:
+        raise PermissionError("Token user mismatch")
+
+    normalized_symbols = list(
+        dict.fromkeys(
+            str(symbol or "").strip().upper() for symbol in tickers if str(symbol or "").strip()
+        )
+    )
+    if not normalized_symbols:
+        return {}
+
+    finnhub_enabled = bool(_finnhub_api_key())
+    pmp_enabled = bool(_pmp_api_key())
+    cached: Dict[str, Dict[str, Any]] = {}
+    missing: List[str] = []
+
+    for symbol in normalized_symbols:
+        cache_key = _market_data_cache_key(
+            symbol,
+            finnhub_enabled=finnhub_enabled,
+            pmp_enabled=pmp_enabled,
+        )
+        cached_payload = _get_cached_market_data(cache_key)
+        if cached_payload and float(cached_payload.get("price") or 0) > 0:
+            cached[symbol] = cached_payload
+        else:
+            missing.append(symbol)
+
+    if not missing:
+        return cached
+
+    started_at = time.perf_counter()
+    try:
+        batch_rows = await _fetch_yahoo_quotes(missing)
+    except Exception as exc:
+        _emit_realtime_telemetry(
+            "market_data_batch_failure",
+            ticker_count=len(missing),
+            error=str(exc)[:200],
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        return cached
+
+    for payload in batch_rows:
+        symbol = str(payload.get("ticker") or "").strip().upper()
+        if not symbol or float(payload.get("price") or 0) <= 0:
+            continue
+        cache_key = _market_data_cache_key(
+            symbol,
+            finnhub_enabled=finnhub_enabled,
+            pmp_enabled=pmp_enabled,
+        )
+        ttl_seconds = max(int(payload.get("ttl_seconds") or 0), _MARKET_DATA_CACHE_TTL_SECONDS)
+        normalized_payload = dict(payload)
+        normalized_payload["ticker"] = symbol
+        normalized_payload["ttl_seconds"] = ttl_seconds
+        normalized_payload["source"] = str(payload.get("source") or "Yahoo Quote (Batch)")
+        _set_cached_market_data(cache_key, normalized_payload, ttl_seconds)
+        cached[symbol] = normalized_payload
+
+    _emit_realtime_telemetry(
+        "market_data_batch_success",
+        ticker_count=len(normalized_symbols),
+        resolved_count=len(cached),
+        missing_count=max(0, len(normalized_symbols) - len(cached)),
+        duration_ms=int((time.perf_counter() - started_at) * 1000),
+    )
+    return cached
 
 
 # ============================================================================
@@ -1058,6 +1174,8 @@ async def fetch_market_data(
     ticker: str,
     user_id: UserID,
     consent_token: str,
+    *,
+    allow_slow_fallbacks: bool = True,
 ) -> Dict[str, Any]:
     """
     Operon: Fetch current market data (price, volume, metrics).
@@ -1143,11 +1261,21 @@ async def fetch_market_data(
             providers.append(("finnhub", _fetch_finnhub_quote))
         if pmp_enabled:
             providers.append(("pmp", _fetch_pmp_quote))
-        providers.append(("yfinance", _fetch_yfinance_quote))
+        if allow_slow_fallbacks:
+            providers.append(("yfinance", _fetch_yfinance_quote))
         providers.append(("yahoo_quote_fast", _fetch_yahoo_quote_fast))
 
         for provider_name, provider_fetch in providers:
             started_at = time.perf_counter()
+            provider_cooldown_key = _provider_cooldown_key(provider_name, symbol)
+            if provider_cooldown_key and _provider_in_cooldown(provider_cooldown_key):
+                errors.append(f"{provider_name}:provider_cooldown")
+                _emit_realtime_telemetry(
+                    "market_data_provider_skipped_cooldown",
+                    ticker=symbol,
+                    provider=provider_name,
+                )
+                continue
             try:
                 payload = await provider_fetch(symbol)
                 if payload and float(payload.get("price") or 0) > 0:
@@ -1178,6 +1306,20 @@ async def fetch_market_data(
                     duration_ms=int((time.perf_counter() - started_at) * 1000),
                 )
             except Exception as exc:
+                if (
+                    provider_name == "yfinance"
+                    and "yfinance_timeout" in str(exc)
+                    and provider_cooldown_key
+                ):
+                    _mark_provider_cooldown_for_duration(
+                        provider_cooldown_key,
+                        _YFINANCE_TIMEOUT_COOLDOWN_SECONDS,
+                    )
+                if isinstance(exc, httpx.HTTPStatusError) and provider_cooldown_key:
+                    _mark_provider_cooldown(
+                        provider_cooldown_key,
+                        exc.response.status_code if exc.response is not None else None,
+                    )
                 errors.append(_provider_error(provider_name, exc))
                 _emit_realtime_telemetry(
                     "market_data_provider_failure",

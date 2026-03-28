@@ -996,7 +996,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     setAccessLoading(true);
     try {
       const idToken = await currentUser.getIdToken();
-      const payload = await getDeveloperAccess(idToken);
+      const payload = await getDeveloperAccess(idToken, { userId: currentUser.uid });
       setAccess(payload);
       setAccessError(null);
     } catch (error) {
@@ -1044,7 +1044,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     setAccessLoading(true);
     try {
       const idToken = await user.getIdToken();
-      const payload = await enableDeveloperAccess(idToken);
+      const payload = await enableDeveloperAccess(idToken, { userId: user.uid });
       setAccess(payload);
       setRevealedToken(payload.raw_token || null);
       setAccessError(null);
@@ -1070,7 +1070,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
     try {
       const idToken = await user.getIdToken();
-      const payload = await rotateDeveloperAccessToken(idToken);
+      const payload = await rotateDeveloperAccessToken(idToken, { userId: user.uid });
       setAccess(payload);
       setRevealedToken(payload.raw_token || null);
       setAccessError(null);
@@ -1091,7 +1091,9 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     setProfileSaving(true);
     try {
       const idToken = await user.getIdToken();
-      const payload = await updateDeveloperAccessProfile(idToken, profileDraft);
+      const payload = await updateDeveloperAccessProfile(idToken, profileDraft, {
+        userId: user.uid,
+      });
       setAccess(payload);
       setAccessError(null);
       toast.success("Developer app profile updated");

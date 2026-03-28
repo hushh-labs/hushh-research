@@ -9,19 +9,31 @@
  * The backend validates the token and ensures user_id matches.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
+import {
+  createUpstreamHeaders,
+  resolveRequestId,
+  withRequestIdJson,
+} from "@/app/api/_utils/request-id";
 
 export const dynamic = "force-dynamic";
 
 const BACKEND_URL = getPythonApiUrl();
+const hotGet = createHotGetJsonCache({
+  freshTtlMs: 30 * 1000,
+  staleTtlMs: 5 * 60 * 1000,
+});
 
 export async function GET(request: NextRequest) {
+  const requestId = resolveRequestId(request);
   try {
     // BYOK Authorization: Require VAULT_OWNER token
     const authHeader = request.headers.get("Authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
+      return withRequestIdJson(
+        requestId,
         { error: "Authorization header with VAULT_OWNER token required" },
         { status: 401 }
       );
@@ -33,44 +45,79 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get("limit") || "20";
 
     if (!userId) {
-      return NextResponse.json(
+      return withRequestIdJson(
+        requestId,
         { error: "userId is required" },
         { status: 400 }
       );
     }
 
-    console.log(
-      `[API] Fetching consent history for user: ${userId}, page: ${page}`
-    );
+    const hotCacheKey = `${userId}:${page}:${limit}:${authHeader}`;
+    const cached = hotGet.read(hotCacheKey);
+    if (cached) {
+      return withRequestIdJson(requestId, cached.payload, { status: cached.status });
+    }
 
-    // Forward Authorization header to backend for token validation
-    // Backend validates VAULT_OWNER token and checks user_id match
-    const response = await fetch(
+    const existing = hotGet.getInflight(hotCacheKey);
+    if (existing) {
+      const deduped = await existing;
+      return withRequestIdJson(requestId, deduped.payload, { status: deduped.status });
+    }
+
+    const load = (async () => {
+      const response = await fetch(
       `${BACKEND_URL}/api/consent/history?userId=${userId}&page=${page}&limit=${limit}`,
       {
         method: "GET",
-        headers: {
+        headers: createUpstreamHeaders(requestId, {
           Authorization: authHeader,
-        },
+        }),
+        signal: AbortSignal.timeout(10000),
       }
-    );
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error("[API] Backend error:", error);
-      return NextResponse.json(
-        { error: "Failed to fetch consent history" },
-        { status: response.status }
       );
-    }
 
-    const data = await response.json();
-    return NextResponse.json(data);
+      const payload = await response
+        .json()
+        .catch(async () => ({ detail: await response.text().catch(() => "") }));
+      return {
+        status: response.ok ? response.status : response.status,
+        payload: response.ok ? payload : { error: "Failed to fetch consent history", detail: payload?.detail || "" },
+      };
+    })();
+
+    hotGet.setInflight(hotCacheKey, load);
+    const result = await load;
+    if (result.status < 500) {
+      hotGet.write(hotCacheKey, result);
+    } else {
+      const stale = hotGet.read(hotCacheKey, { allowStale: true });
+      if (stale) {
+        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
+      }
+    }
+    return withRequestIdJson(requestId, result.payload, { status: result.status });
   } catch (error) {
     console.error("[API] History error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+    const page = searchParams.get("page") || "1";
+    const limit = searchParams.get("limit") || "20";
+    const authHeader = request.headers.get("Authorization");
+    if (userId && authHeader) {
+      const stale = hotGet.read(`${userId}:${page}:${limit}:${authHeader}`, { allowStale: true });
+      if (stale) {
+        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
+      }
+    }
+    return withRequestIdJson(requestId, { error: "Internal server error" }, { status: 500 });
+  } finally {
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+    const page = searchParams.get("page") || "1";
+    const limit = searchParams.get("limit") || "20";
+    const authHeader = request.headers.get("Authorization");
+    if (userId && authHeader) {
+      hotGet.clearInflight(`${userId}:${page}:${limit}:${authHeader}`);
+    }
   }
 }

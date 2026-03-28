@@ -1,10 +1,13 @@
 "use client";
 
+import { Suspense } from "react";
+
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { InvestmentsMasterView } from "@/components/kai/views/investments-master-view";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 
-export default function KaiInvestmentsPage() {
+function KaiInvestmentsPageContent() {
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken } = useVault();
 
@@ -17,5 +20,13 @@ export default function KaiInvestmentsPage() {
       userId={user.uid}
       vaultOwnerToken={vaultOwnerToken ?? ""}
     />
+  );
+}
+
+export default function KaiInvestmentsPage() {
+  return (
+    <Suspense fallback={<HushhLoader label="Loading investments..." variant="fullscreen" />}>
+      <KaiInvestmentsPageContent />
+    </Suspense>
   );
 }

@@ -112,6 +112,16 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
     if (user?.uid) {
       CacheSyncService.onVaultStateChanged(user.uid);
+      void import("@/lib/kai/kai-financial-resource")
+        .then(({ KaiFinancialResourceService }) => {
+          KaiFinancialResourceService.invalidate(user.uid, { includeDevice: false });
+        })
+        .catch(() => undefined);
+      void import("@/lib/pkm/pkm-domain-resource")
+        .then(({ PkmDomainResourceService }) => {
+          PkmDomainResourceService.invalidateDomain(user.uid, "financial");
+        })
+        .catch(() => undefined);
     }
     VaultService.invalidateVaultStateCache();
   }, [user?.uid, vaultOwnerToken]);
@@ -169,6 +179,31 @@ export function VaultProvider({ children }: VaultProviderProps) {
     };
   }, [user?.uid, vaultKey, vaultOwnerToken]);
 
+  useEffect(() => {
+    if (!user?.uid || !vaultKey) {
+      return;
+    }
+
+    void import("@/lib/kai/kai-financial-resource")
+      .then(({ KaiFinancialResourceService }) =>
+        KaiFinancialResourceService.hydrateFromSecureCache({
+          userId: user.uid,
+          vaultKey,
+        })
+      )
+      .catch(() => null);
+
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) =>
+        PkmDomainResourceService.hydrateFromSecureCache({
+          userId: user.uid,
+          domain: "financial",
+          vaultKey,
+        })
+      )
+      .catch(() => null);
+  }, [user?.uid, vaultKey]);
+
   /**
    * Prefetch common data after vault unlock to speed up page loads.
    * Runs in background - errors are logged but don't block UI.
@@ -202,7 +237,19 @@ export function VaultProvider({ children }: VaultProviderProps) {
       if (user?.uid) {
         const routePath =
           typeof window !== "undefined" ? window.location.pathname : undefined;
-        prefetchDashboardData(user.uid, token, key, routePath);
+        const scheduleWarm = () => {
+          void prefetchDashboardData(user.uid, token, key, routePath);
+        };
+
+        if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+          const requestIdle = window.requestIdleCallback as (
+            callback: IdleRequestCallback,
+            options?: IdleRequestOptions
+          ) => number;
+          requestIdle(() => scheduleWarm(), { timeout: 1500 });
+        } else {
+          globalThis.setTimeout(scheduleWarm, 300);
+        }
       }
     },
     [user, prefetchDashboardData]

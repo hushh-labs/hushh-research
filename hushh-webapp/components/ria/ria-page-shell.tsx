@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { BriefcaseBusiness, ShieldCheck, TriangleAlert } from "lucide-react";
 
@@ -31,6 +31,9 @@ export function RiaPageShell({
   statusPanel,
   children,
   className,
+  headerClassName,
+  contentClassName,
+  stackClassName,
 }: {
   eyebrow?: string;
   title: string;
@@ -40,10 +43,13 @@ export function RiaPageShell({
   statusPanel?: ReactNode;
   children: ReactNode;
   className?: string;
+  headerClassName?: string;
+  contentClassName?: string;
+  stackClassName?: string;
 }) {
   return (
     <AppPageShell as="main" width="content" className={cn("pb-28", className)}>
-      <AppPageHeaderRegion>
+      <AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>
         <PageHeader
           eyebrow={eyebrow}
           title={title}
@@ -53,8 +59,8 @@ export function RiaPageShell({
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion>
-        <SurfaceStack>
+      <AppPageContentRegion className={contentClassName}>
+        <SurfaceStack className={stackClassName}>
           {statusPanel ? <div>{statusPanel}</div> : null}
           {children}
         </SurfaceStack>
@@ -68,14 +74,13 @@ export function RiaSurface({
   className,
   accent = "none",
   tone = "default",
-}: {
-  children: ReactNode;
-  className?: string;
+  ...props
+}: ComponentPropsWithoutRef<typeof SurfaceCard> & {
   accent?: SurfaceAccent;
   tone?: SurfaceTone;
 }) {
   return (
-    <SurfaceCard tone={tone} accent={accent} className={className}>
+    <SurfaceCard tone={tone} accent={accent} className={className} {...props}>
       {children}
     </SurfaceCard>
   );
@@ -146,41 +151,64 @@ export function RiaStatusPanel({
   items,
   actions,
   className,
+  eyebrow = "Status",
+  dataTestId,
 }: {
   title: string;
   description?: string;
   items: RiaStatusItem[];
   actions?: ReactNode;
   className?: string;
+  eyebrow?: string;
+  dataTestId?: string;
 }) {
   return (
-    <section className={cn("space-y-3", className)}>
-      <SectionHeader
-        eyebrow="Status"
-        title={title}
-        description={description}
-        actions={actions}
-        icon={ShieldCheck}
-      />
-      <RiaSurface accent="sky">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {items.map((item) => (
-            <SurfaceInset
-              key={`${item.label}-${item.value}`}
-              className={cn(
-                "p-4",
-                STATUS_TONE_STYLES[item.tone || "neutral"]
-              )}
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                {item.label}
+    <RiaSurface
+      accent="sky"
+      className={cn("space-y-5 p-5 sm:p-6", className)}
+      data-testid={dataTestId}
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-sky-200/80 bg-sky-500/[0.08] text-sky-700 shadow-[0_18px_38px_-28px_rgba(56,189,248,0.38)] dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-200 dark:shadow-[0_22px_40px_-28px_rgba(56,189,248,0.22)]">
+              <ShieldCheck className="h-4.5 w-4.5" />
+            </span>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700/90 dark:text-sky-300/90">
+              {eyebrow}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-[15px] font-semibold tracking-tight leading-[1.08] text-foreground sm:text-[17px]">
+              {title}
+            </h2>
+            {description ? (
+              <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
+                {description}
               </p>
-              <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">{item.value}</p>
-              {item.helper ? <p className="mt-1 text-xs text-muted-foreground">{item.helper}</p> : null}
-            </SurfaceInset>
-          ))}
+            ) : null}
+          </div>
         </div>
-      </RiaSurface>
-    </section>
+        {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+      </div>
+
+      <div className="grid gap-px overflow-hidden rounded-[22px] bg-border/60 sm:grid-cols-2 xl:grid-cols-4">
+        {items.map((item) => (
+          <div
+            key={`${item.label}-${item.value}`}
+            className={cn(
+              "px-4 py-4 sm:px-5",
+              STATUS_TONE_STYLES[item.tone || "neutral"]
+            )}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              {item.label}
+            </p>
+            <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">{item.value}</p>
+            {item.helper ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.helper}</p> : null}
+          </div>
+        ))}
+      </div>
+    </RiaSurface>
   );
 }

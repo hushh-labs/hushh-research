@@ -2,7 +2,8 @@
 
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
-import { getLocalItem, setLocalItem } from "@/lib/utils/session-storage";
+import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { removeLocalItem } from "@/lib/utils/session-storage";
 
 export type TickerUniverseRow = {
   ticker: string;
@@ -27,11 +28,14 @@ type CachePayload = {
 };
 
 const STORAGE_KEY = "cache:kai:ticker-universe:v2";
+const DEVICE_CACHE_USER = "__shared__";
+const DEVICE_RESOURCE_KEY = "kai:ticker-universe:v2";
 const CACHE_VERSION = 2;
 const DEFAULT_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 let inMemory: CachePayload | null = null;
 let inFlight: Promise<TickerUniverseRow[]> | null = null;
+let hydrateFromDeviceInFlight: Promise<CachePayload | null> | null = null;
 const remoteSearchInFlight = new Map<string, Promise<TickerUniverseRow[]>>();
 
 function normalizeRow(row: TickerUniverseRow): TickerUniverseRow {
@@ -64,41 +68,58 @@ function normalizeRow(row: TickerUniverseRow): TickerUniverseRow {
   };
 }
 
-function safeParse(json: string): CachePayload | null {
-  try {
-    const parsed = JSON.parse(json) as CachePayload;
-    if (!parsed || typeof parsed !== "object") return null;
-    if (parsed.v !== CACHE_VERSION) return null;
-    if (!Array.isArray(parsed.rows)) return null;
-    if (typeof parsed.fetchedAt !== "number") return null;
-    return {
-      v: CACHE_VERSION,
-      fetchedAt: parsed.fetchedAt,
-      rows: parsed.rows.map(normalizeRow),
-    };
-  } catch {
-    return null;
-  }
+function normalizePayload(raw: unknown): CachePayload | null {
+  if (!raw || typeof raw !== "object") return null;
+  const parsed = raw as Partial<CachePayload>;
+  if (parsed.v !== CACHE_VERSION) return null;
+  if (!Array.isArray(parsed.rows)) return null;
+  if (typeof parsed.fetchedAt !== "number") return null;
+  return {
+    v: CACHE_VERSION,
+    fetchedAt: parsed.fetchedAt,
+    rows: parsed.rows.map(normalizeRow),
+  };
 }
 
-function readFromStorage(): CachePayload | null {
-  if (typeof window === "undefined") return null;
-  const raw = getLocalItem(STORAGE_KEY);
-  if (!raw) return null;
-  return safeParse(raw);
+async function readFromDevice(): Promise<CachePayload | null> {
+  const payload = await DeviceResourceCacheService.read<CachePayload>({
+    userId: DEVICE_CACHE_USER,
+    resourceKey: DEVICE_RESOURCE_KEY,
+  });
+  return normalizePayload(payload);
 }
 
-function writeToStorage(payload: CachePayload) {
-  if (typeof window === "undefined") return;
-  try {
-    setLocalItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // ignore quota / private mode
-  }
+async function writeToDevice(payload: CachePayload): Promise<void> {
+  await DeviceResourceCacheService.write({
+    userId: DEVICE_CACHE_USER,
+    resourceKey: DEVICE_RESOURCE_KEY,
+    value: payload,
+    ttlMs: DEFAULT_TTL_MS,
+  });
+  removeLocalItem(STORAGE_KEY);
 }
 
 function isFresh(payload: CachePayload, ttlMs: number): boolean {
   return Date.now() - payload.fetchedAt < ttlMs;
+}
+
+function ensureDeviceHydration(): void {
+  if (typeof window === "undefined" || inMemory || hydrateFromDeviceInFlight) {
+    return;
+  }
+
+  hydrateFromDeviceInFlight = readFromDevice()
+    .then((payload) => {
+      if (payload?.rows?.length) {
+        inMemory = payload;
+      }
+      removeLocalItem(STORAGE_KEY);
+      return payload;
+    })
+    .catch(() => null)
+    .finally(() => {
+      hydrateFromDeviceInFlight = null;
+    });
 }
 
 async function fetchUniverse(forceRefresh = false): Promise<TickerUniverseRow[]> {
@@ -133,7 +154,7 @@ async function fetchUniverse(forceRefresh = false): Promise<TickerUniverseRow[]>
 /**
  * Preload the full ticker universe once.
  * - Uses in-memory cache first
- * - Falls back to localStorage
+ * - Falls back to IndexedDB device cache
  * - Otherwise fetches /api/tickers/all and persists
  */
 export async function preloadTickerUniverse(options?: {
@@ -148,9 +169,30 @@ export async function preloadTickerUniverse(options?: {
   }
 
   if (!forceRefresh) {
-    const stored = readFromStorage();
+    const stored = await readFromDevice();
     if (stored && isFresh(stored, ttlMs)) {
       inMemory = stored;
+      removeLocalItem(STORAGE_KEY);
+      return stored.rows;
+    }
+    if (stored?.rows?.length) {
+      inMemory = stored;
+      removeLocalItem(STORAGE_KEY);
+      if (!inFlight) {
+        inFlight = (async () => {
+          const rows = await fetchUniverse(false);
+          const payload: CachePayload = {
+            v: CACHE_VERSION,
+            fetchedAt: Date.now(),
+            rows,
+          };
+          inMemory = payload;
+          await writeToDevice(payload);
+          return rows;
+        })().finally(() => {
+          inFlight = null;
+        });
+      }
       return stored.rows;
     }
   }
@@ -164,7 +206,7 @@ export async function preloadTickerUniverse(options?: {
         rows,
       };
       inMemory = payload;
-      writeToStorage(payload);
+      await writeToDevice(payload);
       return rows;
     })().finally(() => {
       inFlight = null;
@@ -179,18 +221,14 @@ export function getTickerUniverseSync(): TickerUniverseRow[] | null {
 }
 
 /**
- * Return a synchronous ticker snapshot from memory or localStorage.
+ * Return a synchronous ticker snapshot from memory.
  * Useful for immediate UX while async preload runs.
  */
 export function getTickerUniverseSnapshot(): TickerUniverseRow[] | null {
   if (inMemory?.rows?.length) {
     return inMemory.rows;
   }
-  const stored = readFromStorage();
-  if (stored?.rows?.length) {
-    inMemory = stored;
-    return stored.rows;
-  }
+  ensureDeviceHydration();
   return null;
 }
 

@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Code2, Loader2, Save, ShieldAlert, Vault } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Code2,
+  Loader2,
+  Lock,
+  ShieldAlert,
+  SlidersHorizontal,
+  Sparkles,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
@@ -9,8 +16,11 @@ import { PkmExplorerPanel } from "@/components/profile/pkm-explorer-panel";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { PkmUpgradeStatusCard } from "@/components/profile/pkm-upgrade-status-card";
-import { PkmJsonTree } from "@/components/profile/pkm-tree-view";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import {
+  SettingsDetailPanel,
+  SettingsGroup,
+  SettingsRow,
+} from "@/components/profile/settings-ui";
 import {
   Accordion,
   AccordionContent,
@@ -18,34 +28,29 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/lib/morphy-ux/morphy";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
-import { ApiService } from "@/lib/services/api-service";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { ApiService } from "@/lib/services/api-service";
+import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
+import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
   getDeveloperAccess,
   type DeveloperPortalAccess,
 } from "@/lib/services/developer-portal-service";
-import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
+import {
+  PersonalKnowledgeModelService,
+  type PersonalKnowledgeModelMetadata,
+} from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import {
   PkmUpgradeService,
   type PkmUpgradeStatus,
 } from "@/lib/services/pkm-upgrade-service";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { Button } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
 
 type AgentLabDomainChoice = {
@@ -62,7 +67,29 @@ type AgentLabIntentFrame = {
   requires_confirmation?: boolean;
   confirmation_reason?: string;
   candidate_domain_choices?: AgentLabDomainChoice[];
-  confidence?: number;
+};
+
+type AgentLabPreviewCard = {
+  card_id: string;
+  source_text: string;
+  save_class?: string;
+  intent_class?: string;
+  mutation_intent?: string;
+  merge_mode?: string;
+  target_domain?: string;
+  primary_json_path?: string | null;
+  target_entity_scope?: string | null;
+  target_entity_id?: string | null;
+  write_mode?: string;
+  requires_confirmation?: boolean;
+  confirmation_reason?: string;
+  candidate_domain_choices?: AgentLabDomainChoice[];
+  validation_hints?: string[];
+  intent_frame?: AgentLabIntentFrame;
+  merge_decision?: Record<string, unknown>;
+  candidate_payload?: Record<string, unknown>;
+  structure_decision?: Record<string, unknown>;
+  manifest_draft?: DomainManifest | null;
 };
 
 type AgentLabResponse = {
@@ -84,58 +111,24 @@ type AgentLabResponse = {
   preview_cards?: AgentLabPreviewCard[];
   preview_summary?: Record<string, unknown>;
   performance?: Record<string, unknown>;
-  context_plan?: Record<string, unknown>;
 };
 
-type AgentLabPreviewCard = {
-  card_id: string;
-  source_text: string;
-  routing_decision?: string;
-  save_class?: string;
-  intent_class?: string;
-  mutation_intent?: string;
-  merge_mode?: string;
-  target_domain?: string;
-  primary_json_path?: string | null;
-  target_entity_scope?: string | null;
-  target_entity_id?: string | null;
-  write_mode?: string;
-  requires_confirmation?: boolean;
-  confirmation_reason?: string;
-  candidate_domain_choices?: AgentLabDomainChoice[];
-  current_entity_snapshot?: Record<string, unknown> | null;
-  proposed_entity_patch?: Record<string, unknown> | null;
-  resulting_domain_patch?: Record<string, unknown> | null;
-  scope_projection?: Record<string, unknown> | null;
-  candidate_segment_ids?: string[];
-  validation_hints?: string[];
-  intent_frame?: AgentLabIntentFrame;
-  merge_decision?: Record<string, unknown>;
-  candidate_payload?: Record<string, unknown>;
-  structure_decision?: Record<string, unknown>;
-  manifest_draft?: DomainManifest | null;
+type PermissionSection = {
+  scopeHandle: string;
+  topLevelScopePath: string;
+  label: string;
+  description: string;
+  exposureEnabled: boolean;
 };
 
-type OverlapAssessment = {
-  targetDomain: string;
-  action: string;
-  requiresConfirmation: boolean;
-  existingPathCount: number;
-  incomingPathCount: number;
-  overlappingPaths: string[];
-  newPaths: string[];
-  note: string;
-};
-
-type PkmAgentLabTab = "overview" | "tool" | "natural" | "explorer";
-
-function toStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
-function normalizePath(value: unknown): string {
-  if (typeof value !== "string") return "";
-  return value
+function normalizePath(path: string | null | undefined): string {
+  return String(path || "")
     .split(".")
     .map((part) =>
       String(part)
@@ -148,33 +141,112 @@ function normalizePath(value: unknown): string {
     .join(".");
 }
 
-function titleizeSlug(value: string | null | undefined): string {
+function titleize(value: string | null | undefined): string {
   return String(value || "")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (match) => match.toUpperCase())
     .trim();
 }
 
-function toRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) return "Unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
-function formatLatency(value: unknown): string | null {
-  if (typeof value !== "number" || Number.isNaN(value)) return null;
-  if (value < 1000) return `${Math.round(value)} ms`;
-  return `${(value / 1000).toFixed(2)} s`;
+function getScopeSections(manifest: DomainManifest | null | undefined): PermissionSection[] {
+  const registry = Array.isArray(manifest?.scope_registry) ? manifest.scope_registry : [];
+  return registry
+    .map((entry) => {
+      let summaryProjection: Record<string, unknown> = {};
+      if (entry.summary_projection && typeof entry.summary_projection === "object") {
+        summaryProjection = entry.summary_projection as Record<string, unknown>;
+      } else if (typeof entry.summary_projection === "string") {
+        try {
+          const parsed = JSON.parse(entry.summary_projection);
+          summaryProjection =
+            parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? (parsed as Record<string, unknown>)
+              : {};
+        } catch {
+          summaryProjection = {};
+        }
+      }
+      const topLevelScopePath = normalizePath(
+        typeof summaryProjection.top_level_scope_path === "string"
+          ? summaryProjection.top_level_scope_path
+          : ""
+      );
+      if (!entry.scope_handle || !topLevelScopePath) {
+        return null;
+      }
+      const summaryText =
+        typeof summaryProjection.readable_summary === "string"
+          ? summaryProjection.readable_summary.trim()
+          : "";
+      const readableEvent =
+        typeof summaryProjection.readable_event_summary === "string"
+          ? summaryProjection.readable_event_summary.trim()
+          : "";
+      return {
+        scopeHandle: entry.scope_handle,
+        topLevelScopePath,
+        label: String(entry.scope_label || titleize(topLevelScopePath)),
+        description:
+          summaryText ||
+          readableEvent ||
+          `Controls whether Kai can expose ${titleize(topLevelScopePath)} through PKM permissions.`,
+        exposureEnabled: entry.exposure_enabled !== false,
+      };
+    })
+    .filter((entry): entry is PermissionSection => entry !== null)
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function toPathSet(value: DomainManifest | null | undefined): Set<string> {
-  return new Set(
-    Array.isArray(value?.paths)
-      ? value.paths
-          .map((path) => path?.json_path)
-          .filter((item): item is string => typeof item === "string" && item.length > 0)
-      : []
-  );
+function buildPreviewCards(
+  response: AgentLabResponse | null,
+  message: string
+): AgentLabPreviewCard[] {
+  if (Array.isArray(response?.preview_cards) && response.preview_cards.length > 0) {
+    return response.preview_cards;
+  }
+  if (!response) return [];
+  return [
+    {
+      card_id: "preview_1",
+      source_text: message,
+      save_class: response.intent_frame?.save_class,
+      intent_class: response.intent_frame?.intent_class,
+      mutation_intent: response.intent_frame?.mutation_intent,
+      merge_mode:
+        typeof response.merge_decision?.merge_mode === "string"
+          ? response.merge_decision.merge_mode
+          : undefined,
+      target_domain:
+        typeof response.manifest_draft?.domain === "string"
+          ? response.manifest_draft.domain
+          : typeof response.structure_decision?.target_domain === "string"
+            ? response.structure_decision.target_domain
+            : undefined,
+      primary_json_path: response.primary_json_path,
+      target_entity_scope: response.target_entity_scope,
+      target_entity_id:
+        typeof response.merge_decision?.target_entity_id === "string"
+          ? response.merge_decision.target_entity_id
+          : undefined,
+      write_mode: response.write_mode,
+      requires_confirmation: response.intent_frame?.requires_confirmation,
+      confirmation_reason: response.intent_frame?.confirmation_reason,
+      candidate_domain_choices: response.intent_frame?.candidate_domain_choices,
+      validation_hints: response.validation_hints,
+      intent_frame: response.intent_frame,
+      merge_decision: response.merge_decision,
+      candidate_payload: response.candidate_payload,
+      structure_decision: response.structure_decision,
+      manifest_draft: response.manifest_draft,
+    },
+  ];
 }
 
 export default function PkmAgentLabPageClient() {
@@ -186,78 +258,90 @@ export default function PkmAgentLabPageClient() {
 
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
-  const [currentDomains, setCurrentDomains] = useState<string[]>([]);
+  const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
+  const [manifests, setManifests] = useState<Record<string, DomainManifest | null>>({});
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
+  const [upgradeStatus, setUpgradeStatus] = useState<PkmUpgradeStatus | null>(null);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [naturalRefreshToken, setNaturalRefreshToken] = useState(0);
+  const [showVaultUnlock, setShowVaultUnlock] = useState(false);
   const [message, setMessage] = useState(
     "Remember that I prefer short city breaks and weekly meal prep."
   );
   const [response, setResponse] = useState<AgentLabResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [selectedDomainKey, setSelectedDomainKey] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [showVaultUnlock, setShowVaultUnlock] = useState(false);
-  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
-  const [overlapAssessment, setOverlapAssessment] = useState<OverlapAssessment | null>(null);
-  const [overlapLoading, setOverlapLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<PkmAgentLabTab>("tool");
-  const [naturalMounted, setNaturalMounted] = useState(false);
-  const [explorerMounted, setExplorerMounted] = useState(false);
-  const [naturalRefreshToken, setNaturalRefreshToken] = useState(0);
-  const [upgradeStatus, setUpgradeStatus] = useState<PkmUpgradeStatus | null>(null);
-  const [upgradeLoading, setUpgradeLoading] = useState(false);
-  const [upgradeBusy, setUpgradeBusy] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAccess() {
-      if (loading) {
-        return;
-      }
+  const loadBootstrap = useCallback(
+    async (force = false) => {
+      if (loading) return;
       if (!user) {
-        if (!cancelled) {
-          setAccess(null);
-          setAccessLoading(false);
-          setCurrentDomains([]);
-        }
+        setAccess(null);
+        setAccessLoading(false);
+        setMetadata(null);
+        setManifests({});
         return;
       }
 
       setAccessLoading(true);
+      setBootstrapLoading(true);
       try {
         const idToken = await user.getIdToken();
-        const [developerAccess, metadata] = await Promise.all([
-          getDeveloperAccess(idToken),
-          isVaultUnlocked && vaultOwnerToken
-            ? PersonalKnowledgeModelService.getMetadata(user.uid, false, vaultOwnerToken).catch(
-                () => null
-              )
-            : Promise.resolve(null),
-        ]);
-        if (!cancelled) {
-          setAccess(developerAccess);
-          setCurrentDomains(metadata?.domains.map((domain) => domain.key) || []);
+        const nextAccess = await getDeveloperAccess(idToken, { userId: user.uid });
+        let nextMetadata: PersonalKnowledgeModelMetadata | null = null;
+        let nextManifests: Record<string, DomainManifest | null> = {};
+        if (isVaultUnlocked && vaultOwnerToken) {
+          nextMetadata = await PersonalKnowledgeModelService.getMetadata(
+            user.uid,
+            force,
+            vaultOwnerToken
+          ).catch(() => null);
+          if (nextMetadata) {
+            const manifestPairs = await Promise.all(
+              nextMetadata.domains.map(async (domain) => [
+                domain.key,
+                await PersonalKnowledgeModelService.getDomainManifest(
+                  user.uid,
+                  domain.key,
+                  vaultOwnerToken
+                ).catch(() => null),
+              ])
+            );
+            nextManifests = Object.fromEntries(manifestPairs);
+          }
         }
+        setAccess(nextAccess);
+        setMetadata(nextMetadata);
+        setManifests(nextManifests);
+        setSelectedDomainKey((current) => {
+          if (current && nextMetadata?.domains.some((domain) => domain.key === current)) {
+            return current;
+          }
+          return nextMetadata?.domains[0]?.key || null;
+        });
       } catch (nextError) {
-        if (!cancelled) {
-          setAccess(null);
-          setCurrentDomains([]);
-          setError(
-            nextError instanceof Error ? nextError.message : "Failed to load developer access."
-          );
-        }
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : "Failed to load PKM Agent Lab."
+        );
       } finally {
-        if (!cancelled) {
-          setAccessLoading(false);
-        }
+        setAccessLoading(false);
+        setBootstrapLoading(false);
       }
-    }
+    },
+    [isVaultUnlocked, loading, user, vaultOwnerToken]
+  );
 
-    void loadAccess();
-    return () => {
-      cancelled = true;
-    };
-  }, [isVaultUnlocked, loading, user, vaultOwnerToken]);
+  useEffect(() => {
+    void loadBootstrap(naturalRefreshToken > 0);
+  }, [loadBootstrap, naturalRefreshToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,6 +360,7 @@ export default function PkmAgentLabPageClient() {
         const nextStatus = await PkmUpgradeService.getStatus({
           userId: user.uid,
           vaultOwnerToken,
+          force: naturalRefreshToken > 0,
         });
         if (!cancelled) {
           setUpgradeStatus(nextStatus);
@@ -299,282 +384,48 @@ export default function PkmAgentLabPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, vaultOwnerToken, naturalRefreshToken]);
+  }, [naturalRefreshToken, user, vaultOwnerToken]);
 
-  useEffect(() => {
-    if (!user || !vaultOwnerToken) return;
-    if (!upgradeStatus || !["running", "awaiting_local_auth_resume"].includes(upgradeStatus.upgradeStatus)) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      void PkmUpgradeService.getStatus({
-        userId: user.uid,
-        vaultOwnerToken,
-      })
-        .then((nextStatus) => {
-          setUpgradeStatus(nextStatus);
-          if (nextStatus.upgradeStatus === "current") {
-            setNaturalRefreshToken((value) => value + 1);
-          }
-        })
-        .catch(() => undefined);
-    }, 4000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [upgradeStatus, user, vaultOwnerToken]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function assessOverlap() {
-      if (!response || !user || !vaultOwnerToken) {
-        if (!cancelled) {
-          setOverlapAssessment(null);
-          setOverlapLoading(false);
-        }
-        return;
-      }
-
-      const structureDecision =
-        response.structure_decision && typeof response.structure_decision === "object"
-          ? response.structure_decision
-          : {};
-      const manifestDraft =
-        response.manifest_draft && typeof response.manifest_draft === "object"
-          ? response.manifest_draft
-          : null;
-      const targetDomain =
-        (typeof manifestDraft?.domain === "string" && manifestDraft.domain) ||
-        (typeof structureDecision.target_domain === "string" && structureDecision.target_domain) ||
-        "";
-      const action =
-        typeof structureDecision.action === "string"
-          ? structureDecision.action
-          : "match_existing_domain";
-
-      if (!targetDomain) {
-        if (!cancelled) {
-          setOverlapAssessment(null);
-          setOverlapLoading(false);
-        }
-        return;
-      }
-
-      const incomingPaths = Array.from(toPathSet(manifestDraft));
-      const domainExists = currentDomains.includes(targetDomain);
-      if (!domainExists) {
-        if (!cancelled) {
-          setOverlapAssessment({
-            targetDomain,
-            action,
-            requiresConfirmation: false,
-            existingPathCount: 0,
-            incomingPathCount: incomingPaths.length,
-            overlappingPaths: [],
-            newPaths: incomingPaths,
-            note: "This preview targets a brand new PKM domain, so no existing structure overlap was found.",
-          });
-          setOverlapLoading(false);
-        }
-        return;
-      }
-
-      setOverlapLoading(true);
-      try {
-        const existingManifest = await PersonalKnowledgeModelService.getDomainManifest(
-          user.uid,
-          targetDomain,
-          vaultOwnerToken
-        );
-        if (cancelled) return;
-
-        const existingPaths = toPathSet(existingManifest);
-        const overlappingPaths = incomingPaths.filter((path) => existingPaths.has(path));
-        const newPaths = incomingPaths.filter((path) => !existingPaths.has(path));
-        const requiresConfirmation =
-          action !== "create_domain" || overlappingPaths.length > 0 || existingPaths.size > 0;
-
-        setOverlapAssessment({
-          targetDomain,
-          action,
-          requiresConfirmation,
-          existingPathCount: existingPaths.size,
-          incomingPathCount: incomingPaths.length,
-          overlappingPaths,
-          newPaths,
-          note:
-            overlappingPaths.length > 0
-              ? "This preview overlaps with PKM paths that already exist. Saving will write a new encrypted revision for the same domain."
-              : "This preview will extend an existing domain with new paths. Review before saving so we do not duplicate structure accidentally.",
-        });
-      } catch {
-        if (!cancelled) {
-          setOverlapAssessment({
-            targetDomain,
-            action,
-            requiresConfirmation: true,
-            existingPathCount: 0,
-            incomingPathCount: incomingPaths.length,
-            overlappingPaths: [],
-            newPaths: incomingPaths,
-            note:
-              "Kai could not verify the existing manifest for this domain, so save confirmation is required before writing.",
-          });
-        }
-      } finally {
-        if (!cancelled) {
-          setOverlapLoading(false);
-        }
-      }
-    }
-
-    void assessOverlap();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDomains, response, user, vaultOwnerToken]);
-
-  useEffect(() => {
-    if (activeTab === "natural") {
-      setNaturalMounted(true);
-    }
-    if (activeTab === "explorer") {
-      setExplorerMounted(true);
-    }
-  }, [activeTab]);
-
-  const canUseLab = Boolean(user && access?.access_enabled && isVaultUnlocked && vaultOwnerToken);
-  const prettyResponse = useMemo(
-    () => (response ? JSON.stringify(response, null, 2) : ""),
-    [response]
+  const previewCards = useMemo(
+    () => buildPreviewCards(response, message),
+    [message, response]
   );
-  const previewCards = useMemo<AgentLabPreviewCard[]>(() => {
-    if (Array.isArray(response?.preview_cards) && response.preview_cards.length > 0) {
-      return response.preview_cards;
-    }
-    if (!response) return [];
-    return [
-      {
-        card_id: "card_01",
-        source_text: message,
-        routing_decision: response.routing_decision,
-        save_class: response.intent_frame?.save_class,
-        intent_class: response.intent_frame?.intent_class,
-        mutation_intent: response.intent_frame?.mutation_intent,
-        merge_mode:
-          typeof response.merge_decision?.merge_mode === "string"
-            ? response.merge_decision.merge_mode
-            : undefined,
-        target_domain:
-          typeof response.manifest_draft?.domain === "string"
-            ? response.manifest_draft.domain
-            : typeof response.structure_decision?.target_domain === "string"
-              ? (response.structure_decision.target_domain as string)
-              : undefined,
-        primary_json_path: response.primary_json_path,
-        target_entity_scope: response.target_entity_scope,
-        target_entity_id:
-          typeof response.merge_decision?.target_entity_id === "string"
-            ? response.merge_decision.target_entity_id
-            : undefined,
-        write_mode: response.write_mode,
-        requires_confirmation: response.intent_frame?.requires_confirmation,
-        confirmation_reason: response.intent_frame?.confirmation_reason,
-        candidate_domain_choices: response.intent_frame?.candidate_domain_choices,
-        proposed_entity_patch: response.candidate_payload,
-        resulting_domain_patch: response.candidate_payload,
-        validation_hints: response.validation_hints,
-        intent_frame: response.intent_frame,
-        merge_decision: response.merge_decision,
-        candidate_payload: response.candidate_payload,
-        structure_decision: response.structure_decision,
-        manifest_draft: response.manifest_draft,
-      },
-    ];
-  }, [message, response]);
-  const performanceSummary = useMemo(() => {
-    const performance = toRecord(response?.performance);
-    return {
-      totalLatency: formatLatency(performance.total_latency_ms),
-      cardCount:
-        typeof performance.cards_returned === "number"
-          ? performance.cards_returned
-          : previewCards.length,
-      domainsConsidered: toStringArray(performance.context_domains_considered),
-      domainsLoaded: toStringArray(performance.context_domains_loaded),
-      segmentsLoaded: toStringArray(performance.context_segments_loaded),
-    };
-  }, [previewCards.length, response?.performance]);
-  const previewSummary = useMemo(() => {
-    const summary = toRecord(response?.preview_summary);
-    return {
-      splitRecommended: Boolean(summary.split_recommended),
-      canSaveCount:
-        typeof summary.can_save_count === "number"
-          ? summary.can_save_count
-          : previewCards.filter((card) => card.write_mode === "can_save").length,
-      confirmFirstCount:
-        typeof summary.confirm_first_count === "number"
-          ? summary.confirm_first_count
-          : previewCards.filter((card) => card.write_mode === "confirm_first").length,
-      doNotSaveCount:
-        typeof summary.do_not_save_count === "number"
-          ? summary.do_not_save_count
-          : previewCards.filter((card) => card.write_mode === "do_not_save").length,
-      notes: toStringArray(summary.notes),
-    };
-  }, [previewCards, response?.preview_summary]);
-  const backendOrganization = useMemo(() => {
-    if (!response) return null;
-    const structureDecision =
-      response.structure_decision && typeof response.structure_decision === "object"
-        ? response.structure_decision
-        : {};
-    const manifestDraft =
-      response.manifest_draft && typeof response.manifest_draft === "object"
-        ? response.manifest_draft
-        : null;
-    const targetDomain =
-      (typeof manifestDraft?.domain === "string" && manifestDraft.domain) ||
-      (typeof structureDecision.target_domain === "string" && structureDecision.target_domain) ||
-      "general";
-    const segmentIds = toStringArray(manifestDraft?.segment_ids);
-    const topLevelScopes = toStringArray(
-      manifestDraft?.top_level_scope_paths ?? structureDecision.top_level_scope_paths
-    );
-    const externalizablePaths = toStringArray(
-      manifestDraft?.externalizable_paths ?? structureDecision.externalizable_paths
-    );
-    const pathCount =
-      typeof manifestDraft?.path_count === "number"
-        ? manifestDraft.path_count
-        : Array.isArray(manifestDraft?.paths)
-          ? manifestDraft.paths.length
-          : 0;
-    const scopeRegistryCount = Array.isArray(manifestDraft?.scope_registry)
-      ? manifestDraft.scope_registry.length
-      : 0;
-    const manifestVersion =
-      typeof manifestDraft?.manifest_version === "number" ? manifestDraft.manifest_version : 1;
-    return {
-      targetDomain,
-      action:
-        typeof structureDecision.action === "string"
-          ? structureDecision.action
-          : "match_existing_domain",
-      segmentIds,
-      topLevelScopes,
-      externalizablePaths,
-      pathCount,
-      scopeRegistryCount,
-      manifestVersion,
-    };
-  }, [response]);
 
-  async function handleResumeUpgrade() {
+  const domains = metadata?.domains || [];
+  const totalSections = useMemo(
+    () =>
+      Object.values(manifests).reduce(
+        (sum, manifest) => sum + getScopeSections(manifest).length,
+        0
+      ),
+    [manifests]
+  );
+  const enabledSections = useMemo(
+    () =>
+      Object.values(manifests).reduce(
+        (sum, manifest) =>
+          sum + getScopeSections(manifest).filter((section) => section.exposureEnabled).length,
+        0
+      ),
+    [manifests]
+  );
+  const upgradableDomains = upgradeStatus?.upgradableDomains.filter((domain) => domain.needsUpgrade) || [];
+  const selectedDomain = domains.find((domain) => domain.key === selectedDomainKey) || null;
+  const selectedManifest = selectedDomainKey ? manifests[selectedDomainKey] || null : null;
+  const selectedSections = useMemo(
+    () => getScopeSections(selectedManifest),
+    [selectedManifest]
+  );
+  const selectedDomainNeedsUpgrade = Boolean(
+    selectedDomain && upgradableDomains.some((domain) => domain.domain === selectedDomain.key)
+  );
+
+  const openDomain = useCallback((domainKey: string) => {
+    setSelectedDomainKey(domainKey);
+    setDetailOpen(true);
+  }, []);
+
+  const handleResumeUpgrade = useCallback(async () => {
     if (!user) return;
     if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
       setShowVaultUnlock(true);
@@ -589,11 +440,6 @@ export default function PkmAgentLabPageClient() {
         vaultOwnerToken,
         initiatedBy: "pkm_lab",
       });
-      const refreshed = await PkmUpgradeService.getStatus({
-        userId: user.uid,
-        vaultOwnerToken,
-      });
-      setUpgradeStatus(refreshed);
       setNaturalRefreshToken((value) => value + 1);
     } catch (nextError) {
       setError(
@@ -602,18 +448,17 @@ export default function PkmAgentLabPageClient() {
     } finally {
       setUpgradeBusy(false);
     }
-  }
+  }, [isVaultUnlocked, user, vaultKey, vaultOwnerToken]);
 
-  async function handlePreview() {
+  const handlePreview = useCallback(async () => {
     if (!user || !vaultOwnerToken) {
-      setError("Unlock your vault before using Agent Lab.");
+      setError("Unlock your vault before previewing PKM changes.");
       return;
     }
 
     setSubmitting(true);
     setError(null);
     setSaveMessage(null);
-    setOverlapAssessment(null);
     try {
       const result = await ApiService.apiFetch("/api/pkm/agent-lab/structure", {
         method: "POST",
@@ -624,7 +469,7 @@ export default function PkmAgentLabPageClient() {
         body: JSON.stringify({
           user_id: user.uid,
           message,
-          current_domains: currentDomains,
+          current_domains: domains.map((domain) => domain.key),
         }),
       });
 
@@ -633,27 +478,27 @@ export default function PkmAgentLabPageClient() {
         throw new Error(detail || `Agent lab request failed with ${result.status}`);
       }
 
-      const payload = (await result.json()) as AgentLabResponse;
-      setResponse(payload);
+      setResponse((await result.json()) as AgentLabResponse);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to preview PKM structure.");
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Failed to preview PKM capture."
+      );
     } finally {
       setSubmitting(false);
     }
-  }
+  }, [domains, message, user, vaultOwnerToken]);
 
-  async function persistPreview() {
-    if (!user || !vaultOwnerToken || !vaultKey) {
+  const persistPreview = useCallback(async () => {
+    if (!user || !vaultKey || !vaultOwnerToken) {
       setError("Unlock your vault before saving to PKM.");
       return;
     }
-    if (!response) {
-      setError("Generate a preview before saving to PKM.");
-      return;
-    }
+
     const saveableCards = previewCards.filter((card) => card.write_mode === "can_save");
     if (saveableCards.length === 0) {
-      setError("This preview does not contain any saveable PKM updates.");
+      setError("This preview does not contain any saveable PKM changes.");
       return;
     }
 
@@ -661,6 +506,7 @@ export default function PkmAgentLabPageClient() {
       setSaving(true);
       setError(null);
       setSaveMessage(null);
+
       for (const card of saveableCards) {
         const candidatePayload =
           card.candidate_payload && typeof card.candidate_payload === "object"
@@ -673,7 +519,8 @@ export default function PkmAgentLabPageClient() {
             : null;
         const targetDomain =
           (typeof manifestDraft?.domain === "string" && manifestDraft.domain) ||
-          (typeof structureDecision.target_domain === "string" && structureDecision.target_domain) ||
+          (typeof structureDecision.target_domain === "string" &&
+            structureDecision.target_domain) ||
           "";
         if (!candidatePayload || !targetDomain) {
           throw new Error("One preview card did not produce a valid PKM payload.");
@@ -686,7 +533,7 @@ export default function PkmAgentLabPageClient() {
             : {};
         const readableMetadata = buildReadablePkmMetadata({
           domainKey: targetDomain,
-          domainDisplayName: titleizeSlug(targetDomain),
+          domainDisplayName: titleize(targetDomain),
           sourceText: String(card.source_text || message),
           mergeMode:
             typeof card.merge_mode === "string"
@@ -700,7 +547,7 @@ export default function PkmAgentLabPageClient() {
               : typeof card.intent_frame?.intent_class === "string"
                 ? card.intent_frame.intent_class
                 : null,
-          manifest: manifestDraft as DomainManifest | null,
+          manifest: manifestDraft,
           structureDecision,
           primaryJsonPath:
             typeof card.primary_json_path === "string" ? card.primary_json_path : null,
@@ -726,93 +573,123 @@ export default function PkmAgentLabPageClient() {
               } as DomainManifest)
             : null;
 
-        const result = await PersonalKnowledgeModelService.storePreparedDomain({
+        const result = await PkmWriteCoordinator.savePreparedDomain({
           userId: user.uid,
+          domain: targetDomain,
           vaultKey,
           vaultOwnerToken,
-          domain: targetDomain,
-          domainData: candidatePayload,
-          summary: {
-            ...nextSummaryProjection,
-            message_excerpt: String(card.source_text || message).slice(0, 160),
-            source: "pkm_agent_lab",
-            card_id: card.card_id,
-          },
-          mergeDecision: card.merge_decision,
-          structureDecision: nextStructureDecision,
-          manifest: nextManifest,
+          build: async () => ({
+            domainData: candidatePayload,
+            summary: {
+              ...nextSummaryProjection,
+              message_excerpt: String(card.source_text || message).slice(0, 160),
+              source: "pkm_agent_lab",
+              card_id: card.card_id,
+            },
+            mergeDecision: card.merge_decision,
+            structureDecision: nextStructureDecision,
+            manifest: nextManifest || undefined,
+          }),
         });
 
         if (!result.success) {
-          throw new Error(result.message || "Failed to save candidate payload to PKM.");
+          throw new Error(result.message || "Failed to save PKM preview.");
         }
       }
 
-      const metadata = await PersonalKnowledgeModelService.getMetadata(
-        user.uid,
-        true,
-        vaultOwnerToken
-      ).catch(() => null);
-      setCurrentDomains(metadata?.domains.map((domain) => domain.key) || currentDomains);
+      await loadBootstrap(true);
       setNaturalRefreshToken((value) => value + 1);
       setSaveMessage(
         saveableCards.length === 1
-          ? `Saved 1 PKM update. Preview stayed read-only; Save encrypted the update with your vault key and wrote a new PKM revision.`
-          : `Saved ${saveableCards.length} PKM updates. Preview stayed read-only; Save encrypted each update with your vault key and wrote new PKM revisions.`
+          ? "Saved 1 PKM capture. The encrypted revision and permission metadata are now live."
+          : `Saved ${saveableCards.length} PKM captures. The encrypted revisions and permission metadata are now live.`
       );
-      setShowSaveConfirm(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to save PKM payload.");
+      setError(
+        nextError instanceof Error ? nextError.message : "Failed to save PKM preview."
+      );
     } finally {
       setSaving(false);
     }
-  }
+  }, [loadBootstrap, message, previewCards, user, vaultKey, vaultOwnerToken]);
 
-  async function handleSaveToPkm() {
-    const saveableCardCount = previewCards.filter((card) => card.write_mode === "can_save").length;
-    if (overlapAssessment?.requiresConfirmation || saveableCardCount > 1) {
-      setShowSaveConfirm(true);
-      return;
-    }
-    await persistPreview();
-  }
+  const applyScopeExposureChange = useCallback(
+    async (
+      domainKey: string,
+      changes: Array<{
+        scopeHandle?: string;
+        topLevelScopePath?: string;
+        exposureEnabled: boolean;
+      }>
+    ) => {
+      if (!user || !vaultOwnerToken) {
+        setShowVaultUnlock(true);
+        return;
+      }
+      const manifest = manifests[domainKey];
+      if (!manifest) {
+        setError("This PKM domain is not ready for permissions yet.");
+        return;
+      }
+
+      try {
+        setTogglingKey(
+          `${domainKey}:${changes.map((change) => change.scopeHandle || change.topLevelScopePath).join(",")}`
+        );
+        setError(null);
+        const result = await PersonalKnowledgeModelService.updateScopeExposure({
+          userId: user.uid,
+          domain: domainKey,
+          expectedManifestVersion: manifest.manifest_version,
+          revokeMatchingActiveGrants: true,
+          changes: changes.map((change) => ({
+            scopeHandle: change.scopeHandle,
+            topLevelScopePath: change.topLevelScopePath,
+            exposureEnabled: change.exposureEnabled,
+          })),
+          vaultOwnerToken,
+        });
+        setManifests((current) => ({
+          ...current,
+          [domainKey]: result.manifest,
+        }));
+        await loadBootstrap(true);
+        setNaturalRefreshToken((value) => value + 1);
+        setSaveMessage(
+          result.revokedGrantCount > 0
+            ? `Updated permissions and revoked ${result.revokedGrantCount} overlapping active grant${result.revokedGrantCount === 1 ? "" : "s"}.`
+            : "Updated PKM permissions."
+        );
+      } catch (nextError) {
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : "Failed to update PKM permissions."
+        );
+      } finally {
+        setTogglingKey(null);
+      }
+    },
+    [loadBootstrap, manifests, user, vaultOwnerToken]
+  );
+
+  const developerReady = Boolean(access?.access_enabled);
+  const canUseTooling = Boolean(user && developerReady && isVaultUnlocked && vaultOwnerToken);
 
   return (
     <>
       <PkmSettingsShell
-        title="PKM Agent Lab"
-        description="Developer-only PKM preview for a live signed-in account. Use natural language, inspect the proposed PKM updates, save with your vault, and compare against the real saved model below."
+        title="PKM Permissions Viewer"
+        description="A calm, settings-style view of what Kai knows, which top-level PKM sections can be exposed, and the latest AI capture previews before they are encrypted and saved."
       >
-        <SurfaceInset className="space-y-3 px-4 py-4">
+        <SurfaceInset className="space-y-4 px-4 py-4">
           <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
             <p className="font-medium">Development / UAT only</p>
             <p className="mt-1 text-amber-900/80 dark:text-amber-100/80">
-              PKM Agent Lab is visible only in {nonProdLabel}. It is intentionally blocked in production.
+              PKM Agent Lab is visible only in {nonProdLabel}. It remains blocked in production.
             </p>
           </div>
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-              Developer flow
-            </p>
-            <div className="space-y-1">
-              <h2 className="text-sm font-semibold">One PKM page, four focused views</h2>
-              <p className="text-sm text-muted-foreground">
-                Overview explains the data flow, Tool handles preview and save, Natural keeps the
-                saved PKM readable, and Explorer stays raw for technical inspection.
-              </p>
-            </div>
-          </div>
-          <SettingsSegmentedTabs
-            value={activeTab}
-            onValueChange={(value) => setActiveTab(value as PkmAgentLabTab)}
-            mobileColumns={4}
-            options={[
-              { value: "overview", label: "Overview" },
-              { value: "tool", label: "Tool" },
-              { value: "natural", label: "Natural" },
-              { value: "explorer", label: "Explorer" },
-            ]}
-          />
+
           <PkmUpgradeStatusCard
             status={upgradeStatus}
             loading={upgradeLoading}
@@ -821,654 +698,402 @@ export default function PkmAgentLabPageClient() {
             onUnlock={() => setShowVaultUnlock(true)}
             vaultUnlocked={isVaultUnlocked}
           />
-        </SurfaceInset>
 
-        {activeTab === "overview" ? (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <SurfaceInset className="space-y-4 px-4 py-4">
-              <div className="space-y-2">
-                <h2 className="text-sm font-semibold">How PKM Agent Lab works</h2>
-                <p className="text-sm text-muted-foreground">
-                  PKM turns natural language into encrypted structured memory. Preview is read-only,
-                  Save encrypts with the active vault key, and one message may produce multiple PKM
-                  update cards.
-                </p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium">1. Natural-language input</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Enter one memory, preference, or intent in plain language.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium">2. Preview generation</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Kai infers the payload, domain, manifest draft, and scope plan without writing.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium">3. Overlap detection</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Existing manifests are checked so duplicated or conflicting structure is easier
-                    to catch before save.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium">4. Encryption boundary</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Preview is read-only. Save is the first point where the payload is encrypted
-                    with the active vault key.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium">5. Persisted PKM write</p>
-                  <p className="mt-1 text-muted-foreground">
-                    The encrypted payload, manifest, scopes, index entry, and event trail are then
-                    committed together as one PKM revision.
-                  </p>
-                </div>
-              </div>
-            </SurfaceInset>
-
-            <SurfaceInset className="space-y-4 px-4 py-4">
-              <div className="space-y-2">
-                <h2 className="text-sm font-semibold">Behind the scenes</h2>
-                <p className="text-sm text-muted-foreground">
-                  The save path still writes encrypted content, manifests, scopes, and audit events
-                  together. The Explorer tab lets you inspect that saved state after the write.
-                </p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium text-foreground">`pkm_blobs`</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Encrypted domain segments. This is the opaque ciphertext that is fetched after
-                    vault unlock.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium text-foreground">`pkm_manifests`</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Manifest revision, write summary, and the structure decision snapshot for the
-                    saved domain.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium text-foreground">`pkm_manifest_paths`</p>
-                  <p className="mt-1 text-muted-foreground">
-                    The internal structure tree that records how the domain is organized path by
-                    path.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium text-foreground">`pkm_scope_registry`</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Public scope handles, sensitivity tiers, and segment mapping for scoped access
-                    and consent surfaces.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium text-foreground">`pkm_index`</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Lightweight discovery metadata such as domain presence, freshness, and
-                    sanctioned summary counts.
-                  </p>
-                </div>
-                <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium text-foreground">`pkm_events`</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Append-only mutation history so developers can audit create, extend, and revise
-                    operations over time.
-                  </p>
-                </div>
-              </div>
-            </SurfaceInset>
-          </div>
-        ) : null}
-
-        {activeTab === "tool" ? (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <SurfaceInset className="space-y-4 px-4 py-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">{user ? "Signed in" : "Signed out"}</Badge>
-                <Badge variant="secondary">
-                  {isVaultUnlocked ? "Vault unlocked" : "Vault locked"}
+          <SettingsGroup
+            eyebrow="Summary"
+            title="What Kai knows right now"
+            description="This viewer keeps the default language simple: domains first, then the top-level sections inside each domain, with raw structure details pushed into Advanced."
+          >
+            <SettingsRow
+              title="Domains captured"
+              description="Each domain is encrypted in PKM and becomes readable only after vault unlock."
+              trailing={<Badge variant="secondary">{domains.length}</Badge>}
+            />
+            <SettingsRow
+              title="Permission-ready sections"
+              description="Top-level PKM sections that can be exposed or hidden through consent scopes."
+              trailing={<Badge variant="secondary">{enabledSections} / {totalSections}</Badge>}
+            />
+            <SettingsRow
+              title="Upgrade status"
+              description="Older manifests are shown read-only until the resumable PKM upgrade brings them onto the current permissions contract."
+              trailing={
+                <Badge variant={upgradableDomains.length > 0 ? "outline" : "secondary"}>
+                  {upgradableDomains.length > 0 ? `${upgradableDomains.length} pending` : "Current"}
                 </Badge>
-                <Badge variant="secondary">
-                  {access?.access_enabled ? "Developer access enabled" : "Developer access required"}
-                </Badge>
-                {currentDomains.length > 0 ? (
-                  <Badge variant="secondary">{currentDomains.length} current domains</Badge>
-                ) : null}
-              </div>
+              }
+            />
+          </SettingsGroup>
 
-              {accessLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading developer access and PKM metadata...
-                </div>
-              ) : null}
-              {!user ? (
-                <div className="flex items-center gap-2 text-sm text-amber-700">
-                  <ShieldAlert className="h-4 w-4" />
-                  Sign in first to use Agent Lab.
-                </div>
-              ) : null}
-              {user && !isVaultUnlocked ? (
-                <div className="flex flex-wrap items-center gap-3 text-sm text-amber-700">
-                  <div className="flex items-center gap-2">
-                    <Vault className="h-4 w-4" />
-                    Unlock your vault here before previewing or saving PKM data.
-                  </div>
-                  <Button variant="none" effect="fade" onClick={() => setShowVaultUnlock(true)}>
-                    Unlock vault
-                  </Button>
-                </div>
-              ) : null}
-              {user && isVaultUnlocked && !access?.access_enabled ? (
-                <div className="flex flex-wrap items-center gap-3 text-sm text-amber-700">
-                  <div className="flex items-center gap-2">
-                    <Code2 className="h-4 w-4" />
-                    Developer access is required for this tool.
-                  </div>
+          <SettingsGroup
+            eyebrow="Permissions"
+            title="Domain controls"
+            description="Open any domain to toggle the top-level sections Kai may expose through PKM permissions. Turning a section off also revokes overlapping active grants."
+          >
+            {accessLoading || bootstrapLoading ? (
+              <SettingsRow
+                title="Loading private model"
+                description="Checking developer access, PKM metadata, and current manifests."
+                leading={<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              />
+            ) : !user ? (
+              <SettingsRow
+                title="Sign in required"
+                description="This route inspects your live PKM, so it only becomes available after sign in."
+                leading={<ShieldAlert className="h-4 w-4 text-amber-500" />}
+              />
+            ) : !developerReady ? (
+              <SettingsRow
+                title="Developer access required"
+                description="PKM Agent Lab stays non-production and developer-gated during this phase."
+                leading={<Code2 className="h-4 w-4 text-amber-500" />}
+                trailing={
                   <Button variant="none" effect="fade" onClick={() => router.push("/developers")}>
                     Open Developers
                   </Button>
-                </div>
-              ) : null}
+                }
+              />
+            ) : !isVaultUnlocked ? (
+              <SettingsRow
+                title="Unlock your vault"
+                description="Permissions only become readable after local unlock because decrypted PKM stays memory-only."
+                leading={<Lock className="h-4 w-4 text-amber-500" />}
+                trailing={
+                  <Button variant="none" effect="fade" onClick={() => setShowVaultUnlock(true)}>
+                    Unlock
+                  </Button>
+                }
+              />
+            ) : domains.length === 0 ? (
+              <SettingsRow
+                title="No PKM domains yet"
+                description="Save your first capture below and the permission viewer will populate automatically."
+              />
+            ) : (
+              domains.map((domain) => {
+                const manifest = manifests[domain.key] || null;
+                const sections = getScopeSections(manifest);
+                const enabledCount = sections.filter((section) => section.exposureEnabled).length;
+                const allEnabled = sections.length > 0 && enabledCount === sections.length;
+                const upgradeBlocked = upgradableDomains.some(
+                  (entry) => entry.domain === domain.key
+                );
+                return (
+                  <SettingsRow
+                    key={domain.key}
+                    title={domain.displayName}
+                    description={
+                      domain.readableSummary ||
+                      `${domain.attributeCount} saved signals. ${sections.length || 0} permission-ready sections.`
+                    }
+                    onClick={() => openDomain(domain.key)}
+                    chevron
+                    trailing={
+                      <div
+                        className="flex items-center gap-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Badge variant="outline" className="rounded-full">
+                          {sections.length === 0 ? "Read only" : `${enabledCount}/${sections.length}`}
+                        </Badge>
+                        <Switch
+                          checked={sections.length > 0 ? allEnabled : false}
+                          disabled={
+                            sections.length === 0 ||
+                            upgradeBlocked ||
+                            togglingKey !== null ||
+                            !vaultOwnerToken
+                          }
+                          onCheckedChange={(checked) =>
+                            void applyScopeExposureChange(
+                              domain.key,
+                              sections.map((section) => ({
+                                scopeHandle: section.scopeHandle,
+                                topLevelScopePath: section.topLevelScopePath,
+                                exposureEnabled: checked,
+                              }))
+                            )
+                          }
+                          aria-label={`Toggle all ${domain.displayName} permissions`}
+                        />
+                      </div>
+                    }
+                  />
+                );
+              })
+            )}
+          </SettingsGroup>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Natural language prompt</label>
-                <Textarea
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  placeholder="Describe the memory or preference you want Kai to structure and potentially save."
-                  className="min-h-28"
+          <SettingsGroup
+            eyebrow="Recent Captures"
+            title="Latest AI capture preview"
+            description="Each preview stays plain-language first: what Kai heard, where it plans to save it, and whether the capture is ready to persist."
+          >
+            {previewCards.length === 0 ? (
+              <SettingsRow
+                title="No pending preview"
+                description="Describe one new preference or memory below. Kai will draft the PKM capture before anything is encrypted or saved."
+                leading={<Sparkles className="h-4 w-4 text-sky-500" />}
+              />
+            ) : (
+              previewCards.map((card) => (
+                <SettingsRow
+                  key={card.card_id}
+                  title={`${titleize(card.target_domain || "general")} capture`}
+                  description={`${String(card.source_text || "").slice(0, 180)}${String(card.source_text || "").length > 180 ? "..." : ""}`}
+                  trailing={
+                    <Badge variant="secondary">
+                      {card.write_mode === "can_save"
+                        ? "Ready"
+                        : card.write_mode === "confirm_first"
+                          ? "Review"
+                          : "Blocked"}
+                    </Badge>
+                  }
                 />
-                <p className="text-xs text-muted-foreground">
-                  Enter one natural-language message. Preview stays read-only, and one message may
-                  produce multiple PKM update cards before anything is encrypted or saved.
-                </p>
-              </div>
+              ))
+            )}
+          </SettingsGroup>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Button
-                  className="w-full"
-                  onClick={() => void handlePreview()}
-                  disabled={!canUseLab || submitting || saving}
-                >
-                  {submitting ? "Generating preview..." : "Preview PKM structure"}
-                </Button>
-                <Button
-                  variant="none"
-                  effect="fade"
-                  className="w-full"
-                  onClick={() => void handleSaveToPkm()}
-                  disabled={!canUseLab || !response || submitting || saving}
-                >
-                  {saving ? (
-                    "Saving to PKM..."
-                  ) : (
-                    <>
-                      <Save className="mr-2 h-4 w-4" />
-                      Save to PKM
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              {error ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
-                  {error}
-                </div>
-              ) : null}
-              {saveMessage ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-700">
-                  {saveMessage}
-                </div>
-              ) : null}
-              {response ? (
-                <div className="space-y-4 rounded-2xl border bg-muted/30 p-4">
-                  <div className="space-y-1">
-                    <h2 className="text-sm font-semibold">PKM update preview</h2>
-                    <p className="text-sm text-muted-foreground">
-                      This is the user-facing projection of how your PKM would change if you saved
-                      right now.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {performanceSummary.totalLatency ? (
-                      <Badge variant="secondary">
-                        Preview time: {performanceSummary.totalLatency}
-                      </Badge>
-                    ) : null}
-                    <Badge variant="secondary">
-                      {performanceSummary.cardCount} preview
-                      {performanceSummary.cardCount === 1 ? " card" : " cards"}
-                    </Badge>
-                    <Badge variant="secondary">
-                      {previewSummary.canSaveCount} can save
-                    </Badge>
-                    <Badge variant="secondary">
-                      {previewSummary.confirmFirstCount} confirm first
-                    </Badge>
-                    <Badge variant="secondary">
-                      {previewSummary.doNotSaveCount} do not save
-                    </Badge>
-                  </div>
-                  {performanceSummary.domainsLoaded.length > 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Context plan: metadata-first preview narrowed this to{" "}
-                      {performanceSummary.domainsLoaded.join(", ")}
-                      {performanceSummary.segmentsLoaded.length > 0
-                        ? ` using segments ${performanceSummary.segmentsLoaded.join(", ")}`
-                        : ""}
-                      .
-                    </p>
-                  ) : null}
-                  {previewSummary.notes.length > 0 ? (
-                    <div className="space-y-1 rounded-2xl border bg-background/80 p-3 text-sm text-muted-foreground">
-                      {previewSummary.notes.map((note) => (
-                        <p key={note}>{note}</p>
-                      ))}
+          <SettingsGroup
+            eyebrow="Advanced"
+            title="Capture tool and technical details"
+            description="The capture composer, raw response envelope, readable PKM view, and explorer stay here so the default page can remain simple."
+          >
+            <div className="px-3 py-3 sm:px-4 sm:py-4">
+              <Accordion type="multiple" className="w-full">
+                <AccordionItem value="capture">
+                  <AccordionTrigger>Capture composer</AccordionTrigger>
+                  <AccordionContent className="space-y-4">
+                    <Textarea
+                      value={message}
+                      onChange={(event) => setMessage(event.target.value)}
+                      rows={5}
+                      placeholder="Tell Kai one new memory, preference, or intent."
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        disabled={!canUseTooling || submitting}
+                        onClick={() => void handlePreview()}
+                      >
+                        {submitting ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="mr-2 h-4 w-4" />
+                        )}
+                        Generate preview
+                      </Button>
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        disabled={!canUseTooling || saving || previewCards.every((card) => card.write_mode !== "can_save")}
+                        onClick={() => void persistPreview()}
+                      >
+                        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Save encrypted capture
+                      </Button>
                     </div>
-                  ) : null}
-                  <div className="grid gap-3">
-                    {previewCards.map((card) => {
-                      const scopeProjection = toRecord(card.scope_projection);
-                      const availableScopes = toStringArray(scopeProjection.available_scopes);
-                      const cardTargetPath = normalizePath(card.primary_json_path);
-                      const cardScope = typeof scopeProjection.recommended_scope === "string"
-                        ? scopeProjection.recommended_scope
-                        : "";
-                      return (
-                        <div key={card.card_id} className="space-y-3 rounded-2xl border bg-background/80 p-4">
-                          <div className="space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge variant="secondary">
-                                {card.intent_class || "unknown intent"}
-                              </Badge>
-                              <Badge variant="secondary">
-                                {card.write_mode || "confirm_first"}
-                              </Badge>
-                              <Badge variant="secondary">
-                                {card.merge_mode || "create_entity"}
-                              </Badge>
-                              {card.target_domain ? (
-                                <Badge variant="secondary">
-                                  {titleizeSlug(card.target_domain)}
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium">Interpreted meaning</p>
-                              <p className="text-sm text-muted-foreground">{card.source_text}</p>
-                            </div>
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            <div className="text-sm">
-                              <p className="font-medium">Target domain</p>
-                              <p className="break-words text-muted-foreground">
-                                {card.target_domain || "Unresolved"}
-                              </p>
-                            </div>
-                            <div className="text-sm">
-                              <p className="font-medium">Target path</p>
-                              <p className="break-words text-muted-foreground">
-                                {cardTargetPath || "Confirm first / do not save"}
-                              </p>
-                            </div>
-                            <div className="text-sm">
-                              <p className="font-medium">Target entity</p>
-                              <p className="break-words text-muted-foreground">
-                                {card.target_entity_id || "New entity"}
-                              </p>
-                            </div>
-                            <div className="text-sm">
-                              <p className="font-medium">Scope impact</p>
-                              <p className="break-words text-muted-foreground">
-                                {cardScope || "No consent scope projected yet"}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="rounded-2xl border bg-muted/20 p-3 text-sm">
-                            <p className="font-medium">Meaning {"->"} Domain {"->"} Path {"->"} Scope</p>
-                            <p className="mt-1 break-words text-muted-foreground">
-                              {card.intent_class || "unknown"} {"->"} {card.target_domain || "unresolved"} {"->"}{" "}
-                              {cardTargetPath || "confirm_first / do_not_save"} {"->"} {cardScope || "not exposed"}
-                            </p>
-                          </div>
-                          {card.requires_confirmation ? (
-                            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                              <p className="font-medium">Confirmation needed</p>
-                              <p className="mt-1">
-                                {card.confirmation_reason ||
-                                  "Kai needs a quick confirmation before writing this update into PKM."}
-                              </p>
-                              {Array.isArray(card.candidate_domain_choices) &&
-                              card.candidate_domain_choices.length > 0 ? (
-                                <p className="mt-2 text-amber-700">
-                                  Candidate domains:{" "}
-                                  {card.candidate_domain_choices
-                                    .map((choice) =>
-                                      choice.recommended
-                                        ? `${choice.domain_key} (recommended)`
-                                        : choice.domain_key
-                                    )
-                                    .join(", ")}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
-                          <div className="grid gap-3 xl:grid-cols-2">
-                            <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
-                              <p className="text-sm font-medium">Current PKM slice</p>
-                              <PkmJsonTree
-                                value={card.current_entity_snapshot || undefined}
-                                rootLabel="current"
-                                emptyLabel="No existing PKM slice matched this update."
-                              />
-                            </div>
-                            <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
-                              <p className="text-sm font-medium">Proposed PKM slice</p>
-                              <PkmJsonTree
-                                value={card.proposed_entity_patch || undefined}
-                                rootLabel="proposed"
-                                emptyLabel="No concrete PKM patch produced."
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
-                            <p className="text-sm font-medium">Resulting domain patch</p>
-                            <PkmJsonTree
-                              value={card.resulting_domain_patch || undefined}
-                              rootLabel="domain_patch"
-                              emptyLabel="No domain patch available."
-                            />
-                          </div>
-                          {availableScopes.length > 0 ? (
-                            <div className="text-sm">
-                              <p className="font-medium">Available consent scopes</p>
-                              <p className="mt-1 break-words text-muted-foreground">
-                                {availableScopes.join(", ")}
-                              </p>
-                            </div>
-                          ) : null}
-                          {Array.isArray(card.validation_hints) && card.validation_hints.length > 0 ? (
-                            <div className="text-sm">
-                              <p className="font-medium">Validation hints</p>
-                              <p className="mt-1 break-words text-muted-foreground">
-                                {card.validation_hints.join(", ")}
-                              </p>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-            </SurfaceInset>
-
-            <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-              <SurfaceInset className="space-y-4 px-4 py-4">
-                <div>
-                  <h2 className="text-sm font-semibold">Dev details</h2>
-                  <p className="text-sm text-muted-foreground">
-                    The cards above are the product surface. Use these sections only when you need
-                    the primary raw patch, overlap check, or backend debugging detail.
-                  </p>
-                </div>
-                <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border px-4">
-                  <AccordionItem value="candidate-payload">
-                    <AccordionTrigger>Primary PKM patch</AccordionTrigger>
-                    <AccordionContent>
-                      <PkmJsonTree
-                        value={response?.candidate_payload}
-                        rootLabel="candidate_payload"
-                        emptyLabel="Generate a preview to see the inferred payload."
+                    <SettingsGroup embedded title="Save protocol" description="PKM writes now use a version-aware save path that upgrades stale manifests first, retries bounded conflicts, and keeps encrypted history plus read-model projections in sync.">
+                      <SettingsRow
+                        title="Decision history retention"
+                        description="Kai keeps the newest 3 saved debate versions per ticker and emits a full replacement decision projection on every history mutation."
                       />
-                    </AccordionContent>
-                  </AccordionItem>
+                    </SettingsGroup>
+                    {response ? (
+                      <SettingsGroup embedded title="Raw response" description="Technical payload for debugging; not the primary UX.">
+                        <div className="px-3 py-3 sm:px-4 sm:py-4">
+                          <pre className="max-h-[420px] overflow-auto rounded-2xl border bg-muted/35 p-3 text-xs leading-5">
+                            {JSON.stringify(response, null, 2)}
+                          </pre>
+                        </div>
+                      </SettingsGroup>
+                    ) : null}
+                  </AccordionContent>
+                </AccordionItem>
 
-                  <AccordionItem value="overlap-check">
-                    <AccordionTrigger>Duplicate and overlap check</AccordionTrigger>
-                    <AccordionContent className="space-y-3">
-                      <p className="text-sm text-muted-foreground">
-                        Kai checks whether the preview maps into an existing domain and whether the
-                        manifest overlaps with paths already present there. Save confirmation is
-                        required whenever the preview might extend or rewrite an existing domain.
-                      </p>
-                      {overlapLoading ? (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Checking the existing PKM manifest for overlap...
-                        </div>
-                      ) : overlapAssessment ? (
-                        <div className="space-y-3 rounded-2xl border bg-muted/30 p-4 text-sm">
-                          <div className="flex flex-wrap gap-2">
-                            <Badge variant="secondary">
-                              Domain: {overlapAssessment.targetDomain}
-                            </Badge>
-                            <Badge variant="secondary">Action: {overlapAssessment.action}</Badge>
-                            <Badge variant="secondary">
-                              Existing paths: {overlapAssessment.existingPathCount}
-                            </Badge>
-                            <Badge variant="secondary">
-                              Incoming paths: {overlapAssessment.incomingPathCount}
-                            </Badge>
-                          </div>
-                          <p className="text-muted-foreground">{overlapAssessment.note}</p>
-                          <div className="grid gap-3 lg:grid-cols-2">
-                            <div className="min-w-0">
-                              <p className="font-medium">Overlapping paths</p>
-                              <p className="break-words text-muted-foreground">
-                                {overlapAssessment.overlappingPaths.length > 0
-                                  ? overlapAssessment.overlappingPaths.slice(0, 6).join(", ")
-                                  : "No direct manifest-path overlap found."}
-                              </p>
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-medium">New paths</p>
-                              <p className="break-words text-muted-foreground">
-                                {overlapAssessment.newPaths.length > 0
-                                  ? overlapAssessment.newPaths.slice(0, 6).join(", ")
-                                  : "This preview does not add new manifest paths."}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-                          Generate a preview to see whether the save would create a new domain or
-                          update an existing one.
-                        </div>
-                      )}
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </SurfaceInset>
+                <AccordionItem value="natural">
+                  <AccordionTrigger>Readable PKM view</AccordionTrigger>
+                  <AccordionContent>
+                    <PkmNaturalPanel
+                      refreshToken={naturalRefreshToken}
+                      onOpenExplorer={() => undefined}
+                    />
+                  </AccordionContent>
+                </AccordionItem>
 
-              <SurfaceInset className="space-y-4 px-4 py-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <h2 className="text-sm font-semibold">Storage and debugging</h2>
-                    <p className="text-sm text-muted-foreground">
-                      Use these sections to understand how preview becomes persisted PKM state.
-                    </p>
-                  </div>
-                  {response ? (
-                    <Badge variant="secondary" className="w-fit">
-                      {response.used_fallback ? "Deterministic fallback" : response.model}
-                    </Badge>
-                  ) : null}
-                </div>
-                <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border px-4">
-                  <AccordionItem value="backend-organization">
-                    <AccordionTrigger>Backend organization</AccordionTrigger>
-                    <AccordionContent>
-                      {backendOrganization ? (
-                        <div className="space-y-3 rounded-2xl border bg-muted/30 p-4 text-sm">
-                          <div className="flex flex-wrap gap-2">
-                            <Badge variant="secondary">
-                              Domain: {backendOrganization.targetDomain}
-                            </Badge>
-                            <Badge variant="secondary">
-                              Action: {backendOrganization.action}
-                            </Badge>
-                            <Badge variant="secondary">
-                              Manifest v{backendOrganization.manifestVersion}
-                            </Badge>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="min-w-0">
-                              <p className="font-medium">Segments</p>
-                              <p className="break-words text-muted-foreground">
-                                {backendOrganization.segmentIds.length > 0
-                                  ? backendOrganization.segmentIds.join(", ")
-                                  : "No explicit segments yet"}
-                              </p>
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-medium">Top-level scopes</p>
-                              <p className="break-words text-muted-foreground">
-                                {backendOrganization.topLevelScopes.length > 0
-                                  ? backendOrganization.topLevelScopes.join(", ")
-                                  : "No scopes derived yet"}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="font-medium">Manifest paths</p>
-                              <p className="text-muted-foreground">
-                                {backendOrganization.pathCount}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="font-medium">Scope registry entries</p>
-                              <p className="text-muted-foreground">
-                                {backendOrganization.scopeRegistryCount}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-medium">Externalizable paths</p>
-                            <p className="break-words text-muted-foreground">
-                              {backendOrganization.externalizablePaths.length > 0
-                                ? backendOrganization.externalizablePaths.join(", ")
-                                : "No externalizable paths derived yet"}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-                          Generate a preview to see the backend storage plan.
-                        </div>
-                      )}
-                    </AccordionContent>
-                  </AccordionItem>
-
-                  <AccordionItem value="structured-output">
-                    <AccordionTrigger>Structured output</AccordionTrigger>
-                    <AccordionContent>
-                      <p className="mb-3 text-sm text-muted-foreground">
-                        Raw structured output is still available for developer inspection, but the
-                        sections above explain how it flows through preview and save.
-                      </p>
-                      <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-2xl border bg-muted/40 p-4 text-xs leading-6">
-                        {prettyResponse || "No preview generated yet."}
-                      </pre>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </SurfaceInset>
+                <AccordionItem value="explorer">
+                  <AccordionTrigger>Explorer</AccordionTrigger>
+                  <AccordionContent>
+                    <PkmExplorerPanel />
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
-          </div>
-        ) : null}
+          </SettingsGroup>
 
-        {naturalMounted ? (
-          <div
-            className={
-              activeTab === "natural"
-                ? "space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
-                : "hidden"
-            }
-          >
-            <PkmNaturalPanel
-              refreshToken={naturalRefreshToken}
-              onOpenExplorer={() => setActiveTab("explorer")}
-            />
-          </div>
-        ) : null}
-
-        {explorerMounted ? (
-          <div
-            className={
-              activeTab === "explorer"
-                ? "space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
-                : "hidden"
-            }
-          >
-            <SurfaceInset className="space-y-2 px-4 py-4">
-              <h2 className="text-sm font-semibold">Saved PKM explorer</h2>
-              <p className="text-sm text-muted-foreground">
-                Inspect the persisted domains, manifest paths, scope registry, encrypted payload
-                metadata, and decrypted first-party view here. The explorer mounts only when this
-                tab is opened.
-              </p>
-            </SurfaceInset>
-            <PkmExplorerPanel />
-          </div>
-        ) : null}
+          {saveMessage ? (
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:text-emerald-100">
+              {saveMessage}
+            </div>
+          ) : null}
+          {error ? (
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
+        </SurfaceInset>
       </PkmSettingsShell>
+
+      <SettingsDetailPanel
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        title={selectedDomain?.displayName || "PKM domain"}
+        description="Permissions are controlled at the top-level section layer. Disabling a section also revokes overlapping active grants."
+      >
+        {!selectedDomain ? (
+          <SettingsGroup embedded>
+            <SettingsRow
+              title="Nothing selected yet"
+              description="Choose a PKM domain from the main list to inspect its sections."
+            />
+          </SettingsGroup>
+        ) : (
+          <div className="space-y-4">
+            <SettingsGroup
+              embedded
+              eyebrow="Domain"
+              title={selectedDomain.displayName}
+              description={selectedDomain.readableSummary || "No readable summary yet."}
+            >
+              <SettingsRow
+                title="Last updated"
+                description={formatTimestamp(selectedDomain.lastUpdated)}
+              />
+              <SettingsRow
+                title="Manifest revision"
+                description={selectedManifest ? `v${selectedManifest.manifest_version}` : "Unavailable"}
+              />
+              <SettingsRow
+                title="Retention note"
+                description="Kai keeps the newest 3 debate-history versions per ticker in encrypted financial PKM."
+              />
+            </SettingsGroup>
+
+            {selectedDomainNeedsUpgrade ? (
+              <SettingsGroup
+                embedded
+                eyebrow="Upgrade required"
+                title="This domain is read-only until the PKM upgrade completes"
+                description="The current manifest is not on the latest permissions contract yet, so section toggles stay disabled until the resumable upgrade finishes."
+              >
+                <SettingsRow
+                  title="Resume upgrade"
+                  description="Unlock and resume the PKM upgrade to enable section-level toggles."
+                  trailing={
+                    <Button variant="none" effect="fade" onClick={() => void handleResumeUpgrade()}>
+                      Resume
+                    </Button>
+                  }
+                />
+              </SettingsGroup>
+            ) : null}
+
+            <SettingsGroup
+              embedded
+              eyebrow="Sections"
+              title="Permission controls"
+              description="Apple-style simple: one master switch for the whole domain, then one switch per top-level section."
+            >
+              <SettingsRow
+                title="Allow this entire domain"
+                description="Turning this off disables every section below and revokes overlapping active grants."
+                trailing={
+                  <Switch
+                    checked={
+                      selectedSections.length > 0 &&
+                      selectedSections.every((section) => section.exposureEnabled)
+                    }
+                    disabled={
+                      selectedSections.length === 0 ||
+                      selectedDomainNeedsUpgrade ||
+                      togglingKey !== null
+                    }
+                    onCheckedChange={(checked) =>
+                      void applyScopeExposureChange(
+                        selectedDomain.key,
+                        selectedSections.map((section) => ({
+                          scopeHandle: section.scopeHandle,
+                          topLevelScopePath: section.topLevelScopePath,
+                          exposureEnabled: checked,
+                        }))
+                      )
+                    }
+                  />
+                }
+              />
+              {selectedSections.length === 0 ? (
+                <SettingsRow
+                  title="No permission-ready sections yet"
+                  description="This domain has not been upgraded into the simplified permissions model."
+                />
+              ) : (
+                selectedSections.map((section) => (
+                  <SettingsRow
+                    key={section.scopeHandle}
+                    title={section.label}
+                    description={section.description}
+                    trailing={
+                      <Switch
+                        checked={section.exposureEnabled}
+                        disabled={selectedDomainNeedsUpgrade || togglingKey !== null}
+                        onCheckedChange={(checked) =>
+                          void applyScopeExposureChange(selectedDomain.key, [
+                            {
+                              scopeHandle: section.scopeHandle,
+                              topLevelScopePath: section.topLevelScopePath,
+                              exposureEnabled: checked,
+                            },
+                          ])
+                        }
+                      />
+                    }
+                  />
+                ))
+              )}
+            </SettingsGroup>
+
+            <SettingsGroup
+              embedded
+              eyebrow="Advanced"
+              title="Technical diagnostics"
+              description="Manifest paths and raw explorer details stay secondary, but they remain available for debugging."
+            >
+              <SettingsRow
+                title="Open explorer"
+                description="Use the advanced explorer accordion on the main page to inspect raw manifests, ciphertext shape, and decrypted domain data."
+                leading={<SlidersHorizontal className="h-4 w-4 text-muted-foreground" />}
+              />
+            </SettingsGroup>
+          </div>
+        )}
+      </SettingsDetailPanel>
 
       {user ? (
         <VaultUnlockDialog
           user={user}
           open={showVaultUnlock}
           onOpenChange={setShowVaultUnlock}
-          title="Unlock your vault"
-          description="Unlock your vault here to preview and save PKM data."
           onSuccess={() => {
             setShowVaultUnlock(false);
-            setError(null);
+            setNaturalRefreshToken((value) => value + 1);
           }}
+          title="Unlock your vault"
+          description="Unlock locally to read or save encrypted PKM data."
+          enableGeneratedDefault
         />
       ) : null}
-
-      <AlertDialog open={showSaveConfirm} onOpenChange={setShowSaveConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm PKM save</AlertDialogTitle>
-            <AlertDialogDescription>
-              {previewCards.filter((card) => card.write_mode === "can_save").length > 1
-                ? "This prompt produced multiple saveable PKM updates. Review the cards before writing encrypted revisions."
-                : overlapAssessment?.note ||
-                  "This preview may update an existing domain. Review the overlap summary before saving."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-3 text-sm">
-            <div className="flex flex-wrap gap-2">
-              {overlapAssessment?.targetDomain ? (
-                <Badge variant="secondary">Domain: {overlapAssessment.targetDomain}</Badge>
-              ) : null}
-              {overlapAssessment?.action ? (
-                <Badge variant="secondary">Action: {overlapAssessment.action}</Badge>
-              ) : null}
-            </div>
-            <p className="text-muted-foreground">
-              Preview did not write anything. Continuing now will encrypt the inferred payload with
-              the active vault key and write a new PKM revision for this domain.
-            </p>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Review again</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void persistPreview()}>
-              Save to PKM
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

@@ -3,13 +3,13 @@
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { persistKaiMarketHomePayload } from "@/lib/kai/market-home-cache";
 import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
+import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 
 export type UnlockWarmResult = {
   onboardingSynced: boolean;
@@ -27,6 +27,7 @@ type WarmPriority =
   | "analysis"
   | "consents"
   | "profile"
+  | "ria"
   | "default";
 
 const WARM_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -71,6 +72,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   }
   if (path.startsWith("/consents")) return "consents";
   if (path.startsWith("/profile")) return "profile";
+  if (path.startsWith("/ria")) return "ria";
   return "default";
 }
 
@@ -228,8 +230,8 @@ export class UnlockWarmOrchestrator {
     const cache = CacheService.getInstance();
     const warmPriority = resolveWarmPriority(params.routePath);
     const activePickSource = getKaiActivePickSource(params.userId);
+    const shouldHydrateFinancialCacheOnly = warmPriority === "market";
     const shouldWarmFinancial =
-      warmPriority === "market" ||
       warmPriority === "dashboard" ||
       warmPriority === "analysis" ||
       warmPriority === "default";
@@ -263,7 +265,7 @@ export class UnlockWarmOrchestrator {
     let financialHydrated = false;
 
     const syncPromise =
-      shouldWarmFinancial || shouldWarmMetadata
+      shouldWarmMetadata
         ? KaiProfileSyncService.syncPendingToVault({
             userId: params.userId,
             vaultKey: params.vaultKey,
@@ -271,34 +273,17 @@ export class UnlockWarmOrchestrator {
           })
         : Promise.resolve({ synced: false, reason: "skipped_for_route" } as const);
 
-    if (warmPriority === "market" && shouldWarmMarket) {
-      try {
-        const defaultMarketKey = CACHE_KEYS.KAI_MARKET_HOME(
-          params.userId,
-          "default",
-          7,
-          activePickSource
-        );
-        const cachedDefault = cache.get(defaultMarketKey);
-        if (cachedDefault) {
-          result.kaiMarketWarmed = true;
-        } else {
-          const kaiHome = await ApiService.getKaiMarketInsights({
-            userId: params.userId,
-            vaultOwnerToken: params.vaultOwnerToken,
-            daysBack: 7,
-            pickSource: activePickSource,
-          });
-          cache.set(defaultMarketKey, kaiHome, WARM_CACHE_TTL_MS);
-          persistKaiMarketHomePayload({
-            userId: params.userId,
-            pickSource: activePickSource,
-            payload: kaiHome,
-          });
-          result.kaiMarketWarmed = true;
-        }
-      } catch (error) {
-        console.warn("[UnlockWarmOrchestrator] Priority market warm-up failed:", error);
+    if (shouldWarmFinancial || shouldHydrateFinancialCacheOnly) {
+      const hydratedFinancial = await KaiFinancialResourceService.hydrateFromSecureCache({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+      }).catch(() => null);
+      if (hydratedFinancial) {
+        result.financialWarmed = hydratedFinancial.hasFinancialData;
+        symbols = Array.isArray(hydratedFinancial.holdings)
+          ? hydratedFinancial.holdings.slice(0, 8)
+          : [];
+        financialHydrated = hydratedFinancial.hasFinancialData;
       }
     }
 
@@ -320,46 +305,6 @@ export class UnlockWarmOrchestrator {
         symbols = hydrated.symbols;
       } catch (error) {
         console.warn("[UnlockWarmOrchestrator] Priority financial warm-up failed:", error);
-      }
-    }
-
-    if (warmPriority === "market" && shouldWarmMarket && !result.kaiMarketWarmed) {
-      try {
-        const symbolsKey = toSymbolsKey(symbols);
-        const cacheKey = CACHE_KEYS.KAI_MARKET_HOME(
-          params.userId,
-          symbolsKey,
-          7,
-          activePickSource
-        );
-        const cached = cache.get(cacheKey);
-        if (cached) {
-          result.kaiMarketWarmed = true;
-        } else {
-          const kaiHome = await ApiService.getKaiMarketInsights({
-            userId: params.userId,
-            vaultOwnerToken: params.vaultOwnerToken,
-            symbols: symbols.length > 0 ? symbols : undefined,
-            daysBack: 7,
-            pickSource: activePickSource,
-          });
-          cache.set(cacheKey, kaiHome, WARM_CACHE_TTL_MS);
-          if (symbols.length === 0) {
-            cache.set(
-              CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", 7, activePickSource),
-              kaiHome,
-              WARM_CACHE_TTL_MS
-            );
-          }
-          persistKaiMarketHomePayload({
-            userId: params.userId,
-            pickSource: activePickSource,
-            payload: kaiHome,
-          });
-          result.kaiMarketWarmed = true;
-        }
-      } catch (error) {
-        console.warn("[UnlockWarmOrchestrator] Priority market warm-up failed:", error);
       }
     }
 
@@ -478,71 +423,36 @@ export class UnlockWarmOrchestrator {
         picksSymbolsKey,
         3
       );
-      const cachedPicks = cache.get(picksCacheKey);
-      if (cachedPicks) {
-        result.dashboardPicksWarmed = true;
-      } else {
-        try {
-          const picks = await ApiService.getDashboardProfilePicks({
-            userId: params.userId,
-            vaultOwnerToken: params.vaultOwnerToken,
-            symbols: symbols.length > 0 ? symbols : undefined,
-            limit: 3,
-          });
-          cache.set(picksCacheKey, picks, WARM_CACHE_TTL_MS);
-          result.dashboardPicksWarmed = true;
-        } catch (error) {
-          console.warn("[UnlockWarmOrchestrator] Dashboard picks warm-up failed:", error);
-        }
-      }
+      result.dashboardPicksWarmed = Boolean(cache.get(picksCacheKey));
     } else if (shouldWarmDashboardPicks) {
       result.dashboardPicksWarmed = true;
     }
 
-    if (shouldWarmMarket && (!result.kaiMarketWarmed || symbols.length > 0)) {
+    if (shouldWarmMarket) {
       const symbolsKey = toSymbolsKey(symbols);
-      const cacheKey = CACHE_KEYS.KAI_MARKET_HOME(
+      const preferredCacheKey = CACHE_KEYS.KAI_MARKET_HOME(
         params.userId,
         symbolsKey,
         7,
         activePickSource
       );
-      const cached = cache.get(cacheKey);
-      if (cached) {
-        result.kaiMarketWarmed = true;
-        this.queuePkmUpgrade(params);
-        this.queueConsentExportRefresh(params);
-        return result;
-      }
-      try {
-        const kaiHome = await ApiService.getKaiMarketInsights({
-          userId: params.userId,
-          vaultOwnerToken: params.vaultOwnerToken,
-          symbols: symbols.length > 0 ? symbols : undefined,
-          daysBack: 7,
-          pickSource: activePickSource,
-        });
-        cache.set(cacheKey, kaiHome, WARM_CACHE_TTL_MS);
-        if (symbols.length === 0) {
-          cache.set(
-            CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", 7, activePickSource),
-            kaiHome,
-            WARM_CACHE_TTL_MS
-          );
-        }
-        persistKaiMarketHomePayload({
-          userId: params.userId,
-          pickSource: activePickSource,
-          payload: kaiHome,
-        });
-        result.kaiMarketWarmed = true;
-      } catch (error) {
-        console.warn("[UnlockWarmOrchestrator] Kai market warm-up failed:", error);
-      }
+      const defaultCacheKey = CACHE_KEYS.KAI_MARKET_HOME(
+        params.userId,
+        "default",
+        7,
+        activePickSource
+      );
+      result.kaiMarketWarmed = Boolean(
+        cache.get(preferredCacheKey) || cache.get(defaultCacheKey)
+      );
     }
 
-    this.queuePkmUpgrade(params);
-    this.queueConsentExportRefresh(params);
+    if (warmPriority === "profile") {
+      this.queuePkmUpgrade(params);
+    }
+    if (warmPriority === "consents") {
+      this.queueConsentExportRefresh(params);
+    }
     return result;
   }
 
@@ -560,6 +470,12 @@ export class UnlockWarmOrchestrator {
     const normalized = normalizeStoredPortfolio(financial);
     CacheSyncService.onPortfolioUpserted(params.userId, normalized, {
       invalidateMetadata: false,
+    });
+    KaiFinancialResourceService.primeFromFinancialDomain({
+      userId: params.userId,
+      financialDomain: financial,
+      cacheTier: "memory",
+      source: "network",
     });
 
     const profileCandidate = financial.profile;
