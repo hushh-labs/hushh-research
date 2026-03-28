@@ -1172,11 +1172,6 @@ Examples:
         help="Apply strict zero-knowledge consent export evolution",
     )
     parser.add_argument(
-        "--release",
-        action="store_true",
-        help="Apply the canonical ordered release migration manifest",
-    )
-    parser.add_argument(
         "--full", action="store_true", help="Drop and recreate ALL tables (DESTRUCTIVE!)"
     )
     parser.add_argument(

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 36,
+  "expected_migration_version": 37,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -27,6 +27,17 @@
       "personas",
       "last_active_persona",
       "investor_marketplace_opt_in",
+      "created_at",
+      "updated_at"
+    ],
+    "actor_identity_cache": [
+      "user_id",
+      "display_name",
+      "email",
+      "photo_url",
+      "email_verified",
+      "source",
+      "last_synced_at",
       "created_at",
       "updated_at"
     ],
