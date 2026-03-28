@@ -102,6 +102,49 @@ async def test_market_data_uses_yahoo_when_yfinance_fails(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_market_data_fast_mode_still_uses_yfinance_without_paid_keys(monkeypatch):
+    monkeypatch.setattr(fetchers, "validate_token", _valid_token)
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("PMP_API_KEY", raising=False)
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    called: list[str] = []
+
+    async def _yfinance_ok(ticker: str):
+        called.append("yfinance")
+        return {
+            "ticker": ticker,
+            "price": 321.45,
+            "change_percent": 0.8,
+            "volume": 10,
+            "market_cap": 1,
+            "pe_ratio": 1,
+            "pb_ratio": 1,
+            "dividend_yield": 0,
+            "company_name": ticker,
+            "sector": "Unknown",
+            "industry": "Unknown",
+            "source": "yfinance (Real-time)",
+            "fetched_at": "2026-03-28T00:00:00Z",
+            "ttl_seconds": 60,
+            "is_stale": False,
+        }
+
+    async def _should_not_run(_ticker: str):
+        called.append("yahoo")
+        raise AssertionError("yahoo should not be called when yfinance succeeds")
+
+    monkeypatch.setattr(fetchers, "_fetch_yfinance_quote", _yfinance_ok)
+    monkeypatch.setattr(fetchers, "_fetch_yahoo_quote_fast", _should_not_run)
+
+    payload = await fetchers.fetch_market_data(
+        "GOOGL", "user_1", "vault_token", allow_slow_fallbacks=False
+    )
+    assert payload["source"] == "yfinance (Real-time)"
+    assert called == ["yfinance"]
+
+
+@pytest.mark.asyncio
 async def test_market_news_falls_back_from_finnhub_to_pmp(monkeypatch):
     monkeypatch.setattr(fetchers, "validate_token", _valid_token)
     monkeypatch.setenv("FINNHUB_API_KEY", "fh")

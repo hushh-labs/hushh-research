@@ -10,6 +10,7 @@ const PLAID_OAUTH_SESSION_KEY = "kai_plaid_oauth_resume_v1";
 
 export interface PlaidOAuthResumeSession {
   version: 1;
+  flowKind?: "investments" | "funding";
   userId: string;
   resumeSessionId: string;
   returnPath: string;
@@ -31,6 +32,7 @@ export function loadPlaidOAuthResumeSession(): PlaidOAuthResumeSession | null {
     if (!parsed.userId || !parsed.resumeSessionId || !parsed.returnPath) return null;
     return {
       version: 1,
+      flowKind: parsed.flowKind === "funding" ? "funding" : "investments",
       userId: parsed.userId,
       resumeSessionId: parsed.resumeSessionId,
       returnPath: parsed.returnPath,

@@ -49,6 +49,7 @@ export default function KaiPlaidOauthReturnPage() {
     }
 
     setReturnPath(session.returnPath || ROUTES.KAI_DASHBOARD);
+    const flowKind = session.flowKind === "funding" ? "funding" : "investments";
 
     if (!user?.uid) {
       const redirectTarget =
@@ -80,7 +81,8 @@ export default function KaiPlaidOauthReturnPage() {
           resumeSessionId: session.resumeSessionId,
           vaultOwnerToken: issued.token,
         });
-        if (!resume.configured || !resume.link_token) {
+        const linkTokenValue = resume.link_token;
+        if (!resume.configured || !linkTokenValue) {
           throw new Error("Plaid is not configured for this environment.");
         }
 
@@ -96,16 +98,26 @@ export default function KaiPlaidOauthReturnPage() {
           };
 
           const handler = Plaid.create({
-            token: resume.link_token,
+            token: linkTokenValue,
             receivedRedirectUri: window.location.href,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
-              void PlaidPortfolioService.exchangePublicToken({
-                userId: user.uid,
-                publicToken,
-                vaultOwnerToken: issued.token,
-                metadata,
-                resumeSessionId: session.resumeSessionId,
-              })
+              void (
+                flowKind === "funding"
+                  ? PlaidPortfolioService.exchangeFundingPublicToken({
+                      userId: user.uid,
+                      publicToken,
+                      vaultOwnerToken: issued.token,
+                      metadata,
+                      resumeSessionId: session.resumeSessionId,
+                    })
+                  : PlaidPortfolioService.exchangePublicToken({
+                      userId: user.uid,
+                      publicToken,
+                      vaultOwnerToken: issued.token,
+                      metadata,
+                      resumeSessionId: session.resumeSessionId,
+                    })
+              )
                 .then(() => {
                   clearPlaidOAuthResumeSession();
                   finish(resolve);
@@ -159,7 +171,7 @@ export default function KaiPlaidOauthReturnPage() {
             label={
               stage === "redirecting"
                 ? "Returning to Kai..."
-                : "Resuming your Plaid brokerage connection..."
+                : "Resuming your Plaid connection..."
             }
           />
         </AppPageContentRegion>

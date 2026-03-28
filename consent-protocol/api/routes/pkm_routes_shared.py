@@ -526,6 +526,7 @@ async def get_domain_manifest(
     response_payload["last_content_at"] = _isoformat_or_none(
         response_payload.get("last_content_at")
     )
+    response_payload["upgraded_at"] = _isoformat_or_none(response_payload.get("upgraded_at"))
     return DomainManifestResponse(**response_payload)
 
 

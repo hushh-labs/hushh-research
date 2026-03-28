@@ -3,6 +3,8 @@
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ApiService } from "@/lib/services/api-service";
 import type {
+  PlaidFundingStatusResponse,
+  PlaidTransferPayload,
   PlaidPortfolioStatusResponse,
   PortfolioSource,
 } from "@/lib/kai/brokerage/portfolio-sources";
@@ -20,6 +22,18 @@ export interface PlaidLinkTokenResponse {
 export interface PlaidRefreshResponse {
   accepted: boolean;
   runs: Array<Record<string, unknown>>;
+}
+
+export interface PlaidTransferCreateResponse {
+  approved: boolean;
+  decision?: string;
+  decision_rationale?: unknown;
+  authorization_id?: string | null;
+  idempotency_key?: string | null;
+  deduped?: boolean;
+  action_link_token?: PlaidLinkTokenResponse | null;
+  transfer?: PlaidTransferPayload;
+  reference?: Record<string, unknown>;
 }
 
 async function extractPlaidError(response: Response, fallback: string): Promise<string> {
@@ -271,5 +285,234 @@ export class PlaidPortfolioService {
       throw new Error(detail);
     }
     return (await response.json()) as { user_id: string; active_source: PortfolioSource };
+  }
+
+  static async createFundingLinkToken(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    itemId?: string;
+    redirectUri?: string;
+  }): Promise<PlaidLinkTokenResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/link-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        item_id: params.itemId,
+        redirect_uri: params.redirectUri || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Plaid could not start the funding connection flow right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as PlaidLinkTokenResponse;
+  }
+
+  static async exchangeFundingPublicToken(params: {
+    userId: string;
+    publicToken: string;
+    vaultOwnerToken: string;
+    metadata?: Record<string, unknown> | null;
+    resumeSessionId?: string | null;
+  }): Promise<PlaidFundingStatusResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/exchange-public-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        public_token: params.publicToken,
+        metadata: params.metadata || null,
+        resume_session_id: params.resumeSessionId || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Plaid could not finish connecting this funding account."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async getFundingStatus(params: {
+    userId: string;
+    vaultOwnerToken: string;
+  }): Promise<PlaidFundingStatusResponse> {
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/funding/status/${encodeURIComponent(params.userId)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Plaid funding status is not available right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async syncFundingTransactions(params: {
+    userId: string;
+    itemId: string;
+    vaultOwnerToken: string;
+    cursor?: string | null;
+  }): Promise<{
+    item_id: string;
+    next_cursor?: string | null;
+    added: Array<Record<string, unknown>>;
+    modified: Array<Record<string, unknown>>;
+    removed: Array<Record<string, unknown>>;
+    counts: { added: number; modified: number; removed: number };
+  }> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/transactions/sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        item_id: params.itemId,
+        cursor: params.cursor || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding transactions could not be synced right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as {
+      item_id: string;
+      next_cursor?: string | null;
+      added: Array<Record<string, unknown>>;
+      modified: Array<Record<string, unknown>>;
+      removed: Array<Record<string, unknown>>;
+      counts: { added: number; modified: number; removed: number };
+    };
+  }
+
+  static async createTransfer(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    fundingItemId: string;
+    fundingAccountId: string;
+    amount: number;
+    userLegalName: string;
+    direction?: "to_brokerage" | "from_brokerage";
+    network?: string;
+    achClass?: string;
+    description?: string;
+    idempotencyKey?: string;
+    brokerageItemId?: string | null;
+    brokerageAccountId?: string | null;
+    redirectUri?: string | null;
+  }): Promise<PlaidTransferCreateResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/transfers/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        funding_item_id: params.fundingItemId,
+        funding_account_id: params.fundingAccountId,
+        amount: params.amount,
+        user_legal_name: params.userLegalName,
+        direction: params.direction || "to_brokerage",
+        network: params.network || "ach",
+        ach_class: params.achClass || "web",
+        description: params.description || null,
+        idempotency_key: params.idempotencyKey || null,
+        brokerage_item_id: params.brokerageItemId || null,
+        brokerage_account_id: params.brokerageAccountId || null,
+        redirect_uri: params.redirectUri || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(response, "Transfer could not be created right now.");
+      throw new Error(detail);
+    }
+    return (await response.json()) as PlaidTransferCreateResponse;
+  }
+
+  static async getTransfer(params: {
+    userId: string;
+    transferId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    transfer: PlaidTransferPayload;
+    reference?: Record<string, unknown>;
+  }> {
+    const query = new URLSearchParams({ user_id: params.userId }).toString();
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/transfers/${encodeURIComponent(params.transferId)}?${query}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(response, "Transfer status is not available right now.");
+      throw new Error(detail);
+    }
+    return (await response.json()) as {
+      transfer: PlaidTransferPayload;
+      reference?: Record<string, unknown>;
+    };
+  }
+
+  static async cancelTransfer(params: {
+    userId: string;
+    transferId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    transfer: PlaidTransferPayload;
+    reference?: Record<string, unknown>;
+    canceled?: boolean;
+  }> {
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/transfers/${encodeURIComponent(params.transferId)}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(response, "Transfer could not be canceled right now.");
+      throw new Error(detail);
+    }
+    return (await response.json()) as {
+      transfer: PlaidTransferPayload;
+      reference?: Record<string, unknown>;
+      canceled?: boolean;
+    };
   }
 }

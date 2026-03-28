@@ -20,6 +20,44 @@ from hushh_mcp.services.actor_identity_service import ActorIdentityService
 logger = logging.getLogger(__name__)
 
 
+def _extract_bearer_token(authorization: Optional[str]) -> str:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header format. Expected: Bearer <token>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+
+def _token_data_dict(token: str, token_obj) -> dict:
+    scope_value = token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
+    return {
+        "user_id": token_obj.user_id,
+        "agent_id": token_obj.agent_id,
+        "scope": scope_value,
+        # Keep raw token string for downstream fetcher/orchestrator calls.
+        "token": token,
+        # Preserve parsed object for call-sites that need metadata.
+        "token_obj": token_obj,
+    }
+
+
 async def require_firebase_auth(
     authorization: Optional[str] = Header(None, description="Bearer token with Firebase ID token"),
 ) -> str:
@@ -110,28 +148,7 @@ async def require_vault_owner_token(
         HTTPException 401 if token is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header format. Expected: Bearer <token>",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    token = authorization.removeprefix("Bearer ").strip()
-
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing bearer token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    token = _extract_bearer_token(authorization)
 
     # Validate token with VAULT_OWNER scope and DB-backed revocation check.
     valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
@@ -144,12 +161,31 @@ async def require_vault_owner_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return {
-        "user_id": token_obj.user_id,
-        "agent_id": token_obj.agent_id,
-        "scope": token_obj.scope.value,
-        # Keep raw token string for downstream fetcher/orchestrator calls.
-        "token": token,
-        # Preserve parsed object for call-sites that need metadata.
-        "token_obj": token_obj,
-    }
+    return _token_data_dict(token, token_obj)
+
+
+def require_consent_scope(required_scope: str | ConsentScope):
+    """
+    Build a FastAPI dependency that validates a bearer token for a specific scope.
+
+    `vault.owner` tokens still pass because scope matching treats them as super-scope.
+    """
+
+    async def _require_scope_token(
+        authorization: Optional[str] = Header(
+            None, description="Bearer token for scoped consent authentication"
+        ),
+    ) -> dict:
+        token = _extract_bearer_token(authorization)
+        valid, reason, token_obj = await validate_token_with_db(token, required_scope)
+
+        if not valid or not token_obj:
+            logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token: {reason}",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return _token_data_dict(token, token_obj)
+
+    return _require_scope_token

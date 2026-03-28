@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_consent_scope, require_vault_owner_token
 from hushh_mcp.services.plaid_portfolio_service import (
     PlaidApiError,
     get_plaid_portfolio_service,
@@ -17,6 +17,7 @@ from hushh_mcp.services.plaid_portfolio_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Kai Plaid"])
+require_transfer_scope_token = require_consent_scope("brokerage.transfer.write")
 
 
 class PlaidLinkTokenRequest(BaseModel):
@@ -49,6 +50,28 @@ class PlaidSourcePreferenceRequest(BaseModel):
 
 class PlaidRefreshCancelRequest(BaseModel):
     user_id: str
+
+
+class PlaidFundingTransactionsSyncRequest(BaseModel):
+    user_id: str
+    item_id: str = Field(min_length=1)
+    cursor: str | None = None
+
+
+class PlaidTransferCreateRequest(BaseModel):
+    user_id: str
+    funding_item_id: str = Field(min_length=1)
+    funding_account_id: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+    user_legal_name: str = Field(min_length=1)
+    direction: Literal["to_brokerage", "from_brokerage"] = "to_brokerage"
+    network: str = "ach"
+    ach_class: str = "web"
+    description: str | None = None
+    idempotency_key: str | None = None
+    brokerage_item_id: str | None = None
+    brokerage_account_id: str | None = None
+    redirect_uri: str | None = None
 
 
 def _verify_user(token_data: dict[str, Any], requested_user_id: str) -> None:
@@ -175,6 +198,127 @@ async def exchange_plaid_public_token(
         )
     except Exception as exc:
         _raise_logged_http_exception("kai.plaid.exchange_failed", request.user_id, exc)
+
+
+@router.post("/plaid/funding/link-token")
+async def create_plaid_funding_link_token(
+    request: PlaidLinkTokenRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_plaid_portfolio_service().create_funding_link_token(
+            user_id=request.user_id,
+            item_id=request.item_id,
+            redirect_uri=request.redirect_uri,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.funding_link_token_failed", request.user_id, exc)
+
+
+@router.post("/plaid/funding/exchange-public-token")
+async def exchange_plaid_funding_public_token(
+    request: PlaidPublicTokenExchangeRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_plaid_portfolio_service().exchange_funding_public_token(
+            user_id=request.user_id,
+            public_token=request.public_token,
+            metadata=request.metadata,
+            resume_session_id=request.resume_session_id,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.funding_exchange_failed", request.user_id, exc)
+
+
+@router.get("/plaid/funding/status/{user_id}")
+async def get_plaid_funding_status(
+    user_id: str,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, user_id)
+    try:
+        return await get_plaid_portfolio_service().get_funding_status(user_id=user_id)
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.funding_status_failed", user_id, exc)
+
+
+@router.post("/plaid/funding/transactions/sync")
+async def sync_plaid_funding_transactions(
+    request: PlaidFundingTransactionsSyncRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_plaid_portfolio_service().sync_funding_transactions(
+            user_id=request.user_id,
+            item_id=request.item_id,
+            cursor=request.cursor,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception(
+            "kai.plaid.funding_transactions_sync_failed", request.user_id, exc
+        )
+
+
+@router.post("/plaid/transfers/create")
+async def create_plaid_transfer(
+    request: PlaidTransferCreateRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_plaid_portfolio_service().create_transfer(
+            user_id=request.user_id,
+            funding_item_id=request.funding_item_id,
+            funding_account_id=request.funding_account_id,
+            amount=request.amount,
+            user_legal_name=request.user_legal_name,
+            direction=request.direction,
+            network=request.network,
+            ach_class=request.ach_class,
+            description=request.description,
+            idempotency_key=request.idempotency_key,
+            brokerage_item_id=request.brokerage_item_id,
+            brokerage_account_id=request.brokerage_account_id,
+            redirect_uri=request.redirect_uri,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.transfer_create_failed", request.user_id, exc)
+
+
+@router.get("/plaid/transfers/{transfer_id}")
+async def get_plaid_transfer(
+    transfer_id: str,
+    user_id: str,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, user_id)
+    try:
+        return await get_plaid_portfolio_service().get_transfer(
+            user_id=user_id,
+            transfer_id=transfer_id,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.transfer_get_failed", user_id, exc)
+
+
+@router.post("/plaid/transfers/{transfer_id}/cancel")
+async def cancel_plaid_transfer(
+    transfer_id: str,
+    request: PlaidRefreshCancelRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_plaid_portfolio_service().cancel_transfer(
+            user_id=request.user_id,
+            transfer_id=transfer_id,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.transfer_cancel_failed", request.user_id, exc)
 
 
 @router.post("/plaid/oauth/resume")
