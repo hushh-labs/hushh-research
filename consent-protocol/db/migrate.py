@@ -6,6 +6,7 @@ Usage:
     python db/migrate.py --table vault_keys        # Create vault_keys table
     python db/migrate.py --table consent_audit     # Create consent_audit table
     python db/migrate.py --consent                 # Create all consent-related tables
+    python db/migrate.py --release                 # Apply the canonical release lane
     python db/migrate.py --full                    # Drop and recreate ALL tables (DESTRUCTIVE!)
     python db/migrate.py --clear consent_audit     # Clear specific table
     python db/migrate.py --status                  # Show table summary
@@ -16,11 +17,16 @@ Environment:
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
 import asyncpg
 from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # Load env so DB_* are available (same as runtime)
 load_dotenv()
@@ -37,39 +43,40 @@ except EnvironmentError as e:
     sys.exit(1)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
-IAM_MIGRATION_FILES = (
-    "020_ria_iam_foundation.sql",
-    "021_runtime_persona_state.sql",
-    "022_ria_invites.sql",
-    "025_ria_pick_lists_and_bundle_notify.sql",
-    "027_relationship_disconnect_status.sql",
-    "028_professional_regulatory_capabilities.sql",
-    "036_relationship_share_grants.sql",
-    "037_actor_identity_cache.sql",
-)
-PKM_MIGRATION_FILES = (
-    "030_pkm_cutover.sql",
-    "031_domain_registry_rpc_compat.sql",
-    "032_pkm_metadata_rpc_compat.sql",
-    "033_atomic_pkm_storage_rename.sql",
-    "034_pkm_upgrade_engine.sql",
-)
 CONSENT_EVOLUTION_MIGRATION_FILES = ("035_strict_zero_knowledge_consent_exports.sql",)
-RELEASE_MIGRATION_FILES = (
-    "020_ria_iam_foundation.sql",
-    "021_runtime_persona_state.sql",
-    "022_ria_invites.sql",
-    "025_ria_pick_lists_and_bundle_notify.sql",
-    "027_relationship_disconnect_status.sql",
-    "028_professional_regulatory_capabilities.sql",
-    "030_pkm_cutover.sql",
-    "031_domain_registry_rpc_compat.sql",
-    "032_pkm_metadata_rpc_compat.sql",
-    "033_atomic_pkm_storage_rename.sql",
-    "034_pkm_upgrade_engine.sql",
-    "035_strict_zero_knowledge_consent_exports.sql",
-    "036_relationship_share_grants.sql",
-    "037_actor_identity_cache.sql",
+RELEASE_MANIFEST_PATH = Path(__file__).resolve().parent / "release_migration_manifest.json"
+
+
+def _load_release_manifest(path: Path) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    if not path.exists():
+        raise FileNotFoundError(f"Release migration manifest missing: {path}")
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    ordered = payload.get("ordered_migrations")
+    groups = payload.get("groups", {})
+    iam = groups.get("iam")
+    pkm = groups.get("pkm")
+
+    if not isinstance(ordered, list) or not ordered:
+        raise RuntimeError("release_migration_manifest.json must define ordered_migrations")
+    if not isinstance(iam, list) or not iam:
+        raise RuntimeError("release_migration_manifest.json must define groups.iam")
+    if not isinstance(pkm, list) or not pkm:
+        raise RuntimeError("release_migration_manifest.json must define groups.pkm")
+
+    ordered_tuple = tuple(str(item).strip() for item in ordered if str(item).strip())
+    iam_tuple = tuple(str(item).strip() for item in iam if str(item).strip())
+    pkm_tuple = tuple(str(item).strip() for item in pkm if str(item).strip())
+    ordered_set = set(ordered_tuple)
+    if any(item not in ordered_set for item in iam_tuple + pkm_tuple):
+        raise RuntimeError(
+            "release_migration_manifest.json groups must be subsets of ordered_migrations"
+        )
+    return ordered_tuple, iam_tuple, pkm_tuple
+
+
+RELEASE_MIGRATION_FILES, IAM_MIGRATION_FILES, PKM_MIGRATION_FILES = _load_release_manifest(
+    RELEASE_MANIFEST_PATH
 )
 
 
@@ -856,6 +863,25 @@ TABLE_CREATORS = {
 # ============================================================================
 
 
+async def apply_migration_files(
+    pool: asyncpg.Pool,
+    filenames: tuple[str, ...],
+    *,
+    label: str,
+):
+    """Apply an explicit ordered list of SQL migration files."""
+    print(f"Running {label} migration set (explicit mode)...")
+    async with pool.acquire() as conn:
+        for filename in filenames:
+            migration_path = MIGRATIONS_DIR / filename
+            if not migration_path.exists():
+                raise FileNotFoundError(f"{label} migration file missing: {migration_path}")
+            sql = migration_path.read_text(encoding="utf-8")
+            print(f"  -> applying {filename}")
+            await conn.execute(sql)
+    print(f"{label} migration set complete!")
+
+
 async def run_full_migration(pool: asyncpg.Pool):
     """Drop all tables and recreate (DESTRUCTIVE!)."""
     print("⚠️  FULL MIGRATION - This will DROP all tables!")
@@ -923,7 +949,7 @@ async def run_full_migration(pool: asyncpg.Pool):
     await create_kai_market_cache_entries(pool)
     print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[16/16] Applying release migrations...")
+    print("[16/16] Applying canonical release migrations...")
     await run_release_migration(pool)
 
     print("\n✅ Full migration complete!")
@@ -941,34 +967,17 @@ async def run_consent_migration(pool: asyncpg.Pool):
 
 async def run_iam_migration(pool: asyncpg.Pool):
     """Apply IAM foundation schema through explicit migration files."""
-    print("Running IAM schema migration (explicit mode)...")
-
-    async with pool.acquire() as conn:
-        for filename in IAM_MIGRATION_FILES:
-            migration_path = MIGRATIONS_DIR / filename
-            if not migration_path.exists():
-                raise FileNotFoundError(f"IAM migration file missing: {migration_path}")
-            sql = migration_path.read_text(encoding="utf-8")
-            print(f"  -> applying {filename}")
-            await conn.execute(sql)
-
-    print("IAM schema migration complete!")
+    await apply_migration_files(pool, IAM_MIGRATION_FILES, label="IAM schema")
 
 
 async def run_pkm_migration(pool: asyncpg.Pool):
-    """Apply the canonical PKM cutover migration."""
-    print("Running PKM schema migration (explicit mode)...")
+    """Apply the canonical PKM evolution lane, including upgrade and strict-ZK work."""
+    await apply_migration_files(pool, PKM_MIGRATION_FILES, label="PKM schema")
 
-    async with pool.acquire() as conn:
-        for filename in PKM_MIGRATION_FILES:
-            migration_path = MIGRATIONS_DIR / filename
-            if not migration_path.exists():
-                raise FileNotFoundError(f"PKM migration file missing: {migration_path}")
-            sql = migration_path.read_text(encoding="utf-8")
-            print(f"  -> applying {filename}")
-            await conn.execute(sql)
 
-    print("PKM schema migration complete!")
+async def run_release_migration(pool: asyncpg.Pool):
+    """Apply the full canonical release schema lane used by operators and UAT automation."""
+    await apply_migration_files(pool, RELEASE_MIGRATION_FILES, label="release schema")
 
 
 async def run_consent_evolution_migration(pool: asyncpg.Pool):
@@ -987,22 +996,6 @@ async def run_consent_evolution_migration(pool: asyncpg.Pool):
             await conn.execute(sql)
 
     print("Consent evolution migration complete!")
-
-
-async def run_release_migration(pool: asyncpg.Pool):
-    """Apply the canonical ordered release migration manifest."""
-    print("Running release migration manifest...")
-
-    async with pool.acquire() as conn:
-        for filename in RELEASE_MIGRATION_FILES:
-            migration_path = MIGRATIONS_DIR / filename
-            if not migration_path.exists():
-                raise FileNotFoundError(f"Release migration file missing: {migration_path}")
-            sql = migration_path.read_text(encoding="utf-8")
-            print(f"  -> applying {filename}")
-            await conn.execute(sql)
-
-    print("Release migration manifest complete!")
 
 
 async def run_init_migration(pool: asyncpg.Pool):
@@ -1052,7 +1045,7 @@ async def run_init_migration(pool: asyncpg.Pool):
     await create_kai_market_cache_entries(pool)
     print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
-    print("[16/16] Applying release migrations...")
+    print("[16/16] Applying canonical release migrations...")
     await run_release_migration(pool)
 
     print("\nAll tables initialized successfully!")
@@ -1104,6 +1097,11 @@ async def show_status(pool: asyncpg.Pool):
         "pkm_scope_registry",
         "pkm_events",
         "pkm_migration_state",
+        "pkm_upgrade_runs",
+        "pkm_upgrade_steps",
+        "consent_export_refresh_jobs",
+        "relationship_share_grants",
+        "relationship_share_events",
     ]:
         if table in all_tables:
             try:
@@ -1156,12 +1154,17 @@ Examples:
     parser.add_argument(
         "--iam",
         action="store_true",
-        help="Apply IAM schema foundation migrations (020 + 021)",
+        help="Apply the IAM schema foundation lane from release_migration_manifest.json",
     )
     parser.add_argument(
         "--pkm",
         action="store_true",
-        help="Apply PKM evolution migrations (029+)",
+        help="Apply the PKM evolution lane from release_migration_manifest.json",
+    )
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Apply the full canonical release lane from release_migration_manifest.json",
     )
     parser.add_argument(
         "--consent-evolution",
@@ -1249,7 +1252,6 @@ Examples:
 
         if args.consent_evolution:
             await run_consent_evolution_migration(pool)
-
         if args.release:
             await run_release_migration(pool)
 

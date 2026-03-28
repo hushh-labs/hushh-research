@@ -1,6 +1,7 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 37,
+  "expected_migration_version": 27,
+  "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
     "remove_domain_summary_key",
@@ -65,7 +66,6 @@
       "activity_score",
       "last_active_at",
       "total_attributes",
-      "model_version",
       "created_at",
       "updated_at"
     ],

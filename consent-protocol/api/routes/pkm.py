@@ -27,7 +27,13 @@ from api.routes.pkm_routes_shared import (
     UserScopesResponse,
 )
 from api.routes.pkm_routes_shared import (
+    complete_upgrade_run as _complete_upgrade_run,
+)
+from api.routes.pkm_routes_shared import (
     delete_domain_data as _delete_domain_data,
+)
+from api.routes.pkm_routes_shared import (
+    fail_upgrade_run as _fail_upgrade_run,
 )
 from api.routes.pkm_routes_shared import (
     get_domain_data as _get_domain_data,
@@ -164,6 +170,59 @@ async def get_metadata(
     return await _get_metadata(user_id, token_data)
 
 
+@router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
+async def get_upgrade_status(
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _get_upgrade_status(user_id, token_data)
+
+
+@router.post("/upgrade/start-or-resume", response_model=PkmUpgradeStatusResponse)
+async def start_or_resume_upgrade(
+    request: StartOrResumeUpgradeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _start_or_resume_upgrade(request, token_data)
+
+
+@router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_run_status(
+    run_id: str,
+    request: UpdateUpgradeRunRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _update_upgrade_run_status(run_id, request, token_data)
+
+
+@router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_step(
+    run_id: str,
+    domain: str,
+    request: UpdateUpgradeStepRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _update_upgrade_step(run_id, domain, request, token_data)
+
+
+@router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
+async def complete_upgrade_run(
+    run_id: str,
+    request: StartOrResumeUpgradeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _complete_upgrade_run(run_id, request, token_data)
+
+
+@router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
+async def fail_upgrade_run(
+    run_id: str,
+    request: UpdateUpgradeRunRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _fail_upgrade_run(run_id, request, token_data)
+
+
 @router.get("/domain-registry", response_model=DomainRegistryResponse)
 async def get_domain_registry(
     token_data: dict = Depends(require_vault_owner_token),
@@ -205,38 +264,3 @@ async def preview_pkm_structure(
         simulated_state=request.simulated_state,
     )
     return PKMAgentLabStructureResponse(**payload)
-
-
-@router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
-async def get_upgrade_status(
-    user_id: str,
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    return await _get_upgrade_status(user_id, token_data)
-
-
-@router.post("/upgrade/start-or-resume", response_model=PkmUpgradeStatusResponse)
-async def start_or_resume_upgrade(
-    request: StartOrResumeUpgradeRequest,
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    return await _start_or_resume_upgrade(request, token_data)
-
-
-@router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
-async def update_upgrade_run_status(
-    run_id: str,
-    request: UpdateUpgradeRunRequest,
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    return await _update_upgrade_run_status(run_id, request, token_data)
-
-
-@router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
-async def update_upgrade_step(
-    run_id: str,
-    domain: str,
-    request: UpdateUpgradeStepRequest,
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    return await _update_upgrade_step(run_id, domain, request, token_data)

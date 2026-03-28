@@ -108,3 +108,192 @@ def test_approve_consent_supersedes_narrower_tokens(monkeypatch):
     assert events[0]["metadata"]["is_scope_upgrade"] is True
     assert events[1]["metadata"]["superseded_by_broader_scope"] is True
     assert events[1]["metadata"]["superseded_by_scope"] == "attr.financial.analytics.*"
+
+
+def test_approve_consent_fails_when_export_persistence_fails(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            assert user_id == "user_123"
+            assert request_id == "req_export_failure"
+            return {
+                "request_id": request_id,
+                "developer": "developer:app_demo_123",
+                "scope": "attr.financial.analytics.quality_metrics",
+                "metadata": {
+                    "request_source": "developer_api_v1",
+                    "requester_actor_type": "developer",
+                    "connector_public_key": "connector_public_key_demo",
+                    "connector_key_id": "connector_demo",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return None
+
+        async def store_consent_export(self, **_kwargs):
+            return False
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        consent,
+        "issue_token",
+        lambda **_kwargs: SimpleNamespace(token="grant_failure", expires_at=123456789),  # noqa: S106
+    )
+    monkeypatch.setattr(
+        consent.RIAIAMService,
+        "sync_relationship_from_consent_action",
+        lambda self, **_kwargs: None,
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_export_failure",
+            "encryptedData": "ciphertext",
+            "encryptedIv": "iv",
+            "encryptedTag": "tag",
+            "wrappedExportKey": "wrapped_key",
+            "wrappedKeyIv": "wrapped_iv",
+            "wrappedKeyTag": "wrapped_tag",
+            "senderPublicKey": "sender_public",
+            "connectorPublicKey": "connector_public_key_demo",
+            "connectorKeyId": "connector_demo",
+            "wrappingAlg": "X25519-AES256-GCM",
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to store encrypted consent export"
+
+
+def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):
+    issued = []
+
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            assert user_id == "user_123"
+            assert request_id == "req_strict_reissue"
+            return {
+                "request_id": request_id,
+                "developer": "developer:app_demo_123",
+                "scope": "attr.financial.analytics.quality_metrics",
+                "metadata": {
+                    "request_source": "developer_api_v1",
+                    "requester_actor_type": "developer",
+                    "connector_public_key": "connector_public_key_demo",
+                    "connector_key_id": "connector_demo",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return {  # noqa: S106
+                "token_id": "broken_old_token",
+                "scope": "attr.financial.analytics.quality_metrics",
+            }
+
+        async def get_consent_export_metadata(self, token_id: str):
+            assert token_id == "broken_old_token"  # noqa: S105
+            return None
+
+        async def store_consent_export(self, **_kwargs):
+            return True
+
+        async def insert_event(self, **_kwargs):
+            return 1
+
+        async def get_superseded_active_tokens(self, *_args, **_kwargs):
+            return []
+
+    def _issue_token(**_kwargs):
+        issued.append(_kwargs)
+        return SimpleNamespace(token="fresh_strict_token", expires_at=123456789)  # noqa: S106
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(consent, "issue_token", _issue_token)
+    monkeypatch.setattr(
+        consent.RIAIAMService,
+        "sync_relationship_from_consent_action",
+        lambda self, **_kwargs: None,
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_strict_reissue",
+            "encryptedData": "ciphertext",
+            "encryptedIv": "iv",
+            "encryptedTag": "tag",
+            "wrappedExportKey": "wrapped_key",
+            "wrappedKeyIv": "wrapped_iv",
+            "wrappedKeyTag": "wrapped_tag",
+            "senderPublicKey": "sender_public",
+            "connectorPublicKey": "connector_public_key_demo",
+            "connectorKeyId": "connector_demo",
+            "wrappingAlg": "X25519-AES256-GCM",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["consent_token"] == "fresh_strict_token"  # noqa: S105
+    assert issued, "Expected broken strict export state to force a fresh token issuance"
+
+
+def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
+    sync_calls: list[dict] = []
+
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            assert user_id == "user_123"
+            assert request_id == "req_ria_reuse"
+            return {
+                "request_id": request_id,
+                "developer": "ria:profile_demo_123",
+                "scope": "attr.financial.*",
+                "metadata": {
+                    "requester_actor_type": "ria",
+                    "requester_entity_id": "profile_demo_123",
+                    "request_source": "ria_request_bundle",
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return {
+                "token_id": "existing_ria_token",  # noqa: S106
+                "scope": "attr.financial.*",
+                "expires_at": 123456789,
+            }
+
+    async def _mock_sync(self, **kwargs):  # noqa: ANN001
+        sync_calls.append(kwargs)
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        consent.RIAIAMService,
+        "sync_relationship_from_consent_action",
+        _mock_sync,
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_ria_reuse",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["consent_token"] == "existing_ria_token"  # noqa: S105
+    assert sync_calls == [
+        {
+            "user_id": "user_123",
+            "request_id": "req_ria_reuse",
+            "action": "CONSENT_GRANTED",
+        }
+    ]

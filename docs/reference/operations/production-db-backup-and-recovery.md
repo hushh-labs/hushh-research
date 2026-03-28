@@ -33,7 +33,8 @@ Scope:
 
 3. Migration governance gate before production backend deploy:
 - enforces monotonic numbered migration files in `consent-protocol/db/migrations`
-- enforces contract version alignment with `consent-protocol/db/schema_contract/prod_core_schema.json`
+- enforces the production-pinned contract in `consent-protocol/db/schema_contract/prod_core_schema.json`
+- allows the local repo to be ahead of production while production remains pinned to its approved migration floor
 - runs read-only live schema drift checks for production-critical tables/columns
 
 4. Release evidence artifact:
@@ -115,6 +116,14 @@ Migration guard (read-only):
 ```bash
 python3 scripts/ops/db_migration_release_guard.py \
   --report-path /tmp/db-migration-guard-report.json
+```
+
+UAT uses a different contract because it is the latest integration lane:
+
+```bash
+python3 scripts/ops/db_migration_release_guard.py \
+  --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+  --report-path /tmp/uat-db-migration-guard-report.json
 ```
 
 Generate release manifest:

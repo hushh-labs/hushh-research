@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.routes import pkm_routes_shared
+from api.routes import pkm, pkm_routes_shared
 
 
 def _build_app() -> FastAPI:
@@ -197,3 +197,32 @@ def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
     assert payload["upgradable_domains"][0]["domain"] == "financial"
     assert payload["run"]["run_id"] == "pkm_upgrade_demo"
     assert payload["run"]["steps"][0]["checkpoint_payload"]["stage"] == "loading_domain"
+
+
+def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
+    class _FakeUpgradeService:
+        async def build_status(self, user_id: str):
+            assert user_id == "user_123"
+            return {
+                "user_id": "user_123",
+                "model_version": 1,
+                "target_model_version": 1,
+                "upgrade_status": "current",
+                "upgradable_domains": [],
+                "last_upgraded_at": None,
+                "run": None,
+            }
+
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(pkm, "_get_upgrade_status", pkm_routes_shared.get_upgrade_status)
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_upgrade_service", lambda: _FakeUpgradeService())
+
+    client = TestClient(app)
+    response = client.get("/api/pkm/upgrade/status/user_123")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["user_id"] == "user_123"
+    assert payload["upgrade_status"] == "current"

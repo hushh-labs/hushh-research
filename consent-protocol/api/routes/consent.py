@@ -198,6 +198,19 @@ async def approve_consent(
         agent_id=pending_request["developer"],
         requested_scope=requested_scope,
     )
+    if existing_token and is_developer_request:
+        existing_export = await service.get_consent_export_metadata(
+            str(existing_token.get("token_id") or "")
+        )
+        if not (
+            isinstance(existing_export, dict) and existing_export.get("is_strict_zero_knowledge")
+        ):
+            logger.warning(
+                "consent.token_reuse_skipped_missing_strict_export scope=%s token=%s",
+                requested_scope,
+                str(existing_token.get("token_id") or "")[:32],
+            )
+            existing_token = None
 
     if existing_token:
         # IDEMPOTENT RETURN: Reuse existing token
@@ -205,6 +218,16 @@ async def approve_consent(
 
         # Log REUSE event for audit trail (optional, but good for tracking)
         # await consent_db.insert_event(..., action="TOKEN_REUSED", ...)
+        try:
+            await RIAIAMService().sync_relationship_from_consent_action(
+                user_id=userId,
+                request_id=requestId,
+                action="CONSENT_GRANTED",
+            )
+        except Exception:
+            logger.exception(
+                "ria.relationship_sync_failed action=CONSENT_GRANTED reused_token=true"
+            )
 
         return {
             "status": "approved",
@@ -263,7 +286,7 @@ async def approve_consent(
 
     if encryptedData and wrapped_key_bundle:
         # Store in database (source of truth)
-        await service.store_consent_export(
+        stored = await service.store_consent_export(
             consent_token=token.token,
             user_id=userId,
             encrypted_data=encryptedData,
@@ -281,6 +304,8 @@ async def approve_consent(
             else None,
             refresh_status="current",
         )
+        if not stored:
+            raise HTTPException(status_code=500, detail="Failed to store encrypted consent export")
 
         # Also cache in memory for fast access
         _consent_exports[token.token] = {

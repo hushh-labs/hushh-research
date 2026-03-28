@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.operons.kai.fetchers import (
@@ -180,19 +181,41 @@ def _normalize_pick_source(value: str | None) -> str:
     return DEFAULT_PICK_SOURCE_ID
 
 
+def _pick_source_roster_signature(ria_sources: list[dict[str, Any]]) -> str:
+    if not ria_sources:
+        return "none"
+
+    parts: list[str] = []
+    for item in ria_sources:
+        parts.append(
+            ":".join(
+                [
+                    str(item.get("id") or "").strip(),
+                    str(item.get("state") or "").strip(),
+                    str(item.get("share_status") or "").strip(),
+                    str(item.get("upload_id") or "").strip(),
+                ]
+            )
+        )
+    return "|".join(sorted(parts))
+
+
 async def _resolve_pick_source_rows(
     user_id: str,
     active_pick_source: str,
+    *,
+    ria_sources: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
     renaissance_service = get_renaissance_service()
     default_rows = await renaissance_service.get_all_investable()
     sources = [_default_pick_source()]
 
-    try:
-        ria_sources = await RIAIAMService().list_investor_pick_sources(user_id)
-    except Exception as exc:
-        logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
-        ria_sources = []
+    if ria_sources is None:
+        try:
+            ria_sources = await RIAIAMService().list_investor_pick_sources(user_id)
+        except Exception as exc:
+            logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
+            ria_sources = []
 
     if ria_sources:
         sources.extend(ria_sources)
@@ -1562,7 +1585,13 @@ async def get_market_insights(
             detail="Missing or invalid consent token",
         )
     canonical_watchlist_key = ",".join(sorted(set(watchlist_symbols)))
-    home_key = f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}"
+    try:
+        ria_source_roster = await RIAIAMService().list_investor_pick_sources(user_id)
+    except Exception as exc:
+        logger.debug("[Kai Market] source roster unavailable for %s: %s", user_id, exc)
+        ria_source_roster = []
+    roster_signature = _pick_source_roster_signature(ria_source_roster)
+    home_key = f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:{roster_signature}"
 
     async def build_payload() -> dict[str, Any]:
         provider_status: dict[str, str] = {}
@@ -1574,7 +1603,11 @@ async def get_market_insights(
             renaissance_rows_source,
             pick_sources,
             resolved_pick_source,
-        ) = await _resolve_pick_source_rows(user_id, active_pick_source)
+        ) = await _resolve_pick_source_rows(
+            user_id,
+            active_pick_source,
+            ria_sources=ria_source_roster,
+        )
         renaissance_symbols = [
             str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
             for stock in renaissance_rows_source
@@ -2128,7 +2161,7 @@ async def get_market_insights(
             "spotlights": spotlights,
             "themes": themes,
         }
-        return payload
+        return jsonable_encoder(payload)
 
     try:
         (
