@@ -17,6 +17,22 @@ This repo runs on three branch lanes:
    - `deploy_uat` for UAT rollout
    - `deploy` for production release preparation
 5. A release branch must contain the latest `origin/main` before deployment.
+6. Do not open feature or hotfix PRs directly to `deploy_uat`; promote via `main`.
+
+## Branch Types and Retention
+
+| Branch type | Naming pattern | Retention |
+|---|---|---|
+| Developer branch | `feature/*`, `feat/*`, `agent_*`, developer-owned names | Keep while active |
+| Hotfix branch | `fix/*` | Delete after merge to `main` and successful promotion |
+| Promotion PR head | `main` -> `deploy_uat` or `main` -> `deploy` | Keep permanent release branches only |
+| Local backup branch | `backup/*`, `publishable/*` | Audit unique commits, salvage if needed, then delete |
+
+Before deleting a local backup branch, classify its unique commits as:
+
+1. already represented in `main`
+2. obsolete and safe to drop
+3. still valuable and worth promoting onto a fresh salvage branch from current `main`
 
 ## Deployment Lanes
 
@@ -26,6 +42,7 @@ This repo runs on three branch lanes:
 2. Manual dispatch is also allowed.
 3. No reviewer gate is required in the workflow itself.
 4. Workflow preflight fails if `deploy_uat` does not contain the latest `origin/main`.
+5. The intended promotion path is `feature/hotfix -> main -> deploy_uat`.
 
 ### `deploy`
 
@@ -33,6 +50,15 @@ This repo runs on three branch lanes:
 2. Production deploy is manual only through `.github/workflows/deploy-production.yml`.
 3. The workflow is valid only when dispatched from the `deploy` branch.
 4. Workflow preflight fails if `deploy` does not contain the latest `origin/main`.
+5. The intended promotion path is `feature/hotfix -> main -> deploy`.
+
+## Hotfix Playbook
+
+1. Create the hotfix branch from the latest `main`.
+2. Merge the hotfix into `main`.
+3. Promote `main` into `deploy_uat`.
+4. If another blocker appears after that promotion, create a new hotfix branch from the updated `main`.
+5. Do not reuse an already-merged hotfix branch for a second fix.
 
 ## GitHub Admin Checklist
 
