@@ -9,7 +9,6 @@ import {
   XCircle,
   Ban,
   ExternalLink,
-  Shield,
   X,
   RotateCw,
 } from "lucide-react";

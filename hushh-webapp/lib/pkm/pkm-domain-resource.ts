@@ -1,7 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
-
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
   type EncryptedDomainBlob,
@@ -397,31 +395,16 @@ export function usePkmDomainResource(
     backgroundRefresh?: boolean;
   }
 ) {
-  const cacheKey = useMemo(() => {
-    if (!params.userId || !params.domain) {
-      return "pkm_domain_resource_disabled";
-    }
-    return toCacheKey(params);
-  }, [params.domain, params.segmentIds, params.userId]);
-  const refreshKey = useMemo(
-    () =>
-      [
-        params.userId || "no-user",
-        params.domain || "no-domain",
-        params.segmentIds?.join(",") || "all",
-        params.vaultKey ? "vault-key" : "no-vault-key",
-        params.vaultOwnerToken ? "vault-owner-token" : "no-vault-owner-token",
-        params.backgroundRefresh === false ? "no-background-refresh" : "background-refresh",
-      ].join(":"),
-    [
-      params.backgroundRefresh,
-      params.domain,
-      params.segmentIds,
-      params.userId,
-      params.vaultKey,
-      params.vaultOwnerToken,
-    ]
-  );
+  const cacheKey =
+    !params.userId || !params.domain ? "pkm_domain_resource_disabled" : toCacheKey(params);
+  const refreshKey = [
+    params.userId || "no-user",
+    params.domain || "no-domain",
+    params.segmentIds?.join(",") || "all",
+    params.vaultKey ? "vault-key" : "no-vault-key",
+    params.vaultOwnerToken ? "vault-owner-token" : "no-vault-owner-token",
+    params.backgroundRefresh === false ? "no-background-refresh" : "background-refresh",
+  ].join(":");
 
   return useStaleResource<PkmDomainResourceSnapshot | null>({
     cacheKey,

@@ -363,40 +363,6 @@ function toOverviewMetrics(payload: KaiHomeInsightsV2 | null): MarketOverviewMet
   ];
 }
 
-function hasUsefulOverviewValue(value: string | number | null | undefined): boolean {
-  if (typeof value === "number") return Number.isFinite(value);
-  if (typeof value === "string") {
-    const text = value.trim();
-    return Boolean(text) && !isUnavailableText(text);
-  }
-  return false;
-}
-
-function countUsableOverviewRows(payload: KaiHomeInsightsV2 | null | undefined): number {
-  const rows = payload?.market_overview;
-  if (!Array.isArray(rows)) return 0;
-  return rows.reduce((count, row) => {
-    if (!row) return count;
-    if (hasUsefulOverviewValue(row.value)) return count + 1;
-    return count;
-  }, 0);
-}
-
-function withStableOverviewFromCache(
-  nextPayload: KaiHomeInsightsV2,
-  cachedPayload: KaiHomeInsightsV2 | null
-): KaiHomeInsightsV2 {
-  const nextUsableCount = countUsableOverviewRows(nextPayload);
-  const cachedUsableCount = countUsableOverviewRows(cachedPayload);
-  if (nextUsableCount > 0 || cachedUsableCount === 0) {
-    return nextPayload;
-  }
-  return {
-    ...nextPayload,
-    market_overview: cachedPayload?.market_overview ?? nextPayload.market_overview,
-  };
-}
-
 function toThemeIcon(title: string): LucideIcon {
   const matched = THEME_ICON_MAP.find((row) => row.test.test(title));
   return matched?.icon || LineChart;

@@ -127,12 +127,6 @@ function toRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function toStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
 function normalizePath(path: string | null | undefined): string {
   return String(path || "")
     .split(".")

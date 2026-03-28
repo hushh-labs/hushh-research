@@ -16,7 +16,6 @@ import {
 } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ApiService } from "@/lib/services/api-service";
 import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
@@ -188,8 +187,6 @@ function getErrorDisplay(errorType: ErrorType, retryIn?: number): { icon: React.
 // ============================================================================
 // Constants
 // ============================================================================
-
-const HEADER_MARKET_QUOTE_TTL_MS = 10 * 60 * 1000;
 
 const TICKER_SYMBOL_REGEX = /^[A-Z][A-Z0-9.\-]{0,5}$/;
 
@@ -825,7 +822,6 @@ export function DebateStreamView({
       return;
     }
     let cancelled = false;
-    const cache = CacheService.getInstance();
     const cached = getCachedHeaderQuote(userId, normalizedTicker);
     setHeaderQuoteLoading(Boolean(vaultOwnerToken) && !cached);
     if (!cancelled) {

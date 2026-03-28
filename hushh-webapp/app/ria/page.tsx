@@ -167,7 +167,6 @@ export default function RiaHomePage() {
   const queueItems = homeResource.data?.needs_attention ?? [];
   const leadItem = queueItems[0] ?? null;
   const activeRows = homeResource.data?.active_picks.active_rows ?? 0;
-  const historyCount = homeResource.data?.active_picks.history_count ?? 0;
   const feedLabel = homeResource.data?.active_picks.active_upload_label || "No active list";
   const consentManagerHref = buildRiaConsentManagerHref("pending", {
     from: ROUTES.RIA_HOME,

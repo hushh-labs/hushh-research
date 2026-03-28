@@ -2326,77 +2326,80 @@ class RIAIAMService:
                 conn,
                 user_id_sql="rel.investor_user_id",
             )
+            relationship_query = "\n".join(
+                [
+                    "SELECT",
+                    "  rel.id,",
+                    "  rel.investor_user_id,",
+                    "  rel.status,",
+                    "  rel.granted_scope,",
+                    "  rel.last_request_id,",
+                    "  rel.consent_granted_at,",
+                    "  rel.revoked_at,",
+                    f"  {identity_select_sql},",
+                    "  invite.id AS invite_id,",
+                    "  invite.invite_token,",
+                    "  invite.source AS acquisition_source,",
+                    "  invite.status AS invite_status,",
+                    "  invite.delivery_channel,",
+                    "  consent.expires_at AS consent_expires_at,",
+                    "  picks_share.id AS picks_share_id,",
+                    "  picks_share.status AS picks_share_status,",
+                    "  picks_share.granted_at AS picks_share_granted_at,",
+                    "  picks_share.revoked_at AS picks_share_revoked_at,",
+                    "  picks_share.metadata AS picks_share_metadata,",
+                    "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
+                    "FROM ria_profiles rp",
+                    "JOIN advisor_investor_relationships rel ON rel.ria_profile_id = rp.id",
+                    identity_join_sql,
+                    "LEFT JOIN marketplace_public_profiles mp",
+                    "  ON mp.user_id = rel.investor_user_id AND mp.profile_type = 'investor'",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT",
+                    "    i.id,",
+                    "    i.invite_token,",
+                    "    i.source,",
+                    "    i.status,",
+                    "    i.delivery_channel",
+                    "  FROM ria_client_invites i",
+                    "  WHERE i.ria_profile_id = rp.id",
+                    "    AND (",
+                    "      i.accepted_by_user_id = rel.investor_user_id",
+                    "      OR (",
+                    "        i.target_investor_user_id IS NOT NULL",
+                    "        AND i.target_investor_user_id = rel.investor_user_id",
+                    "      )",
+                    "    )",
+                    "  ORDER BY i.accepted_at DESC NULLS LAST, i.created_at DESC",
+                    "  LIMIT 1",
+                    ") invite ON TRUE",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT expires_at",
+                    "  FROM consent_audit",
+                    "  WHERE user_id = rel.investor_user_id",
+                    "    AND agent_id = ('ria:' || rp.id::text)",
+                    "    AND scope = rel.granted_scope",
+                    "    AND action = 'CONSENT_GRANTED'",
+                    "  ORDER BY issued_at DESC",
+                    "  LIMIT 1",
+                    ") consent ON TRUE",
+                    "LEFT JOIN relationship_share_grants picks_share",
+                    "  ON picks_share.relationship_id = rel.id",
+                    "  AND picks_share.grant_key = $2",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT id",
+                    "  FROM ria_pick_uploads",
+                    "  WHERE ria_profile_id = rp.id",
+                    "    AND status = 'active'",
+                    "  ORDER BY activated_at DESC NULLS LAST, created_at DESC",
+                    "  LIMIT 1",
+                    ") active_upload ON TRUE",
+                    "WHERE rp.user_id = $1",
+                    "ORDER BY rel.updated_at DESC",
+                ]
+            )
             relationship_rows = await conn.fetch(
-                f"""
-                SELECT
-                  rel.id,
-                  rel.investor_user_id,
-                  rel.status,
-                  rel.granted_scope,
-                  rel.last_request_id,
-                  rel.consent_granted_at,
-                  rel.revoked_at,
-                  {identity_select_sql},
-                  invite.id AS invite_id,
-                  invite.invite_token,
-                  invite.source AS acquisition_source,
-                  invite.status AS invite_status,
-                  invite.delivery_channel,
-                  consent.expires_at AS consent_expires_at,
-                  picks_share.id AS picks_share_id,
-                  picks_share.status AS picks_share_status,
-                  picks_share.granted_at AS picks_share_granted_at,
-                  picks_share.revoked_at AS picks_share_revoked_at,
-                  picks_share.metadata AS picks_share_metadata,
-                  (active_upload.id IS NOT NULL) AS has_active_pick_upload
-                FROM ria_profiles rp
-                JOIN advisor_investor_relationships rel ON rel.ria_profile_id = rp.id
-                {identity_join_sql}
-                LEFT JOIN marketplace_public_profiles mp
-                  ON mp.user_id = rel.investor_user_id AND mp.profile_type = 'investor'
-                LEFT JOIN LATERAL (
-                  SELECT
-                    i.id,
-                    i.invite_token,
-                    i.source,
-                    i.status,
-                    i.delivery_channel
-                  FROM ria_client_invites i
-                  WHERE i.ria_profile_id = rp.id
-                    AND (
-                      i.accepted_by_user_id = rel.investor_user_id
-                      OR (
-                        i.target_investor_user_id IS NOT NULL
-                        AND i.target_investor_user_id = rel.investor_user_id
-                      )
-                    )
-                  ORDER BY i.accepted_at DESC NULLS LAST, i.created_at DESC
-                  LIMIT 1
-                ) invite ON TRUE
-                LEFT JOIN LATERAL (
-                  SELECT expires_at
-                  FROM consent_audit
-                  WHERE user_id = rel.investor_user_id
-                    AND agent_id = ('ria:' || rp.id::text)
-                    AND scope = rel.granted_scope
-                    AND action = 'CONSENT_GRANTED'
-                  ORDER BY issued_at DESC
-                  LIMIT 1
-                ) consent ON TRUE
-                LEFT JOIN relationship_share_grants picks_share
-                  ON picks_share.relationship_id = rel.id
-                  AND picks_share.grant_key = $2
-                LEFT JOIN LATERAL (
-                  SELECT id
-                  FROM ria_pick_uploads
-                  WHERE ria_profile_id = rp.id
-                    AND status = 'active'
-                  ORDER BY activated_at DESC NULLS LAST, created_at DESC
-                  LIMIT 1
-                ) active_upload ON TRUE
-                WHERE rp.user_id = $1
-                ORDER BY rel.updated_at DESC
-                """,
+                relationship_query,
                 user_id,
                 _RELATIONSHIP_SHARE_ACTIVE_PICKS,
             )
@@ -2574,46 +2577,49 @@ class RIAIAMService:
                 conn,
                 user_id_sql="rel.investor_user_id",
             )
+            relationship_query = "\n".join(
+                [
+                    "SELECT",
+                    "  rel.id,",
+                    "  rel.investor_user_id,",
+                    "  rel.status,",
+                    "  rel.granted_scope,",
+                    "  rel.last_request_id,",
+                    "  rel.consent_granted_at,",
+                    "  rel.revoked_at,",
+                    "  rel.created_at,",
+                    "  rel.updated_at,",
+                    f"  {identity_select_sql},",
+                    "  picks_share.id AS picks_share_id,",
+                    "  picks_share.status AS picks_share_status,",
+                    "  picks_share.granted_at AS picks_share_granted_at,",
+                    "  picks_share.revoked_at AS picks_share_revoked_at,",
+                    "  picks_share.metadata AS picks_share_metadata,",
+                    "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
+                    "FROM advisor_investor_relationships rel",
+                    identity_join_sql,
+                    "LEFT JOIN marketplace_public_profiles mp",
+                    "  ON mp.user_id = rel.investor_user_id",
+                    "  AND mp.profile_type = 'investor'",
+                    "LEFT JOIN relationship_share_grants picks_share",
+                    "  ON picks_share.relationship_id = rel.id",
+                    "  AND picks_share.grant_key = $3",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT id",
+                    "  FROM ria_pick_uploads",
+                    "  WHERE ria_profile_id = rel.ria_profile_id",
+                    "    AND status = 'active'",
+                    "  ORDER BY activated_at DESC NULLS LAST, created_at DESC",
+                    "  LIMIT 1",
+                    ") active_upload ON TRUE",
+                    "WHERE rel.investor_user_id = $1",
+                    "  AND rel.ria_profile_id = $2",
+                    "ORDER BY rel.updated_at DESC",
+                    "LIMIT 1",
+                ]
+            )
             relationship = await conn.fetchrow(
-                f"""
-                SELECT
-                  rel.id,
-                  rel.investor_user_id,
-                  rel.status,
-                  rel.granted_scope,
-                  rel.last_request_id,
-                  rel.consent_granted_at,
-                  rel.revoked_at,
-                  rel.created_at,
-                  rel.updated_at,
-                  {identity_select_sql},
-                  picks_share.id AS picks_share_id,
-                  picks_share.status AS picks_share_status,
-                  picks_share.granted_at AS picks_share_granted_at,
-                  picks_share.revoked_at AS picks_share_revoked_at,
-                  picks_share.metadata AS picks_share_metadata,
-                  (active_upload.id IS NOT NULL) AS has_active_pick_upload
-                FROM advisor_investor_relationships rel
-                {identity_join_sql}
-                LEFT JOIN marketplace_public_profiles mp
-                  ON mp.user_id = rel.investor_user_id
-                  AND mp.profile_type = 'investor'
-                LEFT JOIN relationship_share_grants picks_share
-                  ON picks_share.relationship_id = rel.id
-                  AND picks_share.grant_key = $3
-                LEFT JOIN LATERAL (
-                  SELECT id
-                  FROM ria_pick_uploads
-                  WHERE ria_profile_id = rel.ria_profile_id
-                    AND status = 'active'
-                  ORDER BY activated_at DESC NULLS LAST, created_at DESC
-                  LIMIT 1
-                ) active_upload ON TRUE
-                WHERE rel.investor_user_id = $1
-                  AND rel.ria_profile_id = $2
-                ORDER BY rel.updated_at DESC
-                LIMIT 1
-                """,
+                relationship_query,
                 investor_user_id,
                 ria["id"],
                 _RELATIONSHIP_SHARE_ACTIVE_PICKS,
@@ -4137,43 +4143,46 @@ class RIAIAMService:
                 conn,
                 user_id_sql="rel.investor_user_id",
             )
+            relationship_query = "\n".join(
+                [
+                    "SELECT",
+                    "  rel.id,",
+                    "  rel.status,",
+                    "  rel.granted_scope,",
+                    "  rel.last_request_id,",
+                    "  rel.consent_granted_at,",
+                    "  rel.revoked_at,",
+                    f"  {identity_select_sql},",
+                    "  picks_share.id AS picks_share_id,",
+                    "  picks_share.status AS picks_share_status,",
+                    "  picks_share.granted_at AS picks_share_granted_at,",
+                    "  picks_share.revoked_at AS picks_share_revoked_at,",
+                    "  picks_share.metadata AS picks_share_metadata,",
+                    "  (active_upload.id IS NOT NULL) AS has_active_pick_upload",
+                    "FROM advisor_investor_relationships rel",
+                    identity_join_sql,
+                    "LEFT JOIN marketplace_public_profiles mp",
+                    "  ON mp.user_id = rel.investor_user_id",
+                    "  AND mp.profile_type = 'investor'",
+                    "LEFT JOIN relationship_share_grants picks_share",
+                    "  ON picks_share.relationship_id = rel.id",
+                    "  AND picks_share.grant_key = $3",
+                    "LEFT JOIN LATERAL (",
+                    "  SELECT id",
+                    "  FROM ria_pick_uploads",
+                    "  WHERE ria_profile_id = rel.ria_profile_id",
+                    "    AND status = 'active'",
+                    "  ORDER BY activated_at DESC NULLS LAST, created_at DESC",
+                    "  LIMIT 1",
+                    ") active_upload ON TRUE",
+                    "WHERE rel.investor_user_id = $1",
+                    "  AND rel.ria_profile_id = $2",
+                    "ORDER BY rel.updated_at DESC",
+                    "LIMIT 1",
+                ]
+            )
             relationship = await conn.fetchrow(
-                f"""
-                SELECT
-                  rel.id,
-                  rel.status,
-                  rel.granted_scope,
-                  rel.last_request_id,
-                  rel.consent_granted_at,
-                  rel.revoked_at,
-                  {identity_select_sql},
-                  picks_share.id AS picks_share_id,
-                  picks_share.status AS picks_share_status,
-                  picks_share.granted_at AS picks_share_granted_at,
-                  picks_share.revoked_at AS picks_share_revoked_at,
-                  picks_share.metadata AS picks_share_metadata,
-                  (active_upload.id IS NOT NULL) AS has_active_pick_upload
-                FROM advisor_investor_relationships rel
-                {identity_join_sql}
-                LEFT JOIN marketplace_public_profiles mp
-                  ON mp.user_id = rel.investor_user_id
-                  AND mp.profile_type = 'investor'
-                LEFT JOIN relationship_share_grants picks_share
-                  ON picks_share.relationship_id = rel.id
-                  AND picks_share.grant_key = $3
-                LEFT JOIN LATERAL (
-                  SELECT id
-                  FROM ria_pick_uploads
-                  WHERE ria_profile_id = rel.ria_profile_id
-                    AND status = 'active'
-                  ORDER BY activated_at DESC NULLS LAST, created_at DESC
-                  LIMIT 1
-                ) active_upload ON TRUE
-                WHERE rel.investor_user_id = $1
-                  AND rel.ria_profile_id = $2
-                ORDER BY rel.updated_at DESC
-                LIMIT 1
-                """,
+                relationship_query,
                 investor_user_id,
                 ria["id"],
                 _RELATIONSHIP_SHARE_ACTIVE_PICKS,

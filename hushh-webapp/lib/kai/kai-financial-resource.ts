@@ -29,7 +29,6 @@ import {
   type StatementSnapshotOption,
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";

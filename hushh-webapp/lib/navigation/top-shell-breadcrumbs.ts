@@ -27,15 +27,6 @@ function normalizeInternalHref(value: string | null | undefined): string | null 
   return next;
 }
 
-function labelForRoute(href: string): string {
-  if (href.startsWith(ROUTES.RIA_HOME)) return "RIA";
-  if (href.startsWith(ROUTES.PROFILE)) return "Profile";
-  if (href.startsWith(ROUTES.MARKETPLACE)) return "Marketplace";
-  if (href.startsWith(ROUTES.KAI_HOME)) return "Kai";
-  if (href === ROUTES.HOME) return "Home";
-  return "Back";
-}
-
 export function resolveTopShellBreadcrumb(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null

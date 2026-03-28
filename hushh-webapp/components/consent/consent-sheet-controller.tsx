@@ -11,7 +11,6 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
-  applyConsentSheetParams,
   buildConsentCenterHref,
   clearConsentSheetParams,
   CONSENT_LEGACY_PANEL_QUERY_KEY,

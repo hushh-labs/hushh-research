@@ -50,7 +50,6 @@ export const Navbar = () => {
   const allowScrollHide = isAuthenticated && !useOnboardingChrome && !preserveBottomChrome;
   const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } = useKaiBottomChromeVisibility(allowScrollHide);
 
-  const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
   const busyOperations = useKaiSession((s) => s.busyOperations);
 

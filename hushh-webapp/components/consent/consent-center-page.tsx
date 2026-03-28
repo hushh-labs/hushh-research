@@ -27,7 +27,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
-import { ROUTES, buildRiaWorkspaceRoute } from "@/lib/navigation/routes";
+import { buildRiaWorkspaceRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 type ConsentTab = "pending" | "active" | "previous";

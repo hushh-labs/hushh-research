@@ -22,7 +22,6 @@ import {
 } from "@/lib/kai/brokerage/portfolio-sources";
 import {
   buildFinancialDomainSummary,
-  getActiveSource as getStoredActiveSource,
   getActiveStatementSnapshotId,
   setActivePlaidSource,
   setActiveStatementSnapshot,
