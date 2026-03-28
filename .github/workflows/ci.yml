@@ -4,7 +4,10 @@ on:
   pull_request:
     branches: ["**"]
   push:
-    branches: ["**"]
+    branches:
+      - main
+      - deploy_uat
+      - deploy
   merge_group:
     branches: [main]
   workflow_dispatch:
@@ -144,7 +147,7 @@ jobs:
   web-check:
     name: "Web (Next.js)"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy'))
+    if: needs.paths.outputs.frontend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy_uat' || github.ref == 'refs/heads/deploy'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -185,7 +188,7 @@ jobs:
   protocol-check:
     name: "Protocol (Python)"
     needs: [paths]
-    if: needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy'))
+    if: needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy_uat' || github.ref == 'refs/heads/deploy'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -212,7 +215,7 @@ jobs:
   integration-check:
     name: "Integration"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy'))
+    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy_uat' || github.ref == 'refs/heads/deploy'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
