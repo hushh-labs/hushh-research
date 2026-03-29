@@ -24,7 +24,7 @@ The local parity script mirrors those same blocking stages. On GitHub, `main` sh
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
 | Pull request | All branches (`**`) | Full CI (path-filtered) |
-| Push | All branches (`**`) | Full CI (path-filtered) |
+| Push | `main`, `deploy_uat`, `deploy` | Full CI (path-filtered for normal changes, forced on release lanes when needed) |
 | Merge queue | `main` | Full CI (frontend + backend forced on) |
 | Manual | Any | **workflow_dispatch** with scope: `frontend` \| `backend` \| `all` |
 
@@ -33,6 +33,21 @@ The local parity script mirrors those same blocking stages. On GitHub, `main` sh
 - **Frontend job** runs when `hushh-webapp/**` changes.
 - **Backend job** runs when `consent-protocol/**` changes.
 - **Integration job** runs when either frontend or backend paths change.
+
+### Duplicate-Run Policy
+
+Feature and hotfix branches intentionally rely on `pull_request` CI only. This avoids the same head SHA fan-out that happens when a branch triggers both:
+
+1. a `push` run, and
+2. one or more `pull_request` runs for different base branches.
+
+Protected release branches still keep `push` CI:
+
+- `main`
+- `deploy_uat`
+- `deploy`
+
+That keeps one authoritative post-merge CI run on each release lane without duplicating feature-branch noise.
 
 ---
 
@@ -90,6 +105,7 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 2. `deploy_uat` is the UAT rollout lane and must contain the latest `main`.
 3. `deploy` is the production release lane and must contain the latest `main`.
 4. Production deploys are manual and handled by `.github/workflows/deploy-production.yml`, not by the main CI workflow.
+5. Feature or hotfix branches should never target `deploy_uat` directly; promote through `main`.
 
 See [Branch Governance](./branch-governance.md).
 
