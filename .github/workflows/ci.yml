@@ -269,6 +269,35 @@ jobs:
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref }}
         run: sh scripts/git/check-main-sync.sh
 
+  release-lane-gate:
+    name: "Release Lane Gate"
+    if: github.event_name == 'pull_request' && (github.base_ref == 'deploy_uat' || github.base_ref == 'deploy')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Require promotion from main only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.head_ref }}" != "main" ]; then
+            echo "Release branches only accept promotion PRs from 'main'."
+            echo "Got head branch: '${{ github.head_ref }}'"
+            exit 1
+          fi
+
+      - name: Verify promotion branch contains latest origin/main
+        env:
+          MAIN_SYNC_REMOTE: origin
+          MAIN_SYNC_BRANCH: main
+          MAIN_SYNC_MODE: block
+          MAIN_SYNC_CURRENT_BRANCH: release-promotion-${{ github.base_ref }}
+        run: sh scripts/git/check-main-sync.sh
+
   branch-freshness-advisory:
     name: "Branch Freshness Advisory"
     if: github.event_name == 'push' && github.ref_name != 'main' && github.ref_name != 'deploy' && github.ref_name != 'deploy_uat'
@@ -295,6 +324,8 @@ jobs:
       - web-check
       - protocol-check
       - integration-check
+      - main-freshness-gate
+      - release-lane-gate
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -307,15 +338,19 @@ jobs:
           WEB="${{ needs['web-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
+          MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
+          RELEASE_LANE="${{ needs['release-lane-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'paths=%s\n' "$PATHS"
           printf 'web-check=%s\n' "$WEB"
           printf 'protocol-check=%s\n' "$PROTOCOL"
           printf 'integration-check=%s\n' "$INTEGRATION"
+          printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
+          printf 'release-lane-gate=%s\n' "$RELEASE_LANE"
 
           fail=0
-          for result in "$SECRET_SCAN" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION"; do
+          for result in "$SECRET_SCAN" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS" "$RELEASE_LANE"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
