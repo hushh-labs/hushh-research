@@ -36,6 +36,8 @@ export interface PlaidTransferCreateResponse {
   reference?: Record<string, unknown>;
 }
 
+const PLAID_STATUS_CACHE_TTL_MS = 15_000;
+
 async function extractPlaidError(response: Response, fallback: string): Promise<string> {
   const raw = await response.text().catch(() => "");
   try {
@@ -73,23 +75,95 @@ async function extractPlaidError(response: Response, fallback: string): Promise<
 }
 
 export class PlaidPortfolioService {
+  private static statusCache = new Map<
+    string,
+    { value: PlaidPortfolioStatusResponse; expiresAt: number }
+  >();
+  private static statusInflight = new Map<string, Promise<PlaidPortfolioStatusResponse>>();
+  private static fundingStatusCache = new Map<
+    string,
+    { value: PlaidFundingStatusResponse; expiresAt: number }
+  >();
+  private static fundingStatusInflight = new Map<string, Promise<PlaidFundingStatusResponse>>();
+
+  private static statusKey(userId: string): string {
+    return String(userId || "").trim();
+  }
+
+  private static readStatusCache(key: string): PlaidPortfolioStatusResponse | null {
+    const entry = this.statusCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.statusCache.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  private static readFundingStatusCache(key: string): PlaidFundingStatusResponse | null {
+    const entry = this.fundingStatusCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.fundingStatusCache.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  static invalidateStatusCache(userId?: string): void {
+    const key = String(userId || "").trim();
+    if (key) {
+      this.statusCache.delete(key);
+      this.statusInflight.delete(key);
+      this.fundingStatusCache.delete(key);
+      this.fundingStatusInflight.delete(key);
+      return;
+    }
+    this.statusCache.clear();
+    this.statusInflight.clear();
+    this.fundingStatusCache.clear();
+    this.fundingStatusInflight.clear();
+  }
+
   static async getStatus(params: {
     userId: string;
     vaultOwnerToken: string;
-  }): Promise<PlaidPortfolioStatusResponse> {
-    const response = await ApiService.apiFetch(
-      `/api/kai/plaid/status/${encodeURIComponent(params.userId)}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${params.vaultOwnerToken}`,
-        },
-      }
-    );
-    if (!response.ok) {
-      throw new Error(`Failed to load Plaid portfolio status: ${response.status}`);
+  }, options?: { force?: boolean }): Promise<PlaidPortfolioStatusResponse> {
+    const key = this.statusKey(params.userId);
+    if (!options?.force) {
+      const cached = this.readStatusCache(key);
+      if (cached) return cached;
+      const inflight = this.statusInflight.get(key);
+      if (inflight) return inflight;
     }
-    return (await response.json()) as PlaidPortfolioStatusResponse;
+
+    const request = (async () => {
+      const response = await ApiService.apiFetch(
+        `/api/kai/plaid/status/${encodeURIComponent(params.userId)}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${params.vaultOwnerToken}`,
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to load Plaid portfolio status: ${response.status}`);
+      }
+      const payload = (await response.json()) as PlaidPortfolioStatusResponse;
+      this.statusCache.set(key, {
+        value: payload,
+        expiresAt: Date.now() + PLAID_STATUS_CACHE_TTL_MS,
+      });
+      return payload;
+    })().finally(() => {
+      if (this.statusInflight.get(key) === request) {
+        this.statusInflight.delete(key);
+      }
+    });
+
+    this.statusInflight.set(key, request);
+    return request;
   }
 
   static async createLinkToken(params: {
@@ -152,6 +226,7 @@ export class PlaidPortfolioService {
       throw new Error(detail);
     }
     const payload = (await response.json()) as PlaidPortfolioStatusResponse;
+    this.invalidateStatusCache(params.userId);
     CacheSyncService.onPlaidSourceProjected(params.userId);
     return payload;
   }
@@ -179,6 +254,7 @@ export class PlaidPortfolioService {
       );
       throw new Error(detail);
     }
+    this.invalidateStatusCache(params.userId);
     return (await response.json()) as PlaidRefreshResponse;
   }
 
@@ -284,6 +360,7 @@ export class PlaidPortfolioService {
       );
       throw new Error(detail);
     }
+    this.invalidateStatusCache(params.userId);
     return (await response.json()) as { user_id: string; active_source: PortfolioSource };
   }
 
@@ -342,30 +419,53 @@ export class PlaidPortfolioService {
       );
       throw new Error(detail);
     }
+    this.invalidateStatusCache(params.userId);
     return (await response.json()) as PlaidFundingStatusResponse;
   }
 
   static async getFundingStatus(params: {
     userId: string;
     vaultOwnerToken: string;
-  }): Promise<PlaidFundingStatusResponse> {
-    const response = await ApiService.apiFetch(
-      `/api/kai/plaid/funding/status/${encodeURIComponent(params.userId)}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${params.vaultOwnerToken}`,
-        },
-      }
-    );
-    if (!response.ok) {
-      const detail = await extractPlaidError(
-        response,
-        "Plaid funding status is not available right now."
-      );
-      throw new Error(detail);
+  }, options?: { force?: boolean }): Promise<PlaidFundingStatusResponse> {
+    const key = this.statusKey(params.userId);
+    if (!options?.force) {
+      const cached = this.readFundingStatusCache(key);
+      if (cached) return cached;
+      const inflight = this.fundingStatusInflight.get(key);
+      if (inflight) return inflight;
     }
-    return (await response.json()) as PlaidFundingStatusResponse;
+
+    const request = (async () => {
+      const response = await ApiService.apiFetch(
+        `/api/kai/plaid/funding/status/${encodeURIComponent(params.userId)}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${params.vaultOwnerToken}`,
+          },
+        }
+      );
+      if (!response.ok) {
+        const detail = await extractPlaidError(
+          response,
+          "Plaid funding status is not available right now."
+        );
+        throw new Error(detail);
+      }
+      const payload = (await response.json()) as PlaidFundingStatusResponse;
+      this.fundingStatusCache.set(key, {
+        value: payload,
+        expiresAt: Date.now() + PLAID_STATUS_CACHE_TTL_MS,
+      });
+      return payload;
+    })().finally(() => {
+      if (this.fundingStatusInflight.get(key) === request) {
+        this.fundingStatusInflight.delete(key);
+      }
+    });
+
+    this.fundingStatusInflight.set(key, request);
+    return request;
   }
 
   static async syncFundingTransactions(params: {
@@ -452,6 +552,7 @@ export class PlaidPortfolioService {
       const detail = await extractPlaidError(response, "Transfer could not be created right now.");
       throw new Error(detail);
     }
+    this.invalidateStatusCache(params.userId);
     return (await response.json()) as PlaidTransferCreateResponse;
   }
 
@@ -509,6 +610,7 @@ export class PlaidPortfolioService {
       const detail = await extractPlaidError(response, "Transfer could not be canceled right now.");
       throw new Error(detail);
     }
+    this.invalidateStatusCache(params.userId);
     return (await response.json()) as {
       transfer: PlaidTransferPayload;
       reference?: Record<string, unknown>;

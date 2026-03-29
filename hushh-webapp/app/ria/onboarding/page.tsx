@@ -18,6 +18,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { RiaCompatibilityState, RiaPageShell } from "@/components/ria/ria-page-shell";
 import { useAuth } from "@/hooks/use-auth";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import {
@@ -418,11 +419,60 @@ export default function RiaOnboardingPage() {
       await RiaOnboardingDraftLocalService.clear(user.uid);
       setShouldPersistDraft(false);
 
-      setNotice(
-        mode === "dev_activate"
-          ? "Developer activation completed. The RIA workspace is ready in this environment."
-          : "Onboarding submitted. Kai will keep the verification lane fail-closed until trust clears."
-      );
+      const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
+      const verificationOutcome = (result.verification_outcome || "").toLowerCase();
+      if (mode === "dev_activate") {
+        toast.success("Developer activation completed", {
+          description: "The RIA workspace is ready in this environment.",
+        });
+        setNotice("Developer activation completed. The RIA workspace is ready in this environment.");
+      } else if (advisoryOutcome === "rejected") {
+        toast.error("Verification failed", {
+          description:
+            result.verification_message ||
+            "The Individual CRD and Firm IAPD / IARD details did not verify.",
+        });
+        setNotice(
+          result.verification_message ||
+            "Verification was rejected. Please verify legal name and CRD and submit again."
+        );
+      } else if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
+        toast.success("Credentials verified", {
+          description:
+            result.verification_message ||
+            "Your Individual CRD and Firm IAPD / IARD checks passed.",
+        });
+        setNotice("Verification passed. Your RIA workspace is ready.");
+      } else if (advisoryOutcome === "bypassed") {
+        toast.warning("Verification bypass active", {
+          description:
+            result.verification_message ||
+            "This non-production environment is using the advisory verification bypass.",
+        });
+        setNotice(
+          result.verification_message ||
+            "Verification bypass is active in this environment. Your RIA workspace is ready for flow testing."
+        );
+      } else if (verificationOutcome === "provider_unavailable") {
+        toast.warning("Verification service unavailable", {
+          description:
+            result.verification_message ||
+            "This environment is missing CRD/IAPD verification provider configuration.",
+        });
+        setNotice(
+          result.verification_message ||
+            "Verification providers are unavailable in this environment. Configure IAPD/RIA intelligence providers."
+        );
+      } else {
+        toast.info("Verification submitted", {
+          description:
+            result.verification_message ||
+            "We are still validating the Individual CRD and Firm IAPD / IARD details.",
+        });
+        setNotice(
+          "Onboarding submitted. Kai will keep the verification lane fail-closed until trust clears."
+        );
+      }
       moveToStep("review");
     } catch (submitError) {
       if (isIAMSchemaNotReadyError(submitError)) {
@@ -431,6 +481,10 @@ export default function RiaOnboardingPage() {
       setError(
         submitError instanceof Error ? submitError.message : "Failed to submit onboarding."
       );
+      toast.error("Could not submit verification", {
+        description:
+          submitError instanceof Error ? submitError.message : "Failed to submit onboarding.",
+      });
     } finally {
       setSaving(false);
     }

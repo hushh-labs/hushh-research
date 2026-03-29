@@ -115,7 +115,9 @@ export class PreVaultUserStateService {
     })
       .then((payload) => {
         const normalized = normalizeResponse(userId, payload);
-        CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SHORT);
+        // Pre-vault bootstrap state changes infrequently and is updated by this service,
+        // so keeping it warm for the session reduces repeated heavy bootstrap requests.
+        CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SESSION);
         return normalized;
       })
       .finally(() => {
@@ -145,7 +147,7 @@ export class PreVaultUserStateService {
     CacheService.getInstance().set(
       CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
       normalized,
-      CACHE_TTL.SHORT
+      CACHE_TTL.SESSION
     );
     return normalized;
   }
