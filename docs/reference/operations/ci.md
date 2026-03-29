@@ -58,15 +58,24 @@ That keeps one authoritative post-merge CI run on each release lane without dupl
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI (license-free) scans the event commit range, not full repo history |
 | Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
 | Main Freshness Gate | Prevent stale PR merges into `main` | Blocks pull requests targeting `main` unless the branch contains latest `origin/main` |
+| Release Lane Gate | Prevent invalid promotions into `deploy_uat` or `deploy` | Blocks PRs targeting release branches unless the head branch is `main` and it contains latest `origin/main` |
 | Branch Freshness Advisory | Early stale-branch signal on feature-branch pushes | Warn-only; does not block CI or merges |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
 
 ## Live GitHub Enforcement
 
-`main` is expected to enforce the same CI contract documented here:
+Protected branches are expected to enforce the same CI contract documented here:
 
-- at least `1` approving review
-- required status checks: `CI Status Gate`, `Main Freshness Gate`
+- `main`
+  - at least `1` approving review
+  - required status checks: `CI Status Gate`, `Main Freshness Gate`
+  - strict/up-to-date checks enabled
+- `deploy_uat`
+  - at least `1` approving review
+  - required status checks: `CI Status Gate`, `Release Lane Gate`
+- `deploy`
+  - at least `1` approving review
+  - required status checks: `CI Status Gate`, `Release Lane Gate`
 - force-pushes disabled
 - branch deletion disabled
 
@@ -78,8 +87,8 @@ The live GitHub setting can drift from the docs, so verify it directly:
 
 Current live nuance:
 
-- admin enforcement is currently off, so admins/bypass users can still push directly if they have that level of access
-- there is no extra ruleset layered on top of `main` unless GitHub shows one in the verification output
+- the repo currently uses classic branch protection rather than GitHub repository rulesets
+- bypass actors should be limited to the 3 core owners, without overlapping push-restriction lists
 
 ## Advisory Checks (Non-Blocking By Default)
 
@@ -104,8 +113,10 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 1. `main` is the only integration branch for day-to-day development.
 2. `deploy_uat` is the UAT rollout lane and must contain the latest `main`.
 3. `deploy` is the production release lane and must contain the latest `main`.
-4. Production deploys are manual and handled by `.github/workflows/deploy-production.yml`, not by the main CI workflow.
-5. Feature or hotfix branches should never target `deploy_uat` directly; promote through `main`.
+4. `deploy_uat` auto-deploys only after successful protected-branch CI.
+5. `deploy` auto-deploys only after successful protected-branch CI.
+6. Manual deploy dispatch remains an emergency rerun path, not the default release path.
+7. Feature or hotfix branches should never target `deploy_uat` or `deploy` directly; promote through `main`.
 
 See [Branch Governance](./branch-governance.md).
 

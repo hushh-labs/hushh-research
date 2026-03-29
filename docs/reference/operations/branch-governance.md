@@ -38,19 +38,21 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### `deploy_uat`
 
-1. Auto-deploys to UAT on push.
-2. Manual dispatch is also allowed.
+1. Auto-deploys to UAT only after successful `Tri-Flow CI` on `deploy_uat`.
+2. Manual dispatch is allowed only as an emergency rerun path.
 3. No reviewer gate is required in the workflow itself.
 4. Workflow preflight fails if `deploy_uat` does not contain the latest `origin/main`.
 5. The intended promotion path is `feature/hotfix -> main -> deploy_uat`.
+6. Only `main -> deploy_uat` promotion PRs are valid.
 
 ### `deploy`
 
-1. Does not auto-deploy production.
-2. Production deploy is manual only through `.github/workflows/deploy-production.yml`.
-3. The workflow is valid only when dispatched from the `deploy` branch.
+1. Auto-deploys production only after successful `Tri-Flow CI` on `deploy`.
+2. Manual dispatch remains available only as an emergency rerun path.
+3. The workflow is valid only from the `deploy` branch.
 4. Workflow preflight fails if `deploy` does not contain the latest `origin/main`.
 5. The intended promotion path is `feature/hotfix -> main -> deploy`.
+6. Only `main -> deploy` promotion PRs are valid.
 
 ## Hotfix Playbook
 
@@ -68,25 +70,29 @@ Before deleting a local backup branch, classify its unique commits as:
 2. Require the `CI Status Gate` and `Main Freshness Gate` status checks.
 3. Block force-pushes.
 4. Block branch deletion.
-5. Decide explicitly whether admins can bypass branch protection.
+5. Use bypass for the 3 core owners only; do not rely on overlapping push restrictions.
+6. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
 
-- if `enforce_admins=false`, admins can still push directly even when `main` is protected
+- `enforce_admins` should stay enabled
 - verify the live setting with `./scripts/ci/verify-main-branch-protection.sh`
 
 ### `deploy`
 
 1. Protect the branch.
-2. Restrict who can push or merge.
-3. Treat it as release-only.
-4. Use it only after syncing from `main`.
+2. Require PR merge from `main` only.
+3. Require `CI Status Gate` and `Release Lane Gate`.
+4. Treat it as release-only.
+5. Use bypass only for the 3 core owners.
 
 ### `deploy_uat`
 
 1. Protect the branch.
-2. Allow approved developers to push.
-3. Keep it synced from `main` before rollout.
+2. Require PR merge from `main` only.
+3. Require `CI Status Gate` and `Release Lane Gate`.
+4. Keep it synced from `main` before rollout.
+5. Use bypass only for the 3 core owners.
 
 ## Production Approval Environments
 

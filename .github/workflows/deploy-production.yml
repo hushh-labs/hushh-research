@@ -1,6 +1,13 @@
 name: Deploy to Production
 
 on:
+  workflow_run:
+    workflows:
+      - "Tri-Flow CI"
+    types:
+      - completed
+    branches:
+      - deploy
   workflow_dispatch:
     inputs:
       scope:
@@ -33,20 +40,27 @@ env:
   BACKUP_MAX_AGE_HOURS: "30"
   BACKUP_JOB_NAME: prod-supabase-logical-backup
 
+concurrency:
+  group: deploy-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy Production Scope
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    environment: ${{ github.actor == 'kushaltrivedi' && 'production-owner-bypass' || 'production-approval' }}
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'deploy')
+    environment: production-owner-bypass
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Assert production branch contains latest main
+        env:
+          GITHUB_REF_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
         run: bash scripts/ci/require-branch-contains-main.sh deploy
 
       - name: Report deployment approval lane

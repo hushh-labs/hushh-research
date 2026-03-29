@@ -1,7 +1,11 @@
 name: Deploy to UAT
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - "Tri-Flow CI"
+    types:
+      - completed
     branches:
       - deploy_uat
   workflow_dispatch:
@@ -25,18 +29,26 @@ env:
   UAT_DB_UNIX_SOCKET: /cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg
   CLOUD_RUN_REVISION_RETENTION: "10"
 
+concurrency:
+  group: deploy-uat-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy UAT Scope
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'deploy_uat')
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Assert UAT branch contains latest main
+        env:
+          GITHUB_REF_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
         run: bash scripts/ci/require-branch-contains-main.sh deploy_uat
 
       - name: Authenticate to Google Cloud
