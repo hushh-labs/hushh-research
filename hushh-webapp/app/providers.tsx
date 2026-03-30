@@ -27,7 +27,7 @@ import { TopAppBar } from "@/components/app-ui/top-app-bar";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
@@ -43,6 +43,10 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
+import {
+  INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+  type InternalAppNavigationRequest,
+} from "@/lib/utils/browser-navigation";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -57,6 +61,7 @@ function readCustomVar(
 }
 
 export function Providers({ children }: ProvidersProps) {
+  const router = useRouter();
   const pathname = usePathname();
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const routeLayout = useMemo(() => resolveAppRouteLayout(pathname), [pathname]);
@@ -152,6 +157,34 @@ export function Providers({ children }: ProvidersProps) {
   }, [pathname]);
 
   useEffect(() => {
+    const handleInternalNavigation = (event: Event) => {
+      const customEvent = event as CustomEvent<InternalAppNavigationRequest>;
+      const href = String(customEvent.detail?.href || "").trim();
+      if (!href.startsWith("/")) {
+        return;
+      }
+      const replace = Boolean(customEvent.detail?.replace);
+      const scroll = customEvent.detail?.scroll ?? false;
+      if (replace) {
+        router.replace(href, { scroll });
+        return;
+      }
+      router.push(href, { scroll });
+    };
+
+    window.addEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      handleInternalNavigation
+    );
+    return () => {
+      window.removeEventListener(
+        INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+        handleInternalNavigation
+      );
+    };
+  }, [router]);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
     const mirroredVars = [
@@ -206,93 +239,93 @@ export function Providers({ children }: ProvidersProps) {
             <PersonaProvider>
               <VaultProvider>
                 <PersonaBootstrapRedirect />
-                <ConsentNotificationProvider>
-                  <Suspense
-                    fallback={
-                      <>
-                        {/* Flex container for proper scroll behavior */}
-                        <div
-                          className="flex flex-col flex-1 min-h-0"
-                          style={topShellRouteStyle}
-                          data-top-shell-profile={topShellRouteProfile.id}
-                          data-app-shell-root="true"
-                          data-app-shell-offset-mode={signedInShellContentOffset.mode}
-                        >
-                          <Navbar />
-                          <Suspense fallback={null}>
-                            <TopAppBar />
-                          </Suspense>
-                          <VaultContext.Consumer>
-                            {(vault) =>
-                              showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
+                <Suspense
+                  fallback={
+                    <>
+                      {/* Flex container for proper scroll behavior */}
+                      <div
+                        className="flex flex-col flex-1 min-h-0"
+                        style={topShellRouteStyle}
+                        data-top-shell-profile={topShellRouteProfile.id}
+                        data-app-shell-root="true"
+                        data-app-shell-offset-mode={signedInShellContentOffset.mode}
+                      >
+                        <Navbar />
+                        <Suspense fallback={null}>
+                          <TopAppBar />
+                        </Suspense>
+                        <VaultContext.Consumer>
+                          {(vault) =>
+                            showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
+                              <div
+                                aria-hidden
+                                className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
+                              >
                                 <div
-                                  aria-hidden
-                                  className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
-                                >
-                                  <div
-                                    className="w-full bar-glass bar-glass-bottom"
-                                    style={
-                                      {
-                                        height: "var(--bottom-chrome-full-height)",
-                                        transform:
-                                          "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
-                                        "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
-                                        "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
-                                        "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
-                                        "--app-bar-glass-blur": "6px",
-                                        "--app-bar-shadow": "none",
-                                        "--app-bar-mask-overscan": "30px",
-                                      } as CSSProperties
-                                    }
-                                  />
-                                </div>
-                              ) : null
-                            }
-                          </VaultContext.Consumer>
-                          <PostAuthOnboardingSyncBridge />
-                          <KaiCommandBarGlobal />
+                                  className="w-full bar-glass bar-glass-bottom"
+                                  style={
+                                    {
+                                      height: "var(--bottom-chrome-full-height)",
+                                      transform:
+                                        "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
+                                      "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
+                                      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
+                                      "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
+                                      "--app-bar-glass-blur": "6px",
+                                      "--app-bar-shadow": "none",
+                                      "--app-bar-mask-overscan": "30px",
+                                    } as CSSProperties
+                                  }
+                                />
+                              </div>
+                            ) : null
+                          }
+                        </VaultContext.Consumer>
+                        <PostAuthOnboardingSyncBridge />
+                        <KaiCommandBarGlobal />
+                        <div
+                          data-app-scroll-root="true"
+                          data-app-scroll-mode={
+                            hideGlobalChrome
+                              ? "hidden-shell"
+                              : shouldLockFullscreenRoot
+                              ? "fullscreen-flow"
+                              : "standard"
+                          }
+                          className={
+                            hideGlobalChrome
+                              ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
+                              : shouldLockFullscreenRoot
+                              ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
+                              : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
+                          }
+                        >
+                          {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
+                            <div data-app-shell-top-spacer="true" aria-hidden />
+                          ) : null}
                           <div
-                            data-app-scroll-root="true"
-                            data-app-scroll-mode={
-                              hideGlobalChrome
-                                ? "hidden-shell"
-                                : shouldLockFullscreenRoot
-                                ? "fullscreen-flow"
-                                : "standard"
-                            }
-                            className={
-                              hideGlobalChrome
-                                ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
-                                : shouldLockFullscreenRoot
-                                ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
-                                : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
-                            }
+                            ref={pageRef}
+                            data-app-shell-content="true"
+                            className={shouldLockFullscreenRoot ? "min-h-0 h-full" : "min-h-0"}
                           >
-                            {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
-                              <div data-app-shell-top-spacer="true" aria-hidden />
-                            ) : null}
-                            <div
-                              ref={pageRef}
-                              data-app-shell-content="true"
-                              className={shouldLockFullscreenRoot ? "min-h-0 h-full" : "min-h-0"}
-                            >
-                              {children}
-                            </div>
+                            {children}
                           </div>
                         </div>
-                        <Toaster
-                          position="top-center"
-                          closeButton
-                          offset={{
-                            top: "calc(var(--top-inset, 0px) + 12px)",
-                          }}
-                          mobileOffset={{
-                            top: "calc(var(--top-inset, 0px) + 12px)",
-                          }}
-                        />
-                      </>
-                    }
-                  >
+                      </div>
+                      <Toaster
+                        position="top-center"
+                        closeButton
+                        offset={{
+                          top: "calc(var(--top-inset, 0px) + 12px)",
+                        }}
+                        mobileOffset={{
+                          top: "calc(var(--top-inset, 0px) + 12px)",
+                        }}
+                      />
+                    </>
+                  }
+                >
+                  <ConsentNotificationProvider>
                     <ConsentSheetProvider>
                       {/* Flex container for proper scroll behavior */}
                       <div
@@ -378,8 +411,8 @@ export function Providers({ children }: ProvidersProps) {
                         }}
                       />
                     </ConsentSheetProvider>
-                  </Suspense>
-                </ConsentNotificationProvider>
+                  </ConsentNotificationProvider>
+                </Suspense>
               </VaultProvider>
             </PersonaProvider>
           </CacheProvider>

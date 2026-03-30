@@ -23,7 +23,9 @@ function taskIdForUser(userId: string): string {
 }
 
 function describeJob(job: ConsentExportRefreshJob): string {
-  const scopeLabel = job.grantedScope.replace(/^attr\./, "").replace(/^pkm\.read$/, "your private model");
+  const scopeLabel = job.grantedScope
+    .replace(/^attr\./, "")
+    .replace(/^pkm\.read$/, "your Personal Knowledge Model");
   return `Refreshing the encrypted shared export for ${scopeLabel}.`;
 }
 

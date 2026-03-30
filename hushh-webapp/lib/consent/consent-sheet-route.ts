@@ -12,6 +12,30 @@ export const CONSENT_TAB_QUERY_KEY = "tab";
 
 export type ConsentSheetView = "pending" | "active" | "previous";
 export type ConsentCenterManagerView = Extract<ConsentCenterView, "incoming" | "outgoing">;
+export type ConsentNavigationTarget =
+  | {
+      kind: "internal";
+      href: string;
+      pathname: string;
+    }
+  | {
+      kind: "external";
+      href: string;
+    };
+
+const INTERNAL_APP_ROUTE_PREFIXES = [
+  ROUTES.HOME,
+  ROUTES.CONSENTS,
+  ROUTES.PROFILE,
+  ROUTES.RIA_HOME,
+  ROUTES.KAI_HOME,
+  ROUTES.MARKETPLACE,
+  ROUTES.DEVELOPERS,
+  ROUTES.LOGIN,
+  ROUTES.LOGOUT,
+  "/portfolio",
+  "/labs",
+] as const;
 
 export function normalizeConsentSheetView(value: string | null | undefined): ConsentSheetView {
   if (value === "active") return "active";
@@ -99,6 +123,117 @@ export function buildConsentCenterHref(
   }
   const query = params.toString();
   return query ? `${ROUTES.CONSENTS}?${query}` : ROUTES.CONSENTS;
+}
+
+function isKnownInternalAppPath(pathname: string): boolean {
+  return INTERNAL_APP_ROUTE_PREFIXES.some((prefix) => {
+    if (prefix === ROUTES.HOME) {
+      return pathname === ROUTES.HOME;
+    }
+    return pathname === prefix || pathname.startsWith(`${prefix}/`);
+  });
+}
+
+export function isInternalAppHref(href: string | null | undefined): boolean {
+  const trimmed = String(href || "").trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("//")) return false;
+  if (trimmed.startsWith("/")) {
+    return isKnownInternalAppPath(trimmed.split("?")[0] || trimmed);
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return isKnownInternalAppPath(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeInternalAppHref(href: string | null | undefined): string | null {
+  const trimmed = String(href || "").trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") && isKnownInternalAppPath(trimmed.split("?")[0] || trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!isKnownInternalAppPath(parsed.pathname)) {
+      return trimmed;
+    }
+    const query = `${parsed.search || ""}${parsed.hash || ""}`;
+    return `${parsed.pathname}${query}`;
+  } catch {
+    return trimmed;
+  }
+}
+
+function appendFromIfNeeded(href: string, from: string | null | undefined): string {
+  const safeFrom = normalizeInternalAppHref(from);
+  if (!safeFrom || !href.startsWith(`${ROUTES.CONSENTS}`)) {
+    return href;
+  }
+  const [rawPathPart = "", hashPart = ""] = href.split("#", 2);
+  const pathPart = rawPathPart || href;
+  const [pathname, queryPart = ""] = pathPart.split("?", 2);
+  if (pathname !== ROUTES.CONSENTS) {
+    return href;
+  }
+  const params = new URLSearchParams(queryPart);
+  if (!params.get("from")) {
+    params.set("from", safeFrom);
+  }
+  const query = params.toString();
+  return `${pathname}${query ? `?${query}` : ""}${hashPart ? `#${hashPart}` : ""}`;
+}
+
+export function resolveConsentRequestHref(
+  href: string | null | undefined,
+  fallbackView: ConsentSheetView = "pending",
+  options?: {
+    requestId?: string;
+    bundleId?: string;
+    actor?: ConsentCenterActor;
+    managerView?: ConsentCenterManagerView;
+    from?: string;
+  }
+): string {
+  const target =
+    normalizeInternalAppHref(href) ||
+    buildConsentCenterHref(fallbackView, {
+      requestId: options?.requestId,
+      bundleId: options?.bundleId,
+      actor: options?.actor,
+      managerView: options?.managerView,
+      from: options?.from,
+    });
+  return appendFromIfNeeded(target, options?.from);
+}
+
+export function resolveConsentNavigationTarget(
+  href: string | null | undefined,
+  fallbackView: ConsentSheetView = "pending",
+  options?: {
+    requestId?: string;
+    bundleId?: string;
+    actor?: ConsentCenterActor;
+    managerView?: ConsentCenterManagerView;
+    from?: string;
+  }
+): ConsentNavigationTarget {
+  const nextHref = resolveConsentRequestHref(href, fallbackView, options);
+  if (isInternalAppHref(nextHref)) {
+    const [pathname] = nextHref.split("?", 1);
+    return {
+      kind: "internal",
+      href: nextHref,
+      pathname: pathname || ROUTES.HOME,
+    };
+  }
+  return {
+    kind: "external",
+    href: nextHref,
+  };
 }
 
 export function buildRiaConsentManagerHref(

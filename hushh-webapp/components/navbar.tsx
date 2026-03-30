@@ -39,7 +39,7 @@ export const Navbar = () => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const { activePersona, primaryNavPersona } = usePersonaState();
+  const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
@@ -177,9 +177,7 @@ export const Navbar = () => {
   const activeNav: NavKey = normalizedPathname.startsWith(ROUTES.PROFILE)
     ? "profile"
     : normalizedPathname.startsWith(ROUTES.CONSENTS)
-    ? primaryNavPersona === "ria"
-      ? "home"
-      : "market"
+    ? "profile"
     : activePersona === "ria"
     ? activeRiaRouteTabFromPath(normalizedPathname)
     : activeKaiRouteTabFromPath(normalizedPathname);

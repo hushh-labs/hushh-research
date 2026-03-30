@@ -147,8 +147,11 @@
   },
   {
     "route": "/profile/pkm-agent-lab",
-    "mode": "hidden",
-    "exemptionReason": "Dev-only PKM lab page uses its own shell, not available in production."
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
   },
   {
     "route": "/ria",

@@ -17,11 +17,13 @@ import { getGsap, prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 export function PkmSettingsShell({
   title,
   description,
+  eyebrow = "Profile / Privacy",
   actions,
   children,
 }: {
   title: string;
   description: string;
+  eyebrow?: string;
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -93,10 +95,14 @@ export function PkmSettingsShell({
   }, [pathname]);
 
   return (
-    <AppPageShell>
+    <AppPageShell
+      as="div"
+      width="profile"
+      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+    >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="Profile / Personal Knowledge Model"
+          eyebrow={eyebrow}
           title={title}
           description={description}
           actions={actions}

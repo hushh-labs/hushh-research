@@ -61,6 +61,15 @@ export function runDomainUpgrade(params: {
   currentVersion: number;
 }): PkmDomainUpgradeResult {
   const targetVersion = currentDomainContractVersion(params.domain);
+  if ((params.currentVersion || 0) <= 0) {
+    return {
+      domainData: cloneRecord(params.domainData),
+      notes: [
+        `Rebuilt ${titleize(params.domain)} into the current Personal Knowledge Model contract from legacy or unversioned data.`,
+      ],
+      newDomainContractVersion: targetVersion,
+    };
+  }
   let nextDomainData = cloneRecord(params.domainData);
   let nextVersion = Math.max(0, params.currentVersion || 0);
   const notes: string[] = [];
@@ -118,7 +127,7 @@ export function buildReadableUpgradeSummary(params: {
     readable_highlights: highlights.slice(0, 5),
     readable_updated_at: upgradedAt,
     readable_source_label: "PKM Upgrade",
-    readable_event_summary: `Refreshed ${domainLabel} for the latest private model.`,
+    readable_event_summary: `Refreshed ${domainLabel} for the latest Personal Knowledge Model.`,
     readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
     upgraded_at: upgradedAt,
   };

@@ -61,6 +61,19 @@ To prevent CI check-sprawl, only these checks are hard-blocking by default:
 
 The local parity script mirrors those same blocking stages. On GitHub, `main` should require both `CI Status Gate` and `Main Freshness Gate` so the remote gate matches the local one-command CI plus the branch-up-to-date policy.
 
+### PKM rollout blocker
+
+Production rollout is blocked unless PKM compatibility stays green for supported stored-version paths. The blocking CI manifests now explicitly include:
+
+1. frontend `__tests__/services/pkm-upgrade-orchestrator.test.ts`
+2. backend `tests/test_pkm_upgrade_routes.py`
+
+These are the minimum gates for:
+
+1. missing-manifest compatibility
+2. malformed/legacy manifest normalization
+3. structured PKM failure metadata reaching the task center
+
 ## When CI Runs
 
 | Trigger | Branches | Behavior |

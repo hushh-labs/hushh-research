@@ -3,7 +3,7 @@
   "vulnerabilities": {
     "@google-cloud/storage": {
       "name": "@google-cloud/storage",
-      "severity": "moderate",
+      "severity": "high",
       "isDirect": false,
       "via": [
         "fast-xml-parser"
@@ -11,15 +11,64 @@
       "effects": [
         "firebase-admin"
       ],
-      "range": "6.12.0 - 7.18.0",
+      "range": "",
       "nodes": [
         "node_modules/@google-cloud/storage"
       ],
       "fixAvailable": {
         "name": "firebase-admin",
-        "version": "11.11.1",
+        "version": "13.6.1",
         "isSemVerMajor": true
       }
+    },
+    "brace-expansion": {
+      "name": "brace-expansion",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1115540,
+          "name": "brace-expansion",
+          "dependency": "brace-expansion",
+          "title": "brace-expansion: Zero-step sequence causes process hang and memory exhaustion",
+          "url": "https://github.com/advisories/GHSA-f886-m6hf-6m8v",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-400"
+          ],
+          "cvss": {
+            "score": 6.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H"
+          },
+          "range": "<1.1.13"
+        },
+        {
+          "source": 1115543,
+          "name": "brace-expansion",
+          "dependency": "brace-expansion",
+          "title": "brace-expansion: Zero-step sequence causes process hang and memory exhaustion",
+          "url": "https://github.com/advisories/GHSA-f886-m6hf-6m8v",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-400"
+          ],
+          "cvss": {
+            "score": 6.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=4.0.0 <5.0.5"
+        }
+      ],
+      "effects": [],
+      "range": "<1.1.13 || >=4.0.0 <5.0.5",
+      "nodes": [
+        "node_modules/@ts-morph/common/node_modules/brace-expansion",
+        "node_modules/@typescript-eslint/typescript-estree/node_modules/brace-expansion",
+        "node_modules/brace-expansion",
+        "node_modules/google-gax/node_modules/brace-expansion",
+        "node_modules/rimraf/node_modules/brace-expansion"
+      ],
+      "fixAvailable": true
     },
     "fast-xml-parser": {
       "name": "fast-xml-parser",
@@ -27,7 +76,23 @@
       "isDirect": false,
       "via": [
         {
-          "source": 1114952,
+          "source": 1115339,
+          "name": "fast-xml-parser",
+          "dependency": "fast-xml-parser",
+          "title": "fast-xml-parser affected by numeric entity expansion bypassing all entity expansion limits (incomplete fix for CVE-2026-26278)",
+          "url": "https://github.com/advisories/GHSA-8gc5-j5rx-235r",
+          "severity": "high",
+          "cwe": [
+            "CWE-776"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=5.0.0 <5.5.6"
+        },
+        {
+          "source": 1115359,
           "name": "fast-xml-parser",
           "dependency": "fast-xml-parser",
           "title": "Entity Expansion Limits Bypassed When Set to Zero Due to JavaScript Falsy Evaluation in fast-xml-parser",
@@ -41,22 +106,6 @@
             "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
           },
           "range": ">=4.0.0-beta.3 <=5.5.6"
-        },
-        {
-          "source": 1115134,
-          "name": "fast-xml-parser",
-          "dependency": "fast-xml-parser",
-          "title": "fast-xml-parser affected by numeric entity expansion bypassing all entity expansion limits (incomplete fix for CVE-2026-26278)",
-          "url": "https://github.com/advisories/GHSA-8gc5-j5rx-235r",
-          "severity": "high",
-          "cwe": [
-            "CWE-776"
-          ],
-          "cvss": {
-            "score": 7.5,
-            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
-          },
-          "range": ">=4.0.0-beta.3 <=5.5.5"
         }
       ],
       "effects": [
@@ -68,25 +117,25 @@
       ],
       "fixAvailable": {
         "name": "firebase-admin",
-        "version": "11.11.1",
+        "version": "13.6.1",
         "isSemVerMajor": true
       }
     },
     "firebase-admin": {
       "name": "firebase-admin",
-      "severity": "moderate",
+      "severity": "high",
       "isDirect": true,
       "via": [
         "@google-cloud/storage"
       ],
       "effects": [],
-      "range": ">=12.0.0",
+      "range": ">=13.7.0",
       "nodes": [
         "node_modules/firebase-admin"
       ],
       "fixAvailable": {
         "name": "firebase-admin",
-        "version": "11.11.1",
+        "version": "13.6.1",
         "isSemVerMajor": true
       }
     },
@@ -110,7 +159,7 @@
       "isDirect": false,
       "via": [
         {
-          "source": 1114934,
+          "source": 1115357,
           "name": "flatted",
           "dependency": "flatted",
           "title": "Prototype Pollution via parse() in NodeJS flatted",
@@ -205,7 +254,7 @@
           "range": ">=16.0.1 <16.1.7"
         },
         {
-          "source": 1114944,
+          "source": 1115360,
           "name": "next",
           "dependency": "next",
           "title": "Next.js: null origin can bypass dev HMR websocket CSRF checks",
@@ -227,24 +276,229 @@
         "node_modules/next"
       ],
       "fixAvailable": true
+    },
+    "node-forge": {
+      "name": "node-forge",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1115545,
+          "name": "node-forge",
+          "dependency": "node-forge",
+          "title": "Forge has a basicConstraints bypass in its certificate chain verification (RFC 5280 violation)",
+          "url": "https://github.com/advisories/GHSA-2328-f5f3-gj25",
+          "severity": "high",
+          "cwe": [
+            "CWE-295"
+          ],
+          "cvss": {
+            "score": 7.4,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N"
+          },
+          "range": "<=1.3.3"
+        },
+        {
+          "source": 1115546,
+          "name": "node-forge",
+          "dependency": "node-forge",
+          "title": "Forge has signature forgery in Ed25519 due to missing S > L check",
+          "url": "https://github.com/advisories/GHSA-q67f-28xg-22rw",
+          "severity": "high",
+          "cwe": [
+            "CWE-347"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": "<1.4.0"
+        },
+        {
+          "source": 1115548,
+          "name": "node-forge",
+          "dependency": "node-forge",
+          "title": "Forge has Denial of Service via Infinite Loop in BigInteger.modInverse() with Zero Input",
+          "url": "https://github.com/advisories/GHSA-5m6q-g25r-mvwx",
+          "severity": "high",
+          "cwe": [
+            "CWE-835"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<1.4.0"
+        },
+        {
+          "source": 1115612,
+          "name": "node-forge",
+          "dependency": "node-forge",
+          "title": "Forge has signature forgery in RSA-PKCS due to ASN.1 extra field  ",
+          "url": "https://github.com/advisories/GHSA-ppp5-5v6c-4jwp",
+          "severity": "high",
+          "cwe": [
+            "CWE-20",
+            "CWE-347"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": "<1.4.0"
+        }
+      ],
+      "effects": [],
+      "range": "<=1.3.3",
+      "nodes": [
+        "node_modules/node-forge"
+      ],
+      "fixAvailable": true
+    },
+    "path-to-regexp": {
+      "name": "path-to-regexp",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1115573,
+          "name": "path-to-regexp",
+          "dependency": "path-to-regexp",
+          "title": "path-to-regexp vulnerable to Denial of Service via sequential optional groups",
+          "url": "https://github.com/advisories/GHSA-j3q9-mxjg-w52f",
+          "severity": "high",
+          "cwe": [
+            "CWE-400",
+            "CWE-1333"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=8.0.0 <8.4.0"
+        },
+        {
+          "source": 1115582,
+          "name": "path-to-regexp",
+          "dependency": "path-to-regexp",
+          "title": "path-to-regexp vulnerable to Regular Expression Denial of Service via multiple wildcards",
+          "url": "https://github.com/advisories/GHSA-27v5-c462-wpq7",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1333"
+          ],
+          "cvss": {
+            "score": 5.9,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=8.0.0 <8.4.0"
+        }
+      ],
+      "effects": [],
+      "range": "8.0.0 - 8.3.0",
+      "nodes": [
+        "node_modules/router/node_modules/path-to-regexp"
+      ],
+      "fixAvailable": true
+    },
+    "picomatch": {
+      "name": "picomatch",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1115549,
+          "name": "picomatch",
+          "dependency": "picomatch",
+          "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+          "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 5.3,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+          },
+          "range": "<2.3.2"
+        },
+        {
+          "source": 1115551,
+          "name": "picomatch",
+          "dependency": "picomatch",
+          "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+          "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 5.3,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+          },
+          "range": ">=4.0.0 <4.0.4"
+        },
+        {
+          "source": 1115552,
+          "name": "picomatch",
+          "dependency": "picomatch",
+          "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+          "url": "https://github.com/advisories/GHSA-c2c7-rcm5-vvqj",
+          "severity": "high",
+          "cwe": [
+            "CWE-1333"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<2.3.2"
+        },
+        {
+          "source": 1115554,
+          "name": "picomatch",
+          "dependency": "picomatch",
+          "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+          "url": "https://github.com/advisories/GHSA-c2c7-rcm5-vvqj",
+          "severity": "high",
+          "cwe": [
+            "CWE-1333"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=4.0.0 <4.0.4"
+        }
+      ],
+      "effects": [],
+      "range": "<=2.3.1 || 4.0.0 - 4.0.3",
+      "nodes": [
+        "node_modules/@dotenvx/dotenvx/node_modules/picomatch",
+        "node_modules/picomatch",
+        "node_modules/tinyglobby/node_modules/picomatch",
+        "node_modules/vite/node_modules/picomatch",
+        "node_modules/vitest/node_modules/picomatch"
+      ],
+      "fixAvailable": true
     }
   },
   "metadata": {
     "vulnerabilities": {
       "info": 0,
       "low": 0,
-      "moderate": 3,
-      "high": 3,
+      "moderate": 2,
+      "high": 8,
       "critical": 0,
-      "total": 6
+      "total": 10
     },
     "dependencies": {
-      "prod": 425,
-      "dev": 693,
-      "optional": 196,
+      "prod": 430,
+      "dev": 694,
+      "optional": 197,
       "peer": 9,
       "peerOptional": 0,
-      "total": 1239
+      "total": 1245
     }
   }
 }

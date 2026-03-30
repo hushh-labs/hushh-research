@@ -93,10 +93,12 @@ Consent-manager surface rules:
 2. The active persona is the default actor for both the top-shell consent inbox and `/consents`.
 3. The canonical page flow is `summary + one paginated list surface + detail panel`.
 4. `GET /api/consent/center` is not on the main `/consents` critical path.
-5. The top-shell shield is the consent inbox:
+5. `/consents` keeps the canonical consent-manager URL, but the shared shell treats it as the `Profile > Privacy` workspace for breadcrumbs and bottom-nav context.
+6. The top-shell shield is the consent inbox:
    - badge source: `summary.counts.pending`
    - preview rows: first `5` items from the cached `center/list?surface=pending&page=1&limit=20` payload for the active persona
-6. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
+7. Internal consent-review links must stay on SPA-native app routing; full document redirects are reserved for true external URLs only.
+8. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
 
 ### Marketplace
 

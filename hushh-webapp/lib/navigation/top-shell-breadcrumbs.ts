@@ -33,13 +33,15 @@ export function resolveTopShellBreadcrumb(
 ): TopShellBreadcrumbConfig | null {
   if (pathname === ROUTES.CONSENTS) {
     const originHref = normalizeInternalHref(searchParams?.get("from"));
-    const backHref = originHref || ROUTES.KAI_HOME;
+    const privacyHref = `${ROUTES.PROFILE}?tab=privacy`;
+    const backHref = originHref || privacyHref;
     return {
       backHref,
-      width: "content",
+      width: "profile",
       align: "center",
       items: [
-        { label: "Home", href: backHref },
+        { label: "Profile", href: privacyHref },
+        { label: "Privacy", href: privacyHref },
         { label: "Consent center" },
       ],
     };
@@ -50,12 +52,14 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === `${ROUTES.PROFILE}/pkm` || pathname === `${ROUTES.PROFILE}/pkm-agent-lab`) {
+    const privacyHref = `${ROUTES.PROFILE}?tab=privacy`;
     return {
-      backHref: `${ROUTES.PROFILE}?tab=account`,
+      backHref: privacyHref,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: `${ROUTES.PROFILE}?tab=account` },
+        { label: "Profile", href: privacyHref },
+        { label: "Privacy", href: privacyHref },
         { label: "PKM Agent" },
       ],
     };

@@ -26,6 +26,36 @@ const pkmLoadDomainDataMock = vi.fn();
 const pkmGetDomainManifestMock = vi.fn();
 const pkmStoreMergedDomainMock = vi.fn();
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
+  PkmDomainManifestError: class PkmDomainManifestError extends Error {
+    status: number;
+    detail: string | null;
+    correlationId: string | null;
+    route: string;
+    userId: string;
+    domain: string;
+
+    constructor(params: {
+      status: number;
+      detail?: string | null;
+      correlationId?: string | null;
+      route: string;
+      userId: string;
+      domain: string;
+    }) {
+      super(
+        params.detail
+          ? `Failed to get domain manifest (${params.status}): ${params.detail}`
+          : `Failed to get domain manifest: ${params.status}`
+      );
+      this.name = "PkmDomainManifestError";
+      this.status = params.status;
+      this.detail = params.detail ?? null;
+      this.correlationId = params.correlationId ?? null;
+      this.route = params.route;
+      this.userId = params.userId;
+      this.domain = params.domain;
+    }
+  },
   PersonalKnowledgeModelService: {
     getMetadata: (...a: unknown[]) => pkmGetMetadataMock(...a),
     getDomainData: (...a: unknown[]) => pkmGetDomainDataMock(...a),
@@ -114,6 +144,8 @@ vi.mock("@/lib/utils/session-storage", () => ({
 
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeRouteUnavailableError } from "@/lib/services/pkm-upgrade-service";
+import { PkmDomainManifestError } from "@/lib/services/personal-knowledge-model-service";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 
 /* ---------- helpers ---------- */
 
@@ -148,6 +180,55 @@ function _makeUpgradeStatus(overrides?: { steps?: unknown[]; runStatus?: string 
   };
 }
 
+function setupSuccessfulUpgradeMocks() {
+  startOrResumeMock.mockResolvedValue(_makeUpgradeStatus());
+  updateStepMock.mockImplementation(async ({ status, checkpointPayload, attemptCount, domain }) => ({
+    ..._makeUpgradeStatus({
+      steps: [
+        {
+          domain,
+          status,
+          attemptCount: attemptCount ?? 1,
+          checkpointPayload: checkpointPayload ?? null,
+        },
+      ],
+      runStatus: status === "completed" ? "running" : "running",
+    }),
+  }));
+  completeRunMock.mockResolvedValue({
+    ..._makeUpgradeStatus({ steps: [{ domain: "food", status: "completed", attemptCount: 1 }] }),
+    upgradeStatus: "current",
+    upgradableDomains: [],
+    run: {
+      runId: "run-abc",
+      status: "completed",
+      currentDomain: null,
+      steps: [{ domain: "food", status: "completed", attemptCount: 1 }],
+    },
+  });
+  failRunMock.mockResolvedValue(undefined);
+  pkmGetMetadataMock.mockResolvedValue({
+    domains: [{ key: "food", summary: { item_count: 1 } }],
+  });
+  pkmGetDomainDataMock.mockResolvedValue({
+    ciphertext: "cipher",
+    iv: "iv",
+    tag: "tag",
+    dataVersion: 3,
+  });
+  pkmLoadDomainDataMock.mockResolvedValue({ pantry: { favorite: "tea" } });
+  pkmGetDomainManifestMock.mockResolvedValue({
+    domain: "food",
+    manifest_version: 1,
+    summary_projection: {},
+  });
+  pkmStoreMergedDomainMock.mockResolvedValue({
+    success: true,
+    conflict: false,
+    dataVersion: 4,
+  });
+}
+
 /* ---------- tests ---------- */
 
 describe("PkmUpgradeOrchestrator", () => {
@@ -167,6 +248,7 @@ describe("PkmUpgradeOrchestrator", () => {
     (
       PkmUpgradeOrchestrator as unknown as Record<string, Set<string>>
     )["pauseRequestedByUser"] = new Set();
+    setupSuccessfulUpgradeMocks();
   });
 
   describe("deduplication", () => {
@@ -250,6 +332,45 @@ describe("PkmUpgradeOrchestrator", () => {
 
       await PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS);
       expect(startOrResumeMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("manifest compatibility and failure metadata", () => {
+    it("treats a missing manifest as a supported compatibility path", async () => {
+      pkmGetDomainManifestMock.mockResolvedValueOnce(null);
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).resolves.toBeUndefined();
+      expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
+      expect(completeRunMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("records structured manifest failure metadata into the task center", async () => {
+      const manifestError = new PkmDomainManifestError({
+        status: 500,
+        detail: "Failed to serialize Personal Knowledge Model manifest response.",
+        correlationId: "corr-123",
+        route: "/api/pkm/manifest/user-upgrade-1/food",
+        userId: "user-upgrade-1",
+        domain: "food",
+      });
+      pkmGetDomainManifestMock.mockRejectedValueOnce(manifestError);
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).rejects.toThrow(
+        /Failed to serialize Personal Knowledge Model manifest response/
+      );
+
+      expect(AppBackgroundTaskService.failTask).toHaveBeenCalledWith(
+        expect.stringContaining("pkm_upgrade_"),
+        expect.stringContaining("Manifest read failed (500)"),
+        expect.stringContaining("PKM refresh"),
+        expect.objectContaining({
+          domain: "food",
+          stage: "run",
+          httpStatus: 500,
+          correlationId: "corr-123",
+        })
+      );
+      expect(failRunMock).toHaveBeenCalledTimes(1);
     });
   });
 });

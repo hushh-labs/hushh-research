@@ -8,7 +8,9 @@ Implements the current PKM architecture:
 - pkm_index: minimal discovery metadata for UI/bootstrap
 """
 
+import json
 import logging
+import uuid
 from datetime import datetime
 from typing import List, Optional
 
@@ -31,6 +33,79 @@ def _isoformat_or_none(value):
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _json_object_or_default(value, default: Optional[dict] = None) -> dict:
+    fallback = default or {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return fallback
+        return parsed if isinstance(parsed, dict) else fallback
+    return fallback
+
+
+def _json_list_or_default(value, default: Optional[list] = None) -> list:
+    fallback = default or []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return fallback
+        return parsed if isinstance(parsed, list) else fallback
+    return fallback
+
+
+def _string_list_or_default(value) -> list[str]:
+    raw_list = _json_list_or_default(value, [])
+    cleaned: list[str] = []
+    for item in raw_list:
+        text = str(item or "").strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _int_or_default(value, default: int) -> int:
+    if isinstance(value, bool) or value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value.strip()))
+        except Exception:
+            return default
+    return default
+
+
+def _normalize_manifest_response_payload(manifest: dict) -> dict:
+    payload = dict(manifest or {})
+    payload["manifest_version"] = _int_or_default(payload.get("manifest_version"), 1)
+    payload["domain_contract_version"] = _int_or_default(payload.get("domain_contract_version"), 1)
+    payload["readable_summary_version"] = _int_or_default(
+        payload.get("readable_summary_version"), 0
+    )
+    payload["structure_decision"] = _json_object_or_default(payload.get("structure_decision"), {})
+    payload["summary_projection"] = _json_object_or_default(payload.get("summary_projection"), {})
+    payload["top_level_scope_paths"] = _string_list_or_default(payload.get("top_level_scope_paths"))
+    payload["externalizable_paths"] = _string_list_or_default(payload.get("externalizable_paths"))
+    payload["segment_ids"] = _string_list_or_default(payload.get("segment_ids"))
+    payload["paths"] = _json_list_or_default(payload.get("paths"), [])
+    payload["scope_registry"] = _json_list_or_default(payload.get("scope_registry"), [])
+    payload["path_count"] = _int_or_default(payload.get("path_count"), len(payload["paths"]))
+    payload["externalizable_path_count"] = _int_or_default(
+        payload.get("externalizable_path_count"),
+        len(payload["externalizable_paths"]),
+    )
+    return payload
 
 
 # ============================================================================
@@ -519,14 +594,32 @@ async def get_domain_manifest(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No manifest found for {domain}",
         )
-    response_payload = dict(manifest)
-    response_payload["last_structured_at"] = _isoformat_or_none(
-        response_payload.get("last_structured_at")
-    )
-    response_payload["last_content_at"] = _isoformat_or_none(
-        response_payload.get("last_content_at")
-    )
-    return DomainManifestResponse(**response_payload)
+    try:
+        response_payload = _normalize_manifest_response_payload(manifest)
+        response_payload["last_structured_at"] = _isoformat_or_none(
+            response_payload.get("last_structured_at")
+        )
+        response_payload["last_content_at"] = _isoformat_or_none(
+            response_payload.get("last_content_at")
+        )
+        return DomainManifestResponse(**response_payload)
+    except Exception as exc:
+        correlation_id = uuid.uuid4().hex[:12]
+        logger.exception(
+            "Manifest serialization failed correlation_id=%s user=%s domain=%s error=%s",
+            correlation_id,
+            user_id,
+            domain,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to serialize Personal Knowledge Model manifest response.",
+                "correlation_id": correlation_id,
+            },
+            headers={"x-correlation-id": correlation_id},
+        ) from exc
 
 
 class ScopeExposureChangePayload(BaseModel):

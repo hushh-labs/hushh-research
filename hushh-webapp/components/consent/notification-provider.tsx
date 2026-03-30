@@ -22,7 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
@@ -37,7 +37,7 @@ import {
   type FCMInitStatus,
 } from "@/lib/notifications";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
-import { buildConsentSheetProfileHref } from "@/lib/consent/consent-sheet-route";
+import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
@@ -46,6 +46,7 @@ import {
   setSessionItem,
 } from "@/lib/utils/session-storage";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import { ROUTES } from "@/lib/navigation/routes";
 
 // ============================================================================
 // Helpers
@@ -322,7 +323,9 @@ export function ConsentNotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   const [pendingCount, setPendingCount] = useState(0);
   const [deliveryMode, setDeliveryMode] =
@@ -358,12 +361,13 @@ export function ConsentNotificationProvider({
         ? { label: consent.scopeDescription, emoji: "📋" }
         : formatScope(consent.scope);
       const isBundle = Boolean(consent.bundleId);
-      const reviewHref =
-        consent.requestUrl ||
-        buildConsentSheetProfileHref("pending", {
-          requestId: consent.id,
-          bundleId: consent.bundleId,
-        });
+      const currentQuery = searchParams.toString();
+      const currentInternalHref = `${pathname}${currentQuery ? `?${currentQuery}` : ""}`;
+      const reviewTarget = resolveConsentNavigationTarget(consent.requestUrl, "pending", {
+        requestId: consent.id,
+        bundleId: consent.bundleId,
+        from: currentInternalHref,
+      });
 
       toast(
         <div className="flex flex-col gap-3">
@@ -388,7 +392,18 @@ export function ConsentNotificationProvider({
             <button
               onClick={() => {
                 toast.dismiss(toastKey);
-                assignWindowLocation(reviewHref);
+                if (reviewTarget.kind === "internal") {
+                  if (
+                    pathname === ROUTES.CONSENTS &&
+                    reviewTarget.pathname === ROUTES.CONSENTS
+                  ) {
+                    router.replace(reviewTarget.href, { scroll: false });
+                    return;
+                  }
+                  router.push(reviewTarget.href, { scroll: false });
+                  return;
+                }
+                assignWindowLocation(reviewTarget.href);
               }}
               className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
             >
@@ -412,7 +427,7 @@ export function ConsentNotificationProvider({
         }
       );
     },
-    [handleDeny]
+    [handleDeny, pathname, router, searchParams]
   );
 
   // Initialize FCM when user logs in (stable dependency: user?.uid).

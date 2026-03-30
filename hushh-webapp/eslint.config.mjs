@@ -11,6 +11,8 @@ export default [
     ignores: [
       ".next/**",
       ".next/**/*",
+      ".next-prod/**",
+      ".next-prod/**/*",
       "out/**",
       "node_modules/**",
       "dist/**",

@@ -30,7 +30,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { ApiService } from "@/lib/services/api-service";
@@ -50,8 +49,13 @@ import {
   type PkmUpgradeStatus,
 } from "@/lib/services/pkm-upgrade-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { VaultService } from "@/lib/services/vault-service";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
+import {
+  resolveVaultAvailabilityState,
+  resolveVaultCapabilityState,
+} from "@/lib/vault/vault-access-policy";
 
 type AgentLabDomainChoice = {
   domain_key: string;
@@ -253,6 +257,26 @@ export default function PkmAgentLabPageClient() {
   const router = useRouter();
   const { user, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const vaultCapability = useMemo(
+    () =>
+      resolveVaultCapabilityState({
+        isVaultUnlocked,
+        vaultKey,
+        vaultOwnerToken,
+      }),
+    [isVaultUnlocked, vaultKey, vaultOwnerToken]
+  );
+  const vaultAccess = useMemo(
+    () =>
+      resolveVaultAvailabilityState({
+        hasVault,
+        isVaultUnlocked,
+        vaultKey,
+        vaultOwnerToken,
+      }),
+    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
+  );
   const environment = resolveAppEnvironment();
   const nonProdLabel = environment === "uat" ? "UAT" : "development";
 
@@ -265,7 +289,6 @@ export default function PkmAgentLabPageClient() {
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [naturalRefreshToken, setNaturalRefreshToken] = useState(0);
-  const [showVaultUnlock, setShowVaultUnlock] = useState(false);
   const [message, setMessage] = useState(
     "Remember that I prefer short city breaks and weekly meal prep."
   );
@@ -278,6 +301,35 @@ export default function PkmAgentLabPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadVaultState() {
+      if (loading) return;
+      if (!user?.uid) {
+        if (!cancelled) setHasVault(null);
+        return;
+      }
+      try {
+        const nextHasVault = await VaultService.checkVault(user.uid);
+        if (!cancelled) {
+          setHasVault(nextHasVault);
+        }
+      } catch (nextError) {
+        console.warn("[PkmAgentLab] Failed to check vault existence:", nextError);
+        if (!cancelled) {
+          setHasVault(false);
+        }
+      }
+    }
+
+    void loadVaultState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, user?.uid]);
+
   const loadBootstrap = useCallback(
     async (force = false) => {
       if (loading) return;
@@ -286,6 +338,7 @@ export default function PkmAgentLabPageClient() {
         setAccessLoading(false);
         setMetadata(null);
         setManifests({});
+        setHasVault(null);
         return;
       }
 
@@ -296,7 +349,7 @@ export default function PkmAgentLabPageClient() {
         const nextAccess = await getDeveloperAccess(idToken, { userId: user.uid });
         let nextMetadata: PersonalKnowledgeModelMetadata | null = null;
         let nextManifests: Record<string, DomainManifest | null> = {};
-        if (isVaultUnlocked && vaultOwnerToken) {
+        if (vaultAccess.canReadSecureData && vaultOwnerToken) {
           nextMetadata = await PersonalKnowledgeModelService.getMetadata(
             user.uid,
             force,
@@ -336,7 +389,7 @@ export default function PkmAgentLabPageClient() {
         setBootstrapLoading(false);
       }
     },
-    [isVaultUnlocked, loading, user, vaultOwnerToken]
+    [loading, user, vaultAccess.canReadSecureData, vaultOwnerToken]
   );
 
   useEffect(() => {
@@ -347,7 +400,7 @@ export default function PkmAgentLabPageClient() {
     let cancelled = false;
 
     async function loadUpgradeStatus() {
-      if (!user || !vaultOwnerToken) {
+      if (!user || !vaultAccess.canReadSecureData || !vaultOwnerToken) {
         if (!cancelled) {
           setUpgradeStatus(null);
           setUpgradeLoading(false);
@@ -384,7 +437,7 @@ export default function PkmAgentLabPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [naturalRefreshToken, user, vaultOwnerToken]);
+  }, [naturalRefreshToken, user, vaultAccess.canReadSecureData, vaultOwnerToken]);
 
   const previewCards = useMemo(
     () => buildPreviewCards(response, message),
@@ -419,16 +472,35 @@ export default function PkmAgentLabPageClient() {
   const selectedDomainNeedsUpgrade = Boolean(
     selectedDomain && upgradableDomains.some((domain) => domain.domain === selectedDomain.key)
   );
+  const upgradeNeedsBackgroundResume =
+    upgradeStatus?.upgradeStatus === "ready" ||
+    upgradeStatus?.upgradeStatus === "awaiting_local_auth_resume";
+  const showUpgradeRecoveryAction = upgradeStatus?.upgradeStatus === "failed";
 
   const openDomain = useCallback((domainKey: string) => {
     setSelectedDomainKey(domainKey);
     setDetailOpen(true);
   }, []);
+  const openPrivacySecurity = useCallback(() => {
+    router.push("/profile?tab=privacy&panel=security");
+  }, [router]);
+  const handleVaultAccessRequired = useCallback(
+    (message: string) => {
+      if (vaultAccess.needsVaultCreation) {
+        openPrivacySecurity();
+        return;
+      }
+      setError(message);
+    },
+    [openPrivacySecurity, vaultAccess.needsVaultCreation]
+  );
 
   const handleResumeUpgrade = useCallback(async () => {
     if (!user) return;
-    if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
-      setShowVaultUnlock(true);
+    if (!vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
+      handleVaultAccessRequired(
+        "Unlock your vault to continue refreshing the Personal Knowledge Model."
+      );
       return;
     }
 
@@ -448,11 +520,42 @@ export default function PkmAgentLabPageClient() {
     } finally {
       setUpgradeBusy(false);
     }
-  }, [isVaultUnlocked, user, vaultKey, vaultOwnerToken]);
+  }, [
+    handleVaultAccessRequired,
+    user,
+    vaultCapability.canMutateSecureData,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (
+      !upgradeNeedsBackgroundResume ||
+      !user ||
+      !vaultCapability.canMutateSecureData ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      upgradeBusy ||
+      upgradeLoading
+    ) {
+      return;
+    }
+
+    void handleResumeUpgrade();
+  }, [
+    handleResumeUpgrade,
+    vaultCapability.canMutateSecureData,
+    upgradeBusy,
+    upgradeLoading,
+    upgradeNeedsBackgroundResume,
+    user,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const handlePreview = useCallback(async () => {
-    if (!user || !vaultOwnerToken) {
-      setError("Unlock your vault before previewing PKM changes.");
+    if (!user || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
+      handleVaultAccessRequired("Unlock your vault before previewing PKM changes.");
       return;
     }
 
@@ -488,11 +591,18 @@ export default function PkmAgentLabPageClient() {
     } finally {
       setSubmitting(false);
     }
-  }, [domains, message, user, vaultOwnerToken]);
+  }, [
+    domains,
+    handleVaultAccessRequired,
+    message,
+    user,
+    vaultCapability.canReadSecureData,
+    vaultOwnerToken,
+  ]);
 
   const persistPreview = useCallback(async () => {
-    if (!user || !vaultKey || !vaultOwnerToken) {
-      setError("Unlock your vault before saving to PKM.");
+    if (!user || !vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
+      handleVaultAccessRequired("Unlock your vault before saving to PKM.");
       return;
     }
 
@@ -611,7 +721,16 @@ export default function PkmAgentLabPageClient() {
     } finally {
       setSaving(false);
     }
-  }, [loadBootstrap, message, previewCards, user, vaultKey, vaultOwnerToken]);
+  }, [
+    handleVaultAccessRequired,
+    loadBootstrap,
+    message,
+    previewCards,
+    user,
+    vaultCapability.canMutateSecureData,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const applyScopeExposureChange = useCallback(
     async (
@@ -622,8 +741,8 @@ export default function PkmAgentLabPageClient() {
         exposureEnabled: boolean;
       }>
     ) => {
-      if (!user || !vaultOwnerToken) {
-        setShowVaultUnlock(true);
+      if (!user || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
+        handleVaultAccessRequired("Unlock your vault before changing PKM permissions.");
         return;
       }
       const manifest = manifests[domainKey];
@@ -670,17 +789,25 @@ export default function PkmAgentLabPageClient() {
         setTogglingKey(null);
       }
     },
-    [loadBootstrap, manifests, user, vaultOwnerToken]
+    [
+      handleVaultAccessRequired,
+      loadBootstrap,
+      manifests,
+      user,
+      vaultCapability.canReadSecureData,
+      vaultOwnerToken,
+    ]
   );
 
   const developerReady = Boolean(access?.access_enabled);
-  const canUseTooling = Boolean(user && developerReady && isVaultUnlocked && vaultOwnerToken);
+  const canUseTooling = Boolean(user && developerReady && vaultAccess.canMutateSecureData);
 
   return (
     <>
       <PkmSettingsShell
-        title="PKM Permissions Viewer"
-        description="A calm, settings-style view of what Kai knows, which top-level PKM sections can be exposed, and the latest AI capture previews before they are encrypted and saved."
+        eyebrow="Profile / Privacy"
+        title="PKM Agent Lab"
+        description="An advanced privacy workspace for PKM permissions, readable capture previews, and encrypted Personal Knowledge Model diagnostics."
       >
         <SurfaceInset className="space-y-4 px-4 py-4">
           <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
@@ -695,8 +822,14 @@ export default function PkmAgentLabPageClient() {
             loading={upgradeLoading}
             onResume={handleResumeUpgrade}
             resumeBusy={upgradeBusy}
-            onUnlock={() => setShowVaultUnlock(true)}
+            onUnlock={() => {
+              if (vaultAccess.needsVaultCreation) {
+                openPrivacySecurity();
+                return;
+              }
+            }}
             vaultUnlocked={isVaultUnlocked}
+            showRecoveryAction={showUpgradeRecoveryAction}
           />
 
           <SettingsGroup
@@ -716,7 +849,7 @@ export default function PkmAgentLabPageClient() {
             />
             <SettingsRow
               title="Upgrade status"
-              description="Older manifests are shown read-only until the resumable PKM upgrade brings them onto the current permissions contract."
+              description="Older manifests are upgraded automatically in the background when the vault is available, and read-only sections become writable as soon as the Personal Knowledge Model catches up."
               trailing={
                 <Badge variant={upgradableDomains.length > 0 ? "outline" : "secondary"}>
                   {upgradableDomains.length > 0 ? `${upgradableDomains.length} pending` : "Current"}
@@ -732,7 +865,7 @@ export default function PkmAgentLabPageClient() {
           >
             {accessLoading || bootstrapLoading ? (
               <SettingsRow
-                title="Loading private model"
+                title="Loading Personal Knowledge Model"
                 description="Checking developer access, PKM metadata, and current manifests."
                 leading={<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               />
@@ -753,16 +886,32 @@ export default function PkmAgentLabPageClient() {
                   </Button>
                 }
               />
-            ) : !isVaultUnlocked ? (
+            ) : vaultAccess.vaultUnknown ? (
               <SettingsRow
-                title="Unlock your vault"
-                description="Permissions only become readable after local unlock because decrypted PKM stays memory-only."
-                leading={<Lock className="h-4 w-4 text-amber-500" />}
+                title="Checking vault access"
+                description="Confirming whether this workspace should unlock your existing vault or help you create one first."
+                leading={<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              />
+            ) : vaultAccess.needsVaultCreation ? (
+              <SettingsRow
+                title="Set up your vault first"
+                description="PKM Agent Lab only becomes available after you create or import a vault from the Privacy workspace."
+                leading={<ShieldAlert className="h-4 w-4 text-amber-500" />}
                 trailing={
-                  <Button variant="none" effect="fade" onClick={() => setShowVaultUnlock(true)}>
-                    Unlock
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    onClick={openPrivacySecurity}
+                  >
+                    Open Privacy
                   </Button>
                 }
+              />
+            ) : !vaultAccess.canReadSecureData ? (
+              <SettingsRow
+                title="Vault unlock required"
+                description="This route now uses the shared signed-in unlock flow. Once your vault is unlocked, PKM permissions will load automatically."
+                leading={<Lock className="h-4 w-4 text-amber-500" />}
               />
             ) : domains.length === 0 ? (
               <SettingsRow
@@ -802,7 +951,7 @@ export default function PkmAgentLabPageClient() {
                             sections.length === 0 ||
                             upgradeBlocked ||
                             togglingKey !== null ||
-                            !vaultOwnerToken
+                            !vaultAccess.canReadSecureData
                           }
                           onCheckedChange={(checked) =>
                             void applyScopeExposureChange(
@@ -986,15 +1135,22 @@ export default function PkmAgentLabPageClient() {
                 embedded
                 eyebrow="Upgrade required"
                 title="This domain is read-only until the PKM upgrade completes"
-                description="The current manifest is not on the latest permissions contract yet, so section toggles stay disabled until the resumable upgrade finishes."
+                description="The current manifest is not on the latest permissions contract yet, so section toggles stay disabled until background orchestration finishes the upgrade."
               >
                 <SettingsRow
-                  title="Resume upgrade"
-                  description="Unlock and resume the PKM upgrade to enable section-level toggles."
-                  trailing={
-                    <Button variant="none" effect="fade" onClick={() => void handleResumeUpgrade()}>
-                      Resume
-                    </Button>
+                  title={
+                    upgradeStatus?.upgradeStatus === "awaiting_local_auth_resume"
+                      ? "Waiting for unlock"
+                      : upgradeStatus?.upgradeStatus === "failed"
+                        ? "Recovery required"
+                        : "Upgrade running"
+                  }
+                  description={
+                    upgradeStatus?.upgradeStatus === "awaiting_local_auth_resume"
+                      ? "Unlocking the vault will automatically resume the Personal Knowledge Model upgrade."
+                      : upgradeStatus?.upgradeStatus === "failed"
+                        ? "Automatic retries hit a recovery state. Use the advanced recovery action in the status card if you need to retry."
+                        : "Kai is refreshing this domain in the background. Section controls will unlock automatically when it completes."
                   }
                 />
               </SettingsGroup>
@@ -1080,20 +1236,6 @@ export default function PkmAgentLabPageClient() {
         )}
       </SettingsDetailPanel>
 
-      {user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={showVaultUnlock}
-          onOpenChange={setShowVaultUnlock}
-          onSuccess={() => {
-            setShowVaultUnlock(false);
-            setNaturalRefreshToken((value) => value + 1);
-          }}
-          title="Unlock your vault"
-          description="Unlock locally to read or save encrypted PKM data."
-          enableGeneratedDefault
-        />
-      ) : null}
     </>
   );
 }
