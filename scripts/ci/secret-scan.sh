@@ -30,5 +30,53 @@ else
   fi
 fi
 
+CONFIG_ARGS=()
+if [ -f "$REPO_ROOT/.gitleaks.toml" ]; then
+  CONFIG_ARGS+=(--config "$REPO_ROOT/.gitleaks.toml")
+fi
+
 echo "Running gitleaks with log opts: ${LOG_OPTS}"
-gitleaks git --redact --no-banner --exit-code 1 --log-opts="${LOG_OPTS}"
+EXIT_CODE=0
+gitleaks git --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" --log-opts="${LOG_OPTS}" || EXIT_CODE=$?
+
+scan_pull_request_body() {
+  local tmpdir pr_number body_file
+  tmpdir="$(mktemp -d)"
+  body_file="$tmpdir/pull-request-body.md"
+
+  if [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "${GITHUB_EVENT_PATH:-}" ]; then
+    python3 - <<'PY' "${GITHUB_EVENT_PATH}" "$body_file"
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+body = ((payload.get("pull_request") or {}).get("body") or "").strip()
+Path(sys.argv[2]).write_text(body, encoding="utf-8")
+PY
+  elif command -v gh >/dev/null 2>&1 && [ -n "${SECRET_SCAN_PR_NUMBER:-}" ]; then
+    gh pr view "${SECRET_SCAN_PR_NUMBER}" --json body --jq .body >"$body_file"
+  else
+    rm -rf "$tmpdir"
+    return 0
+  fi
+
+  if [ ! -s "$body_file" ]; then
+    rm -rf "$tmpdir"
+    return 0
+  fi
+
+  echo "Running gitleaks against pull request body metadata..."
+  gitleaks dir --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" "$tmpdir" || EXIT_CODE=$?
+  rm -rf "$tmpdir"
+}
+
+if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] || [ -n "${SECRET_SCAN_PR_NUMBER:-}" ]; then
+  scan_pull_request_body
+fi
+
+if [ -x "$REPO_ROOT/scripts/ci/github-security-alerts.sh" ]; then
+  "$REPO_ROOT/scripts/ci/github-security-alerts.sh" || EXIT_CODE=$?
+fi
+
+exit "$EXIT_CODE"

@@ -8,11 +8,20 @@ CI_DOCS_PARITY_REQUIRED="${CI_DOCS_PARITY_REQUIRED:-0}"
 
 bash "$REPO_ROOT/scripts/ci/no-ria-feature-flags.sh"
 bash "$REPO_ROOT/scripts/ci/runtime-contract-check.sh"
-bash "$REPO_ROOT/scripts/ci/pkm-upgrade-gate.sh"
-
 cd "$WEB_DIR"
 
 npm --version
+
+# Integration runs on fresh CI runners as well as warm local worktrees.
+# Install web deps when vitest isn't available so the PKM gate can load the local config.
+if [ ! -d node_modules/vitest ] || [ ! -x node_modules/.bin/vitest ]; then
+  npm ci --prefer-offline --no-audit --progress=false
+fi
+
+cd "$REPO_ROOT"
+bash "$REPO_ROOT/scripts/ci/pkm-upgrade-gate.sh"
+
+cd "$WEB_DIR"
 
 if [ -f scripts/verify-route-contracts.cjs ]; then
   npm run verify:routes

@@ -3,35 +3,14 @@ title = "hushh-research gitleaks config"
 [extend]
 useDefault = true
 
-[allowlist]
-description = "Legacy baseline findings before full-history scan enforcement"
+[[allowlists]]
+description = "Documented backend env placeholders in the public example template"
 paths = [
-  '''hushh-webapp/__tests__/services/observability-schema\.test\.ts''',
+  '''^consent-protocol/\.env\.example$''',
 ]
-commits = [
-  "0b3e87ed041107e868ee2139e7289b885a342a0f",
-  "0d355f72ab91590e301741741454fbc66749c0c8",
-  "2368b6f5ed56ec78a167920c59bb8561882663dc",
-  "31a5d01276a3acd88969b847bea0f4fefe369429",
-  "32718f9e54d6a411cbbbfba76aeba55b234f8e2a",
-  "4ca1b769d7ee55c623e95efe2207f51d7c91f3b1",
-  "5efdf6facca4e291903ad7d8274d52400cd60378",
-  "6202a667f92b870e167208c9ed6ee1d792e6a39d",
-  "71abaaab966afde0715048ab15cd841281f653a3",
-  "720a7a4431c8b34721344acf882e8f602a3e677e",
-  "9a18b6874e219786a13c2582e83b698f15c0256a",
-  "a227680c011a54b12a2dc8e320187d730b128132",
-  "a339208be16d6c281997b03cfcbcadf2ed312ed8",
-  "af6bbf266da7afba834ef9bf895a248bf24e8500",
-  "ae512f32e2b93b1785d4cacf4840d2cec545a7e2",
-  "c920e5e193eb811b1c6f995adfa187a7fc998a80",
-  "e030ba0ccdd9f1b68963ecabc98c0765dfbe7dd7",
-  "e547e303566ec74585b8d47f46e1c8f71a03aae3",
-  "f4fc7949eb8ec6a31a9b99b61b7edda80aa81742",
-  "fc6e2455b5d127a66b1cc9bd745917f728309491",
-  "fdb0158ed3098e46cfea99bb50d15f721cf5ff74",
-  "7681cf13d2abb33ddc009cd4e5eb6a9a6a9d0e19",
-  "7d7675273c06d6d41682073ff69fe14fc532e77a",
-  "981553f0589618254e8797c42e22d9fd4d813a9f",
-  "af6bbf266da7afba834ef9bf895a248bf24e8500",
+regexes = [
+  '''replace_with_64_char_hex_secret_key''',
+  '''replace_with_64_char_hex_vault_encryption_key''',
+  '''your_local_hex_secret_here''',
+  '''your_local_vault_hex_here''',
 ]

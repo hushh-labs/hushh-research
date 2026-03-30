@@ -46,7 +46,12 @@ npx vitest run "${FRONTEND_TESTS[@]}"
 
 echo "Running backend compatibility and consent/RIA suites..."
 cd "$PROTOCOL_DIR"
-PYTHONPATH=. .venv/bin/pytest -q "${BACKEND_TESTS[@]}"
+if [ -x .venv/bin/pytest ]; then
+  PYTEST_RUNNER=".venv/bin/pytest"
+else
+  PYTEST_RUNNER="python3 -m pytest"
+fi
+PYTHONPATH=. $PYTEST_RUNNER -q "${BACKEND_TESTS[@]}"
 
 if [ -n "$RUNTIME_BASE_URL" ]; then
   echo "Running live runtime audits against $RUNTIME_BASE_URL ..."

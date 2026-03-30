@@ -42,6 +42,7 @@ run_stage() {
     advisory)
       scripts/ci/docs-parity-check.sh
       scripts/ci/subtree-sync-check.sh
+      scripts/ci/github-security-alerts.sh
       ;;
     *)
       echo "Unknown stage: $stage" >&2

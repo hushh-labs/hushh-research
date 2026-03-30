@@ -225,6 +225,15 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: consent-protocol/requirements.txt
+
+      - name: Install protocol deps for PKM gate
+        run: python3 -m pip install --disable-pip-version-check -r consent-protocol/requirements.txt
+
       - name: Run integration check script (single source of truth)
         run: bash scripts/ci/orchestrate.sh integration
         env:
