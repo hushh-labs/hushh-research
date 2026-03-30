@@ -53,11 +53,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { usePendingConsentCount } from "@/components/consent/notification-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -215,7 +215,7 @@ function ProfilePageContent() {
   const { user, loading: authLoading, signOut } = useAuth();
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const pendingConsents = usePendingConsentCount();
+  const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);

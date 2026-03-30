@@ -368,6 +368,49 @@ class UatKaiSmoke:
         )
         return response.json()
 
+    def get_persona_state(self) -> dict[str, Any]:
+        response = self._request(
+            "GET",
+            "/api/iam/persona",
+            headers=self._firebase_auth_headers(),
+        )
+        return response.json()
+
+    def get_consent_center_summary(self, *, actor: str) -> dict[str, Any]:
+        response = self._request(
+            "GET",
+            "/api/consent/center/summary",
+            headers=self._vault_headers(),
+            params={"actor": actor},
+        )
+        return response.json()
+
+    def get_consent_center_list(
+        self,
+        *,
+        actor: str,
+        surface: str,
+        top: int | None = None,
+        page: int = 1,
+        limit: int = 20,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"actor": actor, "surface": surface}
+        if top is not None:
+            params["top"] = top
+        else:
+            params["page"] = page
+            params["limit"] = limit
+        if query:
+            params["q"] = query
+        response = self._request(
+            "GET",
+            "/api/consent/center/list",
+            headers=self._vault_headers(),
+            params=params,
+        )
+        return response.json()
+
     def _fetch_domain_manifest(self, domain: str) -> dict[str, Any]:
         response = self._request(
             "GET",
@@ -880,6 +923,34 @@ class UatKaiSmoke:
             f"PKM metadata reachable with domains={[domain.get('key') for domain in metadata.get('domains', [])]}."
         )
 
+        persona_state = self.get_persona_state()
+        if str(persona_state.get("last_active_persona") or "") not in {"investor", "ria"}:
+            raise RuntimeError(f"Unexpected persona state payload: {persona_state}")
+
+        investor_summary = self.get_consent_center_summary(actor="investor")
+        investor_preview = self.get_consent_center_list(
+            actor="investor",
+            surface="pending",
+            top=5,
+        )
+        if investor_summary.get("actor") != "investor":
+            raise RuntimeError(f"Unexpected investor consent summary payload: {investor_summary}")
+        if investor_preview.get("page") != 1 or investor_preview.get("limit") != 5:
+            raise RuntimeError(
+                f"Unexpected investor consent preview pagination contract: {investor_preview}"
+            )
+        if len(investor_preview.get("items") or []) > 5:
+            raise RuntimeError(
+                f"Investor consent preview returned more than 5 rows: {investor_preview}"
+            )
+        investor_pending_count = int((investor_summary.get("counts") or {}).get("pending") or 0)
+        if investor_pending_count < len(investor_preview.get("items") or []):
+            raise RuntimeError(
+                "Investor consent summary count is smaller than the preview payload: "
+                f"{investor_summary} {investor_preview}"
+            )
+        self.log("Investor consent summary + top-5 preview contract passed.")
+
         upgrade_status = self.fetch_upgrade_status()
         self.log(f"PKM upgrade route reachable with status={upgrade_status.get('upgrade_status')}.")
 
@@ -1002,6 +1073,25 @@ class UatKaiSmoke:
         ria_request = self.request_ria_consent()
         if str(ria_request.get("status") or "").lower() != "requested":
             raise RuntimeError(f"RIA request creation failed: {ria_request}")
+        ria_summary = self.get_consent_center_summary(actor="ria")
+        ria_preview = self.get_consent_center_list(actor="ria", surface="pending", top=5)
+        if ria_preview.get("page") != 1 or ria_preview.get("limit") != 5:
+            raise RuntimeError(f"Unexpected RIA consent preview pagination contract: {ria_preview}")
+        if len(ria_preview.get("items") or []) > 5:
+            raise RuntimeError(f"RIA consent preview returned more than 5 rows: {ria_preview}")
+        if int((ria_summary.get("counts") or {}).get("pending") or 0) < 1:
+            raise RuntimeError(
+                f"Expected at least one pending RIA consent after request: {ria_summary}"
+            )
+        if not any(
+            str(item.get("request_id") or item.get("id") or "")
+            == str(ria_request.get("request_id") or "")
+            for item in (ria_preview.get("items") or [])
+        ):
+            raise RuntimeError(
+                f"Expected RIA pending preview to include the new request: {ria_request} {ria_preview}"
+            )
+        self.log("RIA consent summary + top-5 preview contract passed.")
         self.approve_ria_request(request_id=str(ria_request["request_id"]))
         client_detail = self.get_ria_client_detail()
         relationship_shares = client_detail.get("relationship_shares") or []

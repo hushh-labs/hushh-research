@@ -76,12 +76,15 @@ Fixed user keys:
 - `active_consents_${userId}`
 - `pending_consents_${userId}`
 - `consent_audit_log_${userId}`
+- `consent_center_summary_${userId}_${actor}`
 - `portfolio_data_${userId}`
 
 Dynamic user keys:
 - `domain_data_${userId}_${domain}`
 - `domain_blob_${userId}_${domain}`
 - `stock_context_${userId}_${ticker}`
+- `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`
+- `consent_center_preview_${userId}_${actor}_${surface}_${top}` for dedicated preview-only callers that explicitly choose `top=n`; first-party shield inbox flows should prefer the shared `consent_center_list_*_pending_*_1_20` cache entry
 
 Summary metadata write-through fields (when available):
 - `attribute_count`
@@ -120,6 +123,8 @@ Do:
 - Keep `CacheContext` as a state mirror only.
 - Use `invalidateUser(userId)` when purging a full user session.
 - Keep domain blob + metadata reconciliation aligned with PKM index semantics.
+- Keep consent-manager summary/list caches memory-only.
+- Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/consents`; do not introduce a second browser cache lane just for the top-shell preview.
 - Keep BYOK/ZK boundaries explicit:
   - vault key stays memory-only
   - `VAULT_OWNER` stays memory-only

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
+import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import {
   SettingsDetailPanel,
   SettingsGroup,
@@ -49,6 +50,7 @@ import {
 } from "@/lib/services/ria-service";
 
 type SectionKey = "connected" | "pending" | "invites";
+const CLIENTS_PAGE_SIZE = 24;
 
 const SECTION_COPY: Record<
   SectionKey,
@@ -267,7 +269,7 @@ export default function RiaClientsPage() {
 
   const clientsResource = useStaleResource<RiaClientListResponse>({
     cacheKey: user?.uid
-      ? `ria_clients_${user.uid}_${deferredSearchQuery}_all_${page}_24`
+      ? `ria_clients_${user.uid}_${deferredSearchQuery}_all_${page}_${CLIENTS_PAGE_SIZE}`
       : "ria_clients_guest",
     enabled: Boolean(user?.uid && (riaCapability !== "setup" || personaRefreshing)),
     load: async () => {
@@ -279,12 +281,12 @@ export default function RiaClientsPage() {
         userId: user.uid,
         q: deferredSearchQuery,
         page,
-        limit: 24,
+        limit: CLIENTS_PAGE_SIZE,
       });
     },
   });
 
-  const items = clientsResource.data?.items || [];
+  const items = useMemo(() => clientsResource.data?.items || [], [clientsResource.data?.items]);
   const totalItems = clientsResource.data?.total || 0;
   const hasMore = clientsResource.data?.has_more || false;
   const loading = clientsResource.loading;
@@ -757,30 +759,15 @@ export default function RiaClientsPage() {
               );
               })}
             </div>
-            <RiaSurface className="p-4">
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>Page {page}</span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    disabled={page <= 1}
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    disabled={!hasMore}
-                    onClick={() => setPage((current) => current + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
+            <RiaSurface className="p-0">
+              <PaginatedListFooter
+                page={page}
+                limit={CLIENTS_PAGE_SIZE}
+                total={totalItems}
+                hasMore={hasMore}
+                onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+                onNext={() => setPage((current) => current + 1)}
+              />
             </RiaSurface>
           </>
         ) : null}

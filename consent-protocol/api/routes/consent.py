@@ -511,6 +511,7 @@ async def get_consent_center_list(
     actor: str = Query(default="investor"),
     surface: str = Query(default="pending"),
     q: str | None = Query(default=None),
+    top: int | None = Query(default=None, ge=1, le=10),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
@@ -521,6 +522,7 @@ async def get_consent_center_list(
         actor=actor,
         surface=surface,
         query=q,
+        top=top,
         page=page,
         limit=limit,
     )

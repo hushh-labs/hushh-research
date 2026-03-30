@@ -18,7 +18,7 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar";
 import { Icon, SidebarMenuButton } from "@/lib/morphy-ux/ui";
-import { usePendingConsentCount } from "@/components/consent/notification-provider";
+import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 
 const domains = [
   {
@@ -31,7 +31,7 @@ const domains = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const pendingCount = usePendingConsentCount();
+  const pendingCount = useConsentPendingSummaryCount();
 
   return (
     <Sidebar>

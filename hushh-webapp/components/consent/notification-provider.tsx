@@ -38,6 +38,7 @@ import {
 } from "@/lib/notifications";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { buildConsentSheetProfileHref } from "@/lib/consent/consent-sheet-route";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
   getSessionItem,
@@ -661,13 +662,22 @@ export function ConsentNotificationProvider({
           if (user?.uid) {
             const queued = queuePendingConsent(user.uid, consent);
             setPendingCount(Math.max(queued.length, 1));
+            dispatchConsentStateChanged({
+              source: "fcm_queued",
+              requestId: consent.id,
+            });
           } else {
             setPendingCount((prev) => prev + 1);
+            dispatchConsentStateChanged({ source: "fcm_queued" });
           }
           return;
         }
 
         setPendingCount((prev) => Math.max(prev, 0) + 1);
+        dispatchConsentStateChanged({
+          source: "fcm_live",
+          requestId: consent.id,
+        });
         showConsentToast(consent);
       } else if (msgType === "consent_resolved") {
         // A consent was resolved (approved/denied/revoked) -- dismiss any matching toast
@@ -682,6 +692,10 @@ export function ConsentNotificationProvider({
           const queued = removeQueuedPendingConsent(user.uid, requestId, data.bundle_id);
           setPendingCount((prev) => Math.max(queued.length, Math.max(0, prev - 1)));
         }
+        dispatchConsentStateChanged({
+          source: "fcm_resolved",
+          requestId,
+        });
       }
     };
 
@@ -702,6 +716,7 @@ export function ConsentNotificationProvider({
     const queuedPending = readQueuedPendingConsents(uid);
     if (!cancelled && queuedPending.length > 0) {
       setPendingCount((prev) => Math.max(prev, queuedPending.length));
+      dispatchConsentStateChanged({ source: "queued_pending" });
       queuedPending.forEach((consent) => showConsentToast(consent));
       clearQueuedPendingConsents(uid);
     }
@@ -712,6 +727,7 @@ export function ConsentNotificationProvider({
     const hasCachedPending = Array.isArray(cachedPending?.data) && cachedPending.data.length > 0;
     if (!cancelled && Array.isArray(cachedPending?.data)) {
       setPendingCount(cachedPending.data.length);
+      dispatchConsentStateChanged({ source: "cached_pending" });
       cachedPending.data.forEach((consent) => showConsentToast(consent));
       if (cachedPending.isFresh) {
         return;
@@ -725,6 +741,7 @@ export function ConsentNotificationProvider({
         const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
         if (cancelled) return;
         setPendingCount(pending.length);
+        dispatchConsentStateChanged({ source: "hydrated_pending" });
         pending.forEach((consent) => showConsentToast(consent));
       } catch (err) {
         console.error("[NotificationProvider] Initial fetch error:", err);

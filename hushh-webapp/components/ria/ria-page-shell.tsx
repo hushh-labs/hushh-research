@@ -168,22 +168,22 @@ export function RiaStatusPanel({
       className={cn("space-y-5 p-5 sm:p-6", className)}
       data-testid={dataTestId}
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
           <div className="flex items-center gap-3">
             <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-sky-200/80 bg-sky-500/[0.08] text-sky-700 shadow-[0_18px_38px_-28px_rgba(56,189,248,0.38)] dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-200 dark:shadow-[0_22px_40px_-28px_rgba(56,189,248,0.22)]">
-              <ShieldCheck className="h-4.5 w-4.5" />
+              <ShieldCheck className="h-4 w-4" />
             </span>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700/90 dark:text-sky-300/90">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700/90 dark:text-sky-300/90">
               {eyebrow}
             </p>
           </div>
           <div className="space-y-1">
-            <h2 className="text-[15px] font-semibold tracking-tight leading-[1.08] text-foreground sm:text-[17px]">
+            <h2 className="text-[14px] font-semibold tracking-tight leading-[1.08] text-foreground sm:text-[16px]">
               {title}
             </h2>
             {description ? (
-              <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
+              <p className="max-w-2xl text-[13px] leading-5 text-muted-foreground sm:text-[14px]">
                 {description}
               </p>
             ) : null}
@@ -192,20 +192,20 @@ export function RiaStatusPanel({
         {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
       </div>
 
-      <div className="grid gap-px overflow-hidden rounded-[22px] bg-border/60 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-px overflow-hidden rounded-[20px] bg-border/60 sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item) => (
           <div
             key={`${item.label}-${item.value}`}
             className={cn(
-              "px-4 py-4 sm:px-5",
+              "px-4 py-3.5 sm:px-5",
               STATUS_TONE_STYLES[item.tone || "neutral"]
             )}
           >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
               {item.label}
             </p>
-            <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">{item.value}</p>
-            {item.helper ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.helper}</p> : null}
+            <p className="mt-1.5 text-[17px] font-semibold tracking-tight text-foreground">{item.value}</p>
+            {item.helper ? <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.helper}</p> : null}
           </div>
         ))}
       </div>

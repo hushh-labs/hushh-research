@@ -4,23 +4,17 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   BriefcaseBusiness,
   CircleAlert,
-  FileSpreadsheet,
   Loader2,
-  ShieldCheck,
 } from "lucide-react";
 
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
-import { buildRiaConsentManagerHref } from "@/lib/consent/consent-sheet-route";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { RiaService, type RiaHomeResponse } from "@/lib/services/ria-service";
-import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
@@ -166,21 +160,12 @@ export default function RiaHomePage() {
   const inviteCount = homeResource.data?.counts.invites ?? 0;
   const queueItems = homeResource.data?.needs_attention ?? [];
   const leadItem = queueItems[0] ?? null;
-  const activeRows = homeResource.data?.active_picks.active_rows ?? 0;
-  const feedLabel = homeResource.data?.active_picks.active_upload_label || "No active list";
-  const consentManagerHref = buildRiaConsentManagerHref("pending", {
-    from: ROUTES.RIA_HOME,
-  });
   const heroTitle =
     leadItem?.title ||
-    homeResource.data?.primary_action.description ||
     (activeClients > 0
       ? `You have ${activeClients} active client relationship${activeClients === 1 ? "" : "s"}.`
       : verification.title);
   const heroDescription = leadItem?.subtitle || leadItem?.next_action || verification.description;
-  const heroHref = leadItem?.href || homeResource.data?.primary_action.href;
-  const heroActionLabel =
-    leadItem ? "Open next item" : homeResource.data?.primary_action.label || "Continue";
 
   return (
     <RiaPageShell
@@ -208,20 +193,6 @@ export default function RiaHomePage() {
                     {heroDescription}
                   </p>
                 </div>
-              </div>
-
-              <div className="flex shrink-0 flex-wrap gap-2">
-                {heroHref ? (
-                  <Button asChild variant="blue-gradient" effect="fill" className="shrink-0">
-                    <Link href={heroHref}>
-                      {heroActionLabel}
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Link>
-                  </Button>
-                ) : null}
-                <Button asChild variant="none" effect="fade">
-                  <Link href={ROUTES.RIA_CLIENTS}>Open clients</Link>
-                </Button>
               </div>
             </div>
 
@@ -266,7 +237,7 @@ export default function RiaHomePage() {
       ) : null}
 
       {!iamUnavailable ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(280px,0.95fr)]">
+        <div className="grid gap-4">
           <RiaSurface className="space-y-4 p-4 sm:p-5" data-testid="ria-home-queue">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
@@ -283,100 +254,51 @@ export default function RiaHomePage() {
               </span>
             </div>
 
-            <SettingsGroup embedded>
+            <div className="overflow-hidden rounded-[20px] border border-border/60 bg-background/70">
               {homeResource.loading && !homeResource.data ? (
-                <SettingsRow
-                  icon={Loader2}
-                  title="Loading advisor status"
-                  description="Pulling readiness, relationships, and picks state."
-                />
+                <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Pulling readiness, relationships, and picks state.
+                </div>
               ) : null}
 
               {!homeResource.loading && queueItems.length === 0 ? (
-                <SettingsRow
-                  icon={ShieldCheck}
-                  title="Nothing urgent right now"
-                  description="When a relationship, consent request, or invite needs the next move, it will land here."
-                />
+                <div className="px-4 py-5 text-sm text-muted-foreground">
+                  Nothing urgent right now. When a relationship, consent request, or invite needs
+                  the next move, it will land here.
+                </div>
               ) : null}
 
-              {queueItems.slice(0, 4).map((item) => (
-                <SettingsRow
+              {queueItems.slice(0, 4).map((item, index) => (
+                <div
                   key={item.id}
-                  icon={CircleAlert}
-                  title={
+                  className={cn(
+                    "flex items-start justify-between gap-3 px-4 py-4",
+                    index > 0 && "border-t border-border/55"
+                  )}
+                >
+                  <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span>{item.title}</span>
+                      <span className="text-sm font-semibold tracking-tight text-foreground">
+                        {item.title}
+                      </span>
                       <Badge className={cn("capitalize", queueToneClass(item.status))}>
                         {formatStatusLabel(item.status)}
                       </Badge>
                     </div>
-                  }
-                  description={item.subtitle || item.next_action || "Review the next step."}
-                  trailing={
-                    <Button
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      onClick={() => router.push(item.href)}
-                    >
-                      Open
-                    </Button>
-                  }
-                />
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      {item.subtitle || item.next_action || "Review the next step."}
+                    </p>
+                  </div>
+                  <Link
+                    href={item.href}
+                    className="shrink-0 text-sm font-medium text-foreground/82 transition-colors hover:text-foreground"
+                  >
+                    Open
+                  </Link>
+                </div>
               ))}
-            </SettingsGroup>
-          </RiaSurface>
-
-          <RiaSurface className="space-y-4 p-4 sm:p-5" data-testid="ria-home-launcher">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold tracking-tight text-foreground">
-                Work areas
-              </p>
-              <p className="text-sm leading-6 text-muted-foreground">
-                One place each for client relationships, the active picks feed, and outgoing
-                consent decisions.
-              </p>
             </div>
-
-            <SettingsGroup embedded>
-              <SettingsRow
-                icon={ShieldCheck}
-                title="Clients"
-                description="Connected, pending, and invited investors live in one roster."
-                trailing={
-                  <span className="text-xs text-muted-foreground">
-                    {activeClients} connected
-                  </span>
-                }
-                chevron
-                onClick={() => router.push(ROUTES.RIA_CLIENTS)}
-              />
-              <SettingsRow
-                icon={FileSpreadsheet}
-                title="Picks"
-                description={`Current feed: ${feedLabel}. Investors compare against this active list.`}
-                trailing={
-                  <span className="text-xs text-muted-foreground">
-                    {activeRows} live rows
-                  </span>
-                }
-                chevron
-                onClick={() => router.push(ROUTES.RIA_PICKS)}
-              />
-              <SettingsRow
-                icon={CircleAlert}
-                title="Consent manager"
-                description="Review outgoing requests, active grants, and prior investor decisions."
-                trailing={
-                  <span className="text-xs text-muted-foreground">
-                    {needsAttention > 0 ? `${needsAttention} waiting` : "Quiet"}
-                  </span>
-                }
-                chevron
-                onClick={() => router.push(consentManagerHref)}
-              />
-            </SettingsGroup>
           </RiaSurface>
         </div>
       ) : null}

@@ -8,6 +8,9 @@ hushh_starter_idea.md
 .idea/
 .cursor/
 .mcp.json
+*.swp
+*.swo
+*.swx
 
 # Cloud SQL
 cloud-sql-proxy.exe

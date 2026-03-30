@@ -176,7 +176,7 @@ export function useStaleResource<T>({
         setRefreshing(false);
       }
     },
-    [cache, cacheKey, enabled]
+    [cache, cacheKey, enabled, label]
   );
 
   useEffect(() => {
