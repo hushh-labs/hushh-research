@@ -120,20 +120,20 @@ export function PageHeader({
               {eyebrow ? (
                 <p
                   className={cn(
-                    "text-[11px] font-semibold uppercase tracking-[0.3em]",
+                    "text-[10px] font-semibold uppercase tracking-[0.28em]",
                     styles.eyebrow
                   )}
                 >
                   {eyebrow}
                 </p>
               ) : null}
-              <h1 className="text-[clamp(1.38rem,3.2vw,2.05rem)] font-semibold tracking-tight leading-[1.04] text-foreground">
+              <h1 className="text-[clamp(1.28rem,3vw,1.95rem)] font-semibold tracking-tight leading-[1.05] text-foreground">
                 {title}
               </h1>
             </div>
           </div>
           {description ? (
-            <div className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
+            <div className="max-w-2xl text-[13px] leading-5 text-muted-foreground sm:text-[14px]">
               {description}
             </div>
           ) : null}
@@ -185,20 +185,20 @@ export function SectionHeader({
               {eyebrow ? (
                 <p
                   className={cn(
-                    "text-[11px] font-semibold uppercase tracking-[0.24em]",
+                    "text-[10px] font-semibold uppercase tracking-[0.22em]",
                     styles.eyebrow
                   )}
                 >
                   {eyebrow}
                 </p>
               ) : null}
-              <h2 className="text-[15px] font-semibold tracking-tight leading-[1.08] text-foreground sm:text-[17px]">
+              <h2 className="text-[14px] font-semibold tracking-tight leading-[1.08] text-foreground sm:text-[16px]">
                 {title}
               </h2>
             </div>
           </div>
           {description ? (
-            <div className="text-sm leading-6 text-muted-foreground sm:text-[15px]">
+            <div className="text-[13px] leading-5 text-muted-foreground sm:text-[14px]">
               {description}
             </div>
           ) : null}

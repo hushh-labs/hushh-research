@@ -16,8 +16,8 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { usePendingConsentCount } from "@/components/consent/notification-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
@@ -39,8 +39,8 @@ export const Navbar = () => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const { activePersona, primaryNavPersona, riaEntryRoute } = usePersonaState();
-  const pendingConsents = usePendingConsentCount();
+  const { activePersona, primaryNavPersona } = usePersonaState();
+  const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
@@ -50,7 +50,6 @@ export const Navbar = () => {
   const allowScrollHide = isAuthenticated && !useOnboardingChrome && !preserveBottomChrome;
   const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } = useKaiBottomChromeVisibility(allowScrollHide);
 
-  const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
   const busyOperations = useKaiSession((s) => s.busyOperations);
 
   React.useLayoutEffect(() => {
@@ -212,7 +211,7 @@ export const Navbar = () => {
         router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);
         return;
       case "home":
-        router.push(lastRiaPath || riaEntryRoute);
+        router.push(ROUTES.RIA_HOME);
         return;
       case "clients":
         router.push(ROUTES.RIA_CLIENTS);

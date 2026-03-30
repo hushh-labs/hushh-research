@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { Input } from "@/components/ui/input";
 import type { Holding as PortfolioHolding } from "@/components/kai/types/portfolio";
@@ -115,7 +116,7 @@ const FILTERS: Array<{ key: HoldingsFilter; label: string }> = [
   { key: "losers", label: "Losers" },
   { key: "cash", label: "Cash" },
 ];
-const HOLDINGS_PAGE_SIZE = 5;
+const ESTIMATED_CARD_HEIGHT = 72;
 
 export function HoldingsMobileList({
   holdings,
@@ -126,7 +127,7 @@ export function HoldingsMobileList({
   const [activeFilter, setActiveFilter] = useState<HoldingsFilter>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const totalMarketValue = useMemo(() => {
     const activeTotal = holdings
@@ -188,14 +189,14 @@ export function HoldingsMobileList({
       );
     });
   }, [activeFilter, holdingsViewModels, searchTerm]);
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(filteredHoldings.length / HOLDINGS_PAGE_SIZE)),
-    [filteredHoldings.length]
-  );
-  const paginatedHoldings = useMemo(() => {
-    const startIndex = (currentPage - 1) * HOLDINGS_PAGE_SIZE;
-    return filteredHoldings.slice(startIndex, startIndex + HOLDINGS_PAGE_SIZE);
-  }, [currentPage, filteredHoldings]);
+
+  const virtualizer = useVirtualizer({
+    count: filteredHoldings.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ESTIMATED_CARD_HEIGHT,
+    gap: 6,
+    overscan: 5,
+  });
 
   const selectedHolding = useMemo(
     () => holdingsViewModels.find((holding) => holding.id === selectedHoldingId) || null,
@@ -208,14 +209,10 @@ export function HoldingsMobileList({
     setSelectedHoldingId(null);
   }, [holdingsViewModels, selectedHoldingId]);
 
+  // Reset scroll on filter/search change
   useEffect(() => {
-    setCurrentPage(1);
-  }, [activeFilter, searchTerm]);
-
-  useEffect(() => {
-    if (currentPage <= totalPages) return;
-    setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
+    virtualizer.scrollToOffset(0);
+  }, [activeFilter, searchTerm, virtualizer]);
 
   return (
     <>
@@ -256,51 +253,47 @@ export function HoldingsMobileList({
         </div>
 
         {filteredHoldings.length > 0 ? (
-          <div className="space-y-1.5">
-            {paginatedHoldings.map((holding) => (
-              <HoldingMobileCard
-                key={holding.id}
-                holding={holding}
-                onOpen={() => setSelectedHoldingId(holding.id)}
-              />
-            ))}
-
-            {totalPages > 1 ? (
-              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-background/60 px-3 py-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                  disabled={currentPage <= 1}
-                  className={cn(
-                    "app-button-text h-9 min-w-20 rounded-lg px-3 transition-colors",
-                    currentPage <= 1
-                      ? "cursor-not-allowed bg-black/40 text-white/60"
-                      : "app-button-black hover:bg-black/90"
-                  )}
-                >
-                  Previous
-                </button>
-
-                <p className="app-label-text">
-                  Page {currentPage} of {totalPages}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                  disabled={currentPage >= totalPages}
-                  className={cn(
-                    "app-button-text h-9 min-w-20 rounded-lg px-3 transition-colors",
-                    currentPage >= totalPages
-                      ? "cursor-not-allowed bg-black/40 text-white/60"
-                      : "app-button-black hover:bg-black/90"
-                  )}
-                >
-                  Next
-                </button>
+          <>
+            <p className="app-label-text text-muted-foreground text-right">
+              {filteredHoldings.length} holding{filteredHoldings.length !== 1 ? "s" : ""}
+            </p>
+            <div
+              ref={scrollContainerRef}
+              className="-mx-1 max-h-[60vh] overflow-y-auto overscroll-contain rounded-xl px-1 sm:mx-0 sm:px-0"
+              style={{ contain: "strict" }}
+            >
+              <div
+                style={{
+                  height: `${virtualizer.getTotalSize()}px`,
+                  width: "100%",
+                  position: "relative",
+                }}
+              >
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                  const holding = filteredHoldings[virtualItem.index]!;
+                  return (
+                    <div
+                      key={holding.id}
+                      data-index={virtualItem.index}
+                      ref={virtualizer.measureElement}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                    >
+                      <HoldingMobileCard
+                        holding={holding}
+                        onOpen={() => setSelectedHoldingId(holding.id)}
+                      />
+                    </div>
+                  );
+                })}
               </div>
-            ) : null}
-          </div>
+            </div>
+          </>
         ) : (
           <div className="rounded-xl border border-dashed border-border/60 bg-background/50 px-4 py-6 text-center text-sm text-muted-foreground">
             No holdings match this filter.

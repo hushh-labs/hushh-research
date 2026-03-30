@@ -29,7 +29,6 @@ import {
   Loader2,
   LogOut,
   MoreHorizontal,
-  Shield,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -67,7 +66,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
-import { usePendingConsentCount } from "@/components/consent/notification-provider";
+import { ConsentInboxDropdown } from "@/components/consent/consent-inbox-dropdown";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
@@ -75,11 +74,6 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
-import {
-  buildConsentCenterHref,
-  buildRiaConsentManagerHref,
-} from "@/lib/consent/consent-sheet-route";
-import Link from "next/link";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
 export {
@@ -180,17 +174,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
-  const pendingConsentCount = usePendingConsentCount();
   const centerTitle = useMemo(
     () => getTopBarTitle(pathname, activePersona),
     [activePersona, pathname]
   );
-  const consentCenterHref = useMemo(() => {
-    const from = activePersona === "ria" ? ROUTES.RIA_HOME : ROUTES.KAI_HOME;
-    return activePersona === "ria"
-      ? buildRiaConsentManagerHref("pending", { from })
-      : buildConsentCenterHref("pending", { from });
-  }, [activePersona]);
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(null);
 
@@ -328,6 +315,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                   ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
                                   : centerTitle.label}
                               </span>
+                              {!switchingPersona && (
+                                <span
+                                  className={cn(
+                                    "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+                                    activePersona === "ria"
+                                      ? "bg-amber-500"
+                                      : "bg-emerald-500"
+                                  )}
+                                  aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
+                                />
+                              )}
                               <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
                             </span>
                             <MaterialRipple variant="none" effect="fade" className="z-0" />
@@ -391,22 +389,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     <OnboardingRouteActions />
                   ) : (
                     <>
-                      <Link
-                        href={consentCenterHref}
-                        prefetch={false}
-                        className={cn(
-                          TOP_SHELL_ICON_BUTTON_CLASSNAME,
-                          "inline-flex h-10 w-10 items-center justify-center"
-                        )}
-                        aria-label="Open consent center"
-                      >
-                        <Shield className="h-5 w-5" />
-                        {pendingConsentCount > 0 ? (
-                          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
-                            {pendingConsentCount}
-                          </span>
-                        ) : null}
-                      </Link>
+                      <ConsentInboxDropdown triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
 
                       {isVaultUnlocked ? (
                         <DebateTaskCenter triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />

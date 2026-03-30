@@ -274,6 +274,160 @@ def test_consent_center_pending_surface_only_returns_actionable_ria_rows():
 
 
 @pytest.mark.asyncio
+async def test_consent_center_summary_uses_surface_loaders_without_get_center(monkeypatch):
+    service = ConsentCenterService()
+
+    async def _unexpected_get_center(*_args, **_kwargs):  # noqa: ANN002,ANN003
+        raise AssertionError("get_center should not be used for summary counts")
+
+    async def _pending(_user_id: str):
+        return [{"id": "pending_1"}, {"id": "pending_2"}]
+
+    async def _active(_user_id: str):
+        return [{"id": "active_1"}]
+
+    async def _previous(_user_id: str):
+        return [{"id": "history_1"}, {"id": "history_2"}, {"id": "history_3"}]
+
+    monkeypatch.setattr(service, "get_center", _unexpected_get_center)
+    monkeypatch.setattr(service, "_load_investor_pending_entries", _pending)
+    monkeypatch.setattr(service, "_load_investor_active_entries", _active)
+    monkeypatch.setattr(service, "_load_investor_previous_entries", _previous)
+
+    payload = await service.get_center_summary("investor_1", actor="investor")
+
+    assert payload["counts"] == {"pending": 2, "active": 1, "previous": 3}
+
+
+@pytest.mark.asyncio
+async def test_consent_center_list_investor_pending_avoids_monolithic_center(monkeypatch):
+    service = ConsentCenterService()
+
+    async def _unexpected_get_center(*_args, **_kwargs):  # noqa: ANN002,ANN003
+        raise AssertionError("get_center should not be used for paged list loading")
+
+    async def _pending(_user_id: str):
+        return [
+            {
+                "id": "req_3",
+                "issued_at": 300,
+                "counterpart_label": "Later request",
+                "status": "pending",
+            },
+            {
+                "id": "req_2",
+                "issued_at": 200,
+                "counterpart_label": "Kai Access",
+                "status": "pending",
+            },
+            {
+                "id": "req_1",
+                "issued_at": 100,
+                "counterpart_label": "Earlier request",
+                "status": "pending",
+            },
+        ]
+
+    monkeypatch.setattr(service, "get_center", _unexpected_get_center)
+    monkeypatch.setattr(service, "_load_investor_pending_entries", _pending)
+
+    payload = await service.list_center(
+        "investor_1",
+        actor="investor",
+        surface="pending",
+        query="kai",
+        page=1,
+        limit=20,
+    )
+
+    assert payload["total"] == 1
+    assert payload["has_more"] is False
+    assert [item["id"] for item in payload["items"]] == ["req_2"]
+
+
+@pytest.mark.asyncio
+async def test_consent_center_list_preview_top_caps_page_and_limit(monkeypatch):
+    service = ConsentCenterService()
+
+    async def _pending(_user_id: str):
+        return [
+            {"id": "req_6", "issued_at": 600, "counterpart_label": "Six", "status": "pending"},
+            {"id": "req_5", "issued_at": 500, "counterpart_label": "Five", "status": "pending"},
+            {"id": "req_4", "issued_at": 400, "counterpart_label": "Four", "status": "pending"},
+            {"id": "req_3", "issued_at": 300, "counterpart_label": "Three", "status": "pending"},
+            {"id": "req_2", "issued_at": 200, "counterpart_label": "Two", "status": "pending"},
+            {"id": "req_1", "issued_at": 100, "counterpart_label": "One", "status": "pending"},
+        ]
+
+    monkeypatch.setattr(service, "_load_investor_pending_entries", _pending)
+
+    payload = await service.list_center(
+        "investor_1",
+        actor="investor",
+        surface="pending",
+        top=5,
+        page=9,
+        limit=99,
+    )
+
+    assert payload["page"] == 1
+    assert payload["limit"] == 5
+    assert payload["total"] == 6
+    assert payload["has_more"] is True
+    assert [item["id"] for item in payload["items"]] == [
+        "req_6",
+        "req_5",
+        "req_4",
+        "req_3",
+        "req_2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_consent_center_list_ria_active_uses_relationship_roster(monkeypatch):
+    service = ConsentCenterService()
+
+    async def _ria_active(
+        _user_id: str, *, query: str | None = None, page: int = 1, limit: int = 20
+    ):
+        assert query == "taylor"
+        assert page == 2
+        assert limit == 20
+        return {
+            "page": page,
+            "limit": limit,
+            "total": 21,
+            "has_more": False,
+            "items": [
+                {
+                    "id": "relationship_1",
+                    "kind": "active_grant",
+                    "status": "active",
+                    "counterpart_label": "Taylor",
+                    "scope": "attr.financial.*",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(service, "_load_ria_active_entries", _ria_active)
+
+    payload = await service.list_center(
+        "ria_user_1",
+        actor="ria",
+        surface="active",
+        query="taylor",
+        page=2,
+        limit=20,
+    )
+
+    assert payload["actor"] == "ria"
+    assert payload["surface"] == "active"
+    assert payload["total"] == 21
+    assert payload["items"][0]["counterpart_label"] == "Taylor"
+    assert payload["items"][0]["status"] == "active"
+
+
+@pytest.mark.asyncio
 async def test_list_investor_pick_sources_requires_active_relationship_share(monkeypatch):
     class _FakeConn:
         async def fetch(self, query: str, *_args):

@@ -7,10 +7,18 @@ hushh_starter_idea.md
 # Editor/IDE
 .idea/
 .cursor/
+.mcp.json
+*.swp
+*.swo
+*.swx
 
 # Cloud SQL
 cloud-sql-proxy.exe
 cloud-sql-proxy
+cloud_sql_proxy
+**/cloud-sql-proxy.exe
+**/cloud-sql-proxy
+**/cloud_sql_proxy
 CLOUDSQL_CONFIG.md
 
 # Credentials
@@ -74,6 +82,7 @@ temp/
 tmp/
 .playwright-artifacts/
 hushh-webapp/test-results/
+**/build.log
 
 # Generated native/build artifacts
 hushh-webapp/.next/

@@ -2,6 +2,11 @@
 
 > How `consent-protocol/` stays in sync between the monorepo and the standalone upstream repo.
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## Architecture

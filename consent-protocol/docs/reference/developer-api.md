@@ -3,6 +3,11 @@
 > **Status:** UAT public beta  
 > **Audience:** External developers, MCP hosts, and internal teams building against Kai consent flows
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## Overview

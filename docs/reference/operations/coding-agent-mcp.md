@@ -1,5 +1,10 @@
 # Coding-Agent MCP Setup
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This guide covers the MCP servers we expect coding agents to have available when working in this repo.
 
 Use safe config patterns only:

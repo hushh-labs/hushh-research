@@ -121,7 +121,7 @@ export function HoldingMobileCard({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/60 bg-background/70 px-2.5 py-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.08)] sm:px-3 sm:py-2",
+        "rounded-xl border border-border/60 bg-background/70 px-2 py-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.08)] sm:px-3 sm:py-2",
         holding.pendingDelete && "opacity-60"
       )}
     >

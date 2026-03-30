@@ -39,7 +39,10 @@
         "hushh-webapp/lib/utils/clipboard.ts"
       ],
       "navigation_mutation": [
-        "hushh-webapp/lib/utils/browser-navigation.ts"
+        "hushh-webapp/lib/utils/browser-navigation.ts",
+        "hushh-webapp/components/app-ui/route-error-boundary.tsx",
+        "hushh-webapp/components/vault/vault-lock-guard.tsx",
+        "hushh-webapp/lib/consent/use-consent-actions.ts"
       ],
       "window_open": [
         "hushh-webapp/lib/utils/browser-navigation.ts"
@@ -53,7 +56,9 @@
       ],
       "indexed_db": [
         "hushh-webapp/lib/notifications/fcm-service.ts",
-        "hushh-webapp/lib/capacitor/plugins/database-web.ts"
+        "hushh-webapp/lib/capacitor/plugins/database-web.ts",
+        "hushh-webapp/lib/services/device-resource-cache-service.ts",
+        "hushh-webapp/lib/services/secure-resource-cache-service.ts"
       ],
       "blob_export": [
         "hushh-webapp/lib/utils/native-download.ts",

@@ -47,7 +47,7 @@ export const SurfaceCardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardHeader
     ref={ref}
-    className={cn("px-5 pb-2.5 pt-5 sm:px-6 sm:pb-3 sm:pt-6", className)}
+    className={cn("px-4 pb-2 pt-4 sm:px-5 sm:pb-2.5 sm:pt-5", className)}
     {...props}
   />
 ));
@@ -73,7 +73,7 @@ export const SurfaceCardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardDescription
     ref={ref}
-    className={cn("text-xs leading-5 text-muted-foreground sm:text-[13px]", className)}
+    className={cn("text-[11px] leading-4 text-muted-foreground sm:text-[12px]", className)}
     {...props}
   />
 ));
@@ -86,7 +86,7 @@ export const SurfaceCardContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardContent
     ref={ref}
-    className={cn("px-5 pb-5 pt-0 sm:px-6 sm:pb-6", className)}
+    className={cn("px-4 pb-4 pt-0 sm:px-5 sm:pb-5", className)}
     {...props}
   />
 ));

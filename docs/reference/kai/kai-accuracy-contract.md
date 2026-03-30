@@ -1,5 +1,10 @@
 # Kai Accuracy Contract (v6.0)
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document defines production behavior for Kai analysis/import surfaces.
 
 ## Non-Negotiables

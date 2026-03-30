@@ -1,5 +1,10 @@
 # Professional Verification Policy
 
+
+## Visual Context
+
+Canonical visual owner: [IAM Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 
 Define the hard-gate rules for regulated professional access before investor data, discovery, or client-linking workflows become available.

@@ -1,5 +1,10 @@
 # PKM Agent North Star
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This is the non-negotiable methodology for PKM development.
 
 Supporting docs:

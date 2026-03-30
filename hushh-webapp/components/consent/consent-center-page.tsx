@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ExternalLink, Loader2, Search, ShieldCheck } from "lucide-react";
+import { ExternalLink, Search, ShieldCheck } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -12,28 +12,38 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
-import { SettingsGroup, SettingsRow, SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import {
+  SettingsDetailPanel,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSegmentedTabs,
+} from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { usePendingConsentCount, useConsentNotificationState } from "@/components/consent/notification-provider";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  CONSENT_ACTION_COMPLETE_EVENT,
+  CONSENT_STATE_CHANGED_EVENT,
+} from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
+  CONSENT_CENTER_PAGE_SIZE,
   ConsentCenterService,
   type ConsentCenterActor,
   type ConsentCenterEntry,
+  type ConsentCenterPageListResponse,
+  type ConsentCenterPageSummary,
 } from "@/lib/services/consent-center-service";
+import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
 import { buildRiaWorkspaceRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 type ConsentTab = "pending" | "active" | "previous";
-
-const PENDING_STATUSES = new Set(["pending", "request_pending", "sent"]);
-const ACTIVE_STATUSES = new Set(["active"]);
 
 function normalizeTab(value: string | null): ConsentTab {
   if (value === "active" || value === "previous") return value;
@@ -63,15 +73,6 @@ function resolveConsentTab(searchParams: URLSearchParams | ReadonlyURLSearchPara
 
 function formatStatus(status?: string | null) {
   return String(status || "pending").replaceAll("_", " ");
-}
-
-function filterEntriesForTab(entries: ConsentCenterEntry[], tab: ConsentTab) {
-  return entries.filter((entry) => {
-    const status = String(entry.status || "").trim().toLowerCase();
-    if (tab === "pending") return PENDING_STATUSES.has(status);
-    if (tab === "active") return ACTIVE_STATUSES.has(status);
-    return !PENDING_STATUSES.has(status) && !ACTIVE_STATUSES.has(status);
-  });
 }
 
 function formatDate(value?: string | number | null) {
@@ -121,6 +122,16 @@ function entrySummary(entry: ConsentCenterEntry) {
   return entry.scope || "Consent request";
 }
 
+function resolveCounterpartLabel(entry: ConsentCenterEntry) {
+  return (
+    entry.counterpart_label ||
+    entry.counterpart_email ||
+    entry.counterpart_secondary_label ||
+    entry.counterpart_id ||
+    "Requester"
+  );
+}
+
 function toPendingConsent(entry: ConsentCenterEntry): PendingConsent {
   const issuedAt = typeof entry.issued_at === "number" ? entry.issued_at : Date.now();
   const approvalTimeoutAt =
@@ -132,7 +143,7 @@ function toPendingConsent(entry: ConsentCenterEntry): PendingConsent {
 
   return {
     id: entry.request_id || entry.id,
-    developer: entry.counterpart_label || "Requester",
+    developer: resolveCounterpartLabel(entry),
     developerImageUrl: entry.counterpart_image_url || undefined,
     developerWebsiteUrl: entry.counterpart_website_url || undefined,
     scope: entry.scope || "",
@@ -171,7 +182,7 @@ function ConsentEntryRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <p className="truncate text-sm font-semibold text-foreground">
-            {entry.counterpart_label || "Requester"}
+            {resolveCounterpartLabel(entry)}
           </p>
           <p className="truncate text-xs text-muted-foreground">
             {entry.counterpart_email || entry.counterpart_secondary_label || "Hushh connection"}
@@ -225,7 +236,7 @@ function ConsentEntryDetail({
     <div className="space-y-4">
       <SettingsGroup
         embedded
-        title={entry.counterpart_label || "Requester"}
+        title={resolveCounterpartLabel(entry)}
         description={entrySummary(entry)}
       >
         <SettingsRow
@@ -321,31 +332,19 @@ function ConsentEntryDetail({
         ) : null}
       </SettingsGroup>
 
-      <details className="rounded-[22px] border border-border/60 bg-background/72 px-4 py-4">
-        <summary className="cursor-pointer text-sm font-semibold text-foreground">
-          Technical details
-        </summary>
-        <div className="mt-4 space-y-4 text-sm text-muted-foreground">
+      {entry.technical_identity?.user_id || entry.request_id || entry.scope ? (
+        <SettingsGroup
+          embedded
+          title="Technical details"
+          description="Stable identifiers stay available here without cluttering the primary review flow."
+        >
           {entry.technical_identity?.user_id ? (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em]">User ID</p>
-              <p className="mt-1 break-all">{entry.technical_identity.user_id}</p>
-            </div>
+            <SettingsRow title="User ID" description={entry.technical_identity.user_id} />
           ) : null}
-          {entry.request_id ? (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em]">Request ID</p>
-              <p className="mt-1 break-all">{entry.request_id}</p>
-            </div>
-          ) : null}
-          {entry.scope ? (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em]">Scope code</p>
-              <p className="mt-1 break-all">{entry.scope}</p>
-            </div>
-          ) : null}
-        </div>
-      </details>
+          {entry.request_id ? <SettingsRow title="Request ID" description={entry.request_id} /> : null}
+          {entry.scope ? <SettingsRow title="Scope code" description={entry.scope} /> : null}
+        </SettingsGroup>
+      ) : null}
     </div>
   );
 }
@@ -356,8 +355,6 @@ export function ConsentCenterPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { activePersona } = usePersonaState();
-  const { pendingCount } = useConsentNotificationState();
-  const pendingShortcutCount = usePendingConsentCount();
   const defaultActor: ConsentCenterActor = activePersona === "ria" ? "ria" : "investor";
   const actor = normalizeActor(searchParams.get("actor"), defaultActor);
   const tab = resolveConsentTab(searchParams);
@@ -372,6 +369,27 @@ export function ConsentCenterPage() {
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
+  const summaryCacheKey = user?.uid
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, actor)
+    : "consent_center_summary_guest";
+  const listCacheKey = user?.uid
+    ? CACHE_KEYS.CONSENT_CENTER_LIST(
+        user.uid,
+        actor,
+        tab,
+        deferredQuery,
+        page,
+        CONSENT_CENTER_PAGE_SIZE
+      )
+    : "consent_center_list_guest";
+  const [retainedSummary, setRetainedSummary] = useState<{
+    key: string;
+    data: ConsentCenterPageSummary;
+  } | null>(null);
+  const [retainedList, setRetainedList] = useState<{
+    key: string;
+    data: ConsentCenterPageListResponse;
+  } | null>(null);
 
   useEffect(() => {
     const current = searchParams.get("q") || "";
@@ -382,8 +400,12 @@ export function ConsentCenterPage() {
 
   useEffect(() => {
     const handleAction = () => setMutationTick((value) => value + 1);
-    window.addEventListener("consent-action-complete", handleAction);
-    return () => window.removeEventListener("consent-action-complete", handleAction);
+    window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, handleAction);
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleAction);
+    return () => {
+      window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, handleAction);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleAction);
+    };
   }, []);
 
   const { handleApprove, handleDeny, handleRevoke } = useConsentActions({
@@ -394,7 +416,8 @@ export function ConsentCenterPage() {
   const idTokenLoader = async () => user?.getIdToken();
 
   const summaryResource = useStaleResource({
-    cacheKey: user?.uid ? `consent_center_summary_${user.uid}_${actor}` : "consent_center_summary_guest",
+    cacheKey: summaryCacheKey,
+    refreshKey: `${actor}:${mutationTick}`,
     enabled: Boolean(user?.uid),
     load: async () => {
       const idToken = await idTokenLoader();
@@ -411,9 +434,8 @@ export function ConsentCenterPage() {
   });
 
   const listResource = useStaleResource({
-    cacheKey: user?.uid
-      ? `consent_center_list_${user.uid}_${actor}_${tab}_${deferredQuery}_${page}_20_${mutationTick}`
-      : "consent_center_list_guest",
+    cacheKey: listCacheKey,
+    refreshKey: `${actor}:${tab}:${deferredQuery}:${page}:${mutationTick}`,
     enabled: Boolean(user?.uid),
     load: async () => {
       const idToken = await idTokenLoader();
@@ -427,16 +449,30 @@ export function ConsentCenterPage() {
         surface: tab,
         q: deferredQuery,
         page,
-        limit: 20,
+        limit: CONSENT_CENTER_PAGE_SIZE,
         force: mutationTick > 0,
       });
     },
   });
 
-  const items = useMemo(
-    () => filterEntriesForTab(listResource.data?.items || [], tab),
-    [listResource.data?.items, tab]
-  );
+  useEffect(() => {
+    if (summaryResource.data) {
+      setRetainedSummary({ key: summaryCacheKey, data: summaryResource.data });
+    }
+  }, [summaryCacheKey, summaryResource.data]);
+
+  useEffect(() => {
+    if (listResource.data) {
+      setRetainedList({ key: listCacheKey, data: listResource.data });
+    }
+  }, [listCacheKey, listResource.data]);
+
+  const summaryData =
+    summaryResource.data ??
+    (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
+  const listData =
+    listResource.data ?? (retainedList?.key === listCacheKey ? retainedList.data : null);
+  const items = useMemo(() => listData?.items || [], [listData?.items]);
   const selectedEntry = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -480,7 +516,7 @@ export function ConsentCenterPage() {
           icon={ShieldCheck}
           actions={
             <Badge className={cn("border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300")}>
-              {actor === "investor" ? pendingShortcutCount : pendingCount} pending
+              {summaryData?.counts.pending ?? 0} pending
             </Badge>
           }
         />
@@ -495,15 +531,15 @@ export function ConsentCenterPage() {
               options={[
                 {
                   value: "pending",
-                  label: `Pending (${summaryResource.data?.counts.pending ?? 0})`,
+                  label: `Pending (${summaryData?.counts.pending ?? 0})`,
                 },
                 {
                   value: "active",
-                  label: `Active (${summaryResource.data?.counts.active ?? 0})`,
+                  label: `Active (${summaryData?.counts.active ?? 0})`,
                 },
                 {
                   value: "previous",
-                  label: `Previous (${summaryResource.data?.counts.previous ?? 0})`,
+                  label: `Previous (${summaryData?.counts.previous ?? 0})`,
                 },
               ]}
             />
@@ -524,90 +560,81 @@ export function ConsentCenterPage() {
                   />
                 </div>
                 {(listResource.loading || listResource.refreshing) && items.length > 0 ? (
-                  <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <div className="mt-3 text-xs text-muted-foreground">
                     Refreshing from the latest consent state…
                   </div>
                 ) : null}
               </div>
             </SettingsGroup>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-              <section data-testid="consent-manager-list">
-                <SettingsGroup embedded>
-                  <div className="space-y-2 px-2 py-2">
-                    {listResource.loading && items.length === 0 ? (
-                      <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading consent entries…
-                      </div>
-                    ) : null}
-                    {!listResource.loading && items.length === 0 ? (
-                      <div className="px-3 py-8 text-sm text-muted-foreground">
-                        No {tab} entries match this view right now.
-                      </div>
-                    ) : null}
-                    {items.map((entry) => (
-                      <ConsentEntryRow
-                        key={entry.id}
-                        entry={entry}
-                        selected={selectedEntry?.id === entry.id}
-                        onSelect={() =>
-                          setParam({
-                            requestId: entry.request_id || entry.id,
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-
-                  {listResource.data ? (
-                    <div className="flex items-center justify-between border-t border-border/60 px-4 py-4 text-sm text-muted-foreground">
-                      <span>
-                        Page {listResource.data.page} of{" "}
-                        {Math.max(1, Math.ceil(listResource.data.total / listResource.data.limit))}
-                      </span>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          disabled={page <= 1}
-                          onClick={() => setParam({ page: String(Math.max(1, page - 1)) })}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          disabled={!listResource.data.has_more}
-                          onClick={() => setParam({ page: String(page + 1) })}
-                        >
-                          Next
-                        </Button>
-                      </div>
+            <section data-testid="consent-manager-list">
+              <SettingsGroup embedded>
+                <div className="space-y-2 px-2 py-2">
+                  {listResource.loading && items.length === 0 ? (
+                    <div className="px-3 py-6 text-sm text-muted-foreground">
+                      Loading consent entries…
                     </div>
                   ) : null}
-                </SettingsGroup>
-              </section>
+                  {!listResource.loading && items.length === 0 ? (
+                    <div className="px-3 py-8 text-sm text-muted-foreground">
+                      No {tab} entries match this view right now.
+                    </div>
+                  ) : null}
+                  {items.map((entry) => (
+                    <ConsentEntryRow
+                      key={entry.id}
+                      entry={entry}
+                      selected={selectedEntry?.id === entry.id}
+                      onSelect={() =>
+                        setParam({
+                          requestId: entry.request_id || entry.id,
+                        })
+                      }
+                    />
+                  ))}
+                </div>
 
-              <section data-testid="consent-manager-detail">
-                <ConsentEntryDetail
-                  actor={actor}
-                  entry={selectedEntry}
-                  onApprove={(entry) => void handleApprove(toPendingConsent(entry))}
-                  onDeny={(entry) => void handleDeny(entry.request_id || entry.id)}
-                  onRevoke={(entry) => {
-                    if (!entry.scope) return;
-                    void handleRevoke(entry.scope);
-                  }}
-                />
-              </section>
-            </div>
+                {listData ? (
+                  <PaginatedListFooter
+                    page={listData.page}
+                    limit={listData.limit}
+                    total={listData.total}
+                    hasMore={listData.has_more}
+                    onPrevious={() => setParam({ page: String(Math.max(1, page - 1)) })}
+                    onNext={() => setParam({ page: String(page + 1) })}
+                  />
+                ) : null}
+              </SettingsGroup>
+            </section>
           </section>
         </SurfaceStack>
       </AppPageContentRegion>
+
+      <SettingsDetailPanel
+        open={Boolean(selectedId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setParam({ requestId: null });
+          }
+        }}
+        title={selectedEntry ? resolveCounterpartLabel(selectedEntry) : "Consent details"}
+        description={
+          selectedEntry
+            ? entrySummary(selectedEntry)
+            : "Choose a consent entry from the list to review details and next actions."
+        }
+      >
+        <ConsentEntryDetail
+          actor={actor}
+          entry={selectedEntry}
+          onApprove={(entry) => void handleApprove(toPendingConsent(entry))}
+          onDeny={(entry) => void handleDeny(entry.request_id || entry.id)}
+          onRevoke={(entry) => {
+            if (!entry.scope) return;
+            void handleRevoke(entry.scope);
+          }}
+        />
+      </SettingsDetailPanel>
     </AppPageShell>
   );
 }

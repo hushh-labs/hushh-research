@@ -159,7 +159,13 @@ function RiaWorkspacePageContent() {
   useEffect(() => {
     setDetail(cachedDetail?.data ?? null);
     setWorkspace(cachedWorkspace?.data ?? null);
-  }, [cachedDetail?.timestamp, cachedWorkspace?.timestamp, clientId]);
+  }, [
+    cachedDetail?.data,
+    cachedDetail?.timestamp,
+    cachedWorkspace?.data,
+    cachedWorkspace?.timestamp,
+    clientId,
+  ]);
 
   useEffect(() => {
     if (!clientId) {

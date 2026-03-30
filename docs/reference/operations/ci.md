@@ -1,5 +1,47 @@
 # CI Configuration Reference
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph dev["Developer lanes"]
+    feat["Feature / hotfix / developer branches"]
+    pr["Pull request to main"]
+    prci["PR CI<br/>path-filtered validation"]
+  end
+
+  subgraph integration["Integration lane"]
+    freshness["Main Freshness Gate"]
+    status["CI Status Gate"]
+    main["main"]
+  end
+
+  subgraph release["Release promotion lanes"]
+    uatpr["PR: main -> deploy_uat"]
+    prodpr["PR: main -> deploy"]
+    releasegate["Release Lane Gate"]
+    uat["deploy_uat"]
+    prod["deploy"]
+  end
+
+  subgraph delivery["Post-merge delivery"]
+    pushci["Protected-branch push CI"]
+    uatdeploy["Deploy to UAT"]
+    proddeploy["Deploy to Production"]
+  end
+
+  feat --> pr --> prci
+  prci --> freshness
+  prci --> status
+  freshness --> main
+  status --> main
+  main --> uatpr --> releasegate --> uat
+  main --> prodpr --> releasegate --> prod
+  uat --> pushci --> uatdeploy
+  prod --> pushci --> proddeploy
+```
+
 This document describes the **Tri-Flow CI** workflow and how to stay aligned with it so code changes do not fail CI. Run local checks before every commit.
 
 **Workflow file:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)  
@@ -113,8 +155,8 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 1. `main` is the only integration branch for day-to-day development.
 2. `deploy_uat` is the UAT rollout lane and must contain the latest `main`.
 3. `deploy` is the production release lane and must contain the latest `main`.
-4. `deploy_uat` auto-deploys only after successful protected-branch CI.
-5. `deploy` auto-deploys only after successful protected-branch CI.
+4. `deploy_uat` auto-deploys only after successful protected-branch push CI on `deploy_uat`.
+5. `deploy` auto-deploys only after successful protected-branch push CI on `deploy`.
 6. Manual deploy dispatch remains an emergency rerun path, not the default release path.
 7. Feature or hotfix branches should never target `deploy_uat` or `deploy` directly; promote through `main`.
 

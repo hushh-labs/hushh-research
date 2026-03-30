@@ -1,5 +1,10 @@
 # Google-First Observability (Implemented Baseline)
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document captures the repo implementation for the GA4 + GTM + Firebase + Deep SRE observability roadmap with strict metadata-only payload policy.
 
 ## Scope

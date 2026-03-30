@@ -2,6 +2,53 @@
 
 > Consent-first backend for Hushh Personal Data Agents. Python 3.13 / FastAPI / Google ADK / Supabase.
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  ingress["Clients / web proxies / native plugins / MCP callers"]
+
+  subgraph api["FastAPI ingress"]
+    routes["Routers<br/>consent, PKM, Kai, IAM, RIA, marketplace"]
+    middleware["Middleware and request policy<br/>auth, rate limits, tracing"]
+  end
+
+  subgraph domain["Domain services"]
+    consent["Consent + IAM services"]
+    pkm["PKM + domain registry services"]
+    kai["Kai market, portfolio, analysis services"]
+    appsvc["Account, notifications, marketplace, invites"]
+  end
+
+  subgraph intelligence["Agent execution model"]
+    agents["Agents"]
+    tools["Tools"]
+    operons["Operons"]
+  end
+
+  subgraph data["Persistence and external systems"]
+    relational["Postgres relational data"]
+    blobs["Encrypted PKM blobs + metadata/index"]
+    providers["Market, push, auth, external APIs"]
+  end
+
+  ingress --> routes
+  routes --> middleware
+  middleware --> consent
+  middleware --> pkm
+  middleware --> kai
+  middleware --> appsvc
+  kai --> agents --> tools --> operons
+  consent --> relational
+  pkm --> blobs
+  pkm --> relational
+  kai --> relational
+  kai --> providers
+  appsvc --> relational
+  operons --> providers
+```
+
 [![CI](https://github.com/hushh-labs/consent-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/hushh-labs/consent-protocol/actions/workflows/ci.yml)
 
 ---

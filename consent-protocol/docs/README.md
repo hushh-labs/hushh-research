@@ -2,6 +2,22 @@
 
 > Python FastAPI backend for the Hushh Consent Protocol, MCP server, and agent infrastructure.
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["consent-protocol"]
+  n1["App Review Mode Config"]
+  root --> n1
+  n2["Manifesto"]
+  root --> n2
+  n3["Mcp Setup"]
+  root --> n3
+  n4["Monorepo Integration"]
+  root --> n4
+```
+
 ---
 
 ## What This Directory Contains

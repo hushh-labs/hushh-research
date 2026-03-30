@@ -20,6 +20,12 @@ html body[data-scroll-locked] {
   -webkit-overflow-scrolling: touch;
 }
 
+@media (min-width: 768px) {
+  [data-app-scroll-root="true"][data-app-scroll-mode="standard"] {
+    scrollbar-gutter: stable;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

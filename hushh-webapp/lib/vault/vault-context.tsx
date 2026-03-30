@@ -92,7 +92,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
   const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const lockVault = useCallback(() => {
     console.log("🔒 Vault locked (key + token cleared from memory)");
     if (user?.uid && vaultOwnerToken) {

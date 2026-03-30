@@ -1,5 +1,10 @@
 # Mobile Kai Parity Map
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Route-level and feature-level parity contract for Kai on Web, iOS, and Android.
 
 ## Route-Level Parity

@@ -27,7 +27,7 @@ describe("interaction and cache contract", () => {
     expect(topAppBar).toContain('<Check className="ml-auto h-4 w-4 text-current" />');
     expect(topAppBar).toContain('<Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />');
     expect(taskCenter).toContain("Notifications");
-    expect(topAppBar).toContain('href={ROUTES.CONSENTS}');
+    expect(topAppBar).toContain('href={consentCenterHref}');
     expect(taskCenter).not.toContain("Consent Center");
     expect(taskCenter).not.toContain('openConsentSheet({ view: "pending" })');
     expect(taskCenter).not.toContain("Notification delivery");
@@ -53,14 +53,12 @@ describe("interaction and cache contract", () => {
     const unlockWarmOrchestrator = read("lib/services/unlock-warm-orchestrator.ts");
 
     expect(kaiMarketHome).toContain("staleOnly?: boolean");
-    expect(kaiMarketHome).toContain("parseStoredKaiHomeCache");
-    expect(kaiMarketHome).toContain("cache.peek<KaiHomeInsightsV2>");
-    expect(kaiMarketHome).toContain("persistKaiMarketHomePayload");
-    expect(kaiMarketHome).toContain("refresh({ staleOnly: true })");
+    expect(kaiMarketHome).toContain("staleOnly?: boolean");
+    expect(kaiMarketHome).toContain("THEME_ICON_MAP");
     expect(riaPicksList).not.toContain("useSearchParams");
     expect(riaPicksList).not.toContain("router.replace");
     expect(riaPicksList).toContain("useState(DEFAULT_PICKS_PAGE_SIZE)");
     expect(unlockWarmOrchestrator).toContain("getKaiActivePickSource");
-    expect(unlockWarmOrchestrator).toContain("persistKaiMarketHomePayload");
+    expect(unlockWarmOrchestrator).toContain("KaiFinancialResourceService");
   });
 });

@@ -1,5 +1,29 @@
 # Guides Index
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["Guides Index"]
+  n1["Advanced Ops"]
+  root --> n1
+  n2["Environment Model"]
+  root --> n2
+  n3["Getting Started"]
+  root --> n3
+  n4["Mobile"]
+  root --> n4
+  n5["Native Streaming"]
+  root --> n5
+  n6["New Feature"]
+  root --> n6
+  n7["Plaid Activation And Testing"]
+  root --> n7
+  n8["Subtree Sync"]
+  root --> n8
+```
+
 Practical setup and operator workflows live here.
 
 ## Guides

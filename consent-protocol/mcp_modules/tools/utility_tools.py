@@ -13,7 +13,11 @@ import re
 import httpx
 from mcp.types import TextContent
 
-from hushh_mcp.consent.scope_helpers import get_scope_description, resolve_scope_to_enum
+from hushh_mcp.consent.scope_helpers import (
+    get_scope_description,
+    get_scope_display_metadata,
+    resolve_scope_to_enum,
+)
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import AGENT_PORTS
 from hushh_mcp.trust.link import create_trust_link, verify_trust_link
@@ -284,6 +288,20 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
             domains.append(m.group(1))
     domains = sorted(set(domains))
 
+    # Enrich each scope with display metadata (label, icon, color)
+    enriched_scopes = []
+    for s in scopes:
+        meta = get_scope_display_metadata(s)
+        enriched_scopes.append(
+            {
+                "scope": s,
+                "label": meta["label"],
+                "description": meta["description"],
+                "icon_name": meta.get("icon_name"),
+                "color_hex": meta.get("color_hex"),
+            }
+        )
+
     return [
         TextContent(
             type="text",
@@ -291,7 +309,7 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                 {
                     "user_id": data.get("user_id", uid),
                     "domains": domains,
-                    "scopes": scopes,
+                    "scopes": enriched_scopes,
                     "usage": "Call request_consent(user_id, scope) with one of the scopes above to request consent",
                 }
             ),

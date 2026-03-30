@@ -1,5 +1,18 @@
 # Branch Governance
 
+
+## Visual Map
+
+```mermaid
+flowchart LR
+  feature["feature / fix / dev branches"]
+  main["main"]
+  uat["deploy_uat"]
+  prod["deploy"]
+  feature --> main --> uat
+  main --> prod
+```
+
 This repo runs on three branch lanes:
 
 | Branch | Purpose | Default policy |
@@ -38,7 +51,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### `deploy_uat`
 
-1. Auto-deploys to UAT only after successful `Tri-Flow CI` on `deploy_uat`.
+1. Auto-deploys to UAT only after successful `Tri-Flow CI` push runs on `deploy_uat`.
 2. Manual dispatch is allowed only as an emergency rerun path.
 3. No reviewer gate is required in the workflow itself.
 4. Workflow preflight fails if `deploy_uat` does not contain the latest `origin/main`.
@@ -47,7 +60,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### `deploy`
 
-1. Auto-deploys production only after successful `Tri-Flow CI` on `deploy`.
+1. Auto-deploys production only after successful `Tri-Flow CI` push runs on `deploy`.
 2. Manual dispatch remains available only as an emergency rerun path.
 3. The workflow is valid only from the `deploy` branch.
 4. Workflow preflight fails if `deploy` does not contain the latest `origin/main`.

@@ -10,6 +10,7 @@ import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { KaiOnboardingGuard } from "@/components/kai/onboarding/kai-onboarding-guard";
 import { KaiNavTour } from "@/components/kai/onboarding/kai-nav-tour";
 import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
+import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -45,13 +46,15 @@ export default function KaiLayout({
   }, [onImportRoute, onOnboardingRoute, pathname, user?.uid, vaultKey, vaultOwnerToken]);
 
   const shell = (
-    <div className="flex min-h-screen flex-col [--morphy-glass-accent-a:rgba(148,163,184,0.08)] [--morphy-glass-accent-b:rgba(226,232,240,0.08)] dark:[--morphy-glass-accent-a:rgba(63,63,70,0.16)] dark:[--morphy-glass-accent-b:rgba(82,82,91,0.14)]">
-      <main className="flex-1 pb-0">
-        {children}
-      </main>
-      <VaultMethodPrompt enabled={shouldEnableMethodPrompt} />
-      {onPlaidOauthReturnRoute ? null : <KaiNavTour />}
-    </div>
+    <RouteErrorBoundary fallbackRoute="/kai">
+      <div className="flex min-h-screen flex-col [--morphy-glass-accent-a:rgba(148,163,184,0.08)] [--morphy-glass-accent-b:rgba(226,232,240,0.08)] dark:[--morphy-glass-accent-a:rgba(63,63,70,0.16)] dark:[--morphy-glass-accent-b:rgba(82,82,91,0.14)]">
+        <main className="flex-1 pb-0">
+          {children}
+        </main>
+        <VaultMethodPrompt enabled={shouldEnableMethodPrompt} />
+        {onPlaidOauthReturnRoute ? null : <KaiNavTour />}
+      </div>
+    </RouteErrorBoundary>
   );
 
   if (onPlaidOauthReturnRoute) {

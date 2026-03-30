@@ -1,5 +1,20 @@
 # Kai Brokerage Connectivity Architecture
 
+
+## Visual Map
+
+```mermaid
+flowchart LR
+  statement["Statement Import"]
+  plaid["Plaid Read-only Connect"]
+  financial["Encrypted financial PKM"]
+  source["Active Source Selection"]
+  surfaces["Dashboard / Analysis / Optimize"]
+  statement --> financial
+  plaid --> financial
+  financial --> source --> surfaces
+```
+
 Canonical reference for how Kai handles brokerage connectivity today and how the model stays compatible with future broker execution.
 
 ## North Stars

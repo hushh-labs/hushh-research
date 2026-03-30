@@ -1,5 +1,10 @@
 # Monorepo Integration (Git Subtree)
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This guide is for teams embedding `consent-protocol` inside a host monorepo via git subtree.
 
 ## Why this exists

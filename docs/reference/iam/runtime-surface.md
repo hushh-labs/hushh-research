@@ -1,5 +1,17 @@
 # Runtime Surface
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  persona["Persona"]
+  routes["Investor / RIA / Marketplace routes"]
+  apis["/api/iam /api/ria /api/consent"]
+  tables["actor_profiles / relationships / share grants"]
+  persona --> routes --> apis --> tables
+```
+
 ## Purpose
 
 Describe the current implemented Investor + RIA runtime surface (backend + web + MCP).
@@ -60,9 +72,31 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 
 ### Consent Center
 
-1. `GET /api/consent/center`
-2. `GET /api/consent/requests/outgoing`
-3. `POST /api/consent/requests`
+1. `GET /api/consent/center` (compatibility read model)
+2. `GET /api/consent/center/summary`
+3. `GET /api/consent/center/list`
+4. `GET /api/consent/requests/outgoing`
+5. `POST /api/consent/requests`
+
+Consent-center and scope-discovery payloads may include scope display metadata for user-facing presentation:
+
+1. `scopeLabel`
+2. `scopeDescription`
+3. `scopeIconName`
+4. `scopeColorHex`
+
+These fields are presentation metadata only. Authorization still evaluates the canonical scope string.
+
+Consent-manager surface rules:
+
+1. `/consents` is the single shared consent-manager route for investor and RIA.
+2. The active persona is the default actor for both the top-shell consent inbox and `/consents`.
+3. The canonical page flow is `summary + one paginated list surface + detail panel`.
+4. `GET /api/consent/center` is not on the main `/consents` critical path.
+5. The top-shell shield is the consent inbox:
+   - badge source: `summary.counts.pending`
+   - preview rows: first `5` items from the cached `center/list?surface=pending&page=1&limit=20` payload for the active persona
+6. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
 
 ### Marketplace
 

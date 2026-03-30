@@ -74,7 +74,7 @@ describe("app route layout contract", () => {
     expect(resolveAppRouteLayoutMode("/")).toBe("hidden");
     expect(resolveAppRouteLayoutMode("/developers")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/login")).toBe("hidden");
-    expect(resolveAppRouteLayoutMode("/consents")).toBe("redirect");
+    expect(resolveAppRouteLayoutMode("/consents")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/kai")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/kai/onboarding")).toBe("flow");
     expect(resolveAppRouteLayoutMode("/kai/dashboard/analysis")).toBe("redirect");

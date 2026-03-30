@@ -1,5 +1,10 @@
 # ADR: PKM Storage and JSONB Boundaries
 
+
+## Visual Context
+
+Canonical visual owner: [Architecture Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Status
 
 Accepted.

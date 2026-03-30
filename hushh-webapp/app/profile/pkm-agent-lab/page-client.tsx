@@ -391,7 +391,7 @@ export default function PkmAgentLabPageClient() {
     [message, response]
   );
 
-  const domains = metadata?.domains || [];
+  const domains = useMemo(() => metadata?.domains || [], [metadata?.domains]);
   const totalSections = useMemo(
     () =>
       Object.values(manifests).reduce(

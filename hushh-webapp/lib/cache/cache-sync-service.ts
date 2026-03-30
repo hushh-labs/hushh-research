@@ -301,6 +301,7 @@ export class CacheSyncService {
         );
       }
       this.invalidateKaiFinancialResource(userId);
+      this.onKaiMarketContextChanged(userId);
       // IMPORTANT: Preserve existing financial portfolio cache on profile-only
       // writes (e.g. onboarding/nav-tour sync). Invalidating here causes
       // transient "import portfolio" gating despite a successful save.
@@ -416,6 +417,7 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidatePattern(`consent_center_preview_${userId}_`);
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
     cache.invalidatePattern(`consent_center_list_${userId}_`);
@@ -440,6 +442,7 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidatePattern(`consent_center_preview_${userId}_`);
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
     cache.invalidatePattern(`consent_center_list_${userId}_`);

@@ -263,19 +263,19 @@ export interface HushhVaultPlugin {
   /**
    * Legacy local preference write surface.
    * Route-facing features should use cloud-backed preference flows instead.
-   * @deprecated Compatibility-only local path.
+   * @deprecated Use cloud-backed storePreferencesToCloud instead. Retained for native plugin bridge compat.
    */
   storePreference(options: StorePreferenceOptions): Promise<void>;
 
   /**
    * Legacy local preference read surface kept for compatibility.
-   * @deprecated Compatibility-only local path.
+   * @deprecated Use cloud-backed preference endpoints instead. Retained for native plugin bridge compat.
    */
   getPreferences(options: GetPreferencesOptions): Promise<GetPreferencesResult>;
 
   /**
    * Legacy local preference delete surface kept for compatibility.
-   * @deprecated Compatibility-only local path.
+   * @deprecated Use cloud-backed preference endpoints instead. Retained for native plugin bridge compat.
    */
   deletePreferences(options: { userId: string; domain: string }): Promise<void>;
 

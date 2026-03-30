@@ -1,5 +1,10 @@
 # Backend Semantic Baseline Audit
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This audit classifies the current backend semantic surfaces against the agent-only PKM methodology.
 
 Status values:

@@ -1,5 +1,10 @@
 # PKM Cutover Runbook
 
+
+## Visual Context
+
+Canonical visual owner: [Architecture Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This is the bounded runbook for cutting Kai from legacy encrypted storage to PKM.
 
 ## Preconditions

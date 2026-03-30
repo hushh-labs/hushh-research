@@ -4,6 +4,11 @@
 > **Last Updated**: February 2026
 > **Scope**: Web (FCM), iOS/Android (Capacitor Firebase Messaging)
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## Overview

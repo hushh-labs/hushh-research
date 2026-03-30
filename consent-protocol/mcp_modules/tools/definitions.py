@@ -83,10 +83,17 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "type": "string",
                         "description": "Connector key-wrapping algorithm. Use X25519-AES256-GCM.",
                     },
+                    "scope_bundle": {
+                        "type": "string",
+                        "description": (
+                            "Pre-defined scope bundle name. Use instead of 'scope' for common use cases. "
+                            "Available: financial_overview, full_portfolio_review, risk_assessment, "
+                            "health_wellness, lifestyle_preferences."
+                        ),
+                    },
                 },
                 "required": [
                     "user_id",
-                    "scope",
                     "connector_public_key",
                     "connector_key_id",
                     "connector_wrapping_alg",

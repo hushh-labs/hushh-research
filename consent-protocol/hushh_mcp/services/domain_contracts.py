@@ -9,7 +9,10 @@ This module is the source of truth for:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -126,8 +129,15 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
 
 CANONICAL_DOMAIN_KEYS = tuple(entry.domain_key for entry in CANONICAL_DOMAIN_REGISTRY)
 
-# Legacy top-level aliases are removed in the finance-root contract.
-LEGACY_DOMAIN_ALIASES: dict[str, str] = {}
+# Legacy domain aliases: map retired keys to their canonical PKM domain.
+# These aliases allow old callers to resolve to the correct domain transparently.
+LEGACY_DOMAIN_ALIASES: dict[str, str] = {
+    "kai_profile": "financial.profile",
+    "kai_analysis_history": "financial.analysis_history",
+    "kai_decisions": "financial.analysis.decisions",
+    "kai_preferences": "financial.profile",
+    "financial_documents": "financial.documents",
+}
 RETIRED_DOMAIN_REGISTRY_KEYS: tuple[str, ...] = (
     "financial_documents",
     "kai_profile",
@@ -213,6 +223,11 @@ def resolve_domain_alias(domain_key: str) -> tuple[str, str | None]:
     canonical_target = LEGACY_DOMAIN_ALIASES.get(normalized)
     if not canonical_target:
         return normalized, None
+    logger.warning(
+        "⚠️ Legacy domain alias resolved: %s → %s (migrate callers to canonical key)",
+        normalized,
+        canonical_target,
+    )
     top_level, _, subpath = canonical_target.partition(".")
     return top_level, (subpath or None)
 

@@ -197,6 +197,7 @@ class CacheService {
         key.startsWith(`kai_market_home_${userId}_`) ||
         key.startsWith(`consent_center_${userId}_`) ||
         key.startsWith(`consent_center_summary_${userId}_`) ||
+        key.startsWith(`consent_center_preview_${userId}_`) ||
         key.startsWith(`consent_center_list_${userId}_`) ||
         key.startsWith(`ria_clients_${userId}_`) ||
         key.startsWith(`ria_client_detail_${userId}_`) ||
@@ -282,6 +283,8 @@ export const CACHE_KEYS = {
   CONSENT_CENTER: (userId: string, scopeKey: string) => `consent_center_${userId}_${scopeKey}`,
   CONSENT_CENTER_SUMMARY: (userId: string, actor: string) =>
     `consent_center_summary_${userId}_${actor}`,
+  CONSENT_CENTER_PREVIEW: (userId: string, actor: string, surface: string, top: number) =>
+    `consent_center_preview_${userId}_${actor}_${surface}_${top}`,
   CONSENT_CENTER_LIST: (
     userId: string,
     actor: string,

@@ -1,5 +1,54 @@
 # Kai Interconnection Map
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph routes["Kai route surfaces"]
+    import["/kai/import"]
+    home["/kai"]
+    portfolio["/kai/portfolio"]
+    analysis["/kai/analysis"]
+    optimize["/kai/optimize"]
+  end
+
+  subgraph frontend["Frontend runtime"]
+    flow["Import + review flows"]
+    financial["KaiFinancialResource"]
+    market["KaiMarketHomeResource"]
+    source["Portfolio source selection<br/>statement vs Plaid"]
+    stream["Debate stream + decision UI"]
+  end
+
+  subgraph backend["Backend routes and services"]
+    pkm["PKM routes / financial domain"]
+    plaid["Plaid routes + refresh services"]
+    insights["Market insights routes + cache"]
+    debate["Kai analysis stream / decision services"]
+  end
+
+  subgraph data["Persistence and providers"]
+    encrypted["Encrypted financial PKM"]
+    prefs["Source preferences + refresh runs"]
+    marketcache["Market cache tiers"]
+    providers["Plaid + market providers"]
+  end
+
+  import --> flow --> pkm --> encrypted
+  home --> market --> insights --> marketcache --> providers
+  home --> financial
+  portfolio --> financial --> pkm
+  analysis --> stream --> debate
+  analysis --> financial
+  optimize --> financial
+  source --> plaid --> prefs
+  source --> pkm
+  plaid --> providers
+  debate --> encrypted
+  financial --> encrypted
+```
+
 Single source map for how Kai surfaces are connected across routes, service layer, cache, PKM, providers, and mobile parity paths.
 
 ## Core Flows
