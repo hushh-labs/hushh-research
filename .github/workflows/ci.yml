@@ -235,7 +235,10 @@ jobs:
           cache-dependency-path: consent-protocol/requirements.txt
 
       - name: Install protocol deps for PKM gate
-        run: python3 -m pip install --disable-pip-version-check -r consent-protocol/requirements.txt
+        run: |
+          python3 -m pip install --disable-pip-version-check \
+            -r consent-protocol/requirements.txt \
+            -r consent-protocol/requirements-dev.txt
 
       - name: Run integration check script (single source of truth)
         run: bash scripts/ci/orchestrate.sh integration
