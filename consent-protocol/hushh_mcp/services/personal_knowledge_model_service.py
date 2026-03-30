@@ -305,6 +305,24 @@ class PersonalKnowledgeModelService:
         return None
 
     @staticmethod
+    def _parse_datetime(value: object, *, field_name: str) -> Optional[datetime]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=UTC)
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                return datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except Exception:
+                logger.warning("Failed to parse datetime field %s=%r", field_name, value)
+                return None
+        logger.warning("Unexpected datetime field %s type: %s", field_name, type(value).__name__)
+        return None
+
+    @staticmethod
     def _safe_json_value(value: object, fallback: object) -> object:
         try:
             json.dumps(value)
@@ -957,17 +975,25 @@ class PersonalKnowledgeModelService:
                 return None
 
             row = result.data[0]
+            last_active_at = self._parse_datetime(
+                row.get("last_active_at"),
+                field_name="pkm_index.last_active_at",
+            )
+            last_upgraded_at = self._parse_datetime(
+                row.get("last_upgraded_at"),
+                field_name="pkm_index.last_upgraded_at",
+            )
             return PersonalKnowledgeModelIndex(
                 user_id=row["user_id"],
                 domain_summaries=row.get("domain_summaries") or {},
                 available_domains=row.get("available_domains") or [],
                 computed_tags=row.get("computed_tags") or [],
                 activity_score=row.get("activity_score"),
-                last_active_at=row.get("last_active_at"),
+                last_active_at=last_active_at,
                 total_attributes=row.get("total_attributes", 0),
                 model_version=self._to_non_negative_int(row.get("model_version"))
                 or CURRENT_PKM_MODEL_VERSION,
-                last_upgraded_at=row.get("last_upgraded_at"),
+                last_upgraded_at=last_upgraded_at,
             )
         except Exception as e:
             logger.error(f"Error getting PKM index: {e}")

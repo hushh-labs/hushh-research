@@ -37,6 +37,7 @@ const HOT_ROUTES = [
   { route: "/kai", slug: "kai-market", persona: "investor" },
   { route: "/kai/portfolio", slug: "kai-portfolio", persona: "investor" },
   { route: "/kai/analysis", slug: "kai-analysis", persona: "investor" },
+  { route: "/profile", slug: "profile-investor", persona: "investor" },
   { route: "/ria", slug: "ria-home", persona: "ria" },
   { route: "/ria/clients", slug: "ria-clients", persona: "ria" },
 ];
@@ -77,6 +78,43 @@ function inferCacheSource(stageCounts) {
   return "unknown";
 }
 
+async function readNotificationTaskSnapshot(page) {
+  const trigger = page.getByRole("button", { name: /notifications/i }).first();
+  const triggerVisible = await trigger.isVisible().catch(() => false);
+  if (!triggerVisible) {
+    return {
+      available: false,
+      pkmTaskVisible: false,
+      lines: [],
+    };
+  }
+
+  await trigger.click().catch(() => undefined);
+  await page.waitForTimeout(250);
+  const menu = page.locator('[role="menu"]').last();
+  const menuVisible = await menu.isVisible().catch(() => false);
+  if (!menuVisible) {
+    return {
+      available: true,
+      pkmTaskVisible: false,
+      lines: [],
+    };
+  }
+
+  const rawText = await menu.innerText().catch(() => "");
+  await page.keyboard.press("Escape").catch(() => undefined);
+  const lines = rawText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 16);
+  return {
+    available: true,
+    pkmTaskVisible: lines.some((line) => /personal knowledge model|\bpkm\b/i.test(line)),
+    lines,
+  };
+}
+
 async function measureRoute(page, scenario, phase = "cold") {
   const resolvedPath = await resolveScenarioPath(page, scenario);
   if (!resolvedPath) {
@@ -105,6 +143,7 @@ async function measureRoute(page, scenario, phase = "cold") {
   await unlockIfNeeded(page);
   await waitForRouteSurface(page);
   await page.waitForTimeout(350);
+  const notificationSnapshot = await readNotificationTaskSnapshot(page);
 
   const audit = await collector.drain();
   const durationMs = Date.now() - startedAt;
@@ -135,6 +174,7 @@ async function measureRoute(page, scenario, phase = "cold") {
     failedRequests: audit.failedRequests,
     httpFailures: audit.httpFailures,
     pageErrors: audit.pageErrors,
+    notificationSnapshot,
   };
 }
 

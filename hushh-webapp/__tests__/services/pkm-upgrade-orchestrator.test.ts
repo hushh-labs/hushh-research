@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+process.env.NEXT_PUBLIC_APP_ENV = "development";
+process.env.NEXT_PUBLIC_PKM_UPGRADE_REHEARSAL = "true";
+process.env.NEXT_PUBLIC_KAI_TEST_USER_ID = "kai-test-user";
+
 /* ---------- mocks (before any real imports) ---------- */
 
 vi.mock("@capacitor/core", () => ({
@@ -14,6 +18,13 @@ vi.mock("@/lib/firebase/config", () => ({
   resetRecaptcha: vi.fn(),
 }));
 
+const toastSuccessMock = vi.fn();
+vi.mock("sonner", () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccessMock(...args),
+  },
+}));
+
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     apiFetch: vi.fn(),
@@ -25,11 +36,17 @@ const pkmGetDomainDataMock = vi.fn();
 const pkmLoadDomainDataMock = vi.fn();
 const pkmGetDomainManifestMock = vi.fn();
 const pkmStoreMergedDomainMock = vi.fn();
+const pkmValidatePreparedDomainStoreMock = vi.fn();
+const getSessionItemMock = vi.fn(() => null);
+const setSessionItemMock = vi.fn();
+const removeSessionItemMock = vi.fn();
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PkmDomainManifestError: class PkmDomainManifestError extends Error {
     status: number;
     detail: string | null;
     correlationId: string | null;
+    requestId: string | null;
+    traceId: string | null;
     route: string;
     userId: string;
     domain: string;
@@ -38,6 +55,8 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
       status: number;
       detail?: string | null;
       correlationId?: string | null;
+      requestId?: string | null;
+      traceId?: string | null;
       route: string;
       userId: string;
       domain: string;
@@ -51,6 +70,8 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
       this.status = params.status;
       this.detail = params.detail ?? null;
       this.correlationId = params.correlationId ?? null;
+      this.requestId = params.requestId ?? null;
+      this.traceId = params.traceId ?? null;
       this.route = params.route;
       this.userId = params.userId;
       this.domain = params.domain;
@@ -62,6 +83,7 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
     loadDomainData: (...a: unknown[]) => pkmLoadDomainDataMock(...a),
     getDomainManifest: (...a: unknown[]) => pkmGetDomainManifestMock(...a),
     storeMergedDomain: (...a: unknown[]) => pkmStoreMergedDomainMock(...a),
+    validatePreparedDomainStore: (...a: unknown[]) => pkmValidatePreparedDomainStoreMock(...a),
     emptyMetadata: vi.fn(() => ({ domains: [] })),
   },
 }));
@@ -138,8 +160,9 @@ vi.mock("@/lib/utils/session-storage", () => ({
   getLocalItem: vi.fn(() => null),
   setLocalItem: vi.fn(),
   removeLocalItem: vi.fn(),
-  getSessionItem: vi.fn(() => null),
-  setSessionItem: vi.fn(),
+  getSessionItem: (...a: unknown[]) => getSessionItemMock(...a),
+  setSessionItem: (...a: unknown[]) => setSessionItemMock(...a),
+  removeSessionItem: (...a: unknown[]) => removeSessionItemMock(...a),
 }));
 
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
@@ -158,6 +181,11 @@ const BASE_PARAMS = {
 
 function _makeUpgradeStatus(overrides?: { steps?: unknown[]; runStatus?: string }) {
   return {
+    userId: "user-upgrade-1",
+    modelVersion: 2,
+    storedModelVersion: 2,
+    effectiveModelVersion: 2,
+    targetModelVersion: 3,
     upgradeStatus: overrides?.runStatus ?? "running",
     upgradableDomains: [
       {
@@ -181,6 +209,7 @@ function _makeUpgradeStatus(overrides?: { steps?: unknown[]; runStatus?: string 
 }
 
 function setupSuccessfulUpgradeMocks() {
+  getUpgradeStatusMock.mockResolvedValue(_makeUpgradeStatus());
   startOrResumeMock.mockResolvedValue(_makeUpgradeStatus());
   updateStepMock.mockImplementation(async ({ status, checkpointPayload, attemptCount, domain }) => ({
     ..._makeUpgradeStatus({
@@ -227,6 +256,11 @@ function setupSuccessfulUpgradeMocks() {
     conflict: false,
     dataVersion: 4,
   });
+  pkmValidatePreparedDomainStoreMock.mockResolvedValue({
+    success: true,
+    message: "Validated without saving it",
+    fullBlob: { food: { upgraded: true } },
+  });
 }
 
 /* ---------- tests ---------- */
@@ -248,6 +282,11 @@ describe("PkmUpgradeOrchestrator", () => {
     (
       PkmUpgradeOrchestrator as unknown as Record<string, Set<string>>
     )["pauseRequestedByUser"] = new Set();
+    toastSuccessMock.mockReset();
+    getSessionItemMock.mockReset();
+    getSessionItemMock.mockReturnValue(null);
+    setSessionItemMock.mockReset();
+    removeSessionItemMock.mockReset();
     setupSuccessfulUpgradeMocks();
   });
 
@@ -260,8 +299,12 @@ describe("PkmUpgradeOrchestrator", () => {
 
       startOrResumeMock.mockImplementation(async () => {
         await blockingPromise;
-        // Return status with no steps to complete immediately
         return {
+          userId: "user-upgrade-1",
+          modelVersion: 3,
+          storedModelVersion: 3,
+          effectiveModelVersion: 3,
+          targetModelVersion: 3,
           upgradeStatus: "current",
           upgradableDomains: [],
           run: null,
@@ -276,6 +319,7 @@ describe("PkmUpgradeOrchestrator", () => {
       await Promise.all([call1, call2]);
 
       // startOrResume should only be called once
+      expect(getUpgradeStatusMock).toHaveBeenCalledTimes(1);
       expect(startOrResumeMock).toHaveBeenCalledTimes(1);
     });
   });
@@ -313,7 +357,12 @@ describe("PkmUpgradeOrchestrator", () => {
 
   describe("completion cleanup", () => {
     it("clears in-flight entry on completion", async () => {
-      startOrResumeMock.mockResolvedValue({
+      getUpgradeStatusMock.mockResolvedValue({
+        userId: "user-upgrade-1",
+        modelVersion: 3,
+        storedModelVersion: 3,
+        effectiveModelVersion: 3,
+        targetModelVersion: 3,
         upgradeStatus: "current",
         upgradableDomains: [],
         run: null,
@@ -322,16 +371,23 @@ describe("PkmUpgradeOrchestrator", () => {
       await PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS);
 
       // After completion, the in-flight map should be empty for this user.
-      // Calling ensureRunning again should trigger a new startOrResume call.
+      // Calling ensureRunning again should trigger a fresh status read, but not a start/resume call.
       startOrResumeMock.mockClear();
-      startOrResumeMock.mockResolvedValue({
+      getUpgradeStatusMock.mockClear();
+      getUpgradeStatusMock.mockResolvedValue({
+        userId: "user-upgrade-1",
+        modelVersion: 3,
+        storedModelVersion: 3,
+        effectiveModelVersion: 3,
+        targetModelVersion: 3,
         upgradeStatus: "current",
         upgradableDomains: [],
         run: null,
       });
 
       await PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS);
-      expect(startOrResumeMock).toHaveBeenCalledTimes(1);
+      expect(getUpgradeStatusMock).toHaveBeenCalledTimes(1);
+      expect(startOrResumeMock).not.toHaveBeenCalled();
     });
   });
 
@@ -362,7 +418,7 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(AppBackgroundTaskService.failTask).toHaveBeenCalledWith(
         expect.stringContaining("pkm_upgrade_"),
         expect.stringContaining("Manifest read failed (500)"),
-        expect.stringContaining("PKM refresh"),
+        expect.stringContaining("We paused while updating"),
         expect.objectContaining({
           domain: "food",
           stage: "run",
@@ -371,6 +427,149 @@ describe("PkmUpgradeOrchestrator", () => {
         })
       );
       expect(failRunMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Kai no-write rehearsal", () => {
+    it("keeps the normal Kai login path on real upgrades by default", async () => {
+      const kaiParams = {
+        ...BASE_PARAMS,
+        userId: "kai-test-user",
+      };
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(kaiParams)).resolves.toBeUndefined();
+
+      expect(getUpgradeStatusMock).toHaveBeenCalledTimes(1);
+      expect(startOrResumeMock).toHaveBeenCalledTimes(1);
+      expect(pkmValidatePreparedDomainStoreMock).not.toHaveBeenCalled();
+      expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
+      expect(toastSuccessMock).toHaveBeenCalledWith(
+        "Personal Knowledge Model updated",
+        expect.objectContaining({
+          description: "Your Personal Knowledge Model is current.",
+        })
+      );
+    });
+
+    it("rehearses the upgrade for the Kai test user without writing PKM rows", async () => {
+      const kaiParams = {
+        ...BASE_PARAMS,
+        userId: "kai-test-user",
+      };
+      getSessionItemMock.mockReturnValue("true");
+      startOrResumeMock.mockReset();
+      getUpgradeStatusMock.mockResolvedValue({
+        userId: "kai-test-user",
+        modelVersion: 2,
+        storedModelVersion: 2,
+        effectiveModelVersion: 2,
+        targetModelVersion: 3,
+        upgradeStatus: "ready",
+        upgradableDomains: [
+          {
+            domain: "food",
+            needsUpgrade: true,
+            currentDomainContractVersion: 1,
+            targetDomainContractVersion: 2,
+            currentReadableSummaryVersion: 0,
+            targetReadableSummaryVersion: 1,
+          },
+        ],
+        lastUpgradedAt: null,
+        run: null,
+      });
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(kaiParams)).resolves.toBeUndefined();
+
+      expect(getUpgradeStatusMock).toHaveBeenCalledTimes(1);
+      expect(startOrResumeMock).not.toHaveBeenCalled();
+      expect(pkmValidatePreparedDomainStoreMock).toHaveBeenCalledTimes(1);
+      expect(pkmStoreMergedDomainMock).not.toHaveBeenCalled();
+      expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
+        expect.stringContaining("pkm_upgrade_"),
+        expect.stringContaining("no-write upgrade check"),
+        expect.objectContaining({
+          dummySaveValidated: true,
+          mode: "rehearsal_no_write",
+        })
+      );
+    });
+
+    it("stays quiet when rehearsal is enabled but no upgrade is actually required", async () => {
+      const kaiParams = {
+        ...BASE_PARAMS,
+        userId: "kai-test-user",
+      };
+      getSessionItemMock.mockReturnValue("true");
+      startOrResumeMock.mockReset();
+      getUpgradeStatusMock.mockResolvedValue({
+        userId: "kai-test-user",
+        modelVersion: 3,
+        storedModelVersion: 3,
+        effectiveModelVersion: 3,
+        targetModelVersion: 3,
+        upgradeStatus: "current",
+        upgradableDomains: [],
+        lastUpgradedAt: "2026-03-30T12:24:42.000Z",
+        run: null,
+      });
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(kaiParams)).resolves.toBeUndefined();
+
+      expect(getUpgradeStatusMock).toHaveBeenCalledTimes(1);
+      expect(startOrResumeMock).not.toHaveBeenCalled();
+      expect(pkmValidatePreparedDomainStoreMock).not.toHaveBeenCalled();
+      expect(AppBackgroundTaskService.startTask).not.toHaveBeenCalled();
+      expect(AppBackgroundTaskService.completeTask).not.toHaveBeenCalled();
+    });
+
+    it("shows a background task for metadata-only PKM reconciliation and toasts on completion", async () => {
+      const kaiParams = {
+        ...BASE_PARAMS,
+        userId: "kai-test-user",
+      };
+      getUpgradeStatusMock.mockResolvedValue({
+        userId: "kai-test-user",
+        modelVersion: 3,
+        storedModelVersion: 2,
+        effectiveModelVersion: 3,
+        targetModelVersion: 3,
+        upgradeStatus: "current",
+        upgradableDomains: [],
+        lastUpgradedAt: "2026-03-30T12:24:42.000Z",
+        run: null,
+      });
+      startOrResumeMock.mockResolvedValue({
+        userId: "kai-test-user",
+        modelVersion: 3,
+        storedModelVersion: 3,
+        effectiveModelVersion: 3,
+        targetModelVersion: 3,
+        upgradeStatus: "current",
+        upgradableDomains: [],
+        lastUpgradedAt: "2026-03-30T12:24:42.000Z",
+        run: null,
+      });
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(kaiParams)).resolves.toBeUndefined();
+
+      expect(AppBackgroundTaskService.startTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "pkm_upgrade",
+          title: "Updating your Personal Knowledge Model",
+        })
+      );
+      expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
+        expect.stringContaining("pkm_upgrade_"),
+        "Your Personal Knowledge Model is current.",
+        null
+      );
+      expect(toastSuccessMock).toHaveBeenCalledWith(
+        "Personal Knowledge Model updated",
+        expect.objectContaining({
+          description: "Your Personal Knowledge Model is current.",
+        })
+      );
     });
   });
 });

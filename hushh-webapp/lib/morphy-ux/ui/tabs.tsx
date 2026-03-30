@@ -37,12 +37,12 @@ function TabsTrigger({
 }: TabsTriggerProps) {
   return (
     <StockTabsTrigger
-      className={cn("relative overflow-hidden", className)}
+      className={cn("relative isolate overflow-hidden", className)}
       {...props}
     >
-      <span className="relative z-10 inline-flex items-center gap-1.5">{children}</span>
+      <span className="relative z-0 inline-flex items-center gap-1.5">{children}</span>
       {showRipple ? (
-        <MaterialRipple variant="none" effect="fade" className="z-0" />
+        <MaterialRipple variant="none" effect="fade" className="z-10" />
       ) : null}
     </StockTabsTrigger>
   );

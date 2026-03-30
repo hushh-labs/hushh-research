@@ -83,6 +83,61 @@ function appTaskStatusIcon(task: AppBackgroundTask) {
   return <Icon icon={XCircle} size="sm" className="text-rose-500" />;
 }
 
+function appTaskStatusItems(task: AppBackgroundTask): string[] {
+  const metadata =
+    task.metadata && typeof task.metadata === "object"
+      ? (task.metadata as Record<string, unknown>)
+      : null;
+  const rawItems = metadata?.statusItems;
+  if (!Array.isArray(rawItems)) {
+    return [];
+  }
+  return rawItems
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function appTaskTimingSummary(task: AppBackgroundTask): string | null {
+  const metadata =
+    task.metadata && typeof task.metadata === "object"
+      ? (task.metadata as Record<string, unknown>)
+      : null;
+  const timings =
+    metadata?.timings && typeof metadata.timings === "object"
+      ? (metadata.timings as Record<string, unknown>)
+      : null;
+  if (!timings) {
+    return null;
+  }
+  const totalMs = typeof timings.totalMs === "number" ? Math.round(timings.totalMs) : null;
+  const manifestMs =
+    typeof timings.manifestReadMs === "number" ? Math.round(timings.manifestReadMs) : null;
+  const decryptMs =
+    typeof timings.decryptLoadMs === "number" ? Math.round(timings.decryptLoadMs) : null;
+  const transformMs =
+    typeof timings.transformMs === "number" ? Math.round(timings.transformMs) : null;
+  const validationMs =
+    typeof timings.validationMs === "number" ? Math.round(timings.validationMs) : null;
+  if (
+    totalMs === null &&
+    manifestMs === null &&
+    decryptMs === null &&
+    transformMs === null &&
+    validationMs === null
+  ) {
+    return null;
+  }
+  const parts = [
+    totalMs !== null ? `Total ${totalMs}ms` : null,
+    manifestMs !== null ? `manifest ${manifestMs}ms` : null,
+    decryptMs !== null ? `unlock ${decryptMs}ms` : null,
+    transformMs !== null ? `rebuild ${transformMs}ms` : null,
+    validationMs !== null ? `dummy save ${validationMs}ms` : null,
+  ].filter((item): item is string => typeof item === "string");
+  return parts.join(" • ");
+}
+
 interface DebateTaskCenterProps {
   triggerClassName?: string;
 }
@@ -274,6 +329,20 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
           <p className="mt-1 text-xs text-muted-foreground">
             {task.description}
           </p>
+          {appTaskStatusItems(task).length > 0 ? (
+            <div className="mt-2 space-y-1">
+              {appTaskStatusItems(task).map((item) => (
+                <p key={item} className="text-[11px] text-muted-foreground">
+                  {item}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          {appTaskTimingSummary(task) ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {appTaskTimingSummary(task)}
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-muted-foreground">
             Started {new Date(task.startedAt).toLocaleTimeString()}
           </p>
@@ -475,7 +544,7 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-foreground">Background activity</p>
                       <p className="text-xs text-muted-foreground">
-                        Cache refreshes and warm work stay here unless something fails.
+                        Small refreshes stay here unless something needs your attention.
                       </p>
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">

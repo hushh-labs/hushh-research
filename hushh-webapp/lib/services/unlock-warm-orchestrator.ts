@@ -255,13 +255,20 @@ export class UnlockWarmOrchestrator {
       warmPriority === "consents" ||
       warmPriority === "profile" ||
       warmPriority === "default";
+    const statusItems = [
+      shouldWarmFinancial || shouldHydrateFinancialCacheOnly ? "Getting your portfolio data ready" : null,
+      shouldWarmMetadata ? "Refreshing your profile details" : null,
+      shouldWarmConsents ? "Refreshing your consent list" : null,
+      shouldWarmMarket ? "Updating market snapshots" : null,
+      warmPriority === "default" ? "Refreshing advisor workspace summaries" : null,
+    ].filter((item): item is string => typeof item === "string");
     const taskId = `${UNLOCK_WARM_TASK_KIND}_${params.userId}_${warmPriority}`;
     AppBackgroundTaskService.startTask({
       taskId,
       userId: params.userId,
       kind: UNLOCK_WARM_TASK_KIND,
-      title: "Refreshing signed-in workspace",
-      description: "Warming secure data and cached views in the background.",
+      title: "Getting your workspace ready",
+      description: "Kai is refreshing saved views in the background.",
       visibility: "passive",
       groupLabel: "Background activity",
       visibleAfterMs: PASSIVE_TASK_VISIBLE_AFTER_MS,
@@ -269,6 +276,7 @@ export class UnlockWarmOrchestrator {
       metadata: {
         routePath: params.routePath || null,
         warmPriority,
+        statusItems,
       },
     });
     try {
@@ -474,10 +482,11 @@ export class UnlockWarmOrchestrator {
     }
     AppBackgroundTaskService.completeTask(
       taskId,
-      "Background activity is current.",
+      "Background activity is up to date.",
       {
         routePath: params.routePath || null,
         warmPriority,
+        statusItems,
         result,
       }
     );
@@ -490,6 +499,7 @@ export class UnlockWarmOrchestrator {
       {
         routePath: params.routePath || null,
         warmPriority,
+        statusItems,
       }
     );
     throw error;

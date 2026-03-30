@@ -5,7 +5,7 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
@@ -74,6 +74,9 @@ from api.routes.pkm_routes_shared import (
 from api.routes.pkm_routes_shared import (
     update_upgrade_step as _update_upgrade_step,
 )
+from api.routes.pkm_routes_shared import (
+    validate_store_domain as _validate_store_domain,
+)
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
@@ -116,6 +119,14 @@ async def store_domain(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _store_domain(request, token_data)
+
+
+@router.post("/store-domain/validate", response_model=StoreDomainResponse)
+async def validate_store_domain(
+    payload: dict = Body(...),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _validate_store_domain(payload, token_data)
 
 
 @router.get("/data/{user_id}", response_model=dict)

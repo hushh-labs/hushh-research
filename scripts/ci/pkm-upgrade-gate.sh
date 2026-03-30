@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+WEB_DIR="$REPO_ROOT/hushh-webapp"
+PROTOCOL_DIR="$REPO_ROOT/consent-protocol"
+RUNTIME_BASE_URL="${PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL:-}"
+
+FRONTEND_TESTS=(
+  "__tests__/services/pkm-upgrade-orchestrator.test.ts"
+  "__tests__/services/pkm-prepared-blob-store.test.ts"
+  "__tests__/services/pkm-write-coordinator.test.ts"
+  "__tests__/services/pkm-natural-language.test.ts"
+  "__tests__/services/unlock-warm-orchestrator.test.ts"
+  "__tests__/services/ria-onboarding-flow.test.ts"
+  "__tests__/api/consent/api-service-consent.test.ts"
+  "__tests__/api/consent/events-proxy.test.ts"
+  "__tests__/utils/top-shell-breadcrumbs.test.ts"
+)
+
+BACKEND_TESTS=(
+  "tests/test_pkm_upgrade_routes.py"
+  "tests/test_pkm_upgrade_service.py"
+  "tests/services/test_pkm_service_store_domain_data.py"
+  "tests/services/test_pkm_agent_lab_service.py"
+  "tests/services/test_portfolio_import_relevance.py"
+  "tests/test_scope_helpers_dynamic.py"
+  "tests/test_consent_scope_upgrade.py"
+  "tests/test_ria_iam_routes.py"
+  "tests/test_ria_iam_service_architecture.py"
+  "tests/test_kai_optimize_realtime_contract.py"
+  "tests/test_kai_stream_context_gate.py"
+  "tests/test_kai_stream_contract.py"
+)
+
+PLAYWRIGHT_SPECS=(
+  "scripts/playwright/pkm-migration-audit.spec.js"
+  "scripts/playwright/investor-onboarding-flow.spec.js"
+  "scripts/playwright/ria-onboarding-flow.spec.js"
+)
+
+echo "== PKM Upgrade Gate =="
+echo "Running frontend contract/orchestration suites..."
+cd "$WEB_DIR"
+npx vitest run "${FRONTEND_TESTS[@]}"
+
+echo "Running backend compatibility and consent/RIA suites..."
+cd "$PROTOCOL_DIR"
+PYTHONPATH=. .venv/bin/pytest -q "${BACKEND_TESTS[@]}"
+
+if [ -n "$RUNTIME_BASE_URL" ]; then
+  echo "Running live runtime audits against $RUNTIME_BASE_URL ..."
+  cd "$WEB_DIR"
+  for spec in "${PLAYWRIGHT_SPECS[@]}"; do
+    BASE_URL="$RUNTIME_BASE_URL" npx playwright test "$spec"
+  done
+else
+  echo "Skipping live runtime audits. Set PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL to run Playwright investor/RIA/PKM audits."
+fi
+
+echo "✅ PKM upgrade gate passed."

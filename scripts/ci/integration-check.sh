@@ -8,6 +8,7 @@ CI_DOCS_PARITY_REQUIRED="${CI_DOCS_PARITY_REQUIRED:-0}"
 
 bash "$REPO_ROOT/scripts/ci/no-ria-feature-flags.sh"
 bash "$REPO_ROOT/scripts/ci/runtime-contract-check.sh"
+bash "$REPO_ROOT/scripts/ci/pkm-upgrade-gate.sh"
 
 cd "$WEB_DIR"
 

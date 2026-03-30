@@ -450,6 +450,13 @@ async function waitForRouteSurface(page) {
 async function ensurePersona(page, persona) {
   const targetRoute = persona === "ria" ? "/ria" : "/kai";
   let label = page.locator('[data-testid="top-app-bar-title"]').first();
+  const initialLabelVisible = await label.isVisible().catch(() => false);
+  if (!initialLabelVisible) {
+    await gotoStable(page, targetRoute);
+    await waitForRouteSurface(page);
+    await page.waitForTimeout(600);
+  }
+  label = page.locator('[data-testid="top-app-bar-title"]').first();
   await label.waitFor({ state: "visible", timeout: 15000 });
   let current = ((await label.textContent()) || "").trim().toLowerCase();
 

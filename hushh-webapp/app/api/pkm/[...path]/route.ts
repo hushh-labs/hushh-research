@@ -75,6 +75,10 @@ async function proxyPkmRequest(
       return {
         status: response.status,
         payload,
+        correlationId: response.headers.get("x-correlation-id"),
+        traceId:
+          response.headers.get("x-cloud-trace-context") ||
+          response.headers.get("x-trace-id"),
       };
     })();
 
@@ -94,8 +98,16 @@ async function proxyPkmRequest(
       }
     }
 
+    const responseHeaders: Record<string, string> = {};
+    if (result.correlationId) {
+      responseHeaders["x-correlation-id"] = result.correlationId;
+    }
+    if (result.traceId) {
+      responseHeaders["x-cloud-trace-context"] = result.traceId;
+    }
     return withRequestIdJson(requestId, result.payload, {
       status: result.status,
+      headers: responseHeaders,
     });
   } catch (error) {
     console.error(`[PKM API] request_id=${requestId} method=${method} proxy_error`, error);

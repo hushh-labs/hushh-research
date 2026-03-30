@@ -33,9 +33,16 @@ export function PkmUpgradeStatusCard({
   vaultUnlocked = false,
   showRecoveryAction = false,
 }: Props) {
+  const run = status?.run ?? null;
   const isRecoverable = status?.upgradeStatus === "failed";
   const showResume = Boolean(status && isRecoverable && showRecoveryAction && onResume);
   const upgradableDomains = status?.upgradableDomains || [];
+  const hasCurrentTruth = status?.upgradeStatus === "current" && upgradableDomains.length === 0;
+  const showCurrentDomain = Boolean(run?.currentDomain && !hasCurrentTruth);
+  const showLatestIssue = Boolean(run?.lastError && !hasCurrentTruth);
+  const versionBadgeLabel = hasCurrentTruth
+    ? `v${status?.effectiveModelVersion ?? status?.modelVersion ?? "?"} current`
+    : `v${status?.storedModelVersion ?? status?.modelVersion ?? "?"} -> v${status?.targetModelVersion ?? "?"}`;
 
   return (
     <SurfaceInset className="rounded-[28px] border border-border/50 bg-background/85 p-5 shadow-sm">
@@ -59,7 +66,7 @@ export function PkmUpgradeStatusCard({
               : status?.upgradeStatus === "current"
                 ? "Your Personal Knowledge Model is current. Kai is using the latest encrypted structure for your saved memories."
                 : status?.upgradeStatus === "awaiting_local_auth_resume"
-                  ? "Kai is waiting for the next local vault unlock so the PKM refresh can resume automatically."
+                  ? "Kai is waiting for the next local vault unlock so the PKM upgrade can resume automatically."
                   : status?.upgradeStatus === "running"
                     ? "Kai is refreshing your encrypted Personal Knowledge Model in the background while you keep using the app."
                     : status?.upgradeStatus === "failed"
@@ -68,7 +75,7 @@ export function PkmUpgradeStatusCard({
           </p>
         </div>
         <Badge variant="secondary" className="rounded-full px-3 py-1">
-          v{status?.modelVersion ?? "?"} / v{status?.targetModelVersion ?? "?"}
+          {versionBadgeLabel}
         </Badge>
       </div>
 
@@ -99,7 +106,7 @@ export function PkmUpgradeStatusCard({
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Resume upgrade
+            Retry upgrade
           </Button>
         ) : null}
         {showResume && !vaultUnlocked && onUnlock ? (
@@ -107,9 +114,9 @@ export function PkmUpgradeStatusCard({
             Unlock to retry
           </Button>
         ) : null}
-        {status?.run?.currentDomain ? (
+        {showCurrentDomain ? (
           <p className="text-xs text-muted-foreground">
-            Current domain: {humanizeDomain(status.run.currentDomain)}
+            Current domain: {humanizeDomain(run?.currentDomain || "")}
           </p>
         ) : null}
         {status?.lastUpgradedAt ? (
@@ -118,6 +125,29 @@ export function PkmUpgradeStatusCard({
           </p>
         ) : null}
       </div>
+      {showLatestIssue ? (
+        <div className="mt-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-600/90">
+            Latest upgrade issue
+          </p>
+          <p className="mt-1 text-sm text-foreground">{run?.lastError}</p>
+          {run?.errorContext?.stage ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Stage: {run.errorContext.stage}
+            </p>
+          ) : null}
+          {run?.errorContext?.correlationId ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Correlation: {run.errorContext.correlationId}
+            </p>
+          ) : null}
+          {run?.errorContext?.manifestRoute ? (
+            <p className="mt-1 break-all text-xs text-muted-foreground">
+              Route: {run.errorContext.manifestRoute}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </SurfaceInset>
   );
 }

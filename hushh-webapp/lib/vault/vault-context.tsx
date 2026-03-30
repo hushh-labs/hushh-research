@@ -26,6 +26,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -91,6 +92,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // VAULT_OWNER consent token (also memory-only for security)
   const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
   const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+  const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
 
   const lockVault = useCallback(() => {
     console.log("🔒 Vault locked (key + token cleared from memory)");
@@ -108,6 +110,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     setVaultKey(null);
     setVaultOwnerToken(null);
     setTokenExpiresAt(null);
+    lastUpgradeKickoffKeyRef.current = null;
 
     if (user?.uid) {
       CacheSyncService.onVaultStateChanged(user.uid);
@@ -202,6 +205,27 @@ export function VaultProvider({ children }: VaultProviderProps) {
       )
       .catch(() => null);
   }, [user?.uid, vaultKey]);
+
+  useEffect(() => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      return;
+    }
+
+    const kickoffKey = `${user.uid}:${vaultOwnerToken}`;
+    if (lastUpgradeKickoffKeyRef.current === kickoffKey) {
+      return;
+    }
+    lastUpgradeKickoffKeyRef.current = kickoffKey;
+
+    void PkmUpgradeOrchestrator.ensureRunning({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+      initiatedBy: "app_entry",
+    }).catch((error) => {
+      console.warn("[VaultProvider] PKM upgrade orchestration failed during app entry:", error);
+    });
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
 
   /**
    * Prefetch common data after vault unlock to speed up page loads.

@@ -14,6 +14,21 @@ export class PkmUpgradeRouteUnavailableError extends Error {
   }
 }
 
+export type PkmUpgradeMode = "real" | "rehearsal_no_write";
+
+export type PkmUpgradeErrorContext = {
+  stage: string | null;
+  domain: string | null;
+  httpStatus: number | null;
+  detail: string | null;
+  correlationId: string | null;
+  requestId: string | null;
+  traceId: string | null;
+  clientRoute: string | null;
+  manifestRoute: string | null;
+  mode: PkmUpgradeMode | null;
+};
+
 export type PkmUpgradeStep = {
   runId: string;
   domain: string;
@@ -34,6 +49,7 @@ export type PkmUpgradeRun = {
   runId: string;
   userId: string;
   status: string;
+  mode: PkmUpgradeMode;
   fromModelVersion: number;
   toModelVersion: number;
   currentDomain: string | null;
@@ -43,6 +59,7 @@ export type PkmUpgradeRun = {
   lastCheckpointAt: string | null;
   completedAt: string | null;
   lastError: string | null;
+  errorContext: PkmUpgradeErrorContext | null;
   createdAt: string | null;
   updatedAt: string | null;
   steps: PkmUpgradeStep[];
@@ -51,12 +68,66 @@ export type PkmUpgradeRun = {
 export type PkmUpgradeStatus = {
   userId: string;
   modelVersion: number;
+  storedModelVersion: number;
+  effectiveModelVersion: number;
   targetModelVersion: number;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
   lastUpgradedAt: string | null;
   run: PkmUpgradeRun | null;
 };
+
+function mapErrorContext(
+  payload: Record<string, unknown> | null | undefined
+): PkmUpgradeErrorContext | null {
+  if (!payload || typeof payload !== "object") return null;
+  const modeValue = String(payload.mode || "").trim();
+  return {
+    stage: typeof payload.stage === "string" ? payload.stage : null,
+    domain: typeof payload.domain === "string" ? payload.domain : null,
+    httpStatus:
+      typeof payload.http_status === "number"
+        ? payload.http_status
+        : typeof payload.httpStatus === "number"
+          ? payload.httpStatus
+          : null,
+    detail: typeof payload.detail === "string" ? payload.detail : null,
+    correlationId:
+      typeof payload.correlation_id === "string"
+        ? payload.correlation_id
+        : typeof payload.correlationId === "string"
+          ? payload.correlationId
+          : null,
+    requestId:
+      typeof payload.request_id === "string"
+        ? payload.request_id
+        : typeof payload.requestId === "string"
+          ? payload.requestId
+          : null,
+    traceId:
+      typeof payload.trace_id === "string"
+        ? payload.trace_id
+        : typeof payload.traceId === "string"
+          ? payload.traceId
+          : null,
+    clientRoute:
+      typeof payload.client_route === "string"
+        ? payload.client_route
+        : typeof payload.clientRoute === "string"
+          ? payload.clientRoute
+          : null,
+    manifestRoute:
+      typeof payload.manifest_route === "string"
+        ? payload.manifest_route
+        : typeof payload.manifestRoute === "string"
+          ? payload.manifestRoute
+          : null,
+    mode:
+      modeValue === "rehearsal_no_write" || modeValue === "real"
+        ? modeValue
+        : null,
+  };
+}
 
 function authHeaders(vaultOwnerToken?: string): HeadersInit {
   return vaultOwnerToken ? { Authorization: `Bearer ${vaultOwnerToken}` } : {};
@@ -107,6 +178,10 @@ function mapRun(run: Record<string, unknown> | null | undefined): PkmUpgradeRun 
     runId: String(run.run_id || ""),
     userId: String(run.user_id || ""),
     status: String(run.status || "planned"),
+    mode:
+      String(run.mode || "real").trim() === "rehearsal_no_write"
+        ? "rehearsal_no_write"
+        : "real",
     fromModelVersion: Number(run.from_model_version || 1),
     toModelVersion: Number(run.to_model_version || 1),
     currentDomain: typeof run.current_domain === "string" ? run.current_domain : null,
@@ -117,6 +192,11 @@ function mapRun(run: Record<string, unknown> | null | undefined): PkmUpgradeRun 
       typeof run.last_checkpoint_at === "string" ? run.last_checkpoint_at : null,
     completedAt: typeof run.completed_at === "string" ? run.completed_at : null,
     lastError: typeof run.last_error === "string" ? run.last_error : null,
+    errorContext: mapErrorContext(
+      run.error_context && typeof run.error_context === "object"
+        ? (run.error_context as Record<string, unknown>)
+        : null
+    ),
     createdAt: typeof run.created_at === "string" ? run.created_at : null,
     updatedAt: typeof run.updated_at === "string" ? run.updated_at : null,
     steps: Array.isArray(run.steps)
@@ -131,6 +211,10 @@ function mapStatus(payload: Record<string, unknown>): PkmUpgradeStatus {
   return {
     userId: String(payload.user_id || ""),
     modelVersion: Number(payload.model_version || 1),
+    storedModelVersion: Number(payload.stored_model_version || payload.model_version || 1),
+    effectiveModelVersion: Number(
+      payload.effective_model_version || payload.model_version || 1
+    ),
     targetModelVersion: Number(payload.target_model_version || 1),
     upgradeStatus: String(payload.upgrade_status || "current"),
     upgradableDomains: Array.isArray(payload.upgradable_domains)
@@ -221,6 +305,7 @@ export class PkmUpgradeService {
     userId: string;
     vaultOwnerToken?: string;
     initiatedBy?: string;
+    mode?: PkmUpgradeMode;
   }): Promise<PkmUpgradeStatus> {
     this.invalidateStatus(params.userId);
     return requestStatus(
@@ -234,6 +319,7 @@ export class PkmUpgradeService {
         body: JSON.stringify({
           user_id: params.userId,
           initiated_by: params.initiatedBy || "unlock_warm",
+          mode: params.mode || "real",
         }),
       },
       "Failed to start or resume PKM upgrade"
@@ -249,6 +335,7 @@ export class PkmUpgradeService {
     status: string;
     currentDomain?: string | null;
     lastError?: string | null;
+    errorContext?: Record<string, unknown> | null;
     vaultOwnerToken?: string;
   }): Promise<PkmUpgradeStatus> {
     this.invalidateStatus(params.userId);
@@ -265,6 +352,7 @@ export class PkmUpgradeService {
           status: params.status,
           current_domain: params.currentDomain || null,
           last_error: params.lastError || null,
+          error_context: params.errorContext || null,
         }),
       },
       "Failed to update PKM upgrade run"
@@ -339,6 +427,7 @@ export class PkmUpgradeService {
     runId: string;
     userId: string;
     lastError?: string | null;
+    errorContext?: Record<string, unknown> | null;
     vaultOwnerToken?: string;
   }): Promise<PkmUpgradeStatus> {
     this.invalidateStatus(params.userId);
@@ -354,6 +443,7 @@ export class PkmUpgradeService {
           user_id: params.userId,
           status: "failed",
           last_error: params.lastError || null,
+          error_context: params.errorContext || null,
         }),
       },
       "Failed to fail PKM upgrade run"

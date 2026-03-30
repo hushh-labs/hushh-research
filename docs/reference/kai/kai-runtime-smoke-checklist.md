@@ -33,6 +33,10 @@ Use this lightweight checklist instead of expanding automated test coverage.
    - blob domains align with index/registry,
    - `financial` canonical summary count is non-zero when holdings exist,
    - debate context readiness is `true`.
+3. For local/UAT Kai drill runs, confirm the no-write PKM rehearsal:
+   - starts automatically after sign-in + unlock,
+   - records timing in the task center,
+   - validates the dummy save without mutating the real PKM rows.
 
 ## 3) /kai Cache + UX
 1. Open `/kai` and note initial load time.
@@ -55,6 +59,22 @@ Use this lightweight checklist instead of expanding automated test coverage.
 2. Confirm quick recommendation card appears with final decision.
 3. Confirm decision card PKM context shows non-zero holdings count when applicable.
 4. If providers degrade, confirm degraded messaging appears without hard failure.
+
+## 4a) Post-upgrade regression gate
+1. After the PKM upgrade or no-write rehearsal finishes, confirm these still work on the upgraded contract:
+   - dummy save validation,
+   - PDF import,
+   - Plaid connect / refresh,
+   - portfolio optimize,
+   - debate over upgraded data,
+   - frontend portfolio/dashboard mapping,
+   - RIA workspace sanity,
+   - consent save + export refresh,
+   - dynamic scope expansion,
+   - simplified permission bundle rendering.
+2. Treat any break in this list as a release blocker for PKM rollout.
+3. The automated counterpart for this checklist is [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh).
+4. When a live runtime base URL is available, run the same gate with `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL=<base-url>` so the investor onboarding, PKM migration, and RIA onboarding browser audits execute against the runtime you plan to trust.
 
 ## 5) Toast Readability
 1. Trigger success/warning/error toasts over rich backgrounds.

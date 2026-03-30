@@ -60,6 +60,35 @@ class PkmUpgradeService:
                 return default
         return default
 
+    @staticmethod
+    def _coerce_datetime(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=UTC)
+            return value.astimezone(UTC)
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+            except Exception:
+                return None
+        return None
+
+    def _latest_domain_upgrade_at(self, domain_states: list[dict[str, Any]]) -> datetime | None:
+        candidates = [
+            upgraded_at
+            for upgraded_at in (
+                self._coerce_datetime(domain_state.get("upgraded_at"))
+                for domain_state in domain_states
+            )
+            if upgraded_at is not None
+        ]
+        if not candidates:
+            return None
+        return max(candidates)
+
     def _normalize_run(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(row, dict):
             return None
@@ -78,6 +107,7 @@ class PkmUpgradeService:
             "last_checkpoint_at": row.get("last_checkpoint_at"),
             "completed_at": row.get("completed_at"),
             "last_error": self._clean_text(row.get("last_error")),
+            "mode": self._clean_text(row.get("mode")) or "real",
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
         }
@@ -107,6 +137,75 @@ class PkmUpgradeService:
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
         }
+
+    def _normalize_error_context(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+
+        normalized: dict[str, Any] = {}
+        text_fields = (
+            "stage",
+            "domain",
+            "detail",
+            "correlation_id",
+            "request_id",
+            "trace_id",
+            "client_route",
+            "manifest_route",
+            "mode",
+        )
+        for key in text_fields:
+            cleaned = self._clean_text(value.get(key))
+            if cleaned:
+                normalized[key] = cleaned
+
+        http_status = value.get("http_status")
+        if http_status is not None:
+            normalized["http_status"] = self._to_int(http_status, 0)
+
+        return normalized or None
+
+    def _extract_run_error_context(
+        self,
+        run: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(run, dict):
+            return None
+
+        steps = run.get("steps") or []
+        current_domain = self._clean_text(run.get("current_domain"))
+        candidates: list[dict[str, Any]] = []
+        if current_domain:
+            current_step = next(
+                (
+                    step
+                    for step in steps
+                    if isinstance(step, dict) and step.get("domain") == current_domain
+                ),
+                None,
+            )
+            if current_step:
+                candidates.append(current_step)
+        candidates.extend(
+            step
+            for step in steps
+            if isinstance(step, dict) and step not in candidates and step.get("status") == "failed"
+        )
+
+        for step in candidates:
+            checkpoint_payload = step.get("checkpoint_payload")
+            if not isinstance(checkpoint_payload, dict):
+                continue
+            error_context = self._normalize_error_context(checkpoint_payload.get("error_context"))
+            if error_context:
+                if "domain" not in error_context and step.get("domain"):
+                    error_context["domain"] = step.get("domain")
+                stage = self._clean_text(checkpoint_payload.get("stage"))
+                if stage and "stage" not in error_context:
+                    error_context["stage"] = stage
+                return error_context
+
+        return None
 
     def _sort_runs(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
@@ -175,7 +274,10 @@ class PkmUpgradeService:
             except Exception:
                 available_domains = []
 
-        current_model_version = self._to_int(getattr(index, "model_version", None), 2)
+        stored_model_version = self._to_int(
+            getattr(index, "model_version", None),
+            max(CURRENT_PKM_MODEL_VERSION - 1, 1),
+        )
         domain_states: list[dict[str, Any]] = []
         domain_summaries = index.domain_summaries if index else {}
         for domain in sorted(available_domains):
@@ -190,15 +292,15 @@ class PkmUpgradeService:
             summary_readable_version = summary.get("readable_summary_version")
             manifest_readable_version = manifest.get("readable_summary_version")
             current_domain_version = self._to_int(
-                summary_domain_version
-                if summary_domain_version is not None
-                else manifest_domain_version,
+                manifest_domain_version
+                if manifest_domain_version is not None
+                else summary_domain_version,
                 0,
             )
             current_readable_version = self._to_int(
-                summary_readable_version
-                if summary_readable_version is not None
-                else manifest_readable_version,
+                manifest_readable_version
+                if manifest_readable_version is not None
+                else summary_readable_version,
                 0,
             )
             target_domain_version = current_domain_contract_version(domain)
@@ -210,7 +312,7 @@ class PkmUpgradeService:
                     "target_domain_contract_version": target_domain_version,
                     "current_readable_summary_version": current_readable_version,
                     "target_readable_summary_version": target_readable_version,
-                    "upgraded_at": summary.get("upgraded_at") or manifest.get("upgraded_at"),
+                    "upgraded_at": manifest.get("upgraded_at") or summary.get("upgraded_at"),
                     "needs_upgrade": (
                         current_domain_version < target_domain_version
                         or current_readable_version < target_readable_version
@@ -220,6 +322,9 @@ class PkmUpgradeService:
 
         stale_domains = [domain for domain in domain_states if domain["needs_upgrade"]]
         latest_run = await self._get_latest_run(user_id)
+        if latest_run:
+            latest_run["mode"] = self._clean_text(latest_run.get("mode")) or "real"
+            latest_run["error_context"] = self._extract_run_error_context(latest_run)
         if latest_run and latest_run["status"] in _ACTIVE_RUN_STATUSES:
             upgrade_status = latest_run["status"]
         elif latest_run and latest_run["status"] == "failed" and stale_domains:
@@ -229,18 +334,72 @@ class PkmUpgradeService:
         else:
             upgrade_status = "current"
 
+        effective_model_version = (
+            stored_model_version if stale_domains else CURRENT_PKM_MODEL_VERSION
+        )
+        last_upgraded_at = self._coerce_datetime(getattr(index, "last_upgraded_at", None))
+        if last_upgraded_at is None:
+            last_upgraded_at = self._latest_domain_upgrade_at(domain_states)
+
         return {
             "user_id": user_id,
-            "model_version": current_model_version,
+            "model_version": effective_model_version,
+            "stored_model_version": stored_model_version,
+            "effective_model_version": effective_model_version,
             "target_model_version": CURRENT_PKM_MODEL_VERSION,
             "upgrade_status": upgrade_status,
             "upgradable_domains": stale_domains,
-            "last_upgraded_at": getattr(index, "last_upgraded_at", None) if index else None,
+            "last_upgraded_at": last_upgraded_at,
             "run": latest_run,
         }
 
+    async def _maybe_reconcile_current_index(
+        self,
+        user_id: str,
+        status_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        upgradable_domains = status_payload.get("upgradable_domains") or []
+        if upgradable_domains:
+            return status_payload
+        if status_payload.get("upgrade_status") != "current":
+            return status_payload
+
+        index = await self.pkm_service.get_index_v2(user_id)
+        if index is None:
+            return status_payload
+
+        stored_model_version = self._to_int(
+            getattr(index, "model_version", None),
+            CURRENT_PKM_MODEL_VERSION,
+        )
+        stored_last_upgraded_at = self._coerce_datetime(getattr(index, "last_upgraded_at", None))
+        effective_last_upgraded_at = self._coerce_datetime(status_payload.get("last_upgraded_at"))
+        target_last_upgraded_at = effective_last_upgraded_at or datetime.now(UTC)
+
+        needs_version_repair = stored_model_version < CURRENT_PKM_MODEL_VERSION
+        needs_timestamp_repair = (
+            stored_last_upgraded_at is None or stored_last_upgraded_at < target_last_upgraded_at
+        )
+        if not (needs_version_repair or needs_timestamp_repair):
+            return status_payload
+
+        index.model_version = CURRENT_PKM_MODEL_VERSION
+        index.last_upgraded_at = target_last_upgraded_at
+        repaired = await self.pkm_service.upsert_index_v2(index)
+        if not repaired:
+            logger.warning(
+                "Failed silent PKM index reconciliation for %s; serving effective current truth only.",
+                user_id,
+            )
+            return status_payload
+        return await self.build_status(user_id)
+
     async def start_or_resume_run(
-        self, user_id: str, *, initiated_by: str = "unlock_warm"
+        self,
+        user_id: str,
+        *,
+        initiated_by: str = "unlock_warm",
+        mode: str = "real",
     ) -> dict[str, Any]:
         status_payload = await self.build_status(user_id)
         latest_run = status_payload.get("run")
@@ -263,6 +422,11 @@ class PkmUpgradeService:
 
         upgradable_domains = status_payload.get("upgradable_domains") or []
         if not upgradable_domains:
+            if mode == "real":
+                return await self._maybe_reconcile_current_index(user_id, status_payload)
+            return status_payload
+
+        if mode != "real":
             return status_payload
 
         run_id = f"pkm_upgrade_{uuid.uuid4().hex}"
@@ -403,11 +567,44 @@ class PkmUpgradeService:
         return await self.build_status(run["user_id"])
 
     async def fail_run(
-        self, run_id: str, *, last_error: str | None = None
+        self,
+        run_id: str,
+        *,
+        last_error: str | None = None,
+        error_context: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
             return None
+        run = runs[0]
+        normalized_error_context = self._normalize_error_context(error_context)
+        if normalized_error_context:
+            step_domain = self._clean_text(
+                normalized_error_context.get("domain")
+            ) or self._clean_text(run.get("current_domain"))
+            if step_domain:
+                steps = await self._list_steps(run_id)
+                current_step = next((step for step in steps if step["domain"] == step_domain), None)
+                if current_step:
+                    checkpoint_payload = dict(current_step.get("checkpoint_payload") or {})
+                    checkpoint_payload["error_context"] = normalized_error_context
+                    stage = self._clean_text(normalized_error_context.get("stage"))
+                    if stage:
+                        checkpoint_payload["stage"] = stage
+                    await self.update_step(
+                        run_id=run_id,
+                        domain=step_domain,
+                        status="failed",
+                        checkpoint_payload=checkpoint_payload,
+                        attempt_count=current_step.get("attempt_count"),
+                        last_completed_content_revision=current_step.get(
+                            "last_completed_content_revision"
+                        ),
+                        last_completed_manifest_version=current_step.get(
+                            "last_completed_manifest_version"
+                        ),
+                    )
+
         await self.mark_run_status(run_id=run_id, status="failed", last_error=last_error)
         return await self.build_status(runs[0]["user_id"])
 

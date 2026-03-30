@@ -66,7 +66,20 @@ These are the minimum gates for:
 
 1. missing-manifest compatibility
 2. malformed/legacy manifest normalization
-3. structured PKM failure metadata reaching the task center
+3. manifest-authoritative upgrade truth when index summaries lag behind
+4. structured PKM failure metadata reaching the task center
+
+Local/UAT release rehearsal should additionally run the Kai no-write PKM drill before production rollout:
+
+1. automatic upgrade start from app entry after unlock
+2. no-write dummy save validation for the Kai drill user
+3. post-upgrade investor / RIA / consent smoke from [Kai Runtime Smoke Checklist](../kai/kai-runtime-smoke-checklist.md)
+
+The canonical blocker for that broader surface is:
+
+1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
+2. `integration-check.sh` now runs this gate on every blocking CI pass
+3. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
 
 ## When CI Runs
 

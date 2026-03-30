@@ -125,6 +125,12 @@ Do:
 - Keep domain blob + metadata reconciliation aligned with PKM index semantics.
 - Keep consent-manager summary/list caches memory-only.
 - Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/consents`; do not introduce a second browser cache lane just for the top-shell preview.
+- Keep passive background refresh copy human-readable:
+  - `Getting your portfolio data ready`
+  - `Refreshing your profile details`
+  - `Refreshing your consent list`
+  - `Updating market snapshots`
+  - `Refreshing advisor workspace summaries`
 - Keep BYOK/ZK boundaries explicit:
   - vault key stays memory-only
   - `VAULT_OWNER` stays memory-only

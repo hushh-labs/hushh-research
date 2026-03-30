@@ -499,7 +499,7 @@ export default function PkmAgentLabPageClient() {
     if (!user) return;
     if (!vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
       handleVaultAccessRequired(
-        "Unlock your vault to continue refreshing the Personal Knowledge Model."
+        "Unlock your vault to continue the Personal Knowledge Model upgrade."
       );
       return;
     }

@@ -21,6 +21,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { ApiService } from "./api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
+import { DeviceResourceCacheService } from "./device-resource-cache-service";
 import {
   buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
@@ -67,6 +68,8 @@ export interface PersonalKnowledgeModelMetadata {
   totalAttributes: number;
   modelCompleteness: number;
   modelVersion: number;
+  storedModelVersion: number;
+  effectiveModelVersion: number;
   targetModelVersion: number;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
@@ -159,10 +162,18 @@ export interface PkmScopeExposureResult {
   manifest: DomainManifest | null;
 }
 
+export interface PkmPreparedDomainValidationResult {
+  success: boolean;
+  message?: string;
+  fullBlob: Record<string, unknown>;
+}
+
 export class PkmDomainManifestError extends Error {
   status: number;
   detail: string | null;
   correlationId: string | null;
+  requestId: string | null;
+  traceId: string | null;
   route: string;
   userId: string;
   domain: string;
@@ -171,6 +182,8 @@ export class PkmDomainManifestError extends Error {
     status: number;
     detail?: string | null;
     correlationId?: string | null;
+    requestId?: string | null;
+    traceId?: string | null;
     route: string;
     userId: string;
     domain: string;
@@ -184,6 +197,8 @@ export class PkmDomainManifestError extends Error {
     this.status = params.status;
     this.detail = params.detail ?? null;
     this.correlationId = params.correlationId ?? null;
+    this.requestId = params.requestId ?? null;
+    this.traceId = params.traceId ?? null;
     this.route = params.route;
     this.userId = params.userId;
     this.domain = params.domain;
@@ -194,6 +209,7 @@ export class PkmDomainManifestError extends Error {
 
 export class PersonalKnowledgeModelService {
   private static readonly PKM_API_PREFIX = "/api/pkm";
+  private static readonly METADATA_DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
   private static metadataInflight = new Map<string, Promise<PersonalKnowledgeModelMetadata>>();
   private static encryptedDataInflight = new Map<string, Promise<EncryptedUserBlob | null>>();
   private static domainDataInflight = new Map<string, Promise<EncryptedDomainBlob | null>>();
@@ -225,10 +241,43 @@ export class PersonalKnowledgeModelService {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
 
+  private static extractValidationMessages(entries: unknown): string[] {
+    if (!Array.isArray(entries)) {
+      return [];
+    }
+    return entries
+      .map((entry) => {
+        if (typeof entry === "string") {
+          return entry.trim();
+        }
+        if (!this.isPlainObject(entry)) {
+          return null;
+        }
+        const location = Array.isArray(entry.loc)
+          ? entry.loc
+              .map((part) => String(part ?? "").trim())
+              .filter(Boolean)
+              .join(".")
+          : null;
+        const message = typeof entry.msg === "string" ? entry.msg.trim() : null;
+        if (location && message) {
+          return `${location}: ${message}`;
+        }
+        return message || null;
+      })
+      .filter((item): item is string => Boolean(item));
+  }
+
   private static extractResponseDetail(payload: unknown): string | null {
     if (typeof payload === "string") {
       const trimmed = payload.trim();
       return trimmed || null;
+    }
+    if (Array.isArray(payload)) {
+      const items = payload
+        .map((item) => this.extractResponseDetail(item))
+        .filter((item): item is string => Boolean(item));
+      return items.length > 0 ? items.join("; ") : null;
     }
     if (!this.isPlainObject(payload)) {
       return null;
@@ -238,10 +287,21 @@ export class PersonalKnowledgeModelService {
       const trimmed = detail.trim();
       return trimmed || null;
     }
+    if (Array.isArray(detail)) {
+      const items = this.extractValidationMessages(detail);
+      return items.length > 0 ? items.join("; ") : null;
+    }
     if (this.isPlainObject(detail)) {
       const nestedMessage = detail.message;
+      const validationMessages = this.extractValidationMessages(detail.errors);
       if (typeof nestedMessage === "string" && nestedMessage.trim()) {
-        return nestedMessage.trim();
+        const message = nestedMessage.trim();
+        return validationMessages.length > 0
+          ? `${message} ${validationMessages.join("; ")}`
+          : message;
+      }
+      if (validationMessages.length > 0) {
+        return validationMessages.join("; ");
       }
     }
     const message = payload.message;
@@ -259,6 +319,8 @@ export class PersonalKnowledgeModelService {
       totalAttributes: 0,
       modelCompleteness: 0,
       modelVersion: CURRENT_PKM_MODEL_VERSION,
+      storedModelVersion: CURRENT_PKM_MODEL_VERSION,
+      effectiveModelVersion: CURRENT_PKM_MODEL_VERSION,
       targetModelVersion: CURRENT_PKM_MODEL_VERSION,
       upgradeStatus: "current",
       upgradableDomains: [],
@@ -898,6 +960,14 @@ export class PersonalKnowledgeModelService {
     return vaultOwnerToken;
   }
 
+  private static metadataDeviceResourceKey(userId: string): string {
+    return `pkm:metadata:${userId}`;
+  }
+
+  private static logMetadataRequest(stage: string, detail: Record<string, unknown>): void {
+    console.info(`[RequestAudit:pkm_metadata] ${stage}`, detail);
+  }
+
   /**
    * Get user PKM metadata for UI display.
    * This is the primary method for fetching profile data.
@@ -914,15 +984,43 @@ export class PersonalKnowledgeModelService {
   ): Promise<PersonalKnowledgeModelMetadata> {
     const cache = CacheService.getInstance();
     const cacheKey = CACHE_KEYS.PKM_METADATA(userId);
+    const deviceResourceKey = this.metadataDeviceResourceKey(userId);
+    const canUseDeviceCache = !Capacitor.isNativePlatform() && Boolean(vaultOwnerToken);
 
-    // Check cache first (unless force refresh)
     if (!forceRefresh) {
-      const cached = cache.get<PersonalKnowledgeModelMetadata>(cacheKey);
-      if (cached) {
-        console.log("[PersonalKnowledgeModelService] Using cached metadata");
-        return cached;
+      const snapshot = cache.peek<PersonalKnowledgeModelMetadata>(cacheKey);
+      if (snapshot?.isFresh) {
+        this.logMetadataRequest("cache_hit", {
+          tier: "memory",
+          userId,
+          cacheKey,
+        });
+        return snapshot.data;
+      }
+
+      if (canUseDeviceCache) {
+        const stored = await DeviceResourceCacheService.read<PersonalKnowledgeModelMetadata>({
+          userId,
+          resourceKey: deviceResourceKey,
+        });
+        if (stored) {
+          cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
+          this.logMetadataRequest("device_hit", {
+            userId,
+            cacheKey,
+            resourceKey: deviceResourceKey,
+          });
+          void this.getMetadata(userId, true, vaultOwnerToken).catch(() => undefined);
+          return stored;
+        }
       }
     }
+
+    this.logMetadataRequest("cache_miss", {
+      userId,
+      cacheKey,
+      resourceKey: canUseDeviceCache ? deviceResourceKey : null,
+    });
 
     const dedupeKey = this.inflightKey([
       "metadata",
@@ -939,6 +1037,7 @@ export class PersonalKnowledgeModelService {
     const request = (async (): Promise<PersonalKnowledgeModelMetadata> => {
       let result: PersonalKnowledgeModelMetadata;
       let cacheTtlMs = CACHE_TTL.MEDIUM;
+      let persistToDeviceCache = canUseDeviceCache;
 
       if (Capacitor.isNativePlatform()) {
         // Use Capacitor plugin for native platforms
@@ -985,6 +1084,18 @@ export class PersonalKnowledgeModelService {
           totalAttributes: raw.total_attributes || raw.totalAttributes || 0,
           modelCompleteness: raw.model_completeness || raw.modelCompleteness || 0,
           modelVersion: raw.model_version || raw.modelVersion || CURRENT_PKM_MODEL_VERSION,
+          storedModelVersion:
+            raw.stored_model_version ||
+            raw.storedModelVersion ||
+            raw.model_version ||
+            raw.modelVersion ||
+            CURRENT_PKM_MODEL_VERSION,
+          effectiveModelVersion:
+            raw.effective_model_version ||
+            raw.effectiveModelVersion ||
+            raw.model_version ||
+            raw.modelVersion ||
+            CURRENT_PKM_MODEL_VERSION,
           targetModelVersion:
             raw.target_model_version || raw.targetModelVersion || CURRENT_PKM_MODEL_VERSION,
           upgradeStatus: raw.upgrade_status || raw.upgradeStatus || "current",
@@ -1027,10 +1138,16 @@ export class PersonalKnowledgeModelService {
         // Return empty metadata so first-time / locked-vault screens can render gracefully.
         if (!vaultOwnerToken) {
           result = this.emptyMetadata(userId);
+          persistToDeviceCache = false;
           return result;
         }
 
         // Web: Use ApiService.apiFetch() for tri-flow compliance
+        this.logMetadataRequest("network_fetch", {
+          userId,
+          cacheKey,
+          resourceKey: deviceResourceKey,
+        });
         const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/metadata/${userId}`, {
           headers: this.getAuthHeaders(vaultOwnerToken),
         });
@@ -1045,6 +1162,7 @@ export class PersonalKnowledgeModelService {
             `[PersonalKnowledgeModelService] Metadata unauthorized for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
+          persistToDeviceCache = false;
           result = this.emptyMetadata(userId);
         } else if (response.status === 408 || response.status === 429 || response.status >= 500) {
           // Upstream timeout / temporary backend issue.
@@ -1053,6 +1171,7 @@ export class PersonalKnowledgeModelService {
             `[PersonalKnowledgeModelService] Metadata temporarily unavailable for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
+          persistToDeviceCache = false;
           result = this.emptyMetadata(userId);
         } else if (!response.ok) {
           // Any remaining non-OK status should fail open for dashboard bootstrap.
@@ -1061,11 +1180,11 @@ export class PersonalKnowledgeModelService {
             `[PersonalKnowledgeModelService] Metadata request failed for ${userId}; returning empty state (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
+          persistToDeviceCache = false;
           result = this.emptyMetadata(userId);
         } else {
           const data = await response.json();
 
-          // Transform snake_case to camelCase
           result = {
             userId: data.user_id,
             domains: (data.domains || []).map((d: Record<string, unknown>) => ({
@@ -1093,6 +1212,14 @@ export class PersonalKnowledgeModelService {
             totalAttributes: data.total_attributes || 0,
             modelCompleteness: data.model_completeness || 0,
             modelVersion: data.model_version || CURRENT_PKM_MODEL_VERSION,
+            storedModelVersion:
+              data.stored_model_version ??
+              data.model_version ??
+              CURRENT_PKM_MODEL_VERSION,
+            effectiveModelVersion:
+              data.effective_model_version ??
+              data.model_version ??
+              CURRENT_PKM_MODEL_VERSION,
             targetModelVersion: data.target_model_version || CURRENT_PKM_MODEL_VERSION,
             upgradeStatus: data.upgrade_status || "current",
             upgradableDomains: Array.isArray(data.upgradable_domains)
@@ -1121,8 +1248,15 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      // Cache the result
       cache.set(cacheKey, result, cacheTtlMs);
+      if (persistToDeviceCache) {
+        await DeviceResourceCacheService.write({
+          userId,
+          resourceKey: deviceResourceKey,
+          value: result,
+          ttlMs: this.METADATA_DEVICE_TTL_MS,
+        });
+      }
       console.log("[PersonalKnowledgeModelService] Cached metadata for", userId);
 
       return result;
@@ -1480,6 +1614,10 @@ export class PersonalKnowledgeModelService {
           status: response.status,
           detail,
           correlationId: response.headers.get("x-correlation-id"),
+          requestId: response.headers.get("x-request-id"),
+          traceId:
+            response.headers.get("x-cloud-trace-context") ||
+            response.headers.get("x-trace-id"),
           route,
           userId,
           domain,
@@ -2211,6 +2349,158 @@ export class PersonalKnowledgeModelService {
       message: result.message,
       dataVersion: result.dataVersion,
       updatedAt: result.updatedAt,
+      fullBlob: merged.fullBlob,
+    };
+  }
+
+  static async validatePreparedDomainStore(params: {
+    userId: string;
+    vaultKey: string;
+    domain: string;
+    domainData: Record<string, unknown>;
+    summary: Record<string, unknown>;
+    manifest?: DomainManifest;
+    structureDecision?: Record<string, unknown>;
+    baseFullBlob?: Record<string, unknown>;
+    writeProjections?: PkmWriteProjection[];
+    expectedDataVersion?: number;
+    upgradeContext?: PkmUpgradeContext;
+    vaultOwnerToken?: string;
+  }): Promise<PkmPreparedDomainValidationResult> {
+    const baseFullBlob =
+      params.baseFullBlob ||
+      (await this.loadTargetDomainBaseBlob({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        domain: params.domain,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }));
+    const merged = await this.mergeAndEncryptPreparedBlob({
+      baseFullBlob,
+      vaultKey: params.vaultKey,
+      domain: params.domain,
+      domainData: params.domainData,
+    });
+    const metadataTimestamp = new Date().toISOString();
+    const normalizedSummary = {
+      domain_intent: params.domain,
+      ...params.summary,
+      ...(params.manifest?.summary_projection || {}),
+      domain_contract_version:
+        Number(params.summary.domain_contract_version) ||
+        Number(params.manifest?.domain_contract_version) ||
+        currentDomainContractVersion(params.domain),
+      readable_summary_version:
+        Number(params.summary.readable_summary_version) ||
+        Number(params.manifest?.readable_summary_version) ||
+        CURRENT_READABLE_SUMMARY_VERSION,
+      upgraded_at:
+        typeof params.summary.upgraded_at === "string" && params.summary.upgraded_at.trim().length > 0
+          ? params.summary.upgraded_at
+          : metadataTimestamp,
+    };
+    const manifestSummaryProjection = params.manifest?.summary_projection || {};
+    const normalizedManifest: DomainManifest | undefined = params.manifest
+      ? {
+          ...params.manifest,
+          domain_contract_version:
+            Number(params.manifest.domain_contract_version) ||
+            currentDomainContractVersion(params.domain),
+          readable_summary_version:
+            Number(params.manifest.readable_summary_version) ||
+            CURRENT_READABLE_SUMMARY_VERSION,
+          upgraded_at:
+            typeof params.manifest.upgraded_at === "string" &&
+            params.manifest.upgraded_at.trim().length > 0
+              ? params.manifest.upgraded_at
+              : metadataTimestamp,
+          summary_projection: {
+            ...manifestSummaryProjection,
+            domain_contract_version:
+              Number(manifestSummaryProjection.domain_contract_version) ||
+              Number(params.manifest.domain_contract_version) ||
+              currentDomainContractVersion(params.domain),
+            readable_summary_version:
+              Number(manifestSummaryProjection.readable_summary_version) ||
+              Number(params.manifest.readable_summary_version) ||
+              CURRENT_READABLE_SUMMARY_VERSION,
+            upgraded_at:
+              typeof manifestSummaryProjection.upgraded_at === "string" &&
+              manifestSummaryProjection.upgraded_at.trim().length > 0
+                ? manifestSummaryProjection.upgraded_at
+                : metadataTimestamp,
+          },
+        }
+      : undefined;
+    const payload: Record<string, unknown> = {
+      user_id: params.userId,
+      domain: params.domain,
+      encrypted_blob: {
+        ciphertext: merged.encryptedBlob.ciphertext,
+        iv: merged.encryptedBlob.iv,
+        tag: merged.encryptedBlob.tag,
+        algorithm: merged.encryptedBlob.algorithm || "aes-256-gcm",
+        segments: merged.encryptedBlob.segments || {},
+      },
+      summary: normalizedSummary,
+      structure_decision: params.structureDecision || null,
+      manifest: normalizedManifest || null,
+      write_projections: (params.writeProjections || []).map((projection) => ({
+        projection_type: projection.projectionType,
+        projection_version: projection.projectionVersion || 1,
+        payload: projection.payload,
+      })),
+    };
+    if (Number.isFinite(params.expectedDataVersion)) {
+      payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
+    }
+    if (params.upgradeContext?.runId) {
+      payload.upgrade_context = {
+        run_id: params.upgradeContext.runId,
+        prior_domain_contract_version: params.upgradeContext.priorDomainContractVersion,
+        new_domain_contract_version: params.upgradeContext.newDomainContractVersion,
+        prior_readable_summary_version: params.upgradeContext.priorReadableSummaryVersion,
+        new_readable_summary_version: params.upgradeContext.newReadableSummaryVersion,
+        retry_count: params.upgradeContext.retryCount,
+      };
+    }
+
+    const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/store-domain/validate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...this.getAuthHeaders(params.vaultOwnerToken),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") || "";
+      let detail: string | null = null;
+      try {
+        if (contentType.includes("application/json")) {
+          detail = this.extractResponseDetail(await response.json());
+        } else {
+          detail = this.extractResponseDetail(await response.text());
+        }
+      } catch {
+        detail = null;
+      }
+      throw new Error(
+        detail
+          ? `Dummy save validation failed (${response.status}): ${detail}`
+          : `Dummy save validation failed: ${response.status}`
+      );
+    }
+
+    const responsePayload = (await response.json()) as {
+      success?: boolean;
+      message?: string;
+    };
+    return {
+      success: Boolean(responsePayload.success),
+      message:
+        typeof responsePayload.message === "string" ? responsePayload.message : undefined,
       fullBlob: merged.fullBlob,
     };
   }

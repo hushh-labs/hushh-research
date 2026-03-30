@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -134,7 +136,9 @@ def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
             assert user_id == "user_123"
             return {
                 "user_id": "user_123",
-                "model_version": 2,
+                "model_version": 3,
+                "stored_model_version": 2,
+                "effective_model_version": 3,
                 "target_model_version": 3,
                 "upgrade_status": "running",
                 "last_upgraded_at": "2026-03-20T12:00:00Z",
@@ -162,6 +166,14 @@ def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
                     "last_checkpoint_at": "2026-03-24T12:05:00Z",
                     "completed_at": None,
                     "last_error": None,
+                    "mode": "real",
+                    "error_context": {
+                        "stage": "loading_manifest",
+                        "domain": "financial",
+                        "http_status": 500,
+                        "detail": "Manifest read failed",
+                        "correlation_id": "corr_123",
+                    },
                     "created_at": "2026-03-24T12:00:00Z",
                     "updated_at": "2026-03-24T12:05:00Z",
                     "steps": [
@@ -191,11 +203,15 @@ def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["model_version"] == 2
+    assert payload["model_version"] == 3
+    assert payload["stored_model_version"] == 2
+    assert payload["effective_model_version"] == 3
     assert payload["target_model_version"] == 3
     assert payload["upgrade_status"] == "running"
     assert payload["upgradable_domains"][0]["domain"] == "financial"
     assert payload["run"]["run_id"] == "pkm_upgrade_demo"
+    assert payload["run"]["mode"] == "real"
+    assert payload["run"]["error_context"]["correlation_id"] == "corr_123"
     assert payload["run"]["steps"][0]["checkpoint_payload"]["stage"] == "loading_domain"
 
 
@@ -235,6 +251,30 @@ def test_manifest_route_serializes_legacy_manifest_payload(monkeypatch):
     assert payload["top_level_scope_paths"] == ["portfolio", "profile"]
     assert payload["paths"][0]["json_path"] == "portfolio.entities.demo"
     assert payload["scope_registry"][0]["scope_handle"] == "s_demo"
+
+
+def test_manifest_route_serializes_datetime_upgraded_at(monkeypatch):
+    class _FakePkmService:
+        async def get_domain_manifest(self, user_id: str, domain: str):
+            return {
+                "user_id": user_id,
+                "domain": domain,
+                "manifest_version": 2,
+                "domain_contract_version": 2,
+                "readable_summary_version": 1,
+                "upgraded_at": datetime(2026, 3, 30, 10, 0, tzinfo=timezone.utc),
+                "summary_projection": {},
+                "paths": [],
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    client = TestClient(_build_app())
+    response = client.get("/api/pkm/manifest/user_123/financial")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["upgraded_at"] == "2026-03-30T10:00:00+00:00"
 
 
 def test_manifest_route_returns_404_when_manifest_missing(monkeypatch):
@@ -288,6 +328,39 @@ def test_manifest_route_recovers_from_partially_malformed_legacy_fields(monkeypa
     assert payload["scope_registry"] == []
 
 
+def test_validate_store_domain_route_accepts_payload_without_writing(monkeypatch):
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/pkm/store-domain/validate",
+        json={
+            "user_id": "user_123",
+            "domain": "financial",
+            "encrypted_blob": {
+                "ciphertext": "cipher",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {"holdings_count": 1},
+            "manifest": {
+                "domain": "financial",
+                "manifest_version": 2,
+                "domain_contract_version": 2,
+                "readable_summary_version": 1,
+                "summary_projection": {"readable_summary": "Updated"},
+                "top_level_scope_paths": ["portfolio"],
+                "externalizable_paths": ["portfolio.entities.demo"],
+                "paths": [],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert "without saving it" in payload["message"]
+
+
 def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
     class _FakeUpgradeService:
         async def build_status(self, user_id: str):
@@ -295,6 +368,8 @@ def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
             return {
                 "user_id": "user_123",
                 "model_version": 1,
+                "stored_model_version": 1,
+                "effective_model_version": 1,
                 "target_model_version": 1,
                 "upgrade_status": "current",
                 "upgradable_domains": [],
@@ -315,3 +390,31 @@ def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
     payload = response.json()
     assert payload["user_id"] == "user_123"
     assert payload["upgrade_status"] == "current"
+
+
+def test_canonical_pkm_router_exposes_validate_store_domain(monkeypatch):
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(pkm, "_validate_store_domain", pkm_routes_shared.validate_store_domain)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/pkm/store-domain/validate",
+        json={
+            "user_id": "user_123",
+            "domain": "financial",
+            "encrypted_blob": {
+                "ciphertext": "cipher",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {"holdings_count": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert "without saving it" in payload["message"]

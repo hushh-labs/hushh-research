@@ -119,21 +119,23 @@ export function SettingsSegmentedTabs({
           <button
             key={option.value}
             type="button"
+            aria-pressed={isActive}
+            data-state={isActive ? "active" : "inactive"}
             onClick={() => {
               if (isActive) return;
               onValueChange(option.value);
             }}
             className={cn(
-              "relative min-h-9 overflow-hidden rounded-full px-2 py-1.5 text-center transition-[background-color,color,box-shadow] sm:min-h-10 sm:px-2.5",
+              "relative isolate min-h-9 overflow-hidden rounded-full px-2 py-1.5 text-center transition-[background-color,color,box-shadow,border-color] sm:min-h-10 sm:px-2.5",
               isActive
-                ? "bg-background text-foreground shadow-[0_10px_24px_-18px_rgba(15,23,42,0.34)] dark:bg-background/96"
-                : "bg-transparent text-foreground/68 hover:bg-background/48 hover:text-foreground dark:hover:bg-background/18"
+                ? "border border-[var(--morphy-primary-start)]/18 bg-background/95 text-foreground shadow-[0_10px_24px_-18px_rgba(15,23,42,0.34)] dark:bg-background/96"
+                : "border border-transparent bg-transparent text-foreground/68 hover:bg-background/48 hover:text-foreground dark:hover:bg-background/18"
             )}
           >
-            <span className="relative z-10 block truncate text-[11px] font-medium tracking-tight sm:text-[13px]">
+            <span className="relative z-0 block truncate text-[11px] font-medium tracking-tight sm:text-[13px]">
               {option.label}
             </span>
-            <MaterialRipple variant="none" effect="fade" className="z-0" />
+            <MaterialRipple variant="none" effect="fade" className="z-10" />
           </button>
         );
       })}
@@ -245,7 +247,7 @@ export function SettingsRow({
   const mainContent = (
     <div
       className={cn(
-        "relative z-10 flex min-w-0 gap-2.5 sm:gap-3",
+        "relative z-0 flex min-w-0 gap-2.5 sm:gap-3",
         shouldStackTrailing ? "items-start sm:items-center" : "items-center"
       )}
     >
@@ -281,7 +283,7 @@ export function SettingsRow({
   const trailingContent = trailing || chevron ? (
     <div
       className={cn(
-        "relative z-10 flex max-w-full shrink-0 items-center justify-end self-center gap-2",
+        "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2",
         shouldStackTrailing &&
           "w-full justify-start pl-[2.65rem] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
       )}
@@ -299,7 +301,7 @@ export function SettingsRow({
   ) : null;
 
   const sharedClassName = cn(
-    "relative z-10 grid w-full appearance-none border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] sm:px-4 sm:py-4",
+    "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] sm:px-4 sm:py-4",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3 sm:gap-y-0"
       : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3",
@@ -307,7 +309,7 @@ export function SettingsRow({
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
   );
   const primaryActionClassName = cn(
-    "relative z-10 min-w-0 rounded-[inherit] border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 sm:px-4 sm:py-4"
+    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 sm:px-4 sm:py-4"
   );
   const asChildContent =
     resolvedAsChild
@@ -339,17 +341,12 @@ export function SettingsRow({
             className={primaryActionClassName}
           >
             {mainContent}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 z-[2] overflow-hidden rounded-[inherit]"
-            >
-              <MaterialRipple
-                variant="none"
-                effect="fade"
-                disabled={disabled}
-                className="z-[2]"
-              />
-            </div>
+            <MaterialRipple
+              variant="none"
+              effect="fade"
+              disabled={disabled}
+              className="z-10"
+            />
           </button>
           {trailingContent ? (
             <div
@@ -366,6 +363,28 @@ export function SettingsRow({
     );
   }
 
+  if (resolvedAsChild) {
+    return (
+      <div className={rowShellClassName}>
+        {isInteractive ? (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
+              "group-hover/settings-row:bg-muted/36 group-active/settings-row:bg-muted/48"
+            )}
+          />
+        ) : null}
+        <Comp
+          {...(!resolvedAsChild ? { "aria-disabled": disabled || undefined } : {})}
+          className={sharedClassName}
+        >
+          {asChildContent}
+        </Comp>
+      </div>
+    );
+  }
+
   return (
     <div className={rowShellClassName}>
       {isInteractive ? (
@@ -377,30 +396,24 @@ export function SettingsRow({
           )}
         />
       ) : null}
-      {isInteractive ? (
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-[2] overflow-hidden rounded-[inherit]">
+      <Comp
+        {...(!asChild && onClick
+          ? { type: "button" as const, onClick, disabled }
+          : { "aria-disabled": disabled || undefined })}
+        className={sharedClassName}
+      >
+        <>
+          {mainContent}
+          {trailingContent}
+        </>
+        {isInteractive ? (
           <MaterialRipple
             variant="none"
             effect="fade"
             disabled={disabled}
-            className="z-[2]"
+            className="z-10"
           />
-        </div>
-      ) : null}
-      <Comp
-        {...(!asChild && onClick
-          ? { type: "button" as const, onClick, disabled }
-          : !resolvedAsChild
-            ? { "aria-disabled": disabled || undefined }
-            : {})}
-        className={sharedClassName}
-      >
-        {resolvedAsChild ? asChildContent : (
-          <>
-            {mainContent}
-            {trailingContent}
-          </>
-        )}
+        ) : null}
       </Comp>
     </div>
   );

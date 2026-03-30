@@ -29,6 +29,7 @@ See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.
 - frontend templates: `hushh-webapp/.env.local-uatdb.local.example`, `hushh-webapp/.env.uat-remote.local.example`, `hushh-webapp/.env.prod-remote.local.example`
 - local source files are created from templates and kept uncommitted
 - active files: `consent-protocol/.env`, `hushh-webapp/.env.local`
+- `NEXT_PUBLIC_PKM_UPGRADE_REHEARSAL` is local/UAT-only and should remain `false` unless you are intentionally running the Kai test-user no-write PKM rehearsal
 5. Runtime profile bootstrap command:
 
 ```bash

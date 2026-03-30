@@ -21,6 +21,10 @@ asyncpg>=0.29.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 
+# 🗄️ Supabase REST client (DEPRECATED - kept for backward compatibility)
+# All database operations now use SQLAlchemy with session pooler
+# supabase==2.27.2
+
 # 📄 PDF parsing for brokerage statements
 pdfplumber==0.11.0
 

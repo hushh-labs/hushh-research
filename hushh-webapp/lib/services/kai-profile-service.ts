@@ -4,6 +4,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 
 const FINANCIAL_DOMAIN = "financial";
 const SCHEMA_VERSION = 2 as const;
@@ -342,6 +343,18 @@ async function getFinancialDomain(params: {
   vaultKey: string;
   vaultOwnerToken?: string;
 }): Promise<Record<string, unknown>> {
+  const cachedSnapshot = await PkmDomainResourceService.getStaleFirst({
+    userId: params.userId,
+    domain: FINANCIAL_DOMAIN,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+    backgroundRefresh: true,
+  }).catch(() => null);
+
+  if (cachedSnapshot?.data && typeof cachedSnapshot.data === "object") {
+    return cachedSnapshot.data;
+  }
+
   const financial = await PersonalKnowledgeModelService.loadDomainData({
     userId: params.userId,
     domain: FINANCIAL_DOMAIN,

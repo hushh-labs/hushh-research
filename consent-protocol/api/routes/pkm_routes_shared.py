@@ -14,8 +14,8 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.domain_contracts import canonical_top_level_domain, domain_registry_payload
@@ -389,6 +389,52 @@ class StoreDomainResponse(BaseModel):
 EncryptedBlob.model_rebuild()
 
 
+@router.post("/store-domain/validate", response_model=StoreDomainResponse)
+async def validate_store_domain(
+    payload: dict = Body(...),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Validate a pre-encrypted PKM domain payload without persisting it."""
+    try:
+        request = StoreDomainRequest.model_validate(payload)
+    except ValidationError as exc:
+        validation_errors = exc.errors()
+        logger.warning(
+            "[PKM Validate] Invalid no-write payload user_id=%s domain=%s errors=%s",
+            payload.get("user_id"),
+            payload.get("domain"),
+            validation_errors,
+            extra={
+                "pkm_validate_errors": validation_errors,
+                "pkm_validate_user_id": payload.get("user_id"),
+                "pkm_validate_domain": payload.get("domain"),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "PKM_VALIDATE_REQUEST_INVALID",
+                "message": "Dummy save validation payload does not match the current PKM store contract.",
+                "errors": validation_errors,
+            },
+        ) from exc
+
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    canonical_domain = canonical_top_level_domain(request.domain)
+    return StoreDomainResponse(
+        success=True,
+        message=f"Validated {canonical_domain} domain payload without saving it",
+        conflict=False,
+        data_version=None,
+        updated_at=None,
+    )
+
+
 @router.post("/store-domain", response_model=StoreDomainResponse)
 async def store_domain(
     request: StoreDomainRequest,
@@ -596,6 +642,7 @@ async def get_domain_manifest(
         )
     try:
         response_payload = _normalize_manifest_response_payload(manifest)
+        response_payload["upgraded_at"] = _isoformat_or_none(response_payload.get("upgraded_at"))
         response_payload["last_structured_at"] = _isoformat_or_none(
             response_payload.get("last_structured_at")
         )
@@ -845,6 +892,14 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
     total_attributes: int
     model_completeness: int = Field(description="Percentage of recommended domains filled (0-100)")
     model_version: int = Field(default=1, description="Current PKM model version for this user")
+    stored_model_version: int = Field(
+        default=1,
+        description="Stored PKM model version currently persisted in the top-level index",
+    )
+    effective_model_version: int = Field(
+        default=1,
+        description="Effective PKM model version after reconciling manifest truth",
+    )
     target_model_version: int = Field(default=1, description="Latest PKM model version supported")
     upgrade_status: str = Field(default="current")
     upgradable_domains: List[dict] = Field(default_factory=list)
@@ -963,6 +1018,8 @@ async def get_metadata(
                 total_attributes=sum(domain.attribute_count for domain in degraded_domains),
                 model_completeness=0,
                 model_version=upgrade_status_payload.get("model_version") or 1,
+                stored_model_version=upgrade_status_payload.get("stored_model_version") or 1,
+                effective_model_version=upgrade_status_payload.get("effective_model_version") or 1,
                 target_model_version=upgrade_status_payload.get("target_model_version") or 1,
                 upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
                 upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
@@ -1034,6 +1091,8 @@ async def get_metadata(
             total_attributes=total_attrs,
             model_completeness=completeness,
             model_version=upgrade_status_payload.get("model_version") or 1,
+            stored_model_version=upgrade_status_payload.get("stored_model_version") or 1,
+            effective_model_version=upgrade_status_payload.get("effective_model_version") or 1,
             target_model_version=upgrade_status_payload.get("target_model_version") or 1,
             upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
             upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
@@ -1060,6 +1119,19 @@ class PkmUpgradeDomainStateResponse(BaseModel):
     target_readable_summary_version: int
     upgraded_at: Optional[str] = None
     needs_upgrade: bool = False
+
+
+class PkmUpgradeErrorContextResponse(BaseModel):
+    stage: Optional[str] = None
+    domain: Optional[str] = None
+    http_status: Optional[int] = None
+    detail: Optional[str] = None
+    correlation_id: Optional[str] = None
+    request_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    client_route: Optional[str] = None
+    manifest_route: Optional[str] = None
+    mode: Optional[str] = None
 
 
 class PkmUpgradeStepResponse(BaseModel):
@@ -1091,6 +1163,8 @@ class PkmUpgradeRunResponse(BaseModel):
     last_checkpoint_at: Optional[str] = None
     completed_at: Optional[str] = None
     last_error: Optional[str] = None
+    mode: str = "real"
+    error_context: Optional[PkmUpgradeErrorContextResponse] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     steps: List[PkmUpgradeStepResponse] = Field(default_factory=list)
@@ -1099,6 +1173,8 @@ class PkmUpgradeRunResponse(BaseModel):
 class PkmUpgradeStatusResponse(BaseModel):
     user_id: str
     model_version: int
+    stored_model_version: int
+    effective_model_version: int
     target_model_version: int
     upgrade_status: str
     upgradable_domains: List[PkmUpgradeDomainStateResponse] = Field(default_factory=list)
@@ -1109,6 +1185,7 @@ class PkmUpgradeStatusResponse(BaseModel):
 class StartOrResumeUpgradeRequest(BaseModel):
     user_id: str
     initiated_by: str = Field(default="unlock_warm")
+    mode: str = Field(default="real")
 
 
 class UpdateUpgradeRunRequest(BaseModel):
@@ -1116,6 +1193,7 @@ class UpdateUpgradeRunRequest(BaseModel):
     status: str
     current_domain: Optional[str] = None
     last_error: Optional[str] = None
+    error_context: Optional[dict] = None
 
 
 class UpdateUpgradeStepRequest(BaseModel):
@@ -1147,6 +1225,8 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
         run_response = PkmUpgradeRunResponse(
             **{
                 **run_payload,
+                "mode": str(run_payload.get("mode") or "real"),
+                "error_context": run_payload.get("error_context"),
                 "started_at": _isoformat_or_none(run_payload.get("started_at")),
                 "last_checkpoint_at": _isoformat_or_none(run_payload.get("last_checkpoint_at")),
                 "completed_at": _isoformat_or_none(run_payload.get("completed_at")),
@@ -1158,6 +1238,12 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
     return PkmUpgradeStatusResponse(
         user_id=payload.get("user_id") or "",
         model_version=int(payload.get("model_version") or 1),
+        stored_model_version=int(
+            payload.get("stored_model_version") or payload.get("model_version") or 1
+        ),
+        effective_model_version=int(
+            payload.get("effective_model_version") or payload.get("model_version") or 1
+        ),
         target_model_version=int(payload.get("target_model_version") or 1),
         upgrade_status=str(payload.get("upgrade_status") or "current"),
         upgradable_domains=[
@@ -1204,6 +1290,7 @@ async def start_or_resume_upgrade(
     payload = await get_pkm_upgrade_service().start_or_resume_run(
         request.user_id,
         initiated_by=request.initiated_by,
+        mode=request.mode,
     )
     return _build_upgrade_status_response(payload)
 
@@ -1297,6 +1384,7 @@ async def fail_upgrade_run(
     payload = await get_pkm_upgrade_service().fail_run(
         run_id,
         last_error=request.last_error,
+        error_context=request.error_context,
     )
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")

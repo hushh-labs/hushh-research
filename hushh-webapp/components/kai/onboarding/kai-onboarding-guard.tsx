@@ -21,6 +21,24 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { ROUTES } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
+import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
+
+const KAI_ONBOARDING_COMPLETION_SESSION_PREFIX = "kai_onboarding_complete";
+
+function onboardingCompletionSessionKey(userId: string): string {
+  return `${KAI_ONBOARDING_COMPLETION_SESSION_PREFIX}:${userId}`;
+}
+
+function readOnboardingCompletionHint(userId: string): boolean | null {
+  const raw = getSessionItem(onboardingCompletionSessionKey(userId));
+  if (raw === "1") return true;
+  if (raw === "0") return false;
+  return null;
+}
+
+function writeOnboardingCompletionHint(userId: string, completed: boolean): void {
+  setSessionItem(onboardingCompletionSessionKey(userId), completed ? "1" : "0");
+}
 
 export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -48,6 +66,10 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
 
       try {
         setGuardError(null);
+        const cachedCompletionHint = readOnboardingCompletionHint(user.uid);
+        if (isVaultUnlocked && cachedCompletionHint === true && !onOnboardingRoute) {
+          setChecking(false);
+        }
         const hasVault = await VaultService.checkVault(user.uid);
         if (cancelled) return;
 
@@ -88,6 +110,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
             }
           }
           setOnboardingRequiredCookie(onboardingIncomplete);
+          writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
 
           if (onboardingIncomplete && !onOnboardingRoute) {
             router.replace(ROUTES.KAI_ONBOARDING);
@@ -122,6 +145,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
             remoteState.preOnboardingCompleted === false && !onboardingResolved;
 
           setOnboardingRequiredCookie(onboardingExplicitlyIncomplete);
+          writeOnboardingCompletionHint(user.uid, onboardingResolved);
 
           if (!onOnboardingRoute && onboardingExplicitlyIncomplete) {
             router.replace(ROUTES.KAI_ONBOARDING);
@@ -187,6 +211,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           }
         }
         setOnboardingRequiredCookie(onboardingIncomplete);
+        writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
 
         if (onboardingIncomplete && !onOnboardingRoute) {
           router.replace(ROUTES.KAI_ONBOARDING);

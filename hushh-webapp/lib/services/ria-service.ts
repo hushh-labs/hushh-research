@@ -1,5 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 
 export type Persona = "investor" | "ria";
 
@@ -431,6 +432,11 @@ async function authFetch(path: string, options: FetchOptions): Promise<Response>
 
 export class RiaService {
   private static inflight = new Map<string, Promise<unknown>>();
+  private static readonly DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
+
+  private static logRequest(stage: string, detail: Record<string, unknown>): void {
+    console.info(`[RequestAudit:ria_resource] ${stage}`, detail);
+  }
 
   private static readCached<T>(key: string, force?: boolean): T | null {
     if (force) return null;
@@ -457,25 +463,93 @@ export class RiaService {
     return request;
   }
 
+  private static async refreshCachedResource<T>(params: {
+    cacheKey: string | null;
+    userId?: string;
+    deviceResourceKey?: string;
+    ttl?: number;
+    inflightKey: string;
+    resourceLabel: string;
+    loader: () => Promise<T>;
+  }): Promise<T> {
+    const payload = await this.runDeduped(params.inflightKey, async () => {
+      this.logRequest("network_fetch", {
+        label: params.resourceLabel,
+        cacheKey: params.cacheKey,
+        resourceKey: params.deviceResourceKey || null,
+        userId: params.userId || null,
+      });
+      return await params.loader();
+    });
+    if (params.cacheKey) {
+      this.writeCached(params.cacheKey, payload, params.ttl);
+    }
+    if (params.userId && params.deviceResourceKey) {
+      await DeviceResourceCacheService.write({
+        userId: params.userId,
+        resourceKey: params.deviceResourceKey,
+        value: payload,
+        ttlMs: params.ttl ?? this.DEVICE_TTL_MS,
+      });
+    }
+    return payload;
+  }
+
   private static async readCachedOrFetch<T>(params: {
     cacheKey: string | null;
+    userId?: string;
+    deviceResourceKey?: string;
     force?: boolean;
     ttl?: number;
     inflightKey: string;
+    resourceLabel: string;
     loader: () => Promise<T>;
   }): Promise<T> {
     if (params.cacheKey) {
-      const cached = this.readCached<T>(params.cacheKey, params.force);
-      if (cached) {
-        return cached;
+      const snapshot = params.force ? null : CacheService.getInstance().peek<T>(params.cacheKey);
+      if (snapshot?.isFresh) {
+        this.logRequest("cache_hit", {
+          label: params.resourceLabel,
+          tier: "memory",
+          cacheKey: params.cacheKey,
+          userId: params.userId || null,
+        });
+        return snapshot.data;
       }
     }
 
-    const payload = await this.runDeduped(params.inflightKey, params.loader);
-    if (params.cacheKey) {
-      return this.writeCached(params.cacheKey, payload, params.ttl);
+    if (!params.force && params.userId && params.deviceResourceKey) {
+      const stored = await DeviceResourceCacheService.read<T>({
+        userId: params.userId,
+        resourceKey: params.deviceResourceKey,
+      });
+      if (stored) {
+        if (params.cacheKey) {
+          CacheService.getInstance().set(
+            params.cacheKey,
+            stored,
+            params.ttl ?? CACHE_TTL.SHORT
+          );
+        }
+        this.logRequest("device_hit", {
+          label: params.resourceLabel,
+          cacheKey: params.cacheKey,
+          resourceKey: params.deviceResourceKey,
+          userId: params.userId,
+        });
+        void this.refreshCachedResource(params).catch(() => undefined);
+        return stored;
+      }
     }
-    return payload;
+
+    this.logRequest("cache_miss", {
+      label: params.resourceLabel,
+      cacheKey: params.cacheKey,
+      resourceKey: params.deviceResourceKey || null,
+      userId: params.userId || null,
+    });
+
+    return await this.refreshCachedResource(params);
   }
 
   static async getPersonaState(
@@ -485,9 +559,12 @@ export class RiaService {
     const cacheKey = options?.userId ? CACHE_KEYS.PERSONA_STATE(options.userId) : null;
     return this.readCachedOrFetch({
       cacheKey,
+      userId: options?.userId,
+      deviceResourceKey: options?.userId ? `ria:persona_state:${options.userId}` : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SESSION,
       inflightKey: cacheKey || "ria_persona_state",
+      resourceLabel: "persona_state",
       loader: async () => {
         const response = await authFetch("/api/iam/persona", {
           method: "GET",
@@ -616,9 +693,14 @@ export class RiaService {
     const cacheKey = options?.userId ? CACHE_KEYS.RIA_ONBOARDING_STATUS(options.userId) : null;
     return this.readCachedOrFetch({
       cacheKey,
+      userId: options?.userId,
+      deviceResourceKey: options?.userId
+        ? `ria:onboarding_status:${options.userId}`
+        : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SHORT,
       inflightKey: cacheKey || "ria_onboarding_status",
+      resourceLabel: "onboarding_status",
       loader: async () => {
         const response = await authFetch("/api/ria/onboarding/status", {
           method: "GET",
@@ -697,9 +779,12 @@ export class RiaService {
     const cacheKey = CACHE_KEYS.RIA_HOME(options.userId);
     return this.readCachedOrFetch({
       cacheKey,
+      userId: options.userId,
+      deviceResourceKey: `ria:home:${options.userId}`,
       force: options.force,
       ttl: CACHE_TTL.SHORT,
       inflightKey: cacheKey,
+      resourceLabel: "ria_home",
       loader: async () => {
         const response = await authFetch("/api/ria/home", {
           method: "GET",
@@ -736,9 +821,14 @@ export class RiaService {
       : null;
     return this.readCachedOrFetch({
       cacheKey,
+      userId: options?.userId,
+      deviceResourceKey: options?.userId
+        ? `ria:clients:${options.userId}:${queryKey}`
+        : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SHORT,
       inflightKey: cacheKey || `ria_clients_${queryKey}`,
+      resourceLabel: "ria_clients",
       loader: async () => {
         const response = await authFetch(`/api/ria/clients?${query.toString()}`, {
           method: "GET",
@@ -758,9 +848,14 @@ export class RiaService {
       options?.userId ? CACHE_KEYS.RIA_CLIENT_DETAIL(options.userId, investorUserId) : null;
     return this.readCachedOrFetch({
       cacheKey,
+      userId: options?.userId,
+      deviceResourceKey: options?.userId
+        ? `ria:client_detail:${options.userId}:${investorUserId}`
+        : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SHORT,
       inflightKey: cacheKey || `ria_client_detail_${investorUserId}`,
+      resourceLabel: "ria_client_detail",
       loader: async () => {
         const response = await authFetch(`/api/ria/clients/${encodeURIComponent(investorUserId)}`, {
           method: "GET",
@@ -787,9 +882,14 @@ export class RiaService {
     const cacheKey = options?.userId ? `ria_request_bundles_${options.userId}` : null;
     return this.readCachedOrFetch({
       cacheKey,
+      userId: options?.userId,
+      deviceResourceKey: options?.userId
+        ? `ria:request_bundles:${options.userId}`
+        : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SHORT,
       inflightKey: cacheKey || "ria_request_bundles",
+      resourceLabel: "ria_request_bundles",
       loader: async () => {
         const response = await authFetch("/api/ria/request-bundles", {
           method: "GET",
@@ -814,9 +914,12 @@ export class RiaService {
     const cacheKey = options?.userId ? `ria_invites_${options.userId}` : null;
     return this.readCachedOrFetch({
       cacheKey,
+      userId: options?.userId,
+      deviceResourceKey: options?.userId ? `ria:invites:${options.userId}` : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SHORT,
       inflightKey: cacheKey || "ria_invites",
+      resourceLabel: "ria_invites",
       loader: async () => {
         const response = await authFetch("/api/ria/invites", {
           method: "GET",

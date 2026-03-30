@@ -9,19 +9,24 @@ flowchart TB
   unlock["Vault unlock on client"]
   cutover["One-time cutover adapter<br/>legacy -> PKM partitioning"]
   pkm["Encrypted PKM domains<br/>blobs + manifests + index"]
-  status["PKM upgrade status<br/>version detection"]
+  status["PKM upgrade status<br/>manifest truth + fallback summary drift detection"]
   manifest["Domain manifest contract<br/>paths + scope registry + readable summary"]
   upgrade["Client-side PKM upgrade run<br/>decrypt -> transform -> rebuild -> re-encrypt"]
-  bell["Bell / PKM lab surface<br/>status + failure metadata"]
+  rehearsal["Kai test-user no-write rehearsal<br/>decrypt -> transform -> rebuild -> dummy save validate"]
+  bell["Bell / PKM lab surface<br/>status + failure metadata + timing"]
 
   legacy -->|decrypts locally during bounded cutover window| cutover
   unlock -->|gates local decrypt with BYOK key| cutover
   cutover -->|writes encrypted PKM blobs + manifest/index metadata| pkm
   pkm -->|reports stored model/domain versions| status
-  status -->|decides whether generic upgrade is needed| upgrade
-  manifest -->|defines current domain contract and scope shape| upgrade
+  manifest -->|defines authoritative domain/readable contract when present| status
+  status -->|starts real upgrade only for truly stale domains| upgrade
+  status -->|starts no-write rehearsal for Kai local/UAT drill user| rehearsal
+  manifest -->|defines current contract + stable UI keys| upgrade
   unlock -->|authorizes resumable generic upgrade| upgrade
+  unlock -->|authorizes no-write rehearsal after app entry| rehearsal
   upgrade -->|writes resumable run metadata + upgraded ciphertext| pkm
+  rehearsal -->|validates final store payload without DB writes| bell
   upgrade -->|surfaces progress/failure context| bell
 ```
 
@@ -99,6 +104,34 @@ Manifest fetch failures must be treated as P0:
 1. `404` means no manifest yet and can still be a supported compatibility path
 2. malformed/legacy manifest rows must normalize into the current response contract
 3. true backend failures must surface structured route/domain/stage detail to the bell and PKM lab
+
+## Manifest truth rule
+
+When a domain manifest exists, it is the authoritative source for:
+
+- `domain_contract_version`
+- `readable_summary_version`
+- `upgraded_at`
+
+Index summary versions remain useful as a fallback when no manifest exists, but stale summary data must not force a false rerun of the PKM upgrade.
+
+## Kai no-write rehearsal rule
+
+For the Kai drill user in local/UAT:
+
+1. enable `NEXT_PUBLIC_PKM_UPGRADE_REHEARSAL=true`
+2. sign in and unlock normally
+3. let the app start the PKM cycle automatically from app entry
+4. the rehearsal runs the real client-side decrypt/transform/rebuild path
+5. the final payload is validated through a dummy save route and is never written to the real PKM tables
+
+This is the safe way to measure end-to-end upgrade timing and frontend rendering behavior without mutating the live user record.
+
+The required automated companion for this drill is:
+
+1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
+2. it runs the PKM upgrade contract/orchestration suites by default
+3. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is present, it also runs the live investor onboarding, PKM migration, and RIA onboarding browser audits against that runtime
 
 ## Wrapper selection rule
 
