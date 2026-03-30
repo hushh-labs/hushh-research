@@ -14,7 +14,7 @@ Define environment policy for IAM changes without risking production behavior.
 | Environment | Purpose | IAM Change Policy |
 | --- | --- | --- |
 | local | Developer iteration and contract validation | Local-only tests; no production resources |
-| uat | Integration validation for actor flows and verification gates | Environment-owned deployment lane (`deploy_uat`) |
+| uat | Integration validation for actor flows and verification gates | Auto-deploy from the latest green `main` SHA |
 | production | Live user traffic | No IAM contract change without explicit promotion gate |
 
 ## Promotion Rules

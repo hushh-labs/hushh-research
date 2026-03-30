@@ -37,7 +37,7 @@ explicitly approved.
 
 ## Preflight
 
-1. Confirm the production deploy branch contains the approved application code for the feature set.
+1. Confirm the chosen production deploy SHA on `main` contains the approved application code for the feature set.
 2. Run the production backup freshness gate and capture the report artifact.
 3. Run the production migration governance guard with the production-pinned contract:
 

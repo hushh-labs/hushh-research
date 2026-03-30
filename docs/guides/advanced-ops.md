@@ -67,9 +67,9 @@ INCLUDE_ADVISORY_CHECKS=1 ./scripts/test-ci-local.sh
 
 ## Deploy
 
-### UAT-First Release Lane
+### UAT-First SHA Release Lane
 
-The deployment-first branch for hosted validation is `deploy_uat`.
+The deployment-first path for hosted validation is the latest green `main` SHA.
 
 Recommended sequence:
 
@@ -77,13 +77,14 @@ Recommended sequence:
 # from your working branch
 bash scripts/ci/orchestrate.sh all
 
-# then move the approved change into deploy_uat and push that branch
-git push origin deploy_uat
+# merge the approved change into main
+# UAT auto-deploys the successful main SHA
 ```
 
-That branch is wired to [`.github/workflows/deploy-uat.yml`](../../.github/workflows/deploy-uat.yml), which now checks:
+That workflow is wired through [`.github/workflows/deploy-uat.yml`](../../.github/workflows/deploy-uat.yml), which now checks:
 
-- branch contains latest `main`
+- chosen SHA is reachable from `origin/main`
+- chosen SHA already has a successful `CI Status Gate`
 - backend/frontend deploy succeeds
 - hosted runtime env contract is present on Cloud Run
 - UAT parity stays aligned after deploy
@@ -102,9 +103,11 @@ python3 scripts/ops/verify-env-secrets-parity.py \
 
 Deploy workflows already validate:
 
-- branch governance
+- SHA governance against `main`
 - runtime env/secret parity
 - backend/frontend runtime contract injection
+
+Production is no longer an auto-deploy branch lane. It is a manual dispatch of an approved green `main` SHA via [`.github/workflows/deploy-production.yml`](../../.github/workflows/deploy-production.yml).
 
 Reference docs:
 

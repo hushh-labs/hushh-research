@@ -19,9 +19,9 @@ Canonical environment keys:
 1. Backend: `ENVIRONMENT=development|uat|production`
 2. Frontend: `NEXT_PUBLIC_APP_ENV=development|uat|production`
 
-Current branch divergence policy:
+Current environment divergence policy:
 
-1. `deploy_uat` carries analytics keys plus optional auth-override keys as the active rollout lane.
+1. UAT runtime carries analytics keys plus optional auth-override keys as the active validation lane.
 2. Production analytics key parity is intentionally deferred until approved migration.
 3. Missing production analytics keys should be tracked as migration backlog, not silently backfilled outside release planning.
 4. Auth-override keys do not imply a different Firebase messaging project. The effective Firebase identity plane must remain unified.

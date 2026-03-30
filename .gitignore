@@ -84,6 +84,7 @@ temp/
 tmp/
 .playwright-artifacts/
 hushh-webapp/test-results/
+hushh-webapp/npm-audit-report.json
 **/build.log
 
 # Generated native/build artifacts

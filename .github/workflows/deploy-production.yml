@@ -1,15 +1,12 @@
 name: Deploy to Production
 
 on:
-  workflow_run:
-    workflows:
-      - "Tri-Flow CI"
-    types:
-      - completed
-    branches:
-      - deploy
   workflow_dispatch:
     inputs:
+      sha:
+        description: "Exact green main SHA to deploy"
+        required: true
+        type: string
       scope:
         description: "Deploy backend only, frontend only, or both"
         required: true
@@ -28,6 +25,10 @@ on:
           - "false"
           - "true"
 
+permissions:
+  contents: read
+  checks: read
+
 env:
   GCP_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
@@ -41,14 +42,14 @@ env:
   BACKUP_JOB_NAME: prod-supabase-logical-backup
 
 concurrency:
-  group: deploy-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+  group: deploy-production-${{ github.event.inputs.sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     name: Deploy Production Scope
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'deploy')
+    if: github.event_name == 'workflow_dispatch'
     environment: production-owner-bypass
 
     steps:
@@ -56,12 +57,21 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: main
 
-      - name: Assert production branch contains latest main
+      - name: Validate deployment SHA against main
         env:
-          GITHUB_REF_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
-        run: bash scripts/ci/require-branch-contains-main.sh deploy
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "CI Status Gate"
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ github.event.inputs.sha }}"
+
+      - name: Checkout deployment SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "${{ github.event.inputs.sha }}"
 
       - name: Report deployment approval lane
         run: |
@@ -275,6 +285,7 @@ jobs:
         shell: bash
         run: |
           echo "✅ Production Deployment Complete"
+          echo "Commit SHA: ${{ github.event.inputs.sha }}"
           echo "Scope: ${{ steps.scope.outputs.scope }}"
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             echo "Backend: ${{ steps.backend-url.outputs.url }}"

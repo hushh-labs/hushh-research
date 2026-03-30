@@ -17,29 +17,23 @@ flowchart TB
     main["main"]
   end
 
-  subgraph release["Release promotion lanes"]
-    uatpr["PR: main -> deploy_uat"]
-    prodpr["PR: main -> deploy"]
-    releasegate["Release Lane Gate"]
-    uat["deploy_uat"]
-    prod["deploy"]
+  subgraph release["Environment deployment lanes"]
+    green["Green main SHA"]
+    uat["Deploy to UAT<br/>auto from workflow_run"]
+    prod["Deploy to Production<br/>manual SHA dispatch"]
   end
 
   subgraph delivery["Post-merge delivery"]
-    pushci["Protected-branch push CI"]
-    uatdeploy["Deploy to UAT"]
-    proddeploy["Deploy to Production"]
+    pushci["Protected main push CI"]
   end
 
   feat --> pr --> prci
   prci --> freshness
   prci --> status
-  freshness --> main
+  freshness --> main --> pushci --> green
   status --> main
-  main --> uatpr --> releasegate --> uat
-  main --> prodpr --> releasegate --> prod
-  uat --> pushci --> uatdeploy
-  prod --> pushci --> proddeploy
+  green --> uat
+  green --> prod
 ```
 
 This document describes the **Tri-Flow CI** workflow and how to stay aligned with it so code changes do not fail CI. Run local checks before every commit.
@@ -79,7 +73,7 @@ These are the minimum gates for:
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
 | Pull request | All branches (`**`) | Full CI (path-filtered) |
-| Push | `main`, `deploy_uat`, `deploy` | Full CI (path-filtered for normal changes, forced on release lanes when needed) |
+| Push | `main` | Full CI (path-filtered, authoritative post-merge run) |
 | Merge queue | `main` | Full CI (frontend + backend forced on) |
 | Manual | Any | **workflow_dispatch** with scope: `frontend` \| `backend` \| `all` |
 
@@ -96,13 +90,7 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. This a
 1. a `push` run, and
 2. one or more `pull_request` runs for different base branches.
 
-Protected release branches still keep `push` CI:
-
-- `main`
-- `deploy_uat`
-- `deploy`
-
-That keeps one authoritative post-merge CI run on each release lane without duplicating feature-branch noise.
+`main` keeps the only authoritative `push` CI run. Deployment workflows consume that green `main` SHA instead of requiring separate release-branch pushes.
 
 ---
 
@@ -113,8 +101,6 @@ That keeps one authoritative post-merge CI run on each release lane without dupl
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI (license-free) scans the event commit range, not full repo history |
 | Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
 | Main Freshness Gate | Prevent stale PR merges into `main` | Blocks pull requests targeting `main` unless the branch contains latest `origin/main` |
-| Release Lane Gate | Prevent invalid promotions into `deploy_uat` or `deploy` | Blocks PRs targeting release branches unless the head branch is `main` and it contains latest `origin/main` |
-| Branch Freshness Advisory | Early stale-branch signal on feature-branch pushes | Warn-only; does not block CI or merges |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
 
 ## Live GitHub Enforcement
@@ -125,12 +111,6 @@ Protected branches are expected to enforce the same CI contract documented here:
   - at least `1` approving review
   - required status checks: `CI Status Gate`, `Main Freshness Gate`
   - strict/up-to-date checks enabled
-- `deploy_uat`
-  - at least `1` approving review
-  - required status checks: `CI Status Gate`, `Release Lane Gate`
-- `deploy`
-  - at least `1` approving review
-  - required status checks: `CI Status Gate`, `Release Lane Gate`
 - force-pushes disabled
 - branch deletion disabled
 
@@ -166,12 +146,11 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 ## Branch Lanes
 
 1. `main` is the only integration branch for day-to-day development.
-2. `deploy_uat` is the UAT rollout lane and must contain the latest `main`.
-3. `deploy` is the production release lane and must contain the latest `main`.
-4. `deploy_uat` auto-deploys only after successful protected-branch push CI on `deploy_uat`.
-5. `deploy` auto-deploys only after successful protected-branch push CI on `deploy`.
-6. Manual deploy dispatch remains an emergency rerun path, not the default release path.
-7. Feature or hotfix branches should never target `deploy_uat` or `deploy` directly; promote through `main`.
+2. A successful `main` push CI run produces the only deployable source of truth: the green `main` SHA.
+3. UAT auto-deploys from that green `main` SHA through `.github/workflows/deploy-uat.yml`.
+4. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`.
+5. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in CI.
+6. Feature or hotfix branches never deploy directly; they merge through `main`.
 
 See [Branch Governance](./branch-governance.md).
 

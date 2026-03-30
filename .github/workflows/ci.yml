@@ -6,8 +6,6 @@ on:
   push:
     branches:
       - main
-      - deploy_uat
-      - deploy
   merge_group:
     branches: [main]
   workflow_dispatch:
@@ -33,8 +31,8 @@ env:
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.13"
   WEB_LINT_WARNING_BUDGET: "161"
-  WEB_AUDIT_MODERATE_BUDGET: "9"
-  WEB_AUDIT_HIGH_BUDGET: "21"
+  WEB_AUDIT_MODERATE_BUDGET: "0"
+  WEB_AUDIT_HIGH_BUDGET: "0"
   WEB_AUDIT_CRITICAL_BUDGET: "0"
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
@@ -147,7 +145,7 @@ jobs:
   web-check:
     name: "Web (Next.js)"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy_uat' || github.ref == 'refs/heads/deploy'))
+    if: needs.paths.outputs.frontend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -188,7 +186,7 @@ jobs:
   protocol-check:
     name: "Protocol (Python)"
     needs: [paths]
-    if: needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy_uat' || github.ref == 'refs/heads/deploy'))
+    if: needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -215,7 +213,7 @@ jobs:
   integration-check:
     name: "Integration"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy_uat' || github.ref == 'refs/heads/deploy'))
+    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -269,53 +267,6 @@ jobs:
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref }}
         run: sh scripts/git/check-main-sync.sh
 
-  release-lane-gate:
-    name: "Release Lane Gate"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'deploy_uat' || github.base_ref == 'deploy')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Require promotion from main only
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ github.head_ref }}" != "main" ]; then
-            echo "Release branches only accept promotion PRs from 'main'."
-            echo "Got head branch: '${{ github.head_ref }}'"
-            exit 1
-          fi
-
-      - name: Verify promotion branch contains latest origin/main
-        env:
-          MAIN_SYNC_REMOTE: origin
-          MAIN_SYNC_BRANCH: main
-          MAIN_SYNC_MODE: block
-          MAIN_SYNC_CURRENT_BRANCH: release-promotion-${{ github.base_ref }}
-        run: sh scripts/git/check-main-sync.sh
-
-  branch-freshness-advisory:
-    name: "Branch Freshness Advisory"
-    if: github.event_name == 'push' && github.ref_name != 'main' && github.ref_name != 'deploy' && github.ref_name != 'deploy_uat'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check freshness against origin/main
-        env:
-          MAIN_SYNC_REMOTE: origin
-          MAIN_SYNC_BRANCH: main
-          MAIN_SYNC_MODE: warn
-          MAIN_SYNC_CURRENT_BRANCH: ${{ github.ref_name }}
-        run: sh scripts/git/check-main-sync.sh
-
   ci-status:
     name: "CI Status Gate"
     needs:
@@ -325,7 +276,6 @@ jobs:
       - protocol-check
       - integration-check
       - main-freshness-gate
-      - release-lane-gate
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -339,7 +289,6 @@ jobs:
           PROTOCOL="${{ needs['protocol-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
-          RELEASE_LANE="${{ needs['release-lane-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'paths=%s\n' "$PATHS"
@@ -347,10 +296,9 @@ jobs:
           printf 'protocol-check=%s\n' "$PROTOCOL"
           printf 'integration-check=%s\n' "$INTEGRATION"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
-          printf 'release-lane-gate=%s\n' "$RELEASE_LANE"
 
           fail=0
-          for result in "$SECRET_SCAN" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS" "$RELEASE_LANE"; do
+          for result in "$SECRET_SCAN" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

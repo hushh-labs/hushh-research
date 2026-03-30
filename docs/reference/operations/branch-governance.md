@@ -7,38 +7,38 @@
 flowchart LR
   feature["feature / fix / dev branches"]
   main["main"]
-  uat["deploy_uat"]
-  prod["deploy"]
-  feature --> main --> uat
-  main --> prod
+  green["Green main SHA"]
+  uat["UAT deploy<br/>auto from exact SHA"]
+  prod["Production deploy<br/>manual chosen SHA"]
+  feature --> main --> green
+  green --> uat
+  green --> prod
 ```
 
-This repo runs on three branch lanes:
+This repo now runs on one integration branch plus SHA-based environment deployment:
 
-| Branch | Purpose | Default policy |
+| Lane | Purpose | Default policy |
 |---|---|---|
 | `main` | Team integration branch | Every feature PR targets `main` |
-| `deploy_uat` | UAT release lane | Open to approved developers, must contain latest `main` |
-| `deploy` | Production release lane | Release-only branch, must contain latest `main` |
+| UAT | Hosted validation environment | Auto-deploys the exact green `main` SHA |
+| Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
 
 1. Start all development branches from `main`.
 2. Merge all feature/fix/docs work back into `main`.
-3. Never develop directly on `deploy` or `deploy_uat`.
-4. Promote by merging or fast-forwarding the latest `main` into:
-   - `deploy_uat` for UAT rollout
-   - `deploy` for production release preparation
-5. A release branch must contain the latest `origin/main` before deployment.
-6. Do not open feature or hotfix PRs directly to `deploy_uat`; promote via `main`.
+3. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
+4. UAT deploys only from a successful `main` push CI run and uses that exact commit SHA.
+5. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
+6. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
 ## Branch Types and Retention
 
 | Branch type | Naming pattern | Retention |
 |---|---|---|
 | Developer branch | `feature/*`, `feat/*`, `agent_*`, developer-owned names | Keep while active |
-| Hotfix branch | `fix/*` | Delete after merge to `main` and successful promotion |
-| Promotion PR head | `main` -> `deploy_uat` or `main` -> `deploy` | Keep permanent release branches only |
+| Hotfix branch | `fix/*` | Delete after merge to `main` and successful UAT validation |
+| Deployment artifact | exact green `main` SHA | Keep in Git history and deployment logs |
 | Local backup branch | `backup/*`, `publishable/*` | Audit unique commits, salvage if needed, then delete |
 
 Before deleting a local backup branch, classify its unique commits as:
@@ -49,30 +49,28 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ## Deployment Lanes
 
-### `deploy_uat`
+### UAT
 
-1. Auto-deploys to UAT only after successful `Tri-Flow CI` push runs on `deploy_uat`.
-2. Manual dispatch is allowed only as an emergency rerun path.
-3. No reviewer gate is required in the workflow itself.
-4. Workflow preflight fails if `deploy_uat` does not contain the latest `origin/main`.
-5. The intended promotion path is `feature/hotfix -> main -> deploy_uat`.
-6. Only `main -> deploy_uat` promotion PRs are valid.
+1. Auto-deploys only after a successful `Tri-Flow CI` push run on `main`.
+2. The workflow checks out the exact green `main` SHA from that CI run.
+3. Manual dispatch remains available for redeploying a chosen green `main` SHA.
+4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
+5. Workflow preflight also fails if the SHA does not already have a successful `CI Status Gate`.
 
-### `deploy`
+### Production
 
-1. Auto-deploys production only after successful `Tri-Flow CI` push runs on `deploy`.
-2. Manual dispatch remains available only as an emergency rerun path.
-3. The workflow is valid only from the `deploy` branch.
-4. Workflow preflight fails if `deploy` does not contain the latest `origin/main`.
-5. The intended promotion path is `feature/hotfix -> main -> deploy`.
-6. Only `main -> deploy` promotion PRs are valid.
+1. Production does not auto-deploy from branch pushes.
+2. Production deploys only through a manual workflow dispatch with an explicit green `main` SHA.
+3. The workflow validates that the SHA is reachable from `origin/main`.
+4. The workflow also validates that `CI Status Gate` succeeded for that SHA before deployment starts.
+5. Owner/approval environment rules still apply after the SHA preflight passes.
 
 ## Hotfix Playbook
 
 1. Create the hotfix branch from the latest `main`.
 2. Merge the hotfix into `main`.
-3. Promote `main` into `deploy_uat`.
-4. If another blocker appears after that promotion, create a new hotfix branch from the updated `main`.
+3. Let UAT auto-deploy the new green `main` SHA, or manually redeploy that same SHA to UAT if needed.
+4. If another blocker appears after that rollout, create a new hotfix branch from the updated `main`.
 5. Do not reuse an already-merged hotfix branch for a second fix.
 
 ## GitHub Admin Checklist
@@ -91,21 +89,11 @@ Current operating note:
 - `enforce_admins` should stay enabled
 - verify the live setting with `./scripts/ci/verify-main-branch-protection.sh`
 
-### `deploy`
+### Retired release branches
 
-1. Protect the branch.
-2. Require PR merge from `main` only.
-3. Require `CI Status Gate` and `Release Lane Gate`.
-4. Treat it as release-only.
-5. Use bypass only for the 3 core owners.
-
-### `deploy_uat`
-
-1. Protect the branch.
-2. Require PR merge from `main` only.
-3. Require `CI Status Gate` and `Release Lane Gate`.
-4. Keep it synced from `main` before rollout.
-5. Use bypass only for the 3 core owners.
+1. `deploy_uat` and `deploy` are no longer part of the deployment control plane.
+2. They should not carry required checks or workflow expectations for new rollouts.
+3. Leave them inert or archive/remove them only after the team confirms no external automation still points at them.
 
 ## Production Approval Environments
 

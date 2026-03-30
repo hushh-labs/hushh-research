@@ -102,10 +102,10 @@ The script reports:
 8. `ADVISORY_VERIFICATION_BYPASS_ENABLED` and `BROKER_VERIFICATION_BYPASS_ENABLED` are the capability-specific non-production bypass switches. Both must remain `false` in production.
 9. `RIA_DEV_BYPASS_ENABLED` remains only as a legacy compatibility alias for advisory bypass and should not be the primary switch in new configs.
 
-### Branch divergence note (current)
+### Environment divergence note (current)
 
-1. `deploy_uat` currently carries analytics keys plus optional auth-override keys (`NEXT_PUBLIC_AUTH_FIREBASE_*`).
-2. Production branch rollout does not yet require all analytics keys until the dedicated migration step is approved.
+1. UAT runtime currently carries analytics keys plus optional auth-override keys (`NEXT_PUBLIC_AUTH_FIREBASE_*`).
+2. Production runtime does not yet require all analytics keys until the dedicated migration step is approved.
 3. Auth override keys are not accidental drift. They represent the shared-auth login plane when UAT and production intentionally use the same Firebase login provider.
 
 ### Ops-only GitHub secrets (backup/recovery governance)

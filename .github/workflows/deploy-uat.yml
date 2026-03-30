@@ -7,7 +7,7 @@ on:
     types:
       - completed
     branches:
-      - deploy_uat
+      - main
   workflow_dispatch:
     inputs:
       scope:
@@ -19,6 +19,14 @@ on:
           - all
           - backend
           - frontend
+      sha:
+        description: "Exact green main SHA to deploy (blank defaults to latest origin/main)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  checks: read
 
 env:
   GCP_PROJECT_ID: hushh-pda-uat
@@ -30,26 +38,51 @@ env:
   CLOUD_RUN_REVISION_RETENTION: "10"
 
 concurrency:
-  group: deploy-uat-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+  group: deploy-uat-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     name: Deploy UAT Scope
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'deploy_uat')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: main
 
-      - name: Assert UAT branch contains latest main
+      - name: Resolve deployment SHA
+        id: resolve-sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            DEPLOY_SHA="${{ github.event.workflow_run.head_sha }}"
+          elif [ -n "${{ github.event.inputs.sha }}" ]; then
+            DEPLOY_SHA="${{ github.event.inputs.sha }}"
+          else
+            git fetch --no-tags origin main
+            DEPLOY_SHA="$(git rev-parse origin/main)"
+          fi
+
+          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Validate deployment SHA against main
         env:
-          GITHUB_REF_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
-        run: bash scripts/ci/require-branch-contains-main.sh deploy_uat
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "CI Status Gate"
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
+
+      - name: Checkout deployment SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -334,6 +367,7 @@ jobs:
         shell: bash
         run: |
           echo "UAT Deployment Complete"
+          echo "Commit SHA: ${{ steps.resolve-sha.outputs.sha }}"
           echo "Scope: ${{ steps.scope.outputs.scope }}"
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             echo "Backend: ${{ steps.backend-url.outputs.url }}"
