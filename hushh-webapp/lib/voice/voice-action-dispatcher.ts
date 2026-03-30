@@ -26,7 +26,7 @@ export type VoiceDispatchInput = {
 
 export type VoiceDispatchResult = {
   status: "executed" | "blocked" | "invalid" | "failed";
-  toolName: VoiceToolCall["tool_name"];
+  toolName: string;
   reason?: string;
 };
 
@@ -188,7 +188,7 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
 
   return {
     status: "invalid",
-    toolName: toolCall.tool_name,
+    toolName: "unsupported_tool_call",
     reason: "unsupported_tool_call",
   };
 }
