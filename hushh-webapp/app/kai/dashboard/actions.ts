@@ -92,39 +92,6 @@ export async function getConsentToken(scope: string): Promise<string | null> {
 }
 
 /**
- * Check if valid consent exists for scope.
- * Uses Capacitor Preferences for mobile compatibility.
- * 
- * NOTE: For vault owners, consent is managed via VaultContext.vaultOwnerToken.
- * The vault.owner token (master scope) satisfies ALL agent scopes including agent.kai.analyze.
- * Use vaultOwnerToken from useVault() hook instead of this function for owner operations.
- * 
- * This function is primarily for checking agent-specific tokens issued to external agents.
- * 
- * @deprecated For vault owner operations, use vaultOwnerToken from VaultContext instead.
- */
-export async function hasValidConsent(scope: string): Promise<boolean> {
-  const token = await getConsentToken(scope);
-  if (!token) return false;
-
-  try {
-    const { Preferences } = await import("@capacitor/preferences");
-    const { value } = await Preferences.get({ key: TOKEN_STORAGE_KEY });
-
-    if (!value) return false;
-
-    const storageData = JSON.parse(value);
-    if (storageData.expires_at && Date.now() > storageData.expires_at) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-
-  return true;
-}
-
-/**
  * Clear all consent tokens (on logout/re-onboard).
  */
 export async function clearConsentTokens(): Promise<void> {

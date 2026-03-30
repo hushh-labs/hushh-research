@@ -18,6 +18,46 @@ function isNativeCapacitorPlatform(): boolean {
 }
 
 const SESSION_PREFIX = "_session_";
+const BOOT_ID_KEY = "__hushh_boot_id__";
+
+/**
+ * On native Capacitor, session storage falls back to localStorage which persists
+ * across app restarts. This generates a boot ID on each cold start and purges
+ * all _session_ keys when a mismatch is detected, restoring session semantics.
+ */
+function purgeStaleSessionKeysOnNative(): void {
+  if (typeof window === "undefined") return;
+  if (!isNativeCapacitorPlatform()) return;
+
+  try {
+    const storage = window.localStorage;
+    const currentBootId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const storedBootId = storage.getItem(BOOT_ID_KEY);
+
+    if (storedBootId !== null && storedBootId !== currentBootId) {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key?.startsWith(SESSION_PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+      if (keysToRemove.length > 0) {
+        keysToRemove.forEach((key) => storage.removeItem(key));
+        console.info(
+          `[SessionStorage] Cold-start purge: cleared ${keysToRemove.length} stale session keys`,
+        );
+      }
+    }
+
+    storage.setItem(BOOT_ID_KEY, currentBootId);
+  } catch (e) {
+    console.warn("[SessionStorage] Boot ID check failed:", e);
+  }
+}
+
+// Run purge on module load (app startup)
+purgeStaleSessionKeysOnNative();
 
 function getSessionLikeStorage(): Storage | null {
   if (typeof window === "undefined") return null;

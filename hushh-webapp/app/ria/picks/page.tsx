@@ -72,7 +72,7 @@ export default function RiaPicksPage() {
     },
   });
 
-  const uploads = picksResource.data?.items || [];
+  const uploads = useMemo(() => picksResource.data?.items || [], [picksResource.data?.items]);
   const activeRows = picksResource.data?.active_rows || [];
   const loading = picksResource.loading;
   const error = picksResource.error;

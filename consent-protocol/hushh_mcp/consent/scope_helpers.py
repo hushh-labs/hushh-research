@@ -115,33 +115,79 @@ def get_scope_description(scope: str) -> str:
     Returns:
         Human-readable description
     """
+    info = get_scope_display_metadata(scope)
+    return info["description"]
+
+
+def get_scope_display_metadata(scope: str) -> dict:
+    """
+    Get full display metadata for any scope: label, description, icon_name, color_hex.
+
+    This is the primary function for consent UIs to resolve scope presentation.
+
+    Args:
+        scope: The scope string
+
+    Returns:
+        Dict with keys: label, description, icon_name, color_hex
+    """
     generator = get_scope_generator()
 
-    # Dynamic attr.* scopes - generate description from scope structure
+    # Dynamic attr.* scopes — resolve via DynamicScopeGenerator + domain contracts
     if generator.is_dynamic_scope(scope):
         display_info = generator.get_scope_display_info(scope)
-        domain = display_info["domain"]
-        attribute = display_info["attribute"]
-        is_wildcard = display_info["is_wildcard"]
+        return {
+            "label": display_info["display_name"],
+            "description": display_info["description"]
+            or f"Access your {display_info['domain']} data",
+            "icon_name": display_info["icon_name"],
+            "color_hex": display_info["color_hex"],
+        }
 
-        if is_wildcard:
-            return f"Access all your {domain} data"
-        elif attribute:
-            attr_display = attribute.replace("_", " ").title()
-            return f"Access your {domain} - {attr_display}"
-        else:
-            return f"Access your {domain} domain"
-
-    # Hardcoded descriptions for non-dynamic scopes (PKM only; no legacy vault.*)
-    descriptions = {
-        "vault.owner": "Full access to your vault (master key)",
-        "pkm.read": "Read your personal knowledge model data",
-        "pkm.write": "Write to your personal knowledge model",
-        "agent.kai.analyze": "Allow Kai agent to analyze your data",
-        "agent.kai.execute": "Allow Kai agent to execute actions",
+    # Static scope metadata
+    _STATIC_SCOPE_META: dict[str, dict] = {
+        "vault.owner": {
+            "label": "Full Vault Access",
+            "description": "Full access to your vault (master key)",
+            "icon_name": "shield",
+            "color_hex": "#D4AF37",
+        },
+        "pkm.read": {
+            "label": "Read All Personal Data",
+            "description": "Read your personal knowledge model data",
+            "icon_name": "book-open",
+            "color_hex": "#3B82F6",
+        },
+        "pkm.write": {
+            "label": "Write Personal Data",
+            "description": "Write to your personal knowledge model",
+            "icon_name": "pencil",
+            "color_hex": "#3B82F6",
+        },
+        "agent.kai.analyze": {
+            "label": "Kai Analysis",
+            "description": "Allow Kai agent to analyze your data",
+            "icon_name": "brain",
+            "color_hex": "#D4AF37",
+        },
+        "agent.kai.execute": {
+            "label": "Kai Actions",
+            "description": "Allow Kai agent to execute actions",
+            "icon_name": "zap",
+            "color_hex": "#D4AF37",
+        },
     }
 
-    return descriptions.get(scope, f"Access: {scope}")
+    meta = _STATIC_SCOPE_META.get(scope)
+    if meta:
+        return meta
+
+    return {
+        "label": scope.replace(".", " ").replace("_", " ").title(),
+        "description": f"Access: {scope}",
+        "icon_name": None,
+        "color_hex": None,
+    }
 
 
 def is_write_scope(scope: str) -> bool:

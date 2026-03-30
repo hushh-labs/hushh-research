@@ -1,5 +1,10 @@
 # Docs Governance
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 
 Define one durable documentation model across:
@@ -23,6 +28,19 @@ Define one durable documentation model across:
 3. Keep cross-cutting architecture/ops/policy docs in root `docs/`.
 4. Do not duplicate source-of-truth content across homes; link instead.
 5. Put AI strategy/runtime planning in `docs/reference/ai/` unless it is backend- or frontend-only.
+
+## Visual Coverage Rules
+
+1. Maintained docs must expose visual coverage near the top of the page.
+2. Use `## Visual Map` for docs that own a system, subsystem, flow, or contract.
+3. Use `## Visual Context` for narrower docs that inherit their mental model from a canonical parent map.
+4. Tier A visual owners are:
+   - major README/index docs under `docs/`, `consent-protocol/docs/`, and `hushh-webapp/docs/`
+   - `docs/project_context_map.md`
+   - canonical architecture, IAM, Kai, mobile, CI, and branch-governance north-star docs
+5. Tier B docs may link to the nearest Tier A owner instead of embedding a local diagram.
+6. Diagrams must stay markdown-native. Prefer Mermaid for larger flows and ASCII only when the smaller inline sketch reads better.
+7. Do not add diagrams for transient incident history, one-time maintenance activity, or branch-only cleanup.
 
 ## Root Entrypoint Rules
 
@@ -80,6 +98,7 @@ CI gate policy:
 2. If a public contract changes, update both docs and contract verification artifacts.
 3. If a file is renamed, update all links immediately; no deferred follow-up.
 4. Any future-plan document must include an explicit `Status` section and a promotion rule before it can be treated as implementation reference.
+5. If a maintained doc loses or moves its canonical visual owner, update the linked `Visual Context` pages in the same change.
 
 ## Ownership
 

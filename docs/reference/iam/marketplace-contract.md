@@ -1,5 +1,10 @@
 # Marketplace Contract
 
+
+## Visual Context
+
+Canonical visual owner: [IAM Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 
 Define two-sided discovery and consent-initiation behavior between investors and RIAs.

@@ -1,5 +1,10 @@
 # Advanced Ops
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Use this after [Getting Started](./getting-started.md). This is the operational layer, not the first-run guide.
 
 ## Cloud SQL Proxy

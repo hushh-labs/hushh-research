@@ -9,6 +9,8 @@ Kai route-facing UI lives here. The market route is the canonical shell/layout r
 - `views/investments-master-view.tsx`: investment workspace.
 - `onboarding/`: onboarding and preferences flows.
 - `cards/`, `charts/`, `home/`: reusable Kai feature surfaces.
+- Virtual scrolling via `@tanstack/react-virtual` for large holdings lists in portfolio views.
+- R1/R2 round pill badges for debate confidence and risk alignment indicators.
 
 ## Rules
 

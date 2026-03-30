@@ -68,6 +68,7 @@
   {
     "route": "/kai/import",
     "mode": "flow",
+    "exemptionReason": "Fullscreen import flow uses FullscreenFlowShell instead of standard AppPageShell.",
     "shellVerification": {
       "file": "app/kai/import/page.tsx",
       "includes": ["FullscreenFlowShell", "KaiFlow"]
@@ -127,10 +128,28 @@
     }
   },
   {
+    "route": "/portfolio/shared",
+    "mode": "hidden",
+    "exemptionReason": "Public shared portfolio view uses chrome-free layout for external recipients."
+  },
+  {
     "route": "/profile",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/profile/pkm",
+    "mode": "redirect",
+    "exemptionReason": "Redirect route that forwards to /profile/pkm-agent-lab or /profile in production."
+  },
+  {
+    "route": "/profile/pkm-agent-lab",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
     }
   },

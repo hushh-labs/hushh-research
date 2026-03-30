@@ -2,6 +2,11 @@
 
 > The community contribution bible. Everything you need to build, test, and ship a new Hushh agent or operon.
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## The DNA Model

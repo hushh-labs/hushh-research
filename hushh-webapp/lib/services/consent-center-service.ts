@@ -2,6 +2,8 @@ import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
+export const CONSENT_CENTER_PAGE_SIZE = 20;
+
 export type ConsentCenterActor = "investor" | "ria";
 export type ConsentCenterView =
   | "incoming"
@@ -148,25 +150,6 @@ export interface ConsentCenterPageListResponse {
   items: ConsentCenterEntry[];
 }
 
-const PENDING_STATUSES = new Set(["pending", "request_pending", "sent"]);
-const ACTIVE_STATUSES = new Set(["active"]);
-
-function normalizeStatus(value: string | null | undefined) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function filterEntriesForSurface(
-  surface: ConsentCenterPageListResponse["surface"],
-  items: ConsentCenterEntry[]
-) {
-  return items.filter((entry) => {
-    const status = normalizeStatus(entry.status);
-    if (surface === "pending") return PENDING_STATUSES.has(status);
-    if (surface === "active") return ACTIVE_STATUSES.has(status);
-    return !PENDING_STATUSES.has(status) && !ACTIVE_STATUSES.has(status);
-  });
-}
-
 interface FetchCenterOptions {
   idToken: string;
   userId: string;
@@ -297,20 +280,17 @@ export class ConsentCenterService {
     q?: string;
     page?: number;
     limit?: number;
+    top?: number;
     force?: boolean;
   }): Promise<ConsentCenterPageListResponse> {
     const actor = options.actor || "investor";
     const q = options.q || "";
-    const page = options.page || 1;
-    const limit = options.limit || 20;
-    const cacheKey = CACHE_KEYS.CONSENT_CENTER_LIST(
-      options.userId,
-      actor,
-      options.surface,
-      q,
-      page,
-      limit
-    );
+    const previewTop = typeof options.top === "number" ? Math.max(1, Math.min(options.top, 10)) : null;
+    const page = previewTop ? 1 : options.page || 1;
+    const limit = previewTop ?? (options.limit || CONSENT_CENTER_PAGE_SIZE);
+    const cacheKey = previewTop
+      ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(options.userId, actor, options.surface, previewTop)
+      : CACHE_KEYS.CONSENT_CENTER_LIST(options.userId, actor, options.surface, q, page, limit);
     const cache = CacheService.getInstance();
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageListResponse>(cacheKey);
@@ -319,9 +299,13 @@ export class ConsentCenterService {
     const query = new URLSearchParams({
       actor,
       surface: options.surface,
-      page: String(page),
-      limit: String(limit),
     });
+    if (previewTop) {
+      query.set("top", String(previewTop));
+    } else {
+      query.set("page", String(page));
+      query.set("limit", String(limit));
+    }
     if (q.trim()) query.set("q", q.trim());
     const response = await ApiService.apiFetch(`/api/consent/center/list?${query.toString()}`, {
       method: "GET",
@@ -334,10 +318,7 @@ export class ConsentCenterService {
     if (!response.ok) {
       throw new Error(payload.detail || payload.error || `Request failed: ${response.status}`);
     }
-    payload.items = filterEntriesForSurface(
-      options.surface,
-      Array.isArray(payload.items) ? payload.items : []
-    );
+    payload.items = Array.isArray(payload.items) ? payload.items : [];
     cache.set(cacheKey, payload, CACHE_TTL.SHORT);
     return payload;
   }
@@ -399,6 +380,9 @@ export class ConsentCenterService {
       throw new Error(body.detail || body.error || `Request failed: ${response.status}`);
     }
 
+    if (options.investor_user_id) {
+      CacheSyncService.onConsentMutated(options.investor_user_id);
+    }
     return body;
   }
 }

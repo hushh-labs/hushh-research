@@ -134,14 +134,35 @@ export class KaiProfileSyncService {
       };
     }
 
-    await KaiProfileService.syncOnboardingAndNavState({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-      baseFullBlob: params.baseFullBlob,
-      onboarding: pendingState.onboardingPayload,
-      navTour: pendingState.navPayload,
-    });
+    // Retry with exponential backoff (max 3 attempts)
+    const retryDelays = [0, 1000, 3000];
+    let lastError: unknown;
+    for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+      try {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+        }
+        await KaiProfileService.syncOnboardingAndNavState({
+          userId: params.userId,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          baseFullBlob: params.baseFullBlob,
+          onboarding: pendingState.onboardingPayload,
+          navTour: pendingState.navPayload,
+        });
+        lastError = undefined;
+        break;
+      } catch (error) {
+        lastError = error;
+        console.warn(
+          `[KaiProfileSyncService] Sync attempt ${attempt + 1}/${retryDelays.length} failed:`,
+          error,
+        );
+      }
+    }
+    if (lastError) {
+      throw lastError;
+    }
 
     const pendingOnboarding = pendingState.pendingOnboarding;
     if (

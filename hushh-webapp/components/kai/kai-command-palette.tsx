@@ -235,7 +235,7 @@ export function KaiCommandPalette({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [open, query]);
 
   const universeByTicker = useMemo(() => {
     const map = new Map<string, TickerUniverseRow>();

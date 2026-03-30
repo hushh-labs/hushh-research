@@ -1,6 +1,31 @@
 # PKM Cutover Runbook
 
-This is the bounded runbook for cutting Kai from legacy encrypted storage to PKM.
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  legacy["Legacy world-model ciphertext"]
+  unlock["Vault unlock on client"]
+  cutover["One-time cutover adapter<br/>legacy -> PKM partitioning"]
+  pkm["Encrypted PKM domains<br/>blobs + manifests + index"]
+  status["PKM upgrade status<br/>version detection"]
+  manifest["Domain manifest contract<br/>paths + scope registry + readable summary"]
+  upgrade["Client-side PKM upgrade run<br/>decrypt -> transform -> rebuild -> re-encrypt"]
+  bell["Bell / PKM lab surface<br/>status + failure metadata"]
+
+  legacy -->|decrypts locally during bounded cutover window| cutover
+  unlock -->|gates local decrypt with BYOK key| cutover
+  cutover -->|writes encrypted PKM blobs + manifest/index metadata| pkm
+  pkm -->|reports stored model/domain versions| status
+  status -->|decides whether generic upgrade is needed| upgrade
+  manifest -->|defines current domain contract and scope shape| upgrade
+  unlock -->|authorizes resumable generic upgrade| upgrade
+  upgrade -->|writes resumable run metadata + upgraded ciphertext| pkm
+  upgrade -->|surfaces progress/failure context| bell
+```
+
+This is the bounded runbook for cutting Kai from legacy encrypted storage to the Personal Knowledge Model (PKM).
 
 ## Preconditions
 
@@ -53,6 +78,27 @@ Legacy cutover and ongoing PKM evolution are different:
   4. rebuild manifests/readable metadata
   5. re-encrypt and store with optimistic concurrency
 - If the app is interrupted, resume is allowed only after local vault re-auth. There is no silent server-side decrypt or key recovery.
+
+## Compatibility gate
+
+Production rollout is blocked unless all supported stored-version paths are green:
+
+1. legacy world-model cutover source -> PKM
+2. prior PKM model versions -> current `CURRENT_PKM_MODEL_VERSION`
+3. prior domain-contract versions -> current domain contract
+4. prior readable-summary versions -> current readable summary
+
+The minimum blocking proof set is:
+
+1. backend manifest route compatibility tests
+2. frontend PKM upgrade orchestrator compatibility tests
+3. runtime migration audit proving unlock-triggered background upgrade does not break profile/privacy or PKM lab
+
+Manifest fetch failures must be treated as P0:
+
+1. `404` means no manifest yet and can still be a supported compatibility path
+2. malformed/legacy manifest rows must normalize into the current response contract
+3. true backend failures must surface structured route/domain/stage detail to the bell and PKM lab
 
 ## Wrapper selection rule
 

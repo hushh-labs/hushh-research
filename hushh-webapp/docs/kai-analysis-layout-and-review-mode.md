@@ -1,5 +1,10 @@
 # Kai Analysis Layout + Review Mode Notes
 
+
+## Visual Context
+
+Canonical visual owner: [Hushh Webapp Docs](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Global Top Spacing
 - Root shell owns top spacing at layout level for all routes via `resolveTopShellMetrics(...)`.
 - Effective top inset token is `--app-safe-area-top-effective`:

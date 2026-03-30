@@ -1,5 +1,10 @@
 # New Feature Development Checklist
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Use this checklist for EVERY new feature that involves data operations.
 
 ## Before You Start

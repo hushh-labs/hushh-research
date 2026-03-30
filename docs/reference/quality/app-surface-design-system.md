@@ -1,5 +1,10 @@
 # App Surface Design System
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document is the canonical contract for app-facing surfaces across Kai, RIA, Marketplace, Consent, and Profile.
 
 Profile remains the reference implementation for settings rows. This document expands that language into the broader page-shell, header, and content-surface system.
@@ -45,15 +50,41 @@ Rules:
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 
-## Notification Bell Contract
+## Consent Inbox And Notification Contract
 
 Rules:
 
-1. The bell is one notification surface, not a tabbed mini-app.
-2. Consent appears there only as a single `Consent Center` launcher row at the top of the feed.
-3. Delivery diagnostics do not belong in the bell.
-4. Notifications remain visible until dismissed and should be ordered newest-first.
-5. Bell, profile, and compatibility aliases all launch the same shared consent sheet path.
+1. The bell is one notification surface for background tasks and push events, not a tabbed mini-app.
+2. The shield is the consent inbox.
+3. The shield badge must come from consent-center summary data for the active persona, not notification-local counters.
+4. The first-party shield inbox should reuse the cached `pending page 1` manager payload and render the first `5` rows from that list instead of creating a second cache lane.
+5. The inbox dropdown must stay compact:
+   - fixed width
+   - bounded height
+   - internal scroll only
+   - no pagination chrome inside the dropdown
+6. Bell and shield dropdowns should share the same top-shell dropdown chrome:
+   - same radius
+   - same border/backdrop treatment
+   - same header/body/footer spacing
+   - same device-width scaling rules
+7. Bell, shield, profile, and compatibility aliases must converge on the same `/consents` manager when the user chooses to open the full workspace.
+8. Delivery diagnostics do not belong in the bell or shield inbox.
+9. Notifications remain visible until dismissed and should be ordered newest-first.
+10. Consent-review actions triggered from toasts or push taps must use in-app router navigation for internal app routes so vault-backed sessions are not cold-restarted.
+11. The bell is a two-level async surface:
+    - primary work for long-running/recoverable tasks such as PKM upgrade, portfolio import, Plaid refresh, consent export refresh
+    - passive work for cache warm, silent refresh, and reconciliation
+12. Passive work should only surface after a short threshold, stay grouped under `Background activity`, and autoclear after success.
+13. Failed passive work must promote into the primary task list and remain visible until dismissed.
+
+## Scroll Stability Contract
+
+Rules:
+
+1. Desktop standard signed-in scroll roots must reserve stable scrollbar space.
+2. Variable-height tab/content changes must not cause page-width drift.
+3. Solve this in the shared shell scroll container, not with route-local hacks.
 
 ## Surface Card Contract
 
@@ -76,6 +107,7 @@ Rules:
 8. Standard Kai, RIA, and consent routes should use `SurfaceStack` to provide shared horizontal overscan and vertical spacing for card sections.
 9. `AppPageShell` owns route start and shared page gutter. Card breathing comes from `SurfaceStack`, not from per-page inline padding hacks.
 10. Outer app-facing surface shells must not rely on `overflow-hidden`; clipping is allowed only on inner media/chart/inset containers.
+11. Do not stack glass-inside-glass for list managers. Row-based managers should use one outer shell and flatter rows inside it.
 
 ### Card Depth Model
 
@@ -157,7 +189,10 @@ Rules:
 2. News rows do not get a second per-row news icon when the section header already carries that meaning.
 3. Market overview should only promote metrics backed by providers that are actually configured in the active environment.
 4. Degraded or delayed states should read as intentional status, not as broken empty cards.
-5. Long browse lists must support client-side pagination or equivalent browse controls once the result set stops being comfortably scannable in one pass.
+5. Long browse lists must expose backend-backed pagination metadata and use explicit browse controls once the result set stops being comfortably scannable in one pass.
+6. Root browse surfaces must not rely on load-all-then-slice page contracts when the result set can grow without bound.
+7. Preview widgets should prefer a shared first-page cache when they open the same underlying manager surface; use `top=n` only for dedicated preview-only fetches.
+8. Empty or single-page list views must not render pagination chrome.
 
 ## RIA Information Architecture
 
@@ -165,12 +200,14 @@ Rules:
 2. The RIA bottom navigation is `Home / Clients / Picks / Profile`.
 3. `/consents` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/consents`, not as a second consent system.
-5. Relationship views should stay grouped around:
+5. The shell should contextualize `/consents` as `Profile > Privacy` for breadcrumb and primary-nav highlighting while preserving `/consents` as the canonical URL.
+6. Advanced PKM tools such as `PKM Agent Lab` should inherit the standard profile/privacy shell contract instead of introducing a separate hidden-route layout language.
+7. Relationship views should stay grouped around:
    - relationship state
    - next action
    - available scope metadata
    - current grants
-6. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
+8. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
 
 ## Documentation References
 

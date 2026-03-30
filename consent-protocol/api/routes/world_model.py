@@ -3,11 +3,14 @@ Legacy World Model compatibility routes.
 
 These routes preserve older `/api/world-model/*` callers by delegating to the
 canonical PKM implementation under `/api/pkm/*`.
+
+DEPRECATED: Migrate to /api/pkm/* endpoints. These routes will be removed.
 """
 
+import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel
 
 from api.middleware import require_vault_owner_token
@@ -40,7 +43,23 @@ from api.routes.pkm_routes_shared import (
 )
 from hushh_mcp.services.domain_contracts import domain_registry_payload
 
-router = APIRouter(prefix="/api/world-model", tags=["world-model-compat"])
+logger = logging.getLogger(__name__)
+
+
+def _inject_deprecation_headers(request: Request, response: Response):
+    """Dependency that injects deprecation headers on every world-model response."""
+    pkm_path = request.url.path.replace("/api/world-model", "/api/pkm")
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "2026-06-30T00:00:00Z"
+    response.headers["X-Migrate-To"] = pkm_path
+    logger.info("⚠️ Deprecated world-model route: %s → %s", request.url.path, pkm_path)
+
+
+router = APIRouter(
+    prefix="/api/world-model",
+    tags=["world-model-compat"],
+    dependencies=[Depends(_inject_deprecation_headers)],
+)
 
 
 class WorldModelDomainsResponse(BaseModel):

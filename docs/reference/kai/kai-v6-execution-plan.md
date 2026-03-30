@@ -1,5 +1,10 @@
 # Kai V6 Execution Plan (Accuracy-First, Real-Data-Only)
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Objective
 Deliver a production-grade Kai experience where dashboard, analysis, and optimization are strictly based on validated realtime + filing-backed evidence, with no speculative fallback in decision-critical flows.
 

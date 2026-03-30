@@ -1,5 +1,10 @@
 # Plaid Activation and Testing
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost, UAT, and hosted domains.
 
 ## What This Enables

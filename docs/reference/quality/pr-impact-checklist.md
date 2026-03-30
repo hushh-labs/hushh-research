@@ -1,5 +1,10 @@
 # PR Impact Checklist
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile parity.
 
 ## Required PR Fields

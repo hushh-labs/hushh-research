@@ -3,6 +3,7 @@
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import {
   type DomainSummary,
+  PkmDomainManifestError,
   PersonalKnowledgeModelService,
 } from "@/lib/services/personal-knowledge-model-service";
 import {
@@ -74,17 +75,60 @@ function clearSnapshot(userId: string): void {
 function descriptionForStatus(status: string, currentDomain?: string | null): string {
   const domainLabel = currentDomain
     ? currentDomain.replace(/[_-]+/g, " ").replace(/\b\w/g, (match) => match.toUpperCase())
-    : "your private model";
+    : "your Personal Knowledge Model";
   if (status === "awaiting_local_auth_resume") {
-    return `Resume the private model upgrade for ${domainLabel} after unlocking your vault.`;
+    return `Resume the PKM refresh for ${domainLabel} after unlocking your vault.`;
   }
   if (status === "completed") {
-    return "Your private model is current.";
+    return "Your Personal Knowledge Model is current.";
   }
   if (status === "failed") {
-    return `We paused the private model upgrade while refreshing ${domainLabel}.`;
+    return `We paused the PKM refresh while updating ${domainLabel}.`;
   }
   return `Refreshing ${domainLabel} in the background.`;
+}
+
+function failureMessage(error: unknown): string {
+  if (error instanceof PkmDomainManifestError) {
+    return error.detail
+      ? `Manifest read failed (${error.status}): ${error.detail}`
+      : `Manifest read failed (${error.status}).`;
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return "Personal Knowledge Model upgrade failed unexpectedly.";
+}
+
+function failureMetadata(params: {
+  error: unknown;
+  route: string | null;
+  domain: string | null;
+  stage: string;
+  runId: string | null;
+}): Record<string, unknown> {
+  const base = {
+    runId: params.runId,
+    route: params.route,
+    domain: params.domain,
+    stage: params.stage,
+  } as Record<string, unknown>;
+  if (params.error instanceof PkmDomainManifestError) {
+    return {
+      ...base,
+      httpStatus: params.error.status,
+      detail: params.error.detail,
+      correlationId: params.error.correlationId,
+      manifestRoute: params.error.route,
+    };
+  }
+  if (params.error instanceof Error) {
+    return {
+      ...base,
+      detail: params.error.message,
+    };
+  }
+  return base;
 }
 
 export class PkmUpgradeOrchestrator {
@@ -212,7 +256,10 @@ export class PkmUpgradeOrchestrator {
     if (!status.run || status.upgradableDomains.length === 0) {
       const snapshot = readSnapshot(params.userId);
       if (snapshot?.taskId) {
-        AppBackgroundTaskService.completeTask(snapshot.taskId, "Your private model is current.");
+        AppBackgroundTaskService.completeTask(
+          snapshot.taskId,
+          "Your Personal Knowledge Model is current."
+        );
       }
       clearSnapshot(params.userId);
       return;
@@ -253,7 +300,7 @@ export class PkmUpgradeOrchestrator {
         userId: params.userId,
         vaultOwnerToken: params.vaultOwnerToken,
       });
-      AppBackgroundTaskService.completeTask(taskId, "Your private model is current.");
+      AppBackgroundTaskService.completeTask(taskId, "Your Personal Knowledge Model is current.");
       writeSnapshot({
         version: 1,
         userId: params.userId,
@@ -284,9 +331,16 @@ export class PkmUpgradeOrchestrator {
         }
         return;
       }
-      const message =
-        error instanceof Error ? error.message : "Private model upgrade failed unexpectedly.";
       const runId = status.run?.runId;
+      const message = failureMessage(error);
+      const metadata = failureMetadata({
+        error,
+        route: PKM_UPGRADE_ROUTE,
+        domain: status.run?.currentDomain || null,
+        stage: "run",
+        runId: runId || null,
+      });
+      console.error("[PkmUpgradeOrchestrator] PKM upgrade failed", metadata);
       if (runId) {
         await PkmUpgradeService.failRun({
           runId,
@@ -295,7 +349,12 @@ export class PkmUpgradeOrchestrator {
           vaultOwnerToken: params.vaultOwnerToken,
         }).catch(() => undefined);
       }
-      AppBackgroundTaskService.failTask(taskId, message, descriptionForStatus("failed", status.run?.currentDomain));
+      AppBackgroundTaskService.failTask(
+        taskId,
+        message,
+        descriptionForStatus("failed", status.run?.currentDomain),
+        metadata
+      );
       writeSnapshot({
         version: 1,
         userId: params.userId,
@@ -321,11 +380,11 @@ export class PkmUpgradeOrchestrator {
       status.run?.currentDomain
     );
     if (!task) {
-      AppBackgroundTaskService.startTask({
+        AppBackgroundTaskService.startTask({
         taskId,
         userId,
         kind: PKM_UPGRADE_TASK_KIND,
-        title: "Updating your private model",
+        title: "Updating your Personal Knowledge Model",
         description,
         routeHref: PKM_UPGRADE_ROUTE,
         metadata: {
@@ -334,7 +393,7 @@ export class PkmUpgradeOrchestrator {
       });
     } else {
       AppBackgroundTaskService.updateTask(taskId, {
-        title: "Updating your private model",
+        title: "Updating your Personal Knowledge Model",
         description,
         routeHref: PKM_UPGRADE_ROUTE,
         metadata: {
@@ -380,6 +439,7 @@ export class PkmUpgradeOrchestrator {
       metadata: {
         runId: run.runId,
         currentDomain: params.stepDomain,
+        stage: "loading_domain",
       },
     });
 
@@ -417,11 +477,31 @@ export class PkmUpgradeOrchestrator {
         throw new Error(`Could not decrypt ${params.stepDomain} for upgrade.`);
       }
 
-      const existingManifest = await PersonalKnowledgeModelService.getDomainManifest(
-        params.userId,
-        params.stepDomain,
-        params.vaultOwnerToken
-      );
+      AppBackgroundTaskService.updateTask(params.taskId, {
+        metadata: {
+          runId: run.runId,
+          currentDomain: params.stepDomain,
+          stage: "loading_manifest",
+        },
+      });
+      let existingManifest = null;
+      try {
+        existingManifest = await PersonalKnowledgeModelService.getDomainManifest(
+          params.userId,
+          params.stepDomain,
+          params.vaultOwnerToken
+        );
+      } catch (error) {
+        const metadata = failureMetadata({
+          error,
+          route: PKM_UPGRADE_ROUTE,
+          domain: params.stepDomain,
+          stage: "loading_manifest",
+          runId: run.runId,
+        });
+        AppBackgroundTaskService.updateTask(params.taskId, { metadata });
+        throw error;
+      }
       const domainSummary =
         params.metadata.domains.find((entry) => entry.key === params.stepDomain) || null;
       const upgradeResult = runDomainUpgrade({

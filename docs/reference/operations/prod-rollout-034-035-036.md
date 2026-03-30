@@ -1,5 +1,10 @@
 # Production Rollout Plan for Migrations 034-036
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This runbook is intentionally read-only planning in the current pass. It exists
 so the next production rollout of the newer PKM, strict-ZK consent export, and
 RIA relationship-share schema can be executed without rediscovery.

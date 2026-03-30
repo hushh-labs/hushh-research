@@ -6,5 +6,8 @@ __tests__/services/passkey-rp.test.ts
 __tests__/services/vault-method-prompt-local-service.test.ts
 __tests__/services/vault-method-service.test.ts
 __tests__/services/pkm-cache.test.ts
+__tests__/services/pkm-upgrade-registry.test.ts
+__tests__/services/pkm-upgrade-orchestrator.test.ts
 __tests__/services/pkm-prepared-blob-store.test.ts
+__tests__/components/settings-ui.test.tsx
 __tests__/streaming/sse-parser.test.ts

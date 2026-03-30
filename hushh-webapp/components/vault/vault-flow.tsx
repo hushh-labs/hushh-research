@@ -203,7 +203,7 @@ export function VaultFlow({
       }
     };
     checkStatus();
-  }, [user.uid]);
+  }, [preferPassphraseUnlockForAutomation, user.uid]);
 
   const handleCreatePassphrase = async () => {
     if (passphrase.length < 8) {

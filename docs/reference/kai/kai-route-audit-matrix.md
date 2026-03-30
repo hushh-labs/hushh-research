@@ -1,5 +1,10 @@
 # Kai Route Audit Matrix
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Operational matrix for runtime audits without expanding automated test suites.
 
 ## Scope

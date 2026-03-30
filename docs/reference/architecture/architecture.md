@@ -2,6 +2,58 @@
 
 > Current runtime architecture for the Hushh monorepo.
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph clients["Client Surfaces"]
+    web["Web browser"]
+    ios["iOS app"]
+    android["Android app"]
+  end
+
+  subgraph frontend["Frontend Runtime"]
+    app["Next.js App Router<br/>route trees + UI composition"]
+    shell["Shared shell<br/>providers, guards, chrome, layout contract"]
+    svc["Frontend service layer<br/>API, PKM, consent, Kai, RIA"]
+    cache["Runtime state<br/>auth, vault, persona, stale-first cache"]
+  end
+
+  subgraph boundary["Boundary Layer"]
+    proxy["Web path<br/>Next route handlers / app/api"]
+    plugin["Native path<br/>Capacitor plugins"]
+  end
+
+  subgraph backend["Backend Runtime"]
+    routes["FastAPI routers"]
+    services["Domain services<br/>consent, PKM, Kai, IAM, RIA"]
+    agents["Agents / tools / operons"]
+  end
+
+  subgraph persistence["Persistence + external systems"]
+    relational["Postgres / relational workflow data"]
+    blobs["Encrypted PKM blobs + metadata index"]
+    providers["Market, auth, push, external providers"]
+  end
+
+  web -->|renders routes in browser| app
+  ios -->|hosts app inside native shell| app
+  android -->|hosts app inside native shell| app
+  app -->|composes route tree into signed-in/public surfaces| shell
+  shell -->|calls typed frontend services| svc
+  cache -->|hydrates stale-first reads and session state| svc
+  svc -->|web requests via Next route handlers| proxy
+  svc -->|native requests via Capacitor plugins| plugin
+  proxy -->|forwards authenticated app contracts| routes
+  plugin -->|forwards authenticated native contracts| routes
+  routes -->|delegate policy and data work| services
+  services -->|run domain-specific automation| agents
+  services -->|store workflow and relational records| relational
+  services -->|store encrypted PKM blobs + manifest/index metadata| blobs
+  services -->|fetch market/auth/push provider data| providers
+```
+
 ---
 
 ## System Shape

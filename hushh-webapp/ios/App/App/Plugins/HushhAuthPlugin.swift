@@ -32,10 +32,66 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     private let TAG = "HushhAuth"
     private var currentIdToken: String?
     private var currentAccessToken: String?
-    
+
     // Apple Sign-In properties
     private var currentNonce: String?
     private var appleSignInCall: CAPPluginCall?
+
+    // MARK: - Keychain Helpers
+    private let keychainService = "com.hushh.pda.auth"
+
+    private func keychainSet(_ value: String, forKey key: String) {
+        guard let data = value.data(using: .utf8) else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecValueData as String: data
+        ]
+        SecItemDelete(query as CFDictionary)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            print("⚠️ [\(TAG)] Keychain set failed for \(key): \(status)")
+        }
+    }
+
+    private func keychainGet(_ key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecSuccess, let data = item as? Data {
+            return String(data: data, encoding: .utf8)
+        }
+        return nil
+    }
+
+    private func keychainDelete(_ key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    /// One-time migration: move tokens from UserDefaults to Keychain, then purge UserDefaults.
+    private func migrateUserDefaultsToKeychain() {
+        let keys = ["hushh_id_token", "hushh_access_token", "hushh_user_id", "hushh_user_email"]
+        for key in keys {
+            if let value = UserDefaults.standard.string(forKey: key), keychainGet(key) == nil {
+                keychainSet(value, forKey: key)
+                print("🔐 [\(TAG)] Migrated \(key) from UserDefaults → Keychain")
+            }
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
 
     // Ensure Firebase is initialized before any FirebaseAuth call.
     private func ensureFirebaseConfigured() -> Bool {
@@ -48,6 +104,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         FirebaseApp.configure()
         print("✅ [\(TAG)] Firebase configured")
+        migrateUserDefaultsToKeychain()
         return true
     }
     
@@ -121,9 +178,11 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     self.currentIdToken = firebaseIdToken
                     self.currentAccessToken = accessToken
                     
-                    // Store in UserDefaults (TODO: migrate to Keychain)
-                    UserDefaults.standard.set(firebaseIdToken, forKey: "hushh_id_token")
-                    UserDefaults.standard.set(accessToken, forKey: "hushh_access_token")
+                    // Store in Keychain (BYOK-compliant secure storage)
+                    if let token = firebaseIdToken {
+                        self.keychainSet(token, forKey: "hushh_id_token")
+                    }
+                    self.keychainSet(accessToken, forKey: "hushh_access_token")
                     
                     let response: [String: Any] = [
                         "idToken": firebaseIdToken ?? "",
@@ -161,10 +220,10 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         // Clear local state
         currentIdToken = nil
         currentAccessToken = nil
-        UserDefaults.standard.removeObject(forKey: "hushh_id_token")
-        UserDefaults.standard.removeObject(forKey: "hushh_access_token")
-        UserDefaults.standard.removeObject(forKey: "hushh_user_id")
-        UserDefaults.standard.removeObject(forKey: "hushh_user_email")
+        keychainDelete("hushh_id_token")
+        keychainDelete("hushh_access_token")
+        keychainDelete("hushh_user_id")
+        keychainDelete("hushh_user_email")
         
         print("✅ [\(TAG)] Signed out")
         call.resolve()
@@ -179,15 +238,15 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 if let token = token {
                     self.currentIdToken = token
-                    UserDefaults.standard.set(token, forKey: "hushh_id_token")
+                    self.keychainSet(token, forKey: "hushh_id_token")
                     call.resolve(["idToken": token])
-                } else if let cached = self.currentIdToken ?? UserDefaults.standard.string(forKey: "hushh_id_token") {
+                } else if let cached = self.currentIdToken ?? self.keychainGet("hushh_id_token") {
                     call.resolve(["idToken": cached])
                 } else {
                     call.resolve(["idToken": NSNull()])
                 }
             }
-        } else if let cached = currentIdToken ?? UserDefaults.standard.string(forKey: "hushh_id_token") {
+        } else if let cached = currentIdToken ?? keychainGet("hushh_id_token") {
             call.resolve(["idToken": cached])
         } else {
             call.resolve(["idToken": NSNull()])
@@ -331,8 +390,10 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                 
                 self.currentIdToken = firebaseIdToken
                 
-                // Store in UserDefaults
-                UserDefaults.standard.set(firebaseIdToken, forKey: "hushh_id_token")
+                // Store in Keychain (BYOK-compliant secure storage)
+                if let token = firebaseIdToken {
+                    self.keychainSet(token, forKey: "hushh_id_token")
+                }
                 
                 let response: [String: Any] = [
                     "idToken": firebaseIdToken ?? "",

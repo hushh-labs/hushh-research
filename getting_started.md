@@ -2,6 +2,11 @@
 
 > **Quick start guide for developers** - Updated January 2026 with VAULT_OWNER token architecture
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](docs/guides/README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## 🎯 What You're Building

@@ -2,12 +2,61 @@
 
 > Canonical entry point for repo-level documentation.
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  hub["docs/<br/>Canonical system knowledge"]
+
+  subgraph orientation["Orientation"]
+    context["project_context_map.md<br/>product + repo north stars"]
+    guides["guides/<br/>task and contributor guides"]
+  end
+
+  subgraph reference["Reference Domains"]
+    arch["architecture/<br/>runtime, cache, API, route contracts"]
+    iam["iam/<br/>actor model, consent, access control"]
+    kai["kai/<br/>investor flows and system maps"]
+    mobile["mobile/<br/>Capacitor and parity"]
+    ops["operations/<br/>CI, release lanes, governance"]
+    quality["quality + streaming + vision"]
+  end
+
+  subgraph implementation["Implementation Docs"]
+    fe["hushh-webapp/docs/<br/>frontend and native implementation"]
+    be["consent-protocol/docs/<br/>backend and protocol implementation"]
+  end
+
+  subgraph packages["Code Packages"]
+    webapp["hushh-webapp/<br/>Next.js + Capacitor client"]
+    backend["consent-protocol/<br/>FastAPI + PKM + agents"]
+  end
+
+  hub --> context
+  hub --> guides
+  hub --> arch
+  hub --> iam
+  hub --> kai
+  hub --> mobile
+  hub --> ops
+  hub --> quality
+  hub --> fe
+  hub --> be
+  context --> webapp
+  context --> backend
+  arch --> webapp
+  arch --> backend
+  fe --> webapp
+  be --> backend
+```
+
 Hushh is a personal agent platform built on four operational invariants:
 
 1. BYOK: server stores ciphertext only.
 2. Consent-first: every data access path is consent-gated.
 3. Tri-flow: web, iOS, and Android stay contract-aligned.
-4. Minimal browser storage: sensitive credentials remain in memory.
+4. Minimal browser storage: vault keys, VAULT_OWNER, and decrypted PKM remain memory-only; only approved encrypted or non-sensitive caches may persist on device.
 
 For repo setup, see [`readme.md`](../readme.md) and [`getting_started.md`](../getting_started.md).
 

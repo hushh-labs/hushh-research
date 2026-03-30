@@ -2,6 +2,11 @@
 
 > Backend environment variables and secrets reference. See `.env.example` for the template.
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## Parity Rule

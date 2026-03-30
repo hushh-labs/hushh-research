@@ -1,5 +1,10 @@
 # Vertex AI Streaming Notes
 
+
+## Visual Context
+
+Canonical visual owner: [Streaming Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Reference notes for model-correct streaming behavior.
 
 ## Core Guidance

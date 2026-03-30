@@ -255,6 +255,31 @@ class ConsentCenterService:
 
         return sorted(entries, key=_timestamp, reverse=True)
 
+    @staticmethod
+    def _paginate_entries(
+        entries: list[dict[str, Any]],
+        *,
+        page: int,
+        limit: int,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        safe_limit = max(1, min(limit, 100))
+        safe_page = max(1, page)
+        filtered = [
+            entry
+            for entry in ConsentCenterService._sort_entries(entries)
+            if ConsentCenterService._match_text(entry, query or "")
+        ]
+        start = (safe_page - 1) * safe_limit
+        end = start + safe_limit
+        return {
+            "page": safe_page,
+            "limit": safe_limit,
+            "total": len(filtered),
+            "has_more": end < len(filtered),
+            "items": filtered[start:end],
+        }
+
     def _normalize_pending(self, item: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(item.get("developer") or "")
         metadata = self._metadata(item.get("metadata"))
@@ -515,6 +540,140 @@ class ConsentCenterService:
             },
         }
 
+    def _normalize_ria_relationship(self, item: dict[str, Any]) -> dict[str, Any]:
+        relationship_status = str(
+            item.get("relationship_status") or item.get("status") or "approved"
+        )
+        picks_feed_status = str(item.get("picks_feed_status") or "").strip()
+        picks_feed_summary = {
+            "ready": "Advisor picks feed is active for this relationship.",
+            "pending": "Relationship is active and the advisor picks feed is waiting on the latest upload.",
+            "included_on_approval": "Advisor picks feed becomes available when the relationship is approved.",
+            "unavailable": "Advisor picks feed is not currently available on this relationship.",
+        }.get(picks_feed_status)
+        metadata = {
+            "relationship_status": relationship_status,
+            "next_action": item.get("next_action"),
+            "picks_feed_status": picks_feed_status or None,
+            "picks_feed_granted_at": item.get("picks_feed_granted_at"),
+            "relationship_shares": item.get("relationship_shares") or [],
+        }
+        return {
+            "id": str(item.get("id") or item.get("investor_user_id") or ""),
+            "kind": "active_grant",
+            "status": "active",
+            "action": "CONSENT_GRANTED",
+            "scope": item.get("granted_scope"),
+            "scope_description": "Active advisor relationship",
+            "counterpart_type": "investor",
+            "counterpart_id": item.get("investor_user_id"),
+            "counterpart_label": item.get("investor_display_name")
+            or item.get("investor_secondary_label")
+            or item.get("investor_user_id")
+            or "Investor",
+            "counterpart_image_url": None,
+            "counterpart_website_url": None,
+            "request_id": item.get("last_request_id"),
+            "invite_id": item.get("invite_id"),
+            "relationship_state": relationship_status,
+            "allowed_next_action": self._map_next_action("active", "active_grant"),
+            "issued_at": item.get("consent_granted_at"),
+            "expires_at": item.get("consent_expires_at"),
+            "request_url": None,
+            "reason": None,
+            "counterpart_email": str(item.get("investor_email") or "").strip().lower() or None,
+            "counterpart_secondary_label": item.get("investor_headline")
+            or item.get("investor_secondary_label")
+            or None,
+            "technical_identity": {"user_id": item.get("investor_user_id")}
+            if item.get("investor_user_id")
+            else None,
+            "additional_access_summary": picks_feed_summary,
+            "metadata": metadata,
+        }
+
+    async def _load_investor_pending_entries(self, user_id: str) -> list[dict[str, Any]]:
+        pending = await self._consent_db.get_pending_requests(user_id)
+        return await self._hydrate_entry_identities(
+            [self._normalize_pending(item) for item in pending]
+        )
+
+    async def _load_investor_active_entries(self, user_id: str) -> list[dict[str, Any]]:
+        active = await self._consent_db.get_active_tokens(user_id)
+        return await self._hydrate_entry_identities(
+            [self._normalize_active(item) for item in active]
+        )
+
+    async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
+        history_result = await self._consent_db.get_audit_log(user_id, page=1, limit=5000)
+        return await self._hydrate_entry_identities(
+            [self._normalize_history(item) for item in history_result.get("items", [])]
+        )
+
+    async def _load_ria_outgoing_entries(self, user_id: str) -> list[dict[str, Any]]:
+        return await self.list_outgoing_requests(user_id)
+
+    async def _load_ria_invite_entries(self, user_id: str) -> list[dict[str, Any]]:
+        try:
+            invites = await self._ria.list_ria_invites(user_id)
+        except (IAMSchemaNotReadyError, RIAIAMPolicyError):
+            invites = []
+        return [self._normalize_invite(item) for item in invites]
+
+    async def _load_ria_active_entries(
+        self,
+        user_id: str,
+        *,
+        query: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        try:
+            payload = await self._ria.list_ria_clients(
+                user_id,
+                query=query,
+                status="approved",
+                page=page,
+                limit=limit,
+            )
+        except (IAMSchemaNotReadyError, RIAIAMPolicyError):
+            payload = {"items": [], "total": 0, "page": page, "limit": limit, "has_more": False}
+
+        return {
+            "page": int(payload.get("page") or page),
+            "limit": int(payload.get("limit") or limit),
+            "total": int(payload.get("total") or 0),
+            "has_more": bool(payload.get("has_more")),
+            "items": [
+                self._normalize_ria_relationship(item) for item in list(payload.get("items") or [])
+            ],
+        }
+
+    async def _get_surface_count(self, user_id: str, *, actor: str, surface: str) -> int:
+        normalized_actor = "ria" if actor == "ria" else "investor"
+        if normalized_actor == "investor":
+            if surface == "pending":
+                return len(await self._load_investor_pending_entries(user_id))
+            if surface == "active":
+                return len(await self._load_investor_active_entries(user_id))
+            return len(await self._load_investor_previous_entries(user_id))
+
+        if surface == "active":
+            payload = await self._load_ria_active_entries(user_id, page=1, limit=1)
+            return int(payload.get("total") or 0)
+
+        outgoing_entries = await self._load_ria_outgoing_entries(user_id)
+        invite_entries = await self._load_ria_invite_entries(user_id)
+        items = self._entries_for_surface(
+            {
+                "outgoing_requests": outgoing_entries,
+                "invites": invite_entries,
+            },
+            actor="ria",
+            surface=surface,
+        )
+        return len(items)
+
     async def list_outgoing_requests(self, user_id: str) -> list[dict[str, Any]]:
         try:
             items = await self._ria.list_ria_requests(user_id)
@@ -670,23 +829,27 @@ class ConsentCenterService:
         }
 
     async def get_center_summary(self, user_id: str, *, actor: str) -> dict[str, Any]:
-        center = await self.get_center(user_id, actor=actor)
         normalized_actor = "ria" if actor == "ria" else "investor"
         return {
             "user_id": user_id,
             "actor": normalized_actor,
             "counts": {
-                "pending": len(
-                    self._entries_for_surface(center, actor=normalized_actor, surface="pending")
+                "pending": await self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="pending",
                 ),
-                "active": len(
-                    self._entries_for_surface(center, actor=normalized_actor, surface="active")
+                "active": await self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="active",
                 ),
-                "previous": len(
-                    self._entries_for_surface(center, actor=normalized_actor, surface="previous")
+                "previous": await self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="previous",
                 ),
             },
-            "persona_state": center.get("persona_state"),
         }
 
     async def list_center(
@@ -696,31 +859,62 @@ class ConsentCenterService:
         actor: str,
         surface: str,
         query: str | None = None,
+        top: int | None = None,
         page: int = 1,
         limit: int = 20,
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_surface = surface if surface in {"pending", "active", "previous"} else "pending"
-        safe_limit = max(1, min(limit, 100))
-        safe_page = max(1, page)
+        safe_top = max(1, min(int(top), 10)) if top is not None else None
+        safe_limit = safe_top or max(1, min(limit, 100))
+        safe_page = 1 if safe_top is not None else max(1, page)
 
-        center = await self.get_center(user_id, actor=normalized_actor, surface=normalized_surface)
-        entries = self._sort_entries(
-            self._entries_for_surface(center, actor=normalized_actor, surface=normalized_surface)
-        )
-        filtered = [entry for entry in entries if self._match_text(entry, query or "")]
-        start = (safe_page - 1) * safe_limit
-        end = start + safe_limit
-        items = filtered[start:end]
+        if normalized_actor == "investor":
+            if normalized_surface == "pending":
+                entries = await self._load_investor_pending_entries(user_id)
+            elif normalized_surface == "active":
+                entries = await self._load_investor_active_entries(user_id)
+            else:
+                entries = await self._load_investor_previous_entries(user_id)
+            paged = self._paginate_entries(
+                entries,
+                page=safe_page,
+                limit=safe_limit,
+                query=query,
+            )
+        elif normalized_surface == "active":
+            paged = await self._load_ria_active_entries(
+                user_id,
+                query=query,
+                page=safe_page,
+                limit=safe_limit,
+            )
+        else:
+            outgoing_entries = await self._load_ria_outgoing_entries(user_id)
+            invite_entries = await self._load_ria_invite_entries(user_id)
+            entries = self._entries_for_surface(
+                {
+                    "outgoing_requests": outgoing_entries,
+                    "invites": invite_entries,
+                },
+                actor="ria",
+                surface=normalized_surface,
+            )
+            paged = self._paginate_entries(
+                entries,
+                page=safe_page,
+                limit=safe_limit,
+                query=query,
+            )
 
         return {
             "user_id": user_id,
             "actor": normalized_actor,
             "surface": normalized_surface,
             "query": query or "",
-            "page": safe_page,
-            "limit": safe_limit,
-            "total": len(filtered),
-            "has_more": end < len(filtered),
-            "items": items,
+            "page": paged["page"],
+            "limit": paged["limit"],
+            "total": paged["total"],
+            "has_more": paged["has_more"],
+            "items": paged["items"],
         }

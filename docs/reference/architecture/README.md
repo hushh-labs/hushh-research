@@ -1,5 +1,31 @@
 # Architecture Index
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["Architecture Index"]
+  n1["Api Contracts"]
+  root --> n1
+  n2["Architecture"]
+  root --> n2
+  n3["Cache Coherence"]
+  root --> n3
+  n4["Data Provenance Ledger"]
+  root --> n4
+  n5["Loading Policy"]
+  root --> n5
+  n6["Pkm Cutover Runbook"]
+  root --> n6
+  n7["Pkm Storage Adr"]
+  root --> n7
+  n8["Route Contracts"]
+  root --> n8
+  n9["Runtime Db Fact Sheet"]
+  root --> n9
+```
+
 Use this as the north-star entrypoint for runtime contracts and system structure.
 
 ## References

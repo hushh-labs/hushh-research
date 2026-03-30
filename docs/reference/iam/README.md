@@ -1,5 +1,29 @@
 # IAM Reference
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["IAM Reference"]
+  n1["Architecture"]
+  root --> n1
+  n2["Consent Scope Catalog"]
+  root --> n2
+  n3["External Dependencies"]
+  root --> n3
+  n4["Marketplace Contract"]
+  root --> n4
+  n5["Ria Verification Policy"]
+  root --> n5
+  n6["Rollout And Environments"]
+  root --> n6
+  n7["Runtime Surface"]
+  root --> n7
+  n8["Validation Checklist"]
+  root --> n8
+```
+
 This directory is the **source of truth** for Investor + RIA identity, consent IAM policy, and marketplace access contracts.
 
 ## Scope

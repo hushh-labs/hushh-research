@@ -15,6 +15,10 @@ import { toast } from "sonner";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import {
+  CONSENT_ACTION_COMPLETE_EVENT,
+  dispatchConsentStateChanged,
+} from "@/lib/consent/consent-events";
 import { buildConsentExportForScope } from "@/lib/consent/export-builder";
 
 // ============================================================================
@@ -150,8 +154,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       if (!userId || !vaultKey) {
         toast.error("Vault not unlocked", {
           id: toastId,
-          description: "Please unlock your vault to approve this request.",
-          duration: 3000,
+          description: "Unlock your vault to approve this request.",
+          duration: 6000,
+          action: {
+            label: "Unlock",
+            onClick: () => {
+              window.location.href = "/kai";
+            },
+          },
         });
         // Reset to pending if not unlocked
         markAsPending(consent.id);
@@ -321,7 +331,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           requestSource === "developer_api_v1";
         if (isDeveloperRequest && !connectorPublicKey) {
           throw new Error(
-            "This developer request is missing a connector public key and must be re-requested."
+            "Missing connector public key. The developer needs to re-send this request with a public key. Contact them or try again later."
           );
         }
         const exportKey = await generateExportKey();
@@ -384,10 +394,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         // Dispatch custom event so consents page can refresh tables
         window.dispatchEvent(
-          new CustomEvent("consent-action-complete", {
+          new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
             detail: { action: "approve", requestId: consent.id },
           })
         );
+        dispatchConsentStateChanged({ action: "approve", requestId: consent.id });
       } catch (err) {
         console.error("Error approving consent:", err);
         markAsPending(consent.id);
@@ -448,10 +459,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         // Dispatch custom event so consents page can refresh tables
         window.dispatchEvent(
-          new CustomEvent("consent-action-complete", {
+          new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
             detail: { action: "deny", requestId },
           })
         );
+        dispatchConsentStateChanged({ action: "deny", requestId });
       } catch (err) {
         console.error("Error denying consent:", err);
         markAsPending(requestId);
@@ -569,6 +581,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         
         CacheSyncService.onConsentMutated(userId);
         onActionComplete?.();
+        dispatchConsentStateChanged({ action: "revoke", scope });
       } catch (err) {
         console.error("Error revoking consent:", err);
       }

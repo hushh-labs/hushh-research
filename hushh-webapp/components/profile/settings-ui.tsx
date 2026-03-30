@@ -1,6 +1,7 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { Children, cloneElement, isValidElement } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronRight } from "lucide-react";
 import { Slot } from "radix-ui";
@@ -19,11 +20,69 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
+
+const INTERACTIVE_HTML_TAGS = new Set([
+  "a",
+  "button",
+  "details",
+  "input",
+  "option",
+  "select",
+  "summary",
+  "textarea",
+]);
+
+function isKnownInteractiveComponent(type: unknown): boolean {
+  if (typeof type !== "function" && typeof type !== "object") {
+    return false;
+  }
+  const typedComponent = type as { displayName?: string; name?: string };
+  const displayName =
+    typeof typedComponent.displayName === "string" && typedComponent.displayName.trim()
+      ? typedComponent.displayName
+      : typeof typedComponent.name === "string"
+        ? typedComponent.name
+        : "";
+  const normalized = displayName.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return [
+    "button",
+    "checkbox",
+    "combobox",
+    "dropdownmenutrigger",
+    "input",
+    "menubutton",
+    "radio",
+    "select",
+    "switch",
+    "textarea",
+  ].includes(normalized);
+}
+
+function containsInteractiveNode(node: ReactNode): boolean {
+  return Children.toArray(node).some((child) => {
+    if (!isValidElement(child)) {
+      return false;
+    }
+
+    if (typeof child.type === "string" && INTERACTIVE_HTML_TAGS.has(child.type)) {
+      return true;
+    }
+
+    if (isKnownInteractiveComponent(child.type)) {
+      return true;
+    }
+
+    const childProps = child.props as { children?: ReactNode };
+    return containsInteractiveNode(childProps.children);
+  });
+}
 
 export function SettingsSegmentedTabs({
   value,
@@ -44,7 +103,7 @@ export function SettingsSegmentedTabs({
   return (
     <div
       className={cn(
-        "relative grid w-full rounded-[20px] border border-border/80 bg-muted/60 p-1 shadow-sm backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:rounded-[22px] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid w-full rounded-full border border-border/70 bg-background/68 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
         className
       )}
       style={
@@ -65,13 +124,13 @@ export function SettingsSegmentedTabs({
               onValueChange(option.value);
             }}
             className={cn(
-              "relative min-h-9 overflow-hidden rounded-[16px] border px-1.5 py-2 text-center transition-[background-color,border-color,color,box-shadow] sm:min-h-11 sm:rounded-[18px] sm:px-2",
+              "relative min-h-9 overflow-hidden rounded-full px-2 py-1.5 text-center transition-[background-color,color,box-shadow] sm:min-h-10 sm:px-2.5",
               isActive
-                ? "border-border/80 bg-background text-foreground shadow-[0_8px_18px_rgba(15,23,42,0.08)] dark:bg-background/96"
-                : "border-transparent bg-transparent text-foreground/68 hover:bg-background/55 hover:text-foreground dark:hover:bg-background/18"
+                ? "bg-background text-foreground shadow-[0_10px_24px_-18px_rgba(15,23,42,0.34)] dark:bg-background/96"
+                : "bg-transparent text-foreground/68 hover:bg-background/48 hover:text-foreground dark:hover:bg-background/18"
             )}
           >
-            <span className="relative z-10 text-[12px] font-medium tracking-tight sm:text-sm">
+            <span className="relative z-10 block truncate text-[11px] font-medium tracking-tight sm:text-[13px]">
               {option.label}
             </span>
             <MaterialRipple variant="none" effect="fade" className="z-0" />
@@ -106,10 +165,8 @@ export function SettingsGroup({
   const shell = (
     <div
       className={cn(
-        "relative isolate p-px",
-        embedded
-          ? "[--settings-group-radius:20px] rounded-[20px] border border-border/60 bg-background/72 shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]"
-          : "[--settings-group-radius:inherit] rounded-[inherit]"
+        "relative isolate p-px [--settings-group-radius:20px] rounded-[20px] border border-border/60 bg-background/68 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]",
+        !embedded && "sm:rounded-[22px]"
       )}
     >
       {clipShell}
@@ -126,30 +183,25 @@ export function SettingsGroup({
             </p>
           ) : null}
           {title ? (
-            <h2 className="text-pretty text-sm font-semibold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[15px]">
+            <h2 className="text-pretty text-[13px] font-semibold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[14px]">
               {title}
             </h2>
           ) : null}
           {description ? (
-            <p className="max-w-2xl text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]">
+            <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
               {description}
             </p>
           ) : null}
         </div>
       ) : null}
-      {embedded ? (
-        shell
-      ) : (
-        <SurfaceCard>
-          {shell}
-        </SurfaceCard>
-      )}
+      {shell}
     </section>
   );
 }
 
 export function SettingsRow({
   asChild = false,
+  children,
   icon,
   leading,
   title,
@@ -163,6 +215,7 @@ export function SettingsRow({
   className,
 }: {
   asChild?: boolean;
+  children?: ReactNode;
   icon?: LucideIcon;
   leading?: ReactNode;
   title: ReactNode;
@@ -175,9 +228,12 @@ export function SettingsRow({
   stackTrailingOnMobile?: boolean;
   className?: string;
 }) {
-  const isInteractive = !disabled && (typeof onClick === "function" || asChild);
+  const resolvedAsChild = asChild && isValidElement(children);
+  const isInteractive = !disabled && (typeof onClick === "function" || resolvedAsChild);
   const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing) && !chevron;
-  const Comp = asChild ? Slot.Root : onClick ? "button" : "div";
+  const hasInteractiveTrailing = containsInteractiveNode(trailing);
+  const splitPrimaryAction = Boolean(!asChild && onClick && hasInteractiveTrailing);
+  const Comp = resolvedAsChild ? Slot.Root : onClick && !splitPrimaryAction ? "button" : "div";
   const rowRadiusClassName =
     "[--settings-row-top-radius:0px] [--settings-row-bottom-radius:0px] first:[--settings-row-top-radius:calc(var(--settings-group-radius)-1px)] last:[--settings-row-bottom-radius:calc(var(--settings-group-radius)-1px)] [border-top-left-radius:var(--settings-row-top-radius)] [border-top-right-radius:var(--settings-row-top-radius)] [border-bottom-left-radius:var(--settings-row-bottom-radius)] [border-bottom-right-radius:var(--settings-row-bottom-radius)]";
   const rowShellClassName = cn(
@@ -186,63 +242,61 @@ export function SettingsRow({
     disabled && "cursor-not-allowed opacity-60",
     className
   );
-  const content = (
-    <>
-      <div
-        className={cn(
-          "pointer-events-none relative z-10 flex min-w-0 gap-2.5 sm:gap-3",
-          shouldStackTrailing ? "items-start sm:items-center" : "items-center"
-        )}
-      >
-        {leading ? (
-          <span className="inline-flex shrink-0 self-center">{leading}</span>
-        ) : icon ? (
-          <span
-            className={cn(
-              "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl bg-muted/65 text-muted-foreground sm:h-10 sm:w-10",
-              tone === "destructive" && "bg-destructive/10 text-destructive"
-            )}
-          >
-            <Icon icon={icon} size="md" />
-          </span>
-        ) : null}
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div
-            className={cn(
-              "text-sm font-medium tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
-              tone === "destructive" && "text-destructive"
-            )}
-          >
-            {title}
-          </div>
-          {description ? (
-            <div className="text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]">
-              {description}
-            </div>
-          ) : null}
-        </div>
-      </div>
-      {trailing || chevron ? (
-        <div
+  const mainContent = (
+    <div
+      className={cn(
+        "relative z-10 flex min-w-0 gap-2.5 sm:gap-3",
+        shouldStackTrailing ? "items-start sm:items-center" : "items-center"
+      )}
+    >
+      {leading ? (
+        <span className="inline-flex shrink-0 self-center">{leading}</span>
+      ) : icon ? (
+        <span
           className={cn(
-            "relative z-10 flex max-w-full shrink-0 items-center justify-end self-center gap-2",
-            shouldStackTrailing &&
-              "w-full justify-start pl-[2.65rem] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
+            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl bg-muted/65 text-muted-foreground sm:h-10 sm:w-10",
+            tone === "destructive" && "bg-destructive/10 text-destructive"
           )}
         >
-          {trailing}
-          {chevron ? (
-            <ChevronRight
-              className={cn(
-                "h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform",
-                isInteractive && "group-hover:translate-x-0.5"
-              )}
-            />
-          ) : null}
-        </div>
+          <Icon icon={icon} size="md" />
+        </span>
       ) : null}
-    </>
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div
+          className={cn(
+            "text-[13px] font-medium tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[14px]",
+            tone === "destructive" && "text-destructive"
+          )}
+        >
+          {title}
+        </div>
+        {description ? (
+          <div className="text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
+            {description}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
+  const trailingContent = trailing || chevron ? (
+    <div
+      className={cn(
+        "relative z-10 flex max-w-full shrink-0 items-center justify-end self-center gap-2",
+        shouldStackTrailing &&
+          "w-full justify-start pl-[2.65rem] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
+      )}
+    >
+      {trailing}
+      {chevron ? (
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform",
+            isInteractive && "group-hover:translate-x-0.5"
+          )}
+        />
+      ) : null}
+    </div>
+  ) : null;
 
   const sharedClassName = cn(
     "relative z-10 grid w-full appearance-none border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] sm:px-4 sm:py-4",
@@ -252,6 +306,65 @@ export function SettingsRow({
     isInteractive &&
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
   );
+  const primaryActionClassName = cn(
+    "relative z-10 min-w-0 rounded-[inherit] border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 sm:px-4 sm:py-4"
+  );
+  const asChildContent =
+    resolvedAsChild
+      ? cloneElement(children as ReactElement, undefined, mainContent, trailingContent)
+      : children;
+
+  if (splitPrimaryAction) {
+    return (
+      <div className={rowShellClassName}>
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
+            "group-hover/settings-row:bg-muted/36 group-active/settings-row:bg-muted/48"
+          )}
+        />
+        <div
+          className={cn(
+            "relative z-10 grid w-full",
+            shouldStackTrailing
+              ? "grid-cols-1 gap-y-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3"
+              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-0"
+          )}
+        >
+          <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            className={primaryActionClassName}
+          >
+            {mainContent}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-[2] overflow-hidden rounded-[inherit]"
+            >
+              <MaterialRipple
+                variant="none"
+                effect="fade"
+                disabled={disabled}
+                className="z-[2]"
+              />
+            </div>
+          </button>
+          {trailingContent ? (
+            <div
+              className={cn(
+                "px-3 py-3.5 sm:px-4 sm:py-4",
+                shouldStackTrailing && "pt-0 sm:pt-4"
+              )}
+            >
+              {trailingContent}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={rowShellClassName}>
@@ -277,12 +390,17 @@ export function SettingsRow({
       <Comp
         {...(!asChild && onClick
           ? { type: "button" as const, onClick, disabled }
-          : !asChild
+          : !resolvedAsChild
             ? { "aria-disabled": disabled || undefined }
             : {})}
         className={sharedClassName}
       >
-        {content}
+        {resolvedAsChild ? asChildContent : (
+          <>
+            {mainContent}
+            {trailingContent}
+          </>
+        )}
       </Comp>
     </div>
   );
@@ -307,7 +425,7 @@ export function SettingsDetailPanel({
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-background">
-          <DrawerHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-4 py-3.5 text-left backdrop-blur-xl sm:px-5 sm:py-5">
+          <DrawerHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-4 py-3 text-left backdrop-blur-xl sm:px-5 sm:py-4">
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
@@ -331,7 +449,7 @@ export function SettingsDetailPanel({
         side="right"
         className="w-full border-l border-border/90 p-0 sm:max-w-[480px]"
       >
-        <SheetHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-6 py-5 backdrop-blur-xl">
+        <SheetHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-6 py-4 backdrop-blur-xl">
           <SheetTitle className="text-base font-semibold tracking-tight">
             {title}
           </SheetTitle>

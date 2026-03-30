@@ -1,5 +1,10 @@
 # Validation Checklist
 
+
+## Visual Context
+
+Canonical visual owner: [IAM Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 
 Provide the canonical verification gate for Investor + RIA IAM changes.

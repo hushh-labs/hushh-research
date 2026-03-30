@@ -1,5 +1,10 @@
 # Rollout and Environments
 
+
+## Visual Context
+
+Canonical visual owner: [IAM Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 
 Define environment policy for IAM changes without risking production behavior.

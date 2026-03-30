@@ -1,5 +1,10 @@
 # Contributing to Hushh Research
 
+
+## Visual Context
+
+Canonical visual owner: [Hushh Documentation](docs/README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Thank you for your interest in contributing to Hushh! We are building the future of **Consent-First Personal Data Agents** at [hushh.ai](https://hushh.ai), and we need your help to make it robust, secure, and user-centric.
 
 ## 🛑 Critical Architecture Rules
