@@ -35,11 +35,11 @@ if "hushh_mcp.services" not in sys.modules:
     services_pkg.__path__ = [str(ROOT / "hushh_mcp" / "services")]
     sys.modules["hushh_mcp.services"] = services_pkg
 
-from hushh_mcp.services.voice_intent_service import (
-    VoiceIntentService,
+from hushh_mcp.services.voice_intent_service import (  # noqa: E402
     _ALLOWED_COMMANDS,
     _ALLOWED_TOOL_NAMES,
     _UNCLEAR_STT_MESSAGE,
+    VoiceIntentService,
     _compact_context,
 )
 
@@ -90,7 +90,9 @@ def voice_service(monkeypatch: pytest.MonkeyPatch) -> VoiceIntentService:
 
 
 @pytest.mark.anyio
-async def test_plan_voice_response_stt_unusable_returns_exact_retry(voice_service: VoiceIntentService):
+async def test_plan_voice_response_stt_unusable_returns_exact_retry(
+    voice_service: VoiceIntentService,
+):
     response, openai_http_ms, model = await voice_service.plan_voice_response(
         transcript="   ",
         user_id="user_a",
@@ -468,7 +470,9 @@ async def test_plan_voice_response_analyze_ambiguous_returns_clarify(
 
 
 @pytest.mark.anyio
-async def test_plan_voice_response_analyze_unknown_returns_clarify(voice_service: VoiceIntentService):
+async def test_plan_voice_response_analyze_unknown_returns_clarify(
+    voice_service: VoiceIntentService,
+):
     response, _, _ = await voice_service.plan_voice_response(
         transcript="analyze zzzxq holding company",
         user_id="user_a",
@@ -502,6 +506,58 @@ async def test_plan_voice_response_analysis_already_running_same_ticker(
     assert response["task"] == "analysis"
     assert response["ticker"] == "NVDA"
     assert response["run_id"] == "run_nvda"
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_prefers_authoritative_inactive_analysis_over_runtime_flag(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="analyze google",
+        user_id="user_a",
+        app_state=_app_state(
+            runtime={
+                "analysis_active": True,
+                "analysis_ticker": "NVDA",
+                "analysis_run_id": "stale_run",
+            }
+        ),
+        context={},
+        active_analysis={"active": False, "source": "run_manager", "run_id": "stale_run"},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["tool_call"]["tool_name"] == "execute_kai_command"
+    assert response["tool_call"]["args"]["command"] == "analyze"
+    assert response["tool_call"]["args"]["params"]["symbol"] == "GOOGL"
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_prefers_authoritative_inactive_import_over_runtime_flag(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="import my statement",
+        user_id="user_a",
+        app_state=_app_state(
+            runtime={
+                "analysis_active": False,
+                "analysis_ticker": None,
+                "analysis_run_id": None,
+                "import_active": True,
+                "import_run_id": "stale_import",
+                "busy_operations": [],
+            }
+        ),
+        context={},
+        active_import={"active": False, "source": "run_manager", "run_id": "stale_import"},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["tool_call"] == {
+        "tool_name": "execute_kai_command",
+        "args": {"command": "import"},
+    }
 
 
 @pytest.mark.anyio
@@ -545,7 +601,9 @@ async def test_plan_voice_response_destructive_phrase_is_not_executable(
 
 
 @pytest.mark.anyio
-async def test_plan_voice_response_incomplete_runtime_fails_closed(voice_service: VoiceIntentService):
+async def test_plan_voice_response_incomplete_runtime_fails_closed(
+    voice_service: VoiceIntentService,
+):
     response, _, _ = await voice_service.plan_voice_response(
         transcript="analyze AAPL",
         user_id="user_a",

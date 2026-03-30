@@ -87,6 +87,30 @@ describe("app route layout contract", () => {
     expect(resolveAppRouteLayoutMode("/ria/workspace?clientId=user_123")).toBe("standard");
   });
 
+  it("declares the profile mail routes with explicit shell verification", () => {
+    expect(
+      APP_ROUTE_LAYOUT_CONTRACT.find((entry) => entry.route === "/profile/receipts")
+    ).toMatchObject({
+      route: "/profile/receipts",
+      mode: "standard",
+      shellVerification: {
+        file: "app/profile/receipts/page.tsx",
+      },
+    });
+
+    expect(
+      APP_ROUTE_LAYOUT_CONTRACT.find(
+        (entry) => entry.route === "/profile/gmail/oauth/return"
+      )
+    ).toMatchObject({
+      route: "/profile/gmail/oauth/return",
+      mode: "standard",
+      shellVerification: {
+        file: "app/profile/gmail/oauth/return/page.tsx",
+      },
+    });
+  });
+
   it("keeps shell verification sources aligned with the shared page shell contract", () => {
     const root = projectRoot();
 

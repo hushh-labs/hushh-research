@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const dispatchVoiceToolCallMock = vi.fn();
 const toastInfoMock = vi.fn();
 const toastSuccessMock = vi.fn();
+const logVoiceMetricMock = vi.fn();
 
 vi.mock("@/lib/voice/voice-action-dispatcher", () => ({
   dispatchVoiceToolCall: (...args: unknown[]) => dispatchVoiceToolCallMock(...args),
@@ -13,6 +14,10 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
     info: (...args: unknown[]) => toastInfoMock(...args),
     success: (...args: unknown[]) => toastSuccessMock(...args),
   },
+}));
+
+vi.mock("@/lib/voice/voice-telemetry", () => ({
+  logVoiceMetric: (...args: unknown[]) => logVoiceMetricMock(...args),
 }));
 
 import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
@@ -37,9 +42,13 @@ function baseInput() {
 describe("executeVoiceResponse", () => {
   beforeEach(() => {
     dispatchVoiceToolCallMock.mockReset();
-    dispatchVoiceToolCallMock.mockResolvedValue(undefined);
+    dispatchVoiceToolCallMock.mockImplementation(async ({ toolCall }: { toolCall: { tool_name: string } }) => ({
+      status: "executed",
+      toolName: toolCall.tool_name,
+    }));
     toastInfoMock.mockReset();
     toastSuccessMock.mockReset();
+    logVoiceMetricMock.mockReset();
     if (originalGroundedExecutionFlag === undefined) {
       delete process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED;
     } else {
@@ -343,5 +352,110 @@ describe("executeVoiceResponse", () => {
       ticker: "MSFT",
       responseKind: "background_started",
     });
+  });
+
+  it("does not mark grounded execution successful when tool dispatch is blocked", async () => {
+    dispatchVoiceToolCallMock.mockResolvedValueOnce({
+      status: "blocked",
+      toolName: "resume_active_analysis",
+      reason: "missing_vault_token",
+    });
+    const emitTelemetry = vi.fn();
+
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      turnId: "vturn_1",
+      responseId: "vrsp_1",
+      emitTelemetry,
+      response: {
+        kind: "execute",
+        message: "Resuming active analysis.",
+        speak: true,
+        tool_call: {
+          tool_name: "resume_active_analysis",
+          args: {},
+        },
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "analysis.resume_active",
+        actionLabel: "Resume Active Analysis Run",
+        destructive: false,
+        message: null,
+        execution: {
+          mode: "navigate_then_action",
+          steps: [
+            {
+              type: "navigate",
+              href: "/kai/analysis",
+              reason: "hidden_action_navigation_prerequisite",
+            },
+            {
+              type: "tool_call",
+              toolCall: {
+                tool_name: "resume_active_analysis",
+                args: {},
+              },
+              reason: "wired_tool_after_navigation",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "execute",
+    });
+    expect(emitTelemetry).not.toHaveBeenCalledWith(
+      "grounded_execution_success",
+      expect.anything()
+    );
+    expect(logVoiceMetricMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        metric: "execution_grounded_execution_success",
+      })
+    );
+  });
+
+  it("does not write legacy execute memory when dispatch returns invalid", async () => {
+    dispatchVoiceToolCallMock.mockResolvedValueOnce({
+      status: "invalid",
+      toolName: "execute_kai_command",
+      reason: "missing_symbol",
+    });
+    const emitTelemetry = vi.fn();
+
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      turnId: "vturn_2",
+      responseId: "vrsp_2",
+      emitTelemetry,
+      response: {
+        kind: "execute",
+        message: "Starting analysis.",
+        speak: true,
+        tool_call: {
+          tool_name: "execute_kai_command",
+          args: {
+            command: "analyze",
+            params: {},
+          },
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "execute",
+    });
+    expect(emitTelemetry).not.toHaveBeenCalledWith(
+      "legacy_execute_success",
+      expect.anything()
+    );
   });
 });

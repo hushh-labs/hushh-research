@@ -581,6 +581,10 @@ function emitVoiceTransportStage(
 async function voiceFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const transport = getVoiceTransportMode();
   const directRequired = isVoiceDirectBackendRequired();
+  const requestStartedAt = Date.now();
+  const httpMethod = (options.method || "GET").toUpperCase();
+  const routeId =
+    typeof window !== "undefined" ? resolveRouteId(window.location.pathname) : undefined;
   const turnIdHeaderRaw =
     options.headers instanceof Headers
       ? options.headers.get("X-Voice-Turn-Id") || options.headers.get("x-voice-turn-id")
@@ -644,6 +648,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
 
   const backend = transport.backendUrl || getEnvBackendUrl();
   const url = `${backend}${path}`;
+  const requestId = getOrCreateRequestId(options.headers);
   const mergedHeaders: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
     mergedHeaders["Content-Type"] = "application/json";
@@ -665,6 +670,17 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
       }
     }
   }
+  mergedHeaders[REQUEST_ID_HEADER] = requestId;
+
+  const recordVoiceRequestMetric = (statusCode: number | null) => {
+    trackApiRequestCompleted({
+      path,
+      httpMethod,
+      statusCode,
+      durationMs: Math.max(0, Date.now() - requestStartedAt),
+      routeId,
+    });
+  };
 
   console.info(
     `[VOICE_NET] transport=direct_backend route=${path} reason=${transport.reason} url=${url} turn_id=${turnIdHeader || "unknown"}`
@@ -680,6 +696,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
       ...options,
       headers: mergedHeaders,
     });
+    recordVoiceRequestMetric(response.status);
     emitVoiceTransportStage(
       turnIdHeader,
       "transport_response_received",
@@ -692,6 +709,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
     );
     return response;
   } catch (error) {
+    recordVoiceRequestMetric(null);
     emitVoiceTransportStage(
       turnIdHeader,
       "transport_response_received",

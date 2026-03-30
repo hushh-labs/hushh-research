@@ -98,7 +98,7 @@ export default function ProfileReceiptsPage() {
   }, [user]);
 
   const loadReceipts = useCallback(
-    async (nextPage = page) => {
+    async (nextPage: number) => {
       if (!user?.uid) return;
       setLoadingReceipts(true);
       try {
@@ -119,7 +119,7 @@ export default function ProfileReceiptsPage() {
         setLoadingReceipts(false);
       }
     },
-    [page, user]
+    [user]
   );
 
   const pollSyncRun = useCallback(

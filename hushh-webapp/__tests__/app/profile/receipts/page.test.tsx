@@ -88,6 +88,18 @@ vi.mock("@/lib/navigation/routes", () => ({
 import ProfileReceiptsPage from "@/app/profile/receipts/page";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
+function makeReceipt(id: number, merchant: string) {
+  return {
+    id,
+    gmail_message_id: `gmail-${id}`,
+    merchant_name: merchant,
+    subject: `${merchant} order`,
+    amount: 19.99,
+    currency: "USD",
+    classification_source: "deterministic" as const,
+  };
+}
+
 describe("ProfileReceiptsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -206,5 +218,40 @@ describe("ProfileReceiptsPage", () => {
     });
 
     expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps older receipts appended after loading the next page", async () => {
+    vi.mocked(GmailReceiptsService.listReceipts).mockImplementation(async ({ page }) => {
+      if (page === 1) {
+        return {
+          items: [makeReceipt(1, "Page One Shop")],
+          page: 1,
+          per_page: 20,
+          total: 2,
+          has_more: true,
+        };
+      }
+
+      return {
+        items: [makeReceipt(2, "Page Two Shop")],
+        page: 2,
+        per_page: 20,
+        total: 2,
+        has_more: false,
+      };
+    });
+
+    render(<ProfileReceiptsPage />);
+
+    expect(await screen.findByText("Page One Shop")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /load older receipts/i }));
+
+    expect(await screen.findByText("Page Two Shop")).toBeTruthy();
+    expect(screen.getByText("Page One Shop")).toBeTruthy();
+
+    await waitFor(() => {
+      expect(vi.mocked(GmailReceiptsService.listReceipts)).toHaveBeenCalledTimes(2);
+    });
   });
 });

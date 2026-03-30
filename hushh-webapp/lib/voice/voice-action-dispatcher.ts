@@ -2,7 +2,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
-import type { VoiceToolCall } from "@/lib/voice/voice-types";
+import type { VoiceExecuteKaiCommandCall, VoiceToolCall } from "@/lib/voice/voice-types";
 import type { ExecuteKaiCommandResult } from "@/lib/kai/command-executor";
 import {
   getInvestorKaiActionByVoiceToolCall,
@@ -20,11 +20,17 @@ export type VoiceDispatchInput = {
   vaultKey?: string;
   router: RouterLike;
   handleBack: () => void;
-  executeKaiCommand: () => ExecuteKaiCommandResult;
+  executeKaiCommand: (toolCall: VoiceExecuteKaiCommandCall) => ExecuteKaiCommandResult;
   setAnalysisParams: (params: AnalysisParams | null) => void;
 };
 
-export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<void> {
+export type VoiceDispatchResult = {
+  status: "executed" | "blocked" | "invalid" | "failed";
+  toolName: VoiceToolCall["tool_name"];
+  reason?: string;
+};
+
+export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<VoiceDispatchResult> {
   const {
     toolCall,
     userId,
@@ -55,30 +61,44 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
   if (toolCall.tool_name === "clarify") {
     toast.info(toolCall.args.question);
     console.info("[VOICE_UI] dispatch_result=clarify");
-    return;
+    return {
+      status: "executed",
+      toolName: "clarify",
+    };
   }
 
   if (toolCall.tool_name === "navigate_back") {
     handleBack();
     console.info("[VOICE_UI] dispatch_result=navigate_back");
-    return;
+    return {
+      status: "executed",
+      toolName: "navigate_back",
+    };
   }
 
   if (toolCall.tool_name === "execute_kai_command") {
-    const result = executeKaiCommand();
+    const result = executeKaiCommand(toolCall);
     console.info("[VOICE_UI] dispatch_result=execute_kai_command", result);
     if (result.status === "invalid") {
       toast.error("Voice command could not be executed.", {
         description: result.reason || "Invalid command payload.",
       });
     }
-    return;
+    return {
+      status: result.status,
+      toolName: "execute_kai_command",
+      reason: result.reason,
+    };
   }
 
   if (!vaultOwnerToken) {
     toast.error("Unlock your vault to use voice actions.");
     console.info("[VOICE_UI] dispatch_result=blocked_missing_vault_token");
-    return;
+    return {
+      status: "blocked",
+      toolName: toolCall.tool_name,
+      reason: "missing_vault_token",
+    };
   }
 
   if (toolCall.tool_name === "resume_active_analysis") {
@@ -91,18 +111,30 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
       if (task) {
         router.push(`${ROUTES.KAI_ANALYSIS}?focus=active&run_id=${encodeURIComponent(task.runId)}`);
         console.info("[VOICE_UI] dispatch_result=resume_active_analysis attached_run=true");
-        return;
+        return {
+          status: "executed",
+          toolName: "resume_active_analysis",
+        };
       }
       toast.info("No active debate run found.");
       router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);
       console.info("[VOICE_UI] dispatch_result=resume_active_analysis attached_run=false");
+      return {
+        status: "blocked",
+        toolName: "resume_active_analysis",
+        reason: "no_active_task",
+      };
     } catch (error) {
       toast.error("Could not resume active analysis.", {
         description: (error as Error).message,
       });
       console.error("[VOICE_UI] dispatch_result=resume_active_analysis error=", error);
+      return {
+        status: "failed",
+        toolName: "resume_active_analysis",
+        reason: "resume_failed",
+      };
     }
-    return;
   }
 
   if (toolCall.tool_name === "cancel_active_analysis") {
@@ -110,13 +142,21 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     if (!activeTask) {
       toast.info("No active debate run to cancel.");
       console.info("[VOICE_UI] dispatch_result=cancel_active_analysis no_active_task");
-      return;
+      return {
+        status: "blocked",
+        toolName: "cancel_active_analysis",
+        reason: "no_active_task",
+      };
     }
 
     if (toolCall.args.confirm !== true) {
       toast.info("Cancel request not confirmed.");
       console.info("[VOICE_UI] dispatch_result=cancel_active_analysis not_confirmed");
-      return;
+      return {
+        status: "blocked",
+        toolName: "cancel_active_analysis",
+        reason: "not_confirmed",
+      };
     }
 
     try {
@@ -129,11 +169,26 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
       router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);
       toast.success("Active analysis canceled.");
       console.info("[VOICE_UI] dispatch_result=cancel_active_analysis canceled");
+      return {
+        status: "executed",
+        toolName: "cancel_active_analysis",
+      };
     } catch (error) {
       toast.error("Failed to cancel active analysis.", {
         description: (error as Error).message,
       });
       console.error("[VOICE_UI] dispatch_result=cancel_active_analysis error=", error);
+      return {
+        status: "failed",
+        toolName: "cancel_active_analysis",
+        reason: "cancel_failed",
+      };
     }
   }
+
+  return {
+    status: "invalid",
+    toolName: toolCall.tool_name,
+    reason: "unsupported_tool_call",
+  };
 }

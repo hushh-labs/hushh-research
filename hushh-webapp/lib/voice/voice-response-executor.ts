@@ -1,6 +1,9 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
-import { dispatchVoiceToolCall } from "@/lib/voice/voice-action-dispatcher";
+import {
+  dispatchVoiceToolCall,
+  type VoiceDispatchResult,
+} from "@/lib/voice/voice-action-dispatcher";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import {
   type GroundedVoicePlan,
@@ -8,7 +11,7 @@ import {
   VOICE_UNAVAILABLE_MESSAGE,
 } from "@/lib/voice/voice-grounding";
 import { logVoiceMetric } from "@/lib/voice/voice-telemetry";
-import type { VoiceResponse } from "@/lib/voice/voice-types";
+import type { VoiceExecuteKaiCommandCall, VoiceResponse } from "@/lib/voice/voice-types";
 import type { ExecuteKaiCommandResult } from "@/lib/kai/command-executor";
 
 type RouterLike = {
@@ -30,7 +33,7 @@ export type ExecuteVoiceResponseInput = {
   vaultKey?: string;
   router: RouterLike;
   handleBack: () => void;
-  executeKaiCommand: () => ExecuteKaiCommandResult;
+  executeKaiCommand: (toolCall: VoiceExecuteKaiCommandCall) => ExecuteKaiCommandResult;
   setAnalysisParams: (params: AnalysisParams | null) => void;
   emitTelemetry?: VoiceExecutionTelemetryEmitter;
 };
@@ -87,6 +90,26 @@ function emitExecutionTelemetry(
   });
 }
 
+function buildDispatchTelemetry(
+  prefix: "grounded_execution" | "legacy_execute",
+  result: VoiceDispatchResult,
+  extra: Record<string, unknown> = {}
+): {
+  event: string;
+  payload: Record<string, unknown>;
+} {
+  const event =
+    result.status === "executed" ? `${prefix}_success` : `${prefix}_${result.status}`;
+  return {
+    event,
+    payload: {
+      tool_name: result.toolName,
+      reason: result.reason ?? null,
+      ...extra,
+    },
+  };
+}
+
 export async function executeVoiceResponse(
   input: ExecuteVoiceResponseInput
 ): Promise<ExecuteVoiceResponseResult> {
@@ -128,6 +151,7 @@ export async function executeVoiceResponse(
       let executedToolName: string | null = null;
       let extractedTicker: string | null = null;
       let navigated = false;
+      let dispatchResult: VoiceDispatchResult | null = null;
 
       try {
         for (const step of groundedPlan.execution.steps) {
@@ -142,7 +166,7 @@ export async function executeVoiceResponse(
             continue;
           }
           if (step.type === "tool_call") {
-            await dispatchVoiceToolCall({
+            dispatchResult = await dispatchVoiceToolCall({
               toolCall: step.toolCall,
               userId: input.userId,
               vaultOwnerToken: input.vaultOwnerToken,
@@ -152,7 +176,21 @@ export async function executeVoiceResponse(
               executeKaiCommand: input.executeKaiCommand,
               setAnalysisParams: input.setAnalysisParams,
             });
-            executedToolName = step.toolCall.tool_name;
+            if (dispatchResult.status !== "executed") {
+              const outcomeTelemetry = buildDispatchTelemetry("grounded_execution", dispatchResult, {
+                action_id: groundedPlan.actionId,
+                execution_mode: groundedPlan.execution.mode,
+                navigated,
+              });
+              emitExecutionTelemetry(input, outcomeTelemetry.event, outcomeTelemetry.payload);
+              return {
+                shortTermMemoryWrite: false,
+                toolName: null,
+                ticker: null,
+                responseKind: response.kind,
+              };
+            }
+            executedToolName = dispatchResult.toolName;
             extractedTicker = extractedTicker || extractTickerFromToolCall(step.toolCall);
             continue;
           }
@@ -197,7 +235,7 @@ export async function executeVoiceResponse(
 
   if (response.kind === "execute") {
     try {
-      await dispatchVoiceToolCall({
+      const dispatchResult = await dispatchVoiceToolCall({
         toolCall: response.tool_call,
         userId: input.userId,
         vaultOwnerToken: input.vaultOwnerToken,
@@ -207,6 +245,16 @@ export async function executeVoiceResponse(
         executeKaiCommand: input.executeKaiCommand,
         setAnalysisParams: input.setAnalysisParams,
       });
+      if (dispatchResult.status !== "executed") {
+        const outcomeTelemetry = buildDispatchTelemetry("legacy_execute", dispatchResult);
+        emitExecutionTelemetry(input, outcomeTelemetry.event, outcomeTelemetry.payload);
+        return {
+          shortTermMemoryWrite: false,
+          toolName: null,
+          ticker: null,
+          responseKind: response.kind,
+        };
+      }
     } catch (error) {
       toast.info(VOICE_UNAVAILABLE_MESSAGE);
       emitExecutionTelemetry(input, "legacy_execute_failure", {

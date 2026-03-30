@@ -41,8 +41,16 @@ export async function startKaiAnalysis(params: {
   riskProfile?: string;
   userContext?: string;
   vaultOwnerToken: string;
+  debateSessionId?: string;
 }): Promise<{ analysisId: string }> {
-  const response = await ApiService.apiFetch("/api/kai/analyze/start", {
+  const debateSessionId = String(params.debateSessionId || "").trim();
+  if (!debateSessionId) {
+    throw new Error(
+      "Kai polling requires a debateSessionId. Legacy /api/kai/analyze/start is removed; use current run APIs instead."
+    );
+  }
+
+  const response = await ApiService.apiFetch("/api/kai/analyze/run/start", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${params.vaultOwnerToken}`,
@@ -51,6 +59,7 @@ export async function startKaiAnalysis(params: {
     body: JSON.stringify({
       ticker: params.ticker,
       user_id: params.userId,
+      debate_session_id: debateSessionId,
       risk_profile: params.riskProfile,
       context: params.userContext,
     }),
@@ -61,8 +70,16 @@ export async function startKaiAnalysis(params: {
     throw new Error(error || "Failed to start analysis");
   }
 
-  const data = await response.json();
-  return { analysisId: data.analysis_id };
+  const data = (await response.json()) as {
+    run?: {
+      run_id?: string;
+    };
+  };
+  const analysisId = String(data.run?.run_id || "").trim();
+  if (!analysisId) {
+    throw new Error("Analyze run response did not include run.run_id");
+  }
+  return { analysisId };
 }
 
 /**
@@ -85,64 +102,14 @@ export async function pollKaiAnalysisStatus(
   pollInterval: number = 1000,
   maxAttempts: number = 120
 ): Promise<AnalyzeResponse> {
-  console.log(`[Kai Polling] Starting poll for analysis ${analysisId}`);
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const response = await ApiService.apiFetch(
-        `/api/kai/analysis/${analysisId}/status`,
-        {
-          headers: {
-            Authorization: `Bearer ${vaultOwnerToken}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-      }
-
-      const data: AnalysisStatus = await response.json();
-
-      console.log(
-        `[Kai Polling] Attempt ${attempt + 1}/${maxAttempts}: ${data.status}`
-      );
-
-      // Analysis complete - return result
-      if (data.status === "complete" && data.result) {
-        console.log("[Kai Polling] ✅ Analysis complete");
-        onProgress?.(100, "complete");
-        return data.result;
-      }
-
-      // Analysis error
-      if (data.status === "error") {
-        console.error("[Kai Polling] ❌ Analysis error:", data.error);
-        throw new Error(data.error || "Analysis failed");
-      }
-
-      // Still processing - report progress
-      const progress = data.progress || (attempt / maxAttempts) * 100;
-      onProgress?.(Math.min(progress, 99), data.status);
-
-      // Wait before next poll
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    } catch (error) {
-      console.error(`[Kai Polling] Error on attempt ${attempt + 1}:`, error);
-
-      // If we're near the end of attempts, throw the error
-      if (attempt >= maxAttempts - 3) {
-        throw error;
-      }
-
-      // Otherwise, wait and retry
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    }
-  }
-
-  // Timeout
-  console.error("[Kai Polling] ⏱️ Analysis timeout");
-  throw new Error("Analysis timeout - please try again");
+  void analysisId;
+  void vaultOwnerToken;
+  void onProgress;
+  void pollInterval;
+  void maxAttempts;
+  throw new Error(
+    "Kai polling status endpoint is no longer supported. Use ApiService.streamKaiDebateRun or ApiService.getActiveKaiDebateRun instead."
+  );
 }
 
 /**
@@ -162,24 +129,13 @@ export async function analyzeWithPolling(
     riskProfile?: string;
     userContext?: string;
     vaultOwnerToken: string;
+    debateSessionId?: string;
   },
   onProgress?: (progress: number, status: string) => void
 ): Promise<AnalyzeResponse> {
-  console.log("[Kai Polling] Starting analysis with polling...");
-
-  // Step 1: Start analysis
-  onProgress?.(5, "starting");
-  const { analysisId } = await startKaiAnalysis(params);
-
-  console.log(`[Kai Polling] Analysis started: ${analysisId}`);
-
-  // Step 2: Poll for result
-  onProgress?.(10, "processing");
-  const result = await pollKaiAnalysisStatus(
-    analysisId,
-    params.vaultOwnerToken,
-    onProgress
+  void params;
+  onProgress?.(0, "unsupported");
+  throw new Error(
+    "Kai polling status endpoint is no longer supported. Use ApiService.streamKaiDebateRun or ApiService.getActiveKaiDebateRun instead."
   );
-
-  return result;
 }

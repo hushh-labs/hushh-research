@@ -49,6 +49,13 @@ flowchart TB
 
 Next.js + React + Capacitor client for Kai and consent-first personal data flows.
 
+## Prerequisites
+
+- `node >= 20`
+- `npm >= 10`
+- `python3 >= 3.13` (needed when running full monorepo stack)
+- `make` (for profile-aware monorepo commands)
+
 ## Scope
 
 `hushh-webapp` is the frontend subtree in the monorepo. It serves:
@@ -112,16 +119,25 @@ References:
 
 ## Local Development
 
+Recommended from monorepo root (profile-aware and accurate):
+
 ```bash
-npm install
+cd ..
+make bootstrap
+
+# Frontend only against deployed UAT backend
+make uat-web
+
+# Frontend + local backend (local-uatdb profile)
 make local
 ```
 
-Frontend-only against deployed backends:
+Package-local frontend only (if `.env.local` already configured):
 
 ```bash
-make uat-web
-make prod-web
+cd hushh-webapp
+npm install
+npm run dev:next
 ```
 
 ## Verification Commands
@@ -136,9 +152,9 @@ npm run verify:parity
 npm run verify:design-system
 ```
 
-Backend tests (monorepo sibling):
+Backend tests (monorepo sibling, from repo root):
 
 ```bash
-cd consent-protocol
+cd ../consent-protocol
 .venv/bin/python -m pytest -q
 ```

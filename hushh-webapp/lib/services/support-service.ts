@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { SUPPORT_API_TEMPLATES } from "@/lib/services/kai-profile-api-paths";
 
 export type SupportMessageKind =
   | "bug_report"
@@ -26,11 +27,24 @@ export interface SubmitSupportMessageResponse {
   message_id?: string | null;
 }
 
+function safeSupportErrorMessage(status: number): string {
+  if (status === 400 || status === 413 || status === 422) {
+    return "We couldn't send your message. Check the subject and details, then try again.";
+  }
+  if (status === 401 || status === 403) {
+    return "Please sign in again before sending a message.";
+  }
+  if (status === 429) {
+    return "You're sending messages too quickly. Please wait a minute and try again.";
+  }
+  return "We couldn't send your message right now. Please try again.";
+}
+
 export class SupportService {
   static async submitMessage(
     params: SubmitSupportMessageParams
   ): Promise<SubmitSupportMessageResponse> {
-    const response = await ApiService.apiFetch("/api/kai/support/message", {
+    const response = await ApiService.apiFetch(SUPPORT_API_TEMPLATES.message, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -56,15 +70,7 @@ export class SupportService {
         };
 
     if (!response.ok) {
-      const detail =
-        typeof (payload as { detail?: string }).detail === "string"
-          ? (payload as { detail?: string }).detail
-          : typeof (payload as { detail?: { message?: string } }).detail?.message === "string"
-            ? (payload as { detail: { message?: string } }).detail.message
-            : typeof (payload as { error?: string }).error === "string"
-              ? (payload as { error?: string }).error
-              : `Failed to send support message: ${response.status}`;
-      throw new Error(detail);
+      throw new Error(safeSupportErrorMessage(response.status));
     }
 
     return payload as SubmitSupportMessageResponse;

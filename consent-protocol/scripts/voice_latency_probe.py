@@ -171,7 +171,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--transcript", required=True, help="Test transcript for intent planning.")
     parser.add_argument("--runs", type=int, default=1, help="Runs per model.")
-    parser.add_argument("--audio-file", type=str, default="", help="Optional audio file for STT probe.")
+    parser.add_argument(
+        "--audio-file", type=str, default="", help="Optional audio file for STT probe."
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]

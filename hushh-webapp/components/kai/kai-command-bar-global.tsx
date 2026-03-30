@@ -346,14 +346,11 @@ export function KaiCommandBarGlobal() {
           vaultKey: vaultKey || undefined,
           router,
           handleBack,
-          executeKaiCommand: () =>
-            payload.response.kind === "execute" &&
-            payload.response.tool_call.tool_name === "execute_kai_command"
-              ? runKaiCommand(
-                  payload.response.tool_call.args.command,
-                  payload.response.tool_call.args.params
-                )
-              : { status: "invalid", reason: "not_execute_tool" },
+          executeKaiCommand: (toolCall) =>
+            runKaiCommand(
+              toolCall.args.command,
+              toolCall.args.params
+            ),
           setAnalysisParams,
           emitTelemetry: (event, telemetryPayload) => {
             appendVoiceDebugEvent({

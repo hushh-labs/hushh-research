@@ -38,6 +38,12 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/kai/gmail/status/user_123")).toBe(
       "/api/kai/gmail/status/{user_id}"
     );
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/sync/run_123?user_id=user_123")).toBe(
+      "/api/kai/gmail/sync/{run_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/support/message")).toBe(
+      "/api/kai/support/message"
+    );
   });
 
   it("redacts opaque IDs for unknown endpoints", () => {

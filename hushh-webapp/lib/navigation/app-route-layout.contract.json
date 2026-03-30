@@ -141,6 +141,14 @@
     }
   },
   {
+    "route": "/profile/gmail/oauth/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/gmail/oauth/return/page.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion"]
+    }
+  },
+  {
     "route": "/profile/pkm",
     "mode": "redirect",
     "exemptionReason": "Redirect route that forwards to /profile/pkm-agent-lab or /profile in production."
@@ -149,6 +157,14 @@
     "route": "/profile/pkm-agent-lab",
     "mode": "hidden",
     "exemptionReason": "Dev-only PKM lab page uses its own shell, not available in production."
+  },
+  {
+    "route": "/profile/receipts",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/receipts/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
   },
   {
     "route": "/ria",

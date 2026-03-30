@@ -1,5 +1,11 @@
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  buildGmailReceiptsPath,
+  buildGmailStatusPath,
+  buildGmailSyncRunPath,
+  GMAIL_RECEIPTS_API_TEMPLATES,
+} from "@/lib/services/kai-profile-api-paths";
 
 export type GmailConnectionState =
   | "disconnected"
@@ -121,7 +127,7 @@ export class GmailReceiptsService {
     userId: string;
   }): Promise<GmailConnectionStatus> {
     const response = await ApiService.apiFetch(
-      `/api/kai/gmail/status/${encodeURIComponent(params.userId)}`,
+      buildGmailStatusPath(params.userId),
       {
         method: "GET",
         headers: {
@@ -149,7 +155,7 @@ export class GmailReceiptsService {
       result: "success",
     });
 
-    const response = await ApiService.apiFetch("/api/kai/gmail/connect/start", {
+    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.connectStart, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -185,7 +191,7 @@ export class GmailReceiptsService {
     state: string;
     redirectUri: string;
   }): Promise<GmailConnectionStatus> {
-    const response = await ApiService.apiFetch("/api/kai/gmail/connect/complete", {
+    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.connectComplete, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -218,7 +224,7 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailConnectionStatus> {
-    const response = await ApiService.apiFetch("/api/kai/gmail/disconnect", {
+    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.disconnect, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -245,7 +251,7 @@ export class GmailReceiptsService {
       result: "success",
     });
 
-    const response = await ApiService.apiFetch("/api/kai/gmail/sync", {
+    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.sync, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -277,7 +283,7 @@ export class GmailReceiptsService {
   }): Promise<{ run: GmailSyncRun }> {
     const query = new URLSearchParams({ user_id: params.userId }).toString();
     const response = await ApiService.apiFetch(
-      `/api/kai/gmail/sync/${encodeURIComponent(params.runId)}?${query}`,
+      `${buildGmailSyncRunPath(params.runId)}?${query}`,
       {
         method: "GET",
         headers: {
@@ -304,7 +310,7 @@ export class GmailReceiptsService {
       per_page: String(params.perPage ?? 25),
     }).toString();
     const response = await ApiService.apiFetch(
-      `/api/kai/gmail/receipts/${encodeURIComponent(params.userId)}?${query}`,
+      `${buildGmailReceiptsPath(params.userId)}?${query}`,
       {
         method: "GET",
         headers: {

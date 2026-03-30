@@ -471,7 +471,9 @@ def _build_screen_explain_message(
     route_state = app_state.get("route") if isinstance(app_state, dict) else {}
     screen = _coerce_str(route_state.get("screen")) if isinstance(route_state, dict) else ""
     pathname = _coerce_str(route_state.get("pathname")) if isinstance(route_state, dict) else ""
-    subview = _coerce_str_or_none(route_state.get("subview")) if isinstance(route_state, dict) else None
+    subview = (
+        _coerce_str_or_none(route_state.get("subview")) if isinstance(route_state, dict) else None
+    )
     if not screen:
         screen = _coerce_str(legacy_context.get("screen"))
     if not pathname:
@@ -489,13 +491,17 @@ def _build_screen_explain_message(
         default=False,
     )
     analysis_ticker = _coerce_str_or_none(
-        runtime_state.get("analysis_ticker") if isinstance(runtime_state, dict) else legacy_context.get("current_ticker")
+        runtime_state.get("analysis_ticker")
+        if isinstance(runtime_state, dict)
+        else legacy_context.get("current_ticker")
     )
     import_active = _coerce_bool(
         runtime_state.get("import_active") if isinstance(runtime_state, dict) else False,
         default=False,
     )
-    busy_ops = _coerce_str_list(runtime_state.get("busy_operations") if isinstance(runtime_state, dict) else [])
+    busy_ops = _coerce_str_list(
+        runtime_state.get("busy_operations") if isinstance(runtime_state, dict) else []
+    )
 
     screen_key = screen.lower() if screen else ""
     purpose_by_screen = {
@@ -598,7 +604,9 @@ def _extract_analyze_target(transcript: str) -> str | None:
         return None
     target = _coerce_str(match.group("target"))
     target = re.sub(r"[’']s\b", "", target, flags=re.IGNORECASE)
-    target = re.sub(r"\b(stock|stocks|ticker|company|share|shares)\b", "", target, flags=re.IGNORECASE)
+    target = re.sub(
+        r"\b(stock|stocks|ticker|company|share|shares)\b", "", target, flags=re.IGNORECASE
+    )
     target = re.sub(
         r"(?:\b(?:for me|please|right now|now|today|thanks|thank you)\b[\s,.;:!?]*)+$",
         "",
@@ -656,10 +664,14 @@ def _resolve_ticker_target(target: str) -> dict[str, Any]:
     return {"kind": "unknown", "candidate": None, "matches": []}
 
 
-def _normalize_runtime_state(app_state: dict[str, Any] | None, *, legacy_context: dict[str, Any]) -> dict[str, Any]:
+def _normalize_runtime_state(
+    app_state: dict[str, Any] | None, *, legacy_context: dict[str, Any]
+) -> dict[str, Any]:
     if not isinstance(app_state, dict):
         return {
-            "analysis_active": _coerce_bool(legacy_context.get("stock_analysis_active"), default=False),
+            "analysis_active": _coerce_bool(
+                legacy_context.get("stock_analysis_active"), default=False
+            ),
             "analysis_ticker": _coerce_str_or_none(legacy_context.get("current_ticker")),
             "analysis_run_id": None,
             "import_active": False,
@@ -827,10 +839,14 @@ class VoiceIntentService:
         if self.disable_voice_fallbacks:
             return [base_candidates[0]] if base_candidates else ["gpt-4o-mini-tts"]
         pruned_models = [
-            model_name for model_name in base_candidates if model_name in self.tts_unavailable_models
+            model_name
+            for model_name in base_candidates
+            if model_name in self.tts_unavailable_models
         ]
         candidates = [
-            model_name for model_name in base_candidates if model_name not in self.tts_unavailable_models
+            model_name
+            for model_name in base_candidates
+            if model_name not in self.tts_unavailable_models
         ]
         if pruned_models:
             logger.info(
@@ -875,7 +891,7 @@ class VoiceIntentService:
                 "input": {},
                 "output": {
                     "voice": selected_voice,
-                }
+                },
             },
         }
         turn_detection = {
@@ -891,9 +907,7 @@ class VoiceIntentService:
                 else {}
             )
             input_section = (
-                input_audio.get("input")
-                if isinstance(input_audio.get("input"), dict)
-                else {}
+                input_audio.get("input") if isinstance(input_audio.get("input"), dict) else {}
             )
             input_section["transcription"] = {
                 "model": self.stt_models[0] if self.stt_models else "gpt-4o-mini-transcribe"
@@ -908,9 +922,7 @@ class VoiceIntentService:
                 else {}
             )
             input_section = (
-                input_audio.get("input")
-                if isinstance(input_audio.get("input"), dict)
-                else {}
+                input_audio.get("input") if isinstance(input_audio.get("input"), dict) else {}
             )
             input_section["turn_detection"] = turn_detection
             input_audio["input"] = input_section
@@ -974,7 +986,9 @@ class VoiceIntentService:
         session_meta = result.get("session") if isinstance(result, dict) else None
         if not isinstance(session_meta, dict):
             session_meta = {}
-        session_audio = session_meta.get("audio") if isinstance(session_meta.get("audio"), dict) else {}
+        session_audio = (
+            session_meta.get("audio") if isinstance(session_meta.get("audio"), dict) else {}
+        )
         top_level_audio = result.get("audio") if isinstance(result.get("audio"), dict) else {}
         merged_audio = top_level_audio.copy()
         merged_audio.update(session_audio)
@@ -1055,8 +1069,14 @@ class VoiceIntentService:
                 )
                 return
             if event == "upstream_finished":
-                payload = event_payload.get("payload") if isinstance(event_payload.get("payload"), dict) else {}
-                transcript = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
+                payload = (
+                    event_payload.get("payload")
+                    if isinstance(event_payload.get("payload"), dict)
+                    else {}
+                )
+                transcript = (
+                    str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
+                )
                 _emit_trace(
                     "stt_upstream_finished",
                     {
@@ -1244,13 +1264,17 @@ class VoiceIntentService:
                 len(clean_transcript),
                 tool_call,
             )
-            return {
-                "tool_name": "clarify",
-                "args": {
-                    "question": "I could not map that safely. Please repeat your request.",
-                    "options": ["Analyze a stock", "Open dashboard", "Open profile"],
+            return (
+                {
+                    "tool_name": "clarify",
+                    "args": {
+                        "question": "I could not map that safely. Please repeat your request.",
+                        "options": ["Analyze a stock", "Open dashboard", "Open profile"],
+                    },
                 },
-            }, openai_http_ms, model_used
+                openai_http_ms,
+                model_used,
+            )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info(
             (
@@ -1429,7 +1453,9 @@ class VoiceIntentService:
         clean_transcript = _coerce_str(transcript)
         context_payload = _compact_context(context)
         runtime_state = _normalize_runtime_state(app_state, legacy_context=context_payload)
-        gate_state = _normalize_voice_gate(app_state, user_id=user_id, legacy_context=context_payload)
+        gate_state = _normalize_voice_gate(
+            app_state, user_id=user_id, legacy_context=context_payload
+        )
 
         if _is_transcript_unusable(clean_transcript):
             response = self._build_response(
@@ -1466,20 +1492,32 @@ class VoiceIntentService:
             response["tool_call"] = self._legacy_tool_call_for_response(response)
             return response, 0, "deterministic"
 
+        active_analysis_payload = active_analysis if isinstance(active_analysis, dict) else {}
+        authoritative_analysis_active = active_analysis_payload.get("active")
         active_analysis_ticker = _coerce_str_or_none(
-            (active_analysis or {}).get("ticker")
+            active_analysis_payload.get("ticker")
             or runtime_state.get("analysis_ticker")
             or context_payload.get("current_ticker")
         )
         active_analysis_run_id = _coerce_str_or_none(
-            (active_analysis or {}).get("run_id") or runtime_state.get("analysis_run_id")
+            active_analysis_payload.get("run_id") or runtime_state.get("analysis_run_id")
         )
-        has_active_analysis = bool(active_analysis or runtime_state.get("analysis_active"))
+        if isinstance(authoritative_analysis_active, bool):
+            has_active_analysis = authoritative_analysis_active
+        else:
+            has_active_analysis = bool(
+                active_analysis_payload or runtime_state.get("analysis_active")
+            )
 
+        active_import_payload = active_import if isinstance(active_import, dict) else {}
+        authoritative_import_active = active_import_payload.get("active")
         active_import_run_id = _coerce_str_or_none(
-            (active_import or {}).get("run_id") or runtime_state.get("import_run_id")
+            active_import_payload.get("run_id") or runtime_state.get("import_run_id")
         )
-        has_active_import = bool(active_import or runtime_state.get("import_active"))
+        if isinstance(authoritative_import_active, bool):
+            has_active_import = authoritative_import_active
+        else:
+            has_active_import = bool(active_import_payload or runtime_state.get("import_active"))
 
         lowered = clean_transcript.lower()
 
@@ -1493,7 +1531,9 @@ class VoiceIntentService:
             return response, 0, "deterministic"
 
         if _is_screen_explain_intent(lowered):
-            message = _build_screen_explain_message(app_state=app_state, legacy_context=context_payload)
+            message = _build_screen_explain_message(
+                app_state=app_state, legacy_context=context_payload
+            )
             response = self._build_response(kind="speak_only", message=message)
             response["memory"] = self._memory_hint_from_response(response)
             response["tool_call"] = self._legacy_tool_call_for_response(response)
@@ -1731,7 +1771,9 @@ class VoiceIntentService:
         error_payload: dict[str, Any] = {}
         configured_candidates = self._ordered_tts_model_candidates()
         selected_model = (
-            configured_candidates[0] if configured_candidates else self.tts_model or "gpt-4o-mini-tts"
+            configured_candidates[0]
+            if configured_candidates
+            else self.tts_model or "gpt-4o-mini-tts"
         )
         # Long-term voice architecture: no automatic provider/model fallback masking for TTS.
         candidate_models = [selected_model]
@@ -1740,7 +1782,11 @@ class VoiceIntentService:
         pruned_unavailable = any(
             model_name in self.tts_unavailable_models for model_name in self.tts_models
         )
-        pruned_models = [model_name for model_name in self.tts_models if model_name in self.tts_unavailable_models]
+        pruned_models = [
+            model_name
+            for model_name in self.tts_models
+            if model_name in self.tts_unavailable_models
+        ]
         upstream_http_ms = 0
 
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -1870,18 +1916,22 @@ class VoiceIntentService:
             len(audio_bytes),
             tts_attempts,
         )
-        return audio_bytes, mime_type, {
-            "model": selected_model,
-            "voice": selected_voice,
-            "format": self.tts_format,
-            "source": "backend_openai_audio",
-            "pruned_unavailable": "true" if pruned_unavailable else "false",
-            "pruned_models": ",".join(pruned_models),
-            "candidate_order": ",".join(candidate_models),
-            "fallback_attempted": "true" if fallback_attempted else "false",
-            "attempts": tts_attempts,
-            "openai_http_ms": upstream_http_ms,
-        }
+        return (
+            audio_bytes,
+            mime_type,
+            {
+                "model": selected_model,
+                "voice": selected_voice,
+                "format": self.tts_format,
+                "source": "backend_openai_audio",
+                "pruned_unavailable": "true" if pruned_unavailable else "false",
+                "pruned_models": ",".join(pruned_models),
+                "candidate_order": ",".join(candidate_models),
+                "fallback_attempted": "true" if fallback_attempted else "false",
+                "attempts": tts_attempts,
+                "openai_http_ms": upstream_http_ms,
+            },
+        )
 
 
 def _extract_openai_error(payload: Any) -> str | None:

@@ -1,5 +1,9 @@
 import type { KaiCommandAction, KaiWorkspaceTab } from "@/lib/kai/kai-command-types";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  GMAIL_RECEIPTS_API_TEMPLATES,
+  SUPPORT_API_TEMPLATES,
+} from "@/lib/services/kai-profile-api-paths";
 import type { VoiceToolCall } from "@/lib/voice/voice-types";
 
 export type InvestorKaiTriggerType = "voice" | "tap" | "keyboard" | "programmatic";
@@ -553,11 +557,11 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       stateChanges: ["current route becomes /profile/receipts"],
       backendEffects: [
         {
-          api: "GET /api/kai/profile/gmail/status (proxied)",
+          api: `GET ${GMAIL_RECEIPTS_API_TEMPLATES.status} (proxied)`,
           effect: "Reads Gmail connector status on mount.",
         },
         {
-          api: "GET /api/kai/profile/gmail/receipts (proxied)",
+          api: `GET ${GMAIL_RECEIPTS_API_TEMPLATES.receipts} (proxied)`,
           effect: "Reads paginated receipt items.",
         },
       ],
@@ -699,7 +703,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       stateChanges: ["gmail connector UI enters connecting state", "browser redirects to Google OAuth consent"],
       backendEffects: [
         {
-          api: "POST /api/kai/profile/gmail/start-connect (proxied)",
+          api: `POST ${GMAIL_RECEIPTS_API_TEMPLATES.connectStart} (proxied)`,
           effect: "Generates OAuth authorize URL and state nonce.",
         },
       ],
@@ -739,11 +743,11 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       stateChanges: ["gmail sync run transitions queued/running/completed", "receipts list refreshes after completion"],
       backendEffects: [
         {
-          api: "POST /api/kai/profile/gmail/sync-now (proxied)",
+          api: `POST ${GMAIL_RECEIPTS_API_TEMPLATES.sync} (proxied)`,
           effect: "Queues sync job.",
         },
         {
-          api: "GET /api/kai/profile/gmail/sync-run/{run_id} (proxied)",
+          api: `GET ${GMAIL_RECEIPTS_API_TEMPLATES.syncRun} (proxied)`,
           effect: "Polls sync run status.",
         },
       ],
@@ -787,7 +791,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       stateChanges: ["gmail status becomes disconnected", "future syncs are disabled"],
       backendEffects: [
         {
-          api: "POST /api/kai/profile/gmail/disconnect (proxied)",
+          api: `POST ${GMAIL_RECEIPTS_API_TEMPLATES.disconnect} (proxied)`,
           effect: "Revokes connector state in backend.",
         },
       ],
@@ -827,7 +831,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       stateChanges: ["support dialog closes on success", "toast confirmation rendered"],
       backendEffects: [
         {
-          api: "POST /api/kai/profile/support (proxied)",
+          api: `POST ${SUPPORT_API_TEMPLATES.message} (proxied)`,
           effect: "Routes support payload to support_email_service.",
         },
       ],

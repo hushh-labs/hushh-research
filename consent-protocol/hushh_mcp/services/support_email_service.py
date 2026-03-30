@@ -22,6 +22,12 @@ SupportDeliveryMode = Literal["live", "test"]
 
 _GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 _GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+_SUPPORT_EMAIL_UNAVAILABLE_MESSAGE = (
+    "Support messaging is temporarily unavailable right now. Please try again later."
+)
+_SUPPORT_EMAIL_DELIVERY_FAILED_MESSAGE = (
+    "We couldn't send your message right now. Please try again later."
+)
 
 
 def _clean_text(value: str | None) -> str:
@@ -208,10 +214,7 @@ class SupportEmailService:
     def _build_authorized_session(self) -> AuthorizedSession:
         cfg = self.config
         if not cfg.configured:
-            raise SupportEmailNotConfiguredError(
-                "Support email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_SERVICE_ACCOUNT_JSON, plus SUPPORT_EMAIL_* variables."
-            )
+            raise SupportEmailNotConfiguredError(_SUPPORT_EMAIL_UNAVAILABLE_MESSAGE)
         if self._session is None:
             credentials = service_account.Credentials.from_service_account_info(
                 cfg.service_account_info,
@@ -318,21 +321,14 @@ class SupportEmailService:
                     self.config.delegated_user,
                     self.config.effective_recipient,
                 )
-                raise SupportEmailSendError(
-                    "Gmail API authorization failed. Verify Workspace domain-wide delegation "
-                    f"for client ID `{self.config.client_id or 'unknown'}` and that "
-                    f"`{self.config.delegated_user}` is a valid mailbox user."
-                ) from exc
+                raise SupportEmailSendError(_SUPPORT_EMAIL_DELIVERY_FAILED_MESSAGE) from exc
 
             logger.exception(
                 "support_email.transport_failed delegated_user=%s recipient=%s",
                 self.config.delegated_user,
                 self.config.effective_recipient,
             )
-            raise SupportEmailSendError(
-                "Gmail API transport failed. Check network connectivity, Gmail API "
-                "availability, and try again."
-            ) from exc
+            raise SupportEmailSendError(_SUPPORT_EMAIL_DELIVERY_FAILED_MESSAGE) from exc
         try:
             payload = response.json()
         except Exception:
@@ -345,16 +341,7 @@ class SupportEmailService:
                 self.config.effective_recipient,
                 payload,
             )
-            detail_message = (
-                payload.get("error", {}).get("message")
-                if isinstance(payload, dict)
-                and isinstance(payload.get("error"), dict)
-                and isinstance(payload.get("error", {}).get("message"), str)
-                else None
-            )
-            raise SupportEmailSendError(
-                detail_message or f"Gmail send failed with status {response.status_code}"
-            )
+            raise SupportEmailSendError(_SUPPORT_EMAIL_DELIVERY_FAILED_MESSAGE)
 
         message_id = payload.get("id") if isinstance(payload, dict) else None
         return {

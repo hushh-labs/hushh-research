@@ -71,4 +71,64 @@ describe("investor-kai-action-registry", () => {
     expect(deadActions.length).toBeGreaterThan(0);
     expect(deadActions.some((action) => action.id === "command.optimize_legacy")).toBe(true);
   });
+
+  it("keeps Gmail and support backend effect paths aligned with live profile APIs", () => {
+    expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "nav.profile_receipts")
+        ?.expectedEffects.backendEffects
+    ).toEqual([
+      {
+        api: "GET /api/kai/gmail/status/{user_id} (proxied)",
+        effect: "Reads Gmail connector status on mount.",
+      },
+      {
+        api: "GET /api/kai/gmail/receipts/{user_id} (proxied)",
+        effect: "Reads paginated receipt items.",
+      },
+    ]);
+
+    expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.connect")
+        ?.expectedEffects.backendEffects
+    ).toEqual([
+      {
+        api: "POST /api/kai/gmail/connect/start (proxied)",
+        effect: "Generates OAuth authorize URL and state nonce.",
+      },
+    ]);
+
+    expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.sync_now")
+        ?.expectedEffects.backendEffects
+    ).toEqual([
+      {
+        api: "POST /api/kai/gmail/sync (proxied)",
+        effect: "Queues sync job.",
+      },
+      {
+        api: "GET /api/kai/gmail/sync/{run_id} (proxied)",
+        effect: "Polls sync run status.",
+      },
+    ]);
+
+    expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.disconnect")
+        ?.expectedEffects.backendEffects
+    ).toEqual([
+      {
+        api: "POST /api/kai/gmail/disconnect (proxied)",
+        effect: "Revokes connector state in backend.",
+      },
+    ]);
+
+    expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.support.submit_message")
+        ?.expectedEffects.backendEffects
+    ).toEqual([
+      {
+        api: "POST /api/kai/support/message (proxied)",
+        effect: "Routes support payload to support_email_service.",
+      },
+    ]);
+  });
 });

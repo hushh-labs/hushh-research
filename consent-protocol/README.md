@@ -68,35 +68,49 @@ The Consent Protocol is the single source of truth for the Hushh backend. It pow
 
 ## Quick Start
 
-If you are working inside the `hushh-research` monorepo, use the repo-root bootstrap and runtime profiles instead of manually assembling backend env files:
+### Prerequisites
+
+- `python3 >= 3.13`
+- `pip`
+- `make`
+- `node >= 20` (needed for monorepo bootstrap flow)
+- Optional for monorepo `local-uatdb`: `cloud-sql-proxy`
+
+### Monorepo workflow (recommended)
+
+If you are working inside the `hushh-research` monorepo, use repo-root bootstrap + runtime profiles:
 
 ```bash
-cd ..
+cd /path/to/hushh-research
 make bootstrap
+
+# Local frontend + deployed UAT backend
+make uat
+
+# Local backend + local frontend (local-uatdb profile)
+make local
+
+# Backend only
 make backend PROFILE=local-uatdb
 ```
 
-Standalone subtree/backend-only setup:
+### Standalone backend-only setup
 
 ```bash
-# Clone
 git clone https://github.com/hushh-labs/consent-protocol.git
 cd consent-protocol
 
-# Virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
-pip install -r requirements-dev.txt  # For linting, testing
+pip install -r requirements-dev.txt
 
-# Configure environment
 cp .env.example .env
-# Edit .env with your Supabase, Gemini, and Firebase credentials
+# Fill .env values (DB_*, SECRET_KEY, Firebase, Gemini/Vertex)
 
-# Run server
-make local-backend
+# Run backend
+make dev
 ```
 
 Health check: `curl http://localhost:8000/health`

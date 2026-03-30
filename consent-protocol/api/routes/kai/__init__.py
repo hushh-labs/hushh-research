@@ -22,15 +22,15 @@ from .analyze import router as analyze_router
 from .chat import router as chat_router
 from .consent import router as consent_router
 from .decisions import router as decisions_router
+from .gmail import router as gmail_router
 from .health import router as health_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
 from .plaid import router as plaid_router
-from .gmail import router as gmail_router
 from .portfolio import router as portfolio_router
 from .stream import router as stream_router
-from .voice import router as voice_router
 from .support import router as support_router
+from .voice import router as voice_router
 
 # Create the main Kai router with prefix
 kai_router = APIRouter(prefix="/api/kai", tags=["kai"])

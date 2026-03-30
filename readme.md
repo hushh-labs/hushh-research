@@ -118,20 +118,58 @@ Layer 4: Agent Tokens     → Scoped permissions (OPERATIONS)
 
 ## 🚀 Quick Start
 
+### Prerequisites
+
+- `git`
+- `make`
+- `node >= 20`
+- `npm >= 10`
+- `python3 >= 3.13`
+- `jq`
+- Optional for local backend profile: `cloud-sql-proxy`
+
+### 1) Clone + Bootstrap (recommended)
+
 ```bash
-# Clone
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 
-# Install
-cd hushh-webapp && npm install
-cd ../consent-protocol && pip install -r requirements.txt
-cd ..
+# Installs frontend/backend dependencies, hydrates runtime profiles, runs doctor
+make bootstrap
+```
 
-# Full local stack against UAT-backed resources
-make local
+### 2) Choose Runtime Mode
+
+```bash
+# Frontend on localhost + deployed UAT backend (best first run)
+make uat
+
+# Frontend on localhost + deployed production backend
+make prod
 
 # Open http://localhost:3000
+```
+
+```bash
+# Full local stack profile (starts local backend + local frontend)
+# Requires local-uatdb profile readiness and cloud-sql-proxy if your profile uses Cloud SQL.
+make local
+```
+
+### 3) Common Developer Commands
+
+```bash
+# Frontend only (uses selected profile)
+make web PROFILE=uat-remote
+
+# Local backend only
+make backend PROFILE=local-uatdb
+
+# Quality gates
+make lint
+make test
+make verify-docs
+make ci-local
 ```
 
 ---
@@ -244,13 +282,14 @@ The subtree workflow source-of-truth lives in `consent-protocol/ops/monorepo/` (
 
 This monorepo uses a `Makefile` for all common operations. Run `make help` to see all targets.
 
-**First-time setup:**
+**First-time setup (contributors working with consent-protocol subtree sync):**
 
 ```bash
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
-make setup              # Adds the consent-upstream remote
+make setup              # Installs hooks + configures consent-upstream remote
 make sync-protocol      # Pulls latest backend from upstream
+make bootstrap          # Installs deps + hydrates runtime profiles
 ```
 
 ### Frontend-Only Contributor

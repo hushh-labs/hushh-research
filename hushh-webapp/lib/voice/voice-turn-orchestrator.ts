@@ -120,6 +120,14 @@ export type VoiceTurnOrchestratorConfig = {
   }) => void;
 };
 
+function shouldWriteMemoryFromDispatch(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return true;
+  if ("shortTermMemoryWrite" in raw && typeof raw.shortTermMemoryWrite === "boolean") {
+    return raw.shortTermMemoryWrite;
+  }
+  return true;
+}
+
 export type VoiceTurnOrchestratorResult = {
   turnId: string;
   responseId: string;
@@ -381,18 +389,24 @@ export class VoiceTurnOrchestrator {
           responseId,
           segmentType: "ack",
         });
-        await this.config.speak({
-          text: ackText,
-          turnId,
-          responseId,
-          segmentType: "ack",
-        });
+        try {
+          await this.config.speak({
+            text: ackText,
+            turnId,
+            responseId,
+            segmentType: "ack",
+          });
+        } catch (error) {
+          this.config.onDebug?.("ack_tts_failed_dispatch_continues", {
+            error: error instanceof Error ? error.message : "unknown_error",
+          });
+        }
       }
 
       if (!this.isTokenActive(token)) return null;
 
       this.config.onStageChange?.("dispatch");
-      await Promise.resolve(
+      const dispatchOutcome = await Promise.resolve(
         this.config.onVoiceResponse({
           turnId,
           responseId,
@@ -428,16 +442,18 @@ export class VoiceTurnOrchestrator {
 
       if (!this.isTokenActive(token)) return null;
 
-      voiceMemoryStore.appendShortTerm(this.config.userId, {
-        turn_id: turnId,
-        transcript_final: cleanTranscript,
-        response_text: finalText,
-        response_kind: response.kind,
-        created_at_ms: Date.now(),
-      });
+      if (shouldWriteMemoryFromDispatch(dispatchOutcome)) {
+        voiceMemoryStore.appendShortTerm(this.config.userId, {
+          turn_id: turnId,
+          transcript_final: cleanTranscript,
+          response_text: finalText,
+          response_kind: response.kind,
+          created_at_ms: Date.now(),
+        });
 
-      if (normalizedPlan.memory?.allow_durable_write && memoryWriteCandidates.length > 0) {
-        voiceMemoryStore.writeDurable(this.config.userId, memoryWriteCandidates);
+        if (normalizedPlan.memory?.allow_durable_write && memoryWriteCandidates.length > 0) {
+          voiceMemoryStore.writeDurable(this.config.userId, memoryWriteCandidates);
+        }
       }
 
       return {

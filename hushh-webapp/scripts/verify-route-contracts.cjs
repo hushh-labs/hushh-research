@@ -10,6 +10,14 @@ function readText(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
 
+function extractBackendRouteContractPaths(src) {
+  const match = src.match(/ROUTE_CONTRACT_PATHS\s*=\s*\[(?<body>[\s\S]*?)\]/m);
+  if (!match?.groups?.body) return [];
+  return Array.from(match.groups.body.matchAll(/["']([^"']+)["']/g)).map(
+    (entry) => entry[1]
+  );
+}
+
 function exists(filePath) {
   return fs.existsSync(filePath);
 }
@@ -125,6 +133,7 @@ function assertBackendPathsExist(repoRoot, contractId, backend) {
   }
 
   const src = readText(backendFile);
+  const backendContractPaths = extractBackendRouteContractPaths(src);
   if (
     !src.includes(`prefix="${backend.routerPrefix}"`) &&
     !src.includes(`prefix='${backend.routerPrefix}'`)
@@ -139,6 +148,18 @@ function assertBackendPathsExist(repoRoot, contractId, backend) {
     if (!src.includes(`"${p}"`) && !src.includes(`'${p}'`)) {
       throw new Error(
         `[${contractId}] Backend path not found in ${backend.file}: ${p}`
+      );
+    }
+  }
+
+  if (backendContractPaths.length > 0) {
+    const missingFromManifest = backendContractPaths.filter(
+      (declaredPath) => !backend.paths.includes(declaredPath)
+    );
+    if (missingFromManifest.length > 0) {
+      throw new Error(
+        `[${contractId}] Manifest missing backend contract path(s) declared in ${backend.file}:\n` +
+          missingFromManifest.map((declaredPath) => `- ${declaredPath}`).join("\n")
       );
     }
   }

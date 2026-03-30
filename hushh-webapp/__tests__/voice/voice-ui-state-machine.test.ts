@@ -11,6 +11,9 @@ describe("voice-ui-state-machine", () => {
     expect(canTransitionVoiceUiState("sheet_listening", "sheet_submitting")).toBe(true);
     expect(canTransitionVoiceUiState("sheet_submitting", "processing_compact")).toBe(true);
     expect(canTransitionVoiceUiState("processing_compact", "speaking_compact")).toBe(true);
+    expect(canTransitionVoiceUiState("speaking_compact", "processing_compact")).toBe(true);
+    expect(canTransitionVoiceUiState("processing_compact", "sheet_listening")).toBe(true);
+    expect(canTransitionVoiceUiState("speaking_compact", "sheet_listening")).toBe(true);
     expect(canTransitionVoiceUiState("speaking_compact", "idle")).toBe(true);
   });
 

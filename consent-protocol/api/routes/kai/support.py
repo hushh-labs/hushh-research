@@ -6,7 +6,7 @@ import logging
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.services.support_email_service import (
@@ -18,6 +18,15 @@ from hushh_mcp.services.support_email_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Kai Support"])
+_SUPPORT_EMAIL_UNAVAILABLE_MESSAGE = (
+    "Support messaging is temporarily unavailable right now. Please try again later."
+)
+_SUPPORT_EMAIL_DELIVERY_FAILED_MESSAGE = (
+    "We couldn't send your message right now. Please try again later."
+)
+_SUPPORT_EMAIL_UNEXPECTED_MESSAGE = (
+    "We hit an unexpected problem while sending your message. Please try again later."
+)
 
 
 class SupportMessageRequest(BaseModel):
@@ -30,6 +39,22 @@ class SupportMessageRequest(BaseModel):
     persona: Optional[str] = Field(default=None, max_length=40)
     page_url: Optional[str] = Field(default=None, max_length=1000)
 
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, value: str) -> str:
+        text = value.strip()
+        if len(text) < 3:
+            raise ValueError("Subject must contain at least 3 non-whitespace characters.")
+        return text
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        text = value.strip()
+        if len(text) < 10:
+            raise ValueError("Message must contain at least 10 non-whitespace characters.")
+        return text
+
 
 @router.post("/support/message")
 async def send_support_message(
@@ -41,8 +66,8 @@ async def send_support_message(
     try:
         return get_support_email_service().send_message(
             kind=payload.kind,
-            subject=payload.subject.strip(),
-            message=payload.message.strip(),
+            subject=payload.subject,
+            message=payload.message,
             user_id=payload.user_id,
             user_email=(payload.user_email or "").strip() or None,
             user_display_name=(payload.user_display_name or "").strip() or None,
@@ -55,7 +80,7 @@ async def send_support_message(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "code": "SUPPORT_EMAIL_NOT_CONFIGURED",
-                "message": str(exc),
+                "message": _SUPPORT_EMAIL_UNAVAILABLE_MESSAGE,
             },
         ) from exc
     except SupportEmailSendError as exc:
@@ -64,7 +89,7 @@ async def send_support_message(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "code": "SUPPORT_EMAIL_SEND_FAILED",
-                "message": str(exc) or "Gmail delivery failed.",
+                "message": _SUPPORT_EMAIL_DELIVERY_FAILED_MESSAGE,
             },
         ) from exc
     except Exception as exc:
@@ -73,6 +98,6 @@ async def send_support_message(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "code": "SUPPORT_MESSAGE_FAILED",
-                "message": str(exc),
+                "message": _SUPPORT_EMAIL_UNEXPECTED_MESSAGE,
             },
         ) from exc

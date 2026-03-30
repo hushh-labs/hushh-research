@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS kai_gmail_sync_runs (
     user_id TEXT NOT NULL REFERENCES vault_keys(user_id) ON DELETE CASCADE,
     trigger_source TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued'
-        CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'canceled')),
     query_since TIMESTAMPTZ,
     query_text TEXT,
     listed_count INTEGER NOT NULL DEFAULT 0,

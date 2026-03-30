@@ -35,7 +35,7 @@ from db.db_client import get_db
 logger = logging.getLogger(__name__)
 
 _GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-_GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 _GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 _GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
@@ -54,7 +54,9 @@ _ORDER_ID_RE = re.compile(
     r"([A-Z0-9-]{4,})\b",
     re.I,
 )
-_AMOUNT_RE = re.compile(r"(?<![A-Z0-9])(?:USD|\$|EUR|€|GBP|£|INR|₹)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)")
+_AMOUNT_RE = re.compile(
+    r"(?<![A-Z0-9])(?:USD|\$|EUR|€|GBP|£|INR|₹)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)"
+)
 
 _MERCHANT_HINTS = {
     "amazon",
@@ -75,6 +77,10 @@ _MERCHANT_HINTS = {
     "zomato",
     "flipkart",
 }
+_RUN_CANCELED_MESSAGE = "Gmail sync canceled because the connection was disconnected."
+_RUN_STALE_MESSAGE = "Gmail sync expired before completion. Please start a new sync."
+_RUN_ORPHANED_MESSAGE = "Gmail sync worker stopped before reporting a final status."
+_RUN_MESSAGE_FAILED_LOG_LIMIT = 160
 
 
 @dataclass
@@ -267,7 +273,9 @@ class GmailReceiptsService:
         )
 
     def is_configured(self) -> bool:
-        return bool(self._oauth_client_id() and self._oauth_client_secret() and self._oauth_redirect_uri())
+        return bool(
+            self._oauth_client_id() and self._oauth_client_secret() and self._oauth_redirect_uri()
+        )
 
     def _sync_enabled(self) -> bool:
         return _to_bool(os.getenv("KAI_GMAIL_RECEIPTS_SYNC_ENABLED"), True)
@@ -292,6 +300,205 @@ class GmailReceiptsService:
             return max(50, min(2000, int(raw)))
         except Exception:
             return 300
+
+    def _sync_run_stale_ttl_seconds(self) -> int:
+        raw = _clean_text(os.getenv("KAI_GMAIL_RECEIPTS_RUN_STALE_TTL_SECONDS"), "900")
+        try:
+            return max(60, int(raw))
+        except Exception:
+            return 900
+
+    def _sync_run_activity_at(self, row: dict[str, Any] | None) -> datetime | None:
+        if not row:
+            return None
+        for key in ("updated_at", "started_at", "requested_at", "created_at"):
+            parsed = _parse_iso(row.get(key))
+            if parsed is not None:
+                return parsed
+        return None
+
+    def _is_stale_active_run(self, row: dict[str, Any] | None) -> bool:
+        activity_at = self._sync_run_activity_at(row)
+        if activity_at is None:
+            return False
+        return (_utcnow() - activity_at).total_seconds() >= self._sync_run_stale_ttl_seconds()
+
+    def _sync_task_for_run(self, run_id: str) -> asyncio.Task[Any] | Any | None:
+        task = self._sync_tasks_by_run_id.get(run_id)
+        if task is None:
+            return None
+        done = getattr(task, "done", None)
+        if callable(done) and done():
+            self._sync_tasks_by_run_id.pop(run_id, None)
+        return task
+
+    def _mark_run_terminal(self, *, run_id: str, status: str, error_message: str | None) -> None:
+        self.db.execute_raw(
+            """
+            UPDATE kai_gmail_sync_runs
+            SET status = :status,
+                error_message = :error_message,
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE run_id = :run_id
+              AND status IN ('queued', 'running')
+            """,
+            {
+                "run_id": run_id,
+                "status": status,
+                "error_message": error_message,
+            },
+        )
+
+    def _update_connection_sync_status(
+        self,
+        *,
+        user_id: str,
+        status: str,
+        error_message: str | None,
+    ) -> None:
+        self.db.execute_raw(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = :status,
+                last_sync_error = :error_message,
+                updated_at = NOW()
+            WHERE user_id = :user_id
+            """,
+            {
+                "user_id": user_id,
+                "status": status,
+                "error_message": error_message,
+            },
+        )
+
+    async def _recover_active_run_in_tx(self, *, conn: Any, run: dict[str, Any]) -> bool:
+        run_id = _clean_text(run.get("run_id"))
+        user_id = _clean_text(run.get("user_id"))
+        if not run_id or not user_id:
+            return False
+
+        task = self._sync_task_for_run(run_id)
+        if task is not None:
+            done = getattr(task, "done", None)
+            if callable(done) and done():
+                cancelled = False
+                cancelled_fn = getattr(task, "cancelled", None)
+                if callable(cancelled_fn):
+                    cancelled = bool(cancelled_fn())
+                status = "canceled" if cancelled else "failed"
+                error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                await conn.execute(
+                    """
+                    UPDATE kai_gmail_sync_runs
+                    SET status = $2,
+                        error_message = $3,
+                        completed_at = COALESCE(completed_at, NOW()),
+                        updated_at = NOW()
+                    WHERE run_id = $1
+                      AND status IN ('queued', 'running')
+                    """,
+                    run_id,
+                    status,
+                    error_message,
+                )
+                if status == "failed":
+                    await conn.execute(
+                        """
+                        UPDATE kai_gmail_connections
+                        SET last_sync_status = 'failed',
+                            last_sync_error = $2,
+                            updated_at = NOW()
+                        WHERE user_id = $1
+                        """,
+                        user_id,
+                        error_message,
+                    )
+                return True
+            return False
+
+        if not self._is_stale_active_run(run):
+            return False
+
+        await conn.execute(
+            """
+            UPDATE kai_gmail_sync_runs
+            SET status = 'failed',
+                error_message = $2,
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE run_id = $1
+              AND status IN ('queued', 'running')
+            """,
+            run_id,
+            _RUN_STALE_MESSAGE,
+        )
+        await conn.execute(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = 'failed',
+                last_sync_error = $2,
+                updated_at = NOW()
+            WHERE user_id = $1
+            """,
+            user_id,
+            _RUN_STALE_MESSAGE,
+        )
+        return True
+
+    def _reconcile_active_runs(self, *, user_id: str, run_id: str | None = None) -> None:
+        if not user_id:
+            return
+        sql = """
+            SELECT run_id, user_id, status, requested_at, started_at, completed_at, updated_at
+            FROM kai_gmail_sync_runs
+            WHERE user_id = :user_id
+              AND status IN ('queued', 'running')
+        """
+        params: dict[str, Any] = {"user_id": user_id}
+        if run_id:
+            sql += " AND run_id = :run_id"
+            params["run_id"] = run_id
+        rows = self.db.execute_raw(sql, params).data
+        for row in rows:
+            current = dict(row)
+            current_run_id = _clean_text(current.get("run_id"))
+            if not current_run_id:
+                continue
+            task = self._sync_task_for_run(current_run_id)
+            if task is not None:
+                done = getattr(task, "done", None)
+                if callable(done) and done():
+                    cancelled = False
+                    cancelled_fn = getattr(task, "cancelled", None)
+                    if callable(cancelled_fn):
+                        cancelled = bool(cancelled_fn())
+                    status = "canceled" if cancelled else "failed"
+                    error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                    self._mark_run_terminal(
+                        run_id=current_run_id,
+                        status=status,
+                        error_message=error_message,
+                    )
+                    if status == "failed":
+                        self._update_connection_sync_status(
+                            user_id=user_id,
+                            status="failed",
+                            error_message=error_message,
+                        )
+                continue
+            if not self._is_stale_active_run(current):
+                continue
+            self._mark_run_terminal(
+                run_id=current_run_id,
+                status="failed",
+                error_message=_RUN_STALE_MESSAGE,
+            )
+            self._update_connection_sync_status(
+                user_id=user_id,
+                status="failed",
+                error_message=_RUN_STALE_MESSAGE,
+            )
 
     def _llm_fallback_enabled(self) -> bool:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)
@@ -366,14 +573,17 @@ class GmailReceiptsService:
         try:
             plaintext = aesgcm.decrypt(
                 base64.urlsafe_b64decode(i.encode("utf-8")),
-                base64.urlsafe_b64decode(c.encode("utf-8")) + base64.urlsafe_b64decode(t.encode("utf-8")),
+                base64.urlsafe_b64decode(c.encode("utf-8"))
+                + base64.urlsafe_b64decode(t.encode("utf-8")),
                 None,
             )
         except Exception:
             return None
         return plaintext.decode("utf-8")
 
-    async def _http_post_form(self, url: str, data: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
+    async def _http_post_form(
+        self, url: str, data: dict[str, Any], headers: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         timeout = httpx.Timeout(self._http_timeout)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, data=data, headers=headers)
@@ -383,7 +593,9 @@ class GmailReceiptsService:
         except Exception:
             payload = {}
         if response.status_code >= 400:
-            message = _clean_text(payload.get("error_description")) or _clean_text(payload.get("error"))
+            message = _clean_text(payload.get("error_description")) or _clean_text(
+                payload.get("error")
+            )
             raise GmailApiError(
                 message or f"Google request failed ({response.status_code})",
                 status_code=502,
@@ -391,7 +603,9 @@ class GmailReceiptsService:
             )
         return payload
 
-    async def _http_get_json(self, url: str, *, token: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _http_get_json(
+        self, url: str, *, token: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         timeout = httpx.Timeout(self._http_timeout)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(
@@ -628,7 +842,9 @@ class GmailReceiptsService:
             """,
             {
                 "user_id": user_id,
-                "google_email": _clean_text(profile.get("emailAddress")) or _clean_text(claims.get("email")) or None,
+                "google_email": _clean_text(profile.get("emailAddress"))
+                or _clean_text(claims.get("email"))
+                or None,
                 "google_sub": _clean_text(claims.get("sub")) or None,
                 "scope_csv": scope_csv,
                 "refresh_token_ciphertext": refresh_env["ciphertext"],
@@ -641,7 +857,11 @@ class GmailReceiptsService:
             },
         )
 
-        logger.info("gmail.connect.complete user_id=%s email=%s", user_id, _clean_text(profile.get("emailAddress"), "unknown"))
+        logger.info(
+            "gmail.connect.complete user_id=%s email=%s",
+            user_id,
+            _clean_text(profile.get("emailAddress"), "unknown"),
+        )
 
         # kickoff first sync
         try:
@@ -665,6 +885,33 @@ class GmailReceiptsService:
     async def disconnect(self, *, user_id: str) -> dict[str, Any]:
         row = self._fetch_connection_row(user_id=user_id)
         if row:
+            active_runs = self.db.execute_raw(
+                """
+                SELECT run_id, user_id, status
+                FROM kai_gmail_sync_runs
+                WHERE user_id = :user_id
+                  AND status IN ('queued', 'running')
+                ORDER BY requested_at DESC
+                """,
+                {"user_id": user_id},
+            ).data
+            for active_run in active_runs:
+                run_id = _clean_text(active_run.get("run_id"))
+                if not run_id:
+                    continue
+                self._mark_run_terminal(
+                    run_id=run_id,
+                    status="canceled",
+                    error_message=_RUN_CANCELED_MESSAGE,
+                )
+                task = self._sync_tasks_by_run_id.get(run_id)
+                if task is None:
+                    continue
+                try:
+                    task.cancel()
+                except Exception:
+                    logger.warning("gmail.disconnect.cancel_task_failed run_id=%s", run_id)
+
             refresh_token = self._decrypt_token(
                 row.get("refresh_token_ciphertext"),
                 row.get("refresh_token_iv"),
@@ -686,6 +933,8 @@ class GmailReceiptsService:
                     access_token_iv = NULL,
                     access_token_tag = NULL,
                     access_token_expires_at = NULL,
+                    last_sync_status = 'idle',
+                    last_sync_error = NULL,
                     disconnected_at = NOW(),
                     token_updated_at = NOW(),
                     updated_at = NOW()
@@ -696,6 +945,14 @@ class GmailReceiptsService:
 
         logger.info("gmail.disconnect user_id=%s", user_id)
         return await self.get_status(user_id=user_id)
+
+    def _is_connection_sync_active(self, *, user_id: str) -> bool:
+        row = self._fetch_connection_row(user_id=user_id)
+        if row is None:
+            return False
+        return _clean_text(row.get("status")) == "connected" and not _to_bool(
+            row.get("revoked"), False
+        )
 
     async def _ensure_access_token(self, *, user_id: str) -> tuple[str, dict[str, Any]]:
         row = self._fetch_connection_row(user_id=user_id)
@@ -769,8 +1026,8 @@ class GmailReceiptsService:
             "("
             "category:purchases "
             "OR subject:(receipt OR invoice OR order OR payment OR transaction) "
-            "OR (\"thank you for your order\" OR \"order confirmation\" OR \"order total\" "
-            "OR \"amount paid\" OR \"payment received\")"
+            'OR ("thank you for your order" OR "order confirmation" OR "order total" '
+            'OR "amount paid" OR "payment received")'
             ") "
             f"after:{since_unix} -category:spam"
         )
@@ -792,7 +1049,9 @@ class GmailReceiptsService:
             params["pageToken"] = _clean_text(page_token)
         return await self._http_get_json(_GMAIL_MESSAGES_URL, token=access_token, params=params)
 
-    async def _get_message_metadata(self, *, access_token: str, gmail_message_id: str) -> dict[str, Any]:
+    async def _get_message_metadata(
+        self, *, access_token: str, gmail_message_id: str
+    ) -> dict[str, Any]:
         return await self._http_get_json(
             f"{_GMAIL_MESSAGES_URL}/{gmail_message_id}",
             token=access_token,
@@ -844,7 +1103,11 @@ class GmailReceiptsService:
         if internal_date is None:
             try:
                 parsed = parsedate_to_datetime(_clean_text(headers.get("date")))
-                internal_date = parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                internal_date = (
+                    parsed.astimezone(timezone.utc)
+                    if parsed.tzinfo
+                    else parsed.replace(tzinfo=timezone.utc)
+                )
             except Exception:
                 internal_date = None
 
@@ -1016,7 +1279,9 @@ class GmailReceiptsService:
                 receipt_date.date().isoformat() if receipt_date else "",
             ]
         )
-        checksum = hashlib.sha256(checksum_input.encode("utf-8")).hexdigest() if checksum_input else None
+        checksum = (
+            hashlib.sha256(checksum_input.encode("utf-8")).hexdigest() if checksum_input else None
+        )
 
         return {
             "merchant_name": merchant_name or None,
@@ -1029,7 +1294,9 @@ class GmailReceiptsService:
             "receipt_checksum": checksum,
         }
 
-    def _upsert_receipt(self, *, user_id: str, candidate: ReceiptCandidate, extracted: dict[str, Any]) -> bool:
+    def _upsert_receipt(
+        self, *, user_id: str, candidate: ReceiptCandidate, extracted: dict[str, Any]
+    ) -> bool:
         result = self.db.execute_raw(
             """
             INSERT INTO kai_gmail_receipts (
@@ -1166,6 +1433,7 @@ class GmailReceiptsService:
         }
 
     async def get_status(self, *, user_id: str) -> dict[str, Any]:
+        self._reconcile_active_runs(user_id=user_id)
         row = self._fetch_connection_row(user_id=user_id)
         latest_run = self._latest_sync_run(user_id=user_id)
         if not row:
@@ -1201,19 +1469,35 @@ class GmailReceiptsService:
             "latest_run": self._serialize_run(latest_run),
         }
 
-    def _track_background_task(self, task: asyncio.Task[Any], run_id: str | None = None) -> None:
-        self._background_tasks.add(task)
+    def _track_background_task(
+        self, task: asyncio.Task[Any] | Any, run_id: str | None = None
+    ) -> None:
+        if task is None:
+            return
+
+        tracked_in_set = False
+        try:
+            self._background_tasks.add(task)
+            tracked_in_set = True
+        except TypeError:
+            tracked_in_set = False
+
         if run_id:
             self._sync_tasks_by_run_id[run_id] = task
 
+        add_done_callback = getattr(task, "add_done_callback", None)
+        if not callable(add_done_callback):
+            return
+
         def _cleanup(completed: asyncio.Task[Any]) -> None:
-            self._background_tasks.discard(completed)
+            if tracked_in_set:
+                self._background_tasks.discard(completed)
             if run_id:
                 existing = self._sync_tasks_by_run_id.get(run_id)
                 if existing is completed:
                     self._sync_tasks_by_run_id.pop(run_id, None)
 
-        task.add_done_callback(_cleanup)
+        add_done_callback(_cleanup)
 
     async def queue_sync(self, *, user_id: str, trigger_source: str) -> dict[str, Any]:
         if not self.is_configured():
@@ -1241,22 +1525,30 @@ class GmailReceiptsService:
                 ):
                     raise GmailApiError("Gmail connection is not active", status_code=409)
 
-                existing = await conn.fetchrow(
-                    """
-                    SELECT *
-                    FROM kai_gmail_sync_runs
-                    WHERE user_id = $1
-                      AND status IN ('queued', 'running')
-                    ORDER BY requested_at DESC
-                    LIMIT 1
-                    """,
-                    user_id,
-                )
-                if existing is not None:
+                blocking_run: dict[str, Any] | None = None
+                while True:
+                    existing = await conn.fetchrow(
+                        """
+                        SELECT *
+                        FROM kai_gmail_sync_runs
+                        WHERE user_id = $1
+                          AND status IN ('queued', 'running')
+                        ORDER BY requested_at DESC
+                        LIMIT 1
+                        """,
+                        user_id,
+                    )
+                    if existing is None:
+                        break
+                    current_run = dict(existing)
+                    if not await self._recover_active_run_in_tx(conn=conn, run=current_run):
+                        blocking_run = current_run
+                        break
+                if blocking_run is not None:
                     return {
                         "accepted": False,
                         "reason": "sync_already_running",
-                        "run": self._serialize_run(dict(existing)),
+                        "run": self._serialize_run(blocking_run),
                     }
 
                 run_id = f"gmail_sync_{uuid.uuid4().hex}"
@@ -1289,7 +1581,9 @@ class GmailReceiptsService:
 
         return {
             "accepted": True,
-            "run": self._serialize_run(dict(inserted)) if inserted else await self.get_sync_run(run_id=run_id, user_id=user_id),
+            "run": self._serialize_run(dict(inserted))
+            if inserted
+            else await self.get_sync_run(run_id=run_id, user_id=user_id),
         }
 
     async def _run_sync_worker(self, *, run_id: str, user_id: str) -> None:
@@ -1299,6 +1593,7 @@ class GmailReceiptsService:
         synced_count = 0
         extracted_count = 0
         duplicates_dropped = 0
+        message_error_count = 0
 
         query_text = ""
         query_since: datetime | None = None
@@ -1306,6 +1601,8 @@ class GmailReceiptsService:
         trigger_source = "unknown"
         progress_update_counter = 0
         progress_last_flush_monotonic = time.monotonic()
+        connection_check_interval_messages = 10
+        messages_since_connection_check = 0
 
         def _build_progress_metrics(*, include_duration: bool = False) -> dict[str, Any]:
             extraction_success_rate = (
@@ -1317,6 +1614,7 @@ class GmailReceiptsService:
                 "synced_count": synced_count,
                 "extracted_count": extracted_count,
                 "duplicates_dropped": duplicates_dropped,
+                "message_error_count": message_error_count,
                 "extraction_success_rate": extraction_success_rate,
                 "trigger_source": trigger_source,
             }
@@ -1328,7 +1626,11 @@ class GmailReceiptsService:
             nonlocal progress_update_counter, progress_last_flush_monotonic
             progress_update_counter += 1
             now = time.monotonic()
-            should_flush = force or progress_update_counter >= 5 or (now - progress_last_flush_monotonic) >= 2.0
+            should_flush = (
+                force
+                or progress_update_counter >= 5
+                or (now - progress_last_flush_monotonic) >= 2.0
+            )
             if not should_flush:
                 return
 
@@ -1364,6 +1666,11 @@ class GmailReceiptsService:
                 },
             )
 
+        def _assert_connection_still_active() -> None:
+            if self._is_connection_sync_active(user_id=user_id):
+                return
+            raise asyncio.CancelledError()
+
         try:
             self.db.execute_raw(
                 """
@@ -1398,6 +1705,7 @@ class GmailReceiptsService:
                 {"user_id": user_id},
             )
 
+            _assert_connection_still_active()
             access_token, conn_row = await self._ensure_access_token(user_id=user_id)
             last_sync_at = _parse_iso(conn_row.get("last_sync_at"))
             if last_sync_at is None:
@@ -1411,6 +1719,7 @@ class GmailReceiptsService:
             remaining = self._max_messages_per_sync()
 
             while remaining > 0:
+                _assert_connection_still_active()
                 page_size = min(100, remaining)
                 listing = await self._list_messages(
                     access_token=access_token,
@@ -1418,7 +1727,9 @@ class GmailReceiptsService:
                     page_token=page_token,
                     max_results=page_size,
                 )
-                messages = listing.get("messages") if isinstance(listing.get("messages"), list) else []
+                messages = (
+                    listing.get("messages") if isinstance(listing.get("messages"), list) else []
+                )
                 if not messages:
                     break
 
@@ -1426,59 +1737,87 @@ class GmailReceiptsService:
                     if remaining <= 0:
                         break
                     remaining -= 1
+                    messages_since_connection_check += 1
+                    if messages_since_connection_check >= connection_check_interval_messages:
+                        messages_since_connection_check = 0
+                        _assert_connection_still_active()
                     gmail_message_id = _clean_text(message.get("id"))
                     if not gmail_message_id:
                         continue
 
-                    metadata = await self._get_message_metadata(
-                        access_token=access_token,
-                        gmail_message_id=gmail_message_id,
-                    )
-                    listed_count += 1
-                    candidate = self._candidate_from_message(metadata)
-                    if not candidate.gmail_message_id:
-                        continue
+                    try:
+                        metadata = await self._get_message_metadata(
+                            access_token=access_token,
+                            gmail_message_id=gmail_message_id,
+                        )
+                        listed_count += 1
+                        candidate = self._candidate_from_message(metadata)
+                        if not candidate.gmail_message_id:
+                            continue
 
-                    det = self._classify_candidate(candidate)
-                    llm_payload: dict[str, Any] | None = None
-                    classification = det
+                        det = self._classify_candidate(candidate)
+                        llm_payload: dict[str, Any] | None = None
+                        classification = det
 
-                    if not det["is_receipt"] and det.get("needs_llm"):
-                        llm_payload = await self._llm_extract_candidate(candidate)
-                        if llm_payload and _to_bool(llm_payload.get("is_receipt"), False):
-                            classification = {
-                                "is_receipt": True,
-                                "needs_llm": False,
-                                "confidence": float(llm_payload.get("confidence") or det.get("confidence") or 0.5),
-                                "source": "llm",
-                            }
+                        if not det["is_receipt"] and det.get("needs_llm"):
+                            llm_payload = await self._llm_extract_candidate(candidate)
+                            if llm_payload and _to_bool(llm_payload.get("is_receipt"), False):
+                                classification = {
+                                    "is_receipt": True,
+                                    "needs_llm": False,
+                                    "confidence": float(
+                                        llm_payload.get("confidence")
+                                        or det.get("confidence")
+                                        or 0.5
+                                    ),
+                                    "source": "llm",
+                                }
 
-                    if not classification.get("is_receipt"):
+                        if not classification.get("is_receipt"):
+                            _flush_progress()
+                            continue
+
+                        filtered_count += 1
+                        extracted = self._extract_receipt_fields(
+                            candidate=candidate,
+                            classification=classification,
+                            llm_payload=llm_payload,
+                        )
+                        core_signal_present = bool(
+                            extracted.get("merchant_name")
+                            or extracted.get("order_id")
+                            or extracted.get("amount")
+                        )
+                        if core_signal_present:
+                            extracted_count += 1
+
+                        inserted = self._upsert_receipt(
+                            user_id=user_id,
+                            candidate=candidate,
+                            extracted=extracted,
+                        )
+                        if inserted:
+                            synced_count += 1
+                        else:
+                            duplicates_dropped += 1
+
+                        if candidate.gmail_history_id and candidate.gmail_history_id.isdigit():
+                            numeric_history = int(candidate.gmail_history_id)
+                            if max_history_id is None or numeric_history > max_history_id:
+                                max_history_id = numeric_history
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as message_exc:
+                        message_error_count += 1
+                        logger.warning(
+                            "gmail.sync.message_failed user_id=%s run_id=%s gmail_message_id=%s reason=%s",
+                            user_id,
+                            run_id,
+                            gmail_message_id,
+                            str(message_exc)[:_RUN_MESSAGE_FAILED_LOG_LIMIT],
+                        )
                         _flush_progress()
                         continue
-
-                    filtered_count += 1
-                    extracted = self._extract_receipt_fields(
-                        candidate=candidate,
-                        classification=classification,
-                        llm_payload=llm_payload,
-                    )
-                    core_signal_present = bool(
-                        extracted.get("merchant_name") or extracted.get("order_id") or extracted.get("amount")
-                    )
-                    if core_signal_present:
-                        extracted_count += 1
-
-                    inserted = self._upsert_receipt(user_id=user_id, candidate=candidate, extracted=extracted)
-                    if inserted:
-                        synced_count += 1
-                    else:
-                        duplicates_dropped += 1
-
-                    if candidate.gmail_history_id and candidate.gmail_history_id.isdigit():
-                        numeric_history = int(candidate.gmail_history_id)
-                        if max_history_id is None or numeric_history > max_history_id:
-                            max_history_id = numeric_history
 
                     _flush_progress()
 
@@ -1549,6 +1888,14 @@ class GmailReceiptsService:
                 duplicates_dropped,
                 extraction_success_rate,
             )
+        except asyncio.CancelledError:
+            logger.info("gmail.sync.canceled user_id=%s run_id=%s", user_id, run_id)
+            self._mark_run_terminal(
+                run_id=run_id,
+                status="canceled",
+                error_message=_RUN_CANCELED_MESSAGE,
+            )
+            raise
         except Exception as exc:
             logger.exception("gmail.sync.failed user_id=%s run_id=%s", user_id, run_id)
             self.db.execute_raw(
@@ -1598,6 +1945,7 @@ class GmailReceiptsService:
             )
 
     async def get_sync_run(self, *, run_id: str, user_id: str) -> dict[str, Any] | None:
+        self._reconcile_active_runs(user_id=user_id, run_id=run_id)
         result = self.db.execute_raw(
             """
             SELECT *

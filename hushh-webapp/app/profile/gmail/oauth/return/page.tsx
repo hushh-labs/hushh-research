@@ -11,6 +11,10 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildProfileGmailReturnPath,
+  isRecoverableGmailOAuthReplayError,
+} from "@/lib/profile/mail-flow";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
 type CompleteStage = "loading" | "completing" | "redirecting" | "error";
@@ -20,14 +24,6 @@ function resolveErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Gmail connection could not be completed.";
-}
-
-function buildProfileReturnPath() {
-  const params = new URLSearchParams({
-    tab: "account",
-    panel: "gmail",
-  });
-  return `${ROUTES.PROFILE}?${params.toString()}`;
 }
 
 export default function ProfileGmailOAuthReturnPage() {
@@ -85,8 +81,24 @@ export default function ProfileGmailOAuthReturnPage() {
         });
 
         setStage("redirecting");
-        router.replace(buildProfileReturnPath());
+        router.replace(buildProfileGmailReturnPath());
       } catch (completeError) {
+        if (isRecoverableGmailOAuthReplayError(completeError)) {
+          try {
+            const idToken = await user.getIdToken();
+            const status = await GmailReceiptsService.getStatus({
+              idToken,
+              userId: user.uid,
+            });
+            if (status.connected) {
+              setStage("redirecting");
+              router.replace(buildProfileGmailReturnPath());
+              return;
+            }
+          } catch {
+            // Fall through to the standard error path if status refresh fails.
+          }
+        }
         setStage("error");
         setError(resolveErrorMessage(completeError));
       }
@@ -116,7 +128,7 @@ export default function ProfileGmailOAuthReturnPage() {
           <h1 className="text-lg font-semibold text-foreground">Gmail connection needs attention</h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
-            <Button onClick={() => router.replace(buildProfileReturnPath())} className="w-full">
+            <Button onClick={() => router.replace(buildProfileGmailReturnPath())} className="w-full">
               Back to Profile
             </Button>
           </div>

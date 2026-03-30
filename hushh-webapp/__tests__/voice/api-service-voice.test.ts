@@ -29,6 +29,23 @@ vi.mock("@/lib/services/auth-service", () => ({
   },
 }));
 
+const trackApiRequestCompleted = vi.fn();
+
+vi.mock("@/lib/observability/client", () => ({
+  toDurationBucket: () => "fast",
+  trackApiRequestCompleted,
+  trackEvent: vi.fn(),
+}));
+
+vi.mock("@/lib/observability/route-map", () => ({
+  resolveRouteId: () => "test-route",
+}));
+
+vi.mock("@/lib/motion/api-progress-tracker", () => ({
+  trackRequestStart: vi.fn(),
+  trackRequestEnd: vi.fn(),
+}));
+
 describe("ApiService voice planning contract", () => {
   const originalEnv = { ...process.env };
 
@@ -44,6 +61,7 @@ describe("ApiService voice planning contract", () => {
     delete process.env.FAIL_FAST_VOICE;
     delete process.env.FORCE_REALTIME_VOICE;
     process.env.NODE_ENV = originalEnv.NODE_ENV;
+    trackApiRequestCompleted.mockReset();
   });
 
   afterEach(() => {
@@ -319,6 +337,40 @@ describe("ApiService voice planning contract", () => {
     ).rejects.toThrow("DIRECT_BACKEND_DOWN");
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("records api completion metrics and request id headers for direct voice fetches", async () => {
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://voice.example.com";
+    process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "true";
+    window.history.pushState({}, "", "/profile/receipts");
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await ApiService.planKaiVoiceIntent({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      transcript: "sync my receipts",
+      voiceTurnId: "vturn_direct_metrics",
+    });
+
+    const [url, request] = fetchSpy.mock.calls[0] ?? [];
+    const headers = request?.headers as Record<string, string>;
+
+    expect(url).toBe("https://voice.example.com/api/kai/voice/plan");
+    expect(headers["x-request-id"]).toBeTruthy();
+    expect(trackApiRequestCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/api/kai/voice/plan",
+        httpMethod: "POST",
+        statusCode: 200,
+        routeId: "test-route",
+      })
+    );
   });
 
   it("requires direct backend in development when backend URL is missing", async () => {

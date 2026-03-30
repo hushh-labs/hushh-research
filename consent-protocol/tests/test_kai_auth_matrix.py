@@ -534,7 +534,9 @@ class TestKaiVoiceRoutes:
         )
         assert response.status_code == 403
 
-    def test_voice_understand_valid_token_passes_auth_gate(self, client, vault_owner_token_for_user):
+    def test_voice_understand_valid_token_passes_auth_gate(
+        self, client, vault_owner_token_for_user
+    ):
         token = vault_owner_token_for_user("user_a")
         response = client.post(
             "/api/kai/voice/understand",

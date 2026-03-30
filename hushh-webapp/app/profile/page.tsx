@@ -61,6 +61,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
+import { resolveGmailSyncFeedback } from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -820,10 +821,13 @@ function ProfilePageContent() {
       setGmailSyncRun(latestStatus.latest_run || null);
       setGmailUiState(deriveGmailUiState(latestStatus));
       setGmailErrorText(latestStatus.last_sync_error || null);
-      if (latestStatus.last_sync_status === "failed") {
-        toast.error(latestStatus.last_sync_error || "Gmail sync failed.");
+      const feedback = resolveGmailSyncFeedback(latestStatus);
+      if (feedback.kind === "error") {
+        toast.error(feedback.message);
+      } else if (feedback.kind === "success") {
+        toast.success(feedback.message);
       } else {
-        toast.success("Gmail receipts synced.");
+        toast.message(feedback.message);
       }
     } catch (error) {
       const message =

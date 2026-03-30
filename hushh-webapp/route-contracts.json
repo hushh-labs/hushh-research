@@ -26,19 +26,41 @@
           "/analyze/run/active",
           "/analyze/run/{run_id}/stream",
           "/analyze/run/{run_id}/cancel",
+          "/voice/stt",
+          "/voice/realtime/session",
+          "/voice/understand",
+          "/voice/plan",
+          "/voice/tts",
           "/portfolio/import",
           "/portfolio/import/stream",
+          "/portfolio/import/run/start",
+          "/portfolio/import/run/active",
+          "/portfolio/import/run/{run_id}/stream",
+          "/portfolio/import/run/{run_id}/cancel",
           "/portfolio/summary/{user_id}",
-          "/portfolio/analyze-losers",
-          "/portfolio/analyze-losers/stream",
-          "/market/insights/{user_id}",
+          "/plaid/status/{user_id}",
+          "/plaid/link-token",
+          "/plaid/link-token/update",
+          "/plaid/oauth/resume",
+          "/plaid/exchange-public-token",
+          "/plaid/refresh",
+          "/plaid/refresh/{run_id}",
+          "/plaid/refresh/{run_id}/cancel",
+          "/plaid/source",
+          "/plaid/webhook",
           "/gmail/connect/start",
           "/gmail/connect/complete",
           "/gmail/status/{user_id}",
           "/gmail/disconnect",
           "/gmail/sync",
           "/gmail/sync/{run_id}",
-          "/gmail/receipts/{user_id}"
+          "/gmail/receipts/{user_id}",
+          "/support/message",
+          "/dashboard/profile-picks/{user_id}",
+          "/portfolio/analyze-losers",
+          "/portfolio/analyze-losers/stream",
+          "/market/insights/{user_id}",
+          "/stock-preview/{user_id}"
         ]
       },
       "native": {
@@ -236,6 +258,19 @@
           "/domain-registry",
           "/scopes/{user_id}",
           "/get-context"
+        ]
+      },
+      "native": {
+        "tsPluginFile": "hushh-webapp/lib/capacitor/personal-knowledge-model.ts",
+        "iosPluginFile": "hushh-webapp/ios/App/App/Plugins/PersonalKnowledgeModelPlugin.swift",
+        "androidPluginFile": "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/PersonalKnowledgeModel/PersonalKnowledgeModelPlugin.kt",
+        "requiredMethodNames": [
+          "getMetadata",
+          "getAvailableScopes",
+          "getEncryptedData",
+          "storeDomainData",
+          "getDomainData",
+          "clearDomain"
         ]
       }
     },
@@ -692,7 +727,8 @@
         "hushh-webapp/lib/services/account-service.ts",
         "hushh-webapp/lib/services/vault-service.ts",
         "hushh-webapp/lib/services/ria-service.ts",
-        "hushh-webapp/lib/services/gmail-receipts-service.ts"
+        "hushh-webapp/lib/services/gmail-receipts-service.ts",
+        "hushh-webapp/lib/services/support-service.ts"
       ],
       "apiContractIds": [
         "worldModelProxy",
@@ -872,20 +908,6 @@
       "serviceFiles": [
         "hushh-webapp/lib/services/api-service.ts",
         "hushh-webapp/lib/cache/cache-sync-service.ts"
-      ]
-    },
-    {
-      "id": "pkmRedirectPage",
-      "pageFile": "hushh-webapp/app/profile/pkm/page.tsx"
-    },
-    {
-      "id": "pkmAgentLabPage",
-      "pageFile": "hushh-webapp/app/profile/pkm-agent-lab/page.tsx",
-      "componentFiles": [
-        "hushh-webapp/app/profile/pkm-agent-lab/page-client.tsx"
-      ],
-      "apiContractIds": [
-        "pkmProxy"
       ]
     },
     {

@@ -96,6 +96,58 @@ function createResponseId(turnId: string): string {
   return `vrsp_${turnId.replace(/^vturn_/, "")}`;
 }
 
+type TimerRefLike = {
+  current: number | null;
+};
+
+type VoiceUiStateRefLike = {
+  current: VoiceUiState;
+};
+
+export function clearClientVadFallbackTimer(timerRef: TimerRefLike): void {
+  if (timerRef.current === null) return;
+  window.clearTimeout(timerRef.current);
+  timerRef.current = null;
+}
+
+export function scheduleClientVadFallbackCommit(input: {
+  timerRef: TimerRefLike;
+  sessionMutedRef: { current: boolean };
+  voiceUiStateRef: VoiceUiStateRefLike;
+  commitInputAudio: () => void;
+  emitDebug: (
+    stage: "turn" | "mic" | "stt" | "planner" | "dispatch" | "tts" | "ui_fsm",
+    event: string,
+    payload?: Record<string, unknown>,
+    turnId?: string | null
+  ) => void;
+  getCurrentTurnId: () => string | null;
+}): void {
+  clearClientVadFallbackTimer(input.timerRef);
+  input.timerRef.current = window.setTimeout(() => {
+    input.timerRef.current = null;
+    if (
+      input.sessionMutedRef.current ||
+      input.voiceUiStateRef.current !== "sheet_listening"
+    ) {
+      return;
+    }
+    input.commitInputAudio();
+    input.emitDebug("stt", "client_vad_fallback_commit", {}, input.getCurrentTurnId());
+  }, 1200);
+}
+
+export function runAutoTurnDispatchSafely(input: {
+  dispatch: () => Promise<void>;
+  onError: (error: Error) => void;
+}): void {
+  void Promise.resolve()
+    .then(() => input.dispatch())
+    .catch((error) => {
+      input.onError(error instanceof Error ? error : new Error("VOICE_AUTOTURN_FAILED"));
+    });
+}
+
 export function KaiSearchBar({
   onCommand,
   onVoiceResponse,
@@ -230,6 +282,7 @@ export function KaiSearchBar({
 
   const moveToListeningOrIdle = useCallback(() => {
     if (sessionMuted) {
+      clearClientVadFallbackTimer(partialFallbackTimerRef);
       transitionVoiceState("idle", "session_muted");
       setTranscriptPreview("");
       return;
@@ -377,6 +430,7 @@ export function KaiSearchBar({
     const nextMuted = voiceSessionManager.toggleMuted();
     setSessionMuted(nextMuted);
     if (nextMuted) {
+      clearClientVadFallbackTimer(partialFallbackTimerRef);
       transitionVoiceState("sheet_paused", "mic_muted");
       setTranscriptPreview("Listening paused. Tap resume to continue.");
       return;
@@ -386,6 +440,7 @@ export function KaiSearchBar({
   }, [realtimeSessionReady, transitionVoiceState]);
 
   const cancelListening = useCallback(() => {
+    clearClientVadFallbackTimer(partialFallbackTimerRef);
     voiceSessionManager.setMuted(true);
     setSessionMuted(true);
     transitionVoiceState("idle", "cancel_clicked");
@@ -508,6 +563,7 @@ export function KaiSearchBar({
         return;
       }
       voiceSessionManager.setMuted(true);
+      clearClientVadFallbackTimer(partialFallbackTimerRef);
       setSessionMuted(true);
       transitionVoiceState("sheet_paused", "mic_muted_from_button");
       setTranscriptPreview("Listening paused. Tap mic to resume.");
@@ -712,6 +768,9 @@ export function KaiSearchBar({
         setRealtimeSessionReady(snapshot.state === "connected");
         setSessionMuted(snapshot.muted);
         setSessionStateText(snapshot.state);
+        if (snapshot.muted || snapshot.state === "idle" || snapshot.state === "error") {
+          clearClientVadFallbackTimer(partialFallbackTimerRef);
+        }
 
         if (snapshot.state === "connected") {
           setVoiceErrorMessage(null);
@@ -780,38 +839,46 @@ export function KaiSearchBar({
           setTranscriptPreview(transcriptEvent.text);
         }
         if (VOICE_V2_FLAGS.clientVadFallbackEnabled && !sessionMutedRef.current) {
-          if (partialFallbackTimerRef.current) {
-            window.clearTimeout(partialFallbackTimerRef.current);
-            partialFallbackTimerRef.current = null;
-          }
-          partialFallbackTimerRef.current = window.setTimeout(() => {
-            voiceSessionManager.commitInputAudio();
-            emitDebugRef.current("stt", "client_vad_fallback_commit", {}, currentVoiceTurnIdRef.current);
-          }, 1200);
+          scheduleClientVadFallbackCommit({
+            timerRef: partialFallbackTimerRef,
+            sessionMutedRef,
+            voiceUiStateRef,
+            commitInputAudio: () => voiceSessionManager.commitInputAudio(),
+            emitDebug: emitDebugRef.current,
+            getCurrentTurnId: () => currentVoiceTurnIdRef.current,
+          });
         }
         return;
       }
 
-      if (partialFallbackTimerRef.current) {
-        window.clearTimeout(partialFallbackTimerRef.current);
-        partialFallbackTimerRef.current = null;
-      }
+      clearClientVadFallbackTimer(partialFallbackTimerRef);
 
       setFinalTranscript(transcriptEvent.text);
       setTranscriptPreview(transcriptEvent.text);
       if (VOICE_V2_FLAGS.autoturnEnabled && !sessionMutedRef.current) {
-        void processTranscriptTurnRef.current(transcriptEvent.text, "microphone");
+        runAutoTurnDispatchSafely({
+          dispatch: () => processTranscriptTurnRef.current(transcriptEvent.text, "microphone"),
+          onError: (error) => {
+            emitDebugRef.current(
+              "turn",
+              "autoturn_dispatch_failed",
+              {
+                error: error.message,
+              },
+              currentVoiceTurnIdRef.current
+            );
+            setVoiceError(error.message, "Voice command failed.");
+            moveToListeningOrIdleRef.current();
+          },
+        });
       }
     });
 
     return () => {
       unsubscribe();
-      if (partialFallbackTimerRef.current) {
-        window.clearTimeout(partialFallbackTimerRef.current);
-        partialFallbackTimerRef.current = null;
-      }
+      clearClientVadFallbackTimer(partialFallbackTimerRef);
     };
-  }, []);
+  }, [setVoiceError]);
 
   useEffect(() => {
     if (!VOICE_V2_FLAGS.enabled) return;

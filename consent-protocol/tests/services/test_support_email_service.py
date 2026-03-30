@@ -3,6 +3,7 @@ from __future__ import annotations
 from email.message import EmailMessage
 
 import pytest
+from google.auth import exceptions as google_auth_exceptions
 
 from hushh_mcp.services.support_email_service import (
     SupportEmailConfig,
@@ -75,5 +76,75 @@ def test_send_message_reports_generic_transport_failure_without_auth_label(monke
             user_agent="pytest",
         )
 
-    assert "authorization failed" not in str(exc_info.value).lower()
-    assert "transport" in str(exc_info.value).lower()
+    lowered = str(exc_info.value).lower()
+    assert "authorization failed" not in lowered
+    assert "transport" not in lowered
+    assert "try again later" in lowered
+
+
+def test_send_message_sanitizes_google_auth_failures(monkeypatch):
+    service = _configured_service()
+
+    class _FakeSession:
+        def post(self, *args, **kwargs):
+            raise google_auth_exceptions.RefreshError("delegation denied for support@hushh.ai")
+
+    monkeypatch.setattr(service, "_build_authorized_session", lambda: _FakeSession())
+
+    with pytest.raises(SupportEmailSendError) as exc_info:
+        service.send_message(
+            kind="support_request",
+            subject="Need help",
+            message="Please help me with my account.",
+            user_id="user_123",
+            user_email="ada@example.com",
+            user_display_name="Ada Lovelace",
+            persona="member",
+            page_url="https://app.hushh.ai/support",
+            user_agent="pytest",
+        )
+
+    lowered = str(exc_info.value).lower()
+    assert "support@hushh.ai" not in lowered
+    assert "delegation denied" not in lowered
+    assert "client-123" not in lowered
+    assert "try again later" in lowered
+
+
+def test_send_message_sanitizes_gmail_error_payload_details(monkeypatch):
+    service = _configured_service()
+
+    class _FakeResponse:
+        status_code = 403
+
+        def json(self):
+            return {
+                "error": {
+                    "message": "Delegation denied for support@hushh.ai from 10.0.0.8",
+                }
+            }
+
+    class _FakeSession:
+        def post(self, *args, **kwargs):
+            return _FakeResponse()
+
+    monkeypatch.setattr(service, "_build_authorized_session", lambda: _FakeSession())
+
+    with pytest.raises(SupportEmailSendError) as exc_info:
+        service.send_message(
+            kind="support_request",
+            subject="Need help",
+            message="Please help me with my account.",
+            user_id="user_123",
+            user_email="ada@example.com",
+            user_display_name="Ada Lovelace",
+            persona="member",
+            page_url="https://app.hushh.ai/support",
+            user_agent="pytest",
+        )
+
+    lowered = str(exc_info.value).lower()
+    assert "delegation denied" not in lowered
+    assert "10.0.0.8" not in lowered
+    assert "support@hushh.ai" not in lowered
+    assert "try again later" in lowered

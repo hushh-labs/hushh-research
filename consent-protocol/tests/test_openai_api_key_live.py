@@ -41,4 +41,3 @@ def test_openai_api_key_live_prompt() -> None:
 
     text = (response.output_text or "").strip()
     assert text, "OpenAI returned an empty response. Check API key/model access."
-

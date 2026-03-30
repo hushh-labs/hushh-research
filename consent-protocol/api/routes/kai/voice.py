@@ -1,6 +1,6 @@
-import logging
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -15,9 +15,9 @@ from api.middleware import require_vault_owner_token
 from api.routes.kai.portfolio import _IMPORT_RUN_MANAGER
 from api.routes.kai.stream import _RUN_MANAGER
 from hushh_mcp.services.voice_intent_service import (
+    _PLANNER_NORMALIZATION_VERSION,
     VoiceIntentService,
     VoiceServiceError,
-    _PLANNER_NORMALIZATION_VERSION,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,9 @@ _VOICE_KILL_SWITCH_MESSAGE = (
     "Voice actions are temporarily unavailable. I can still respond and guide you."
 )
 _VOICE_STAGE_TIMING: dict[str, dict[str, float]] = {}
+_VOICE_UPLOAD_DEFAULT_MAX_BYTES = 25 * 1024 * 1024
+_VOICE_UPLOAD_REQUEST_SLACK_BYTES = 64 * 1024
+_VOICE_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -59,7 +62,12 @@ def _stable_user_bucket(user_id: str) -> int:
 def _voice_rollout_state(user_id: str) -> dict[str, Any]:
     enabled_globally = _env_truthy("KAI_VOICE_V1_ENABLED", "true")
     if not enabled_globally:
-        return {"enabled": False, "reason": "globally_disabled", "bucket": None, "canary_percent": 0}
+        return {
+            "enabled": False,
+            "reason": "globally_disabled",
+            "bucket": None,
+            "canary_percent": 0,
+        }
 
     allowlist = _parse_voice_allowlist()
     if allowlist:
@@ -370,17 +378,27 @@ class VoiceUnderstandResponse(BaseModel):
     elapsed_ms: int
 
 
-async def _resolve_active_analysis(user_id: str, app_state: dict[str, Any]) -> dict[str, Any] | None:
+async def _resolve_active_analysis(
+    user_id: str, app_state: dict[str, Any]
+) -> dict[str, Any] | None:
     runtime = app_state.get("runtime") if isinstance(app_state.get("runtime"), dict) else {}
     run_id = runtime.get("analysis_run_id")
     if isinstance(run_id, str) and run_id.strip():
         run = await _RUN_MANAGER.get_run(run_id.strip())
         if run and run.user_id == user_id and run.status == "running":
-            return {"run_id": run.run_id, "ticker": run.ticker}
+            return {
+                "active": True,
+                "source": "run_manager",
+                "run_id": run.run_id,
+                "ticker": run.ticker,
+            }
+        return {"active": False, "source": "run_manager", "run_id": run_id.strip()}
 
     if runtime.get("analysis_active") is True:
         ticker = runtime.get("analysis_ticker")
         return {
+            "active": True,
+            "source": "app_runtime",
             "run_id": run_id.strip() if isinstance(run_id, str) and run_id.strip() else None,
             "ticker": str(ticker).strip().upper() if ticker else None,
         }
@@ -393,10 +411,15 @@ async def _resolve_active_import(user_id: str, app_state: dict[str, Any]) -> dic
     if isinstance(run_id, str) and run_id.strip():
         run = await _IMPORT_RUN_MANAGER.get_run(run_id.strip())
         if run and run.user_id == user_id and run.status == "running":
-            return {"run_id": run.run_id}
+            return {"active": True, "source": "run_manager", "run_id": run.run_id}
+        return {"active": False, "source": "run_manager", "run_id": run_id.strip()}
 
     if runtime.get("import_active") is True:
-        return {"run_id": run_id.strip() if isinstance(run_id, str) and run_id.strip() else None}
+        return {
+            "active": True,
+            "source": "app_runtime",
+            "run_id": run_id.strip() if isinstance(run_id, str) and run_id.strip() else None,
+        }
     return None
 
 
@@ -496,6 +519,63 @@ def _parse_optional_form_json(raw_value: str | None, *, field_name: str) -> dict
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=400, detail=f"Invalid {field_name}")
     return parsed
+
+
+def _voice_upload_max_bytes() -> int:
+    raw = str(os.getenv("KAI_VOICE_UPLOAD_MAX_BYTES", _VOICE_UPLOAD_DEFAULT_MAX_BYTES)).strip()
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return _VOICE_UPLOAD_DEFAULT_MAX_BYTES
+    return parsed if parsed > 0 else _VOICE_UPLOAD_DEFAULT_MAX_BYTES
+
+
+def _format_byte_limit(byte_count: int) -> str:
+    if byte_count >= 1024 * 1024 and byte_count % (1024 * 1024) == 0:
+        return f"{byte_count // (1024 * 1024)} MB"
+    if byte_count >= 1024 and byte_count % 1024 == 0:
+        return f"{byte_count // 1024} KB"
+    return f"{byte_count} bytes"
+
+
+def _audio_too_large_detail(max_bytes: int) -> dict[str, Any]:
+    return {
+        "error_code": "audio_too_large",
+        "error_stage": "request",
+        "message": f"Audio upload is too large. Please keep it under {_format_byte_limit(max_bytes)}.",
+    }
+
+
+def _sanitize_client_error_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(payload)
+    sanitized.pop("debug_message", None)
+    return sanitized
+
+
+def _enforce_voice_request_size_guard(request: Request, *, max_bytes: int) -> None:
+    raw_content_length = (request.headers.get("content-length") or "").strip()
+    if not raw_content_length:
+        return
+    try:
+        content_length = int(raw_content_length)
+    except ValueError:
+        return
+    if content_length > max_bytes + _VOICE_UPLOAD_REQUEST_SLACK_BYTES:
+        raise HTTPException(status_code=413, detail=_audio_too_large_detail(max_bytes))
+
+
+async def _read_audio_upload_with_limit(audio_file: UploadFile, *, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total_bytes = 0
+    while True:
+        chunk = await audio_file.read(_VOICE_UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > max_bytes:
+            raise HTTPException(status_code=413, detail=_audio_too_large_detail(max_bytes))
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _error_text(error: Exception | HTTPException) -> str:
@@ -770,9 +850,11 @@ async def kai_voice_stt(
         raise HTTPException(status_code=403, detail="Token user_id does not match request user_id")
 
     try:
+        max_audio_bytes = _voice_upload_max_bytes()
         await _ensure_client_connected(request, turn_id=turn_id, route="/voice/stt")
+        _enforce_voice_request_size_guard(request, max_bytes=max_audio_bytes)
         read_started_at = time.perf_counter()
-        audio_bytes = await audio_file.read()
+        audio_bytes = await _read_audio_upload_with_limit(audio_file, max_bytes=max_audio_bytes)
         audio_read_ms = int((time.perf_counter() - read_started_at) * 1000)
         normalized_filename, normalized_content_type = _normalize_audio_upload_metadata(
             filename=audio_file.filename,
@@ -984,6 +1066,7 @@ async def kai_voice_understand(
     upstream_in_flight = False
     current_stage = "backend_received"
     stt_elapsed_ms = 0
+    audio_read_ms = 0
     planner_elapsed_ms = 0
     stt_openai_http_ms = 0
     planner_openai_http_ms = 0
@@ -1034,12 +1117,98 @@ async def kai_voice_understand(
                 "source": "kai_voice_understand",
                 "origin": "backend_confirmed",
                 "context_keys": sorted(context_payload.keys()),
-                "app_state_keys": sorted(app_state_payload.keys()) if isinstance(app_state_payload, dict) else [],
+                "app_state_keys": sorted(app_state_payload.keys())
+                if isinstance(app_state_payload, dict)
+                else [],
             },
         )
+        rollout = _voice_rollout_state(user_id)
+        if not rollout["enabled"]:
+            response_payload = voice_service._build_response(
+                kind="speak_only",
+                message=_VOICE_NOT_ENABLED_MESSAGE,
+            )
+            response_payload["memory"] = {"allow_durable_write": False}
+            tool_call = voice_service._legacy_tool_call_for_response(response_payload)
+            memory_hint = response_payload["memory"]
+            response_kind = str(response_payload.get("kind") or "")
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            _log_voice_metric(
+                "response_kind_count",
+                1,
+                turn_id=turn_id,
+                user_id=user_id,
+                tags={"kind": "speak_only", "reason": "rollout_not_enabled"},
+            )
+            _log_voice_audit(
+                turn_id=turn_id,
+                user_id=user_id,
+                response_payload=response_payload,
+                meta={
+                    "rollout_reason": rollout["reason"],
+                    "canary_percent": rollout["canary_percent"],
+                    "bucket": rollout["bucket"],
+                    "planner_branch": "deterministic",
+                    "planner_normalization_version": _PLANNER_NORMALIZATION_VERSION,
+                },
+            )
+            _trace_voice_stage(
+                turn_id,
+                "response_prepare_started",
+                {
+                    "route": route,
+                    "source": "kai_voice_understand",
+                    "origin": "backend_confirmed",
+                    "status": "ok",
+                    "response_kind": response_kind,
+                    "guard": "rollout_pre_upload",
+                },
+            )
+            _trace_voice_stage(
+                turn_id,
+                "response_prepare_finished",
+                {
+                    "route": route,
+                    "source": "kai_voice_understand",
+                    "origin": "backend_confirmed",
+                    "status": "ok",
+                    "response_kind": response_kind,
+                    "guard": "rollout_pre_upload",
+                },
+            )
+            _trace_voice_stage(
+                turn_id,
+                "response_sent",
+                {
+                    "route": route,
+                    "status": "ok",
+                    "http_status": 200,
+                    "final_response_kind": response_kind,
+                    "elapsed_ms": elapsed_ms,
+                    "guard": "rollout_pre_upload",
+                },
+                finalize=True,
+            )
+            return VoiceUnderstandResponse(
+                transcript="",
+                stt_elapsed_ms=0,
+                stt_openai_http_ms=0,
+                stt_audio_read_ms=0,
+                stt_audio_bytes=0,
+                stt_model="not_run",
+                response=VoiceResponsePayload(**response_payload),
+                tool_call=tool_call,
+                memory=VoiceMemoryHints(**memory_hint),
+                planner_elapsed_ms=0,
+                openai_http_ms=0,
+                model="deterministic_rollout",
+                elapsed_ms=elapsed_ms,
+            )
 
         current_stage = "pre_upload_disconnect_check"
         await _check_client_connected("pre_upload_disconnect_check")
+        max_audio_bytes = _voice_upload_max_bytes()
+        _enforce_voice_request_size_guard(request, max_bytes=max_audio_bytes)
         stt_started_at = time.perf_counter()
         _trace_voice_stage(
             turn_id,
@@ -1051,7 +1220,7 @@ async def kai_voice_understand(
             },
         )
         read_started_at = time.perf_counter()
-        audio_bytes = await audio_file.read()
+        audio_bytes = await _read_audio_upload_with_limit(audio_file, max_bytes=max_audio_bytes)
         audio_read_ms = int((time.perf_counter() - read_started_at) * 1000)
         _trace_voice_stage(
             turn_id,
@@ -1204,7 +1373,6 @@ async def kai_voice_understand(
             "[KAI_VOICE_DIAG] planner_normalization_version=%s",
             _PLANNER_NORMALIZATION_VERSION,
         )
-        rollout = _voice_rollout_state(user_id)
         expected_planner_branch = "deterministic" if not rollout["enabled"] else "model"
         _trace_voice_stage(
             turn_id,
@@ -1352,6 +1520,7 @@ async def kai_voice_understand(
 
         active_analysis = await _resolve_active_analysis(user_id, app_state_payload)
         active_import = await _resolve_active_import(user_id, app_state_payload)
+
         def _trace_planner_upstream(stage: str, payload: dict[str, Any]) -> None:
             _trace_voice_stage(
                 turn_id,
@@ -1363,12 +1532,17 @@ async def kai_voice_understand(
                     **payload,
                 },
             )
+
         current_stage = "pre_planner_disconnect_check"
         await _check_client_connected("pre_planner_disconnect_check")
         current_stage = "planner_upstream"
         upstream_in_flight = True
         try:
-            response_payload, planner_openai_http_ms, planner_model_used = await voice_service.plan_voice_response(
+            (
+                response_payload,
+                planner_openai_http_ms,
+                planner_model_used,
+            ) = await voice_service.plan_voice_response(
                 transcript=transcript,
                 user_id=user_id,
                 app_state=app_state_payload,
@@ -1441,7 +1615,11 @@ async def kai_voice_understand(
             planner_elapsed_ms,
             turn_id=turn_id,
             user_id=user_id,
-            tags={"route": "/voice/understand", "model": planner_model_used, "branch": planner_branch},
+            tags={
+                "route": "/voice/understand",
+                "model": planner_model_used,
+                "branch": planner_branch,
+            },
         )
         _log_voice_metric(
             "response_kind_count",
@@ -1710,7 +1888,9 @@ async def kai_voice_understand(
             },
             finalize=True,
         )
-        raise HTTPException(status_code=status_code, detail=error_payload)
+        raise HTTPException(
+            status_code=status_code, detail=_sanitize_client_error_payload(error_payload)
+        )
     except HTTPException as error:
         if error.status_code == 499:
             status_code, error_payload = _classify_understand_error(
@@ -1740,7 +1920,10 @@ async def kai_voice_understand(
                 },
                 finalize=True,
             )
-            raise HTTPException(status_code=status_code, detail=error_payload)
+            raise HTTPException(
+                status_code=status_code,
+                detail=_sanitize_client_error_payload(error_payload),
+            )
         status_code: int
         error_payload: dict[str, Any]
         if isinstance(error.detail, dict) and isinstance(error.detail.get("error_code"), str):
@@ -1822,7 +2005,9 @@ async def kai_voice_understand(
             },
             finalize=True,
         )
-        raise HTTPException(status_code=status_code, detail=error_payload)
+        raise HTTPException(
+            status_code=status_code, detail=_sanitize_client_error_payload(error_payload)
+        )
     except Exception as error:
         status_code, error_payload = _classify_understand_error(
             stage=current_stage,
@@ -1897,7 +2082,9 @@ async def kai_voice_understand(
             finalize=True,
         )
         logger.exception("[Kai Voice] understand failed turn_id=%s: %s", turn_id, error)
-        raise HTTPException(status_code=status_code, detail=error_payload)
+        raise HTTPException(
+            status_code=status_code, detail=_sanitize_client_error_payload(error_payload)
+        )
 
 
 @router.post("/voice/plan", response_model=VoicePlanResponse)
