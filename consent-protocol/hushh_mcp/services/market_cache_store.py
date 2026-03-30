@@ -13,9 +13,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Awaitable, Callable
 
 from db.connection import get_pool
@@ -104,6 +106,23 @@ class MarketCacheStoreService:
                 return value
         return value
 
+    @classmethod
+    def _normalize_json_value(cls, value: Any) -> Any:
+        if value is None or isinstance(value, (bool, int, str)):
+            return value
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        if isinstance(value, Decimal):
+            return float(value) if value.is_finite() else None
+        if isinstance(value, datetime):
+            normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+            return normalized.isoformat()
+        if isinstance(value, (tuple, list, set)):
+            return [cls._normalize_json_value(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): cls._normalize_json_value(item) for key, item in value.items()}
+        return str(value)
+
     async def get_entry(self, cache_key: str) -> MarketCacheStoreEntry | None:
         await self.ensure_table()
         pool = await get_pool()
@@ -152,7 +171,8 @@ class MarketCacheStoreService:
         now = datetime.now(timezone.utc)
         fresh_until = now.timestamp() + max(1, int(fresh_ttl_seconds))
         stale_until = now.timestamp() + max(1, int(stale_ttl_seconds))
-        provider_payload = provider_status or {}
+        normalized_payload = self._normalize_json_value(payload)
+        provider_payload = self._normalize_json_value(provider_status or {})
 
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -183,10 +203,10 @@ class MarketCacheStoreService:
                     updated_at = NOW()
                 """,
                 cache_key,
-                json.dumps(payload),
+                json.dumps(normalized_payload, separators=(",", ":"), ensure_ascii=False),
                 fresh_until,
                 stale_until,
-                json.dumps(provider_payload),
+                json.dumps(provider_payload, separators=(",", ":"), ensure_ascii=False),
             )
 
     async def delete_expired(self, *, max_rows: int = 500) -> int:

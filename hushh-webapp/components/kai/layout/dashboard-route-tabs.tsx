@@ -95,13 +95,6 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
     return () => setMounted(false);
   }, []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    for (const tab of KAI_ROUTE_TABS) {
-      router.prefetch(tab.prefetchHref);
-    }
-  }, [mounted, router]);
-
   const handleTabChange = useCallback(
     (nextTab: string) => {
       if (busyOperations["portfolio_save"]) {

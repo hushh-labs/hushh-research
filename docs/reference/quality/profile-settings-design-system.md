@@ -1,5 +1,10 @@
 # Profile Settings Design System
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document is the canonical contract for Apple-like settings surfaces in Hushh. The current reference implementation is the Profile page and its shared primitives in `hushh-webapp/components/profile/settings-ui.tsx`.
 
 For broader page-shell, header, and content-surface rules beyond settings, use [App Surface Design System](./app-surface-design-system.md).

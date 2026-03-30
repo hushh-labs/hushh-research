@@ -1,6 +1,7 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 
 export type LiveScopeDescriptor = {
   name: string;
@@ -40,6 +41,7 @@ export type DeveloperPortalApp = {
   support_url?: string | null;
   policy_url?: string | null;
   website_url?: string | null;
+  brand_image_url?: string | null;
   status: string;
   allowed_tool_groups: string[];
   created_at: number;
@@ -62,6 +64,7 @@ export type DeveloperPortalAccess = {
 export type DeveloperPortalProfileUpdate = {
   display_name?: string;
   website_url?: string;
+  brand_image_url?: string;
   support_url?: string;
   policy_url?: string;
 };
@@ -83,6 +86,35 @@ type PortalRequestOptions = {
   body?: unknown;
   idToken?: string | null;
 };
+
+type CachedDeveloperAccessOptions = {
+  userId?: string;
+  force?: boolean;
+  ttlMs?: number;
+};
+
+const developerAccessInflight = new Map<string, Promise<DeveloperPortalAccess>>();
+
+function resolveDeveloperAccessCacheKey(userId?: string | null): string | null {
+  return userId ? CACHE_KEYS.DEVELOPER_ACCESS(userId) : null;
+}
+
+function cacheDeveloperAccess(
+  userId: string | undefined,
+  payload: DeveloperPortalAccess,
+  ttlMs: number = CACHE_TTL.SESSION
+): DeveloperPortalAccess {
+  if (userId) {
+    CacheService.getInstance().set(CACHE_KEYS.DEVELOPER_ACCESS(userId), payload, ttlMs);
+  }
+  return payload;
+}
+
+function invalidateDeveloperAccess(userId?: string): void {
+  if (!userId) return;
+  CacheService.getInstance().invalidate(CACHE_KEYS.DEVELOPER_ACCESS(userId));
+  developerAccessInflight.delete(CACHE_KEYS.DEVELOPER_ACCESS(userId));
+}
 
 async function requestPortal<T>(path: string, options: PortalRequestOptions = {}): Promise<T> {
   const response = await ApiService.apiFetch(path, {
@@ -145,33 +177,69 @@ export async function getLiveDeveloperDocs(): Promise<LiveDocsResponse> {
   };
 }
 
-export function getDeveloperAccess(idToken: string) {
-  return requestPortal<DeveloperPortalAccess>("/api/developer/access", {
+export function getDeveloperAccess(
+  idToken: string,
+  options?: CachedDeveloperAccessOptions
+) {
+  const cacheKey = resolveDeveloperAccessCacheKey(options?.userId);
+  if (cacheKey && !options?.force) {
+    const cached = CacheService.getInstance().get<DeveloperPortalAccess>(cacheKey);
+    if (cached) {
+      return Promise.resolve(cached);
+    }
+    const inflight = developerAccessInflight.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+  }
+
+  const request = requestPortal<DeveloperPortalAccess>("/api/developer/access", {
     idToken,
+  }).then((payload) =>
+    cacheDeveloperAccess(options?.userId, payload, options?.ttlMs ?? CACHE_TTL.SESSION)
+  );
+
+  if (!cacheKey) {
+    return request;
+  }
+
+  developerAccessInflight.set(cacheKey, request);
+  return request.finally(() => {
+    if (developerAccessInflight.get(cacheKey) === request) {
+      developerAccessInflight.delete(cacheKey);
+    }
   });
 }
 
-export function enableDeveloperAccess(idToken: string) {
+export function enableDeveloperAccess(
+  idToken: string,
+  options?: { userId?: string }
+) {
   return requestPortal<DeveloperPortalAccess>("/api/developer/access/enable", {
     method: "POST",
     idToken,
-  });
+  }).then((payload) => cacheDeveloperAccess(options?.userId, payload));
 }
 
 export function updateDeveloperAccessProfile(
   idToken: string,
-  body: DeveloperPortalProfileUpdate
+  body: DeveloperPortalProfileUpdate,
+  options?: { userId?: string }
 ) {
   return requestPortal<DeveloperPortalAccess>("/api/developer/access/profile", {
     method: "PATCH",
     body,
     idToken,
-  });
+  }).then((payload) => cacheDeveloperAccess(options?.userId, payload));
 }
 
-export function rotateDeveloperAccessToken(idToken: string) {
+export function rotateDeveloperAccessToken(
+  idToken: string,
+  options?: { userId?: string }
+) {
+  invalidateDeveloperAccess(options?.userId);
   return requestPortal<DeveloperPortalAccess>("/api/developer/access/rotate-key", {
     method: "POST",
     idToken,
-  });
+  }).then((payload) => cacheDeveloperAccess(options?.userId, payload));
 }

@@ -1,5 +1,15 @@
 # AI Reference
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["AI Reference"]
+  n1["On Device Future Plan"]
+  root --> n1
+```
+
 Cross-cutting AI strategy references live here.
 
 ## Status

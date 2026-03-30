@@ -11,12 +11,12 @@ export default function RiaSettingsAliasPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(ROUTES.RIA_HOME);
+    router.replace(ROUTES.PROFILE);
   }, [router]);
 
   return (
     <AppPageShell as="div" width="content" className="flex min-h-72 items-center justify-center">
-      <HushhLoader variant="inline" label="Redirecting to RIA home…" />
+      <HushhLoader variant="inline" label="Redirecting to profile…" />
     </AppPageShell>
   );
 }

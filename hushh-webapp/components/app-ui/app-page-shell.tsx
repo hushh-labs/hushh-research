@@ -37,6 +37,7 @@ export function AppPageShell<T extends ElementType = "main">({
         WIDTH_CLASS_MAP[width],
         className
       )}
+      data-top-content-anchor="true"
       {...props}
     />
   );

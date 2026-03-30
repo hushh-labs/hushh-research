@@ -22,8 +22,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useVault } from "@/lib/vault/vault-context";
@@ -37,6 +38,7 @@ import {
 } from "@/lib/notifications";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { buildConsentSheetProfileHref } from "@/lib/consent/consent-sheet-route";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
   getSessionItem,
@@ -49,16 +51,47 @@ import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 // Helpers
 // ============================================================================
 
+/**
+ * Domain icon mapping for consent toasts. Uses emojis since toasts are plain text.
+ * Backend-provided scope_description is preferred when available (line ~325).
+ */
+const DOMAIN_EMOJI: Record<string, string> = {
+  financial: "💰",
+  subscriptions: "💳",
+  health: "❤️",
+  travel: "✈️",
+  food: "🍕",
+  professional: "💼",
+  entertainment: "🎬",
+  shopping: "🛍️",
+  social: "👥",
+  location: "📍",
+  general: "📋",
+};
+
 const formatScope = (scope: string): { label: string; emoji: string } => {
-  const scopeMap: Record<string, { label: string; emoji: string }> = {
-    vault_read_finance: { label: "Financial Data", emoji: "💰" },
-    vault_read_all: { label: "All Data", emoji: "🔓" },
-    "vault.read.finance": { label: "Financial Data", emoji: "💰" },
-    "attr.financial.*": { label: "Financial Data", emoji: "💰" },
-    "attr.food.*": { label: "Food Preferences", emoji: "🍕" },
-    "attr.professional.*": { label: "Professional Profile", emoji: "💼" },
-  };
-  return scopeMap[scope] || { label: scope.replace(/_/g, " "), emoji: "📋" };
+  // Extract domain from attr.{domain}.* pattern
+  const attrMatch = scope.match(/^attr\.([a-zA-Z0-9_]+)/);
+  if (attrMatch?.[1]) {
+    const domain = attrMatch[1];
+    const emoji = DOMAIN_EMOJI[domain] ?? "📋";
+    const isWildcard = scope.endsWith(".*");
+    const label = isWildcard
+      ? `${domain.charAt(0).toUpperCase() + domain.slice(1)} Data`
+      : scope
+          .replace(/^attr\./, "")
+          .replace(/\.\*$/, "")
+          .replace(/[._]/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+    return { label, emoji };
+  }
+
+  // Static scopes
+  if (scope === "vault.owner") return { label: "Full Vault Access", emoji: "🔐" };
+  if (scope === "pkm.read") return { label: "Personal Data", emoji: "📖" };
+  if (scope === "pkm.write") return { label: "Write Personal Data", emoji: "✏️" };
+
+  return { label: scope.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), emoji: "📋" };
 };
 
 /**
@@ -74,10 +107,26 @@ function consentFromFCMPayload(
   return {
     id: requestId,
     developer: data.agent_label || data.agent_id || "Unknown Agent",
+    developerImageUrl: data.requester_image_url || undefined,
+    developerWebsiteUrl: data.requester_website_url || undefined,
     scope: data.scope || "",
     scopeDescription: data.scope_description || undefined,
     requestedAt: Date.now(),
+    approvalTimeoutAt: data.approval_timeout_at
+      ? Number(data.approval_timeout_at)
+      : undefined,
+    expiryHours: data.expiry_hours ? Number(data.expiry_hours) : undefined,
     bundleId: data.bundle_id || undefined,
+    requestUrl: data.request_url || data.deep_link || undefined,
+    reason: data.reason || undefined,
+    isScopeUpgrade: data.is_scope_upgrade === "true",
+    existingGrantedScopes: data.existing_granted_scopes
+      ? String(data.existing_granted_scopes)
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : undefined,
+    additionalAccessSummary: data.additional_access_summary || undefined,
   };
 }
 
@@ -133,9 +182,14 @@ type PersistedDeliveryState = {
 };
 
 const DELIVERY_STATE_SESSION_KEY_PREFIX = "consent_delivery_state";
+const QUEUED_PENDING_CONSENTS_SESSION_KEY_PREFIX = "queued_pending_consents";
 
 function getDeliveryStateSessionKey(userId: string) {
   return `${DELIVERY_STATE_SESSION_KEY_PREFIX}:${userId}`;
+}
+
+function getQueuedPendingConsentsSessionKey(userId: string) {
+  return `${QUEUED_PENDING_CONSENTS_SESSION_KEY_PREFIX}:${userId}`;
 }
 
 function deliveryModeFromInitStatus(
@@ -185,6 +239,72 @@ function clearPersistedDeliveryState(userId: string) {
   }
 }
 
+function readQueuedPendingConsents(userId: string): PendingConsent[] {
+  try {
+    const raw = getSessionItem(getQueuedPendingConsentsSessionKey(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as PendingConsent[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQueuedPendingConsents(userId: string, pending: PendingConsent[]) {
+  try {
+    setSessionItem(getQueuedPendingConsentsSessionKey(userId), JSON.stringify(pending));
+  } catch {
+    // Ignore session storage write failures.
+  }
+}
+
+function queuePendingConsent(userId: string, consent: PendingConsent): PendingConsent[] {
+  const existing = readQueuedPendingConsents(userId);
+  const key = consent.bundleId || consent.id;
+  const next = [...existing.filter((item) => (item.bundleId || item.id) !== key), consent];
+  writeQueuedPendingConsents(userId, next);
+  return next;
+}
+
+function removeQueuedPendingConsent(userId: string, requestId?: string, bundleId?: string) {
+  const next = readQueuedPendingConsents(userId).filter(
+    (item) => item.id !== requestId && item.bundleId !== bundleId
+  );
+  writeQueuedPendingConsents(userId, next);
+  return next;
+}
+
+function clearQueuedPendingConsents(userId: string) {
+  try {
+    removeSessionItem(getQueuedPendingConsentsSessionKey(userId));
+  } catch {
+    // Ignore session storage cleanup failures.
+  }
+}
+
+function shouldPrioritizeConsentHydration(pathname: string): boolean {
+  const normalized = String(pathname || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith("/profile") ||
+    normalized.startsWith("/ria")
+  );
+}
+
+function shouldPrioritizeConsentRealtime(pathname: string): boolean {
+  const normalized = String(pathname || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith("/consents") ||
+    normalized.startsWith("/profile") ||
+    normalized.startsWith("/ria")
+  );
+}
+
+function isConsentWorkspaceRoute(pathname: string): boolean {
+  return String(pathname || "").trim().toLowerCase().startsWith("/consents");
+}
+
 const ConsentNotificationStateContext = createContext<ConsentNotificationStateValue>({
   deliveryMode: "inbox_only",
   deliveryDetail: null,
@@ -202,6 +322,7 @@ export function ConsentNotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   const [pendingCount, setPendingCount] = useState(0);
   const [deliveryMode, setDeliveryMode] =
@@ -217,7 +338,7 @@ export function ConsentNotificationProvider({
   const toastedIdsRef = useRef(new Set<string>());
 
   // Use the centralized consent actions hook
-  const { handleApprove, handleDeny } = useConsentActions({
+  const { handleDeny } = useConsentActions({
     userId: user?.uid,
     onActionComplete: () => {
       // Decrement count optimistically after approve/deny
@@ -237,6 +358,12 @@ export function ConsentNotificationProvider({
         ? { label: consent.scopeDescription, emoji: "📋" }
         : formatScope(consent.scope);
       const isBundle = Boolean(consent.bundleId);
+      const reviewHref =
+        consent.requestUrl ||
+        buildConsentSheetProfileHref("pending", {
+          requestId: consent.id,
+          bundleId: consent.bundleId,
+        });
 
       toast(
         <div className="flex flex-col gap-3">
@@ -248,48 +375,44 @@ export function ConsentNotificationProvider({
               <p className="text-xs text-muted-foreground">
                 {isBundle
                   ? "Requested a bundled portfolio review. Open your consent center to choose durations and approve."
-                  : `Wants access to your ${label}`}
+                  : consent.additionalAccessSummary || `Wants access to your ${label}`}
               </p>
+              {consent.reason ? (
+                <p className="text-xs text-muted-foreground">Reason: {consent.reason}</p>
+              ) : null}
             </div>
           </div>
 
           {/* Action buttons */}
           <div className="flex gap-2 justify-center">
-            {isBundle ? (
-              <button
-                onClick={() => {
-                  assignWindowLocation(buildConsentSheetProfileHref("pending"));
-                }}
-                className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
-              >
-                Review request
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => handleApprove(consent)}
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Icon icon={Check} size="sm" /> Approve
-                </button>
-                <button
-                  onClick={() => handleDeny(consent.id)}
-                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
-                >
-                  <Icon icon={X} size="sm" /> Deny
-                </button>
-              </>
-            )}
+            <button
+              onClick={() => {
+                toast.dismiss(toastKey);
+                assignWindowLocation(reviewHref);
+              }}
+              className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+            >
+              Review request
+            </button>
+            <button
+              onClick={() => {
+                toast.dismiss(toastKey);
+                void handleDeny(consent.id);
+              }}
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
+            >
+              <Icon icon={X} size="sm" /> Deny
+            </button>
           </div>
         </div>,
         {
           id: toastKey,
-          duration: Infinity,
+          duration: 9000,
           position: "top-center",
         }
       );
     },
-    [handleApprove, handleDeny]
+    [handleDeny]
   );
 
   // Initialize FCM when user logs in (stable dependency: user?.uid).
@@ -307,6 +430,7 @@ export function ConsentNotificationProvider({
     if (!user) {
       if (lastAuthenticatedUidRef.current) {
         clearPersistedDeliveryState(lastAuthenticatedUidRef.current);
+        clearQueuedPendingConsents(lastAuthenticatedUidRef.current);
       }
       lastAuthenticatedUidRef.current = null;
       setFcmInitStatus(null);
@@ -380,8 +504,16 @@ export function ConsentNotificationProvider({
     if (!initStatus || initStatus === "push_active") return;
 
     let cancelled = false;
-    let reconnectTimer: number | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleHandle: number | null = null;
+    let delayedConnectTimer: ReturnType<typeof setTimeout> | null = null;
     const abortController = new AbortController();
+    const prioritizeRealtime = shouldPrioritizeConsentRealtime(pathname);
+
+    if (!prioritizeRealtime) {
+      setDeliveryMode(initStatus === "push_blocked" ? "push_blocked" : "inbox_only");
+      return;
+    }
 
     const connect = async () => {
       try {
@@ -459,22 +591,56 @@ export function ConsentNotificationProvider({
         setDeliveryDetail(
           error instanceof Error ? error.message : "consent_sse_failed"
         );
-        reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = globalThis.setTimeout(() => {
           void connect();
-        }, 3000);
+        }, prioritizeRealtime ? 3000 : 6000);
       }
     };
 
-    void connect();
+    if (prioritizeRealtime) {
+      void connect();
+    } else if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      idleHandle = requestIdle(() => {
+        void connect();
+      }, { timeout: 5000 });
+
+      return () => {
+        cancelled = true;
+        abortController.abort();
+        if (reconnectTimer) {
+          globalThis.clearTimeout(reconnectTimer);
+        }
+        if (idleHandle !== null) {
+          cancelIdle(idleHandle);
+        }
+      };
+    } else {
+      delayedConnectTimer = globalThis.setTimeout(() => {
+        void connect();
+      }, 3000);
+    }
 
     return () => {
       cancelled = true;
       abortController.abort();
       if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
+        globalThis.clearTimeout(reconnectTimer);
+      }
+      if (delayedConnectTimer) {
+        globalThis.clearTimeout(delayedConnectTimer);
       }
     };
-  }, [fcmInitStatus, user]);
+  }, [fcmInitStatus, pathname, user]);
+
+  useEffect(() => {
+    if (!user || isVaultUnlocked) return;
+    setPendingCount(readQueuedPendingConsents(user.uid).length);
+  }, [isVaultUnlocked, user]);
 
   // Listen for FCM messages -- extract consent data directly from payload (no HTTP fetch)
   useEffect(() => {
@@ -489,14 +655,30 @@ export function ConsentNotificationProvider({
       const msgType = data.type;
 
       if (msgType === "consent_request") {
-        // Only show toast if vault is unlocked (can't approve without vault key)
-        if (!isVaultUnlocked) return;
-
         const consent = consentFromFCMPayload(data);
-        if (consent) {
-          setPendingCount((prev) => prev + 1);
-          showConsentToast(consent);
+        if (!consent) return;
+
+        if (!isVaultUnlocked) {
+          if (user?.uid) {
+            const queued = queuePendingConsent(user.uid, consent);
+            setPendingCount(Math.max(queued.length, 1));
+            dispatchConsentStateChanged({
+              source: "fcm_queued",
+              requestId: consent.id,
+            });
+          } else {
+            setPendingCount((prev) => prev + 1);
+            dispatchConsentStateChanged({ source: "fcm_queued" });
+          }
+          return;
         }
+
+        setPendingCount((prev) => Math.max(prev, 0) + 1);
+        dispatchConsentStateChanged({
+          source: "fcm_live",
+          requestId: consent.id,
+        });
+        showConsentToast(consent);
       } else if (msgType === "consent_resolved") {
         // A consent was resolved (approved/denied/revoked) -- dismiss any matching toast
         const requestId = data.request_id;
@@ -506,12 +688,20 @@ export function ConsentNotificationProvider({
           toastedIdsRef.current.delete(toastKey);
           setPendingCount((prev) => Math.max(0, prev - 1));
         }
+        if (user?.uid) {
+          const queued = removeQueuedPendingConsent(user.uid, requestId, data.bundle_id);
+          setPendingCount((prev) => Math.max(queued.length, Math.max(0, prev - 1)));
+        }
+        dispatchConsentStateChanged({
+          source: "fcm_resolved",
+          requestId,
+        });
       }
     };
 
     window.addEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
     return () => window.removeEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
-  }, [isVaultUnlocked, showConsentToast]);
+  }, [isVaultUnlocked, showConsentToast, user?.uid]);
 
   // ONE-TIME fetch on vault unlock to catch requests that arrived while app was closed.
   // This is the ONLY acceptable HTTP call -- not a poll, just a catch-up.
@@ -523,37 +713,85 @@ export function ConsentNotificationProvider({
 
     let cancelled = false;
 
-    (async () => {
+    const queuedPending = readQueuedPendingConsents(uid);
+    if (!cancelled && queuedPending.length > 0) {
+      setPendingCount((prev) => Math.max(prev, queuedPending.length));
+      dispatchConsentStateChanged({ source: "queued_pending" });
+      queuedPending.forEach((consent) => showConsentToast(consent));
+      clearQueuedPendingConsents(uid);
+    }
+
+    const cachedPending = CacheService.getInstance().peek<PendingConsent[]>(
+      CACHE_KEYS.PENDING_CONSENTS(uid)
+    );
+    const hasCachedPending = Array.isArray(cachedPending?.data) && cachedPending.data.length > 0;
+    if (!cancelled && Array.isArray(cachedPending?.data)) {
+      setPendingCount(cachedPending.data.length);
+      dispatchConsentStateChanged({ source: "cached_pending" });
+      cachedPending.data.forEach((consent) => showConsentToast(consent));
+      if (cachedPending.isFresh) {
+        return;
+      }
+    }
+
+    const runFetch = async () => {
       try {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) return;
-
-        const cachedPending = CacheService.getInstance().peek<PendingConsent[]>(
-          CACHE_KEYS.PENDING_CONSENTS(uid)
-        );
-        if (!cancelled && Array.isArray(cachedPending?.data)) {
-          setPendingCount(cachedPending.data.length);
-          cachedPending.data.forEach((consent) => showConsentToast(consent));
-          if (cachedPending.isFresh) {
-            return;
-          }
-        }
-
         const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
         if (cancelled) return;
         setPendingCount(pending.length);
-
-        // Show toasts for any that we haven't seen yet
+        dispatchConsentStateChanged({ source: "hydrated_pending" });
         pending.forEach((consent) => showConsentToast(consent));
       } catch (err) {
         console.error("[NotificationProvider] Initial fetch error:", err);
       }
-    })();
+    };
+
+    const prioritizeFetch =
+      queuedPending.length > 0 || shouldPrioritizeConsentHydration(pathname);
+    const shouldFetchInBackground =
+      !isConsentWorkspaceRoute(pathname) &&
+      (prioritizeFetch || hasCachedPending);
+
+    if (prioritizeFetch && shouldFetchInBackground) {
+      void runFetch();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!shouldFetchInBackground) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      const handle = requestIdle(() => {
+        void runFetch();
+      }, { timeout: 4000 });
+
+      return () => {
+        cancelled = true;
+        cancelIdle(handle);
+      };
+    }
+
+    const timeoutId = globalThis.setTimeout(() => {
+      void runFetch();
+    }, 2000);
 
     return () => {
       cancelled = true;
+      globalThis.clearTimeout(timeoutId);
     };
-  }, [isVaultUnlocked, user?.uid, showConsentToast, getVaultOwnerToken]);
+  }, [getVaultOwnerToken, isVaultUnlocked, pathname, showConsentToast, user?.uid]);
 
   return (
     <ConsentNotificationStateContext.Provider

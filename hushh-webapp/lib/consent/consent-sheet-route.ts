@@ -1,12 +1,17 @@
 import { ROUTES } from "@/lib/navigation/routes";
+import type { ConsentCenterActor, ConsentCenterView } from "@/lib/services/consent-center-service";
 
 export const CONSENT_SHEET_QUERY_KEY = "sheet";
 export const CONSENT_SHEET_QUERY_VALUE = "consents";
 export const CONSENT_SHEET_VIEW_QUERY_KEY = "consentView";
+export const CONSENT_REQUEST_QUERY_KEY = "requestId";
+export const CONSENT_BUNDLE_QUERY_KEY = "bundleId";
 export const CONSENT_LEGACY_PANEL_QUERY_KEY = "panel";
 export const CONSENT_LEGACY_PANEL_VALUE = "consents";
+export const CONSENT_TAB_QUERY_KEY = "tab";
 
 export type ConsentSheetView = "pending" | "active" | "previous";
+export type ConsentCenterManagerView = Extract<ConsentCenterView, "incoming" | "outgoing">;
 
 export function normalizeConsentSheetView(value: string | null | undefined): ConsentSheetView {
   if (value === "active") return "active";
@@ -19,6 +24,8 @@ export function applyConsentSheetParams(
   options?: {
     view?: ConsentSheetView;
     ensurePrivacyTab?: boolean;
+    requestId?: string;
+    bundleId?: string;
   }
 ): URLSearchParams {
   const next = new URLSearchParams(params.toString());
@@ -36,6 +43,18 @@ export function applyConsentSheetParams(
     next.set(CONSENT_SHEET_VIEW_QUERY_KEY, normalizedView);
   }
 
+  if (options?.requestId) {
+    next.set(CONSENT_REQUEST_QUERY_KEY, options.requestId);
+  } else {
+    next.delete(CONSENT_REQUEST_QUERY_KEY);
+  }
+
+  if (options?.bundleId) {
+    next.set(CONSENT_BUNDLE_QUERY_KEY, options.bundleId);
+  } else {
+    next.delete(CONSENT_BUNDLE_QUERY_KEY);
+  }
+
   return next;
 }
 
@@ -43,17 +62,66 @@ export function clearConsentSheetParams(params: URLSearchParams): URLSearchParam
   const next = new URLSearchParams(params.toString());
   next.delete(CONSENT_SHEET_QUERY_KEY);
   next.delete(CONSENT_SHEET_VIEW_QUERY_KEY);
+  next.delete(CONSENT_REQUEST_QUERY_KEY);
+  next.delete(CONSENT_BUNDLE_QUERY_KEY);
   if (next.get(CONSENT_LEGACY_PANEL_QUERY_KEY) === CONSENT_LEGACY_PANEL_VALUE) {
     next.delete(CONSENT_LEGACY_PANEL_QUERY_KEY);
   }
   return next;
 }
 
-export function buildConsentSheetProfileHref(view: ConsentSheetView = "pending"): string {
-  const params = applyConsentSheetParams(new URLSearchParams(), {
-    ensurePrivacyTab: true,
-    view,
-  });
+export function buildConsentCenterHref(
+  view: ConsentSheetView = "pending",
+  options?: {
+    requestId?: string;
+    bundleId?: string;
+    from?: string;
+    actor?: ConsentCenterActor;
+    managerView?: ConsentCenterManagerView;
+  }
+): string {
+  const params = new URLSearchParams();
+  params.set(CONSENT_TAB_QUERY_KEY, normalizeConsentSheetView(view));
+  if (options?.actor) {
+    params.set("actor", options.actor);
+  }
+  if (options?.managerView) {
+    params.set("view", options.managerView);
+  }
+  if (options?.requestId) {
+    params.set(CONSENT_REQUEST_QUERY_KEY, options.requestId);
+  }
+  if (options?.bundleId) {
+    params.set(CONSENT_BUNDLE_QUERY_KEY, options.bundleId);
+  }
+  if (options?.from) {
+    params.set("from", options.from);
+  }
   const query = params.toString();
-  return query ? `${ROUTES.PROFILE}?${query}` : ROUTES.PROFILE;
+  return query ? `${ROUTES.CONSENTS}?${query}` : ROUTES.CONSENTS;
+}
+
+export function buildRiaConsentManagerHref(
+  view: ConsentSheetView = "pending",
+  options?: {
+    requestId?: string;
+    bundleId?: string;
+    from?: string;
+  }
+): string {
+  return buildConsentCenterHref(view, {
+    ...options,
+    actor: "ria",
+    managerView: "outgoing",
+  });
+}
+
+export function buildConsentSheetProfileHref(
+  view: ConsentSheetView = "pending",
+  options?: {
+    requestId?: string;
+    bundleId?: string;
+  }
+): string {
+  return buildConsentCenterHref(view, options);
 }

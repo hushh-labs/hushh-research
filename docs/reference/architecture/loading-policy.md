@@ -1,5 +1,10 @@
 # Loading Policy (App-Wide)
 
+
+## Visual Context
+
+Canonical visual owner: [Architecture Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Rule
 Use only:
 - top `StepProgressBar` for process/route progress

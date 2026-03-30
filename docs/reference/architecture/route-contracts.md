@@ -2,6 +2,24 @@
 
 > Governance for Next.js proxy routes, native plugin parity, and app navigation truth.
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  contracts["Route Contracts"]
+  standard["standard routes"]
+  flow["flow routes"]
+  hidden["hidden / redirect routes"]
+  parity["Web / iOS / Android parity"]
+  contracts --> standard
+  contracts --> flow
+  contracts --> hidden
+  standard --> parity
+  flow --> parity
+  hidden --> parity
+```
+
 Hushh uses a contract manifest to keep the declared runtime surface aligned across:
 
 - Next.js API route handlers under `hushh-webapp/app/api/**/route.ts`
@@ -24,6 +42,7 @@ Hushh uses a contract manifest to keep the declared runtime surface aligned acro
 Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.ts`:
 
 - `/`
+- `/developers`
 - `/login`
 - `/logout`
 - `/labs/profile-appearance`
@@ -34,12 +53,14 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/ria`
 - `/ria/onboarding`
 - `/ria/clients`
+- `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
 - `/kai`
 - `/kai/onboarding`
 - `/kai/import`
 - `/kai/plaid/oauth/return`
+- `/kai/investments`
 - `/kai/portfolio`
 - `/kai/analysis`
 - `/kai/optimize`

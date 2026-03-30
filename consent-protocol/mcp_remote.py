@@ -76,7 +76,7 @@ class AuthenticatedRemoteMCPApp:
                 400,
                 {
                     "error_code": "DEVELOPER_TOKEN_QUERY_REQUIRED",
-                    "message": "Use /mcp?token=<developer-token> instead of Authorization header.",
+                    "message": "Use /mcp/?token=<developer-token> instead of Authorization header.",
                 },
             )
             return
@@ -87,7 +87,7 @@ class AuthenticatedRemoteMCPApp:
                 401,
                 {
                     "error_code": "DEVELOPER_TOKEN_REQUIRED",
-                    "message": "Developer token is required for remote MCP. Use /mcp?token=<developer-token>.",
+                    "message": "Developer token is required for remote MCP. Use /mcp/?token=<developer-token>.",
                 },
             )
             return

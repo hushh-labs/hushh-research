@@ -19,6 +19,8 @@ import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import type { AppRuntimeState, VoiceMemoryHint, VoiceResponse } from "@/lib/voice/voice-types";
+import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
+import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -106,7 +108,7 @@ export function KaiCommandBarGlobal() {
 
     let cancelled = false;
 
-    const computeHasPortfolio = async () => {
+    const computeHasPortfolio = () => {
       const cachedHasPortfolio = computeHasPortfolioFromCache();
       if (cachedHasPortfolio !== null) {
         if (!cancelled) {
@@ -115,44 +117,22 @@ export function KaiCommandBarGlobal() {
         return;
       }
 
-      if (!isVaultUnlocked || !vaultOwnerToken) {
-        if (!cancelled) {
-          setHasPortfolioData(false);
-        }
-        return;
-      }
-
-      try {
-        const metadata = await PersonalKnowledgeModelService.getMetadata(
-          user.uid,
-          false,
-          vaultOwnerToken
-        );
-        if (cancelled) return;
-        const financialDomain = metadata.domains.find((domain) => domain.key === "financial");
-        const hasPortfolioFromMetadata = Boolean(
-          financialDomain && Number(financialDomain.attributeCount || 0) > 0
-        );
-
-        setHasPortfolioData(hasPortfolioFromMetadata);
-      } catch {
-        if (!cancelled) {
-          setHasPortfolioData(false);
-        }
+      if (!cancelled) {
+        setHasPortfolioData(false);
       }
     };
 
-    void computeHasPortfolio();
+    computeHasPortfolio();
     const unsubscribe = cache.subscribe((event) => {
       if (event.type === "set" || event.type === "invalidate" || event.type === "invalidate_user" || event.type === "clear") {
-        void computeHasPortfolio();
+        computeHasPortfolio();
       }
     });
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [cache, isVaultUnlocked, user?.uid, vaultOwnerToken]);
+  }, [cache, user?.uid]);
 
   const reviewScreenActive = Boolean(
     busyOperations["portfolio_review_active"] || busyOperations["portfolio_save"]

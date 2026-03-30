@@ -19,7 +19,6 @@ export async function POST(request: NextRequest) {
     const {
       userId,
       requestId,
-      exportKey,
       encryptedData,
       encryptedIv,
       encryptedTag,
@@ -29,11 +28,21 @@ export async function POST(request: NextRequest) {
       senderPublicKey,
       wrappingAlg,
       connectorKeyId,
+      sourceContentRevision,
+      sourceManifestRevision,
+      durationHours,
     } = body;
 
     if (!userId || !requestId) {
       return NextResponse.json(
         { error: "userId and requestId are required" },
+        { status: 400 }
+      );
+    }
+
+    if ("exportKey" in body) {
+      return NextResponse.json(
+        { error: "Plaintext exportKey is not accepted in strict zero-knowledge mode" },
         { status: 400 }
       );
     }
@@ -60,7 +69,6 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         userId,
         requestId,
-        exportKey,
         encryptedData,
         encryptedIv,
         encryptedTag,
@@ -70,6 +78,9 @@ export async function POST(request: NextRequest) {
         senderPublicKey,
         wrappingAlg,
         connectorKeyId,
+        sourceContentRevision,
+        sourceManifestRevision,
+        durationHours,
       }),
     });
 

@@ -1,5 +1,17 @@
 # Hushh Webapp Docs
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["Hushh Webapp Docs"]
+  n1["Kai Analysis Layout And Review Mode"]
+  root --> n1
+  n2["Plugin Api Reference"]
+  root --> n2
+```
+
 Frontend and native-client implementation references for the webapp package.
 
 ## Documents

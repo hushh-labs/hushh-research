@@ -1,5 +1,10 @@
 # App Surface Audit Matrix
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This matrix tracks the target design-system contract for the current application surfaces.
 
 ## Phase 1: Kai Investor Shell

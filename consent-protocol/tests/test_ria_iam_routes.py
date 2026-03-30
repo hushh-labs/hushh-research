@@ -285,6 +285,127 @@ def test_consent_center_returns_combined_surface(monkeypatch):
     assert payload["incoming_requests"][0]["kind"] == "incoming_request"
 
 
+def test_consent_center_summary_route_returns_actor_counts(monkeypatch):
+    async def _mock_summary(self, user_id: str, *, actor: str):
+        assert user_id == "user_test_123"
+        assert actor == "ria"
+        return {
+            "user_id": user_id,
+            "actor": actor,
+            "counts": {
+                "pending": 3,
+                "active": 4,
+                "previous": 5,
+            },
+        }
+
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    monkeypatch.setattr(ConsentCenterService, "get_center_summary", _mock_summary)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/consent/center/summary?actor=ria")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["actor"] == "ria"
+    assert payload["counts"] == {"pending": 3, "active": 4, "previous": 5}
+
+
+def test_consent_center_list_route_returns_page_contract(monkeypatch):
+    async def _mock_list(
+        self,
+        user_id: str,
+        *,
+        actor: str,
+        surface: str,
+        query: str | None = None,
+        top: int | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ):
+        assert user_id == "user_test_123"
+        assert actor == "investor"
+        assert surface == "pending"
+        assert query == "kai"
+        assert top is None
+        assert page == 2
+        assert limit == 20
+        return {
+            "user_id": user_id,
+            "actor": actor,
+            "surface": surface,
+            "query": query,
+            "page": page,
+            "limit": limit,
+            "total": 21,
+            "has_more": False,
+            "items": [{"id": "req_1", "kind": "incoming_request"}],
+        }
+
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    monkeypatch.setattr(ConsentCenterService, "list_center", _mock_list)
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/consent/center/list?actor=investor&surface=pending&q=kai&page=2&limit=20"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["page"] == 2
+    assert payload["limit"] == 20
+    assert payload["total"] == 21
+    assert payload["items"][0]["kind"] == "incoming_request"
+
+
+def test_consent_center_list_route_supports_top_preview(monkeypatch):
+    async def _mock_list(
+        self,
+        user_id: str,
+        *,
+        actor: str,
+        surface: str,
+        query: str | None = None,
+        top: int | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ):
+        assert user_id == "user_test_123"
+        assert actor == "ria"
+        assert surface == "pending"
+        assert query is None
+        assert top == 5
+        assert page == 1
+        assert limit == 20
+        return {
+            "user_id": user_id,
+            "actor": actor,
+            "surface": surface,
+            "query": "",
+            "page": 1,
+            "limit": 5,
+            "total": 7,
+            "has_more": True,
+            "items": [{"id": "invite_1", "kind": "invite"}],
+        }
+
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    monkeypatch.setattr(ConsentCenterService, "list_center", _mock_list)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/consent/center/list?actor=ria&surface=pending&top=5")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 5
+    assert payload["total"] == 7
+    assert payload["has_more"] is True
+    assert payload["items"][0]["kind"] == "invite"
+
+
 def test_generic_consent_request_routes_to_ria_request_creation(monkeypatch):
     async def _mock_create(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"
@@ -308,3 +429,51 @@ def test_generic_consent_request_routes_to_ria_request_creation(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["request_id"] == "req_generic_1"
+
+
+def test_ria_client_detail_route_exposes_relationship_share_fields(monkeypatch):
+    async def _mock_detail(self, user_id: str, investor_user_id: str):
+        assert user_id == "user_test_123"
+        assert investor_user_id == "investor_1"
+        return {
+            "investor_user_id": investor_user_id,
+            "investor_display_name": "Taylor",
+            "relationship_status": "approved",
+            "granted_scope": "attr.financial.*",
+            "disconnect_allowed": True,
+            "is_self_relationship": False,
+            "next_action": "open_workspace",
+            "relationship_shares": [
+                {
+                    "grant_key": "ria_active_picks_feed_v1",
+                    "label": "Advisor picks feed",
+                    "description": "Included with the advisor relationship.",
+                    "status": "active",
+                    "share_origin": "relationship_implicit",
+                }
+            ],
+            "picks_feed_status": "ready",
+            "picks_feed_granted_at": "2026-03-24T00:00:00Z",
+            "has_active_pick_upload": True,
+            "granted_scopes": [],
+            "request_history": [],
+            "invite_history": [],
+            "requestable_scope_templates": [],
+            "available_scope_metadata": [],
+            "available_domains": [],
+            "domain_summaries": {},
+            "total_attributes": 0,
+            "workspace_ready": False,
+            "pkm_updated_at": None,
+        }
+
+    monkeypatch.setattr(RIAIAMService, "get_ria_client_detail", _mock_detail)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/ria/clients/investor_1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["picks_feed_status"] == "ready"
+    assert payload["has_active_pick_upload"] is True
+    assert payload["relationship_shares"][0]["grant_key"] == "ria_active_picks_feed_v1"

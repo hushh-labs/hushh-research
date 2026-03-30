@@ -1,5 +1,10 @@
 # Kai Change Impact Matrix
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Use this matrix before merge/release to identify blast radius and compatibility risks.
 
 ## Matrix

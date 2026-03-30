@@ -1,5 +1,47 @@
 # CI Configuration Reference
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph dev["Developer lanes"]
+    feat["Feature / hotfix / developer branches"]
+    pr["Pull request to main"]
+    prci["PR CI<br/>path-filtered validation"]
+  end
+
+  subgraph integration["Integration lane"]
+    freshness["Main Freshness Gate"]
+    status["CI Status Gate"]
+    main["main"]
+  end
+
+  subgraph release["Release promotion lanes"]
+    uatpr["PR: main -> deploy_uat"]
+    prodpr["PR: main -> deploy"]
+    releasegate["Release Lane Gate"]
+    uat["deploy_uat"]
+    prod["deploy"]
+  end
+
+  subgraph delivery["Post-merge delivery"]
+    pushci["Protected-branch push CI"]
+    uatdeploy["Deploy to UAT"]
+    proddeploy["Deploy to Production"]
+  end
+
+  feat --> pr --> prci
+  prci --> freshness
+  prci --> status
+  freshness --> main
+  status --> main
+  main --> uatpr --> releasegate --> uat
+  main --> prodpr --> releasegate --> prod
+  uat --> pushci --> uatdeploy
+  prod --> pushci --> proddeploy
+```
+
 This document describes the **Tri-Flow CI** workflow and how to stay aligned with it so code changes do not fail CI. Run local checks before every commit.
 
 **Workflow file:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)  
@@ -24,7 +66,7 @@ The local parity script mirrors those same blocking stages. On GitHub, `main` sh
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
 | Pull request | All branches (`**`) | Full CI (path-filtered) |
-| Push | All branches (`**`) | Full CI (path-filtered) |
+| Push | `main`, `deploy_uat`, `deploy` | Full CI (path-filtered for normal changes, forced on release lanes when needed) |
 | Merge queue | `main` | Full CI (frontend + backend forced on) |
 | Manual | Any | **workflow_dispatch** with scope: `frontend` \| `backend` \| `all` |
 
@@ -33,6 +75,21 @@ The local parity script mirrors those same blocking stages. On GitHub, `main` sh
 - **Frontend job** runs when `hushh-webapp/**` changes.
 - **Backend job** runs when `consent-protocol/**` changes.
 - **Integration job** runs when either frontend or backend paths change.
+
+### Duplicate-Run Policy
+
+Feature and hotfix branches intentionally rely on `pull_request` CI only. This avoids the same head SHA fan-out that happens when a branch triggers both:
+
+1. a `push` run, and
+2. one or more `pull_request` runs for different base branches.
+
+Protected release branches still keep `push` CI:
+
+- `main`
+- `deploy_uat`
+- `deploy`
+
+That keeps one authoritative post-merge CI run on each release lane without duplicating feature-branch noise.
 
 ---
 
@@ -43,15 +100,24 @@ The local parity script mirrors those same blocking stages. On GitHub, `main` sh
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI (license-free) scans the event commit range, not full repo history |
 | Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
 | Main Freshness Gate | Prevent stale PR merges into `main` | Blocks pull requests targeting `main` unless the branch contains latest `origin/main` |
+| Release Lane Gate | Prevent invalid promotions into `deploy_uat` or `deploy` | Blocks PRs targeting release branches unless the head branch is `main` and it contains latest `origin/main` |
 | Branch Freshness Advisory | Early stale-branch signal on feature-branch pushes | Warn-only; does not block CI or merges |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
 
 ## Live GitHub Enforcement
 
-`main` is expected to enforce the same CI contract documented here:
+Protected branches are expected to enforce the same CI contract documented here:
 
-- at least `1` approving review
-- required status checks: `CI Status Gate`, `Main Freshness Gate`
+- `main`
+  - at least `1` approving review
+  - required status checks: `CI Status Gate`, `Main Freshness Gate`
+  - strict/up-to-date checks enabled
+- `deploy_uat`
+  - at least `1` approving review
+  - required status checks: `CI Status Gate`, `Release Lane Gate`
+- `deploy`
+  - at least `1` approving review
+  - required status checks: `CI Status Gate`, `Release Lane Gate`
 - force-pushes disabled
 - branch deletion disabled
 
@@ -63,8 +129,8 @@ The live GitHub setting can drift from the docs, so verify it directly:
 
 Current live nuance:
 
-- admin enforcement is currently off, so admins/bypass users can still push directly if they have that level of access
-- there is no extra ruleset layered on top of `main` unless GitHub shows one in the verification output
+- the repo currently uses classic branch protection rather than GitHub repository rulesets
+- bypass actors should be limited to the 3 core owners, without overlapping push-restriction lists
 
 ## Advisory Checks (Non-Blocking By Default)
 
@@ -89,7 +155,10 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 1. `main` is the only integration branch for day-to-day development.
 2. `deploy_uat` is the UAT rollout lane and must contain the latest `main`.
 3. `deploy` is the production release lane and must contain the latest `main`.
-4. Production deploys are manual and handled by `.github/workflows/deploy-production.yml`, not by the main CI workflow.
+4. `deploy_uat` auto-deploys only after successful protected-branch push CI on `deploy_uat`.
+5. `deploy` auto-deploys only after successful protected-branch push CI on `deploy`.
+6. Manual deploy dispatch remains an emergency rerun path, not the default release path.
+7. Feature or hotfix branches should never target `deploy_uat` or `deploy` directly; promote through `main`.
 
 See [Branch Governance](./branch-governance.md).
 
@@ -276,11 +345,16 @@ The production deploy workflow (`.github/workflows/deploy-production.yml`) enfor
 
 2. Migration governance + drift gate:
 - checks migration filename monotonicity (`consent-protocol/db/migrations`)
-- checks contract version alignment (`consent-protocol/db/schema_contract/prod_core_schema.json`)
+- checks the production-pinned schema contract (`consent-protocol/db/schema_contract/prod_core_schema.json`)
+- allows the repo to be ahead of production while production stays pinned to its approved migration floor
 - checks live DB schema contract in read-only mode
 
 3. Manifest artifact:
 - emits a production migration release manifest with logical backup evidence (`backup_object_uri`, checksum, completion timestamp)
+
+UAT deploys use a separate latest-integrated contract:
+
+- `consent-protocol/db/schema_contract/uat_integrated_schema.json`
 
 The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
 

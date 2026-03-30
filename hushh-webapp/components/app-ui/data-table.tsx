@@ -65,7 +65,7 @@ interface DataTableProps<TData, TValue> {
 export function DataTable<TData, TValue>({
   columns,
   data,
-  searchKey: _searchKey,
+  searchKey,
   globalSearchKeys,
   searchPlaceholder = "Search...",
   filterKey,
@@ -87,9 +87,18 @@ export function DataTable<TData, TValue>({
   const normalizedSearchKeys = React.useMemo(
     () =>
       Array.from(
-        new Set((globalSearchKeys ?? []).map((key) => key.trim()).filter((key) => key.length > 0))
+        new Set(
+          (globalSearchKeys && globalSearchKeys.length > 0
+            ? globalSearchKeys
+            : searchKey
+              ? [searchKey]
+              : []
+          )
+            .map((key) => key.trim())
+            .filter((key) => key.length > 0)
+        )
       ),
-    [globalSearchKeys]
+    [globalSearchKeys, searchKey]
   );
   const globalSearchFilterFn = React.useCallback(
     (row: { original: TData }, _columnId: string, filterValue: unknown) => {
@@ -140,6 +149,10 @@ export function DataTable<TData, TValue>({
       },
     },
   });
+
+  React.useEffect(() => {
+    table.setPageIndex(0);
+  }, [globalFilter, columnFilters, table]);
 
   const filteredCount = table.getFilteredRowModel().rows.length;
   const pageIndex = table.getState().pagination.pageIndex;

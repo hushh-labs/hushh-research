@@ -19,7 +19,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -44,7 +43,7 @@ export function SettingsSegmentedTabs({
   return (
     <div
       className={cn(
-        "relative grid w-full rounded-[20px] border border-border/80 bg-muted/60 p-1 shadow-sm backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:rounded-[22px] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid w-full rounded-full border border-border/70 bg-background/68 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
         className
       )}
       style={
@@ -65,13 +64,13 @@ export function SettingsSegmentedTabs({
               onValueChange(option.value);
             }}
             className={cn(
-              "relative min-h-9 overflow-hidden rounded-[16px] border px-1.5 py-2 text-center transition-[background-color,border-color,color,box-shadow] sm:min-h-11 sm:rounded-[18px] sm:px-2",
+              "relative min-h-9 overflow-hidden rounded-full px-2 py-1.5 text-center transition-[background-color,color,box-shadow] sm:min-h-10 sm:px-2.5",
               isActive
-                ? "border-border/80 bg-background text-foreground shadow-[0_8px_18px_rgba(15,23,42,0.08)] dark:bg-background/96"
-                : "border-transparent bg-transparent text-foreground/68 hover:bg-background/55 hover:text-foreground dark:hover:bg-background/18"
+                ? "bg-background text-foreground shadow-[0_10px_24px_-18px_rgba(15,23,42,0.34)] dark:bg-background/96"
+                : "bg-transparent text-foreground/68 hover:bg-background/48 hover:text-foreground dark:hover:bg-background/18"
             )}
           >
-            <span className="relative z-10 text-[12px] font-medium tracking-tight sm:text-sm">
+            <span className="relative z-10 block truncate text-[11px] font-medium tracking-tight sm:text-[13px]">
               {option.label}
             </span>
             <MaterialRipple variant="none" effect="fade" className="z-0" />
@@ -106,10 +105,8 @@ export function SettingsGroup({
   const shell = (
     <div
       className={cn(
-        "relative isolate p-px",
-        embedded
-          ? "[--settings-group-radius:20px] rounded-[20px] border border-border/60 bg-background/72 shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]"
-          : "[--settings-group-radius:inherit] rounded-[inherit]"
+        "relative isolate p-px [--settings-group-radius:20px] rounded-[20px] border border-border/60 bg-background/68 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]",
+        !embedded && "sm:rounded-[22px]"
       )}
     >
       {clipShell}
@@ -126,24 +123,18 @@ export function SettingsGroup({
             </p>
           ) : null}
           {title ? (
-            <h2 className="text-pretty text-sm font-semibold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[15px]">
+            <h2 className="text-pretty text-[13px] font-semibold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[14px]">
               {title}
             </h2>
           ) : null}
           {description ? (
-            <p className="max-w-2xl text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]">
+            <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
               {description}
             </p>
           ) : null}
         </div>
       ) : null}
-      {embedded ? (
-        shell
-      ) : (
-        <SurfaceCard>
-          {shell}
-        </SurfaceCard>
-      )}
+      {shell}
     </section>
   );
 }
@@ -209,14 +200,14 @@ export function SettingsRow({
         <div className="min-w-0 flex-1 space-y-0.5">
           <div
             className={cn(
-              "text-sm font-medium tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
+              "text-[13px] font-medium tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[14px]",
               tone === "destructive" && "text-destructive"
             )}
           >
             {title}
           </div>
           {description ? (
-            <div className="text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]">
+            <div className="text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
               {description}
             </div>
           ) : null}
@@ -307,7 +298,7 @@ export function SettingsDetailPanel({
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-background">
-          <DrawerHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-4 py-3.5 text-left backdrop-blur-xl sm:px-5 sm:py-5">
+          <DrawerHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-4 py-3 text-left backdrop-blur-xl sm:px-5 sm:py-4">
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
@@ -331,7 +322,7 @@ export function SettingsDetailPanel({
         side="right"
         className="w-full border-l border-border/90 p-0 sm:max-w-[480px]"
       >
-        <SheetHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-6 py-5 backdrop-blur-xl">
+        <SheetHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-6 py-4 backdrop-blur-xl">
           <SheetTitle className="text-base font-semibold tracking-tight">
             {title}
           </SheetTitle>

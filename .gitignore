@@ -7,10 +7,18 @@ hushh_starter_idea.md
 # Editor/IDE
 .idea/
 .cursor/
+.mcp.json
+*.swp
+*.swo
+*.swx
 
 # Cloud SQL
 cloud-sql-proxy.exe
 cloud-sql-proxy
+cloud_sql_proxy
+**/cloud-sql-proxy.exe
+**/cloud-sql-proxy
+**/cloud_sql_proxy
 CLOUDSQL_CONFIG.md
 
 # Credentials
@@ -68,8 +76,17 @@ Pipfile.lock
 Thumbs.db
 CURSOR_TOOLS.md
 continue-dev-tools-usage.md
-/temp# Generated native/build artifacts
+
+# Local temp artifacts
+temp/
+tmp/
+.playwright-artifacts/
+hushh-webapp/test-results/
+**/build.log
+
+# Generated native/build artifacts
 hushh-webapp/.next/
+hushh-webapp/.next-prod/
 hushh-webapp/ios/build/
 hushh-webapp/ios/DerivedData/
 hushh-webapp/ios/App/DerivedData*/

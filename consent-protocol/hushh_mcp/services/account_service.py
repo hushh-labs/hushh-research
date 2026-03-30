@@ -542,6 +542,7 @@ class AccountService:
         - PKM Data (Encrypted)
         - Identity (Encrypted)
         """
-        # TODO: Implement full export if needed.
-        # For now, we reuse the existing specific export endpoints.
+        # NOT_IN_SCOPE: Full data export deferred. Current specific export
+        # endpoints (vault keys, PKM index, identity) serve all active use-cases.
+        # Revisit when GDPR bulk-export or account portability becomes a requirement.
         pass

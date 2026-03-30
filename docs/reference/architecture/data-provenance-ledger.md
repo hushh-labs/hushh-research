@@ -1,5 +1,10 @@
 # Data Provenance Ledger
 
+
+## Visual Context
+
+Canonical visual owner: [Architecture Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Mapping of user-visible KPI surfaces to source systems and freshness rules.
 
 | KPI / Surface | Source | Freshness / TTL | Fallback Policy |

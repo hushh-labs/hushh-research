@@ -2,11 +2,13 @@
 
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
 const FINANCIAL_DOMAIN = "financial";
 const SCHEMA_VERSION = 2 as const;
 const FINANCIAL_SCHEMA_VERSION = 3 as const;
-const FINANCIAL_CONTRACT_VERSION = 1 as const;
+const FINANCIAL_CONTRACT_VERSION = currentDomainContractVersion(FINANCIAL_DOMAIN);
 const FINANCIAL_INTENT_MAP = [
   "portfolio",
   "profile",
@@ -606,19 +608,19 @@ export class KaiProfileService {
     }
 
     next.preferences = recomputeDerived(next.preferences, iso);
-    const financialDomain = buildFinancialProfileDomain({
-      fullBlob,
-      profile: next,
-      updatedAtIso: iso,
-    });
-
-    const result = await PersonalKnowledgeModelService.storeMergedDomain({
+    const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
-      vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,
-      domainData: financialDomain,
-      summary: buildProfileSummary(next),
+      vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      build: (context) => ({
+        domainData: buildFinancialProfileDomain({
+          fullBlob: context.baseFullBlob,
+          profile: next,
+          updatedAtIso: iso,
+        }),
+        summary: buildProfileSummary(next),
+      }),
     });
 
     if (!result.success) {
@@ -654,19 +656,19 @@ export class KaiProfileService {
       },
       updated_at: iso,
     };
-    const financialDomain = buildFinancialProfileDomain({
-      fullBlob,
-      profile: next,
-      updatedAtIso: iso,
-    });
-
-    const result = await PersonalKnowledgeModelService.storeMergedDomain({
+    const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
-      vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,
-      domainData: financialDomain,
-      summary: buildProfileSummary(next),
+      vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      build: (context) => ({
+        domainData: buildFinancialProfileDomain({
+          fullBlob: context.baseFullBlob,
+          profile: next,
+          updatedAtIso: iso,
+        }),
+        summary: buildProfileSummary(next),
+      }),
     });
 
     if (!result.success) {
@@ -708,22 +710,22 @@ export class KaiProfileService {
       },
       updated_at: iso,
     };
-    const financialDomain = buildFinancialProfileDomain({
-      fullBlob,
-      profile: next,
-      updatedAtIso: iso,
-    });
-
-    const result = await PersonalKnowledgeModelService.storeMergedDomain({
+    const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
-      vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,
-      domainData: financialDomain,
-      summary: {
-        ...buildProfileSummary(next),
-        nav_tour_completed: Boolean(next.onboarding.nav_tour_completed_at),
-      },
+      vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      build: (context) => ({
+        domainData: buildFinancialProfileDomain({
+          fullBlob: context.baseFullBlob,
+          profile: next,
+          updatedAtIso: iso,
+        }),
+        summary: {
+          ...buildProfileSummary(next),
+          nav_tour_completed: Boolean(next.onboarding.nav_tour_completed_at),
+        },
+      }),
     });
 
     if (!result.success) {
@@ -822,23 +824,22 @@ export class KaiProfileService {
       };
     }
 
-    const financialDomain = buildFinancialProfileDomain({
-      fullBlob,
-      profile: next,
-      updatedAtIso: iso,
-    });
-
-    const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+    const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
-      vaultKey: params.vaultKey,
       domain: FINANCIAL_DOMAIN,
-      domainData: financialDomain,
-      summary: {
-        ...buildProfileSummary(next),
-        nav_tour_completed: Boolean(next.onboarding.nav_tour_completed_at),
-      },
-      baseFullBlob: fullBlob,
+      vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      build: (context) => ({
+        domainData: buildFinancialProfileDomain({
+          fullBlob: context.baseFullBlob,
+          profile: next,
+          updatedAtIso: iso,
+        }),
+        summary: {
+          ...buildProfileSummary(next),
+          nav_tour_completed: Boolean(next.onboarding.nav_tour_completed_at),
+        },
+      }),
     });
 
     if (!result.success) {

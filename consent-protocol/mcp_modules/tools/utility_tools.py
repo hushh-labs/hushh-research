@@ -2,7 +2,7 @@
 """
 Utility tool handlers (validate_token, delegate, list_scopes, discover_user_domains).
 
-Canonical PKM scopes are supported: pkm.read, pkm.write,
+Only world-model scopes are supported: world_model.read, world_model.write,
 attr.{domain}.*, and optional nested attr.{domain}.{subintent}.* scopes.
 """
 
@@ -13,7 +13,11 @@ import re
 import httpx
 from mcp.types import TextContent
 
-from hushh_mcp.consent.scope_helpers import get_scope_description, resolve_scope_to_enum
+from hushh_mcp.consent.scope_helpers import (
+    get_scope_description,
+    get_scope_display_metadata,
+    resolve_scope_to_enum,
+)
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import AGENT_PORTS
 from hushh_mcp.trust.link import create_trust_link, verify_trust_link
@@ -158,12 +162,12 @@ async def handle_list_scopes() -> list[TextContent]:
         fallback = {
             "scopes": [
                 {
-                    "name": "pkm.read",
-                    "description": get_scope_description("pkm.read"),
+                    "name": "world_model.read",
+                    "description": get_scope_description("world_model.read"),
                 },
                 {
-                    "name": "pkm.write",
-                    "description": get_scope_description("pkm.write"),
+                    "name": "world_model.write",
+                    "description": get_scope_description("world_model.write"),
                 },
                 {
                     "name": "attr.{domain}.*",
@@ -233,8 +237,8 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                                 "user_id": uid,
                                 "domains": [],
                                 "scopes": [],
-                                "message": "No PKM data for this user (new user or no domains yet)",
-                                "usage": "Call request_consent with scope='pkm.read' or attr.{domain}.* after user adds data",
+                                "message": "No world model data for this user (new user or no domains yet)",
+                                "usage": "Call request_consent with scope='world_model.read' or attr.{domain}.* after user adds data",
                             }
                         ),
                     )
@@ -277,13 +281,26 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
         ]
 
     scopes = data.get("scopes") or []
-    scope_entries = data.get("scope_entries") or []
     domains = []
     for s in scopes:
         m = re.match(r"^attr\.([a-zA-Z0-9_]+)(?:\..*)?$", s)
         if m:
             domains.append(m.group(1))
     domains = sorted(set(domains))
+
+    # Enrich each scope with display metadata (label, icon, color)
+    enriched_scopes = []
+    for s in scopes:
+        meta = get_scope_display_metadata(s)
+        enriched_scopes.append(
+            {
+                "scope": s,
+                "label": meta["label"],
+                "description": meta["description"],
+                "icon_name": meta.get("icon_name"),
+                "color_hex": meta.get("color_hex"),
+            }
+        )
 
     return [
         TextContent(
@@ -292,8 +309,7 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                 {
                     "user_id": data.get("user_id", uid),
                     "domains": domains,
-                    "scopes": scopes,
-                    "scope_entries": scope_entries,
+                    "scopes": enriched_scopes,
                     "usage": "Call request_consent(user_id, scope) with one of the scopes above to request consent",
                 }
             ),

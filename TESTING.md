@@ -1,5 +1,10 @@
 # Testing
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](docs/reference/quality/README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This file is a repo-root testing entrypoint. The maintained CI and verification reference lives at [`docs/reference/operations/ci.md`](./docs/reference/operations/ci.md).
 
 ## Testing Principles

@@ -74,10 +74,10 @@ describe("app route layout contract", () => {
     expect(resolveAppRouteLayoutMode("/")).toBe("hidden");
     expect(resolveAppRouteLayoutMode("/developers")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/login")).toBe("hidden");
-    expect(resolveAppRouteLayoutMode("/consents")).toBe("redirect");
+    expect(resolveAppRouteLayoutMode("/consents")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/profile/receipts")).toBe("standard");
-    expect(resolveAppRouteLayoutMode("/profile/pkm")).toBe("standard");
-    expect(resolveAppRouteLayoutMode("/profile/pkm-agent-lab")).toBe("standard");
+    expect(resolveAppRouteLayoutMode("/profile/pkm")).toBe("redirect");
+    expect(resolveAppRouteLayoutMode("/profile/pkm-agent-lab")).toBe("hidden");
     expect(resolveAppRouteLayoutMode("/profile/gmail/oauth/return")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/kai")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/kai/onboarding")).toBe("flow");

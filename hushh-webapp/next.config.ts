@@ -13,8 +13,10 @@ import type { NextConfig } from "next";
  */
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "true";
+const distDir = process.env.NEXT_DIST_DIR?.trim() || ".next";
 
 const config: NextConfig = {
+  distDir,
   // Dynamic output mode
   // 'standalone' is REQUIRED for Docker/Cloud Run builds to reduce image size
   output: isCapacitorBuild ? "export" : "standalone",
@@ -48,6 +50,20 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: false,
   productionBrowserSourceMaps: false,
+  webpack: (webpackConfig, { dev }) => {
+    if (dev) {
+      webpackConfig.watchOptions = {
+        ...webpackConfig.watchOptions,
+        ignored: [
+          "**/.playwright-artifacts/**",
+          "**/playwright-report/**",
+          "**/test-results/**",
+        ],
+      };
+    }
+
+    return webpackConfig;
+  },
 };
 
 export default config;

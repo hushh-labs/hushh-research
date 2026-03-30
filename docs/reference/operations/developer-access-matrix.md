@@ -1,5 +1,10 @@
 # Developer Access Matrix
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This is the current access model for `developers@hushh.ai` in the `hush1one.com` organization.
 
 ## Org-level inherited roles

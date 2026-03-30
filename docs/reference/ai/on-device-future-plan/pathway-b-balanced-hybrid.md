@@ -1,5 +1,10 @@
 # Pathway B: Balanced Hybrid (Recommended)
 
+
+## Visual Context
+
+Canonical visual owner: [Cloud + On-Device AI Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Status
 
 `Future Plan` option. Recommended for first implementation, but not shipped yet.

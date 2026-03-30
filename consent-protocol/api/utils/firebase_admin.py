@@ -100,10 +100,11 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     except ValueError:
         pass
 
-    # Prefer explicit service account JSON for local dev. When auth and default
-    # Firebase credentials diverge, keep the default app aligned with the auth
-    # project so token verification and FCM/web messaging stay on the same
-    # Firebase identity plane.
+    # Prefer the explicit default service account for the default Firebase app.
+    # Auth-token verification may use a separate named app via
+    # FIREBASE_AUTH_SERVICE_ACCOUNT_JSON; keep those concerns decoupled so local
+    # UAT messaging can continue to use the UAT Firebase project while auth
+    # verification uses the shared auth project.
     sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
     auth_sa = _load_service_account_from_env(AUTH_SERVICE_ACCOUNT_ENV)
     selected_sa = sa or auth_sa
@@ -118,11 +119,10 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
         and default_project_id != auth_project_id
     ):
         logger.warning(
-            "Firebase Admin default/auth project mismatch detected (default=%s auth=%s). Using auth Firebase credential as the default app for unified identity + FCM behavior.",
+            "Firebase Admin default/auth project mismatch detected (default=%s auth=%s). Keeping default app on the default project and auth verification on the named auth app.",
             default_project_id,
             auth_project_id,
         )
-        selected_sa = auth_sa
 
     if selected_sa:
         cred = credentials.Certificate(selected_sa)

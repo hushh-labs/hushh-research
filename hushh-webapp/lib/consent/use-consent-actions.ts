@@ -14,9 +14,12 @@ import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
+import {
+  CONSENT_ACTION_COMPLETE_EVENT,
+  dispatchConsentStateChanged,
+} from "@/lib/consent/consent-events";
+import { buildConsentExportForScope } from "@/lib/consent/export-builder";
 
 // ============================================================================
 // Types
@@ -25,12 +28,20 @@ import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manife
 export interface PendingConsent {
   id: string;
   developer: string;
+  developerImageUrl?: string;
+  developerWebsiteUrl?: string;
   scope: string;
   scopeDescription?: string;
   requestedAt: number;
+  approvalTimeoutAt?: number;
   expiryHours?: number;
   durationHours?: number;
   bundleId?: string;
+  requestUrl?: string;
+  reason?: string;
+  isScopeUpgrade?: boolean;
+  existingGrantedScopes?: string[];
+  additionalAccessSummary?: string;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -49,54 +60,9 @@ interface UseConsentActionsOptions {
 
 /** pkm.read or attr.{domain}.* (domain: alphanumeric + underscore only) */
 const PKM_READ = "pkm.read";
-const ATTR_SCOPE_REGEX = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/;
 
 function isPkmScope(scope: string): boolean {
   return scope === PKM_READ || scope.startsWith("attr.");
-}
-
-function parseAttrScope(scope: string): {
-  domain: string;
-  path: string | null;
-  isWildcard: boolean;
-} | null {
-  const match = scope.match(ATTR_SCOPE_REGEX);
-  if (!match) return null;
-  const domain = match[1] ?? "";
-  const remainder = match[2] ?? "";
-  const isWildcard = remainder === "*" || remainder.endsWith(".*");
-  const normalizedPath = remainder.replace(/\.\*$/, "").trim();
-  return {
-    domain,
-    path: normalizedPath && normalizedPath !== "*" ? normalizedPath : null,
-    isWildcard,
-  };
-}
-
-function resolveApprovedPaths(scope: string, manifest: {
-  externalizable_paths?: string[];
-  paths?: Array<{ json_path?: string }>;
-  manifest_version?: number;
-} | null): string[] {
-  const parsed = parseAttrScope(scope);
-  if (!parsed) {
-    return [];
-  }
-  if (!parsed.path) {
-    return manifest?.externalizable_paths || [];
-  }
-
-  const manifestPaths = (manifest?.paths || [])
-    .map((entry) => entry.json_path)
-    .filter((path): path is string => typeof path === "string" && path.length > 0);
-
-  if (!parsed.isWildcard) {
-    return [parsed.path];
-  }
-
-  return manifestPaths.filter(
-    (path) => path === parsed.path || path.startsWith(`${parsed.path}.`)
-  );
 }
 
 function getScopeDataEndpoint(scope: string): string | null {
@@ -188,8 +154,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       if (!userId || !vaultKey) {
         toast.error("Vault not unlocked", {
           id: toastId,
-          description: "Please unlock your vault to approve this request.",
-          duration: 3000,
+          description: "Unlock your vault to approve this request.",
+          duration: 6000,
+          action: {
+            label: "Unlock",
+            onClick: () => {
+              window.location.href = "/kai";
+            },
+          },
         });
         // Reset to pending if not unlocked
         markAsPending(consent.id);
@@ -203,81 +175,21 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         }
 
         let scopeData: Record<string, unknown> = {};
+        let sourceContentRevision: number | undefined;
+        let sourceManifestRevision: number | undefined;
 
         // PKM scopes: build export from encrypted PKM storage (BYOK)
         if (isPkmScope(consent.scope)) {
           try {
-            if (consent.scope === PKM_READ || consent.scope === PKM_READ) {
-              const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
-                userId,
-                vaultKey,
-                vaultOwnerToken,
-              });
-              const availableDomains = Object.keys(fullBlob);
-              if (availableDomains.length === 0) {
-                scopeData = {};
-                console.info("[Consent] Consent approved with empty PKM export (no domains)");
-              } else {
-                scopeData = {
-                  ...fullBlob,
-                  __export_metadata: {
-                    scope: consent.scope,
-                    export_timestamp: new Date().toISOString(),
-                    available_domains: availableDomains,
-                  },
-                };
-              }
-            } else {
-              const parsedScope = parseAttrScope(consent.scope);
-              if (!parsedScope) {
-                scopeData = {};
-              } else {
-                const manifest = await PersonalKnowledgeModelService.getDomainManifest(
-                  userId,
-                  parsedScope.domain,
-                  vaultOwnerToken
-                ).catch(() => null);
-                const approvedPaths = resolveApprovedPaths(consent.scope, manifest);
-                const segmentIds = PersonalKnowledgeModelService.resolveSegmentIdsForPaths({
-                  manifest,
-                  paths: approvedPaths,
-                });
-                const blob = await PersonalKnowledgeModelService.getDomainData(
-                  userId,
-                  parsedScope.domain,
-                  vaultOwnerToken,
-                  segmentIds
-                );
-                if (!blob) {
-                  scopeData = { [parsedScope.domain]: {} };
-                } else {
-                  const domainData =
-                    await PersonalKnowledgeModelService.loadDomainData({
-                      userId,
-                      domain: parsedScope.domain,
-                      vaultKey,
-                      vaultOwnerToken,
-                      segmentIds,
-                    });
-                  const resolvedDomainData = domainData || {};
-                  scopeData = {
-                    ...projectDomainDataForScope({
-                      domain: parsedScope.domain,
-                      scope: consent.scope,
-                      domainData: resolvedDomainData,
-                    }),
-                    __export_metadata: {
-                      scope: consent.scope,
-                      source_domain: parsedScope.domain,
-                      manifest_version: manifest?.manifest_version ?? null,
-                      approved_paths: approvedPaths,
-                      approved_segment_ids: segmentIds,
-                      export_timestamp: new Date().toISOString(),
-                    },
-                  };
-                }
-              }
-            }
+            const builtExport = await buildConsentExportForScope({
+              userId,
+              scope: consent.scope,
+              vaultKey,
+              vaultOwnerToken,
+            });
+            scopeData = builtExport.payload;
+            sourceContentRevision = builtExport.sourceContentRevision;
+            sourceManifestRevision = builtExport.sourceManifestRevision;
           } catch (err) {
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
@@ -405,6 +317,23 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           typeof consentMetadata.connector_key_id === "string"
             ? consentMetadata.connector_key_id
             : undefined;
+        const requesterActorType =
+          typeof consentMetadata.requester_actor_type === "string"
+            ? consentMetadata.requester_actor_type
+            : "";
+        const requestSource =
+          typeof consentMetadata.request_source === "string"
+            ? consentMetadata.request_source
+            : "";
+        const isDeveloperRequest =
+          Boolean(connectorPublicKey) ||
+          requesterActorType === "developer" ||
+          requestSource === "developer_api_v1";
+        if (isDeveloperRequest && !connectorPublicKey) {
+          throw new Error(
+            "Missing connector public key. The developer needs to re-send this request with a public key. Contact them or try again later."
+          );
+        }
         const exportKey = await generateExportKey();
         const encrypted = await encryptForExport(
           JSON.stringify(scopeData),
@@ -427,13 +356,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           encryptedData: encrypted.ciphertext,
           encryptedIv: encrypted.iv,
           encryptedTag: encrypted.tag,
-          exportKey: wrappedKeyBundle ? undefined : exportKey,
           wrappedExportKey: wrappedKeyBundle?.wrappedExportKey,
           wrappedKeyIv: wrappedKeyBundle?.wrappedKeyIv,
           wrappedKeyTag: wrappedKeyBundle?.wrappedKeyTag,
           senderPublicKey: wrappedKeyBundle?.senderPublicKey,
           wrappingAlg: wrappedKeyBundle?.wrappingAlg,
           connectorKeyId: wrappedKeyBundle?.connectorKeyId,
+          sourceContentRevision,
+          sourceManifestRevision,
           durationHours: consent.durationHours,
         });
 
@@ -464,10 +394,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         // Dispatch custom event so consents page can refresh tables
         window.dispatchEvent(
-          new CustomEvent("consent-action-complete", {
+          new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
             detail: { action: "approve", requestId: consent.id },
           })
         );
+        dispatchConsentStateChanged({ action: "approve", requestId: consent.id });
       } catch (err) {
         console.error("Error approving consent:", err);
         markAsPending(consent.id);
@@ -528,10 +459,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         // Dispatch custom event so consents page can refresh tables
         window.dispatchEvent(
-          new CustomEvent("consent-action-complete", {
+          new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
             detail: { action: "deny", requestId },
           })
         );
+        dispatchConsentStateChanged({ action: "deny", requestId });
       } catch (err) {
         console.error("Error denying consent:", err);
         markAsPending(requestId);
@@ -649,6 +581,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         
         CacheSyncService.onConsentMutated(userId);
         onActionComplete?.();
+        dispatchConsentStateChanged({ action: "revoke", scope });
       } catch (err) {
         console.error("Error revoking consent:", err);
       }

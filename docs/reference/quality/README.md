@@ -1,5 +1,25 @@
 # Quality and Design System Index
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["Quality and Design System Index"]
+  n1["App Surface Audit Matrix"]
+  root --> n1
+  n2["App Surface Design System"]
+  root --> n2
+  n3["Design System"]
+  root --> n3
+  n4["Frontend Pattern Catalog"]
+  root --> n4
+  n5["Pr Impact Checklist"]
+  root --> n5
+  n6["Profile Settings Design System"]
+  root --> n6
+```
+
 This is the north-star entrypoint for the app shell, surface system, interaction rules, and responsive layout contract.
 
 ## Read In This Order

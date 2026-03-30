@@ -2,6 +2,26 @@
 
 > Complete endpoint reference, authentication model, and developer integration guide.
 
+
+## Visual Map
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Boundary as Web Proxy / Native Plugin
+  participant API as FastAPI Route
+  participant Service as Consent + Service Layer
+  participant Store as PKM / DB / Provider
+  Client->>Boundary: runtime request
+  Boundary->>API: canonical /api/* call
+  API->>Service: auth + consent + scope checks
+  Service->>Store: read/write
+  Store-->>Service: data or ciphertext
+  Service-->>API: contract response
+  API-->>Boundary: token-gated payload
+  Boundary-->>Client: runtime data
+```
+
 ---
 
 ## Token Hierarchy
@@ -59,6 +79,7 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `?token=<developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
 | POST | `/api/v1/request-consent` | Create or reuse consent for one discovered scope (requires `?token=<developer-token>`) |
+| POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
 ### Developer Portal (Firebase Sign-In / Self-Serve)
 
@@ -99,18 +120,66 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | POST | `/api/consent/revoke` | Revoke active consent |
 | GET | `/api/consent/history` | Paginated consent audit history |
 | GET | `/api/consent/active` | Active (non-expired) tokens |
+| GET | `/api/consent/center` | Compatibility read model for older consent-center callers |
+| GET | `/api/consent/center/summary` | Canonical header counts for `/consents` (`pending`, `active`, `previous`) |
+| GET | `/api/consent/center/list` | Canonical consent-manager list for one actor/surface (`page`, `limit`, `total`, `has_more`, `items[]`); supports full-manager `page + limit` and preview `top` |
+
+Consent-manager note:
+
+- `/consents` is powered by `summary + list`, not the monolithic `center` payload
+- `center/list` is actor-aware and surface-aware:
+  - investor `pending`: incoming requests
+  - investor `active`: active grants
+  - investor `previous`: resolved history
+  - RIA `pending`: outgoing requests + open invites
+  - RIA `active`: approved relationship / active grant roster
+  - RIA `previous`: resolved outgoing requests + closed invite history
+- full managers use backend-backed `page + limit` (`limit=20` current default)
+- the first-party top-shell consent inbox reuses the cached `pending page 1` manager payload and renders the first `5` rows from that list instead of owning a second preview cache lane
+- dedicated preview callers can still use `top=n` when they explicitly do not need the full manager page contract
+
+#### RIA And Relationship Sharing
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/ria/clients` | Advisor-facing relationship summary list, including implicit relationship-share status |
+| GET | `/api/ria/clients/{investor_user_id}` | Advisor-facing relationship detail, including scoped grants and included advisor-picks benefit |
+| GET | `/api/ria/workspace/{investor_user_id}` | Advisor workspace over investor-consented data plus relationship-share status |
+| GET | `/api/kai/market/insights/{user_id}` | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata |
+
+RIA relationship bundle note:
+
+- investor private data -> RIA stays on explicit scope consent
+- RIA active picks feed -> investor is an implicit relationship share (`ria_active_picks_feed_v1`)
+- advisor picks are gated by both relationship approval and an active relationship-share grant, not by a second consent prompt
 
 #### Personal Knowledge Model
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| POST | `/api/pkm/store-domain` | Store encrypted PKM domain data + update index |
+| POST | `/api/pkm/store-domain` | Store encrypted PKM domain data + update index; accepts optional non-sensitive `write_projections[]` for derived read models such as decision history |
 | GET | `/api/pkm/data/{user_id}` | Get full encrypted PKM payload |
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
 | DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
+| POST | `/api/pkm/domains/{domain}/scope-exposure` | Enable/disable top-level PKM section exposure and revoke overlapping active grants |
+| GET | `/api/pkm/upgrade/status/{user_id}` | Get generic PKM upgrade status + resumable run metadata |
+| POST | `/api/pkm/upgrade/start-or-resume` | Start or resume a client-side PKM upgrade run |
+| POST | `/api/pkm/upgrade/runs/{run_id}/status` | Update run-level PKM upgrade status |
+| POST | `/api/pkm/upgrade/runs/{run_id}/steps/{domain}` | Update per-domain PKM upgrade checkpoint |
+| POST | `/api/pkm/upgrade/runs/{run_id}/complete` | Mark a PKM upgrade run completed |
+| POST | `/api/pkm/upgrade/runs/{run_id}/fail` | Mark a PKM upgrade run failed |
 | GET | `/api/pkm/scopes/{user_id}` | Get available PKM scope handles for the user |
 | POST | `/api/pkm/get-context` | Get user context for analysis |
+
+Legacy compatibility note:
+
+- `/api/world-model/*` remains available only as a compatibility surface mapped onto PKM
+- these responses emit deprecation headers:
+  - `Deprecation: true`
+  - `Sunset: 2026-06-30T00:00:00Z`
+  - `X-Migrate-To: /api/pkm/...`
+- no new first-party callers should be added to `/api/world-model/*`
 
 #### Kai Chat
 
@@ -179,7 +248,7 @@ Operational note:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/kai/decisions/{user_id}` | Decision history from domain summaries |
+| GET | `/api/kai/decisions/{user_id}` | Decision history from PKM `decision_projection` events with summary fallback only for legacy users |
 
 #### Kai Personalization
 
@@ -225,6 +294,7 @@ Method-management semantics:
 Security invariant:
 - No plaintext-at-rest path is allowed.
 - PKM encryption/decryption always uses the same DEK regardless of unlock method.
+- Generic PKM upgrades remain client-side after unlock; the backend only stores resumable run metadata and ciphertext.
 | POST | `/api/sync/vault` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | POST | `/api/sync/batch` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | GET | `/api/sync/pull` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
@@ -249,10 +319,15 @@ Security invariant:
 | POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
 | POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
 | DELETE | `/api/pkm/attributes/{uid}/{domain}/{key}` | Client-side BYOK operation |
-| POST | `/api/kai/decision/store` | `POST /api/pkm/store-domain` with domain=`financial` |
+| POST | `/api/kai/decision/store` | `POST /api/pkm/store-domain` with domain=`financial`; first-party flows now attach `write_projections[]` instead of relying on legacy summary inference |
 | GET | `/api/kai/decision/{id}` | `GET /api/kai/decisions/{user_id}` |
 | DELETE | `/api/kai/decision/{id}` | `POST /api/pkm/store-domain` with domain=`financial` |
 | `*` | `/api/identity/*` | Removed from app surface; compatibility stubs return `410` |
+
+Notes:
+- First-party PKM writes are version-aware through the frontend `PkmWriteCoordinator`; stale domains may trigger resumable client-side PKM upgrade before save.
+- Debate/analysis history remains encrypted in `financial.analysis_history` and mirrors a privacy-safe `decision_history_v1` projection for backend/read-model consumers.
+- Current history retention is `3` saved versions per ticker, newest first.
 
 ---
 
@@ -353,8 +428,9 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 2. POST /api/v1/request-consent
    Query: ?token=<developer-token>
-   Body: { user_id, scope, reason }
-   → Returns: { request_id, status: "pending" }
+   Body: { user_id, scope, reason, approval_timeout_minutes, connector_public_key, connector_key_id, connector_wrapping_alg }
+   → Returns: { request_id, status: "pending" } or an immediate reuse payload with
+     { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }
 
 3. User receives FCM notification → approves in app
 
@@ -369,7 +445,14 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `request_consent` → `check_consent_status` → `get_scoped_data`
+`discover_user_domains` → `request_consent` → `check_consent_status` → `get_scoped_data(expected_scope=original_scope)`
+
+Coverage rules:
+
+- broader active grant → narrower ask: reuse immediately
+- narrower active grant → broader ask: requires fresh approval
+- exact duplicate pending request → reuse the existing request_id
+- broader-token reuse must still return the narrower requested slice when `expected_scope` is supplied
 
 Production policy:
 - All `/api/v1/*` endpoints return `410` with:

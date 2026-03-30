@@ -882,7 +882,7 @@ export function KaiSearchBar({
     : "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
   const realtimeConnecting = sessionStateText === "connecting" && !realtimeSessionReady;
 
-  return (
+      return (
     <>
       <div
         className={cn(

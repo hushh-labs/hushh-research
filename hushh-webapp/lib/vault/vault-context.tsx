@@ -30,6 +30,8 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
+import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
 
@@ -90,18 +92,38 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
   const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const lockVault = useCallback(() => {
     console.log("🔒 Vault locked (key + token cleared from memory)");
+    if (user?.uid && vaultOwnerToken) {
+      void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
+        userId: user.uid,
+        vaultOwnerToken,
+      }).catch((error) => {
+        console.warn("[VaultProvider] Failed to pause PKM upgrade for local auth resume:", error);
+      });
+    }
+    if (user?.uid) {
+      ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: user.uid });
+    }
     setVaultKey(null);
     setVaultOwnerToken(null);
     setTokenExpiresAt(null);
 
     if (user?.uid) {
       CacheSyncService.onVaultStateChanged(user.uid);
+      void import("@/lib/kai/kai-financial-resource")
+        .then(({ KaiFinancialResourceService }) => {
+          KaiFinancialResourceService.invalidate(user.uid, { includeDevice: false });
+        })
+        .catch(() => undefined);
+      void import("@/lib/pkm/pkm-domain-resource")
+        .then(({ PkmDomainResourceService }) => {
+          PkmDomainResourceService.invalidateDomain(user.uid, "financial");
+        })
+        .catch(() => undefined);
     }
     VaultService.invalidateVaultStateCache();
-  }, [user?.uid]);
+  }, [user?.uid, vaultOwnerToken]);
 
   // Auto-Lock on Sign Out
   // If AuthContext reports no user, we MUST clear the decrypted key from memory immediately.
@@ -126,6 +148,60 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () =>
       window.removeEventListener("vault-lock-requested", handleLockRequest);
   }, [lockVault]);
+
+  useEffect(() => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      return;
+    }
+
+    const handleDomainStored = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        userId?: string;
+        domain?: string;
+      }>;
+      if (customEvent.detail?.userId !== user.uid) {
+        return;
+      }
+      void ConsentExportRefreshOrchestrator.ensureRunning({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        initiatedBy: "pkm_domain_store",
+      }).catch((error) => {
+        console.warn("[VaultProvider] Consent export refresh orchestration failed:", error);
+      });
+    };
+
+    window.addEventListener("pkm-domain-stored", handleDomainStored);
+    return () => {
+      window.removeEventListener("pkm-domain-stored", handleDomainStored);
+    };
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!user?.uid || !vaultKey) {
+      return;
+    }
+
+    void import("@/lib/kai/kai-financial-resource")
+      .then(({ KaiFinancialResourceService }) =>
+        KaiFinancialResourceService.hydrateFromSecureCache({
+          userId: user.uid,
+          vaultKey,
+        })
+      )
+      .catch(() => null);
+
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) =>
+        PkmDomainResourceService.hydrateFromSecureCache({
+          userId: user.uid,
+          domain: "financial",
+          vaultKey,
+        })
+      )
+      .catch(() => null);
+  }, [user?.uid, vaultKey]);
 
   /**
    * Prefetch common data after vault unlock to speed up page loads.
@@ -160,7 +236,19 @@ export function VaultProvider({ children }: VaultProviderProps) {
       if (user?.uid) {
         const routePath =
           typeof window !== "undefined" ? window.location.pathname : undefined;
-        prefetchDashboardData(user.uid, token, key, routePath);
+        const scheduleWarm = () => {
+          void prefetchDashboardData(user.uid, token, key, routePath);
+        };
+
+        if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+          const requestIdle = window.requestIdleCallback as (
+            callback: IdleRequestCallback,
+            options?: IdleRequestOptions
+          ) => number;
+          requestIdle(() => scheduleWarm(), { timeout: 1500 });
+        } else {
+          globalThis.setTimeout(scheduleWarm, 300);
+        }
       }
     },
     [user, prefetchDashboardData]

@@ -1,5 +1,10 @@
 # Kai Runtime Smoke Checklist
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Use this lightweight checklist instead of expanding automated test coverage.
 
 ## 0) Route/System Audit
@@ -36,6 +41,14 @@ Use this lightweight checklist instead of expanding automated test coverage.
 4. Confirm hero reads as holdings-led context and buttons have expected styles:
    - `Open Dashboard` blue gradient fill
    - `Refresh` fade style
+
+## 3a) Consent Inbox + Manager
+1. From the signed-in shell, confirm the shield badge matches the active persona pending summary.
+2. Open the shield inbox and confirm:
+   - at most 5 rows are shown,
+   - internal scroll appears only when needed,
+   - `Open consent manager` opens `/consents` for the active persona.
+3. Confirm empty pending state does not show pagination chrome in either the inbox or `/consents`.
 
 ## 4) Debate Output Reliability
 1. Run stock analysis from dashboard/portfolio flow.

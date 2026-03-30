@@ -4,6 +4,11 @@
 > **Last Updated**: February 2026  
 > **Principle**: Consent-First, BYOK, Zero-Knowledge
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## Overview

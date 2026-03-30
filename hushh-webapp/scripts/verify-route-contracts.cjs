@@ -58,6 +58,22 @@ function resolveRepoFile(repoRoot, repoRelativeFile) {
   return path.join(repoRoot, repoRelativeFile);
 }
 
+function loadAppRouteLayoutContract(repoRoot) {
+  const contractPath = path.join(
+    repoRoot,
+    "hushh-webapp",
+    "lib",
+    "navigation",
+    "app-route-layout.contract.json"
+  );
+  if (!exists(contractPath)) {
+    throw new Error(
+      `Missing app route layout contract: hushh-webapp/lib/navigation/app-route-layout.contract.json`
+    );
+  }
+  return JSON.parse(readText(contractPath));
+}
+
 function getDeclaredWebRouteFiles(manifest) {
   const files = [];
   for (const c of manifest.contracts) {
@@ -266,8 +282,42 @@ function assertPageContracts(repoRoot, manifest) {
   }
 }
 
+function assertStandardRoutesDoNotOwnTopShellSpacing(repoRoot, layoutContract) {
+  const forbiddenTokens = [
+    "var(--page-top-start",
+    "var(--top-content-pad",
+    "var(--top-shell-reserved-height",
+    "pt-[var(--page-top-start",
+    "pt-[calc(var(--top",
+    "paddingTop: \"var(--page-top-start",
+    "paddingTop: 'var(--page-top-start",
+  ];
+
+  for (const entry of layoutContract) {
+    if (entry.mode !== "standard" || !entry.shellVerification?.file) {
+      continue;
+    }
+
+    const filePath = resolveRepoFile(repoRoot, path.join("hushh-webapp", entry.shellVerification.file));
+    if (!exists(filePath)) {
+      throw new Error(
+        `[route-layout:${entry.route}] Missing shell verification file: ${entry.shellVerification.file}`
+      );
+    }
+
+    const source = readText(filePath);
+    const offending = forbiddenTokens.find((token) => source.includes(token));
+    if (offending) {
+      throw new Error(
+        `[route-layout:${entry.route}] Standard routes must rely on provider-owned shell spacing. Remove manual top-shell compensation token "${offending}" from ${entry.shellVerification.file}.`
+      );
+    }
+  }
+}
+
 function main() {
   const repoRoot = repoRootFromHere();
+  const layoutContract = loadAppRouteLayoutContract(repoRoot);
   const manifestPath = path.join(
     repoRoot,
     "hushh-webapp",
@@ -333,6 +383,7 @@ function main() {
 
   // 3) Validate page-level runtime contracts
   assertPageContracts(repoRoot, manifest);
+  assertStandardRoutesDoNotOwnTopShellSpacing(repoRoot, layoutContract);
 
   // eslint-disable-next-line no-console
   console.log("OK: route contracts verified (API + page runtime)");

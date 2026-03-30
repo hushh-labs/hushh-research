@@ -27,6 +27,10 @@
 
 ---
 
+## Visual Context
+
+Canonical visual owner: [Hushh Documentation](docs/README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## 🤫 What is Hushh?
 
 **Hushh** is a consent-first platform where AI agents work **for you**, not against you. Every data access requires cryptographic consent tokens—no backdoors, no bypasses, complete audit trails.

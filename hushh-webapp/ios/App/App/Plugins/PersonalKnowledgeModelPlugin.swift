@@ -344,16 +344,120 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         if let algorithm = encryptedBlob["algorithm"] as? String {
             blob["algorithm"] = algorithm
         }
+        if let segments = encryptedBlob["segments"] as? [String: Any], !segments.isEmpty {
+            blob["segments"] = segments
+        }
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "user_id": userId,
             "domain": domain,
             "encrypted_blob": blob,
             "summary": summary
         ]
+        if let structureDecision = call.getObject("structureDecision") {
+            body["structure_decision"] = structureDecision
+        }
+        if let manifest = call.getObject("manifest") {
+            body["manifest"] = manifest
+        }
+        if let expectedDataVersion = call.getInt("expectedDataVersion") {
+            body["expected_data_version"] = expectedDataVersion
+        }
+        if let upgradeContext = call.getObject("upgradeContext"),
+           let runId = upgradeContext["runId"] as? String,
+           !runId.isEmpty {
+            var upgradePayload: [String: Any] = [
+                "run_id": runId
+            ]
+            if let priorDomainContractVersion = upgradeContext["priorDomainContractVersion"] as? Int {
+                upgradePayload["prior_domain_contract_version"] = priorDomainContractVersion
+            }
+            if let newDomainContractVersion = upgradeContext["newDomainContractVersion"] as? Int {
+                upgradePayload["new_domain_contract_version"] = newDomainContractVersion
+            }
+            if let priorReadableSummaryVersion = upgradeContext["priorReadableSummaryVersion"] as? Int {
+                upgradePayload["prior_readable_summary_version"] = priorReadableSummaryVersion
+            }
+            if let newReadableSummaryVersion = upgradeContext["newReadableSummaryVersion"] as? Int {
+                upgradePayload["new_readable_summary_version"] = newReadableSummaryVersion
+            }
+            if let retryCount = upgradeContext["retryCount"] as? Int {
+                upgradePayload["retry_count"] = retryCount
+            }
+            body["upgrade_context"] = upgradePayload
+        }
 
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        executeRequest(request, call: call, backendUrl: backendUrl)
+        urlSession.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                let errorMsg = "Network error: \(error.localizedDescription)"
+                print("[\(self.TAG)] \(errorMsg)")
+                call.reject(errorMsg)
+                return
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                call.reject("No response received")
+                return
+            }
+
+            if httpResponse.statusCode == 409 {
+                let payload = (try? JSONSerialization.jsonObject(with: data ?? Data())) as? [String: Any]
+                let detail = payload?["detail"] as? [String: Any]
+                var result: [String: Any] = [
+                    "success": false,
+                    "conflict": true,
+                    "message": detail?["message"] as? String ?? "PKM version conflict.",
+                ]
+                if let currentDataVersion = detail?["current_data_version"] as? Int {
+                    result["dataVersion"] = currentDataVersion
+                }
+                if let updatedAt = detail?["updated_at"] as? String {
+                    result["updatedAt"] = updatedAt
+                }
+                call.resolve(result)
+                return
+            }
+
+            if !(200...299).contains(httpResponse.statusCode) {
+                let bodyStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "no body"
+                let truncatedBody = bodyStr.count > 200 ? String(bodyStr.prefix(200)) + "..." : bodyStr
+                let errorMsg = "HTTP Error \(httpResponse.statusCode): \(truncatedBody)"
+                print("[\(self.TAG)] \(errorMsg)")
+                call.reject(errorMsg)
+                return
+            }
+
+            guard let data = data else {
+                call.reject("No data received")
+                return
+            }
+
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    var result: [String: Any] = [
+                        "success": (json["success"] as? Bool) ?? true,
+                        "conflict": (json["conflict"] as? Bool) ?? false,
+                    ]
+                    if let message = json["message"] as? String {
+                        result["message"] = message
+                    }
+                    if let dataVersion = json["data_version"] as? Int {
+                        result["dataVersion"] = dataVersion
+                    }
+                    if let updatedAt = json["updated_at"] as? String {
+                        result["updatedAt"] = updatedAt
+                    }
+                    call.resolve(result)
+                } else {
+                    call.reject("Invalid response format")
+                }
+            } catch {
+                call.reject("JSON parsing error: \(error.localizedDescription)")
+            }
+        }.resume()
     }
 
     /**

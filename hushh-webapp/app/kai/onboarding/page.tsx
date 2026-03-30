@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
@@ -68,7 +68,7 @@ function computePersona(answers: WizardAnswers, explicit?: RiskProfile | null): 
   return score === null ? "balanced" : mapRiskProfile(score);
 }
 
-export default function KaiOnboardingPage() {
+function KaiOnboardingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
@@ -255,7 +255,10 @@ export default function KaiOnboardingPage() {
 
   if (stage === "entry") {
     return (
-      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] w-full max-w-4xl items-start px-5 pb-8 pt-[calc(var(--top-shell-reserved-height,0px)+16px)] sm:pt-[calc(var(--top-shell-reserved-height,0px)+20px)]">
+      <div
+        data-top-content-anchor="true"
+        className="mx-auto flex min-h-[calc(100dvh-var(--app-fullscreen-flow-content-offset,0px))] w-full max-w-4xl items-start px-5 pb-8 pt-[var(--app-fullscreen-flow-content-offset)]"
+      >
         <div className="w-full space-y-6">
           <div className="text-center space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
@@ -591,5 +594,13 @@ export default function KaiOnboardingPage() {
         }
       }}
     />
+  );
+}
+
+export default function KaiOnboardingPage() {
+  return (
+    <Suspense fallback={<HushhLoader label="Loading onboarding..." variant="fullscreen" />}>
+      <KaiOnboardingPageContent />
+    </Suspense>
   );
 }

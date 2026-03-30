@@ -1,5 +1,31 @@
 # Kai Index
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["Kai Index"]
+  n1["Kai Accuracy Contract"]
+  root --> n1
+  n2["Kai Brokerage Connectivity Architecture"]
+  root --> n2
+  n3["Kai Change Impact Matrix"]
+  root --> n3
+  n4["Kai Interconnection Map"]
+  root --> n4
+  n5["Kai Rate Limit Playbook"]
+  root --> n5
+  n6["Kai Route Audit Matrix"]
+  root --> n6
+  n7["Kai Runtime Smoke Checklist"]
+  root --> n7
+  n8["Kai V6 Execution Plan"]
+  root --> n8
+  n9["Mobile Kai Parity Map"]
+  root --> n9
+```
+
 Kai-specific architecture, runtime, and rollout references live here.
 
 ## References

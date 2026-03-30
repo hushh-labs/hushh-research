@@ -1,5 +1,10 @@
 # Streaming Implementation Guide
 
+
+## Visual Context
+
+Canonical visual owner: [Streaming Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Use this pattern for any new Kai streaming feature.
 
 ## 1. Backend Producer

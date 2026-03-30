@@ -3,6 +3,11 @@
 > **IMPORTANT**: All implementations (TypeScript, Android, iOS) MUST use identical parameter names.  
 > This document is the **single source of truth** for native plugin APIs.
 
+
+## Visual Context
+
+Canonical visual owner: [Hushh Webapp Docs](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 When modifying any native plugin:
 1. Update this document FIRST
 2. Implement in Android (`*.kt`)

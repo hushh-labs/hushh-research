@@ -1,5 +1,10 @@
 # Broker Execution Future State
 
+
+## Visual Context
+
+Canonical visual owner: [Agent Kai — Your Explainable Investing Copilot](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Planned architecture for moving from read-only brokerage connectivity to broker-backed execution without rewriting Kai’s portfolio model.
 
 ## Current Boundary

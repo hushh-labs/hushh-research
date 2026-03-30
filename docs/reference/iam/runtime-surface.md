@@ -1,5 +1,17 @@
 # Runtime Surface
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  persona["Persona"]
+  routes["Investor / RIA / Marketplace routes"]
+  apis["/api/iam /api/ria /api/consent"]
+  tables["actor_profiles / relationships / share grants"]
+  persona --> routes --> apis --> tables
+```
+
 ## Purpose
 
 Describe the current implemented Investor + RIA runtime surface (backend + web + MCP).
@@ -53,15 +65,38 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 4. `GET /api/ria/clients`
 5. `GET /api/ria/requests` (compatibility alias)
 6. `POST /api/ria/requests` (compatibility alias)
-7. `GET /api/ria/workspace/{investor_user_id}`
-8. `GET /api/ria/invites`
-9. `POST /api/ria/invites`
+7. `GET /api/ria/clients/{investor_user_id}`
+8. `GET /api/ria/workspace/{investor_user_id}`
+9. `GET /api/ria/invites`
+10. `POST /api/ria/invites`
 
 ### Consent Center
 
-1. `GET /api/consent/center`
-2. `GET /api/consent/requests/outgoing`
-3. `POST /api/consent/requests`
+1. `GET /api/consent/center` (compatibility read model)
+2. `GET /api/consent/center/summary`
+3. `GET /api/consent/center/list`
+4. `GET /api/consent/requests/outgoing`
+5. `POST /api/consent/requests`
+
+Consent-center and scope-discovery payloads may include scope display metadata for user-facing presentation:
+
+1. `scopeLabel`
+2. `scopeDescription`
+3. `scopeIconName`
+4. `scopeColorHex`
+
+These fields are presentation metadata only. Authorization still evaluates the canonical scope string.
+
+Consent-manager surface rules:
+
+1. `/consents` is the single shared consent-manager route for investor and RIA.
+2. The active persona is the default actor for both the top-shell consent inbox and `/consents`.
+3. The canonical page flow is `summary + one paginated list surface + detail panel`.
+4. `GET /api/consent/center` is not on the main `/consents` critical path.
+5. The top-shell shield is the consent inbox:
+   - badge source: `summary.counts.pending`
+   - preview rows: first `5` items from the cached `center/list?surface=pending&page=1&limit=20` payload for the active persona
+6. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
 
 ### Marketplace
 
@@ -79,8 +114,10 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 6. `advisor_investor_relationships`
 7. `ria_client_invites`
 8. `consent_scope_templates`
-9. `marketplace_public_profiles`
-10. `runtime_persona_state` (transitional compatibility only)
+9. `relationship_share_grants`
+10. `relationship_share_events`
+11. `marketplace_public_profiles`
+12. `runtime_persona_state` (transitional compatibility only)
 
 ## Persona State Ownership
 
@@ -93,7 +130,17 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 1. RIA request creation writes `REQUESTED` rows into `consent_audit` with actor metadata.
 2. Consent approve/deny/cancel/revoke actions synchronize relationship lifecycle.
 3. Workspace access is blocked unless relationship is approved and consent is active/non-expired.
-4. Invite state is pre-consent workflow only; it is surfaced through the same consent-center read model but remains distinct from the canonical audit ledger.
+4. Approved RIA relationships implicitly materialize `ria_active_picks_feed_v1`, which lets Kai surface the advisor's active picks feed to the investor without a second prompt.
+5. Relationship-share grants are tracked outside `consent_audit` because advisor picks are advisor-authored relationship content, not investor PKM.
+6. Invite state is pre-consent workflow only; it is surfaced through the same consent-center read model but remains distinct from the canonical audit ledger.
+
+## Relationship Share Integration
+
+1. Investor private data flowing to an RIA stays on the shared `/consents` lane and `consent_audit`.
+2. Advisor-authored content flowing back to the investor uses `relationship_share_grants` plus append-only `relationship_share_events`.
+3. The initial implicit share is `ria_active_picks_feed_v1`.
+4. Kai only exposes `ria:*` pick sources when both the relationship is approved and the picks-share grant is active.
+5. Active uploads continue to update the entitled feed without requiring a fresh investor prompt.
 
 ## MCP Read-Only Tools
 

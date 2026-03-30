@@ -1,5 +1,33 @@
 # Operations Index
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["Operations Index"]
+  n1["Branch Governance"]
+  root --> n1
+  n2["Ci"]
+  root --> n2
+  n3["Coding Agent Mcp"]
+  root --> n3
+  n4["Developer Access Matrix"]
+  root --> n4
+  n5["Docs Governance"]
+  root --> n5
+  n6["Env And Secrets"]
+  root --> n6
+  n7["Env Secrets Key Matrix"]
+  root --> n7
+  n8["Observability Google First"]
+  root --> n8
+  n9["Prod Rollout 034 035 036"]
+  root --> n9
+  n10["Production Db Backup And Recovery"]
+  root --> n10
+```
+
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
 
 ## References

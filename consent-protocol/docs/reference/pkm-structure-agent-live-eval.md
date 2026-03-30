@@ -1,5 +1,10 @@
 # PKM Structure Agent Live Eval
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This benchmark is temporary evaluation infrastructure for the PKM structure path.
 
 It inherits the methodological rules in `./pkm-agent-north-star.md`.

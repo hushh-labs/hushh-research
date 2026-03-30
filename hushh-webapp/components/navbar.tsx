@@ -16,8 +16,8 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { usePendingConsentCount } from "@/components/consent/notification-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
@@ -39,8 +39,8 @@ export const Navbar = () => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const { activePersona, riaEntryRoute } = usePersonaState();
-  const pendingConsents = usePendingConsentCount();
+  const { activePersona, primaryNavPersona } = usePersonaState();
+  const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
@@ -50,8 +50,6 @@ export const Navbar = () => {
   const allowScrollHide = isAuthenticated && !useOnboardingChrome && !preserveBottomChrome;
   const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } = useKaiBottomChromeVisibility(allowScrollHide);
 
-  const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
-  const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
   const busyOperations = useKaiSession((s) => s.busyOperations);
 
   React.useLayoutEffect(() => {
@@ -94,19 +92,6 @@ export const Navbar = () => {
   const hideNavbar =
     pathname?.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     pathname === ROUTES.DEVELOPERS;
-
-  useEffect(() => {
-      if (activePersona === "ria") {
-      router.prefetch(lastRiaPath || riaEntryRoute);
-      router.prefetch(ROUTES.RIA_CLIENTS);
-      router.prefetch(ROUTES.RIA_PICKS);
-      return;
-    }
-
-    router.prefetch(lastKaiPath || ROUTES.KAI_HOME);
-    router.prefetch(ROUTES.KAI_DASHBOARD);
-    router.prefetch(ROUTES.KAI_ANALYSIS);
-  }, [activePersona, lastKaiPath, lastRiaPath, riaEntryRoute, router]);
 
   const navOptions = useMemo<SegmentedPillOption[]>(
     () =>
@@ -189,12 +174,15 @@ export const Navbar = () => {
   }
 
   const normalizedPathname = pathname?.replace(/\/$/, "") || "";
-  const activeNav: NavKey =
-    normalizedPathname.startsWith(ROUTES.PROFILE) || normalizedPathname.startsWith(ROUTES.CONSENTS)
-      ? "profile"
-      : activePersona === "ria"
-      ? activeRiaRouteTabFromPath(normalizedPathname)
-      : activeKaiRouteTabFromPath(normalizedPathname);
+  const activeNav: NavKey = normalizedPathname.startsWith(ROUTES.PROFILE)
+    ? "profile"
+    : normalizedPathname.startsWith(ROUTES.CONSENTS)
+    ? primaryNavPersona === "ria"
+      ? "home"
+      : "market"
+    : activePersona === "ria"
+    ? activeRiaRouteTabFromPath(normalizedPathname)
+    : activeKaiRouteTabFromPath(normalizedPathname);
 
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
@@ -223,7 +211,7 @@ export const Navbar = () => {
         router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);
         return;
       case "home":
-        router.push(lastRiaPath || riaEntryRoute);
+        router.push(ROUTES.RIA_HOME);
         return;
       case "clients":
         router.push(ROUTES.RIA_CLIENTS);
@@ -251,7 +239,7 @@ export const Navbar = () => {
           bottom:
             "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + var(--app-bottom-chrome-lift, 0px))",
           transform:
-            "translate3d(0, calc(var(--bottom-chrome-progress, 0) * (var(--app-bottom-fixed-ui) + 10px)), 0)",
+            "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
           "--bottom-chrome-progress": String(hideBottomChromeProgress),
         } as CSSProperties
       }

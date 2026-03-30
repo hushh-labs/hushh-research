@@ -54,7 +54,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
@@ -75,6 +74,7 @@ import {
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildPortfolioSharePayloadFromDashboardModel,
   exportPortfolioPdf,
@@ -1185,54 +1185,52 @@ export function DashboardMasterView({
       };
 
       const nowIso = new Date().toISOString();
-      const existingFinancial =
-        (await PersonalKnowledgeModelService.loadDomainData({
-          userId,
-          domain: "financial",
-          vaultKey,
-          vaultOwnerToken: vaultOwnerToken || undefined,
-        }).catch(() => null)) ?? {};
-
-      const nextFinancialDomain = {
-        ...existingFinancial,
-        schema_version: 3,
-        domain_intent: {
-          primary: "financial",
-          source: "domain_registry_prepopulate",
-          contract_version: 2,
-          updated_at: nowIso,
-        },
-        portfolio: {
-          ...updatedPortfolioData,
-          domain_intent: {
-            primary: "financial",
-            secondary: "portfolio",
-            source: "kai_dashboard_holdings",
-            captured_sections: ["account_info", "account_summary", "holdings", "transactions"],
-            updated_at: nowIso,
-          },
-        },
-        updated_at: nowIso,
-      };
-
       const riskBucket = deriveRiskBucket(holdingsForSave as ManagedHolding[]);
-      const result = await PersonalKnowledgeModelService.storeMergedDomain({
+      const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
-        vaultKey,
         domain: "financial",
-        domainData: nextFinancialDomain as unknown as Record<string, unknown>,
-        summary: {
-          intent_source: "kai_dashboard_holdings",
-          has_portfolio: true,
-          holdings_count: holdingsForSave.length,
-          last_statement_total_value: endingValue,
-          portfolio_risk_bucket: riskBucket,
-          risk_bucket: riskBucket,
-          domain_contract_version: 2,
-          intent_map: [...FINANCIAL_INTENT_MAP],
-          last_updated: nowIso,
-        },
+        vaultKey,
         vaultOwnerToken: vaultOwnerToken || undefined,
+        build: (context) => {
+          const existingFinancial =
+            (context.currentDomainData as Record<string, unknown> | null) ?? {};
+          const nextFinancialDomain = {
+            ...existingFinancial,
+            schema_version: 3,
+            domain_intent: {
+              primary: "financial",
+              source: "domain_registry_prepopulate",
+              contract_version: 2,
+              updated_at: nowIso,
+            },
+            portfolio: {
+              ...updatedPortfolioData,
+              domain_intent: {
+                primary: "financial",
+                secondary: "portfolio",
+                source: "kai_dashboard_holdings",
+                captured_sections: ["account_info", "account_summary", "holdings", "transactions"],
+                updated_at: nowIso,
+              },
+            },
+            updated_at: nowIso,
+          };
+
+          return {
+            domainData: nextFinancialDomain as unknown as Record<string, unknown>,
+            summary: {
+              intent_source: "kai_dashboard_holdings",
+              has_portfolio: true,
+              holdings_count: holdingsForSave.length,
+              last_statement_total_value: endingValue,
+              portfolio_risk_bucket: riskBucket,
+              risk_bucket: riskBucket,
+              domain_contract_version: 2,
+              intent_map: [...FINANCIAL_INTENT_MAP],
+              last_updated: nowIso,
+            },
+          };
+        },
       });
 
       if (!result.success) {
@@ -1271,22 +1269,6 @@ export function DashboardMasterView({
     setIsDeletingImportedData(true);
     try {
       const nowIso = new Date().toISOString();
-      const existingFinancial =
-        (await PersonalKnowledgeModelService.loadDomainData({
-          userId,
-          domain: "financial",
-          vaultKey,
-          vaultOwnerToken: vaultOwnerToken || undefined,
-        }).catch(() => null)) ?? {};
-
-      const existingDocumentsRaw = existingFinancial.documents;
-      const existingDocuments =
-        existingDocumentsRaw &&
-        typeof existingDocumentsRaw === "object" &&
-        !Array.isArray(existingDocumentsRaw)
-          ? ({ ...(existingDocumentsRaw as Record<string, unknown>) } as Record<string, unknown>)
-          : {};
-
       const clearedPortfolioData: PortfolioData = {
         account_info: statementEditablePortfolio.account_info,
         account_summary: {
@@ -1322,73 +1304,85 @@ export function DashboardMasterView({
         total_value: 0,
       };
 
-      const nextFinancialDomain = {
-        ...existingFinancial,
-        schema_version: 3,
-        domain_intent: {
-          primary: "financial",
-          source: "domain_registry_prepopulate",
-          contract_version: 2,
-          updated_at: nowIso,
-        },
-        portfolio: {
-          ...clearedPortfolioData,
-          domain_intent: {
-            primary: "financial",
-            secondary: "portfolio",
-            source: "kai_dashboard_delete_import",
-            captured_sections: ["account_info", "account_summary", "holdings", "documents"],
-            updated_at: nowIso,
-          },
-        },
-        documents: {
-          ...existingDocuments,
-          schema_version: 1,
-          statements: [],
-          documents_count: 0,
-          last_statement_end: null,
-          last_brokerage: null,
-          parse_fallback_last_import: null,
-          sparse_sections_last_import: [],
-          last_updated: nowIso,
-          domain_intent: {
-            primary: "financial",
-            secondary: "documents",
-            source: "kai_dashboard_delete_import",
-            updated_at: nowIso,
-          },
-        },
-        updated_at: nowIso,
-      };
-
-      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+      const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
-        vaultKey,
         domain: "financial",
-        domainData: nextFinancialDomain as Record<string, unknown>,
-        summary: {
-          intent_source: "kai_dashboard_delete_import",
-          has_portfolio: false,
-          holdings_count: 0,
-          attribute_count: 0,
-          item_count: 0,
-          investable_positions_count: 0,
-          cash_positions_count: 0,
-          allocation_coverage_pct: 0,
-          parser_quality_score: 0,
-          last_statement_total_value: 0,
-          documents_count: 0,
-          last_statement_end: null,
-          last_brokerage: null,
-          parse_fallback_last_import: null,
-          sparse_sections_last_import: [],
-          domain_contract_version: 2,
-          intent_map: [...FINANCIAL_INTENT_MAP],
-          last_updated: nowIso,
-        },
-        baseFullBlob: { financial: existingFinancial },
-        cacheFullBlob: false,
+        vaultKey,
         vaultOwnerToken: vaultOwnerToken || undefined,
+        build: (context) => {
+          const existingFinancial =
+            (context.currentDomainData as Record<string, unknown> | null) ?? {};
+          const existingDocumentsRaw = existingFinancial.documents;
+          const existingDocuments =
+            existingDocumentsRaw &&
+            typeof existingDocumentsRaw === "object" &&
+            !Array.isArray(existingDocumentsRaw)
+              ? ({ ...(existingDocumentsRaw as Record<string, unknown>) } as Record<string, unknown>)
+              : {};
+
+          const nextFinancialDomain = {
+            ...existingFinancial,
+            schema_version: 3,
+            domain_intent: {
+              primary: "financial",
+              source: "domain_registry_prepopulate",
+              contract_version: 2,
+              updated_at: nowIso,
+            },
+            portfolio: {
+              ...clearedPortfolioData,
+              domain_intent: {
+                primary: "financial",
+                secondary: "portfolio",
+                source: "kai_dashboard_delete_import",
+                captured_sections: ["account_info", "account_summary", "holdings", "documents"],
+                updated_at: nowIso,
+              },
+            },
+            documents: {
+              ...existingDocuments,
+              schema_version: 1,
+              statements: [],
+              documents_count: 0,
+              last_statement_end: null,
+              last_brokerage: null,
+              parse_fallback_last_import: null,
+              sparse_sections_last_import: [],
+              last_updated: nowIso,
+              domain_intent: {
+                primary: "financial",
+                secondary: "documents",
+                source: "kai_dashboard_delete_import",
+                updated_at: nowIso,
+              },
+            },
+            updated_at: nowIso,
+          };
+
+          return {
+            domainData: nextFinancialDomain as Record<string, unknown>,
+            summary: {
+              intent_source: "kai_dashboard_delete_import",
+              has_portfolio: false,
+              holdings_count: 0,
+              attribute_count: 0,
+              item_count: 0,
+              investable_positions_count: 0,
+              cash_positions_count: 0,
+              allocation_coverage_pct: 0,
+              parser_quality_score: 0,
+              last_statement_total_value: 0,
+              documents_count: 0,
+              last_statement_end: null,
+              last_brokerage: null,
+              parse_fallback_last_import: null,
+              sparse_sections_last_import: [],
+              domain_contract_version: 2,
+              intent_map: [...FINANCIAL_INTENT_MAP],
+              last_updated: nowIso,
+            },
+          };
+        },
       });
 
       if (!result.success) {

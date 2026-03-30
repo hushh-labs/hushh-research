@@ -61,10 +61,10 @@ function printCodexToml() {
   console.log('[mcp_servers.hushh_consent]');
   console.log('command = "npx"');
   console.log('args = ["-y", "@hushh/mcp@beta"]');
+  console.log("enabled = true");
   console.log('[mcp_servers.hushh_consent.env]');
   console.log('CONSENT_API_URL = "https://<consent-api-origin>"');
   console.log('HUSHH_DEVELOPER_TOKEN = "<developer-token>"');
-  console.log("enabled = true");
 }
 
 function printRemoteConfig() {
@@ -73,7 +73,7 @@ function printRemoteConfig() {
       {
         mcpServers: {
           "hushh-consent-remote": {
-            url: "https://<consent-api-origin>/mcp?token=<developer-token>",
+            url: "https://<consent-api-origin>/mcp/?token=<developer-token>",
           },
         },
       },

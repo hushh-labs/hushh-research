@@ -1,5 +1,10 @@
 # Plaid Activation and Testing
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost, UAT, and hosted domains.
 
 ## What This Enables
@@ -55,7 +60,7 @@ Webhook values to use:
 Use:
 
 - frontend: `http://localhost:3000`
-- backend profile: `consent-protocol/.env` or `consent-protocol/.env.local-uatdb.local`
+- backend profile: `consent-protocol/.env` or the local copy created from `consent-protocol/.env.local-uatdb.local.example`
 - webhook tunnel: ngrok or Cloudflare tunnel
 
 Example webhook target:

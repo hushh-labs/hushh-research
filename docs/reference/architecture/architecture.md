@@ -2,6 +2,54 @@
 
 > Current runtime architecture for the Hushh monorepo.
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph clients["Client Surfaces"]
+    web["Web browser"]
+    ios["iOS app"]
+    android["Android app"]
+  end
+
+  subgraph frontend["Frontend Runtime"]
+    app["Next.js App Router<br/>route trees + UI composition"]
+    shell["Shared shell<br/>providers, guards, chrome, layout contract"]
+    svc["Frontend service layer<br/>API, PKM, consent, Kai, RIA"]
+    cache["Runtime state<br/>auth, vault, persona, stale-first cache"]
+  end
+
+  subgraph boundary["Boundary Layer"]
+    proxy["Web path<br/>Next route handlers / app/api"]
+    plugin["Native path<br/>Capacitor plugins"]
+  end
+
+  subgraph backend["Backend Runtime"]
+    routes["FastAPI routers"]
+    services["Domain services<br/>consent, PKM, Kai, IAM, RIA"]
+    agents["Agents / tools / operons"]
+  end
+
+  subgraph persistence["Persistence + external systems"]
+    relational["Postgres / relational workflow data"]
+    blobs["Encrypted PKM blobs + metadata index"]
+    providers["Market, auth, push, external providers"]
+  end
+
+  web --> app
+  ios --> app
+  android --> app
+  app --> shell --> svc
+  cache --> svc
+  svc --> proxy --> routes
+  svc --> plugin --> routes
+  routes --> services --> agents
+  services --> relational
+  services --> blobs
+  services --> providers
+```
+
 ---
 
 ## System Shape
@@ -157,6 +205,7 @@ Runtime: Next.js 16 App Router, React 19, Tailwind CSS, Capacitor 8.
 Current app-level navigation targets are defined in `hushh-webapp/lib/navigation/routes.ts`:
 
 - `/`
+- `/developers`
 - `/login`
 - `/logout`
 - `/labs/profile-appearance`
@@ -167,12 +216,14 @@ Current app-level navigation targets are defined in `hushh-webapp/lib/navigation
 - `/ria`
 - `/ria/onboarding`
 - `/ria/clients`
+- `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
 - `/kai`
 - `/kai/onboarding`
 - `/kai/import`
 - `/kai/plaid/oauth/return`
+- `/kai/investments`
 - `/kai/portfolio`
 - `/kai/analysis`
 - `/kai/optimize`
@@ -203,10 +254,12 @@ hushh-webapp/
   app/
     api/
     consents/
+    developers/
     kai/
       analysis/
       dashboard/
       import/
+      investments/
       onboarding/
       optimize/
     labs/
@@ -220,6 +273,7 @@ hushh-webapp/
     ria/
       clients/
       onboarding/
+      picks/
       requests/
       settings/
       workspace/

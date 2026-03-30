@@ -2,6 +2,59 @@
 
 > Orientation for contributors and coding agents. Read this before making changes.
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  contributor["Contributor / Operator"]
+  users["Investor / RIA / Developer users"]
+
+  subgraph frontend["Frontend Runtime: hushh-webapp"]
+    routes["Route contracts<br/>App Router + visible surfaces"]
+    shell["Signed-in shell<br/>providers, top bar, nav, guards"]
+    services["Service layer<br/>platform-aware reads and writes"]
+    runtime["Auth + persona + vault + cache contexts"]
+    proxies["Web proxies<br/>app/api/*"]
+    plugins["Native bridges<br/>Capacitor plugins"]
+  end
+
+  subgraph backend["Backend Runtime: consent-protocol"]
+    api["FastAPI routes"]
+    policy["Consent + IAM policy"]
+    domain["Domain services<br/>PKM, Kai, RIA, marketplace"]
+    agents["Agents / tools / operons"]
+  end
+
+  subgraph data["Data and provider planes"]
+    relational["Relational core<br/>identity, consent, workflow, shared datasets"]
+    pkm["Encrypted PKM blobs + sanitized index"]
+    market["Market caches + external providers"]
+  end
+
+  subgraph security["Security boundary"]
+    token["Consent tokens + VAULT_OWNER"]
+    key["Vault key<br/>memory-only client secret"]
+  end
+
+  contributor --> routes
+  contributor --> api
+  users --> routes
+  routes --> shell --> services
+  runtime --> services
+  services --> proxies --> api
+  services --> plugins --> api
+  api --> policy
+  api --> domain
+  domain --> agents
+  policy --> token
+  domain --> relational
+  domain --> pkm
+  domain --> market
+  key --> runtime
+  token --> policy
+```
+
 ## North Stars
 
 - Hushh Principle: "An agent should work for the person whose life it touches."
@@ -24,7 +77,8 @@ These are invariants. If a change violates one, it is the wrong change.
    - Keep route governance in sync (see `docs/reference/architecture/route-contracts.md`).
 4. **Minimal Browser Storage**
    - Sensitive credentials and vault keys stay memory-only (React context / Zustand).
-   - Only explicitly-approved non-sensitive cache/settings may use browser storage.
+   - Decrypted PKM stays memory-only.
+   - Only explicitly-approved encrypted PKM snapshots and non-sensitive cache/settings may use device storage.
 
 ## Repo Map
 

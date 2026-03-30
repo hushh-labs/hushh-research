@@ -15,6 +15,7 @@ Benefits over REST API:
   - Consistent with migration scripts
 """
 
+import json
 import logging
 import os
 from contextlib import contextmanager
@@ -23,9 +24,10 @@ from typing import Any, Optional, Union
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
+from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.pool import NullPool, QueuePool
+from sqlalchemy.pool import NullPool
 
 load_dotenv()
 
@@ -35,22 +37,20 @@ logger = logging.getLogger(__name__)
 _engine: Optional[Engine] = None
 
 
-def _env_truthy(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
+    """Adapt JSON-like values for the active DB driver."""
+    if isinstance(value, dict):
+        if dialect_name and dialect_name.startswith("postgres"):
+            return PsycopgJson(value)
+        return json.dumps(value)
+    return value
 
 
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("Invalid %s=%r; using default %s", name, raw, default)
-        return default
+def _adapt_db_params(params: dict[str, Any], dialect_name: str | None = None) -> dict[str, Any]:
+    return {
+        key: _adapt_db_param_value(value, dialect_name=dialect_name)
+        for key, value in params.items()
+    }
 
 
 class DatabaseExecutionError(RuntimeError):
@@ -73,8 +73,7 @@ def get_db_engine() -> Engine:
     """
     Get SQLAlchemy engine using session pooler credentials.
 
-    Uses QueuePool by default to avoid reconnecting on every query. Set
-    DB_DISABLE_POOL=true to force NullPool when needed.
+    Uses NullPool to let Supabase's session pooler handle connection pooling.
 
     Returns:
         SQLAlchemy Engine instance
@@ -114,33 +113,8 @@ def get_db_engine() -> Engine:
             target = f"{db_host}:{db_port}/{db_name}"
 
         logger.info(f"Initializing database connection to {target}")
-
-        engine_kwargs: dict[str, Any] = {}
-        if _env_truthy("DB_DISABLE_POOL", default=False):
-            engine_kwargs["poolclass"] = NullPool
-            pool_description = "NullPool (disabled)"
-        else:
-            pool_size = max(1, _env_int("DB_POOL_SIZE", default=5))
-            max_overflow = max(0, _env_int("DB_MAX_OVERFLOW", default=10))
-            pool_timeout = max(1, _env_int("DB_POOL_TIMEOUT_SECONDS", default=30))
-            pool_recycle = max(30, _env_int("DB_POOL_RECYCLE_SECONDS", default=1800))
-            engine_kwargs.update(
-                {
-                    "poolclass": QueuePool,
-                    "pool_size": pool_size,
-                    "max_overflow": max_overflow,
-                    "pool_timeout": pool_timeout,
-                    "pool_recycle": pool_recycle,
-                    "pool_pre_ping": True,
-                }
-            )
-            pool_description = (
-                f"QueuePool(size={pool_size}, overflow={max_overflow}, "
-                f"timeout={pool_timeout}s, recycle={pool_recycle}s)"
-            )
-
-        _engine = create_engine(database_url, **engine_kwargs)
-        logger.info("Database engine initialized (%s)", pool_description)
+        _engine = create_engine(database_url, poolclass=NullPool)
+        logger.info("Database engine initialized")
 
     return _engine
 
@@ -319,7 +293,7 @@ class TableQuery:
         self._limit_val = 1
         return self
 
-    def _build_where_clause(self, params: dict) -> str:
+    def _build_where_clause(self, params: dict, dialect_name: str | None = None) -> str:
         """Build WHERE clause from filters."""
         if not self._filters:
             return ""
@@ -332,18 +306,18 @@ class TableQuery:
                     conditions.append(f'"{column}" IS NULL')
                 else:
                     conditions.append(f'"{column}" IS :{param_name}')
-                    params[param_name] = value
+                    params[param_name] = _adapt_db_param_value(value, dialect_name=dialect_name)
             elif op == "IN":
                 # Handle IN clause with multiple parameters
                 in_params = []
                 for j, v in enumerate(value):
                     in_param = f"{param_name}_{j}"
                     in_params.append(f":{in_param}")
-                    params[in_param] = v
+                    params[in_param] = _adapt_db_param_value(v, dialect_name=dialect_name)
                 conditions.append(f'"{column}" IN ({", ".join(in_params)})')
             else:
                 conditions.append(f'"{column}" {op} :{param_name}')
-                params[param_name] = value
+                params[param_name] = _adapt_db_param_value(value, dialect_name=dialect_name)
 
         return " WHERE " + " AND ".join(conditions)
 
@@ -380,7 +354,11 @@ class TableQuery:
     def _execute_select(self, conn) -> QueryResult:
         """Execute SELECT query."""
         params: dict[str, Any] = {}
-        where_clause = self._build_where_clause(params)
+        dialect_name = getattr(getattr(conn, "engine", None), "dialect", None)
+        dialect_name = getattr(dialect_name, "name", None) or getattr(
+            getattr(self.engine, "dialect", None), "name", None
+        )
+        where_clause = self._build_where_clause(params, dialect_name=dialect_name)
 
         # Build column list
         if self._columns == "*":
@@ -434,10 +412,13 @@ class TableQuery:
         columns = list(data_list[0].keys())
         col_names = ", ".join(f'"{c}"' for c in columns)
 
+        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
         inserted_rows = []
         for i, row_data in enumerate(data_list):
             param_names = ", ".join(f":v{i}_{c}" for c in columns)
-            params = {f"v{i}_{c}": row_data[c] for c in columns}
+            params = _adapt_db_params(
+                {f"v{i}_{c}": row_data[c] for c in columns}, dialect_name=dialect_name
+            )
 
             sql = (
                 f'INSERT INTO "{self.table_name}" ({col_names}) VALUES ({param_names}) RETURNING *'
@@ -454,14 +435,15 @@ class TableQuery:
             raise ValueError("No data to update")
 
         params = {}
+        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
         set_clauses = []
         for i, (col, val) in enumerate(self._update_data.items()):
             param_name = f"u{i}"
             set_clauses.append(f'"{col}" = :{param_name}')
-            params[param_name] = val
+            params[param_name] = _adapt_db_param_value(val, dialect_name=dialect_name)
 
         sql = f'UPDATE "{self.table_name}" SET {", ".join(set_clauses)}'
-        sql += self._build_where_clause(params)
+        sql += self._build_where_clause(params, dialect_name=dialect_name)
         sql += " RETURNING *"
 
         result = conn.execute(text(sql), params)
@@ -496,10 +478,13 @@ class TableQuery:
         ]
         update_clause = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in update_cols)
 
+        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
         upserted_rows = []
         for i, row_data in enumerate(data_list):
             param_names = ", ".join(f":v{i}_{c}" for c in columns)
-            params = {f"v{i}_{c}": row_data[c] for c in columns}
+            params = _adapt_db_params(
+                {f"v{i}_{c}": row_data[c] for c in columns}, dialect_name=dialect_name
+            )
 
             if update_clause:
                 sql = f'''
@@ -525,7 +510,8 @@ class TableQuery:
         """Execute DELETE query."""
         params: dict[str, Any] = {}
         sql = f'DELETE FROM "{self.table_name}"'
-        sql += self._build_where_clause(params)
+        dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
+        sql += self._build_where_clause(params, dialect_name=dialect_name)
         sql += " RETURNING *"
 
         result = conn.execute(text(sql), params)
@@ -585,7 +571,9 @@ class DatabaseClient:
         """
         try:
             with self.engine.connect() as conn:
-                result = conn.execute(text(sql), params or {})
+                dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
+                adapted_params = _adapt_db_params(params or {}, dialect_name=dialect_name)
+                result = conn.execute(text(sql), adapted_params)
                 statement = (sql or "").lstrip().lower()
                 leading_keyword = statement.split(None, 1)[0] if statement else ""
                 mutating_leads = {"insert", "update", "delete", "merge"}
@@ -599,9 +587,8 @@ class DatabaseClient:
                     if is_mutating:
                         conn.commit()
                     return QueryResult(data=rows, count=len(rows))
-                else:
-                    conn.commit()
-                    return QueryResult(data=[], count=result.rowcount)
+                conn.commit()
+                return QueryResult(data=[], count=result.rowcount)
         except DatabaseExecutionError:
             raise
         except Exception as e:

@@ -40,6 +40,7 @@ export function PersonaBootstrapRedirect() {
     personaState,
     activePersona,
     loading,
+    refreshing,
     riaCapability,
     riaEntryRoute,
     switchPersona,
@@ -53,7 +54,7 @@ export function PersonaBootstrapRedirect() {
   const routeScope = getRouteScope(pathname);
   const routePersona = routePersonaForScope(routeScope);
   const mismatch = useMemo(() => {
-    if (!isAuthenticated || !user || loading || !personaState || !isVaultUnlocked) {
+    if (!isAuthenticated || !user || loading || refreshing || !personaState || !isVaultUnlocked) {
       return null;
     }
     if (!routePersona || routePersona === activePersona) {
@@ -67,7 +68,7 @@ export function PersonaBootstrapRedirect() {
       scopedRouteLabel: routePersona === "ria" ? "RIA workspace" : "Kai workspace",
       activePersonaLabel: activePersona === "ria" ? "RIA workspace" : "Investor workspace",
     };
-  }, [activePersona, isAuthenticated, isVaultUnlocked, loading, personaState, routePersona, user]);
+  }, [activePersona, isAuthenticated, isVaultUnlocked, loading, personaState, refreshing, routePersona, user]);
 
   const handleSwitchToActivePersona = useCallback(async () => {
     if (!mismatch) return;

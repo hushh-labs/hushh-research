@@ -67,8 +67,8 @@ SERVER_INFO = {
             "purpose": "List dynamic consent scope categories from backend registry",
         },
         {
-            "name": "get_scoped_data",
-            "purpose": "Recommended generic data-access tool for any approved dynamic scope",
+            "name": "get_encrypted_scoped_export",
+            "purpose": "Fetch the encrypted wrapped-key export for any approved dynamic scope",
         },
         {
             "name": "check_consent_status",
