@@ -185,12 +185,20 @@ class PkmUpgradeService:
                 else {}
             )
             manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            summary_domain_version = summary.get("domain_contract_version")
+            manifest_domain_version = manifest.get("domain_contract_version")
+            summary_readable_version = summary.get("readable_summary_version")
+            manifest_readable_version = manifest.get("readable_summary_version")
             current_domain_version = self._to_int(
-                summary.get("domain_contract_version") or manifest.get("domain_contract_version"),
-                1,
+                summary_domain_version
+                if summary_domain_version is not None
+                else manifest_domain_version,
+                0,
             )
             current_readable_version = self._to_int(
-                summary.get("readable_summary_version") or manifest.get("readable_summary_version"),
+                summary_readable_version
+                if summary_readable_version is not None
+                else manifest_readable_version,
                 0,
             )
             target_domain_version = current_domain_contract_version(domain)

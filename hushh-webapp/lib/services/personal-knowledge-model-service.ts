@@ -159,6 +159,37 @@ export interface PkmScopeExposureResult {
   manifest: DomainManifest | null;
 }
 
+export class PkmDomainManifestError extends Error {
+  status: number;
+  detail: string | null;
+  correlationId: string | null;
+  route: string;
+  userId: string;
+  domain: string;
+
+  constructor(params: {
+    status: number;
+    detail?: string | null;
+    correlationId?: string | null;
+    route: string;
+    userId: string;
+    domain: string;
+  }) {
+    super(
+      params.detail
+        ? `Failed to get domain manifest (${params.status}): ${params.detail}`
+        : `Failed to get domain manifest: ${params.status}`
+    );
+    this.name = "PkmDomainManifestError";
+    this.status = params.status;
+    this.detail = params.detail ?? null;
+    this.correlationId = params.correlationId ?? null;
+    this.route = params.route;
+    this.userId = params.userId;
+    this.domain = params.domain;
+  }
+}
+
 // ==================== Service ====================
 
 export class PersonalKnowledgeModelService {
@@ -192,6 +223,33 @@ export class PersonalKnowledgeModelService {
 
   private static isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  private static extractResponseDetail(payload: unknown): string | null {
+    if (typeof payload === "string") {
+      const trimmed = payload.trim();
+      return trimmed || null;
+    }
+    if (!this.isPlainObject(payload)) {
+      return null;
+    }
+    const detail = payload.detail;
+    if (typeof detail === "string") {
+      const trimmed = detail.trim();
+      return trimmed || null;
+    }
+    if (this.isPlainObject(detail)) {
+      const nestedMessage = detail.message;
+      if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+        return nestedMessage.trim();
+      }
+    }
+    const message = payload.message;
+    if (typeof message === "string") {
+      const trimmed = message.trim();
+      return trimmed || null;
+    }
+    return null;
   }
 
   static emptyMetadata(userId: string): PersonalKnowledgeModelMetadata {
@@ -1398,18 +1456,34 @@ export class PersonalKnowledgeModelService {
     }
 
     const request = (async (): Promise<DomainManifest | null> => {
-      const response = await ApiService.apiFetch(
-        `${this.PKM_API_PREFIX}/manifest/${userId}/${domain}`,
-        {
-          headers: this.getAuthHeaders(vaultOwnerToken),
-        }
-      );
+      const route = `${this.PKM_API_PREFIX}/manifest/${userId}/${domain}`;
+      const response = await ApiService.apiFetch(route, {
+        headers: this.getAuthHeaders(vaultOwnerToken),
+      });
 
       if (!response.ok) {
         if (response.status === 404) {
           return null;
         }
-        throw new Error(`Failed to get domain manifest: ${response.status}`);
+        let detail: string | null = null;
+        try {
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            detail = this.extractResponseDetail(await response.json());
+          } else {
+            detail = this.extractResponseDetail(await response.text());
+          }
+        } catch {
+          detail = null;
+        }
+        throw new PkmDomainManifestError({
+          status: response.status,
+          detail,
+          correlationId: response.headers.get("x-correlation-id"),
+          route,
+          userId,
+          domain,
+        });
       }
 
       return (await response.json()) as DomainManifest;

@@ -71,6 +71,12 @@ Rules:
 7. Bell, shield, profile, and compatibility aliases must converge on the same `/consents` manager when the user chooses to open the full workspace.
 8. Delivery diagnostics do not belong in the bell or shield inbox.
 9. Notifications remain visible until dismissed and should be ordered newest-first.
+10. Consent-review actions triggered from toasts or push taps must use in-app router navigation for internal app routes so vault-backed sessions are not cold-restarted.
+11. The bell is a two-level async surface:
+    - primary work for long-running/recoverable tasks such as PKM upgrade, portfolio import, Plaid refresh, consent export refresh
+    - passive work for cache warm, silent refresh, and reconciliation
+12. Passive work should only surface after a short threshold, stay grouped under `Background activity`, and autoclear after success.
+13. Failed passive work must promote into the primary task list and remain visible until dismissed.
 
 ## Scroll Stability Contract
 
@@ -194,12 +200,14 @@ Rules:
 2. The RIA bottom navigation is `Home / Clients / Picks / Profile`.
 3. `/consents` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/consents`, not as a second consent system.
-5. Relationship views should stay grouped around:
+5. The shell should contextualize `/consents` as `Profile > Privacy` for breadcrumb and primary-nav highlighting while preserving `/consents` as the canonical URL.
+6. Advanced PKM tools such as `PKM Agent Lab` should inherit the standard profile/privacy shell contract instead of introducing a separate hidden-route layout language.
+7. Relationship views should stay grouped around:
    - relationship state
    - next action
    - available scope metadata
    - current grants
-6. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
+8. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
 
 ## Documentation References
 

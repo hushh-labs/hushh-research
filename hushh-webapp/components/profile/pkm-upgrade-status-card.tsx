@@ -21,6 +21,7 @@ type Props = {
   resumeBusy?: boolean;
   onUnlock?: () => void;
   vaultUnlocked?: boolean;
+  showRecoveryAction?: boolean;
 };
 
 export function PkmUpgradeStatusCard({
@@ -30,11 +31,10 @@ export function PkmUpgradeStatusCard({
   resumeBusy = false,
   onUnlock,
   vaultUnlocked = false,
+  showRecoveryAction = false,
 }: Props) {
-  const isRunning =
-    status?.upgradeStatus === "running" || status?.upgradeStatus === "awaiting_local_auth_resume";
-  const isReady = status?.upgradeStatus === "ready" || status?.upgradeStatus === "failed";
-  const showResume = Boolean(status && (isRunning || isReady) && onResume);
+  const isRecoverable = status?.upgradeStatus === "failed";
+  const showResume = Boolean(status && isRecoverable && showRecoveryAction && onResume);
   const upgradableDomains = status?.upgradableDomains || [];
 
   return (
@@ -49,18 +49,22 @@ export function PkmUpgradeStatusCard({
             ) : (
               <ShieldAlert className="h-4 w-4 text-amber-500" />
             )}
-            <p className="text-sm font-semibold text-foreground">Private Model Status</p>
+            <p className="text-sm font-semibold text-foreground">
+              Personal Knowledge Model Status
+            </p>
           </div>
           <p className="max-w-2xl text-sm text-muted-foreground">
             {loading
-              ? "Checking whether Kai needs to refresh your encrypted private model."
+              ? "Checking whether Kai needs to refresh your encrypted Personal Knowledge Model."
               : status?.upgradeStatus === "current"
-                ? "Your private model is current. Kai is using the latest encrypted structure for your saved memories."
+                ? "Your Personal Knowledge Model is current. Kai is using the latest encrypted structure for your saved memories."
                 : status?.upgradeStatus === "awaiting_local_auth_resume"
-                  ? "Kai paused the upgrade because the unlocked vault session is no longer available. Unlock locally to resume."
+                  ? "Kai is waiting for the next local vault unlock so the PKM refresh can resume automatically."
                   : status?.upgradeStatus === "running"
-                    ? "Kai is refreshing your encrypted private model in the background while you keep using the app."
-                    : "Kai found an older private model shape and can refresh it without exposing your plaintext data to the server."}
+                    ? "Kai is refreshing your encrypted Personal Knowledge Model in the background while you keep using the app."
+                    : status?.upgradeStatus === "failed"
+                      ? "Kai hit a recovery state while refreshing your encrypted Personal Knowledge Model. Advanced recovery controls stay below."
+                      : "Kai found an older PKM shape and is refreshing it in the background without exposing your plaintext data to the server."}
           </p>
         </div>
         <Badge variant="secondary" className="rounded-full px-3 py-1">
@@ -100,7 +104,7 @@ export function PkmUpgradeStatusCard({
         ) : null}
         {showResume && !vaultUnlocked && onUnlock ? (
           <Button type="button" variant="none" size="sm" onClick={onUnlock}>
-            Unlock to resume
+            Unlock to retry
           </Button>
         ) : null}
         {status?.run?.currentDomain ? (

@@ -19,8 +19,10 @@ import {
   CONSENT_SHEET_QUERY_VALUE,
   CONSENT_SHEET_VIEW_QUERY_KEY,
   normalizeConsentSheetView,
+  type ConsentCenterManagerView,
   type ConsentSheetView,
 } from "@/lib/consent/consent-sheet-route";
+import type { ConsentCenterActor } from "@/lib/services/consent-center-service";
 import { ROUTES } from "@/lib/navigation/routes";
 
 type ConsentSheetContextValue = {
@@ -62,8 +64,20 @@ export function ConsentSheetProvider({ children }: { children: ReactNode }) {
     if (!isOpen) return;
     const requestId = searchParams.get("requestId") || undefined;
     const bundleId = searchParams.get("bundleId") || undefined;
-    router.replace(buildConsentCenterHref(view, { requestId, bundleId }), { scroll: false });
-  }, [isOpen, router, searchParams, view]);
+    const actor: ConsentCenterActor | undefined =
+      searchParams.get("actor") === "ria" || searchParams.get("actor") === "investor"
+        ? (searchParams.get("actor") as ConsentCenterActor)
+        : undefined;
+    const managerView: ConsentCenterManagerView | undefined =
+      searchParams.get("view") === "incoming" || searchParams.get("view") === "outgoing"
+        ? (searchParams.get("view") as ConsentCenterManagerView)
+        : undefined;
+    const from = pathname === ROUTES.PROFILE ? `${ROUTES.PROFILE}?tab=privacy` : undefined;
+    router.replace(
+      buildConsentCenterHref(view, { requestId, bundleId, actor, managerView, from }),
+      { scroll: false }
+    );
+  }, [isOpen, pathname, router, searchParams, view]);
 
   const openConsentSheet = useCallback(
     (options?: { view?: ConsentSheetView }) => {

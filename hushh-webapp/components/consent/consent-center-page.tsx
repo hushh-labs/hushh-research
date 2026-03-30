@@ -28,6 +28,7 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
+import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -310,7 +311,7 @@ function ConsentEntryDetail({
             description="Jump to the original request or disclosure surface."
             trailing={
               <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={entry.request_url}>
+                <Link href={normalizeInternalAppHref(entry.request_url) || entry.request_url}>
                   Open
                   <ExternalLink className="ml-2 h-4 w-4" />
                 </Link>
@@ -498,16 +499,16 @@ export function ConsentCenterPage() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
 
-  const pageEyebrow = actor === "ria" ? "RIA" : "Investor";
+  const pageEyebrow = "Profile / Privacy";
   const pageDescription =
     actor === "ria"
-      ? "Outgoing requests, active grants, and prior investor decisions stay in one consent manager."
+      ? "Outgoing requests, active grants, and prior investor decisions stay in one privacy workspace for your active advisor persona."
       : managerView === "outgoing"
-        ? "Outgoing consent activity and grants stay grouped in one place."
-        : "Incoming requests, active grants, and prior decisions stay grouped in one place.";
+        ? "Outgoing consent activity and grants stay grouped in one privacy workspace."
+        : "Incoming requests, active grants, and prior decisions stay grouped in one privacy workspace.";
 
   return (
-    <AppPageShell as="main" width="content" className="pb-28">
+    <AppPageShell as="main" width="profile" className="pb-28">
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow={pageEyebrow}

@@ -199,6 +199,95 @@ def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
     assert payload["run"]["steps"][0]["checkpoint_payload"]["stage"] == "loading_domain"
 
 
+def test_manifest_route_serializes_legacy_manifest_payload(monkeypatch):
+    class _FakePkmService:
+        async def get_domain_manifest(self, user_id: str, domain: str):
+            assert user_id == "user_123"
+            assert domain == "financial"
+            return {
+                "user_id": "user_123",
+                "domain": "financial",
+                "manifest_version": "2",
+                "domain_contract_version": "2",
+                "readable_summary_version": "1",
+                "structure_decision": '{"action":"extend_domain","target_domain":"financial"}',
+                "summary_projection": '{"readable_summary":"Updated"}',
+                "top_level_scope_paths": '["portfolio","profile"]',
+                "externalizable_paths": '["portfolio.entities.demo"]',
+                "segment_ids": '["root"]',
+                "paths": '[{"json_path":"portfolio.entities.demo","path_type":"leaf"}]',
+                "scope_registry": '[{"scope_handle":"s_demo","top_level_scope_path":"portfolio"}]',
+                "last_structured_at": "2026-03-30T10:00:00Z",
+                "last_content_at": "2026-03-30T10:00:00Z",
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    client = TestClient(_build_app())
+    response = client.get("/api/pkm/manifest/user_123/financial")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["manifest_version"] == 2
+    assert payload["domain_contract_version"] == 2
+    assert payload["structure_decision"]["action"] == "extend_domain"
+    assert payload["summary_projection"]["readable_summary"] == "Updated"
+    assert payload["top_level_scope_paths"] == ["portfolio", "profile"]
+    assert payload["paths"][0]["json_path"] == "portfolio.entities.demo"
+    assert payload["scope_registry"][0]["scope_handle"] == "s_demo"
+
+
+def test_manifest_route_returns_404_when_manifest_missing(monkeypatch):
+    class _FakePkmService:
+        async def get_domain_manifest(self, user_id: str, domain: str):
+            assert user_id == "user_123"
+            assert domain == "financial"
+            return None
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    client = TestClient(_build_app())
+    response = client.get("/api/pkm/manifest/user_123/financial")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No manifest found for financial"
+
+
+def test_manifest_route_recovers_from_partially_malformed_legacy_fields(monkeypatch):
+    class _FakePkmService:
+        async def get_domain_manifest(self, user_id: str, domain: str):
+            return {
+                "user_id": user_id,
+                "domain": domain,
+                "manifest_version": "bad",
+                "domain_contract_version": None,
+                "readable_summary_version": "nan",
+                "structure_decision": "{not-json",
+                "summary_projection": None,
+                "top_level_scope_paths": "not-a-list",
+                "externalizable_paths": None,
+                "segment_ids": None,
+                "paths": "{not-json",
+                "scope_registry": None,
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    client = TestClient(_build_app())
+    response = client.get("/api/pkm/manifest/user_123/financial")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["manifest_version"] == 1
+    assert payload["domain_contract_version"] == 1
+    assert payload["readable_summary_version"] == 0
+    assert payload["structure_decision"] == {}
+    assert payload["summary_projection"] == {}
+    assert payload["top_level_scope_paths"] == []
+    assert payload["paths"] == []
+    assert payload["scope_registry"] == []
+
+
 def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
     class _FakeUpgradeService:
         async def build_status(self, user_id: str):

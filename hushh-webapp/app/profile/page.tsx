@@ -88,6 +88,7 @@ import {
   type DomainSummary,
 } from "@/lib/services/personal-knowledge-model-service";
 import { useVault } from "@/lib/vault/vault-context";
+import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 
 type ProfileTab = "account" | "preferences" | "privacy";
 type ProfilePanel = "security" | "support" | "consents";
@@ -266,6 +267,16 @@ function ProfilePageContent() {
   const hasRiaPersona = personaList.includes("ria");
   const hasDualPersona = hasInvestorPersona && hasRiaPersona;
   const effectiveDeleteTarget: AccountDeletionTarget = hasDualPersona ? deleteTarget : "both";
+  const vaultAccess = useMemo(
+    () =>
+      resolveVaultAvailabilityState({
+        hasVault,
+        isVaultUnlocked,
+        vaultKey,
+        vaultOwnerToken,
+      }),
+    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
+  );
 
   const updateProfileView = useMemo(
     () =>
@@ -406,7 +417,7 @@ function ProfilePageContent() {
       try {
         setLoadingDomains(true);
 
-        if (hasVault === false) {
+        if (hasVault !== true) {
           if (!cancelled) {
             setDomains([]);
             setTotalAttributes(0);
@@ -415,7 +426,7 @@ function ProfilePageContent() {
           return;
         }
 
-        if (!vaultOwnerToken) {
+        if (!vaultAccess.canReadSecureData || !vaultOwnerToken) {
           if (!cancelled) {
             setDomains([]);
             setTotalAttributes(0);
@@ -456,6 +467,7 @@ function ProfilePageContent() {
     registerSteps,
     reset,
     user?.uid,
+    vaultAccess.canReadSecureData,
     vaultOwnerToken,
   ]);
 
@@ -552,11 +564,10 @@ function ProfilePageContent() {
       return;
     }
 
-    if (isVaultUnlocked) {
+    if (vaultAccess.canMutateSecureData) {
       setShowDeleteConfirm(true);
     } else {
-      setVaultUnlockReason("delete_account");
-      setShowVaultUnlock(true);
+      requestVaultUnlock("delete_account");
     }
   };
 
@@ -590,6 +601,11 @@ function ProfilePageContent() {
     setSupportSubject(SUPPORT_KIND_COPY[kind].subject);
     setSupportMessage("");
     setSupportDialogOpen(true);
+  }
+
+  function requestVaultUnlock(reason: "profile_data" | "delete_account" = "profile_data") {
+    setVaultUnlockReason(reason);
+    setShowVaultUnlock(true);
   }
 
   async function submitSupportMessage() {
@@ -644,10 +660,9 @@ function ProfilePageContent() {
   async function switchToQuickMethod(targetMethod: VaultMethod) {
     if (!user?.uid) return;
 
-    if (!isVaultUnlocked || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !vaultKey) {
       toast.info("Unlock your vault to change security method.");
-      setVaultUnlockReason("profile_data");
-      setShowVaultUnlock(true);
+      requestVaultUnlock("profile_data");
       return;
     }
 
@@ -681,10 +696,9 @@ function ProfilePageContent() {
   ) {
     if (!user?.uid) return;
 
-    if (!isVaultUnlocked || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !vaultKey) {
       toast.info("Unlock your vault to change security method.");
-      setVaultUnlockReason("profile_data");
-      setShowVaultUnlock(true);
+      requestVaultUnlock("profile_data");
       return;
     }
 
@@ -713,10 +727,9 @@ function ProfilePageContent() {
   async function preferPassphraseUnlock() {
     if (!user?.uid) return;
 
-    if (!isVaultUnlocked || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !vaultKey) {
       toast.info("Unlock your vault to change security method.");
-      setVaultUnlockReason("profile_data");
-      setShowVaultUnlock(true);
+      requestVaultUnlock("profile_data");
       return;
     }
 
@@ -741,10 +754,9 @@ function ProfilePageContent() {
   async function changePassphrase() {
     if (!user?.uid) return;
 
-    if (!isVaultUnlocked || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !vaultKey) {
       toast.info("Unlock your vault to change passphrase.");
-      setVaultUnlockReason("profile_data");
-      setShowVaultUnlock(true);
+      requestVaultUnlock("profile_data");
       return;
     }
 
@@ -779,7 +791,7 @@ function ProfilePageContent() {
   }
 
   const deleteButtonLabel =
-    hasVault === true && !isVaultUnlocked
+    vaultAccess.needsUnlock
       ? hasDualPersona
         ? "Unlock to manage deletion"
         : "Unlock to delete account"
@@ -820,33 +832,25 @@ function ProfilePageContent() {
     vaultMethod === "passphrase" && availableQuickMethod
       ? availableQuickMethod
       : null;
-  const canEditKaiPreferences = Boolean(
-    user.uid &&
-      hasVault === true &&
-      isVaultUnlocked &&
-      typeof vaultKey === "string" &&
-      vaultKey.length > 0 &&
-      typeof vaultOwnerToken === "string" &&
-      vaultOwnerToken.length > 0
-  );
+  const canEditKaiPreferences = Boolean(user.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData);
 
   const kaiProfileDescription =
     loadingDomains
       ? "Loading your personalized signals."
-      : hasVault === false
+      : vaultAccess.needsVaultCreation
         ? "Create your vault from import to start building your profile."
-        : hasVault === true && !vaultOwnerToken
-          ? "Unlock your vault to view your saved signals."
+        : vaultAccess.needsUnlock
+          ? "Open your Kai workspace now, then unlock whenever you want to reveal saved signals."
           : totalAttributes > 0
             ? `${totalAttributes} signal${totalAttributes === 1 ? "" : "s"} across ${domains.length} domain${domains.length === 1 ? "" : "s"}.`
             : "Nothing here yet. Chat with Kai or import a portfolio to personalize your profile.";
 
   const kaiPreferencesDescription =
-    hasVault === false
+    vaultAccess.needsVaultCreation
       ? "Create your vault first so Kai preferences can be saved securely."
-      : isVaultUnlocked
+      : vaultAccess.canMutateSecureData
         ? "Adjust risk profile and horizon settings used throughout Kai."
-        : "Unlock your vault to update your Kai preferences.";
+        : "Basic shell preferences stay available here. Unlock only when you want to edit encrypted Kai preferences.";
 
   const marketplaceStatusText =
     loadingMarketplaceOptIn
@@ -856,33 +860,29 @@ function ProfilePageContent() {
         : "Hidden from marketplace search";
 
   const securitySummaryText =
-    hasVault === false
+    vaultAccess.needsVaultCreation
       ? "Vault not created yet"
       : loadingVaultMethod
         ? "Loading methods…"
+        : vaultAccess.needsUnlock
+          ? "Locked"
         : readableMethod(displayedUnlockMethod);
 
   const openKaiProfile = () => {
-    if (hasVault === false) {
+    if (vaultAccess.needsVaultCreation) {
       router.push(ROUTES.KAI_IMPORT);
-      return;
-    }
-    if (hasVault === true && !vaultOwnerToken) {
-      setVaultUnlockReason("profile_data");
-      setShowVaultUnlock(true);
       return;
     }
     router.push(ROUTES.KAI_DASHBOARD);
   };
 
   const openKaiPreferences = () => {
-    if (hasVault === false) {
+    if (vaultAccess.needsVaultCreation) {
       router.push(ROUTES.KAI_IMPORT);
       return;
     }
-    if (!isVaultUnlocked) {
-      setVaultUnlockReason("profile_data");
-      setShowVaultUnlock(true);
+    if (!vaultAccess.canMutateSecureData) {
+      requestVaultUnlock("profile_data");
       return;
     }
     setShowKaiPreferencesSheet(true);
@@ -1190,7 +1190,7 @@ function ProfilePageContent() {
         description="Manage passphrase, passkey, and current unlock behavior without changing how your vault stays protected."
       >
         <div className="space-y-4 sm:space-y-5">
-          {hasVault === false ? (
+          {vaultAccess.needsVaultCreation ? (
             <SettingsGroup eyebrow="Vault required">
               <SettingsRow
                 icon={Folder}
@@ -1205,14 +1205,14 @@ function ProfilePageContent() {
             </SettingsGroup>
           ) : null}
 
-          {hasVault === true && loadingVaultMethod ? (
+          {vaultAccess.hasVault && loadingVaultMethod ? (
             <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
               <Icon icon={Loader2} size="sm" className="animate-spin" />
               Loading vault methods...
             </SurfaceInset>
           ) : null}
 
-          {hasVault === true && !loadingVaultMethod ? (
+          {vaultAccess.hasVault && !loadingVaultMethod ? (
             <>
               <SettingsGroup eyebrow="Current state">
                 <SettingsRow
@@ -1260,16 +1260,13 @@ function ProfilePageContent() {
               ) : null}
 
               <SettingsGroup eyebrow="Actions">
-                {!isVaultUnlocked ? (
+                {!vaultAccess.canMutateSecureData ? (
                   <SettingsRow
                     icon={KeyRound}
                     title="Unlock vault"
                     description="Unlock your vault to change methods or update your passphrase."
                     chevron
-                    onClick={() => {
-                      setVaultUnlockReason("profile_data");
-                      setShowVaultUnlock(true);
-                    }}
+                    onClick={() => requestVaultUnlock("profile_data")}
                   />
                 ) : null}
 

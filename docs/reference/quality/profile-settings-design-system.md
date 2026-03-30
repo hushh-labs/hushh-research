@@ -56,7 +56,11 @@ Rules:
 4. The whole row owns hover, press, and ripple behavior.
 5. Ripple appears only when the row is actionable.
 6. Do not nest buttons inside the text column.
-7. Avoid long text in trailing slots.
+7. If trailing content is interactive, split the row into:
+   - primary action zone for navigation/open-detail
+   - trailing controls zone for switches/buttons
+8. A clickable settings row must never render nested interactive DOM.
+9. Avoid long text in trailing slots.
 
 ### `SettingsDetailPanel`
 
@@ -109,6 +113,18 @@ Rules:
 3. Trailing chevrons and toggles stay aligned right.
 4. Dense content opens in `SettingsDetailPanel`, not inline expansions that stretch the root page.
 5. Safe-area spacing must be respected at the bottom of mobile drawers.
+
+## Vault Access Rules
+
+1. Basic profile functionality must remain usable without unlocking the vault:
+   - account/session actions
+   - support flows
+   - consent manager entry
+   - marketplace visibility
+   - navigation into the broader Kai or RIA workspace
+2. Only rows that read or mutate encrypted vault-backed state should prompt unlock on demand.
+3. If a vault does not exist yet, route the user to the creation/import flow instead of showing an unlock prompt.
+4. Locked vault state should change row copy and badges, not make the whole profile surface unavailable.
 
 ## Approved shadcn primitives for settings surfaces
 

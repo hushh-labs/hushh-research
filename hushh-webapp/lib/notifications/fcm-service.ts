@@ -15,7 +15,11 @@
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
-import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
+import {
+  assignWindowLocation,
+  requestInternalAppNavigation,
+} from "@/lib/utils/browser-navigation";
 
 // Event name for FCM messages (both web and native dispatch this)
 export const FCM_MESSAGE_EVENT = "fcm-message";
@@ -695,11 +699,20 @@ function setupNativeListeners(): void {
           typeof data.type === "string" &&
           data.type === "consent_request"
         ) {
-          const target =
+          const target = resolveConsentNavigationTarget(
             (typeof data.request_url === "string" && data.request_url) ||
-            (typeof data.deep_link === "string" && data.deep_link) ||
-            buildConsentTargetPath(data);
-          assignWindowLocation(target);
+              (typeof data.deep_link === "string" && data.deep_link) ||
+              null,
+            "pending"
+          );
+          if (target.kind === "internal") {
+            requestInternalAppNavigation({
+              href: target.href,
+              scroll: false,
+            });
+          } else {
+            assignWindowLocation(target.href || buildConsentTargetPath(data));
+          }
         } else if (
           data &&
           typeof data.type === "string" &&
@@ -743,14 +756,10 @@ function buildConsentTargetPath(
     data && typeof data.request_id === "string" ? data.request_id : undefined;
   const bundleId =
     data && typeof data.bundle_id === "string" ? data.bundle_id : undefined;
-  const params = new URLSearchParams({
-    tab: "privacy",
-    sheet: "consents",
-    consentView: "pending",
-  });
-  if (requestId) params.set("requestId", requestId);
-  if (bundleId) params.set("bundleId", bundleId);
-  return `${ROUTES.PROFILE}?${params.toString()}`;
+  return resolveConsentNavigationTarget(null, "pending", {
+    requestId,
+    bundleId,
+  }).href;
 }
 
 /**

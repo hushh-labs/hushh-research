@@ -8,6 +8,7 @@ import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 
@@ -47,6 +48,9 @@ const EXCLUDED_SYMBOLS = new Set([
   "WITHDRAWAL",
   "DEPOSIT",
 ]);
+const UNLOCK_WARM_TASK_KIND = "unlock_warm";
+const PASSIVE_TASK_VISIBLE_AFTER_MS = 750;
+const PASSIVE_TASK_AUTO_CLEAR_AFTER_MS = 10_000;
 
 function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
@@ -251,6 +255,23 @@ export class UnlockWarmOrchestrator {
       warmPriority === "consents" ||
       warmPriority === "profile" ||
       warmPriority === "default";
+    const taskId = `${UNLOCK_WARM_TASK_KIND}_${params.userId}_${warmPriority}`;
+    AppBackgroundTaskService.startTask({
+      taskId,
+      userId: params.userId,
+      kind: UNLOCK_WARM_TASK_KIND,
+      title: "Refreshing signed-in workspace",
+      description: "Warming secure data and cached views in the background.",
+      visibility: "passive",
+      groupLabel: "Background activity",
+      visibleAfterMs: PASSIVE_TASK_VISIBLE_AFTER_MS,
+      autoClearAfterMs: PASSIVE_TASK_AUTO_CLEAR_AFTER_MS,
+      metadata: {
+        routePath: params.routePath || null,
+        warmPriority,
+      },
+    });
+    try {
     const result: UnlockWarmResult = {
       onboardingSynced: false,
       metadataWarmed: false,
@@ -447,13 +468,32 @@ export class UnlockWarmOrchestrator {
       );
     }
 
-    if (warmPriority === "profile") {
-      this.queuePkmUpgrade(params);
-    }
+    this.queuePkmUpgrade(params);
     if (warmPriority === "consents") {
       this.queueConsentExportRefresh(params);
     }
+    AppBackgroundTaskService.completeTask(
+      taskId,
+      "Background activity is current.",
+      {
+        routePath: params.routePath || null,
+        warmPriority,
+        result,
+      }
+    );
     return result;
+  } catch (error) {
+    AppBackgroundTaskService.failTask(
+      taskId,
+      error instanceof Error ? error.message : "Background activity failed.",
+      "Background activity needs attention.",
+      {
+        routePath: params.routePath || null,
+        warmPriority,
+      }
+    );
+    throw error;
+  }
   }
 
   private static hydrateFinancialCaches(params: {
