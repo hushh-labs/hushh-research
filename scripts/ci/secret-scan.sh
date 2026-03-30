@@ -21,7 +21,19 @@ if [ -n "${GITLEAKS_LOG_OPTS:-}" ]; then
 else
   DEFAULT_BRANCH="${GITLEAKS_DEFAULT_BRANCH:-}"
   if [ -z "$DEFAULT_BRANCH" ]; then
-    DEFAULT_BRANCH="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+    DEFAULT_BRANCH="$(
+      git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true
+    )"
+  fi
+
+  if [ -z "$DEFAULT_BRANCH" ]; then
+    DEFAULT_BRANCH="$(
+      git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -n 1 || true
+    )"
+  fi
+
+  if [ -z "$DEFAULT_BRANCH" ]; then
+    DEFAULT_BRANCH="main"
   fi
 
   if [ -n "$DEFAULT_BRANCH" ] && git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then

@@ -59,6 +59,9 @@ if ! gh api -H 'Accept: application/vnd.github+json' \
   "/repos/${REPO}/secret-scanning/alerts?state=open&per_page=100" >"$SECRET_ALERTS_JSON" 2>"$TMPDIR/secret-errors.log"; then
   echo "GitHub security alert parity check failed: unable to read secret-scanning alerts."
   sed 's/^/  /' "$TMPDIR/secret-errors.log" || true
+  if grep -q "Resource not accessible by integration" "$TMPDIR/secret-errors.log"; then
+    echo "  Hint: set a repo secret like GH_SECURITY_ALERTS_TOKEN with a PAT that can read secret-scanning and Dependabot alerts."
+  fi
   if [ "$STRICT_MODE" = "1" ]; then
     exit 1
   fi
@@ -69,6 +72,9 @@ if ! gh api -H 'Accept: application/vnd.github+json' \
   "/repos/${REPO}/dependabot/alerts?state=open&per_page=100" >"$DEPENDABOT_ALERTS_JSON" 2>"$TMPDIR/dependabot-errors.log"; then
   echo "GitHub security alert parity check failed: unable to read dependabot alerts."
   sed 's/^/  /' "$TMPDIR/dependabot-errors.log" || true
+  if grep -q "Resource not accessible by integration" "$TMPDIR/dependabot-errors.log"; then
+    echo "  Hint: set a repo secret like GH_SECURITY_ALERTS_TOKEN with a PAT that can read secret-scanning and Dependabot alerts."
+  fi
   if [ "$STRICT_MODE" = "1" ]; then
     exit 1
   fi

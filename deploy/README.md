@@ -281,7 +281,10 @@ Manual dispatch now supports `scope`:
 
 ### CI Security Gates
 
-- `.github/workflows/ci.yml` runs `gitleaks` as a mandatory secret-scanning gate.
+- `.github/workflows/ci.yml` runs a two-part secret gate:
+  - `gitleaks` over the event commit range
+  - GitHub secret-scanning + Dependabot parity via authenticated API reads
+- Set a repo secret like `GH_SECURITY_ALERTS_TOKEN` for CI so the workflow can read GitHub security alerts with the same fidelity as local `gh`-authenticated checks.
 - Native parity checks are optional in baseline CI and enabled for native release lanes.
 
 ### Option 1: Cloud Build Triggers (Recommended)

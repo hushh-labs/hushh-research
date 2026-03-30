@@ -89,7 +89,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh secret
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
           REQUIRE_GITHUB_ALERTS_CLEAN: "1"
 
   # ============================================================================
