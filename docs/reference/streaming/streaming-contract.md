@@ -1,5 +1,10 @@
 # Streaming Contract (Canonical SSE)
 
+
+## Visual Context
+
+Canonical visual owner: [Streaming Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document is the single source of truth for Kai streaming across backend, native plugins, proxy, and frontend consumers.
 
 ## Scope

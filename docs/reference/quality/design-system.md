@@ -1,5 +1,10 @@
 # Hushh Frontend Design System
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 This contract makes shadcn primitives the canonical base and keeps Morphy as a compositional extension layer.
 

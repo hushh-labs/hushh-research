@@ -1,5 +1,10 @@
 # Production DB Backup and Recovery (Supabase, Cost-Optimized)
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This runbook defines production recovery readiness with daily logical backups
 instead of PITR-gated deployment.
 

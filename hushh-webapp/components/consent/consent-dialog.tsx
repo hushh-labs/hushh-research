@@ -36,6 +36,10 @@ export interface ConsentRequest {
   agentIcon?: string;
   scope: string;
   scopeDescription: string;
+  /** Display metadata from backend scope label registry */
+  scopeLabel?: string;
+  scopeIconName?: string;
+  scopeColorHex?: string;
   dataFields?: string[];
   expiresInDays?: number;
 }
@@ -49,22 +53,40 @@ export interface ConsentDialogProps {
 }
 
 // ============================================================================
-// Scope to Human-Readable Mapping
+// Dynamic Scope Display Resolution
 // ============================================================================
 
-const SCOPE_DESCRIPTIONS: Record<
-  string,
-  { title: string; description: string }
-> = {
-  "vault.write.finance": {
-    title: "Save Financial Preferences",
-    description: "Store budget and spending preferences",
-  },
-  "vault.read.finance": {
-    title: "Read Financial Data",
-    description: "Access your financial preferences for analysis",
-  },
-};
+/**
+ * Resolve scope display info from request metadata (enriched by backend)
+ * or fall back to a humanized version of the raw scope string.
+ */
+function resolveScopeDisplay(request: ConsentRequest): {
+  title: string;
+  description: string;
+  colorHex: string | null;
+} {
+  // Prefer backend-provided label (from scope_helpers.get_scope_display_metadata)
+  if (request.scopeLabel) {
+    return {
+      title: request.scopeLabel,
+      description: request.scopeDescription,
+      colorHex: request.scopeColorHex ?? null,
+    };
+  }
+
+  // Humanize raw scope string as fallback
+  const humanized = request.scope
+    .replace(/^attr\./, "")
+    .replace(/\.\*$/, "")
+    .replace(/[._]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  return {
+    title: humanized || request.scope,
+    description: request.scopeDescription,
+    colorHex: null,
+  };
+}
 
 // ============================================================================
 // Component
@@ -79,10 +101,7 @@ export function ConsentDialog({
 }: ConsentDialogProps) {
   const [isGranting, setIsGranting] = useState(false);
 
-  const scopeInfo = SCOPE_DESCRIPTIONS[request.scope] || {
-    title: request.scope,
-    description: request.scopeDescription,
-  };
+  const scopeInfo = resolveScopeDisplay(request);
 
   const handleGrant = async () => {
     setIsGranting(true);
@@ -112,13 +131,31 @@ export function ConsentDialog({
 
         {/* Scope Info */}
         <div className="space-y-4 py-4">
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
-            <Icon icon={Shield} size="md" className="text-blue-500 mt-0.5" />
+          <div
+            className="flex items-start gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40"
+            style={scopeInfo.colorHex ? {
+              backgroundColor: `${scopeInfo.colorHex}08`,
+              borderColor: `${scopeInfo.colorHex}20`,
+            } : undefined}
+          >
+            <div
+              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+              style={scopeInfo.colorHex ? {
+                backgroundColor: `${scopeInfo.colorHex}18`,
+              } : undefined}
+            >
+              <Icon
+                icon={Shield}
+                size="md"
+                className="text-blue-500"
+                style={scopeInfo.colorHex ? { color: scopeInfo.colorHex } : undefined}
+              />
+            </div>
             <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100">
+              <p className="font-medium text-foreground">
                 {scopeInfo.title}
               </p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">
+              <p className="text-sm text-muted-foreground">
                 {scopeInfo.description}
               </p>
             </div>

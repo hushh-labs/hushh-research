@@ -1,6 +1,11 @@
 # Capacitor Parity Audit Report
 
-Last audited: March 19, 2026
+
+## Visual Context
+
+Canonical visual owner: [Mobile Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
+Last audited: March 29, 2026
 
 ## Overall Status
 
@@ -53,6 +58,20 @@ Route-facing code should continue to use:
 - `hushh-webapp/lib/utils/browser-navigation.ts`
 - `hushh-webapp/lib/utils/session-storage.ts`
 - `hushh-webapp/lib/utils/native-download.ts`
+
+Current registry-backed direct usage that must remain intentional and documented:
+
+- navigation mutation:
+  - `hushh-webapp/components/app-ui/route-error-boundary.tsx`
+  - `hushh-webapp/components/vault/vault-lock-guard.tsx`
+  - `hushh-webapp/lib/consent/use-consent-actions.ts`
+- IndexedDB:
+  - `hushh-webapp/lib/services/device-resource-cache-service.ts`
+  - `hushh-webapp/lib/services/secure-resource-cache-service.ts`
+
+Native auth storage note:
+
+- `HushhAuth` persists native auth tokens through secure platform storage (`Keychain` / `Keystore`) rather than general user defaults or browser storage.
 
 ### 3. Keep Apple capability docs aligned
 

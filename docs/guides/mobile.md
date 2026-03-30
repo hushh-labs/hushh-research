@@ -1,7 +1,43 @@
 # Mobile Development (iOS & Android)
 
 > Native mobile deployment with Capacitor 8 and local-first architecture.
-> Last verified: January 2026.
+> Last verified: March 2026.
+
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph client["Mobile client"]
+    webview["Next.js UI inside WebView"]
+    routes["Visible route contract"]
+    wrappers["Browser-safe wrappers"]
+  end
+
+  subgraph ts["TypeScript runtime"]
+    services["Service layer"]
+    cache["Auth, vault, PKM, cache contexts"]
+    parity["Route contracts + parity registry"]
+  end
+
+  subgraph native["Native platform layer"]
+    plugins["Capacitor plugins<br/>auth, vault, consent, PKM, notifications"]
+    os["iOS / Android secure capabilities"]
+  end
+
+  subgraph backend["Remote services"]
+    proxy["Web proxy routes when running on web"]
+    api["FastAPI backend"]
+  end
+
+  webview --> routes
+  routes --> wrappers --> services
+  cache --> services
+  parity --> routes
+  services --> plugins --> os
+  services --> proxy --> api
+  plugins --> api
+```
 
 ---
 
@@ -88,6 +124,7 @@ That release gate includes:
 Accepted parity exceptions currently documented in the registry:
 
 - None. Full parity requires the registry and runtime to stay exception-free for visible route behavior.
+- Registry-backed direct usage that remains intentional must still be documented in `mobile-parity-registry.json`, especially for route recovery/navigation mutation and IndexedDB-backed cache services.
 
 ### Firebase artifact safety (no secret leak in git)
 
@@ -172,6 +209,11 @@ Do not add a visible route without:
 | `getCurrentUser()`   | Get user profile                                      |
 | `isSignedIn()`       | Check auth state                                      |
 
+Native auth persistence note:
+
+- Native auth tokens are stored through secure platform storage (`Keychain` on iOS, `Keystore`-backed secure storage on Android), not general app defaults or browser storage.
+- Web continues to rely on the browser/Firebase session model; native must preserve the same product semantics through the plugin boundary.
+
 ### HushhVault
 
 | Method                   | Description                      |
@@ -184,6 +226,11 @@ Do not add a visible route without:
 | `getFoodPreferences()`   | Get encrypted food preferences   |
 | `storeFoodPreferences()` | Store encrypted food preferences |
 | `getProfessionalData()`  | Get encrypted professional data  |
+
+Session-storage semantics note:
+
+- On native cold start, browser session storage semantics are restored by `lib/utils/session-storage.ts`.
+- When the native WebView falls back to persistent storage, `_session_` keys are purged on boot so session-only state does not leak across fresh app launches.
 
 ### HushhConsent
 
@@ -738,4 +785,4 @@ Manual smoke on device/simulator is still required after this CI gate.
 
 ---
 
-_Last verified: February 2026 | Capacitor 8_
+_Last verified: March 2026 | Capacitor 8_

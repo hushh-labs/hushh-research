@@ -3,6 +3,11 @@
 > Single source of truth for env vars and **strict parity** with code and GCP Secret Manager.  
 > **Rule:** What is in `.env` / Secret Manager must match exactly what the code reads — no extra keys, no missing keys.
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.example](../../../consent-protocol/.env.example), [hushh-webapp/.env.example](../../../hushh-webapp/.env.example), [deploy/.env.backend.example](../../../deploy/.env.backend.example), [deploy/.env.frontend.example](../../../deploy/.env.frontend.example). For FCM push notifications, see [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md).
 
 ---

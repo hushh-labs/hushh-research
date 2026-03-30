@@ -2,6 +2,24 @@
 
 > Governance for Next.js proxy routes, native plugin parity, and app navigation truth.
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  contracts["Route Contracts"]
+  standard["standard routes"]
+  flow["flow routes"]
+  hidden["hidden / redirect routes"]
+  parity["Web / iOS / Android parity"]
+  contracts --> standard
+  contracts --> flow
+  contracts --> hidden
+  standard --> parity
+  flow --> parity
+  hidden --> parity
+```
+
 Hushh uses a contract manifest to keep the declared runtime surface aligned across:
 
 - Next.js API route handlers under `hushh-webapp/app/api/**/route.ts`

@@ -301,6 +301,7 @@ export class CacheSyncService {
         );
       }
       this.invalidateKaiFinancialResource(userId);
+      this.onKaiMarketContextChanged(userId);
       // IMPORTANT: Preserve existing financial portfolio cache on profile-only
       // writes (e.g. onboarding/nav-tour sync). Invalidating here causes
       // transient "import portfolio" gating despite a successful save.

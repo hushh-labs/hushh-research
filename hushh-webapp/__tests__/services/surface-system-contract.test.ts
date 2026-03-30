@@ -94,7 +94,7 @@ const SURFACE_CONTRACTS: SurfaceContract[] = [
   },
   {
     file: "app/kai/import/page.tsx",
-    includes: ["AppPageShell", "AppPageContentRegion"],
+    includes: ["FullscreenFlowShell", "KaiFlow"],
     excludes: ['<div className="w-full">'],
   },
   {

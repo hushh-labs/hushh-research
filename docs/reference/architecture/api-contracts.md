@@ -2,6 +2,26 @@
 
 > Complete endpoint reference, authentication model, and developer integration guide.
 
+
+## Visual Map
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Boundary as Web Proxy / Native Plugin
+  participant API as FastAPI Route
+  participant Service as Consent + Service Layer
+  participant Store as PKM / DB / Provider
+  Client->>Boundary: runtime request
+  Boundary->>API: canonical /api/* call
+  API->>Service: auth + consent + scope checks
+  Service->>Store: read/write
+  Store-->>Service: data or ciphertext
+  Service-->>API: contract response
+  API-->>Boundary: token-gated payload
+  Boundary-->>Client: runtime data
+```
+
 ---
 
 ## Token Hierarchy
@@ -134,6 +154,15 @@ RIA relationship bundle note:
 | POST | `/api/pkm/upgrade/runs/{run_id}/fail` | Mark a PKM upgrade run failed |
 | GET | `/api/pkm/scopes/{user_id}` | Get available PKM scope handles for the user |
 | POST | `/api/pkm/get-context` | Get user context for analysis |
+
+Legacy compatibility note:
+
+- `/api/world-model/*` remains available only as a compatibility surface mapped onto PKM
+- these responses emit deprecation headers:
+  - `Deprecation: true`
+  - `Sunset: 2026-06-30T00:00:00Z`
+  - `X-Migrate-To: /api/pkm/...`
+- no new first-party callers should be added to `/api/world-model/*`
 
 #### Kai Chat
 

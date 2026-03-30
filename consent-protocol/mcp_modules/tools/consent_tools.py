@@ -76,6 +76,40 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     """
     user_id = args.get("user_id")
     scope_str = args.get("scope")
+    scope_bundle_key = args.get("scope_bundle")
+
+    # If a scope bundle is provided, expand it and use the first scope
+    # (bundled consent creates one request per scope in the bundle)
+    if scope_bundle_key and not scope_str:
+        from hushh_mcp.consent.scope_bundles import expand_bundle
+
+        try:
+            expanded = expand_bundle(scope_bundle_key)
+            scope_str = expanded[0] if len(expanded) == 1 else expanded[0]
+            # For multi-scope bundles, we request the domain wildcard
+            if len(expanded) > 1:
+                # Find common domain prefix or use first scope
+                scope_str = expanded[0]
+        except ValueError:
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "status": "error",
+                            "error": f"Unknown scope bundle: {scope_bundle_key}",
+                            "available_bundles": [
+                                "financial_overview",
+                                "full_portfolio_review",
+                                "risk_assessment",
+                                "health_wellness",
+                                "lifestyle_preferences",
+                            ],
+                        }
+                    ),
+                )
+            ]
+
     reason = str(args.get("reason") or "").strip() or None
     expiry_hours = args.get("expiry_hours")
     approval_timeout_minutes = args.get("approval_timeout_minutes")

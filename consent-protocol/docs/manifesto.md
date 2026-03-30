@@ -3,6 +3,11 @@
 > Consent is not a checkbox.  
 > It’s a contract, a signal, and a programmable boundary.
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ---
 
 ## 🧠 Why We Exist

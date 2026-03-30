@@ -1,5 +1,17 @@
 # Runtime Surface
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  persona["Persona"]
+  routes["Investor / RIA / Marketplace routes"]
+  apis["/api/iam /api/ria /api/consent"]
+  tables["actor_profiles / relationships / share grants"]
+  persona --> routes --> apis --> tables
+```
+
 ## Purpose
 
 Describe the current implemented Investor + RIA runtime surface (backend + web + MCP).
@@ -63,6 +75,15 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 1. `GET /api/consent/center`
 2. `GET /api/consent/requests/outgoing`
 3. `POST /api/consent/requests`
+
+Consent-center and scope-discovery payloads may include scope display metadata for user-facing presentation:
+
+1. `scopeLabel`
+2. `scopeDescription`
+3. `scopeIconName`
+4. `scopeColorHex`
+
+These fields are presentation metadata only. Authorization still evaluates the canonical scope string.
 
 ### Marketplace
 

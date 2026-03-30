@@ -8,6 +8,7 @@ This folder is the canonical entrypoint for platform-aware data access and route
 - `cache-service.ts`: shared cache primitives and keys.
 - `unlock-warm-orchestrator.ts`: post-unlock cache seeding and warmup.
 - `kai-token-guard.ts` / related Kai services: Kai-specific protected access flow.
+- `post-unlock-sync-service.ts`: post-vault-unlock background sync orchestrator (`PostUnlockSyncService`).
 
 ## Rules
 

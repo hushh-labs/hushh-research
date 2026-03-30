@@ -328,6 +328,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                   ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
                                   : centerTitle.label}
                               </span>
+                              {!switchingPersona && (
+                                <span
+                                  className={cn(
+                                    "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+                                    activePersona === "ria"
+                                      ? "bg-amber-500"
+                                      : "bg-emerald-500"
+                                  )}
+                                  aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
+                                />
+                              )}
                               <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
                             </span>
                             <MaterialRipple variant="none" effect="fade" className="z-0" />

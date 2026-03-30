@@ -1,5 +1,10 @@
 # External Dependencies
 
+
+## Visual Context
+
+Canonical visual owner: [IAM Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 
 Track upstream systems used by IAM and consent flows, with ownership and failure policy.

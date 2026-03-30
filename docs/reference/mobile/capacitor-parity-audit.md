@@ -1,5 +1,18 @@
 # Capacitor Parity Audit
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  routes["Route Contracts"]
+  registry["Parity Registry"]
+  wrappers["Wrappers / Plugins"]
+  audits["verify:capacitor:* gates"]
+  release["Release Readiness"]
+  routes --> registry --> wrappers --> audits --> release
+```
+
 This is the release-gate contract for calling iOS/Android parity complete.
 
 ## Source Of Truth

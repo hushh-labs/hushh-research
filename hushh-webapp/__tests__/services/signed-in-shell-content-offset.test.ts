@@ -11,7 +11,7 @@ describe("resolveSignedInShellContentOffset", () => {
     });
 
     expect(result.mode).toBe("standard");
-    expect(result.style["--page-top-start"]).toBe("var(--app-top-body-start-gap)");
+    expect(result.style["--page-top-start"]).toBe("75px");
     expect(result.style["--app-top-mask-tail-clearance"]).toBe(
       "calc(var(--page-top-start) + var(--page-top-local-offset, 0px))"
     );

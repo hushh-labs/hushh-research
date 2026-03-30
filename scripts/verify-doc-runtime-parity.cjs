@@ -164,6 +164,37 @@ const REQUIRED_ROOT_DOC_LINKS = [
   "../hushh-webapp/lib/services/README.md",
 ];
 
+const VISUAL_DOC_TARGETS = [
+  "readme.md",
+  "getting_started.md",
+  "TESTING.md",
+  "contributing.md",
+  "docs",
+  "consent-protocol/README.md",
+  "consent-protocol/docs",
+  "hushh-webapp/README.md",
+  "hushh-webapp/docs",
+];
+
+const VISUAL_TIER_A_EXTRA = new Set([
+  "docs/project_context_map.md",
+  "docs/reference/architecture/architecture.md",
+  "docs/reference/architecture/api-contracts.md",
+  "docs/reference/architecture/cache-coherence.md",
+  "docs/reference/architecture/route-contracts.md",
+  "docs/reference/iam/architecture.md",
+  "docs/reference/iam/runtime-surface.md",
+  "docs/reference/iam/consent-scope-catalog.md",
+  "docs/reference/kai/kai-interconnection-map.md",
+  "docs/reference/kai/kai-brokerage-connectivity-architecture.md",
+  "docs/guides/mobile.md",
+  "docs/reference/mobile/capacitor-parity-audit.md",
+  "docs/reference/operations/ci.md",
+  "docs/reference/operations/branch-governance.md",
+  "hushh-webapp/README.md",
+  "consent-protocol/README.md",
+]);
+
 function fail(message) {
   console.error(`ERROR: ${message}`);
   process.exitCode = 1;
@@ -501,6 +532,108 @@ function verifyRootDocHubLinks() {
   }
 }
 
+function isVisualTierA(file) {
+  if (VISUAL_TIER_A_EXTRA.has(file)) {
+    return true;
+  }
+
+  const normalized = normalize(file);
+  const basename = path.basename(normalized);
+  if (basename !== "README.md") {
+    return false;
+  }
+
+  return (
+    normalized.startsWith("docs/") ||
+    normalized.startsWith("consent-protocol/docs/") ||
+    normalized.startsWith("hushh-webapp/docs/")
+  );
+}
+
+function extractVisualSection(src, heading) {
+  const top = src.split(/\r?\n/).slice(0, 160).join("\n");
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `^## ${escapedHeading}\\n+([\\s\\S]*?)(?=^##\\s|^#\\s|\\Z)`,
+    "m"
+  );
+  return top.match(pattern);
+}
+
+function resolveMarkdownLink(file, target) {
+  if (!target || target.startsWith("#") || /^[a-zA-Z]+:\/\//.test(target)) {
+    return null;
+  }
+
+  const clean = target.split("#")[0].trim();
+  if (!clean) {
+    return null;
+  }
+
+  const absolute = path.resolve(path.dirname(path.join(repoRoot, file)), clean);
+  return normalize(path.relative(repoRoot, absolute));
+}
+
+function verifyVisualCoverage() {
+  const docs = collectDocs(VISUAL_DOC_TARGETS);
+  const offenders = [];
+
+  for (const file of docs) {
+    const src = read(file);
+    const mapMatch = extractVisualSection(src, "Visual Map");
+    const contextMatch = extractVisualSection(src, "Visual Context");
+    const tierA = isVisualTierA(file);
+
+    if (tierA) {
+      if (!mapMatch) {
+        offenders.push(`${file}: Tier A doc must contain ## Visual Map near the top`);
+        continue;
+      }
+      if (!/```/.test(mapMatch[1] || "")) {
+        offenders.push(`${file}: Visual Map must include a markdown-native diagram block`);
+      }
+      continue;
+    }
+
+    if (!mapMatch && !contextMatch) {
+      offenders.push(`${file}: Tier B doc must contain ## Visual Map or ## Visual Context near the top`);
+      continue;
+    }
+
+    if (contextMatch) {
+      const links = [...contextMatch[1].matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) =>
+        match[1].trim()
+      );
+      if (links.length === 0) {
+        offenders.push(`${file}: Visual Context must link to a canonical visual owner`);
+        continue;
+      }
+
+      const resolvedTargets = links
+        .map((link) => resolveMarkdownLink(file, link))
+        .filter(Boolean);
+
+      if (resolvedTargets.length === 0) {
+        offenders.push(`${file}: Visual Context links do not resolve to local docs`);
+        continue;
+      }
+
+      const validOwner = resolvedTargets.find((target) => exists(target) && isVisualTierA(target));
+      if (!validOwner) {
+        offenders.push(
+          `${file}: Visual Context must include at least one existing Tier A visual owner link`
+        );
+      }
+    }
+  }
+
+  if (offenders.length) {
+    fail(`Visual coverage contract violations found:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
+  } else {
+    ok("Maintained docs provide local or inherited visual coverage");
+  }
+}
+
 function main() {
   const operationalDocs = collectDocs(OPERATIONAL_DOC_TARGETS);
   const firstPartyDocs = collectDocs(FIRST_PARTY_DOC_TARGETS);
@@ -521,6 +654,7 @@ function main() {
   verifyDocPathReferences(firstPartyDocs);
   verifyRequiredDocIndexes();
   verifyRootDocHubLinks();
+  verifyVisualCoverage();
   verifyCanonicalRouteContract(operationalDocs);
   verifyRequiredOperationalMarkers();
   verifyNoGeneratedArtifacts();

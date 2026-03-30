@@ -9,6 +9,7 @@ This folder is the canonical home for signed-in shell primitives and shared page
 - `surfaces.tsx`: shared surface/card wrappers and `SurfaceStack`.
 - `top-app-bar.tsx`: top chrome, persona switcher, and bell trigger.
 - `debate-task-center.tsx`: notification bell surface with pinned consent-center launcher.
+- `route-error-boundary.tsx`: top-level error boundary for route failures with graceful fallback UI.
 
 ## Rules
 

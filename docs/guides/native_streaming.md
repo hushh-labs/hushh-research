@@ -3,6 +3,11 @@
 > Guidelines for implementing Server-Sent Events (SSE) streaming on iOS and Android with Capacitor.
 > Last updated: February 2026
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Overview
 
 Native platforms (iOS/Android) require special handling for streaming responses because:

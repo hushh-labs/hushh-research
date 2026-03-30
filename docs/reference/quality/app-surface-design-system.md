@@ -1,5 +1,10 @@
 # App Surface Design System
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document is the canonical contract for app-facing surfaces across Kai, RIA, Marketplace, Consent, and Profile.
 
 Profile remains the reference implementation for settings rows. This document expands that language into the broader page-shell, header, and content-surface system.

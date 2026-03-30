@@ -1,5 +1,50 @@
 # Cache Coherence Reference
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph runtime["Client runtime"]
+    ui["UI hooks / resources"]
+    mem["Memory L1<br/>CacheService"]
+    coordinator["PkmWriteCoordinator"]
+    sync["CacheSyncService"]
+  end
+
+  subgraph device["Device persistence"]
+    secure["Encrypted IndexedDB<br/>secure resource cache"]
+    plain["Plain IndexedDB<br/>non-sensitive resource cache"]
+  end
+
+  subgraph backend["Backend"]
+    pkm["PKM routes and services"]
+    market["Market / consent / RIA APIs"]
+  end
+
+  subgraph boundary["Security invariants"]
+    key["Vault key<br/>memory-only"]
+    plaintext["Decrypted PKM<br/>memory-only"]
+  end
+
+  ui --> mem
+  mem --> secure
+  mem --> plain
+  mem --> pkm
+  mem --> market
+  pkm --> mem
+  market --> mem
+  pkm --> secure
+  market --> plain
+  coordinator --> pkm
+  coordinator --> sync
+  sync --> mem
+  sync --> secure
+  sync --> plain
+  key --> secure
+  plaintext --> mem
+```
+
 ## Purpose
 
 Hushh frontend cache is split by sensitivity and runtime role:

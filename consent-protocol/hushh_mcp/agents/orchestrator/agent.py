@@ -82,7 +82,9 @@ class OrchestratorAgent(HushhAgent):
 
             return {
                 "response": response.text if hasattr(response, "text") else str(response),
-                # TODO: Extract delegation from tool artifacts (left for refinement in full integration)
+                # NOT_IN_SCOPE: Delegation extraction from tool artifacts deferred.
+                # Current orchestrator routes all sub-agent work inline; delegation
+                # becomes relevant only when multi-turn agent handoff is implemented.
                 "delegation": None,
             }
 

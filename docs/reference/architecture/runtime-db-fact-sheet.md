@@ -1,5 +1,10 @@
 # Runtime DB Fact Sheet (Sanitized)
 
+
+## Visual Context
+
+Canonical visual owner: [Architecture Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This appendix records the runtime database shape that matters for Kai, PKM, consent, and IAM. It is documentation-only and intentionally excludes credentials, row payloads, and any user-secret values.
 
 - Captured at (UTC): `2026-03-20T00:00:00Z`

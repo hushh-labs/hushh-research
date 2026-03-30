@@ -1,5 +1,10 @@
 # Model Landscape (Feb 2026)
 
+
+## Visual Context
+
+Canonical visual owner: [Cloud + On-Device AI Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Status
 
 `Future Plan` baseline. Values in this document are planning estimates and must not be treated as production commitments until benchmarked.

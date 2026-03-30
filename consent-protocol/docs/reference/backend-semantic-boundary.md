@@ -1,5 +1,10 @@
 # Backend Semantic Boundary
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document defines what must stay agent-derived and what may remain deterministic.
 
 ## Canonical semantic paths

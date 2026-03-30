@@ -1539,6 +1539,31 @@ export function DebateStreamView({
           </div>
           {!decision && loading ? (
             <div className="mt-3">
+              <div className="mb-1.5 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  {[1, 2].map((round) => (
+                    <span
+                      key={round}
+                      className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
+                        activeRound > round
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                          : activeRound === round
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {activeRound > round ? (
+                        <Icon icon={CheckCircle2} size={10} className="mr-0.5" />
+                      ) : null}
+                      R{round}
+                    </span>
+                  ))}
+                </div>
+                <span className="text-[10px] tabular-nums text-muted-foreground">
+                  {Math.round(overallProgress)}%
+                </span>
+              </div>
               <Progress value={overallProgress} className="h-1.5 rounded-full" />
               <p className="mt-1 text-center text-[10px] text-muted-foreground">{progressLabel}</p>
             </div>

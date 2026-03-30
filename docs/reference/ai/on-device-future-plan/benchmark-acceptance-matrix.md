@@ -1,5 +1,10 @@
 # Benchmark Acceptance Matrix
 
+
+## Visual Context
+
+Canonical visual owner: [Cloud + On-Device AI Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Status
 
 `Future Plan` quality gate definition. Metrics and thresholds become authoritative only after implementation benchmarks are executed.

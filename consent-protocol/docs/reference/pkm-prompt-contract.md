@@ -1,5 +1,10 @@
 # PKM Prompt Contract
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This document defines the canonical prompt contract for PKM semantic understanding.
 
 It is governed by `./pkm-agent-north-star.md`.

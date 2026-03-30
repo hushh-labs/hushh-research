@@ -1,5 +1,10 @@
 # Kai Runtime Smoke Checklist
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 Use this lightweight checklist instead of expanding automated test coverage.
 
 ## 0) Route/System Audit

@@ -1,5 +1,10 @@
 # App Review Mode Runtime Config
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Purpose
 Move app-review-mode control from frontend build-time variables to backend runtime configuration.
 

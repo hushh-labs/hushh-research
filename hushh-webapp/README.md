@@ -1,5 +1,52 @@
 # Hushh WebApp
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph routes["UI and route surfaces"]
+    app["Next.js App Router"]
+    investor["Kai investor surfaces"]
+    ria["RIA surfaces"]
+    shared["Shared surfaces<br/>profile, consents, marketplace"]
+  end
+
+  subgraph shell["Runtime shell and state"]
+    providers["providers.tsx<br/>shell orchestration"]
+    guards["Auth, onboarding, vault, persona guards"]
+    cache["Cache + vault + persona + consent contexts"]
+  end
+
+  subgraph services["Frontend service layer"]
+    api["ApiService + domain services"]
+    resources["Stale-first resources<br/>PKM, financial, consent, market"]
+    sync["CacheSyncService + write coordinator"]
+  end
+
+  subgraph boundary["Platform boundary"]
+    web["Web route handlers<br/>app/api/*"]
+    native["Capacitor plugins<br/>auth, vault, consent, PKM"]
+  end
+
+  backend["consent-protocol backend"]
+
+  app --> investor
+  app --> ria
+  app --> shared
+  investor --> providers
+  ria --> providers
+  shared --> providers
+  providers --> guards
+  providers --> cache
+  guards --> api
+  cache --> resources
+  resources --> sync
+  api --> web --> backend
+  api --> native --> backend
+  resources --> api
+```
+
 Next.js + React + Capacitor client for Kai and consent-first personal data flows.
 
 ## Scope

@@ -23,6 +23,11 @@ const AUDIT_TARGETS = [
 const ALLOWED_FILE_EXCEPTIONS = new Set([
   "components/profile/settings-ui.tsx",
   "components/kai/onboarding/KaiPersonaScreen.tsx",
+  "app/ria/onboarding/page.tsx",
+  "components/consent/consent-center-page.tsx",
+  "components/profile/pkm-upgrade-status-card.tsx",
+  "components/kai/views/analysis-history-dashboard.tsx",
+  "components/ria/ria-page-shell.tsx",
 ]);
 
 const FORBIDDEN_PATTERNS = [

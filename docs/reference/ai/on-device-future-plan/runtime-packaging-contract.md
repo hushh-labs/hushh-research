@@ -1,5 +1,10 @@
 # Runtime Packaging Contract
 
+
+## Visual Context
+
+Canonical visual owner: [Cloud + On-Device AI Reference](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Status
 
 `Future Plan` contract draft. Interfaces here are target contracts and should be finalized only during implementation.

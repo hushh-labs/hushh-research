@@ -733,14 +733,16 @@ class DynamicScopeGenerator:
 
     def get_scope_display_info(self, scope: str) -> dict:
         """
-        Get display information for a scope.
+        Get rich display information for a scope, including icon/color from domain contracts.
 
         Args:
             scope: The scope string
 
         Returns:
-            Dict with display_name, domain, attribute, is_wildcard
+            Dict with display_name, domain, attribute, is_wildcard, icon_name, color_hex, description
         """
+        from hushh_mcp.services.domain_contracts import get_canonical_domain_metadata
+
         domain, attribute_key, is_wildcard = self.parse_scope(scope)
 
         if domain is None:
@@ -749,20 +751,37 @@ class DynamicScopeGenerator:
                 "domain": None,
                 "attribute": None,
                 "is_wildcard": False,
+                "icon_name": None,
+                "color_hex": None,
+                "description": None,
             }
 
+        # Pull rich metadata from domain contracts
+        metadata = get_canonical_domain_metadata(domain)
+        icon_name = metadata.icon_name if metadata else None
+        color_hex = metadata.color_hex if metadata else None
+        domain_display = metadata.display_name if metadata else domain.title()
+        domain_description = metadata.description if metadata else None
+
         if is_wildcard:
-            display_name = f"All {domain.title()} Data"
+            display_name = f"All {domain_display} Data"
+            description = domain_description
         elif attribute_key:
-            display_name = f"{domain.title()} - {attribute_key.replace('_', ' ').title()}"
+            attr_display = attribute_key.replace("_", " ").title()
+            display_name = f"{domain_display} — {attr_display}"
+            description = f"{attr_display} within {domain_display}"
         else:
-            display_name = f"{domain.title()} Domain"
+            display_name = domain_display
+            description = domain_description
 
         return {
             "display_name": display_name,
             "domain": domain,
             "attribute": attribute_key,
             "is_wildcard": is_wildcard,
+            "icon_name": icon_name,
+            "color_hex": color_hex,
+            "description": description,
         }
 
 

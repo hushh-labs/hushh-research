@@ -1,5 +1,10 @@
 # Frontend Pattern Catalog
 
+
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Pattern: Stock Primitive First
 Use when you need baseline UI controls.
 

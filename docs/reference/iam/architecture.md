@@ -1,5 +1,38 @@
 # IAM Architecture
 
+
+## Visual Map
+
+```mermaid
+flowchart TB
+  subgraph actors["Actor plane"]
+    account["Authenticated account"]
+    profile["actor_profiles<br/>canonical persona state"]
+    runtime["runtime_persona_state<br/>transitional only"]
+  end
+
+  subgraph policy["Consent policy plane"]
+    request["Consent request"]
+    validator["Policy validator"]
+    scopes["Scopes / templates / bundles"]
+    grant["Signed grant / token"]
+  end
+
+  subgraph access["Access plane"]
+    share["Relationship share / advisor workflow"]
+    private["Private resources<br/>PKM-backed user data"]
+    public["Public resources<br/>marketplace and discovery"]
+  end
+
+  account --> profile
+  account --> runtime
+  profile --> request
+  request --> validator --> scopes --> grant
+  grant --> private
+  grant --> share --> private
+  profile --> public
+```
+
 ## Purpose
 
 Define identity, actor boundaries, and consent IAM control flow for Investor + RIA experiences.

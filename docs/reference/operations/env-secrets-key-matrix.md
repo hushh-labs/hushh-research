@@ -1,5 +1,10 @@
 # Env/Secrets Key Matrix
 
+
+## Visual Context
+
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This matrix is the canonical key-level contract used by the pre-launch verification workflow.
 It is intentionally key-only (no values) and is used to classify keys as `required`, `optional`, `legacy`, or runtime `drift`.
 

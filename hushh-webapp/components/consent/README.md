@@ -8,6 +8,7 @@ This folder owns the shared consent center experience and all consent launchers.
 - `consent-center-page.tsx`: canonical standalone consent center page surface.
 - `consent-center-view.tsx`: legacy embedded consent surface kept for compatibility.
 - `notification-provider.tsx`: pending consent count, delivery state, and bell summary data.
+- `consent-dialog.tsx`: grant/revoke consent dialog using `DOMAIN_EMOJI` mapping and `resolveScopeDisplay` helpers.
 
 ## Rules
 

@@ -1,5 +1,10 @@
 # Kai Rate-Limit Playbook
 
+
+## Visual Context
+
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ## Provider Strategy
 - Primary market/news providers are rate-limited and plan-dependent.
 - Kai uses cooldown-aware fallback order and stale cache serving.

@@ -150,8 +150,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       if (!userId || !vaultKey) {
         toast.error("Vault not unlocked", {
           id: toastId,
-          description: "Please unlock your vault to approve this request.",
-          duration: 3000,
+          description: "Unlock your vault to approve this request.",
+          duration: 6000,
+          action: {
+            label: "Unlock",
+            onClick: () => {
+              window.location.href = "/kai";
+            },
+          },
         });
         // Reset to pending if not unlocked
         markAsPending(consent.id);
@@ -321,7 +327,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           requestSource === "developer_api_v1";
         if (isDeveloperRequest && !connectorPublicKey) {
           throw new Error(
-            "This developer request is missing a connector public key and must be re-requested."
+            "Missing connector public key. The developer needs to re-send this request with a public key. Contact them or try again later."
           );
         }
         const exportKey = await generateExportKey();

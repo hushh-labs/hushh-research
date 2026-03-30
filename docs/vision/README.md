@@ -2,6 +2,16 @@
 
 > Where this is going. Philosophy, product roadmap, and community strategy.
 
+
+## Visual Map
+
+```mermaid
+flowchart TD
+  root["Hushh Vision"]
+  n1["Kai"]
+  root --> n1
+```
+
 ---
 
 ## The Hushh Principle

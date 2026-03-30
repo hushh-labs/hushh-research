@@ -1,5 +1,10 @@
 # Environment Model
 
+
+## Visual Context
+
+Canonical visual owner: [Guides Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 This repo supports exactly three contributor runtime profiles:
 
 - `local-uatdb`

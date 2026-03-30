@@ -399,6 +399,9 @@ export class ConsentCenterService {
       throw new Error(body.detail || body.error || `Request failed: ${response.status}`);
     }
 
+    if (options.investor_user_id) {
+      CacheSyncService.onConsentMutated(options.investor_user_id);
+    }
     return body;
   }
 }
