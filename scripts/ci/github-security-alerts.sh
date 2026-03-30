@@ -48,10 +48,19 @@ trap 'rm -rf "$TMPDIR"' EXIT
 SECRET_ALERTS_JSON="$TMPDIR/secret-alerts.json"
 DEPENDABOT_ALERTS_JSON="$TMPDIR/dependabot-alerts.json"
 
-gh api -H 'Accept: application/vnd.github+json' \
-  "/repos/${REPO}/secret-scanning/alerts?state=open&per_page=100" >"$SECRET_ALERTS_JSON"
-gh api -H 'Accept: application/vnd.github+json' \
-  "/repos/${REPO}/dependabot/alerts?state=open&per_page=100" >"$DEPENDABOT_ALERTS_JSON"
+if ! gh api -H 'Accept: application/vnd.github+json' \
+  "/repos/${REPO}/secret-scanning/alerts?state=open&per_page=100" >"$SECRET_ALERTS_JSON" 2>"$TMPDIR/secret-errors.log"; then
+  echo "Skipping GitHub security alert parity check: unable to read secret-scanning alerts."
+  sed 's/^/  /' "$TMPDIR/secret-errors.log" || true
+  exit 0
+fi
+
+if ! gh api -H 'Accept: application/vnd.github+json' \
+  "/repos/${REPO}/dependabot/alerts?state=open&per_page=100" >"$DEPENDABOT_ALERTS_JSON" 2>"$TMPDIR/dependabot-errors.log"; then
+  echo "Skipping GitHub security alert parity check: unable to read dependabot alerts."
+  sed 's/^/  /' "$TMPDIR/dependabot-errors.log" || true
+  exit 0
+fi
 
 python3 - <<'PY' "$SECRET_ALERTS_JSON" "$DEPENDABOT_ALERTS_JSON"
 import json

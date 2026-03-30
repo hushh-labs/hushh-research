@@ -3,7 +3,7 @@ title = "hushh-research gitleaks config"
 [extend]
 useDefault = true
 
-[[allowlists]]
+[allowlist]
 description = "Documented backend env placeholders in the public example template"
 paths = [
   '''^consent-protocol/\.env\.example$''',
