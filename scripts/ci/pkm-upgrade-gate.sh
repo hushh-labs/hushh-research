@@ -51,7 +51,12 @@ if [ -x .venv/bin/pytest ]; then
 else
   PYTEST_RUNNER="python3 -m pytest"
 fi
-PYTHONPATH=. $PYTEST_RUNNER -q "${BACKEND_TESTS[@]}"
+TESTING="${TESTING:-true}" \
+SECRET_KEY="${SECRET_KEY:-test_secret_key_for_ci_only_32chars_min}" \
+VAULT_ENCRYPTION_KEY="${VAULT_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
+HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
+PYTHONPATH=. \
+  $PYTEST_RUNNER -q "${BACKEND_TESTS[@]}"
 
 if [ -n "$RUNTIME_BASE_URL" ]; then
   echo "Running live runtime audits against $RUNTIME_BASE_URL ..."
