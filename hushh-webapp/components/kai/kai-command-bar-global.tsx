@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { KaiSearchBar } from "@/components/kai/kai-search-bar";
-import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { executeKaiCommand } from "@/lib/kai/command-executor";
+import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
+import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
+import { useVoiceSession } from "@/lib/voice/voice-session-store";
+import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
+import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import type { AppRuntimeState, VoiceMemoryHint, VoiceResponse } from "@/lib/voice/voice-types";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
 import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 
@@ -48,17 +54,30 @@ export function KaiCommandBarGlobal() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading } = useAuth();
-  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, vaultOwnerToken, vaultKey, tokenExpiresAt } = useVault();
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
   const setAnalysisParams = useKaiSession((s) => s.setAnalysisParams);
   const busyOperations = useKaiSession((s) => s.busyOperations);
+  const analysisParams = useKaiSession((s) => s.analysisParams);
+  const appendVoiceDebugEvent = useVoiceSession((s) => s.appendDebugEvent);
+  const { lastToolName, lastTicker, setLastVoiceTurn } = useVoiceSession();
   const cache = useMemo(() => CacheService.getInstance(), []);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
-  const [previewSymbol, setPreviewSymbol] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<KaiStockPreviewResponse | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [ttsPlaying, setTtsPlaying] = useState(false);
+  const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
+    AppBackgroundTaskService.getState()
+  );
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const userId = user?.uid ?? "";
+
+  useEffect(() => {
+    const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
+      setBackgroundTaskState(state);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -174,50 +193,129 @@ export function KaiCommandBarGlobal() {
     return Array.from(deduped.values());
   }, [cache, user?.uid]);
 
-  useEffect(() => {
-    if (!previewSymbol || !vaultOwnerToken || !userId) {
-      setPreviewData(null);
-      setPreviewLoading(false);
-      setPreviewError(null);
-      return;
-    }
+  const signedIn = Boolean(user?.uid);
+  const tokenAvailable = Boolean(vaultOwnerToken);
+  const tokenValid = Boolean(vaultOwnerToken) && (!tokenExpiresAt || tokenExpiresAt > Date.now());
+  const voiceAvailable = signedIn && isVaultUnlocked && tokenAvailable && tokenValid;
+  const onVaultScreen = pathname?.startsWith("/kai") ?? false;
+  const voiceVisibilityMode: "enabled" | "disabled" | "hidden" = voiceAvailable
+    ? "enabled"
+    : onVaultScreen
+      ? "disabled"
+      : "hidden";
+  const voiceUnavailableReason = voiceAvailable
+    ? undefined
+    : !signedIn
+      ? "Sign in to use voice"
+      : "Unlock your vault to use voice";
 
-    let cancelled = false;
-    setPreviewLoading(true);
-    setPreviewError(null);
+  const activeAnalysisTask = useMemo(() => {
+    if (!userId) return null;
+    return DebateRunManagerService.getActiveTaskForUser(userId);
+  }, [analysisParams?.ticker, busyOperations, userId]);
 
-    void (async () => {
-      try {
-        const payload = await ApiService.getKaiStockPreview({
-          userId,
-          symbol: previewSymbol,
-          vaultOwnerToken,
-          pickSource: getKaiActivePickSource(userId),
-        });
-        if (!cancelled) {
-          setPreviewData(payload);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setPreviewData(null);
-          setPreviewError(
-            error instanceof Error ? error.message : "Failed to load stock preview"
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setPreviewLoading(false);
-        }
-      }
-    })();
+  const runningImportTask = useMemo(() => {
+    if (!userId) return null;
+    return (
+      backgroundTaskState.tasks.find(
+        (task) =>
+          task.userId === userId &&
+          task.kind === "portfolio_import_stream" &&
+          task.status === "running" &&
+          !task.dismissedAt
+      ) || null
+    );
+  }, [backgroundTaskState.tasks, userId]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [previewSymbol, userId, vaultOwnerToken]);
+  const routeInfo = useMemo(() => deriveVoiceRouteScreen(pathname || ""), [pathname]);
+  const appRuntimeState = useMemo<AppRuntimeState>(
+    () => ({
+      auth: {
+        signed_in: signedIn,
+        user_id: userId || null,
+      },
+      vault: {
+        unlocked: isVaultUnlocked,
+        token_available: tokenAvailable,
+        token_valid: tokenValid,
+      },
+      route: {
+        pathname: pathname || "",
+        screen: routeInfo.screen,
+        subview: routeInfo.subview ?? null,
+      },
+      runtime: {
+        analysis_active:
+          Boolean(busyOperations["stock_analysis_active"]) ||
+          Boolean(activeAnalysisTask && activeAnalysisTask.status === "running"),
+        analysis_ticker: activeAnalysisTask?.ticker || analysisParams?.ticker || null,
+        analysis_run_id: activeAnalysisTask?.runId || null,
+        import_active:
+          Boolean(busyOperations["portfolio_import_stream"]) || Boolean(runningImportTask),
+        import_run_id: runningImportTask?.taskId || null,
+        busy_operations: Object.keys(busyOperations).filter((name) => busyOperations[name] === true),
+      },
+      portfolio: {
+        has_portfolio_data: hasPortfolioData,
+      },
+      voice: {
+        available: voiceAvailable,
+        tts_playing: ttsPlaying,
+        last_tool_name: lastToolName,
+        last_ticker: lastTicker,
+      },
+    }),
+    [
+      activeAnalysisTask,
+      analysisParams?.ticker,
+      busyOperations,
+      hasPortfolioData,
+      isVaultUnlocked,
+      lastTicker,
+      lastToolName,
+      pathname,
+      routeInfo.screen,
+      routeInfo.subview,
+      runningImportTask,
+      signedIn,
+      tokenAvailable,
+      tokenValid,
+      ttsPlaying,
+      userId,
+      voiceAvailable,
+    ]
+  );
 
-  // Command palette is hidden only during loading/review overlays.
-  if (loading || !user || reviewScreenActive || !isVaultUnlocked) {
+  const voiceContext = useMemo(
+    () => ({
+      route: pathname,
+      stock_analysis_active: appRuntimeState.runtime.analysis_active,
+      last_tool_name: lastToolName,
+      last_ticker: lastTicker,
+      current_ticker: appRuntimeState.runtime.analysis_ticker || null,
+      has_portfolio_data: hasPortfolioData,
+    }),
+    [appRuntimeState.runtime.analysis_active, appRuntimeState.runtime.analysis_ticker, hasPortfolioData, lastTicker, lastToolName, pathname]
+  );
+
+  const runKaiCommand = (command: KaiCommandAction, params?: Record<string, unknown>) => {
+    const result = executeKaiCommand({
+      command,
+      params,
+      router,
+      userId,
+      hasPortfolioData,
+      reviewDirty,
+      busyOperations,
+      setAnalysisParams,
+    });
+    console.info(
+      `[VOICE_UI] execute_kai_command command=${command} status=${result.status}${result.reason ? ` reason=${result.reason}` : ""}`
+    );
+    return result;
+  };
+
+  if (loading || !user || reviewScreenActive) {
     return null;
   }
 
@@ -225,104 +323,68 @@ export function KaiCommandBarGlobal() {
     return null;
   }
 
-  const openFullAnalysisForSymbol = (symbol: string) => {
-    setPreviewSymbol(null);
-    router.push(`${ROUTES.KAI_ANALYSIS}?ticker=${encodeURIComponent(symbol)}`);
-  };
-
-  const startDebateForSymbol = (symbol: string) => {
-    setPreviewSymbol(null);
-    setAnalysisParams({
-      ticker: symbol,
-      userId,
-      riskProfile: "balanced",
-    });
-    router.push(`${ROUTES.KAI_ANALYSIS}?ticker=${encodeURIComponent(symbol)}`);
-  };
-
   return (
-    <>
-      <KaiSearchBar
-        onCommand={(command, params) => {
-          if (
-            reviewDirty &&
-            !window.confirm(
-              "You have unsaved portfolio changes. Leaving now will discard them."
-            )
-          ) {
-            return;
-          }
+    <KaiSearchBar
+      onCommand={(command, params) => {
+        runKaiCommand(command, params);
+      }}
+      onVoiceResponse={async (payload: {
+        turnId: string;
+        responseId: string;
+        transcript: string;
+        response: VoiceResponse;
+        groundedPlan?: GroundedVoicePlan;
+        memory?: VoiceMemoryHint;
+      }) => {
+        const outcome = await executeVoiceResponse({
+          response: payload.response,
+          groundedPlan: payload.groundedPlan,
+          turnId: payload.turnId,
+          responseId: payload.responseId,
+          userId,
+          vaultOwnerToken: vaultOwnerToken || undefined,
+          vaultKey: vaultKey || undefined,
+          router,
+          handleBack,
+          executeKaiCommand: (toolCall) =>
+            runKaiCommand(
+              toolCall.args.command,
+              toolCall.args.params
+            ),
+          setAnalysisParams,
+          emitTelemetry: (event, telemetryPayload) => {
+            appendVoiceDebugEvent({
+              turnId: payload.turnId || "no_turn",
+              sessionId: null,
+              stage: "dispatch",
+              event,
+              payload: telemetryPayload,
+            });
+          },
+        });
 
-          if (
-            !hasPortfolioData &&
-            (command === "analyze" || command === "history")
-          ) {
-            toast.info("Import your portfolio to unlock this command.");
-            router.push(ROUTES.KAI_IMPORT);
-            return;
-          }
+        if (outcome.shortTermMemoryWrite) {
+          setLastVoiceTurn({
+            transcript: payload.transcript,
+            toolName: outcome.toolName,
+            ticker: outcome.ticker,
+            responseKind: outcome.responseKind,
+            turnId: payload.turnId,
+          });
+        }
 
-          if (command === "analyze" && params?.symbol) {
-            if (busyOperations["stock_analysis_active"]) {
-              toast.error("A debate is already running.", {
-                description: "Open analysis to continue with the active run.",
-              });
-              router.push(ROUTES.KAI_ANALYSIS);
-              return;
-            }
-            setPreviewSymbol(String(params.symbol).toUpperCase());
-            return;
-          }
-
-          if (command === "optimize") {
-            toast.info("Optimize Portfolio is coming soon.");
-            return;
-          }
-
-          if (command === "history") {
-            router.push(ROUTES.KAI_ANALYSIS);
-            return;
-          }
-
-          if (command === "dashboard") {
-            router.push(ROUTES.KAI_DASHBOARD);
-            return;
-          }
-
-          if (command === "home") {
-            router.push(ROUTES.KAI_HOME);
-            return;
-          }
-
-          if (command === "consent") {
-            router.push(ROUTES.CONSENTS);
-            return;
-          }
-
-          if (command === "profile") {
-            router.push(ROUTES.PROFILE);
-          }
-        }}
-        hasPortfolioData={hasPortfolioData}
-        portfolioTickers={portfolioTickers}
-      />
-
-      <Dialog open={Boolean(previewSymbol)} onOpenChange={(open) => !open && setPreviewSymbol(null)}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto p-0">
-          <DialogTitle className="sr-only">Stock comparison preview</DialogTitle>
-          <div className="p-1">
-            <StockComparisonPreview
-              preview={previewData}
-              loading={previewLoading}
-              error={previewError}
-              onStartDebate={() => previewSymbol && startDebateForSymbol(previewSymbol)}
-              onOpenFullAnalysis={() =>
-                previewSymbol && openFullAnalysisForSymbol(previewSymbol)
-              }
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
+        return outcome;
+      }}
+      hasPortfolioData={hasPortfolioData}
+      userId={userId}
+      vaultOwnerToken={vaultOwnerToken || undefined}
+      voiceAvailable={voiceAvailable}
+      voiceVisibilityMode={voiceVisibilityMode}
+      voiceUnavailableReason={voiceUnavailableReason}
+      onTtsPlayingChange={setTtsPlaying}
+      appRuntimeState={appRuntimeState}
+      voiceContext={voiceContext}
+      portfolioTickers={portfolioTickers}
+    />
   );
 }
