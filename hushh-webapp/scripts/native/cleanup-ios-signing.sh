@@ -3,7 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEB_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LOCAL_SIGNING_ROOT="${LOCAL_SIGNING_ROOT:-${WEB_DIR}/.local-secrets/ios-signing}"
+LOCAL_SIGNING_ROOT="${LOCAL_SIGNING_ROOT:-${WEB_DIR}/.env.local.d/ios}"
+LEGACY_SIGNING_ROOT="${LEGACY_SIGNING_ROOT:-${WEB_DIR}/.local-secrets/ios-signing}"
 KEYCHAIN_NAME="${IOS_SIGNING_KEYCHAIN_NAME:-hushh-local-signing.keychain-db}"
 KEYCHAIN_PATH="${HOME}/Library/Keychains/${KEYCHAIN_NAME}"
 
@@ -18,4 +19,5 @@ if [[ -f "${KEYCHAIN_PATH}" ]]; then
 fi
 
 rm -rf "${LOCAL_SIGNING_ROOT}"
-echo "Removed local iOS signing cache and keychain."
+rm -rf "${LEGACY_SIGNING_ROOT}"
+echo "Removed local iOS signing sidecar and keychain."

@@ -1,6 +1,13 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesFile = new File(rootProject.projectDir.parentFile, ".env.local.d/android/release-signing.properties")
+def hasReleaseSigning = releaseSigningPropertiesFile.exists()
+if (hasReleaseSigning) {
+    releaseSigningProperties.load(new FileInputStream(releaseSigningPropertiesFile))
+}
+
 android {
     namespace = "com.hushh.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -21,6 +28,19 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                keyAlias releaseSigningProperties['keyAlias']
+                keyPassword releaseSigningProperties['keyPassword']
+                storeFile releaseSigningProperties['storeFile'] ? file(releaseSigningProperties['storeFile']) : null
+                storePassword releaseSigningProperties['storePassword']
+            }
         }
     }
     compileOptions {

@@ -77,7 +77,12 @@ if [ "$FRESH" = "true" ]; then
   npm run "cap:clean:${PLATFORM}"
 fi
 
+if [[ "$PLATFORM" = "ios" ]]; then
+  bash scripts/native/ensure-ios-signing.sh
+fi
+
 npm run cap:build:mobile
+REQUIRE_LOCAL_MOBILE_SECRETS=1 \
 bash scripts/native/with-local-mobile-secrets.sh npx cross-env CAPACITOR_PLATFORM="$PLATFORM" npx cap sync "$PLATFORM"
 
 if [ "$SYNC_ONLY" = "true" ]; then
@@ -88,4 +93,5 @@ run_args=("$PLATFORM")
 if [ -n "$TARGET" ]; then
   run_args+=(--target "$TARGET")
 fi
+REQUIRE_LOCAL_MOBILE_SECRETS=1 \
 bash scripts/native/with-local-mobile-secrets.sh npx cap run "${run_args[@]}"

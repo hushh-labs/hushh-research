@@ -1,166 +1,103 @@
-# Contributing to Hushh Research
+# Contributing to Hussh Research
 
-Thank you for your interest in contributing to Hushh! We are building the future of **Consent-First Personal Data Agents** at [hushh.ai](https://hushh.ai), and we need your help to make it robust, secure, and user-centric.
+Thanks for building with us.
 
-## 🛑 Critical Architecture Rules
+The public contributor model is intentionally small:
 
-Before you write a single line of code, understand our three non-negotiable rules. Violating these will result in your PR being rejected.
-
-### 1. The Tri-Flow Rule (Web + iOS + Android)
-
-Hushh is a cross-platform application. **Every feature** that touches backend data or device capabilities must be implemented in three layers:
-
-1.  **Web**: Next.js proxy route (`app/api/...`)
-2.  **iOS**: Swift Capacitor Plugin (`ios/App/App/Plugins/...`)
-3.  **Android**: Kotlin Capacitor Plugin (`android/app/.../plugins/...`)
-
-**Why?** The native apps do _not_ run the Next.js server locally. They need native plugins to talk to the Python backend. If you only implement the Web flow, the feature will break on mobile.
-
-### 2. Consent-First
-
-- **No Implicit Access**: Even the vault owner needs a token (`VAULT_OWNER` scope).
-- **No Backdoors**: Never bypass token validation "just for testing".
-- **Validate Early**: Check consent tokens at the API entry point.
-
-### 3. Zero-Knowledge (BYOK)
-
-- **Client-Side Keys**: The vault key never leaves the user's device.
-- **Ciphertext Only**: The server only stores encrypted data.
-- **Memory-Only**: In the web app, keys live in React Context, not `localStorage`.
-
----
-
-## 🚀 Getting Started
-
-**New to contributing?** Start with our [Getting Started Guide](getting_started.md) for a step-by-step environment setup, then come back here for workflow guidelines.
-
-**Quick setup:**
 ```bash
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
-make setup        # installs git hooks + adds consent-upstream remote
-make verify-setup # confirm everything is configured
+npm run bootstrap
+npm run web -- --profile=uat-remote
 ```
-- You will need:
-  - Node.js v20+
-  - Python 3.13+
-  - PostgreSQL
-  - Xcode (for iOS)
-  - Android Studio (for Android)
 
----
+If you can run that flow and understand the trust model below, you have enough context to contribute.
 
-## 🔄 Subtree Workflow (consent-protocol)
+## The Product Contract
 
-The `consent-protocol/` directory is a **git subtree** linked to a standalone upstream repo. Changes made here must eventually be synced back. Git hooks enforce this automatically — here's the workflow:
+Hussh is built around four invariants:
 
-### Day-to-day Development
-1. **Sync before starting work** on `consent-protocol/`:
-   ```bash
-   make sync-protocol   # pull latest from upstream
-   ```
-2. **Make your changes** and commit normally — the pre-commit hook runs lint checks automatically.
-3. **Push your branch** — the pre-push hook verifies upstream is in sync and blocks if not.
-4. **After your PR is merged to main**, sync back to the standalone repo:
-   ```bash
-   make push-protocol   # push changes to upstream (checks sync first)
-   ```
+1. **Consent + scoped access**
+   - sensitive access is never implicit
+   - scope defines what an agent or app may do
+   - auditability matters as much as capability
+2. **BYOK**
+   - the user holds the key boundary
+   - vault keys do not become ordinary backend runtime state
+3. **Zero-knowledge**
+   - the server stores ciphertext and metadata, not plaintext user memory
+4. **Tri-flow**
+   - web, iOS, and Android stay contract-aligned for shared product capabilities
 
-### What the Hooks Enforce
-| Hook | Trigger | What it does |
-|------|---------|-------------|
-| **pre-commit** | `git commit` with consent-protocol files | Runs ruff lint + format check |
-| **pre-push** | `git push` with consent-protocol files | Blocks if upstream has unpulled commits |
+## Public Contributor Commands
 
-### Available Commands
+Use these first:
+
 ```bash
-make sync-protocol        # Pull upstream → monorepo
-make push-protocol        # Push monorepo → upstream (checks sync first)
-make push-protocol-force  # Push without sync check (escape hatch)
-make check-protocol-sync  # Check sync status without pushing
-make verify-setup         # Verify hooks and remotes are configured
+npm run bootstrap
+npm run doctor -- --profile=uat-remote
+npm run web -- --profile=uat-remote
+npm run native:ios -- --profile=uat-remote
+npm run native:android -- --profile=uat-remote
 ```
 
----
+`make` still exists for maintainer workflows and compatibility paths, but it is not the default onboarding surface.
 
-## 🛠 How to Contribute
+## Branch and Release Model
 
-1.  **Find an Issue**: Look for issues tagged `good-first-issue` or `help-wanted`.
-2.  **Fork the Repo**: Create your own fork on GitHub.
-3.  **Create a Branch**: Use format `/[username]/[type]/[type-name]`:
-    - `YOUR_USERNAME/feat/add-movie-agent`
-    - `YOUR_USERNAME/fix/vault-unlock-race-condition`
-    - `YOUR_USERNAME/docs/update-readme`
-4.  **Implement the Tri-Flow**: Ensure your change works on Web, iOS, and Android.
-5.  **Test CI Locally**: **Always run local CI checks before committing**:
-    ```bash
-    ./scripts/test-ci-local.sh
-    ```
-    This ensures your changes will pass GitHub Actions CI. See [CI Configuration Reference](docs/reference/operations/ci.md) for details.
-6.  **Test Locally**: Verify the change on all supported platforms (simulators/emulators).
-7.  **Submit a Pull Request**: targeted at the `main` branch.
-    - `main` is protected: PRs require approval and CI checks.
-    - `deploy-production` is protected: Only deployed via authorized workflows. Deployment runs from the **`deploy`** branch (not `main`) and requires the **`GCP_SA_KEY`** GitHub secret; see [deploy/README.md](deploy/README.md).
+- All feature and fix work targets `main`.
+- UAT deploys automatically from the exact green `main` SHA.
+- Production deploys manually from an approved green `main` SHA.
+- There are no contributor-facing release branches.
 
----
+See [docs/reference/operations/branch-governance.md](./docs/reference/operations/branch-governance.md) for the canonical delivery rules.
 
-## ✅ Pull Request Guidelines
+## Docs You Actually Need
 
-When you open a PR, please use this template:
+- [README.md](./README.md)
+- [docs/guides/getting-started.md](./docs/guides/getting-started.md)
+- [docs/guides/environment-model.md](./docs/guides/environment-model.md)
+- [docs/reference/architecture/architecture.md](./docs/reference/architecture/architecture.md)
 
-### Description
+Everything else is either deeper reference or maintainer/operator material.
 
-Briefly explain what you changed and why.
+## Maintainer-Only Complexity
 
-### Tri-Flow Checklist
+The repo still contains maintainer concerns such as:
 
-- [ ] Web Implementation (Next.js route)
-- [ ] iOS Implementation (Swift Plugin)
-- [ ] Android Implementation (Kotlin Plugin)
-- [ ] Service Layer (Platform detection logic)
-- [ ] TypeScript Interface (`lib/capacitor/index.ts`)
+- subtree synchronization for `consent-protocol/`
+- release/migration governance
+- deep operator scripts
 
-### Testing
+Those are real, but they are not part of the normal first-PR path. If you need them, use the maintainer docs under `docs/reference/operations/`.
 
-- [ ] Tested on Web (Chrome/Safari)
-- [ ] Tested on iOS Simulator
-- [ ] Tested on Android Emulator
+## PR Expectations
 
-### Screenshots/Video
+- keep changes small and explainable
+- update docs when public behavior or contracts change
+- do not add a second setup path when the existing one can be simplified instead
+- prefer self-contained scripts and small modules over coupled one-off flows
+- run the local verification surface before pushing when your change affects docs, routes, CI, native parity, or backend contracts
 
-Attach a screen recording or screenshot of the feature in action.
+Common checks:
 
----
+```bash
+bash scripts/ci/orchestrate.sh all
+cd hushh-webapp && npm run verify:docs
+```
 
-## 🧩 Directory Structure
+## Naming Policy
 
-- `consent-protocol/`: Python Backend & MCP Server
-- `hushh-webapp/`: Next.js Frontend
-- `hushh-webapp/ios/`: Native iOS Code
-- `hushh-webapp/android/`: Native Android Code
-- `docs/`: Documentation (Single Source of Truth)
-- `scripts/`: Utility scripts (including `test-ci-local.sh`)
-- `data/`: Large data files (gitignored, regenerable)
-- `config/`: Configuration files
+Public product/docs language should use **Hussh** and the **SSH-framed trust model**.
 
-## 📚 Documentation
+Legacy `Hushh` identifiers may still exist in:
 
-- **[Getting Started Guide](getting_started.md)**: Environment setup
-- **[Contributing Guide](contributing.md)**: Workflow and guidelines (this file)
-- **[Project Context Map](docs/project_context_map.md)**: Understanding the codebase
-- **[New Feature Checklist](docs/guides/new-feature.md)**: Building new features
-- **[Route Contracts](docs/reference/architecture/route-contracts.md)**: API and shell contract documentation
+- repo and package names
+- bundle IDs
+- cloud services
+- env keys
+- native plugin/class names
 
----
+Treat those as compatibility details, not public branding.
 
-## 🤝 Community
-
-- **Discord**: [Join our Discord](https://discord.gg/fd38enfsH5)
-
-## 📄 License
-
-By contributing to Hushh, you agree that your contributions will be licensed under the MIT License.
-
----
-
-Thank you for building with us!
+See [docs/reference/operations/naming-policy.md](./docs/reference/operations/naming-policy.md) for the current rename boundary.

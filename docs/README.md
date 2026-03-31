@@ -1,64 +1,53 @@
-# Hushh Documentation
+# Hussh Documentation
 
-> Canonical entry point for repo-level documentation.
-
+> Canonical entry point for durable repo knowledge.
 
 ## Visual Map
 
 ```mermaid
 flowchart TB
-  hub["docs/<br/>Canonical system knowledge"]
+  hub["docs/<br/>canonical repo knowledge"]
+  guides["guides/<br/>bootstrap + runtime"]
+  architecture["architecture/<br/>trust boundaries + contracts"]
+  operations["operations/<br/>governance + release"]
+  vision["vision/<br/>product thesis"]
+  frontend["hushh-webapp/docs/<br/>frontend implementation"]
+  backend["consent-protocol/docs/<br/>backend implementation"]
 
-  subgraph orientation["Orientation"]
-    context["project_context_map.md<br/>product + repo north stars"]
-    guides["guides/<br/>task and contributor guides"]
-  end
-
-  subgraph reference["Reference Domains"]
-    arch["architecture/<br/>runtime, cache, API, route contracts"]
-    iam["iam/<br/>actor model, consent, access control"]
-    kai["kai/<br/>investor flows and system maps"]
-    mobile["mobile/<br/>Capacitor and parity"]
-    ops["operations/<br/>CI, release lanes, governance"]
-    quality["quality + streaming + vision"]
-  end
-
-  subgraph implementation["Implementation Docs"]
-    fe["hushh-webapp/docs/<br/>frontend and native implementation"]
-    be["consent-protocol/docs/<br/>backend and protocol implementation"]
-  end
-
-  subgraph packages["Code Packages"]
-    webapp["hushh-webapp/<br/>Next.js + Capacitor client"]
-    backend["consent-protocol/<br/>FastAPI + PKM + agents"]
-  end
-
-  hub --> context
   hub --> guides
-  hub --> arch
-  hub --> iam
-  hub --> kai
-  hub --> mobile
-  hub --> ops
-  hub --> quality
-  hub --> fe
-  hub --> be
-  context --> webapp
-  context --> backend
-  arch --> webapp
-  arch --> backend
-  fe --> webapp
-  be --> backend
+  hub --> architecture
+  hub --> operations
+  hub --> vision
+  hub --> frontend
+  hub --> backend
 ```
 
-Hushh is a personal agent platform built on four operational invariants:
+## The Story in One Screen
 
-1. BYOK: server stores ciphertext only.
-2. Consent-first: every data access path is consent-gated.
-3. Tri-flow: web, iOS, and Android stay contract-aligned.
-4. Minimal browser storage: vault keys, VAULT_OWNER, and decrypted PKM remain memory-only; only approved encrypted or non-sensitive caches may persist on device.
+Hussh is a consent-and-scope platform built on a strict trust model:
 
-For repo setup, see [`readme.md`](../readme.md) and [`getting_started.md`](../getting_started.md).
+- **identity** decides who is acting
+- **vault** holds encrypted user data
+- **scoped tokens** define what can be accessed
+- **agents and apps** operate only inside granted consent boundaries
+
+The platform invariants are:
+
+1. **BYOK**
+2. **zero-knowledge**
+3. **consent + scoped access**
+4. **tri-flow parity across web, iOS, and Android**
+
+## Documentation Surface
+
+Start here:
+
+- [../README.md](../README.md): product and repo orientation
+- [guides/getting-started.md](./guides/getting-started.md): first-run path
+- [guides/environment-model.md](./guides/environment-model.md): runtime profiles
+- [reference/architecture/architecture.md](./reference/architecture/architecture.md): runtime and trust boundaries
+- [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model
+- [vision/README.md](./vision/README.md): product thesis and positioning
 
 ## Domain Indexes
 
@@ -71,13 +60,13 @@ For repo setup, see [`readme.md`](../readme.md) and [`getting_started.md`](../ge
 | Kai | [reference/kai/README.md](./reference/kai/README.md) |
 | Mobile | [reference/mobile/README.md](./reference/mobile/README.md) |
 | Operations | [reference/operations/README.md](./reference/operations/README.md) |
-| Quality / Design System | [reference/quality/README.md](./reference/quality/README.md) |
+| Quality | [reference/quality/README.md](./reference/quality/README.md) |
 | Streaming | [reference/streaming/README.md](./reference/streaming/README.md) |
 | Vision | [vision/README.md](./vision/README.md) |
 
 ## Implementation Indexes
 
-| Code Domain | Index |
+| Code domain | Index |
 | ---- | ---- |
 | Frontend/native package docs | [../hushh-webapp/docs/README.md](../hushh-webapp/docs/README.md) |
 | App UI shell and shared surfaces | [../hushh-webapp/components/app-ui/README.md](../hushh-webapp/components/app-ui/README.md) |
@@ -87,41 +76,13 @@ For repo setup, see [`readme.md`](../readme.md) and [`getting_started.md`](../ge
 | Service layer and platform-aware calls | [../hushh-webapp/lib/services/README.md](../hushh-webapp/lib/services/README.md) |
 | Backend implementation docs | [../consent-protocol/docs/README.md](../consent-protocol/docs/README.md) |
 
-## Documentation Homes
+## Active Docs Contract
 
-| Location | Scope | Entry Point |
-| -------- | ----- | ----------- |
-| `docs/` | Cross-cutting architecture, operations, quality, product references | [README.md](./README.md) |
-| `consent-protocol/docs/` | Backend implementation and protocol references | [README.md](../consent-protocol/docs/README.md) |
-| `hushh-webapp/docs/` | Frontend/native implementation references | [README.md](../hushh-webapp/docs/README.md) |
+Contributor-facing docs should stay small and stable:
 
-## Directory Layout
+- use one canonical setup path
+- use npm-first commands in public docs
+- keep maintainer-only workflows out of first-run guides
+- prefer durable references over one-time runbooks
 
-```text
-docs/
-  README.md
-  project_context_map.md
-  guides/
-    README.md
-  reference/
-    ai/
-      README.md
-    architecture/
-      README.md
-    iam/
-      README.md
-    kai/
-      README.md
-    mobile/
-      README.md
-    operations/
-      README.md
-    quality/
-      README.md
-    streaming/
-      README.md
-  vision/
-    README.md
-```
-
-Use kebab-case for non-index docs and keep only durable references in this tree.
+Maintainer and implementation detail can still live deeper in the tree, but the default contributor experience should not require repo archaeology.

@@ -76,6 +76,20 @@ Profile bootstrap rule:
 | `NEXT_PUBLIC_APP_ENV` | `hushh-webapp/lib/app-env.ts` | N | Y | N | N | N | N | N | required |
 | `IOS_GOOGLESERVICE_INFO_PLIST_B64` | native release pipeline | N | N | Y | N | N | N | N | optional |
 | `ANDROID_GOOGLE_SERVICES_JSON_B64` | native release pipeline | N | N | Y | N | N | N | N | optional |
+| `APPLE_TEAM_ID` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `IOS_DEV_CERT_P12_B64` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `IOS_DEV_CERT_PASSWORD` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `IOS_DEV_PROFILE_B64` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `IOS_DIST_CERT_P12_B64` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `IOS_DIST_CERT_PASSWORD` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `IOS_APPSTORE_PROFILE_B64` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `APPSTORE_CONNECT_API_KEY_P8_B64` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `APPSTORE_CONNECT_KEY_ID` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `APPSTORE_CONNECT_ISSUER_ID` | native iOS signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `ANDROID_RELEASE_KEYSTORE_B64` | native Android signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `ANDROID_RELEASE_KEYSTORE_PASSWORD` | native Android signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `ANDROID_RELEASE_KEY_ALIAS` | native Android signing bootstrap | N | N | Y | N | N | N | N | optional |
+| `ANDROID_RELEASE_KEY_PASSWORD` | native Android signing bootstrap | N | N | Y | N | N | N | N | optional |
 | `NEXT_PUBLIC_ENVIRONMENT_MODE` | `hushh-webapp/lib/app-env.ts` | N | Y | N | N | N | N | N | legacy |
 | `REVIEWER_EMAIL` | none | N | N | N | N | N | N | N | legacy |
 | `REVIEWER_PASSWORD` | none | N | N | N | N | N | N | N | legacy |

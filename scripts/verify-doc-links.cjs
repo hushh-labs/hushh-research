@@ -5,7 +5,7 @@ const path = require("node:path");
 
 const repoRoot = path.resolve(__dirname, "..");
 const docTargets = [
-  "readme.md",
+  "README.md",
   "getting_started.md",
   "TESTING.md",
   "contributing.md",
@@ -85,6 +85,7 @@ function shouldValidateCodePath(token) {
 
   const cleaned = token.replace(/[),.;:]+$/g, "");
   if (/^\.env(\.[A-Za-z0-9_-]+)?$/.test(path.basename(cleaned))) return false;
+  if (cleaned.includes(".env.local.d/")) return false;
 
   if (cleaned.startsWith("./") || cleaned.startsWith("../")) return true;
   return pathPrefixes.some((prefix) => cleaned.startsWith(prefix));

@@ -643,6 +643,16 @@ hydrate_frontend_cloud() {
     set_secret_key_or_cached "$file" "$profile" "$project" "$key" "false" "$cache_file"
   done
 
+  for key in \
+    IOS_GOOGLESERVICE_INFO_PLIST_B64 ANDROID_GOOGLE_SERVICES_JSON_B64 \
+    APPLE_TEAM_ID IOS_DEV_CERT_P12_B64 IOS_DEV_CERT_PASSWORD IOS_DEV_PROFILE_B64 \
+    IOS_DIST_CERT_P12_B64 IOS_DIST_CERT_PASSWORD IOS_APPSTORE_PROFILE_B64 \
+    APPSTORE_CONNECT_API_KEY_P8_B64 APPSTORE_CONNECT_KEY_ID APPSTORE_CONNECT_ISSUER_ID \
+    ANDROID_RELEASE_KEYSTORE_B64 ANDROID_RELEASE_KEYSTORE_PASSWORD ANDROID_RELEASE_KEY_ALIAS ANDROID_RELEASE_KEY_PASSWORD
+  do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$key" "false" "$cache_file"
+  done
+
   if [ -z "$(read_env_value "$file" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT")" ]; then
     set_if_non_empty "$file" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT" "$(read_env_value "$file" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING")"
   fi

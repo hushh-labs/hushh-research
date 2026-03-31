@@ -48,7 +48,7 @@ Root docs are not full source-of-truth specs, but they must retain a minimum use
 
 Required baseline:
 
-1. `readme.md` must keep repo orientation value:
+1. `README.md` must keep repo orientation value:
    - short product/system explainer
    - current stack or runtime overview
    - quick-start bootstrap
@@ -65,6 +65,8 @@ Required baseline:
    - engineering invariants
    - local contributor bootstrap
    - PR/change expectations
+5. Public docs must teach the npm-first contributor surface, not maintainer-only compatibility paths.
+6. Public docs must use Hussh branding and the SSH-framed trust model unless a compatibility identifier is being referenced explicitly.
 
 Allowed in root docs:
 

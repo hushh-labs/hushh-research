@@ -1,153 +1,90 @@
-# Hushh Vision
+# Hussh Vision
 
-> Where this is going. Philosophy, product roadmap, and community strategy.
-
+> Build personal AI on consent, scoped access, BYOK, and zero-knowledge boundaries.
 
 ## Visual Map
 
 ```mermaid
 flowchart TD
-  root["Hushh Vision"]
-  n1["Kai"]
-  root --> n1
+  root["Hussh"]
+  trust["Consent + scoped access"]
+  vault["BYOK + zero-knowledge"]
+  product["Kai, consent, RIA, PKM"]
+  repo["Small public surface<br/>integrated backbone"]
+
+  root --> trust
+  root --> vault
+  root --> product
+  root --> repo
 ```
 
----
+## The Core Idea
 
-## The Hushh Principle
+Hussh is not trying to make privacy feel cute. It is trying to make trust explicit.
 
-_"An agent should work for the person whose life it touches."_
+The product thesis is:
 
-Every product decision, GTM story, and policy stance ladders up to this principle. Hushh is a category, not a character.
+- the user owns the key boundary
+- the server stores ciphertext
+- access is granted through scoped consent
+- agents work for the person whose data they touch
 
----
+That is why the public framing now leans on **SSH**:
 
-## What Hushh Is
+- **Secure**
+- **Scoped**
+- **Handled by the user**
 
-**Hushh is your Personal Agent (PA)** -- a fiduciary intelligence.
+## What Hussh Is
 
-An agent that:
+Hussh is a platform for personal agents and agent-assisted workflows where:
 
-- Acts on your behalf, bound by consent
-- Treats your data as your private capital
-- Optimizes outcomes across your life, not just tasks
-- Runs hybrid: on-device reasoning with optional cloud data access
-- Is accountable only to you
+- identity says who is acting
+- the vault defines the encrypted data boundary
+- consent tokens define the allowed scope
+- apps and agents execute only within that scope
 
-| Old World                    | Hushh World                         |
-| ---------------------------- | ----------------------------------- |
-| Shadow dossiers              | Transparent data vaults             |
-| Extraction without value     | Value exchange with consent         |
-| Intelligence without consent | Consent before intelligence         |
-| Data on their servers        | Data encrypted, keys in your hands  |
+## Why This Matters
 
----
+| Old model | Hussh model |
+| --- | --- |
+| implied platform access | explicit scoped access |
+| server-readable user state | ciphertext-only storage |
+| privacy policy as contract | consent token as contract |
+| convenience over auditability | auditability built into the access path |
 
 ## Product Direction
 
-### Phase 1: Agent Kai (Current)
+Near-term product direction stays the same:
 
-The primary product -- multi-agent financial analysis for investors.
+- Kai for investor workflows
+- consent center and scoped sharing
+- RIA and collaboration surfaces
+- multi-domain PKM growth on top of the same trust boundary
 
-- Three specialist agents: Fundamental, Sentiment, Valuation
-- Multi-agent debate for explainable recommendations
-- Portfolio import, analysis history, risk personas
-- SEC/FINRA compliance: educational tool, clear disclaimers
+What changes is the clarity of the story:
 
-See [Agent Kai Vision](./kai/) for the full product vision.
+- **consent first**
+- **scope first**
+- **BYOK**
+- **zero-knowledge**
 
-### Phase 2: Multi-Domain Expansion
+## Monorepo Philosophy
 
-| Agent             | Focus                          |
-| ----------------- | ------------------------------ |
-| Food & Dining     | Preferences, agentic commerce  |
-| Finance           | Spending analysis, budgeting   |
-| Health            | Wellness tracking, preferences |
-| Professional      | Career, skills, experience     |
+The platform may need a large integrated backbone, but the contributor experience should feel smaller:
 
-### Phase 3: Developer Platform
+- public commands should be minimal
+- docs should be modular
+- scripts should be self-contained
+- the happy path should not require knowing the whole repo
 
-- Developer SDK for custom operons
-- Agent marketplace for community-built agents
-- Public API for partner integrations
-- Cross-domain consent UI
+This is the “eukaryotic backbone, bacterial modules” rule for the repo:
 
-### Phase 4: The Marketplace
+- integrated where the platform needs deep coordination
+- small, reusable, copy-pasteable pieces everywhere else
 
-| Feature             | Free         | Pro          |
-| ------------------- | ------------ | ------------ |
-| Kai analyses/month  | 10           | Unlimited    |
-| Debate depth        | Summary only | Full debate  |
-| Risk persona tuning | 3 presets    | Custom       |
-| Priority processing | Standard     | Fast         |
-| Decision export     | Basic        | Full archive |
+## Public Naming Rule
 
----
+Use **Hussh** in public docs and product copy.
 
-## Community Strategy: Discord
-
-### Channel Architecture
-
-**START**
-- `#index` -- Tech stack, links, and warnings (read-only)
-- `#rules` -- Community guidelines (read-only)
-- `#manifesto` -- Core philosophy and vision (read-only)
-
-**ENGINEERING**
-- `#builders` -- Dev discussion, operon building, tech deep-dives
-- `#compliance` -- Consent protocol, token logic, ADK/AP2 standards
-- `#beta-testing` -- TestFlight / APK feedback and bug reports
-
-**LABS**
-- `#general` -- Main community chat
-- `#conference-1` -- Voice channel for pair programming
-
-### Builder Engagement
-
-The Discord is designed to convert passive users into active builders:
-
-1. **Index** establishes the tech stack and contribution paths
-2. **Builders** provides a space for operon development and review
-3. **Compliance** ensures community contributions meet consent standards
-4. **Beta-testing** provides direct feedback from real users
-
-### The Golden Operon Campaign
-
-Community members who build useful, modular operons get:
-- Recognition in the global repo
-- Featured at demo showcases
-- Potential inclusion in the core platform
-
-See [Agent Development](../../consent-protocol/docs/reference/agent-development.md) for how to build operons and agents.
-
----
-
-## Regulatory Compliance
-
-| Regulation              | Hushh Approach                            |
-| ----------------------- | ----------------------------------------- |
-| **CCPA/CPRA**           | BYOK encryption = no "sale" of data       |
-| **SEC Regulations**     | Kai is educational, not investment advice  |
-| **Consumer Protection** | Clear pricing, receipts, deletion rights   |
-| **GDPR**                | Data minimization, portability, erasure    |
-
-Agent Kai is an **educational tool**. It is NOT investment advisory.
-
----
-
-## The North Star
-
-> _"An agent should work for the person whose life it touches."_
-
----
-
-## Vision Documents
-
-| Document                                    | Focus                        |
-| ------------------------------------------- | ---------------------------- |
-| [Agent Kai Vision](./kai/)                  | Multi-agent financial analysis |
-| [Investor Profile Strategy](./kai/README.md) | Target investor profiles and positioning |
-
----
-
-_Hushh -- Because your data should work for you._
+Legacy `Hushh` identifiers that remain in code, env keys, bundle IDs, or service names are compatibility details, not the public brand.

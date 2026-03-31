@@ -161,7 +161,7 @@ async function main() {
   if (!requested) {
     console.log(
       `No runtime profile was specified. Defaulting to ${profile}. ` +
-        'Use make dev PROFILE=<profile> or npm run dev -- --profile=<profile> for an explicit target.'
+        'Use npm run web -- --profile=<profile> from the repo root or npm run dev -- --profile=<profile> in hushh-webapp for an explicit target.'
     );
   }
 

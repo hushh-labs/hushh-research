@@ -33,7 +33,7 @@ See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.
 5. Runtime profile bootstrap command:
 
 ```bash
-make bootstrap
+npm run bootstrap
 ```
 
 This is the supported contributor entrypoint. It installs dependencies, hydrates local runtime-profile files from templates plus current cloud secrets/runtime metadata when available, and runs the profile doctor.
@@ -42,10 +42,11 @@ It does not print secret values and sets profile files to `chmod 600`.
 6. Activate the chosen runtime profile:
 
 ```bash
-make doctor PROFILE=local-uatdb
-make dev PROFILE=local-uatdb
-make web PROFILE=uat-remote
-make web PROFILE=prod-remote
+npm run doctor -- --profile=local-uatdb
+npm run web -- --profile=uat-remote
+npm run web -- --profile=prod-remote
+npm run native:ios -- --profile=uat-remote
+npm run native:android -- --profile=uat-remote
 ```
 
 Low-level activation still exists when you need it:
@@ -56,7 +57,7 @@ bash scripts/env/use_profile.sh uat-remote
 bash scripts/env/use_profile.sh prod-remote
 ```
 
-`make local` and `make local-backend` now run IAM schema verification against the active UAT-backed database before booting. If IAM is incomplete, the launcher exits instead of silently falling back to investor-compatibility mode.
+The local UAT-backed backend launcher now runs IAM schema verification before booting. If IAM is incomplete, it exits instead of silently falling back to investor-compatibility mode.
 
 Profile-aware frontend-only launcher:
 
@@ -75,7 +76,7 @@ python3 scripts/ops/verify-env-secrets-parity.py \
   --frontend-service hushh-webapp
 ```
 
-Native release preflight (adds required Firebase artifact keys):
+Native release preflight (adds required native Firebase and signing keys):
 
 ```bash
 python3 scripts/ops/verify-env-secrets-parity.py \
@@ -403,10 +404,13 @@ Production release process:
   - `IOS_GOOGLESERVICE_INFO_PLIST_B64`
   - `ANDROID_GOOGLE_SERVICES_JSON_B64`
 - Local developer flow:
-  - `npm run bootstrap:mobile-firebase` fetches the real artifacts into `hushh-webapp/.local-secrets/mobile-firebase/`
-  - native build wrappers apply that cache only for the build and then restore the tracked templates
+  - `npm run bootstrap` hydrates the native Firebase values into the selected frontend profile env file when `gcloud` access is available
+  - the active profile is copied into `hushh-webapp/.env.local`
+  - native artifacts are materialized next to it under `hushh-webapp/.env.local.d/`
+  - native build wrappers apply the generated artifacts only for the build and then restore the tracked templates
+  - if a developer already has real local plist/json files in the native paths or the old `.local-secrets` cache, the first materialization seeds the active env/sidecar instead of overwriting that local state
 - Release CI decodes and overwrites template files only inside the ephemeral job workspace before native build/sign.
-- Optionally fetch latest artifacts from Firebase directly into the local cache: `npm run sync:mobile-firebase`.
+- Optionally fetch latest artifacts from Firebase directly into the active profile env with `cd hushh-webapp && npm run sync:mobile-firebase`.
 - Run `npm run verify:mobile-firebase:release` to fail fast if templates were not replaced.
   - This release gate also enforces analytics readiness (`IS_ANALYTICS_ENABLED=true` on iOS and `services.analytics_service` present on Android).
 
@@ -414,9 +418,15 @@ Repository guard:
 - CI runs `npm run verify:mobile-firebase` to ensure committed files remain templates (no production artifact commits, no real Firebase-style API keys).
 
 Local iOS signing:
-- Store Apple signing assets in Secret Manager and bootstrap them locally with `npm run bootstrap:ios-signing`.
-- The bootstrap writes gitignored xcconfig overrides under `hushh-webapp/.local-secrets/ios-signing/`.
-- `ios/debug.xcconfig` and `ios/release.xcconfig` include those local files conditionally, so clean machines can be bootstrapped without editing the tracked Xcode project state by hand.
+- Store Apple signing assets in Secret Manager and hydrate them into the frontend runtime profile files.
+- `npm run bootstrap` materializes those values into `hushh-webapp/.env.local.d/ios/` on macOS when they are available.
+- `ios/debug.xcconfig` and `ios/release.xcconfig` include the generated sidecar files conditionally, so clean machines can be bootstrapped without editing the tracked Xcode project state by hand.
+- iOS native run wrappers self-heal on first use by preparing the active signing sidecar and local keychain/profile state automatically when it is missing.
+
+Local Android release signing:
+- Store Android release keystore and signing values in Secret Manager and hydrate them into the frontend runtime profile files.
+- `npm run bootstrap` materializes the active release keystore and signing properties under `hushh-webapp/.env.local.d/android/`.
+- Local release/archive flows read the generated signing properties from the active sidecar instead of a manually maintained `android/key.properties`.
 
 ---
 

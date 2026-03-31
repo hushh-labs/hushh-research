@@ -53,6 +53,7 @@ BACKEND_SOURCE="$REPO_ROOT/consent-protocol/$(runtime_profile_backend_source "$P
 FRONTEND_SOURCE="$REPO_ROOT/hushh-webapp/$(runtime_profile_frontend_source "$PROFILE")"
 BACKEND_TARGET="$REPO_ROOT/consent-protocol/.env"
 FRONTEND_TARGET="$REPO_ROOT/hushh-webapp/.env.local"
+NATIVE_MATERIALIZER="$REPO_ROOT/hushh-webapp/scripts/native/materialize-active-native-profile.sh"
 
 if [ ! -f "$BACKEND_SOURCE" ]; then
   echo "Missing backend profile file: $BACKEND_SOURCE" >&2
@@ -190,6 +191,9 @@ if [ "$DRY_RUN" != "true" ]; then
   upsert_env_value "$FRONTEND_TARGET" "APP_RUNTIME_PROFILE" "$PROFILE"
   normalize_env_json_values "$BACKEND_TARGET"
   normalize_env_json_values "$FRONTEND_TARGET"
+  if [ -x "$NATIVE_MATERIALIZER" ]; then
+    ACTIVE_ENV_FILE="$FRONTEND_TARGET" PROFILE_ENV_FILE="$FRONTEND_SOURCE" bash "$NATIVE_MATERIALIZER"
+  fi
   SUMMARY_BACKEND_FILE="$BACKEND_TARGET"
   SUMMARY_FRONTEND_FILE="$FRONTEND_TARGET"
 fi

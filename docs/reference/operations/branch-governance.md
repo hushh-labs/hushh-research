@@ -87,7 +87,7 @@ Before deleting a local backup branch, classify its unique commits as:
 Current operating note:
 
 - `enforce_admins` should stay enabled
-- verify the live setting with `./scripts/ci/verify-main-branch-protection.sh`
+- verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 
 ### Retired release branches
 

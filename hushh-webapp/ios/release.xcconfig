@@ -1,1 +1,1 @@
-#include? "../.local-secrets/ios-signing/release-signing.xcconfig"
+#include? "../.env.local.d/ios/release-signing.xcconfig"

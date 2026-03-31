@@ -60,10 +60,10 @@ Every visible page route must be classified as native-supported or explicitly ex
 
 Recommended commands:
 
-- Terminal A (repo root): `make local-backend`
+- Terminal A (repo root): `bash scripts/runtime/run_backend_local.sh local-uatdb`
 - Terminal B (repo root):
-  - Android: `cd hushh-webapp && npm run cap:android:run -- --profile local-uatdb --fresh`
-  - iOS: `cd hushh-webapp && npm run cap:ios:run -- --profile local-uatdb --fresh`
+  - Android: `npm run native:android -- --profile local-uatdb --fresh`
+  - iOS: `npm run native:ios -- --profile local-uatdb --fresh`
 
 Required env:
 

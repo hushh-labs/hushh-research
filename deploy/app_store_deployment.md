@@ -87,7 +87,7 @@
 
 #### Step 1: Open Project
 ```bash
-cd /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp
+cd <repo-root>/hushh-webapp
 open ios/App/App.xcodeproj
 ```
 
@@ -95,11 +95,10 @@ open ios/App/App.xcodeproj
 Recommended team path:
 1. Bootstrap local signing assets first:
    ```bash
-   cd /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp
-   npm run bootstrap:ios-signing
-   npm run bootstrap:mobile-firebase
+   cd <repo-root>
+   npm run bootstrap
    ```
-2. Open Xcode after bootstrap so the local xcconfig overrides and installed profiles are already present.
+2. Open Xcode after bootstrap so the active `.env.local.d/ios/` sidecar and installed profiles are already present.
 
 In Xcode:
 1. Select **App** project in navigator
@@ -126,9 +125,9 @@ If Firebase bundle ID needs updating:
 2. **Project Settings** → **Your apps** → iOS app
 3. Update **Bundle ID** to `com.hushh.app`
 4. Download new `GoogleService-Info.plist`
-5. Refresh your local cache instead of committing the artifact:
+5. Refresh your active local profile instead of committing the artifact:
    ```bash
-   cd /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp
+   cd <repo-root>/hushh-webapp
    npm run sync:mobile-firebase
    ```
 6. Update `Info.plist` reversed client ID if changed
@@ -262,64 +261,20 @@ In **Organizer** (opens automatically):
 
 ### Phase 2: Build Release APK/AAB
 
-#### Step 1: Generate Keystore (First Time Only)
+#### Step 1: Bootstrap Local Signing State
 ```bash
-cd /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp/android
-
-# Generate release keystore
-keytool -genkey -v -keystore hushh-release-key.keystore \
-  -alias hushh-key \
-  -keyalg RSA \
-  -keysize 2048 \
-  -validity 10000
-
-# Save keystore password securely!
+cd <repo-root>
+npm run bootstrap
 ```
 
-#### Step 2: Configure Signing
-Create `android/key.properties`:
-```properties
-storePassword=YOUR_KEYSTORE_PASSWORD
-keyPassword=YOUR_KEY_PASSWORD
-keyAlias=hushh-key
-storeFile=hushh-release-key.keystore
-```
+Android release signing now comes from the active runtime profile and generated sidecar under `hushh-webapp/.env.local.d/android/`. Do not create ad hoc `key.properties` files in the repo.
 
-Update `android/app/build.gradle`:
-```gradle
-def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('key.properties')
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-}
-
-android {
-    ...
-    signingConfigs {
-        release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-            storePassword keystoreProperties['storePassword']
-        }
-    }
-    buildTypes {
-        release {
-            signingConfig signingConfigs.release
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
-    }
-}
-```
-
-#### Step 3: Build Release AAB
+#### Step 2: Build Release AAB
 ```bash
-cd /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp
+cd <repo-root>/hushh-webapp
 
-# Build and sync
-npm run cap:build
-npx cap sync android
+# Build and sync with the active profile materialized
+npm run cap:android:sync -- --profile prod-remote
 
 # Build release AAB
 cd android
@@ -395,18 +350,16 @@ cd android
 
 ### iOS Update
 ```bash
-cd /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp
-npm run cap:build
-npx cap sync ios
+cd <repo-root>/hushh-webapp
+npm run cap:ios:sync -- --profile prod-remote
 open ios/App/App.xcodeproj
 # Archive → Validate → Upload
 ```
 
 ### Android Update
 ```bash
-cd /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp
-npm run cap:build
-npx cap sync android
+cd <repo-root>/hushh-webapp
+npm run cap:android:sync -- --profile prod-remote
 cd android
 ./gradlew bundleRelease
 # Upload AAB to Play Console

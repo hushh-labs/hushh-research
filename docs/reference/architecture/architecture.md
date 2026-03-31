@@ -1,328 +1,131 @@
 # Architecture
 
-> Current runtime architecture for the Hushh monorepo.
-
+> Current runtime architecture for the Hussh monorepo.
 
 ## Visual Map
 
 ```mermaid
-flowchart TB
-  subgraph clients["Client Surfaces"]
-    web["Web browser"]
-    ios["iOS app"]
-    android["Android app"]
-  end
+flowchart LR
+  identity["Identity"]
+  token["Scoped token"]
+  app["App / Agent"]
+  backend["Backend services"]
+  store["Ciphertext store"]
 
-  subgraph frontend["Frontend Runtime"]
-    app["Next.js App Router<br/>route trees + UI composition"]
-    shell["Shared shell<br/>providers, guards, chrome, layout contract"]
-    svc["Frontend service layer<br/>API, PKM, consent, Kai, RIA"]
-    cache["Runtime state<br/>auth, vault, persona, stale-first cache"]
-  end
-
-  subgraph boundary["Boundary Layer"]
-    proxy["Web path<br/>Next route handlers / app/api"]
-    plugin["Native path<br/>Capacitor plugins"]
-  end
-
-  subgraph backend["Backend Runtime"]
-    routes["FastAPI routers"]
-    services["Domain services<br/>consent, PKM, Kai, IAM, RIA"]
-    agents["Agents / tools / operons"]
-  end
-
-  subgraph persistence["Persistence + external systems"]
-    relational["Postgres / relational workflow data"]
-    blobs["Encrypted PKM blobs + metadata index"]
-    providers["Market, auth, push, external providers"]
-  end
-
-  web -->|renders routes in browser| app
-  ios -->|hosts app inside native shell| app
-  android -->|hosts app inside native shell| app
-  app -->|composes route tree into signed-in/public surfaces| shell
-  shell -->|calls typed frontend services| svc
-  cache -->|hydrates stale-first reads and session state| svc
-  svc -->|web requests via Next route handlers| proxy
-  svc -->|native requests via Capacitor plugins| plugin
-  proxy -->|forwards authenticated app contracts| routes
-  plugin -->|forwards authenticated native contracts| routes
-  routes -->|delegate policy and data work| services
-  services -->|run domain-specific automation| agents
-  services -->|store workflow and relational records| relational
-  services -->|store encrypted PKM blobs + manifest/index metadata| blobs
-  services -->|fetch market/auth/push provider data| providers
+  identity -->|authenticates actor| token
+  token -->|authorizes operation| app
+  app -->|sends scoped request| backend
+  backend -->|stores ciphertext only| store
 ```
 
----
+## Trust Model
 
-## System Shape
-
-```text
-Web / iOS / Android clients
-  -> Next.js route handlers or Capacitor plugins
-  -> FastAPI backend
-  -> service layer
-  -> PostgreSQL / external services
-```
+The platform should be read as a protocol boundary first and an app stack second.
 
 Core invariants:
 
-1. BYOK: user-private payloads stay encrypted client-side.
-2. Consent-first: data access is token-gated and audited.
-3. Tri-flow: web, iOS, and Android stay contract-aligned.
-4. Canonical private data plane: PKM remains the user-private storage boundary.
+1. **BYOK**: the user-controlled key boundary stays on the user side.
+2. **Zero-knowledge**: the backend stores ciphertext and metadata, not plaintext user memory.
+3. **Consent + scoped access**: sensitive operations require explicit scope.
+4. **Tri-flow parity**: web, iOS, and Android stay contract-aligned.
 
----
+## Protocol View
 
-## Backend: `consent-protocol/`
+```mermaid
+flowchart LR
+  identity["Identity<br/>who is acting"]
+  vault["Vault<br/>encrypted user data"]
+  token["Scoped token<br/>what access is allowed"]
+  app["App / Agent<br/>what operation runs"]
+  backend["Backend services<br/>verify scope + persist state"]
+  store["Ciphertext store + metadata index"]
 
-Runtime: Python 3.13, FastAPI, Uvicorn, Cloud Run.
-
-### Registered Router Surface
-
-All live routers are registered in `consent-protocol/server.py`.
-
-| Router Module | Prefix | Purpose |
-| --- | --- | --- |
-| `health` | `/`, `/health`, `/kai/health`, app-config health helpers | liveness, readiness, app-review config |
-| `agents` | `/api/agents` | agent discovery and related agent endpoints |
-| `consent` | `/api/consent` | consent requests, grants, revocation, history |
-| `session` | `/api` | session and lookup helpers used by app/auth flows |
-| `developer` | `/api/v1` | developer API surface |
-| `db_proxy` | `/db` | database proxy endpoints used by specific native flows |
-| `sse` | `/api/consent/events` and related SSE endpoints | realtime consent events |
-| `notifications` | `/api/notifications` | push token registration and notification support |
-| `kai` | `/api/kai` | Kai chat, analysis, portfolio, streaming, decisions |
-| `investors` | `/api/investors` | investor discovery/profile surface |
-| `tickers` | `/api/tickers` | ticker search and holdings sync helpers |
-| `identity` | compatibility identity endpoints | compatibility shims for identity flows |
-| `pkm` | `/api/pkm` | store-domain, data, domain-data, metadata, scopes, context |
-| `account` | `/api/account` | account deletion and management |
-| `iam` | `/api/iam` | IAM actor and policy surface |
-| `ria` | `/api/ria` | advisor onboarding and workspace flows |
-| `marketplace` | `/api/marketplace` | marketplace discovery and publishing |
-| `invites` | `/api/invites` | invite issuance and redemption |
-| `debug_firebase` | `/api/_debug/*` in non-production only | local/debug-only auth diagnostics |
-
-Not currently registered:
-
-- no live `/api/sync` router
-- no `api/routes/kai/preferences.py` module
-
-### PKM Runtime Surface
-
-The backend router is the authoritative PKM contract. Current supported path families include:
-
-- `POST /api/pkm/store-domain`
-- `GET /api/pkm/data/{user_id}`
-- `GET|DELETE /api/pkm/domain-data/{user_id}/{domain}`
-- `POST /api/pkm/reconcile/{user_id}`
-- `DELETE /api/pkm/attributes/{user_id}/{domain}/{attribute_key}` returning legacy-removal behavior
-- `GET /api/pkm/metadata/{user_id}`
-- `GET /api/pkm/domain-registry`
-- `GET /api/pkm/scopes/{user_id}`
-- `POST /api/pkm/get-context`
-
-Removed legacy read surfaces such as `/index`, `/attributes`, `/domains`, `/portfolio`, and `/portfolios` are not part of the supported contract.
-
-### Service Layer
-
-Routes do not access the database directly. Database access flows through service classes.
-
-```text
-FastAPI route -> service -> DatabaseClient / external adapter -> PostgreSQL or remote API
+  identity -->|authenticates actor| token
+  vault -->|decrypts locally with user-held key| app
+  token -->|authorizes scoped operation| app
+  app -->|sends scoped request| backend
+  backend -->|verifies access scope| token
+  backend -->|stores ciphertext only| store
+  backend -->|returns allowed metadata or ciphertext| app
 ```
 
-Representative services:
+## Runtime View
 
-- `PersonalKnowledgeModelService`
-- `ConsentDBService`
-- `ChatDBService`
-- `UniverseListService`
-- `RenaissanceService`
-- `PushTokensService`
-- `DomainRegistryService`
+```mermaid
+flowchart TB
+  subgraph clients["Client surfaces"]
+    web["Web"]
+    ios["iOS"]
+    android["Android"]
+  end
 
-### Backend Directory Layout
+  subgraph frontend["Frontend runtime"]
+    shell["Shared shell + providers"]
+    services["Typed service layer"]
+    cache["Session + stale-first cache"]
+  end
 
-```text
-consent-protocol/
-  server.py
-  consent_db.py
-  api/
-    middlewares/
-    routes/
-      account.py
-      agents.py
-      consent.py
-      db_proxy.py
-      debug_firebase.py
-      developer.py
-      health.py
-      iam.py
-      identity.py
-      investors.py
-      invites.py
-      marketplace.py
-      notifications.py
-      ria.py
-      session.py
-      sse.py
-      tickers.py
-      pkm.py
-      kai/
-        __init__.py
-        analyze.py
-        chat.py
-        consent.py
-        decisions.py
-        health.py
-        market_insights.py
-        plaid.py
-        portfolio.py
-        stream.py
-  hushh_mcp/
-    agents/
-    consent/
-    hushh_adk/
-    integrations/
-      plaid/
-    operons/
-      kai/
-        brokerage.py
-    services/
-  db/
-    migrations/
-  mcp_modules/
-  docs/
+  subgraph boundary["Boundary layer"]
+    next["Next.js route handlers"]
+    native["Capacitor plugins"]
+  end
+
+  subgraph backend["Backend runtime"]
+    routes["FastAPI routes"]
+    domain["Consent, PKM, Kai, IAM, RIA services"]
+  end
+
+  subgraph persistence["Persistence"]
+    relational["Relational workflow data"]
+    blobs["Encrypted PKM blobs + manifests"]
+    providers["External providers"]
+  end
+
+  web -->|renders signed-in and public routes| shell
+  ios -->|hosts same app contract in native shell| shell
+  android -->|hosts same app contract in native shell| shell
+  shell -->|calls typed APIs| services
+  cache -->|hydrates stale-first reads| services
+  services -->|web path| next
+  services -->|native path| native
+  next -->|forwards authenticated contract| routes
+  native -->|forwards authenticated contract| routes
+  routes -->|delegates domain work| domain
+  domain -->|writes workflow state| relational
+  domain -->|writes ciphertext and manifests| blobs
+  domain -->|reads external systems| providers
 ```
 
----
+## Repo Shape
 
-## Frontend: `hushh-webapp/`
+The normal contributor mental model should stay small:
 
-Runtime: Next.js 16 App Router, React 19, Tailwind CSS, Capacitor 8.
+- `hushh-webapp/`: client shell, UI, service layer, native bridges
+- `consent-protocol/`: backend routes, services, consent, PKM, agents
+- `docs/`: cross-cutting product, architecture, and operations references
 
-### App Route Contract
+The `consent-protocol` subtree relationship still exists, but it is maintainer-only complexity and not part of the first-run contributor contract.
 
-Current app-level navigation targets are defined in `hushh-webapp/lib/navigation/routes.ts`:
+## What The Backend Is Responsible For
 
-- `/`
-- `/developers`
-- `/login`
-- `/logout`
-- `/labs/profile-appearance`
-- `/profile`
-- `/consents`
-- `/marketplace`
-- `/marketplace/ria`
-- `/ria`
-- `/ria/onboarding`
-- `/ria/clients`
-- `/ria/picks`
-- `/ria/requests`
-- `/ria/settings`
-- `/kai`
-- `/kai/onboarding`
-- `/kai/import`
-- `/kai/plaid/oauth/return`
-- `/kai/investments`
-- `/kai/portfolio`
-- `/kai/analysis`
-- `/kai/optimize`
+- verify consent and scope
+- issue and validate token-backed access
+- persist encrypted PKM blobs and metadata
+- coordinate Kai, IAM, consent, and RIA workflows
+- integrate with external providers without breaking the ciphertext boundary
 
-Identifier-backed detail surfaces stay on static entrypoints for Capacitor export:
+## What The Frontend Is Responsible For
 
-- `/marketplace/ria?riaId=<ria_id>`
-- `/ria/workspace?clientId=<investor_user_id>`
+- hold the user-side trust boundary for local decryption
+- maintain the session, vault, and persona state
+- render the consent and scope UX clearly
+- keep web, iOS, and Android aligned on visible behavior
 
-### Tri-Flow Delivery
+## Design Rule
 
-Product features that cross the backend boundary are expected to preserve parity across:
+Keep the backbone integrated where the platform needs it, but make the public contributor surface feel bacterial:
 
-- web: Next.js route handlers under `app/api/**`
-- iOS: Swift Capacitor plugins
-- Android: Kotlin Capacitor plugins
-
-```text
-Component -> service layer -> web route handler or native plugin -> backend
-```
-
-Components should not own backend fetch orchestration directly.
-
-### Frontend Directory Layout
-
-```text
-hushh-webapp/
-  app/
-    api/
-    consents/
-    developers/
-    kai/
-      analysis/
-      dashboard/
-      import/
-      investments/
-      onboarding/
-      optimize/
-    labs/
-      profile-appearance/
-    login/
-    logout/
-    marketplace/
-      ria/
-        [riaId]/
-    profile/
-    ria/
-      clients/
-      onboarding/
-      picks/
-      requests/
-      settings/
-      workspace/
-        [clientId]/
-  components/
-  ios/App/App/Plugins/
-  android/app/src/main/java/.../plugins/
-  lib/
-    agents/
-    api/
-    auth/
-    capacitor/
-    consent/
-    firebase/
-    kai/
-      brokerage/
-    navigation/
-    notifications/
-    observability/
-    services/
-    stores/
-    streaming/
-    vault/
-  docs/
-```
-
----
-
-## Data Boundary
-
-Runtime data is split into:
-
-- relational operational state in PostgreSQL
-- encrypted user-private payloads in the PKM data plane
-- public/shared marketplace, IAM, and system-curated datasets in relational tables
-
-The PKM boundary is the only supported private data plane for investor and RIA user-owned content.
-
----
-
-## Operational References
-
-- API contract detail: [api-contracts.md](./api-contracts.md)
-- route governance: [route-contracts.md](./route-contracts.md)
-- DB/runtime fact sheet: [runtime-db-fact-sheet.md](./runtime-db-fact-sheet.md)
-- env and secrets contract: [../operations/env-and-secrets.md](../operations/env-and-secrets.md)
-- backend PKM reference: [../../../consent-protocol/docs/reference/personal-knowledge-model.md](../../../consent-protocol/docs/reference/personal-knowledge-model.md)
-- backend consent reference: [../../../consent-protocol/docs/reference/consent-protocol.md](../../../consent-protocol/docs/reference/consent-protocol.md)
+- small commands
+- self-contained scripts
+- modular docs
+- minimal cross-repo mental load

@@ -130,7 +130,8 @@ After registering the App ID, configure capabilities in Xcode:
 
 ### 1. Open Xcode
 ```bash
-open /Users/kushals/Downloads/GitHub/hushh-research/hushh-webapp/ios/App/App.xcodeproj
+cd <repo-root>/hushh-webapp
+open ios/App/App.xcodeproj
 ```
 
 ### 2. Select App Target

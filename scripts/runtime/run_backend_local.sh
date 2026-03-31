@@ -68,7 +68,7 @@ fi
 
 if [ "$(runtime_profile_backend_mode "$PROFILE")" != "local" ]; then
   echo "Runtime profile $PROFILE does not start a local backend." >&2
-  echo "Use a remote profile with 'make web PROFILE=$PROFILE' or 'make stack PROFILE=$PROFILE'." >&2
+  echo "Use a remote profile with 'npm run web -- --profile=$PROFILE' or 'make stack PROFILE=$PROFILE'." >&2
   exit 1
 fi
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IOS_TARGET="ios/App/App/GoogleService-Info.plist"
-ANDROID_TARGET="android/app/google-services.json"
+IOS_TARGET="${IOS_TARGET:-ios/App/App/GoogleService-Info.plist}"
+ANDROID_TARGET="${ANDROID_TARGET:-android/app/google-services.json}"
 
 if [[ -z "${IOS_GOOGLESERVICE_INFO_PLIST_B64:-}" ]]; then
   echo "Missing IOS_GOOGLESERVICE_INFO_PLIST_B64"

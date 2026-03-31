@@ -1,6 +1,6 @@
-# Hushh Research - Cloud Build Deployment
+# Hussh Research - Cloud Build Deployment
 
-> CI/CD deployment using Google Cloud Build. Contributor setup lives in `make bootstrap` plus the docs under `docs/guides/`.
+> CI/CD deployment using Google Cloud Build. Contributor setup lives in `npm run bootstrap` plus the docs under `docs/guides/`.
 
 ---
 
@@ -46,8 +46,8 @@ gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
 Contributor onboarding should start with:
 
 ```bash
-make bootstrap
-make doctor PROFILE=local-uatdb
+npm run bootstrap
+npm run doctor -- --profile=local-uatdb
 ```
 
 Detailed profile behavior now lives in:
@@ -69,7 +69,7 @@ Runtime profile sources (local only, not committed):
 `local-uatdb` backend note:
 
 - Start the backend with `bash scripts/runtime/run_backend_local.sh local-uatdb`
-  or the `make local-backend` wrapper.
+  when you need the UAT-backed local backend path.
 - Do not start local UAT DB access with bare `python`/`uvicorn` unless the
   proxy is already running.
 - The launcher starts `cloud-sql-proxy` automatically for the UAT Cloud SQL
@@ -77,29 +77,6 @@ Runtime profile sources (local only, not committed):
   active backend env, or `CLOUDSQL_PROXY_CREDENTIALS_FILE` if explicitly set.
 - The launcher refuses to fall back to local `gcloud`/ADC credentials for this
   path.
-
-`local-uatdb` backend note:
-
-- Start the backend with `bash scripts/runtime/run_backend_local.sh local-uatdb`
-  or the `make local-backend` wrapper.
-- Do not start local UAT DB access with bare `python`/`uvicorn` unless the
-  proxy is already running.
-- The launcher starts `cloud-sql-proxy` automatically for the UAT Cloud SQL
-  instance and authenticates it from `FIREBASE_SERVICE_ACCOUNT_JSON` in the
-  active backend env, or `CLOUDSQL_PROXY_CREDENTIALS_FILE` if explicitly set.
-- The launcher refuses to fall back to local `gcloud`/ADC credentials for this
-  path.
-
-Makefile wrappers:
-
-```bash
-make local
-make uat
-make prod
-make local-web
-make uat-web
-make local-backend
-```
 
 ### Blocking vs optional validation
 
@@ -112,7 +89,7 @@ Blocking by default:
 
 Canonical executor:
 
-- `scripts/ci/orchestrate.sh` (used by GitHub Actions stages and local wrappers)
+- `scripts/ci/orchestrate.sh` (used by GitHub Actions stages and local entrypoints)
 
 Optional/advisory by default:
 
@@ -371,27 +348,44 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
 - Store production mobile Firebase artifacts in Secret Manager:
   - `IOS_GOOGLESERVICE_INFO_PLIST_B64`
   - `ANDROID_GOOGLE_SERVICES_JSON_B64`
-- Developers should keep real local artifacts in `hushh-webapp/.local-secrets/mobile-firebase/`, not in tracked native paths.
-- Use `npm run bootstrap:mobile-firebase` to fetch the cached local artifacts from Secret Manager.
+- Store local/release signing assets in Secret Manager too:
+  - `APPLE_TEAM_ID`
+  - `IOS_DEV_CERT_P12_B64`
+  - `IOS_DEV_CERT_PASSWORD`
+  - `IOS_DEV_PROFILE_B64`
+  - `IOS_DIST_CERT_P12_B64`
+  - `IOS_DIST_CERT_PASSWORD`
+  - `IOS_APPSTORE_PROFILE_B64`
+  - `APPSTORE_CONNECT_API_KEY_P8_B64`
+  - `APPSTORE_CONNECT_KEY_ID`
+  - `APPSTORE_CONNECT_ISSUER_ID`
+  - `ANDROID_RELEASE_KEYSTORE_B64`
+  - `ANDROID_RELEASE_KEYSTORE_PASSWORD`
+  - `ANDROID_RELEASE_KEY_ALIAS`
+  - `ANDROID_RELEASE_KEY_PASSWORD`
+- Developers should treat the frontend runtime profile env files as the local source of truth.
+- `npm run bootstrap` hydrates those native values into the local profile env files and materializes the active native sidecar under `hushh-webapp/.env.local.d/`.
+- Use `cd hushh-webapp && npm run sync:mobile-firebase` to refresh the active profile env with the latest Firebase app artifacts when needed.
 - Or fetch latest artifacts directly from Firebase into the local cache:
   ```bash
   cd hushh-webapp
   npm run sync:mobile-firebase
   ```
-- Native build wrappers apply that local cache for the build and then restore the tracked templates.
+- Native build wrappers apply the generated sidecar for the build and then restore the tracked templates.
+- If a developer already has real local plist/json files in the native paths or the old `.local-secrets` cache, the first sidecar materialization seeds the active profile instead of overwriting that local state.
 - Release CI still injects both real artifacts into the ephemeral workspace before native build/sign.
 - Run `npm run verify:mobile-firebase` with `REQUIRE_PROD_FIREBASE_ARTIFACTS=true` in release jobs to fail fast if templates were not replaced.
 
 ### Local iOS Signing (Shared Team Bootstrap)
 
 - Do not pass around `.p12`, `.mobileprovision`, or App Store Connect API keys manually.
-- Store Apple signing assets in Secret Manager and bootstrap them locally with:
+- Store Apple signing assets in Secret Manager and hydrate them through the active frontend runtime profile:
   ```bash
-  cd hushh-webapp
-  npm run bootstrap:ios-signing
+  npm run bootstrap
   ```
-- The bootstrap installs signing material into a local keychain/profile path and writes gitignored xcconfig overrides under `.local-secrets/ios-signing/`.
-- Use `npm run cleanup:ios-signing` to remove the local cache and keychain artifacts when needed.
+- The active sidecar lives under `hushh-webapp/.env.local.d/ios/` and local iOS runs install signing material into the keychain/profile store on demand.
+- Android release signing follows the same model via `hushh-webapp/.env.local.d/android/`.
+- Use `cd hushh-webapp && npm run cleanup:ios-signing` to remove the local iOS sidecar and keychain artifacts when needed.
 
 ### Observability Provisioning (Automated)
 

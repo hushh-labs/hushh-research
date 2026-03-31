@@ -3,10 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEB_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-
-LOCAL_SECRETS_ROOT="${LOCAL_SECRETS_ROOT:-${WEB_DIR}/.local-secrets/mobile-firebase}"
-IOS_SOURCE="${IOS_SOURCE:-${LOCAL_SECRETS_ROOT}/GoogleService-Info.plist}"
-ANDROID_SOURCE="${ANDROID_SOURCE:-${LOCAL_SECRETS_ROOT}/google-services.json}"
+ACTIVE_ENV_FILE="${ACTIVE_ENV_FILE:-${WEB_DIR}/.env.local}"
+NATIVE_SIDECAR_ROOT="${NATIVE_SIDECAR_ROOT:-${WEB_DIR}/.env.local.d}"
+IOS_SOURCE="${IOS_SOURCE:-${NATIVE_SIDECAR_ROOT}/ios/GoogleService-Info.plist}"
+ANDROID_SOURCE="${ANDROID_SOURCE:-${NATIVE_SIDECAR_ROOT}/android/google-services.json}"
 IOS_TARGET="${IOS_TARGET:-${WEB_DIR}/ios/App/App/GoogleService-Info.plist}"
 ANDROID_TARGET="${ANDROID_TARGET:-${WEB_DIR}/android/app/google-services.json}"
 REQUIRE_LOCAL_MOBILE_SECRETS="${REQUIRE_LOCAL_MOBILE_SECRETS:-0}"
@@ -17,14 +17,18 @@ if [ "$#" -eq 0 ]; then
 fi
 
 have_local_secrets=true
-if [[ ! -f "${IOS_SOURCE}" || ! -f "${ANDROID_SOURCE}" ]]; then
+if [ ! -f "${ACTIVE_ENV_FILE}" ]; then
   have_local_secrets=false
+else
+  if [[ ! -f "${IOS_SOURCE}" || ! -f "${ANDROID_SOURCE}" ]]; then
+    have_local_secrets=false
+  fi
 fi
 
 if [[ "${have_local_secrets}" != "true" ]]; then
   if [[ "${REQUIRE_LOCAL_MOBILE_SECRETS}" = "1" ]]; then
-    echo "Missing local mobile Firebase cache under ${LOCAL_SECRETS_ROOT}." >&2
-    echo "Run: npm run bootstrap:mobile-firebase" >&2
+    echo "Missing active mobile Firebase artifacts under ${NATIVE_SIDECAR_ROOT}." >&2
+    echo "Activate or bootstrap a frontend profile so ${ACTIVE_ENV_FILE} contains the native Firebase values." >&2
     exit 1
   fi
   echo "Local mobile Firebase cache not found; using committed template files." >&2

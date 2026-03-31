@@ -43,11 +43,17 @@ Activate a profile with:
 bash scripts/env/use_profile.sh local-uatdb
 ```
 
-or just use the higher-level commands:
+or use the public command surface:
 
 ```bash
-make dev PROFILE=local-uatdb
-make web PROFILE=uat-remote
+npm run web -- --profile=uat-remote
+npm run native:ios -- --profile=uat-remote
+npm run native:android -- --profile=uat-remote
+```
+
+The local backend path still exists for deeper development work, but it is not the first-run path:
+
+```bash
 make backend PROFILE=local-uatdb
 ```
 
@@ -59,7 +65,7 @@ Every profile must keep these keys aligned:
 - frontend: `NEXT_PUBLIC_APP_ENV=development|uat|production`
 - both: `APP_RUNTIME_PROFILE=<profile>`
 
-`make doctor PROFILE=<profile>` is the quickest way to verify that alignment.
+`npm run doctor -- --profile=<profile>` is the quickest way to verify that alignment.
 
 ## Runtime Resolution Rules
 
@@ -75,14 +81,15 @@ Every profile must keep these keys aligned:
 - Never teach a new contributor to hand-wire `.env.local` manually
 - Never rely on `DATABASE_URL`; this repo uses the `DB_*` contract
 - Never use the old `*.dev.local`, `*.uat.local`, or `*.prod.local` files as onboarding truth
+- Never introduce a second public bootstrap path when the profile model can handle the need
 
 ## Related Commands
 
 ```bash
-make bootstrap
-make doctor PROFILE=local-uatdb
-make doctor PROFILE=uat-remote
-make doctor PROFILE=prod-remote
+npm run bootstrap
+npm run doctor -- --profile=local-uatdb
+npm run doctor -- --profile=uat-remote
+npm run doctor -- --profile=prod-remote
 ```
 
 ## Deeper Reference

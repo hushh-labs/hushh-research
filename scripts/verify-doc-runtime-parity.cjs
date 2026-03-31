@@ -35,7 +35,7 @@ const OPERATIONAL_DOC_TARGETS = [
 ];
 
 const FIRST_PARTY_DOC_TARGETS = [
-  "readme.md",
+  "README.md",
   "getting_started.md",
   "TESTING.md",
   "contributing.md",
@@ -165,15 +165,39 @@ const REQUIRED_ROOT_DOC_LINKS = [
 ];
 
 const VISUAL_DOC_TARGETS = [
-  "readme.md",
-  "getting_started.md",
-  "TESTING.md",
-  "contributing.md",
   "docs",
   "consent-protocol/README.md",
   "consent-protocol/docs",
   "hushh-webapp/README.md",
   "hushh-webapp/docs",
+];
+
+const PUBLIC_DOC_CONTRACT_TARGETS = [
+  "README.md",
+  "getting_started.md",
+  "contributing.md",
+  "docs/README.md",
+  "docs/guides/README.md",
+  "docs/guides/mobile.md",
+  "docs/guides/new-feature.md",
+  "docs/guides/getting-started.md",
+  "docs/guides/environment-model.md",
+  "docs/vision/README.md",
+  "docs/reference/architecture/architecture.md",
+  "docs/reference/operations/branch-governance.md",
+  "docs/reference/operations/naming-policy.md",
+];
+
+const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
+  { pattern: /🤫/g, message: "emoji-led secrecy branding is not allowed in canonical public docs" },
+  { pattern: /\bmake setup\b/g, message: "make setup is not part of the public contributor contract" },
+  { pattern: /\bmake verify-setup\b/g, message: "make verify-setup is not part of the public contributor contract" },
+  { pattern: /\bmake local\b/g, message: "make local is not part of the public contributor contract" },
+  { pattern: /\bmake local-web\b/g, message: "make local-web is not part of the public contributor contract" },
+  { pattern: /\bmake local-backend\b/g, message: "make local-backend is not part of the public contributor contract" },
+  { pattern: /\/Users\//g, message: "personal absolute paths are not allowed in canonical public docs" },
+  { pattern: /\bHushh Research\b/g, message: "legacy Hushh public branding should be removed from canonical public docs" },
+  { pattern: /\bWhat is Hushh\b/gi, message: "legacy Hushh branding should be removed from canonical public docs" },
 ];
 
 const VISUAL_TIER_A_EXTRA = new Set([
@@ -371,7 +395,7 @@ function looksLikePath(token) {
 
 function isLocalEnvReference(token) {
   const cleaned = token.replace(/[),.;:]+$/g, "");
-  return /(^|\/)\.env(\.[A-Za-z0-9_-]+)?$/.test(cleaned);
+  return /(^|\/)\.env(\.[A-Za-z0-9_-]+)?$/.test(cleaned) || cleaned.includes(".env.local.d/");
 }
 
 function resolveDocPathReference(file, token) {
@@ -483,6 +507,39 @@ function verifyNoGeneratedArtifacts() {
     fail(`Generated native artifact trees must not be tracked:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
   } else {
     ok("No generated iOS artifact doc/build trees are tracked");
+  }
+}
+
+function verifyPublicDocContract() {
+  const offenders = [];
+
+  for (const file of PUBLIC_DOC_CONTRACT_TARGETS) {
+    if (!exists(file)) {
+      offenders.push(`${file}: missing canonical public doc`);
+      continue;
+    }
+
+    const content = read(file);
+    for (const rule of FORBIDDEN_PUBLIC_DOC_PATTERNS) {
+      if (rule.pattern.test(content)) {
+        offenders.push(`${file}: ${rule.message}`);
+      }
+      rule.pattern.lastIndex = 0;
+    }
+  }
+
+  const requiredBootstrapDocs = ["README.md", "docs/guides/getting-started.md", "contributing.md"];
+  for (const file of requiredBootstrapDocs) {
+    const content = read(file);
+    if (!content.includes("npm run bootstrap")) {
+      offenders.push(`${file}: must include npm run bootstrap in the canonical contributor surface`);
+    }
+  }
+
+  if (offenders.length) {
+    fail(`Public documentation contract violations found:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
+  } else {
+    ok("Canonical public docs match the Hussh/npm-first contract");
   }
 }
 
@@ -655,6 +712,7 @@ function main() {
   verifyRequiredDocIndexes();
   verifyRootDocHubLinks();
   verifyVisualCoverage();
+  verifyPublicDocContract();
   verifyCanonicalRouteContract(operationalDocs);
   verifyRequiredOperationalMarkers();
   verifyNoGeneratedArtifacts();

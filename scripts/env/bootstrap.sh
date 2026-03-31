@@ -15,6 +15,8 @@ Description:
   - verifies required local tools
   - installs/refreshes frontend and backend dependencies
   - hydrates the three canonical runtime profiles
+  - hydrates native secret values into the frontend profile files when available
+  - activates the selected frontend profile and materializes .env.local.d
   - runs the environment doctor for the selected profile
 
 Notes:
@@ -115,7 +117,6 @@ warn_legacy_envs() {
 }
 
 require_cmd git
-require_cmd make
 require_cmd node
 require_cmd npm
 require_cmd python3
@@ -134,7 +135,6 @@ echo "Runtime profiles: $(runtime_profiles_csv)"
 echo "Selected doctor profile: $PROFILE"
 echo "Required prerequisites:"
 echo "  - git"
-echo "  - make"
 echo "  - node >= 20 (found ${NODE_VERSION})"
 echo "  - npm >= 10 (found ${NPM_VERSION})"
 echo "  - python3 >= 3.13 (found ${PYTHON_VERSION})"
@@ -146,10 +146,9 @@ echo ""
 
 warn_legacy_envs
 
-if grep -qE '^setup:' "$REPO_ROOT/Makefile" >/dev/null 2>&1 || \
-  [ -f "$REPO_ROOT/consent-protocol/ops/monorepo/protocol.mk" ]; then
+if [ -f "$REPO_ROOT/scripts/setup-hooks.sh" ]; then
   echo "Configuring monorepo hooks and consent-protocol upstream remote..."
-  make -C "$REPO_ROOT" setup
+  bash "$REPO_ROOT/scripts/setup-hooks.sh"
   echo ""
 fi
 
@@ -168,12 +167,16 @@ echo "Hydrating canonical runtime profiles..."
 bash "$REPO_ROOT/scripts/env/bootstrap_profiles.sh"
 echo ""
 
+echo "Activating selected runtime profile..."
+bash "$REPO_ROOT/scripts/env/use_profile.sh" "$PROFILE"
+echo ""
+
 echo "Running environment doctor..."
 bash "$REPO_ROOT/scripts/env/doctor.sh" "$PROFILE"
 echo ""
 
 echo "Bootstrap complete."
 echo "Next steps:"
-echo "  make web PROFILE=uat-remote"
-echo "  make doctor PROFILE=local-uatdb"
+echo "  npm run web -- --profile=uat-remote"
+echo "  npm run doctor -- --profile=local-uatdb"
 echo "  make backend PROFILE=local-uatdb   # when you need local backend work"
