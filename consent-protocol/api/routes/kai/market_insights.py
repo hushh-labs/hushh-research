@@ -1687,23 +1687,27 @@ async def get_market_insights(
                 "generated_at": _now_iso(),
             }
 
-        quotes_cache = await market_insights_cache.get_or_refresh(
-            quotes_key,
+        (
+            quotes_value,
+            quotes_stale,
+            _quotes_age_seconds,
+            quotes_cache_tier,
+            quotes_cache_hit,
+        ) = await _get_or_refresh_public_module(
+            key=quotes_key,
             fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
             stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
             fetcher=fetch_quotes_bundle,
-            serve_stale_while_revalidate=True,
+            warm_source="request",
         )
-        quote_bundle = quotes_cache.value if isinstance(quotes_cache.value, dict) else {}
+        quote_bundle = quotes_value if isinstance(quotes_value, dict) else {}
         quote_map = (
             quote_bundle.get("quotes") if isinstance(quote_bundle.get("quotes"), dict) else {}
         )
         provider_status.update(
             {str(k): str(v) for k, v in (quote_bundle.get("provider_status") or {}).items()}
         )
-        stale = stale or quotes_cache.stale
-        quotes_cache_hit = quotes_cache.age_seconds > 0 or quotes_cache.stale
-        quotes_cache_tier = "memory" if quotes_cache_hit else "live"
+        stale = stale or quotes_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, quotes_cache_tier)
         aggregated_cache_hit = aggregated_cache_hit and quotes_cache_hit
 
@@ -1778,16 +1782,26 @@ async def get_market_insights(
                 async with rec_semaphore:
                     recommendation = await _fetch_recommendation(symbol, quote_price)
                     status_value = "partial" if recommendation.get("degraded") else "ok"
-                    return {"recommendation": recommendation, "status": status_value}
+                    return {
+                        "recommendation": recommendation,
+                        "status": status_value,
+                        "provider_status": {f"recommendation:{symbol}": status_value},
+                    }
 
-            rec_cache = await market_insights_cache.get_or_refresh(
-                rec_key,
+            (
+                rec_value,
+                rec_stale,
+                _rec_age_seconds,
+                rec_cache_tier,
+                rec_cache_hit,
+            ) = await _get_or_refresh_public_module(
+                key=rec_key,
                 fresh_ttl_seconds=RECOMMENDATION_FRESH_TTL_SECONDS,
                 stale_ttl_seconds=RECOMMENDATION_STALE_TTL_SECONDS,
                 fetcher=fetch_recommendation_bundle,
-                serve_stale_while_revalidate=True,
+                warm_source="request",
             )
-            rec_bundle = rec_cache.value if isinstance(rec_cache.value, dict) else {}
+            rec_bundle = rec_value if isinstance(rec_value, dict) else {}
             recommendation = (
                 rec_bundle.get("recommendation")
                 if isinstance(rec_bundle.get("recommendation"), dict)
@@ -1815,7 +1829,7 @@ async def get_market_insights(
                         ]
                     )
                 ),
-                "degraded": bool(not quote or recommendation.get("degraded") or rec_cache.stale),
+                "degraded": bool(not quote or recommendation.get("degraded") or rec_stale),
                 "as_of": (quote or {}).get("fetched_at")
                 if isinstance((quote or {}).get("fetched_at"), str)
                 else None,
@@ -1823,16 +1837,20 @@ async def get_market_insights(
             return (
                 row,
                 {f"recommendation:{symbol}": str(rec_bundle.get("status") or "partial")},
-                rec_cache.stale,
+                rec_stale,
+                rec_cache_tier,
+                rec_cache_hit,
             )
 
         watchlist_results = await asyncio.gather(
             *(build_watchlist_row(symbol) for symbol in watchlist_symbols_for_cards)
         )
-        for row, status_map, row_stale in watchlist_results:
+        for row, status_map, row_stale, row_cache_tier, row_cache_hit in watchlist_results:
             watchlist_rows.append(row)
             provider_status.update(status_map)
             stale = stale or row_stale
+            aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, row_cache_tier)
+            aggregated_cache_hit = aggregated_cache_hit and row_cache_hit
 
         for stock in renaissance_rows_source:
             tier = str(_pick_row_value(stock, "tier", "") or "").strip().upper() or None
@@ -2001,19 +2019,27 @@ async def get_market_insights(
             deduped.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
             return {"rows": deduped[:NEWS_ROWS_MAX], "provider_status": statuses}
 
-        news_cache = await market_insights_cache.get_or_refresh(
-            news_key,
+        (
+            news_value,
+            news_stale,
+            _news_age_seconds,
+            news_cache_tier,
+            news_cache_hit,
+        ) = await _get_or_refresh_public_module(
+            key=news_key,
             fresh_ttl_seconds=NEWS_FRESH_TTL_SECONDS,
             stale_ttl_seconds=NEWS_STALE_TTL_SECONDS,
             fetcher=fetch_news_bundle,
-            serve_stale_while_revalidate=True,
+            warm_source="request",
         )
-        news_bundle = news_cache.value if isinstance(news_cache.value, dict) else {}
+        news_bundle = news_value if isinstance(news_value, dict) else {}
         news_tape = news_bundle.get("rows") if isinstance(news_bundle.get("rows"), list) else []
         provider_status.update(
             {str(k): str(v) for k, v in (news_bundle.get("provider_status") or {}).items()}
         )
-        stale = stale or news_cache.stale
+        stale = stale or news_stale
+        aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, news_cache_tier)
+        aggregated_cache_hit = aggregated_cache_hit and news_cache_hit
 
         news_by_symbol: dict[str, dict[str, Any]] = {}
         for news in news_tape:

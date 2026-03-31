@@ -103,7 +103,8 @@ if command -v gcloud >/dev/null 2>&1; then
     --project "${GCP_PROJECT_ID:-hushh-pda}" \
     --region "${GCP_REGION:-us-central1}" \
     --backend-service "${BACKEND_SERVICE:-consent-protocol}" \
-    --frontend-service "${FRONTEND_SERVICE:-hushh-webapp}" || {
+    --frontend-service "${FRONTEND_SERVICE:-hushh-webapp}" \
+    --require-market-data || {
       FAIL=1
       echo "❌ Env/secrets/deploy parity verification failed"
     }

@@ -5,6 +5,7 @@ import { Search, TrendingDown, TrendingUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import {
   Select,
@@ -17,7 +18,6 @@ import {
   SettingsDetailPanel,
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import type {
@@ -27,14 +27,12 @@ import type {
 import { cn } from "@/lib/utils";
 
 const ALL_FILTER = "all";
-const DEFAULT_PICKS_PAGE_SIZE = 10;
-const PICKS_PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [4, 6, 8] as const;
+const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [6, 12, 24] as const;
 
-function parsePageSize(value: string): number {
+function parsePageSize(value: string, options: readonly number[], fallback: number): number {
   const parsed = Number(value);
-  return PICKS_PAGE_SIZE_OPTIONS.includes(parsed as (typeof PICKS_PAGE_SIZE_OPTIONS)[number])
-    ? parsed
-    : DEFAULT_PICKS_PAGE_SIZE;
+  return options.includes(parsed) ? parsed : fallback;
 }
 
 function formatCurrency(value: number | null | undefined): string {
@@ -150,12 +148,26 @@ export function RiaPicksList({
   activeSourceId?: string;
   onSourceChange?: (sourceId: string) => void;
 }) {
+  const isMobile = useIsMobile();
+  const pageSizeOptions: readonly number[] = isMobile
+    ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
+    : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
+  const defaultPageSize = pageSizeOptions[0] ?? 6;
   const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(null);
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
-  const [pageSize, setPageSize] = useState(DEFAULT_PICKS_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPageSize((current) => {
+      if (pageSizeOptions.includes(current)) {
+        return current;
+      }
+      return defaultPageSize;
+    });
+  }, [defaultPageSize, pageSizeOptions]);
 
   const availableSources = useMemo<KaiHomePickSource[]>(
     () =>
@@ -242,34 +254,35 @@ export function RiaPicksList({
     <div className="space-y-4">
       <SettingsGroup>
         <div className="space-y-3 px-3 py-3 sm:px-4">
-          {availableSources.length > 1 ? (
-            <SettingsSegmentedTabs
-              value={activeSource?.id || "default"}
-              onValueChange={(nextValue) => {
-                if (!onSourceChange || nextValue === activeSource?.id) return;
-                onSourceChange(nextValue);
-              }}
-              options={availableSources.map((source) => ({
-                value: source.id,
-                label: source.label,
-              }))}
-            />
-          ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "border font-medium",
-                  displaySource ? sourceStateTone(displaySource) : undefined
-                )}
+          <SettingsRow
+            title="List source"
+            description={pickSourceSummary(displaySource)}
+            trailing={
+              <Select
+                value={activeSource?.id || "default"}
+                onValueChange={(nextValue) => {
+                  if (!onSourceChange || nextValue === activeSource?.id) return;
+                  onSourceChange(nextValue);
+                }}
               >
-                {displaySource?.label || "Default list"}
-              </Badge>
-              <p className="text-xs leading-5 text-muted-foreground">
-                {pickSourceSummary(displaySource)}
-              </p>
-            </div>
-          )}
+                <SelectTrigger
+                  className={cn(
+                    "h-10 min-w-[168px] max-w-[220px] rounded-full border-border/80 bg-background/80 text-left",
+                    displaySource ? sourceStateTone(displaySource) : undefined
+                  )}
+                >
+                  <SelectValue placeholder="Default list" />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {availableSources.map((source) => (
+                    <SelectItem key={source.id} value={source.id}>
+                      {source.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            }
+          />
 
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1.35fr)_180px_180px]">
             <div className="relative">
@@ -318,15 +331,15 @@ export function RiaPicksList({
               <Select
                 value={String(pageSize)}
                 onValueChange={(value) => {
-                  setPageSize(parsePageSize(value));
+                  setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
                   setPage(1);
                 }}
               >
                 <SelectTrigger className="h-8 min-w-[112px] rounded-full border-border/70 bg-background/78 text-xs">
-                  <SelectValue placeholder="10 per page" />
+                  <SelectValue placeholder={`${defaultPageSize} per page`} />
                 </SelectTrigger>
                 <SelectContent>
-                  {PICKS_PAGE_SIZE_OPTIONS.map((option) => (
+                  {pageSizeOptions.map((option) => (
                     <SelectItem key={option} value={String(option)}>
                       {option} per page
                     </SelectItem>

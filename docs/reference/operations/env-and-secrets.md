@@ -282,7 +282,7 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 
 Secret Manager must hold **exactly** the keys the code uses. No extra secrets; no missing secrets. Cloud Build injects only these.
 
-### Backend (11 secrets) — all injected by `deploy/backend.cloudbuild.yaml`
+### Backend baseline (10 secrets) — all injected by `deploy/backend.cloudbuild.yaml`
 
 | Secret name | Env var / usage in code |
 |-------------|-------------------------|
@@ -296,6 +296,13 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `DB_PASSWORD` | `DB_PASSWORD` (same) |
 | `APP_REVIEW_MODE` | `APP_REVIEW_MODE` (api/routes/health.py) |
 | `REVIEWER_UID` | `REVIEWER_UID` (api/routes/health.py) |
+
+### Backend market-data add-ons (2 secrets)
+
+| Secret name | Env var / usage in code |
+|-------------|-------------------------|
+| `FINNHUB_API_KEY` | `FINNHUB_API_KEY` (`api/routes/kai/market_insights.py`, `hushh_mcp/operons/kai/fetchers.py`) |
+| `PMP_API_KEY` | `PMP_API_KEY` (`api/routes/kai/market_insights.py`, `hushh_mcp/operons/kai/fetchers.py`) |
 **Not in Secret Manager (set as Cloud Run env vars in cloudbuild):** `DB_HOST`, `DB_PORT`, `DB_NAME`, `ENVIRONMENT`, `GOOGLE_GENAI_USE_VERTEXAI`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `CORS_ALLOWED_ORIGINS`.
 
 **Strict parity:** `DATABASE_URL` is not used anywhere. Migrations (`db/migrate.py`) use **DB_*** only, via `db.connection.get_database_url()`. Do **not** create or keep `DATABASE_URL` in Secret Manager; delete it if present.

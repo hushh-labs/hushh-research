@@ -698,10 +698,22 @@ async def fetch_market_data_batch(
     if not missing:
         return cached
 
+    if _provider_in_cooldown("yahoo_quote_fast:global"):
+        _emit_realtime_telemetry(
+            "market_data_batch_skipped_cooldown",
+            ticker_count=len(missing),
+        )
+        return cached
+
     started_at = time.perf_counter()
     try:
         batch_rows = await _fetch_yahoo_quotes(missing)
     except Exception as exc:
+        if isinstance(exc, httpx.HTTPStatusError):
+            _mark_provider_cooldown(
+                "yahoo_quote_fast:global",
+                exc.response.status_code if exc.response is not None else None,
+            )
         _emit_realtime_telemetry(
             "market_data_batch_failure",
             ticker_count=len(missing),
@@ -1222,6 +1234,7 @@ async def fetch_market_data(
     symbol = ticker.upper().strip()
     finnhub_enabled = bool(_finnhub_api_key())
     pmp_enabled = bool(_pmp_api_key())
+    require_yfinance_rescue = not finnhub_enabled and not pmp_enabled
     cache_key = _market_data_cache_key(
         symbol, finnhub_enabled=finnhub_enabled, pmp_enabled=pmp_enabled
     )
@@ -1261,7 +1274,7 @@ async def fetch_market_data(
             providers.append(("finnhub", _fetch_finnhub_quote))
         if pmp_enabled:
             providers.append(("pmp", _fetch_pmp_quote))
-        if allow_slow_fallbacks:
+        if allow_slow_fallbacks or require_yfinance_rescue:
             providers.append(("yfinance", _fetch_yfinance_quote))
         providers.append(("yahoo_quote_fast", _fetch_yahoo_quote_fast))
 

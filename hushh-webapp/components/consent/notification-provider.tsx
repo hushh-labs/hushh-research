@@ -39,6 +39,10 @@ import {
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import {
+  humanizeConsentScope,
+  resolveConsentSupportingCopy,
+} from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
   getSessionItem,
@@ -51,49 +55,6 @@ import { ROUTES } from "@/lib/navigation/routes";
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/**
- * Domain icon mapping for consent toasts. Uses emojis since toasts are plain text.
- * Backend-provided scope_description is preferred when available (line ~325).
- */
-const DOMAIN_EMOJI: Record<string, string> = {
-  financial: "💰",
-  subscriptions: "💳",
-  health: "❤️",
-  travel: "✈️",
-  food: "🍕",
-  professional: "💼",
-  entertainment: "🎬",
-  shopping: "🛍️",
-  social: "👥",
-  location: "📍",
-  general: "📋",
-};
-
-const formatScope = (scope: string): { label: string; emoji: string } => {
-  // Extract domain from attr.{domain}.* pattern
-  const attrMatch = scope.match(/^attr\.([a-zA-Z0-9_]+)/);
-  if (attrMatch?.[1]) {
-    const domain = attrMatch[1];
-    const emoji = DOMAIN_EMOJI[domain] ?? "📋";
-    const isWildcard = scope.endsWith(".*");
-    const label = isWildcard
-      ? `${domain.charAt(0).toUpperCase() + domain.slice(1)} Data`
-      : scope
-          .replace(/^attr\./, "")
-          .replace(/\.\*$/, "")
-          .replace(/[._]/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase());
-    return { label, emoji };
-  }
-
-  // Static scopes
-  if (scope === "vault.owner") return { label: "Full Vault Access", emoji: "🔐" };
-  if (scope === "pkm.read") return { label: "Personal Data", emoji: "📖" };
-  if (scope === "pkm.write") return { label: "Write Personal Data", emoji: "✏️" };
-
-  return { label: scope.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), emoji: "📋" };
-};
 
 /**
  * Build a PendingConsent object from an FCM data payload.
@@ -357,10 +318,19 @@ export function ConsentNotificationProvider({
       if (toastedIdsRef.current.has(toastKey)) return;
       toastedIdsRef.current.add(toastKey);
 
-      const { label, emoji } = consent.scopeDescription
-        ? { label: consent.scopeDescription, emoji: "📋" }
-        : formatScope(consent.scope);
       const isBundle = Boolean(consent.bundleId);
+      const supportingCopy = resolveConsentSupportingCopy({
+        scope: consent.scope,
+        scopeDescription: consent.scopeDescription,
+        reason: consent.reason,
+        additionalAccessSummary: consent.additionalAccessSummary,
+        isScopeUpgrade: consent.isScopeUpgrade,
+        existingGrantedScopes: consent.existingGrantedScopes ?? null,
+      });
+      const scopeLabel = humanizeConsentScope(consent.scope);
+      const shouldShowScopeLabel =
+        Boolean(consent.scope) &&
+        scopeLabel.trim().toLowerCase() !== supportingCopy.trim().toLowerCase();
       const currentQuery = searchParams.toString();
       const currentInternalHref = `${pathname}${currentQuery ? `?${currentQuery}` : ""}`;
       const reviewTarget = resolveConsentNavigationTarget(consent.requestUrl, "pending", {
@@ -371,20 +341,18 @@ export function ConsentNotificationProvider({
 
       toast(
         <div className="flex flex-col gap-3">
-          {/* Header with scope */}
-          <div className="flex items-center gap-2">
-            <span className="text-lg">{emoji}</span>
-            <div>
-              <p className="font-semibold text-sm">{consent.developer}</p>
-              <p className="text-xs text-muted-foreground">
-                {isBundle
-                  ? "Requested a bundled portfolio review. Open your consent center to choose durations and approve."
-                  : consent.additionalAccessSummary || `Wants access to your ${label}`}
+          <div className="space-y-1">
+            <p className="font-semibold text-sm">{consent.developer}</p>
+            <p className="text-xs text-muted-foreground">
+              {isBundle
+                ? "Bundled consent request waiting for review in Consent Manager."
+                : supportingCopy}
+            </p>
+            {shouldShowScopeLabel ? (
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                {scopeLabel}
               </p>
-              {consent.reason ? (
-                <p className="text-xs text-muted-foreground">Reason: {consent.reason}</p>
-              ) : null}
-            </div>
+            ) : null}
           </div>
 
           {/* Action buttons */}

@@ -28,6 +28,11 @@ BACKEND_PLAID_REQUIRED = (
     "PLAID_TOKEN_ENCRYPTION_KEY",
 )
 
+BACKEND_MARKET_REQUIRED = (
+    "FINNHUB_API_KEY",
+    "PMP_API_KEY",
+)
+
 FRONTEND_REQUIRED = (
     "BACKEND_URL",
     "FIREBASE_SERVICE_ACCOUNT_JSON",
@@ -170,6 +175,11 @@ def main() -> int:
         help="Also require Plaid backend secrets for brokerage-enabled environments.",
     )
     parser.add_argument(
+        "--require-market-data",
+        action="store_true",
+        help="Also require backend market provider secrets for market-home parity.",
+    )
+    parser.add_argument(
         "--assert-runtime-env-contract",
         action="store_true",
         help="Also verify Cloud Run runtime env injection for hosted frontend/backend parity.",
@@ -179,6 +189,8 @@ def main() -> int:
     required = list(BACKEND_REQUIRED + FRONTEND_REQUIRED)
     if args.require_plaid:
         required.extend(BACKEND_PLAID_REQUIRED)
+    if args.require_market_data:
+        required.extend(BACKEND_MARKET_REQUIRED)
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
@@ -190,6 +202,11 @@ def main() -> int:
         print(
             "Required Plaid backend secrets "
             f"({len(BACKEND_PLAID_REQUIRED)}): {_format_names(BACKEND_PLAID_REQUIRED)}"
+        )
+    if args.require_market_data:
+        print(
+            "Required market backend secrets "
+            f"({len(BACKEND_MARKET_REQUIRED)}): {_format_names(BACKEND_MARKET_REQUIRED)}"
         )
     print(f"Required frontend secrets ({len(FRONTEND_REQUIRED)}): {_format_names(FRONTEND_REQUIRED)}")
     if args.require_native_artifacts:
