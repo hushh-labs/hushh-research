@@ -1227,7 +1227,19 @@ export function DebateStreamView({
           break;
       }
     },
-    [currentRunId, onDecisionReady, resolveRoundForEnvelope, runId, setBusyOperation, ticker, updateAgentState, userId]
+    [
+      currentRunId,
+      onDecisionReady,
+      pickSource,
+      pickSourceKind,
+      pickSourceLabel,
+      resolveRoundForEnvelope,
+      runId,
+      setBusyOperation,
+      ticker,
+      updateAgentState,
+      userId,
+    ]
   );
 
   useEffect(() => {
@@ -1449,6 +1461,7 @@ export function DebateStreamView({
     };
   }, [
     applyEnvelope,
+    onDecisionPersisted,
     portfolioContextOverride,
     portfolioSource,
     pickSource,

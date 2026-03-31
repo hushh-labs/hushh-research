@@ -850,14 +850,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
       deduped.push(value);
     }
     return deduped;
-  }, [
-    rawCard?.all_sources,
-    rawCard?.alphaagents_trace?.paper,
-    rawCard?.alphaagents_trace?.paper_title,
-    rawCard?.alphaagents_trace?.paper_url,
-    rawCard?.debate_highlights,
-    rawCard?.structured_sources,
-  ]);
+  }, [rawCard]);
   const hasQuantMetrics = rawCard?.quant_metrics && Object.keys(rawCard.quant_metrics).filter(
     (k) => rawCard.quant_metrics![k] !== null && rawCard.quant_metrics![k] !== undefined && typeof rawCard.quant_metrics![k] !== "object"
   ).length > 0;
