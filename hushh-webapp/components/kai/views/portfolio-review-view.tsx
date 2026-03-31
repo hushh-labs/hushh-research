@@ -2379,8 +2379,8 @@ export function PortfolioReviewView({
                     data={holdingTables.all}
                     globalSearchKeys={["symbol", "name"]}
                     searchPlaceholder="Search holdings by symbol or name..."
-                    initialPageSize={5}
-                    pageSizeOptions={[5, 10, 20]}
+                    initialPageSize={8}
+                    pageSizeOptions={[8, 16, 24]}
                     rowClassName={(holding) =>
                       holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
                     }
@@ -2395,8 +2395,8 @@ export function PortfolioReviewView({
                     data={holdingTables.analyzeEligible}
                     globalSearchKeys={["symbol", "name"]}
                     searchPlaceholder="Search equities..."
-                    initialPageSize={5}
-                    pageSizeOptions={[5, 10, 20]}
+                    initialPageSize={8}
+                    pageSizeOptions={[8, 16, 24]}
                     rowClassName={(holding) =>
                       holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
                     }
@@ -2411,8 +2411,8 @@ export function PortfolioReviewView({
                     data={holdingTables.nonAnalyzable}
                     globalSearchKeys={["symbol", "name"]}
                     searchPlaceholder="Search other assets..."
-                    initialPageSize={5}
-                    pageSizeOptions={[5, 10, 20]}
+                    initialPageSize={8}
+                    pageSizeOptions={[8, 16, 24]}
                     rowClassName={(holding) =>
                       holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
                     }
@@ -2427,8 +2427,8 @@ export function PortfolioReviewView({
                     data={holdingTables.cashSweep}
                     globalSearchKeys={["symbol", "name"]}
                     searchPlaceholder="Search cash holdings..."
-                    initialPageSize={5}
-                    pageSizeOptions={[5, 10, 20]}
+                    initialPageSize={8}
+                    pageSizeOptions={[8, 16, 24]}
                     rowClassName={(holding) =>
                       holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
                     }

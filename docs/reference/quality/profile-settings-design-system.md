@@ -9,6 +9,8 @@ This document is the canonical contract for Apple-like settings surfaces in Hush
 
 For broader page-shell, header, and content-surface rules beyond settings, use [App Surface Design System](./app-surface-design-system.md).
 
+Signed-in settings surfaces inherit the app-wide compact density contract by default. That means grouped settings, privacy managers, and audit lists should feel efficient above the fold while auth, onboarding, and form-first overlays remain readable.
+
 ## Design Intent
 
 The settings experience should feel:
@@ -43,6 +45,7 @@ Rules:
 3. Rounded outer shell with subtle background and blur only at the group level.
 4. Optional eyebrow, title, and short supporting description above the group.
 5. Description must stay compact; do not write paragraph-length helper text.
+6. Group spacing should come from the shared density variables, not ad-hoc `space-y-*` tuning inside route files.
 
 ### `SettingsRow`
 
@@ -61,6 +64,7 @@ Rules:
    - trailing controls zone for switches/buttons
 8. A clickable settings row must never render nested interactive DOM.
 9. Avoid long text in trailing slots.
+10. Row padding and gaps should inherit from the shared compact density variables so Profile, Consent, and similar row-based managers stay visually aligned.
 
 ### `SettingsDetailPanel`
 
@@ -96,6 +100,7 @@ Rules:
 2. Supporting text is smaller and tighter than titles.
 3. Avoid oversized subtitles.
 4. Supporting text should explain action or state in one short sentence.
+5. Dense settings managers should prefer many scannable rows over stacked mini-cards when the user is browsing or triaging state.
 
 ### Interaction
 
@@ -157,6 +162,7 @@ Rules:
 5. Keep row actions visually balanced with the left icon block.
 6. Center the left icon against the full title-plus-subtitle block so it spans the whole heading unit, not just the first line.
 7. Add `MaterialRipple` to every actionable card surface, not only buttons.
+8. When a settings surface becomes list-heavy, stay with `SettingsGroup` / `SettingsRow` or another shared compact browse primitive instead of designing a new card grid.
 
 ### Don’t
 

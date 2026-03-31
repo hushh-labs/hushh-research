@@ -95,8 +95,6 @@ const CHART_COLORS = [
   "#ec4899",
 ];
 
-const HOLDINGS_PAGE_SIZE = 10;
-
 function formatCurrency(value: number): string {
   if (value >= 1000000) {
     return `$${(value / 1000000).toFixed(1)}M`;
@@ -228,6 +226,7 @@ export function SectorAllocationChart({
   );
   const [sectorHoldingPages, setSectorHoldingPages] = useState<Record<string, number>>({});
   const [openSectors, setOpenSectors] = useState<Record<string, boolean>>({});
+  const holdingsPageSize = windowWidth < 640 ? 4 : 8;
 
   useEffect(() => {
     if (!responsive) return;
@@ -291,13 +290,13 @@ export function SectorAllocationChart({
     setSectorHoldingPages((prev) => {
       const next: Record<string, number> = {};
       for (const sector of sectorData.data) {
-        const totalPages = Math.max(1, Math.ceil(sector.holdings.length / HOLDINGS_PAGE_SIZE));
+        const totalPages = Math.max(1, Math.ceil(sector.holdings.length / holdingsPageSize));
         const prevPage = prev[sector.name] ?? 0;
         next[sector.name] = Math.min(Math.max(prevPage, 0), totalPages - 1);
       }
       return next;
     });
-  }, [sectorData.data]);
+  }, [holdingsPageSize, sectorData.data]);
 
   useEffect(() => {
     setOpenSectors(() => {
@@ -372,11 +371,11 @@ export function SectorAllocationChart({
       <SurfaceInset className="px-3 py-3 sm:px-4">
           <div className="space-y-2">
             {sectorData.data.map((sector) => {
-              const totalPages = Math.max(1, Math.ceil(sector.holdings.length / HOLDINGS_PAGE_SIZE));
+              const totalPages = Math.max(1, Math.ceil(sector.holdings.length / holdingsPageSize));
               const currentPage = sectorHoldingPages[sector.name] ?? 0;
               const clampedPage = Math.min(Math.max(currentPage, 0), totalPages - 1);
-              const start = clampedPage * HOLDINGS_PAGE_SIZE;
-              const end = start + HOLDINGS_PAGE_SIZE;
+              const start = clampedPage * holdingsPageSize;
+              const end = start + holdingsPageSize;
               const visibleHoldings = sector.holdings.slice(start, end);
               const isOpen = openSectors[sector.name] ?? false;
 

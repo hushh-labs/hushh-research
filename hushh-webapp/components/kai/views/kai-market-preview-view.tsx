@@ -9,7 +9,6 @@ import {
   Cpu,
   LineChart,
   Loader2,
-  Newspaper,
   Percent,
   RefreshCw,
   Target,
@@ -19,12 +18,8 @@ import {
   Zap,
 } from "lucide-react";
 
-import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
-import {
-  AppPageContentRegion,
-  AppPageHeaderRegion,
-  AppPageShell,
-} from "@/components/app-ui/app-page-shell";
+import { SectionHeader } from "@/components/app-ui/page-sections";
+import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -147,6 +142,35 @@ function spotlightConfidenceLabel(
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
   return `${pct}% confidence`;
+}
+
+function signalConfidenceLabel(signal: {
+  confidence?: number | null;
+}): string {
+  const value = signal.confidence;
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Signal";
+  const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
+  return `${pct}% confidence`;
+}
+
+function signalConfidenceTone(signal: {
+  confidence?: number | null;
+  degraded?: boolean;
+}): string {
+  if (signal.degraded) {
+    return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+  const value =
+    typeof signal.confidence === "number" && Number.isFinite(signal.confidence)
+      ? signal.confidence
+      : 0;
+  if (value >= 0.72) {
+    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  }
+  if (value >= 0.6) {
+    return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+  }
+  return "bg-violet-500/10 text-violet-700 dark:text-violet-300";
 }
 
 function formatSpotlightPrice(value: number | null | undefined): string {
@@ -542,7 +566,7 @@ function useKaiMarketHomeController() {
     ]
   );
 
-  const marketCacheKey = useMemo(
+  const personalizedCacheKey = useMemo(
     () =>
       user?.uid && pickSourceReady
         ? CACHE_KEYS.KAI_MARKET_HOME(user.uid, toSymbolsKey(trackedSymbols), 7, activePickSource)
@@ -551,8 +575,25 @@ function useKaiMarketHomeController() {
   );
   const marketResourceReady = Boolean(user?.uid && pickSourceReady);
 
-  const resource = useStaleResource<KaiHomeInsightsV2 | null>({
-    cacheKey: marketCacheKey,
+  const baselineResource = useStaleResource<KaiHomeInsightsV2 | null>({
+    cacheKey: user?.uid ? CACHE_KEYS.KAI_MARKET_HOME_BASELINE(user.uid, 7) : "kai_market_home_baseline_guest",
+    enabled: Boolean(user?.uid),
+    resourceLabel: "kai_market_home_baseline",
+    load: async (options) => {
+      if (!user?.uid) {
+        return null;
+      }
+      return await KaiMarketHomeResourceService.getBaselineStaleFirst({
+        userId: user.uid,
+        daysBack: 7,
+        forceRefresh: Boolean(options?.force),
+        backgroundRefresh: !options?.force,
+      });
+    },
+  });
+
+  const personalizedResource = useStaleResource<KaiHomeInsightsV2 | null>({
+    cacheKey: personalizedCacheKey,
     enabled: marketResourceReady,
     resourceLabel: "kai_market_home",
     load: async (options) => {
@@ -561,8 +602,12 @@ function useKaiMarketHomeController() {
       }
       const currentToken = getVaultOwnerToken?.() ?? vaultOwnerToken ?? null;
       if (options?.force) {
-        const forcedToken = await resolveToken(true);
-        return await KaiMarketHomeResourceService.getStaleFirst({
+        if (!currentToken && !vaultKey) {
+          return null;
+        }
+        const forcedToken =
+          currentToken && !vaultKey ? currentToken : await resolveToken(true);
+        return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
           userId: user.uid,
           vaultOwnerToken: forcedToken,
           pickSource: activePickSource,
@@ -573,7 +618,7 @@ function useKaiMarketHomeController() {
         });
       }
 
-      const cachedOrDevice = await KaiMarketHomeResourceService.getStaleFirst({
+      const cachedOrDevice = await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
         userId: user.uid,
         vaultOwnerToken: currentToken,
         pickSource: activePickSource,
@@ -586,7 +631,7 @@ function useKaiMarketHomeController() {
         return cachedOrDevice;
       }
       if (currentToken) {
-        return await KaiMarketHomeResourceService.getStaleFirst({
+        return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
           userId: user.uid,
           vaultOwnerToken: currentToken,
           pickSource: activePickSource,
@@ -597,8 +642,11 @@ function useKaiMarketHomeController() {
         });
       }
 
+      if (!vaultKey) {
+        return null;
+      }
       const token = await resolveToken(false);
-      return await KaiMarketHomeResourceService.getStaleFirst({
+      return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
         userId: user.uid,
         vaultOwnerToken: token,
         pickSource: activePickSource,
@@ -609,7 +657,9 @@ function useKaiMarketHomeController() {
       });
     },
   });
-  const payload = resource.data;
+  const baselinePayload = baselineResource.data;
+  const personalizedPayload = personalizedResource.data;
+  const payload = personalizedPayload ?? baselinePayload;
 
   useEffect(() => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) {
@@ -619,7 +669,12 @@ function useKaiMarketHomeController() {
     }
 
     let cancelled = false;
-    const hasCachedMarketPayload = Boolean(resource.snapshot?.data || resource.data);
+    const hasCachedMarketPayload = Boolean(
+      baselineResource.snapshot?.data ||
+        baselineResource.data ||
+        personalizedResource.snapshot?.data ||
+        personalizedResource.data
+    );
 
     const enable = () => {
       if (!cancelled) {
@@ -647,10 +702,18 @@ function useKaiMarketHomeController() {
       cancelled = true;
       globalThis.clearTimeout(timeoutId);
     };
-  }, [resource.data, resource.snapshot?.data, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [
+    baselineResource.data,
+    baselineResource.snapshot?.data,
+    personalizedResource.data,
+    personalizedResource.snapshot?.data,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultOwnerToken || !payload) {
+    if (!user?.uid || !vaultOwnerToken || !personalizedPayload) {
       return;
     }
 
@@ -658,7 +721,6 @@ function useKaiMarketHomeController() {
       user.uid,
       activePickSource,
       toSymbolsKey(trackedSymbols),
-      payload.generated_at ?? "no-timestamp",
     ].join(":");
 
     if (backgroundRefreshKeyRef.current === refreshKey) {
@@ -667,7 +729,7 @@ function useKaiMarketHomeController() {
     backgroundRefreshKeyRef.current = refreshKey;
 
     const timeoutId = globalThis.setTimeout(() => {
-      void KaiMarketHomeResourceService.refresh({
+      void KaiMarketHomeResourceService.refreshPersonalized({
         userId: user.uid,
         vaultOwnerToken,
         pickSource: activePickSource,
@@ -679,10 +741,10 @@ function useKaiMarketHomeController() {
     return () => {
       globalThis.clearTimeout(timeoutId);
     };
-  }, [activePickSource, payload, trackedSymbols, user?.uid, vaultOwnerToken]);
+  }, [activePickSource, personalizedPayload, trackedSymbols, user?.uid, vaultOwnerToken]);
 
   useEffect(() => {
-    const nextSource = String(payload?.active_pick_source || "").trim();
+    const nextSource = String(personalizedPayload?.active_pick_source || "").trim();
     const userId = user?.uid;
     if (!userId || !nextSource || serverSeededPickSourceUsersRef.current.has(userId)) return;
     const storedSource = getKaiActivePickSource(userId);
@@ -696,18 +758,21 @@ function useKaiMarketHomeController() {
     }
     serverSeededPickSourceUsersRef.current.add(userId);
     setActivePickSource(nextSource);
-  }, [activePickSource, payload?.active_pick_source, user?.uid]);
+  }, [activePickSource, personalizedPayload?.active_pick_source, user?.uid]);
 
   useEffect(() => {
     setKaiActivePickSource(user?.uid, activePickSource);
   }, [activePickSource, user?.uid]);
 
   useEffect(() => {
-    if (!marketResourceReady) return;
+    if (!user?.uid) return;
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        void resource.refresh();
+        void baselineResource.refresh();
+        if (marketResourceReady) {
+          void personalizedResource.refresh();
+        }
       }
     };
 
@@ -716,19 +781,23 @@ function useKaiMarketHomeController() {
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [marketResourceReady, resource]);
+  }, [baselineResource, marketResourceReady, personalizedResource, user?.uid]);
 
   const loadInsights = useCallback(
     async ({
       forceTokenRefresh = false,
       manual = false,
     }: KaiMarketLoadOptions = {}) => {
-      if (!marketResourceReady) {
+      if (!user?.uid) {
         return;
       }
-      await resource.refresh({ force: Boolean(forceTokenRefresh || manual) });
+      const shouldForce = Boolean(forceTokenRefresh || manual);
+      await baselineResource.refresh({ force: shouldForce });
+      if (marketResourceReady && (vaultOwnerToken || vaultKey)) {
+        await personalizedResource.refresh({ force: shouldForce });
+      }
     },
-    [marketResourceReady, resource]
+    [baselineResource, marketResourceReady, personalizedResource, user?.uid, vaultKey, vaultOwnerToken]
   );
 
   const handlePickSourceChange = useCallback(
@@ -741,9 +810,11 @@ function useKaiMarketHomeController() {
 
   return {
     payload,
-    loading: resource.loading,
-    refreshing: resource.refreshing,
-    error: resource.error,
+    loading: !payload && baselineResource.loading,
+    refreshing: baselineResource.refreshing || personalizedResource.refreshing,
+    error: payload
+      ? personalizedResource.error || baselineResource.error
+      : baselineResource.error || personalizedResource.error,
     activePickSource,
     loadInsights,
     handlePickSourceChange,
@@ -800,8 +871,16 @@ export function KaiMarketPreviewView() {
     () => (Array.isArray(effectivePayload?.signals) ? effectivePayload.signals[0] : undefined),
     [effectivePayload]
   );
+  const scenarioSignals = useMemo(
+    () =>
+      Array.isArray(effectivePayload?.signals)
+        ? effectivePayload.signals.filter((signal) => Boolean(signal?.id)).slice(0, 3)
+        : [],
+    [effectivePayload]
+  );
   const showConnectPortfolio = useMemo(() => {
     if (!hasPayload) return false;
+    if (effectivePayload?.meta?.market_mode !== "personalized") return false;
     const count = Number(effectivePayload?.hero?.holdings_count ?? 0);
     return !Number.isFinite(count) || count <= 0;
   }, [effectivePayload, hasPayload]);
@@ -812,32 +891,6 @@ export function KaiMarketPreviewView() {
       width="wide"
       className="pb-8"
     >
-      <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="Market"
-          title="Explore the market with Kai"
-          description="Structured market context, advisor-style picks, and compact headlines in one calm surface before you even connect a portfolio."
-          icon={LineChart}
-          accent="sky"
-          actions={
-            <Button
-              variant="none"
-              effect="fade"
-              disabled={refreshing}
-              size="sm"
-              onClick={() => void loadInsights({ manual: true })}
-            >
-              {refreshing ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Refresh
-            </Button>
-          }
-        />
-      </AppPageHeaderRegion>
-
       <AppPageContentRegion>
         <SurfaceStack>
       {loading && !hasPayload ? (
@@ -875,38 +928,6 @@ export function KaiMarketPreviewView() {
         <>
           <section className="space-y-4">
             <SectionHeader
-              eyebrow="Spotlight"
-              title="Today’s spotlight"
-              description="High-value names that deserve a quick read before you scan the rest of the tape."
-              icon={Target}
-              accent="amber"
-            />
-            {spotlightRows.length > 0 ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {spotlightRows.map((row) => (
-                  <SpotlightCard
-                    key={row.symbol}
-                    title={String(row.company_name || row.symbol || "Unknown")}
-                    price={formatSpotlightPrice(row.price)}
-                    decision={toSpotlightDecision(row.recommendation)}
-                    confidenceLabel={spotlightConfidenceLabel(row)}
-                    summary={summarizeSpotlight(row)}
-                    context={spotlightContextLabel(row)}
-                    contextHref={toSafeHttpUrl(row.headline_url)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <SurfaceCard tone="warning">
-                <SurfaceCardContent className="text-sm text-muted-foreground">
-                  No spotlight insights are available right now.
-                </SurfaceCardContent>
-              </SurfaceCard>
-            )}
-          </section>
-
-          <section className="space-y-4">
-            <SectionHeader
               eyebrow="Pulse"
               title="Market overview"
               description="A denser read of the current tape with stronger status cues and less filler."
@@ -941,28 +962,85 @@ export function KaiMarketPreviewView() {
 
           <section className="space-y-4">
             <SectionHeader
-              eyebrow="Signal"
-              title="Scenario simulation"
-              description="One compact scenario worth keeping in mind while the market context is still warm."
+              eyebrow="Market read"
+              title="Signals worth noting"
+              description="A tighter read of what the current tape is implying before you move into deeper analysis."
               icon={Activity}
               accent="violet"
             />
             {scenarioSignal ? (
               <SurfaceCard accent="violet">
-                <SurfaceCardContent className="space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="text-sm font-semibold tracking-tight text-foreground">
-                      {scenarioSignal.title}
-                    </p>
-                    <span className="rounded-full bg-violet-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
-                      {Number.isFinite(scenarioSignal.confidence)
-                        ? `${(scenarioSignal.confidence * 100).toFixed(0)}% confidence`
-                        : "Signal"}
-                    </span>
+                <SurfaceCardContent className="space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-base font-semibold tracking-tight text-foreground">
+                        {scenarioSignal.title}
+                      </p>
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        {scenarioSignal.summary}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                          signalConfidenceTone(scenarioSignal)
+                        )}
+                      >
+                        {signalConfidenceLabel(scenarioSignal)}
+                      </span>
+                      {scenarioSignal.degraded ? (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                        >
+                          Partial feed
+                        </Badge>
+                      ) : null}
+                    </div>
                   </div>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    {scenarioSignal.summary}
-                  </p>
+
+                  {scenarioSignal.source_tags?.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {scenarioSignal.source_tags.slice(0, 3).map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant="outline"
+                          className="border-border/70 bg-background/80 text-[10px] font-medium text-muted-foreground"
+                        >
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {scenarioSignals.length > 1 ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {scenarioSignals.slice(1).map((signal) => (
+                        <div
+                          key={signal.id}
+                          className="rounded-2xl border border-border/70 bg-background/72 px-3 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-semibold tracking-tight text-foreground">
+                              {signal.title}
+                            </p>
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                                signalConfidenceTone(signal)
+                              )}
+                            >
+                              {signalConfidenceLabel(signal)}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                            {signal.summary}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </SurfaceCardContent>
               </SurfaceCard>
             ) : (
@@ -989,12 +1067,47 @@ export function KaiMarketPreviewView() {
 
           <section className="space-y-4">
             <SectionHeader
-              eyebrow="Headlines"
-              title="News"
-              description="A vertical news read that stays mobile-friendly without sideways scrolling."
-              icon={Newspaper}
+              eyebrow="Explore the market with Kai"
+              title="What matters now"
+              description="News and spotlight names grouped together so the freshest market context stays in one place."
+              icon={Target}
               accent="rose"
+              actions={
+                <Button
+                  variant="none"
+                  effect="fade"
+                  disabled={refreshing}
+                  size="sm"
+                  onClick={() => void loadInsights({ manual: true })}
+                >
+                  {refreshing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Refresh
+                </Button>
+              }
             />
+            {spotlightRows.length > 0 ? (
+              <div className="grid gap-3 lg:grid-cols-2">
+                {spotlightRows.map((row) => (
+                  <SpotlightCard
+                    key={row.symbol}
+                    symbol={row.symbol}
+                    companyName={row.company_name}
+                    title={String(row.company_name || row.symbol || "Unknown")}
+                    price={formatSpotlightPrice(row.price)}
+                    decision={toSpotlightDecision(row.recommendation)}
+                    confidenceLabel={spotlightConfidenceLabel(row)}
+                    summary={summarizeSpotlight(row)}
+                    context={spotlightContextLabel(row)}
+                    contextHref={toSafeHttpUrl(row.headline_url)}
+                    fallbackHref={`/kai/analysis?symbol=${encodeURIComponent(row.symbol)}`}
+                  />
+                ))}
+              </div>
+            ) : null}
             <NewsTape rows={effectivePayload?.news_tape || []} />
           </section>
 

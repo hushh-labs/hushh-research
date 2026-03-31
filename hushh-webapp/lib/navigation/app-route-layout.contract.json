@@ -40,7 +40,7 @@
     "mode": "standard",
     "shellVerification": {
       "file": "components/kai/views/kai-market-preview-view.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+      "includes": ["AppPageShell", "AppPageContentRegion", "SurfaceStack", "SectionHeader"]
     }
   },
   {

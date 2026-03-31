@@ -28,6 +28,11 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
+import {
+  humanizeConsentScope,
+  resolveConsentRequesterLabel,
+  resolveConsentSupportingCopy,
+} from "@/lib/consent/consent-display";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
@@ -116,21 +121,24 @@ function badgeClassName(status?: string | null) {
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
-  if (entry.additional_access_summary) return entry.additional_access_summary;
-  if (entry.scope_description) return entry.scope_description;
-  if (entry.reason) return entry.reason;
-  if (entry.kind === "invite") return "Invitation waiting for investor approval.";
-  return entry.scope || "Consent request";
+  return resolveConsentSupportingCopy({
+    scope: entry.scope,
+    scopeDescription: entry.scope_description,
+    reason: entry.reason,
+    additionalAccessSummary: entry.additional_access_summary,
+    kind: entry.kind,
+    isScopeUpgrade: entry.is_scope_upgrade,
+    existingGrantedScopes: entry.existing_granted_scopes,
+  });
 }
 
 function resolveCounterpartLabel(entry: ConsentCenterEntry) {
-  return (
-    entry.counterpart_label ||
-    entry.counterpart_email ||
-    entry.counterpart_secondary_label ||
-    entry.counterpart_id ||
-    "Requester"
-  );
+  return resolveConsentRequesterLabel({
+    counterpartLabel: entry.counterpart_label,
+    counterpartEmail: entry.counterpart_email,
+    counterpartSecondaryLabel: entry.counterpart_secondary_label,
+    counterpartId: entry.counterpart_id,
+  });
 }
 
 function toPendingConsent(entry: ConsentCenterEntry): PendingConsent {
@@ -237,7 +245,7 @@ function ConsentEntryDetail({
     <div className="space-y-4">
       <SettingsGroup
         embedded
-        title={resolveCounterpartLabel(entry)}
+        title="Request details"
         description={entrySummary(entry)}
       >
         <SettingsRow
@@ -254,7 +262,7 @@ function ConsentEntryDetail({
         />
         <SettingsRow
           title="Scope"
-          description={entry.scope_description || entry.scope || "Not provided"}
+          description={entry.scope ? humanizeConsentScope(entry.scope) : "Not provided"}
         />
         <SettingsRow
           title="Requested at"
@@ -621,7 +629,7 @@ export function ConsentCenterPage() {
         title={selectedEntry ? resolveCounterpartLabel(selectedEntry) : "Consent details"}
         description={
           selectedEntry
-            ? entrySummary(selectedEntry)
+            ? `${formatStatus(selectedEntry.status)} request`
             : "Choose a consent entry from the list to review details and next actions."
         }
       >

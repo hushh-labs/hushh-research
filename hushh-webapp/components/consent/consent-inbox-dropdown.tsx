@@ -25,6 +25,7 @@ import {
   buildConsentCenterHref,
   buildRiaConsentManagerHref,
 } from "@/lib/consent/consent-sheet-route";
+import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
@@ -47,13 +48,12 @@ function entrySummary(entry: ConsentCenterEntry) {
 }
 
 function entryLabel(entry: ConsentCenterEntry) {
-  return (
-    entry.counterpart_label ||
-    entry.counterpart_email ||
-    entry.counterpart_secondary_label ||
-    entry.counterpart_id ||
-    "Requester"
-  );
+  return resolveConsentRequesterLabel({
+    counterpartLabel: entry.counterpart_label,
+    counterpartEmail: entry.counterpart_email,
+    counterpartSecondaryLabel: entry.counterpart_secondary_label,
+    counterpartId: entry.counterpart_id,
+  });
 }
 
 function formatRelative(value?: string | number | null) {

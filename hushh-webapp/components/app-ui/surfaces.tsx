@@ -47,7 +47,10 @@ export const SurfaceCardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardHeader
     ref={ref}
-    className={cn("px-4 pb-2 pt-4 sm:px-5 sm:pb-2.5 sm:pt-5", className)}
+    className={cn(
+      "px-[var(--surface-card-header-px)] pb-[var(--surface-card-header-pb)] pt-[var(--surface-card-header-pt)]",
+      className
+    )}
     {...props}
   />
 ));
@@ -86,7 +89,10 @@ export const SurfaceCardContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardContent
     ref={ref}
-    className={cn("px-4 pb-4 pt-0 sm:px-5 sm:pb-5", className)}
+    className={cn(
+      "px-[var(--surface-card-content-px)] pb-[var(--surface-card-content-pb)] pt-0",
+      className
+    )}
     {...props}
   />
 ));
@@ -100,7 +106,7 @@ export function SurfaceInset({
   return (
     <div
       className={cn(
-        "rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+        "rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-[var(--surface-inset-p)] shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
         className
       )}
       {...props}

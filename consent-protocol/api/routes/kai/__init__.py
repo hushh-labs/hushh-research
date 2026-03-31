@@ -68,6 +68,7 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/dashboard/profile-picks/{user_id}",
     "/portfolio/analyze-losers",
     "/portfolio/analyze-losers/stream",
+    "/market/insights/baseline/{user_id}",
     "/market/insights/{user_id}",
     "/stock-preview/{user_id}",
 ]

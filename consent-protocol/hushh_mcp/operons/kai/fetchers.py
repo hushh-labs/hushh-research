@@ -655,20 +655,21 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
 async def fetch_market_data_batch(
     tickers: List[str],
     user_id: UserID,
-    consent_token: str,
+    consent_token: str | None = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Fetch a batch of market quotes using one public Yahoo request before per-symbol fallbacks."""
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope("agent.kai.analyze"),
-    )
+    if consent_token:
+        valid, reason, token = validate_token(
+            consent_token,
+            ConsentScope("agent.kai.analyze"),
+        )
 
-    if not valid:
-        logger.error(f"[Market Data Batch Fetcher] TrustLink validation failed: {reason}")
-        raise PermissionError(f"Market data access denied: {reason}")
+        if not valid:
+            logger.error(f"[Market Data Batch Fetcher] TrustLink validation failed: {reason}")
+            raise PermissionError(f"Market data access denied: {reason}")
 
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
+        if token.user_id != user_id:
+            raise PermissionError("Token user mismatch")
 
     normalized_symbols = list(
         dict.fromkeys(
@@ -698,10 +699,22 @@ async def fetch_market_data_batch(
     if not missing:
         return cached
 
+    if _provider_in_cooldown("yahoo_quote_fast:global"):
+        _emit_realtime_telemetry(
+            "market_data_batch_skipped_cooldown",
+            ticker_count=len(missing),
+        )
+        return cached
+
     started_at = time.perf_counter()
     try:
         batch_rows = await _fetch_yahoo_quotes(missing)
     except Exception as exc:
+        if isinstance(exc, httpx.HTTPStatusError):
+            _mark_provider_cooldown(
+                "yahoo_quote_fast:global",
+                exc.response.status_code if exc.response is not None else None,
+            )
         _emit_realtime_telemetry(
             "market_data_batch_failure",
             ticker_count=len(missing),
@@ -1038,7 +1051,7 @@ async def fetch_sec_filings(
 async def fetch_market_news(
     ticker: str,
     user_id: UserID,
-    consent_token: str,
+    consent_token: str | None = None,
     days_back: int = 7,
 ) -> List[Dict[str, Any]]:
     """
@@ -1069,18 +1082,19 @@ async def fetch_market_news(
     Raises:
         PermissionError: If TrustLink validation fails
     """
-    # Validate TrustLink
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope("agent.kai.analyze"),  # Changed from external.news.api
-    )
+    if consent_token:
+        # Validate TrustLink
+        valid, reason, token = validate_token(
+            consent_token,
+            ConsentScope("agent.kai.analyze"),  # Changed from external.news.api
+        )
 
-    if not valid:
-        logger.error(f"[News Fetcher] TrustLink validation failed: {reason}")
-        raise PermissionError(f"News data access denied: {reason}")
+        if not valid:
+            logger.error(f"[News Fetcher] TrustLink validation failed: {reason}")
+            raise PermissionError(f"News data access denied: {reason}")
 
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
+        if token.user_id != user_id:
+            raise PermissionError("Token user mismatch")
 
     logger.info(f"[News Fetcher] Fetching news for {ticker} - user {user_id}")
 
@@ -1173,7 +1187,7 @@ async def fetch_market_news(
 async def fetch_market_data(
     ticker: str,
     user_id: UserID,
-    consent_token: str,
+    consent_token: str | None = None,
     *,
     allow_slow_fallbacks: bool = True,
 ) -> Dict[str, Any]:
@@ -1206,22 +1220,24 @@ async def fetch_market_data(
     Raises:
         PermissionError: If TrustLink validation fails
     """
-    # Validate TrustLink
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope("agent.kai.analyze"),  # Changed from external.market.data
-    )
+    if consent_token:
+        # Validate TrustLink
+        valid, reason, token = validate_token(
+            consent_token,
+            ConsentScope("agent.kai.analyze"),  # Changed from external.market.data
+        )
 
-    if not valid:
-        logger.error(f"[Market Data Fetcher] TrustLink validation failed: {reason}")
-        raise PermissionError(f"Market data access denied: {reason}")
+        if not valid:
+            logger.error(f"[Market Data Fetcher] TrustLink validation failed: {reason}")
+            raise PermissionError(f"Market data access denied: {reason}")
 
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
+        if token.user_id != user_id:
+            raise PermissionError("Token user mismatch")
 
     symbol = ticker.upper().strip()
     finnhub_enabled = bool(_finnhub_api_key())
     pmp_enabled = bool(_pmp_api_key())
+    require_yfinance_rescue = not finnhub_enabled and not pmp_enabled
     cache_key = _market_data_cache_key(
         symbol, finnhub_enabled=finnhub_enabled, pmp_enabled=pmp_enabled
     )
@@ -1261,7 +1277,7 @@ async def fetch_market_data(
             providers.append(("finnhub", _fetch_finnhub_quote))
         if pmp_enabled:
             providers.append(("pmp", _fetch_pmp_quote))
-        if allow_slow_fallbacks:
+        if allow_slow_fallbacks or require_yfinance_rescue:
             providers.append(("yfinance", _fetch_yfinance_quote))
         providers.append(("yahoo_quote_fast", _fetch_yahoo_quote_fast))
 

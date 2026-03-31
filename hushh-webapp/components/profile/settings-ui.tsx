@@ -176,9 +176,9 @@ export function SettingsGroup({
   );
 
   return (
-    <section className={cn("space-y-2", className)}>
+    <section className={cn("space-y-[var(--settings-group-stack-gap)]", className)}>
       {eyebrow || title || description ? (
-        <div className="space-y-1 px-0.5 sm:px-1">
+        <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow ? (
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
               {eyebrow}
@@ -247,7 +247,7 @@ export function SettingsRow({
   const mainContent = (
     <div
       className={cn(
-        "relative z-0 flex min-w-0 gap-2.5 sm:gap-3",
+        "relative z-0 flex min-w-0 gap-[var(--settings-row-gap)]",
         shouldStackTrailing ? "items-start sm:items-center" : "items-center"
       )}
     >
@@ -281,12 +281,12 @@ export function SettingsRow({
     </div>
   );
   const trailingContent = trailing || chevron ? (
-    <div
-      className={cn(
-        "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2",
-        shouldStackTrailing &&
-          "w-full justify-start pl-[2.65rem] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
-      )}
+      <div
+        className={cn(
+          "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
+          shouldStackTrailing &&
+            "w-full justify-start pl-[2.65rem] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
+        )}
     >
       {trailing}
       {chevron ? (
@@ -301,15 +301,15 @@ export function SettingsRow({
   ) : null;
 
   const sharedClassName = cn(
-    "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] sm:px-4 sm:py-4",
+    "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
     shouldStackTrailing
-      ? "grid-cols-1 gap-y-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3 sm:gap-y-0"
-      : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3",
+      ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
+      : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
     isInteractive &&
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
   );
   const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-3 py-3.5 text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 sm:px-4 sm:py-4"
+    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
   );
   const asChildContent =
     resolvedAsChild
@@ -323,7 +323,7 @@ export function SettingsRow({
           aria-hidden
           className={cn(
             "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-            "group-hover/settings-row:bg-muted/36 group-active/settings-row:bg-muted/48"
+            "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]"
           )}
         />
         <div
@@ -351,8 +351,8 @@ export function SettingsRow({
           {trailingContent ? (
             <div
               className={cn(
-                "px-3 py-3.5 sm:px-4 sm:py-4",
-                shouldStackTrailing && "pt-0 sm:pt-4"
+                "px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
+                shouldStackTrailing && "pt-0 sm:pt-[var(--settings-row-py)]"
               )}
             >
               {trailingContent}
@@ -371,7 +371,7 @@ export function SettingsRow({
             aria-hidden
             className={cn(
               "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-              "group-hover/settings-row:bg-muted/36 group-active/settings-row:bg-muted/48"
+              "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]"
             )}
           />
         ) : null}
@@ -392,7 +392,7 @@ export function SettingsRow({
           aria-hidden
           className={cn(
             "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-            "group-hover/settings-row:bg-muted/36 group-active/settings-row:bg-muted/48"
+            "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]"
           )}
         />
       ) : null}

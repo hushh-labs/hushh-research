@@ -119,6 +119,18 @@ else:
 PY
 }
 
+is_placeholder_value() {
+  local value="${1:-}"
+  case "$value" in
+    ""|replace_with_*|REPLACE_WITH_*|dummy-*|changeme|CHANGEME|*replace_with_*|*REPLACE_WITH_*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 normalize_env_json_values() {
   local file="$1"
   [ -f "$file" ] || return 0
@@ -181,8 +193,129 @@ path.write_text("\n".join(out) + "\n", encoding="utf-8")
 PY
 }
 
+gcp_project_for_profile() {
+  case "$1" in
+    local-uatdb|uat-remote)
+      printf 'hushh-pda-uat'
+      ;;
+    prod-remote)
+      printf 'hushh-pda'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+legacy_frontend_sources_for_profile() {
+  case "$1" in
+    local-uatdb)
+      printf '%s\n%s\n' \
+        "$REPO_ROOT/hushh-webapp/.env.uat.local" \
+        "$REPO_ROOT/hushh-webapp/.env.dev.local"
+      ;;
+    uat-remote)
+      printf '%s\n%s\n' \
+        "$REPO_ROOT/hushh-webapp/.env.uat.local" \
+        "$REPO_ROOT/hushh-webapp/.env.dev.local"
+      ;;
+    prod-remote)
+      printf '%s\n' "$REPO_ROOT/hushh-webapp/.env.prod.local"
+      ;;
+  esac
+}
+
+resolve_frontend_secret_value() {
+  local profile="$1"
+  local key="$2"
+  local value=""
+  local project=""
+  project="$(gcp_project_for_profile "$profile" || true)"
+
+  if command -v gcloud >/dev/null 2>&1 && [ -n "$project" ]; then
+    value="$(gcloud secrets versions access latest --secret="$key" --project="$project" 2>/dev/null || true)"
+    value="${value%$'\n'}"
+    value="${value%$'\r'}"
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
+  fi
+
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  while IFS= read -r legacy_file; do
+    [ -n "$legacy_file" ] || continue
+    [ -f "$legacy_file" ] || continue
+    value="$(read_env_value "$legacy_file" "$key")"
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
+    if [ -n "$value" ]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  done < <(legacy_frontend_sources_for_profile "$profile")
+
+  return 1
+}
+
+repair_frontend_profile_if_needed() {
+  local file="$1"
+  local profile="$2"
+  local key value needs_repair=false
+  local -a keys=(
+    NEXT_PUBLIC_FIREBASE_API_KEY
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    NEXT_PUBLIC_FIREBASE_APP_ID
+    NEXT_PUBLIC_AUTH_FIREBASE_API_KEY
+    NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN
+    NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID
+    NEXT_PUBLIC_AUTH_FIREBASE_APP_ID
+  )
+
+  for key in "${keys[@]}"; do
+    value="$(read_env_value "$file" "$key")"
+    if is_placeholder_value "$value"; then
+      needs_repair=true
+      break
+    fi
+  done
+
+  if [ "$needs_repair" != "true" ]; then
+    return 0
+  fi
+
+  echo "Repairing placeholder Firebase config in ${file#$REPO_ROOT/} for profile ${profile}..."
+  for key in "${keys[@]}"; do
+    if value="$(resolve_frontend_secret_value "$profile" "$key")"; then
+      upsert_env_value "$file" "$key" "$value"
+    fi
+  done
+}
+
+require_non_placeholder_value() {
+  local file="$1"
+  local key="$2"
+  local value
+  value="$(read_env_value "$file" "$key")"
+  case "$value" in
+    ""|replace_with_*|REPLACE_WITH_*|dummy-*|changeme|CHANGEME|*replace_with_*|*REPLACE_WITH_*)
+      echo "Invalid runtime profile value for ${key} in ${file#$REPO_ROOT/}. Run scripts/env/bootstrap_profiles.sh to hydrate real values." >&2
+      exit 1
+      ;;
+  esac
+}
+
 SUMMARY_BACKEND_FILE="$BACKEND_SOURCE"
 SUMMARY_FRONTEND_FILE="$FRONTEND_SOURCE"
+
+repair_frontend_profile_if_needed "$FRONTEND_SOURCE" "$PROFILE"
 
 if [ "$DRY_RUN" != "true" ]; then
   cp "$BACKEND_SOURCE" "$BACKEND_TARGET"
@@ -191,6 +324,10 @@ if [ "$DRY_RUN" != "true" ]; then
   upsert_env_value "$FRONTEND_TARGET" "APP_RUNTIME_PROFILE" "$PROFILE"
   normalize_env_json_values "$BACKEND_TARGET"
   normalize_env_json_values "$FRONTEND_TARGET"
+  require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_FIREBASE_API_KEY"
+  require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"
+  require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY"
+  require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN"
   if [ -x "$NATIVE_MATERIALIZER" ]; then
     ACTIVE_ENV_FILE="$FRONTEND_TARGET" PROFILE_ENV_FILE="$FRONTEND_SOURCE" bash "$NATIVE_MATERIALIZER"
   fi

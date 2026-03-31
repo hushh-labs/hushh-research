@@ -200,6 +200,24 @@ const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
   { pattern: /\bWhat is Hushh\b/gi, message: "legacy Hushh branding should be removed from canonical public docs" },
 ];
 
+const REQUIRED_DENSITY_MARKERS = [
+  {
+    file: "docs/reference/quality/app-surface-design-system.md",
+    patterns: [
+      "default to `compact` density",
+      "direct page-number navigation",
+      "single-page list views must not render pagination chrome",
+    ],
+  },
+  {
+    file: "docs/reference/quality/profile-settings-design-system.md",
+    patterns: [
+      "inherit the app-wide compact density contract by default",
+      "shared compact density variables",
+    ],
+  },
+];
+
 const VISUAL_TIER_A_EXTRA = new Set([
   "docs/project_context_map.md",
   "docs/reference/architecture/architecture.md",
@@ -566,6 +584,29 @@ function verifyRequiredOperationalMarkers() {
   }
 }
 
+function verifyRequiredDensityMarkers() {
+  const offenders = [];
+
+  for (const rule of REQUIRED_DENSITY_MARKERS) {
+    if (!exists(rule.file)) {
+      offenders.push(`${rule.file}: file missing`);
+      continue;
+    }
+    const src = read(rule.file);
+    for (const marker of rule.patterns) {
+      if (!src.includes(marker)) {
+        offenders.push(`${rule.file}: missing marker "${marker}"`);
+      }
+    }
+  }
+
+  if (offenders.length) {
+    fail(`Required density contract markers missing:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
+  } else {
+    ok("Quality docs include the compact-density contract markers");
+  }
+}
+
 function verifyRequiredDocIndexes() {
   const missing = [...REQUIRED_DOMAIN_INDEXES, ...REQUIRED_SOURCE_TREE_INDEXES].filter(
     (file) => !exists(file)
@@ -715,6 +756,7 @@ function main() {
   verifyPublicDocContract();
   verifyCanonicalRouteContract(operationalDocs);
   verifyRequiredOperationalMarkers();
+  verifyRequiredDensityMarkers();
   verifyNoGeneratedArtifacts();
 
   if (process.exitCode) {

@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, TrendingDown, TrendingUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import {
   Select,
   SelectContent,
@@ -17,9 +20,16 @@ import {
   SettingsDetailPanel,
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
-import { Button } from "@/lib/morphy-ux/button";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import type {
   KaiHomePickSource,
   KaiHomeRenaissanceItem,
@@ -27,14 +37,13 @@ import type {
 import { cn } from "@/lib/utils";
 
 const ALL_FILTER = "all";
-const DEFAULT_PICKS_PAGE_SIZE = 10;
-const PICKS_PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
+const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
+const PICKS_SWIPE_THRESHOLD_PX = 44;
 
-function parsePageSize(value: string): number {
+function parsePageSize(value: string, options: readonly number[], fallback: number): number {
   const parsed = Number(value);
-  return PICKS_PAGE_SIZE_OPTIONS.includes(parsed as (typeof PICKS_PAGE_SIZE_OPTIONS)[number])
-    ? parsed
-    : DEFAULT_PICKS_PAGE_SIZE;
+  return options.includes(parsed) ? parsed : fallback;
 }
 
 function formatCurrency(value: number | null | undefined): string {
@@ -117,17 +126,10 @@ function pickSourceSummary(source: KaiHomePickSource | null): string {
   return "Using the app-wide default list until advisor picks are linked.";
 }
 
-function renderSymbolMonogram(symbol: string) {
-  return (
-    <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-emerald-500/18 bg-emerald-500/10 text-[12px] font-black tracking-wide text-emerald-700 shadow-sm dark:text-emerald-300">
-      {symbol.slice(0, 4)}
-    </span>
-  );
-}
-
 function rowSearchText(row: KaiHomeRenaissanceItem): string {
   return [
     row.symbol,
+    row.quote_symbol,
     row.company_name,
     row.sector,
     row.tier,
@@ -150,12 +152,27 @@ export function RiaPicksList({
   activeSourceId?: string;
   onSourceChange?: (sourceId: string) => void;
 }) {
+  const isMobile = useIsMobile();
+  const pageSizeOptions: readonly number[] = isMobile
+    ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
+    : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
+  const defaultPageSize = pageSizeOptions[0] ?? 6;
   const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(null);
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
-  const [pageSize, setPageSize] = useState(DEFAULT_PICKS_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
   const [page, setPage] = useState(1);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    setPageSize((current) => {
+      if (pageSizeOptions.includes(current)) {
+        return current;
+      }
+      return defaultPageSize;
+    });
+  }, [defaultPageSize, pageSizeOptions]);
 
   const availableSources = useMemo<KaiHomePickSource[]>(
     () =>
@@ -218,15 +235,52 @@ export function RiaPicksList({
   }, [filteredRows, page, pageSize]);
 
   const pageNumbers = useMemo(() => {
-    if (totalPages <= 5) {
+    if (totalPages <= 7) {
       return Array.from({ length: totalPages }, (_, index) => index + 1);
     }
-    const start = Math.max(1, Math.min(page - 2, totalPages - 4));
-    return Array.from({ length: 5 }, (_, index) => start + index);
+
+    if (page <= 4) {
+      return [1, 2, 3, 4, 5, "ellipsis-end", totalPages] as const;
+    }
+
+    if (page >= totalPages - 3) {
+      return [1, "ellipsis-start", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages] as const;
+    }
+
+    return [1, "ellipsis-start", page - 1, page, page + 1, "ellipsis-end", totalPages] as const;
   }, [page, totalPages]);
 
   const visibleStart = filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const visibleEnd = Math.min(page * pageSize, filteredRows.length);
+
+  const goToPage = (nextPage: number) => {
+    setPage(Math.max(1, Math.min(totalPages, nextPage)));
+  };
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.changedTouches[0];
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!touch || !start || totalPages <= 1) return;
+
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.abs(deltaX) < PICKS_SWIPE_THRESHOLD_PX) return;
+    if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
+
+    if (deltaX < 0) {
+      goToPage(page + 1);
+      return;
+    }
+
+    goToPage(page - 1);
+  };
 
   if (!rows.length) {
     return (
@@ -241,35 +295,37 @@ export function RiaPicksList({
   return (
     <div className="space-y-4">
       <SettingsGroup>
-        <div className="space-y-3 px-3 py-3 sm:px-4">
-          {availableSources.length > 1 ? (
-            <SettingsSegmentedTabs
-              value={activeSource?.id || "default"}
-              onValueChange={(nextValue) => {
-                if (!onSourceChange || nextValue === activeSource?.id) return;
-                onSourceChange(nextValue);
-              }}
-              options={availableSources.map((source) => ({
-                value: source.id,
-                label: source.label,
-              }))}
-            />
-          ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "border font-medium",
-                  displaySource ? sourceStateTone(displaySource) : undefined
-                )}
+        <div className="space-y-3 px-4 py-3 sm:px-4">
+          <SettingsRow
+            title="List source"
+            description={pickSourceSummary(displaySource)}
+            stackTrailingOnMobile
+            trailing={
+              <Select
+                value={activeSource?.id || "default"}
+                onValueChange={(nextValue) => {
+                  if (!onSourceChange || nextValue === activeSource?.id) return;
+                  onSourceChange(nextValue);
+                }}
               >
-                {displaySource?.label || "Default list"}
-              </Badge>
-              <p className="text-xs leading-5 text-muted-foreground">
-                {pickSourceSummary(displaySource)}
-              </p>
-            </div>
-          )}
+                <SelectTrigger
+                  className={cn(
+                    "h-10 min-w-[176px] max-w-[240px] rounded-full border-border/80 bg-background/80 text-left",
+                    displaySource ? sourceStateTone(displaySource) : undefined
+                  )}
+                >
+                  <SelectValue placeholder="Default list" />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {availableSources.map((source) => (
+                    <SelectItem key={source.id} value={source.id}>
+                      {source.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            }
+          />
 
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1.35fr)_180px_180px]">
             <div className="relative">
@@ -318,15 +374,15 @@ export function RiaPicksList({
               <Select
                 value={String(pageSize)}
                 onValueChange={(value) => {
-                  setPageSize(parsePageSize(value));
+                  setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
                   setPage(1);
                 }}
               >
                 <SelectTrigger className="h-8 min-w-[112px] rounded-full border-border/70 bg-background/78 text-xs">
-                  <SelectValue placeholder="10 per page" />
+                  <SelectValue placeholder={`${defaultPageSize} per page`} />
                 </SelectTrigger>
                 <SelectContent>
-                  {PICKS_PAGE_SIZE_OPTIONS.map((option) => (
+                  {pageSizeOptions.map((option) => (
                     <SelectItem key={option} value={String(option)}>
                       {option} per page
                     </SelectItem>
@@ -358,58 +414,81 @@ export function RiaPicksList({
             No picks match the current filters.
           </div>
         ) : (
-          currentPageRows.map((row) => {
-            const changePct =
-              typeof row.change_pct === "number" && Number.isFinite(row.change_pct)
-                ? row.change_pct
-                : null;
-            const metadataLine = [
-              row.symbol,
-              row.sector,
-              formatBias(row.recommendation_bias),
-              typeof row.fcf_billions === "number" && Number.isFinite(row.fcf_billions)
-                ? formatFcf(row.fcf_billions)
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" • ");
+          <div
+            className="touch-pan-y"
+            data-no-route-swipe
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
+            {currentPageRows.map((row) => {
+              const changePct =
+                typeof row.change_pct === "number" && Number.isFinite(row.change_pct)
+                  ? row.change_pct
+                  : null;
+              const metadataLine = [
+                row.symbol,
+                row.sector,
+                formatBias(row.recommendation_bias),
+                typeof row.fcf_billions === "number" && Number.isFinite(row.fcf_billions)
+                  ? formatFcf(row.fcf_billions)
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" • ");
 
-            return (
-              <SettingsRow
-                key={`${row.symbol}-${row.tier || "tierless"}`}
-                leading={renderSymbolMonogram(String(row.symbol || "—"))}
-                title={
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-sm font-semibold tracking-tight text-foreground sm:text-[15px]">
-                      {row.company_name || row.symbol}
-                    </span>
-                    <Badge
-                      variant="secondary"
-                      className={cn("border-0 text-[10px] font-semibold", tierTone(row.tier))}
-                    >
-                      {row.tier || "CORE"}
-                    </Badge>
-                    {row.degraded ? (
-                      <Badge
-                        variant="outline"
-                        className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
-                      >
-                        Delayed
-                      </Badge>
-                    ) : null}
+              return (
+                <button
+                  key={`${row.symbol}-${row.tier || "tierless"}`}
+                  type="button"
+                  data-no-route-swipe
+                  onClick={() => setSelectedRow(row)}
+                  className="group relative isolate flex w-full items-center gap-3 overflow-hidden border-t border-border/55 px-4 py-2.5 text-left transition-colors hover:bg-foreground/[0.04] active:bg-foreground/[0.06] first:border-t-0"
+                >
+                  <div className="shrink-0">
+                    <SymbolAvatar
+                      symbol={String(row.quote_symbol || row.symbol || "—")}
+                      name={row.company_name}
+                      size="md"
+                    />
                   </div>
-                }
-                description={
-                  <>
-                    <p>{metadataLine || "Metadata is still syncing for this name."}</p>
-                    <p className="mt-1 line-clamp-1">
-                      {row.investment_thesis ||
-                        "Renaissance thesis is unavailable for this name right now."}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+                        {row.symbol || "—"}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        className={cn("border-0 px-2 py-0.5 text-[10px] font-semibold", tierTone(row.tier))}
+                      >
+                        {row.tier || "CORE"}
+                      </Badge>
+                      {row.alias_repaired ? (
+                        <Badge
+                          variant="outline"
+                          className="border-sky-500/16 bg-sky-500/8 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300"
+                        >
+                          Repaired
+                        </Badge>
+                      ) : null}
+                      {row.degraded ? (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/16 bg-amber-500/8 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                        >
+                          Delayed
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                      <p className="truncate text-xs font-medium text-foreground/85">
+                        {row.company_name || row.symbol}
+                      </p>
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] leading-5 text-muted-foreground">
+                      {metadataLine || "Metadata is still syncing for this name."}
                     </p>
-                  </>
-                }
-                trailing={
-                  <div className="text-right">
+                  </div>
+                  <div className="shrink-0 text-right">
                     <p className="text-sm font-semibold tracking-tight text-foreground">
                       {formatCurrency(row.price)}
                     </p>
@@ -430,55 +509,77 @@ export function RiaPicksList({
                         : `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
                     </p>
                   </div>
-                }
-                chevron
-                onClick={() => setSelectedRow(row)}
-              />
-            );
-          })
+                  <MaterialRipple variant="none" effect="fade" className="z-10" />
+                </button>
+              );
+            })}
+          </div>
         )}
 
         {filteredRows.length > pageSize ? (
-          <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-            <p className="text-xs leading-5 text-muted-foreground">
-              Page {page} of {totalPages}
-            </p>
-            <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                disabled={page === 1}
-              >
-                Previous
-              </Button>
-              {pageNumbers.map((pageNumber) => (
-                <Button
-                  key={pageNumber}
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  className={
-                    pageNumber === page
-                      ? "bg-foreground text-background hover:bg-foreground/92 dark:bg-foreground dark:text-background"
-                      : undefined
-                  }
-                  onClick={() => setPage(pageNumber)}
-                >
-                  {pageNumber}
-                </Button>
-              ))}
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                disabled={page === totalPages}
-              >
-                Next
-              </Button>
+          <div
+            className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
+            data-no-route-swipe
+          >
+            <div className="space-y-1">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Page {page} of {totalPages}
+              </p>
+              {totalPages > 1 ? (
+                <p className="text-[11px] leading-5 text-muted-foreground">
+                  Swipe left or right anywhere in this list to move between pages.
+                </p>
+              ) : null}
             </div>
+            <Pagination className="mx-0 w-full sm:w-auto sm:justify-end">
+              <PaginationContent className="flex-wrap justify-start sm:justify-end">
+                <PaginationItem>
+                  <PaginationPrevious
+                    href="#"
+                    className={cn(page === 1 && "pointer-events-none opacity-50")}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      goToPage(page - 1);
+                    }}
+                  />
+                </PaginationItem>
+                {pageNumbers.map((pageNumber) => {
+                  if (typeof pageNumber !== "number") {
+                    return (
+                      <PaginationItem key={pageNumber}>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    );
+                  }
+
+                  return (
+                    <PaginationItem key={pageNumber}>
+                      <PaginationLink
+                        href="#"
+                        isActive={pageNumber === page}
+                        size="icon"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          goToPage(pageNumber);
+                        }}
+                      >
+                        {pageNumber}
+                      </PaginationLink>
+                    </PaginationItem>
+                  );
+                })}
+                <PaginationItem>
+                  <PaginationNext
+                    href="#"
+                    className={cn(page === totalPages && "pointer-events-none opacity-50")}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      goToPage(page + 1);
+                    }}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </div>
         ) : null}
       </SettingsGroup>
@@ -498,7 +599,11 @@ export function RiaPicksList({
         {selectedRow ? (
           <div className="space-y-4">
             <SurfaceInset className="flex items-start gap-3 p-4">
-              {renderSymbolMonogram(String(selectedRow.symbol || "—"))}
+              <SymbolAvatar
+                symbol={String(selectedRow.quote_symbol || selectedRow.symbol || "—")}
+                name={selectedRow.company_name}
+                size="lg"
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-lg font-semibold tracking-tight text-foreground">
@@ -516,6 +621,14 @@ export function RiaPicksList({
                       className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
                     >
                       Delayed
+                    </Badge>
+                  ) : null}
+                  {selectedRow.alias_repaired ? (
+                    <Badge
+                      variant="outline"
+                      className="border-sky-500/16 bg-sky-500/8 text-[10px] font-semibold text-sky-700 dark:text-sky-300"
+                    >
+                      Symbol repaired
                     </Badge>
                   ) : null}
                 </div>
@@ -573,7 +686,11 @@ export function RiaPicksList({
                     ? "This row is using delayed or incomplete quote context."
                     : "Quote context is current for the latest market snapshot."
                 }
-                trailing={formatAsOf(selectedRow.as_of)}
+                trailing={
+                  selectedRow.quote_status === "unsupported"
+                    ? "Unsupported"
+                    : formatAsOf(selectedRow.as_of)
+                }
               />
             </SettingsGroup>
 

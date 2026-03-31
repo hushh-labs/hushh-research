@@ -303,7 +303,8 @@ gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
 
 All required secrets must exist in Google Cloud Secret Manager before deployment. Run the parity audit script, then create any missing secrets manually.
 
-**Backend (10 secrets):** `SECRET_KEY`, `VAULT_ENCRYPTION_KEY`, `GOOGLE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON`, `FRONTEND_URL`, `DB_USER`, `DB_PASSWORD`, `APP_REVIEW_MODE`, `REVIEWER_UID`
+**Backend (10 baseline secrets):** `SECRET_KEY`, `VAULT_ENCRYPTION_KEY`, `GOOGLE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON`, `FRONTEND_URL`, `DB_USER`, `DB_PASSWORD`, `APP_REVIEW_MODE`, `REVIEWER_UID`
+**Backend market-data secrets when Kai market home is enabled (2):** `FINNHUB_API_KEY`, `PMP_API_KEY`
 **Backend Plaid secrets when brokerage is enabled (3):** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_TOKEN_ENCRYPTION_KEY`
 
 **Note:** 
