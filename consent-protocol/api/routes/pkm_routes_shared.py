@@ -12,7 +12,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ValidationError
@@ -941,6 +941,9 @@ async def get_metadata(
         # Read PKM index metadata.
         index = await pkm_service.get_index_v2(user_id)
         upgrade_status_payload = await upgrade_service.build_status(user_id)
+        upgrade_status_payload = await _maybe_reconcile_upgrade_status(
+            upgrade_service, user_id, upgrade_status_payload
+        )
 
         if index is None:
             encrypted_data = await pkm_service.get_encrypted_data(user_id)
@@ -1261,6 +1264,18 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
     )
 
 
+async def _maybe_reconcile_upgrade_status(
+    upgrade_service: Any, user_id: str, payload: dict
+) -> dict:
+    reconcile = getattr(upgrade_service, "_maybe_reconcile_current_index", None)
+    if not callable(reconcile):
+        return payload
+    reconciled = await reconcile(user_id, payload)
+    if isinstance(reconciled, dict):
+        return reconciled
+    return payload
+
+
 @router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
 async def get_upgrade_status(
     user_id: str,
@@ -1272,7 +1287,9 @@ async def get_upgrade_status(
             detail="Token user_id does not match request user_id",
         )
 
-    payload = await get_pkm_upgrade_service().build_status(user_id)
+    service = get_pkm_upgrade_service()
+    payload = await service.build_status(user_id)
+    payload = await _maybe_reconcile_upgrade_status(service, user_id, payload)
     return _build_upgrade_status_response(payload)
 
 

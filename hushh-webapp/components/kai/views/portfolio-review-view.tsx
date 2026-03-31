@@ -1973,7 +1973,7 @@ export function PortfolioReviewView({
     <div className={cn("relative w-full", className)}>
 
 
-      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 pb-6 transition-all duration-500 ease-in-out md:px-6">
+      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 pb-6 pt-[calc(var(--app-safe-area-top-effective)+0.75rem)] transition-all duration-500 ease-in-out md:px-6 md:pt-6">
 
 
 
