@@ -115,6 +115,67 @@ export interface PlaidPortfolioStatusResponse {
   aggregate: PlaidAggregateStatus;
 }
 
+export interface PlaidFundingTransferRef {
+  transfer_id: string;
+  authorization_id?: string | null;
+  status?: string | null;
+  amount?: string | null;
+  direction?: string | null;
+  funding_account_id?: string | null;
+  brokerage_item_id?: string | null;
+  brokerage_account_id?: string | null;
+  idempotency_key?: string | null;
+  created_at?: string | null;
+}
+
+export interface PlaidFundingAccountSummary extends PlaidAccountSummary {
+  is_selected_funding_account?: boolean;
+}
+
+export interface PlaidFundingItemSummary {
+  item_id: string;
+  institution_id?: string | null;
+  institution_name?: string | null;
+  status: string;
+  sync_status: PortfolioSyncStatus | string;
+  last_synced_at?: string | null;
+  selected_funding_account_id?: string | null;
+  transactions_cursor?: string | null;
+  accounts: PlaidFundingAccountSummary[];
+  transfers: PlaidFundingTransferRef[];
+}
+
+export interface PlaidFundingStatusResponse {
+  configured: boolean;
+  environment?: string;
+  webhook_configured?: boolean;
+  webhook_url?: string | null;
+  user_id: string;
+  items: PlaidFundingItemSummary[];
+  latest_transfers: PlaidFundingTransferRef[];
+  aggregate: {
+    item_count: number;
+    account_count: number;
+    institution_names: string[];
+    last_synced_at?: string | null;
+  };
+}
+
+export interface PlaidTransferPayload {
+  transfer_id?: string | null;
+  authorization_id?: string | null;
+  status?: string | null;
+  type?: string | null;
+  network?: string | null;
+  ach_class?: string | null;
+  description?: string | null;
+  amount?: string | null;
+  iso_currency_code?: string | null;
+  failure_reason?: unknown;
+  created_at?: string | null;
+  raw?: Record<string, unknown>;
+}
+
 export interface NormalizedPortfolioTransaction {
   trade_date?: string;
   date?: string;

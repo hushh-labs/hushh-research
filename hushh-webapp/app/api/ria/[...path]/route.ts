@@ -8,9 +8,11 @@ import {
 } from "@/app/api/_utils/request-id";
 
 export const dynamic = "force-dynamic";
-
-const UPSTREAM_TIMEOUT_MS = 20_000;
 const HOT_GET_CACHE_TTL_MS = 30 * 1000;
+const DEFAULT_PROXY_TIMEOUT_MS = 12_000;
+const ONBOARDING_PROXY_TIMEOUT_MS = Number(
+  process.env.RIA_ONBOARDING_PROXY_TIMEOUT_MS || 90_000
+);
 const hotGetCache = new Map<string, { status: number; payload: unknown; cachedAt: number }>();
 const hotGetInflight = new Map<string, Promise<{ status: number; payload: unknown }>>();
 
@@ -34,6 +36,28 @@ function writeHotGetCache(key: string, value: { status: number; payload: unknown
   });
 }
 
+function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
+  if (
+    method === "POST" &&
+    (path.startsWith("onboarding/submit") || path.startsWith("onboarding/dev-activate"))
+  ) {
+    return ONBOARDING_PROXY_TIMEOUT_MS;
+  }
+  return DEFAULT_PROXY_TIMEOUT_MS;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (!error) return false;
+  if (typeof error === "string") {
+    return error.includes("TimeoutError") || error.includes("aborted due to timeout");
+  }
+  const candidate = error as { name?: unknown; code?: unknown; message?: unknown };
+  if (candidate.name === "TimeoutError") return true;
+  if (candidate.code === 23) return true;
+  const text = String(candidate.message || error);
+  return text.includes("TimeoutError") || text.includes("aborted due to timeout");
+}
+
 async function proxyRequest(
   request: NextRequest,
   params: { path: string[] },
@@ -41,6 +65,7 @@ async function proxyRequest(
 ) {
   const requestId = resolveRequestId(request);
   const path = params.path.join("/");
+  const timeoutMs = resolveProxyTimeoutMs(path, method);
   const query = request.nextUrl.search;
   const targetUrl = `${getPythonApiUrl()}/api/ria/${path}${query}`;
 
@@ -78,7 +103,7 @@ async function proxyRequest(
         method,
         headers,
         body,
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       const payload = await response
         .json()
@@ -105,6 +130,18 @@ async function proxyRequest(
     });
   } catch (error) {
     console.error(`[RIA API] request_id=${requestId} proxy_error path=${path}`, error);
+    if (isTimeoutError(error)) {
+      return withRequestIdJson(
+        requestId,
+        {
+          error: "RIA request timed out while waiting for backend verification.",
+          code: "RIA_PROXY_TIMEOUT",
+          timeout_ms: timeoutMs,
+          path,
+        },
+        { status: 504 }
+      );
+    }
     return withRequestIdJson(
       requestId,
       { error: "Failed to proxy RIA request" },

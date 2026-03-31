@@ -9,6 +9,7 @@ Canonical storage:
 4. pkm_events + pkm_migration_state
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -241,9 +242,15 @@ class PersonalKnowledgeModelService:
             )
         return canonical_domain
 
-    def _run_rpc(self, function_name: str, params: Optional[dict] = None):
+    async def _run_rpc(self, function_name: str, params: Optional[dict] = None):
         call = self.supabase.rpc(function_name, params or {})
-        return call.execute() if hasattr(call, "execute") else call
+        if not hasattr(call, "execute"):
+            return call
+        return await asyncio.to_thread(call.execute)
+
+    async def _execute_query(self, query):
+        """Run blocking Supabase query execution without blocking the event loop."""
+        return await asyncio.to_thread(query.execute)
 
     def _supports_blob_upsert_rpc(self) -> bool:
         if self._blob_upsert_rpc_supported is not None:
@@ -969,7 +976,8 @@ class PersonalKnowledgeModelService:
     async def get_index_v2(self, user_id: str) -> Optional[PersonalKnowledgeModelIndex]:
         """Get the user's PKM discovery index."""
         try:
-            result = self.supabase.table("pkm_index").select("*").eq("user_id", user_id).execute()
+            query = self.supabase.table("pkm_index").select("*").eq("user_id", user_id)
+            result = await self._execute_query(query)
 
             if not result.data:
                 return None
@@ -1050,7 +1058,9 @@ class PersonalKnowledgeModelService:
                 "updated_at": datetime.now(UTC).isoformat(),
             }
 
-            self.supabase.table("pkm_index").upsert(data, on_conflict="user_id").execute()
+            await self._execute_query(
+                self.supabase.table("pkm_index").upsert(data, on_conflict="user_id")
+            )
             return True
         except Exception as e:
             logger.error(f"Error upserting PKM index: {e}")
@@ -1113,35 +1123,47 @@ class PersonalKnowledgeModelService:
         """Persist manifest header + path descriptors for a user/domain pair."""
         try:
             manifest_row = self._serialize_manifest(manifest)
-            self.supabase.table("pkm_manifests").upsert(
-                manifest_row,
-                on_conflict="user_id,domain",
-            ).execute()
+            await self._execute_query(
+                self.supabase.table("pkm_manifests").upsert(
+                    manifest_row,
+                    on_conflict="user_id,domain",
+                )
+            )
 
-            self.supabase.table("pkm_manifest_paths").delete().eq("user_id", manifest.user_id).eq(
-                "domain", manifest.domain
-            ).execute()
-            self.supabase.table("pkm_scope_registry").delete().eq("user_id", manifest.user_id).eq(
-                "domain", manifest.domain
-            ).execute()
+            await self._execute_query(
+                self.supabase.table("pkm_manifest_paths")
+                .delete()
+                .eq("user_id", manifest.user_id)
+                .eq("domain", manifest.domain)
+            )
+            await self._execute_query(
+                self.supabase.table("pkm_scope_registry")
+                .delete()
+                .eq("user_id", manifest.user_id)
+                .eq("domain", manifest.domain)
+            )
 
             if manifest.paths:
                 path_rows = [
                     self._serialize_manifest_path(manifest, path) for path in manifest.paths
                 ]
-                self.supabase.table("pkm_manifest_paths").upsert(
-                    path_rows,
-                    on_conflict="user_id,domain,json_path",
-                ).execute()
+                await self._execute_query(
+                    self.supabase.table("pkm_manifest_paths").upsert(
+                        path_rows,
+                        on_conflict="user_id,domain,json_path",
+                    )
+                )
             if manifest.scope_registry:
                 scope_rows = [
                     self._serialize_scope_registry_entry(manifest, entry)
                     for entry in manifest.scope_registry
                 ]
-                self.supabase.table("pkm_scope_registry").upsert(
-                    scope_rows,
-                    on_conflict="user_id,domain,scope_handle",
-                ).execute()
+                await self._execute_query(
+                    self.supabase.table("pkm_scope_registry").upsert(
+                        scope_rows,
+                        on_conflict="user_id,domain,scope_handle",
+                    )
+                )
             return True
         except Exception as e:
             logger.error(
@@ -1158,34 +1180,34 @@ class PersonalKnowledgeModelService:
             canonical_domain = self._canonicalize_domain_key(domain)
             if not canonical_domain:
                 return None
-            manifest_result = (
+            manifest_query = (
                 self.supabase.table("pkm_manifests")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
                 .limit(1)
-                .execute()
             )
+            manifest_result = await self._execute_query(manifest_query)
             if not manifest_result.data:
                 return None
 
             manifest_row = manifest_result.data[0]
-            path_rows = (
+            path_query = (
                 self.supabase.table("pkm_manifest_paths")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
                 .order("json_path")
-                .execute()
             )
-            scope_rows = (
+            path_rows = await self._execute_query(path_query)
+            scope_query = (
                 self.supabase.table("pkm_scope_registry")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
                 .order("scope_handle")
-                .execute()
             )
+            scope_rows = await self._execute_query(scope_query)
             manifest_row["paths"] = path_rows.data or []
             manifest_row["scope_registry"] = scope_rows.data or []
             return manifest_row
@@ -1214,19 +1236,21 @@ class PersonalKnowledgeModelService:
         """Append a PKM mutation event for replay/debugging/audit."""
         try:
             canonical_domain = self._canonicalize_domain_key(domain)
-            self.supabase.table("pkm_events").insert(
-                {
-                    "user_id": user_id,
-                    "domain": canonical_domain or domain,
-                    "operation_type": operation_type,
-                    "path_set": json.dumps(path_set or []),
-                    "source_agent": source_agent,
-                    "confidence": confidence,
-                    "prior_manifest_version": prior_manifest_version,
-                    "new_manifest_version": new_manifest_version,
-                    "metadata": json.dumps(metadata or {}),
-                }
-            ).execute()
+            await self._execute_query(
+                self.supabase.table("pkm_events").insert(
+                    {
+                        "user_id": user_id,
+                        "domain": canonical_domain or domain,
+                        "operation_type": operation_type,
+                        "path_set": json.dumps(path_set or []),
+                        "source_agent": source_agent,
+                        "confidence": confidence,
+                        "prior_manifest_version": prior_manifest_version,
+                        "new_manifest_version": new_manifest_version,
+                        "metadata": json.dumps(metadata or {}),
+                    }
+                )
+            )
             return True
         except Exception as e:
             logger.error(
@@ -1785,7 +1809,7 @@ class PersonalKnowledgeModelService:
         try:
             # Try RPC function first (more efficient)
             try:
-                result = self._run_rpc("get_user_pkm_metadata", {"p_user_id": user_id})
+                result = await self._run_rpc("get_user_pkm_metadata", {"p_user_id": user_id})
 
                 if result.data:
                     data = result.data[0] if isinstance(result.data, list) else result.data
@@ -1965,7 +1989,7 @@ class PersonalKnowledgeModelService:
     ) -> list[dict]:
         """Find users with similar profiles using vector similarity."""
         try:
-            result = self._run_rpc(
+            result = await self._run_rpc(
                 "match_user_profiles",
                 {
                     "query_embedding": query_embedding,
@@ -2078,12 +2102,11 @@ class PersonalKnowledgeModelService:
                     "algorithm": algorithm,
                 }
 
-            existing_domain_blob = (
+            existing_domain_blob = await self._execute_query(
                 self.supabase.table("pkm_blobs")
                 .select("segment_id,content_revision,updated_at")
                 .eq("user_id", user_id)
                 .eq("domain", domain)
-                .execute()
             )
             existing_blob_rows = existing_domain_blob.data or []
             existing_domain_row = existing_blob_rows[0] if existing_blob_rows else None
@@ -2143,9 +2166,13 @@ class PersonalKnowledgeModelService:
             next_segment_ids = set(normalized_segments.keys())
 
             for segment_id in sorted(existing_segment_ids - next_segment_ids):
-                self.supabase.table("pkm_blobs").delete().eq("user_id", user_id).eq(
-                    "domain", domain
-                ).eq("segment_id", segment_id).execute()
+                await self._execute_query(
+                    self.supabase.table("pkm_blobs")
+                    .delete()
+                    .eq("user_id", user_id)
+                    .eq("domain", domain)
+                    .eq("segment_id", segment_id)
+                )
 
             segment_rows = []
             for segment_id, segment_blob in normalized_segments.items():
@@ -2169,10 +2196,12 @@ class PersonalKnowledgeModelService:
                         "updated_at": resolved_updated_at,
                     }
                 )
-            self.supabase.table("pkm_blobs").upsert(
-                segment_rows,
-                on_conflict="user_id,domain,segment_id",
-            ).execute()
+            await self._execute_query(
+                self.supabase.table("pkm_blobs").upsert(
+                    segment_rows,
+                    on_conflict="user_id,domain,segment_id",
+                )
+            )
 
             manifest_ok = await self.upsert_domain_manifest(normalized_manifest)
             if not manifest_ok:
@@ -2320,18 +2349,20 @@ class PersonalKnowledgeModelService:
                     },
                 )
 
-            self.supabase.table("pkm_migration_state").upsert(
-                {
-                    "user_id": user_id,
-                    "status": "completed",
-                    "source_model": "pkm",
-                    "legacy_blob_present": legacy_blob is not None,
-                    "migrated_at": resolved_updated_at,
-                    "last_error": None,
-                    "updated_at": resolved_updated_at,
-                },
-                on_conflict="user_id",
-            ).execute()
+            await self._execute_query(
+                self.supabase.table("pkm_migration_state").upsert(
+                    {
+                        "user_id": user_id,
+                        "status": "completed",
+                        "source_model": "pkm",
+                        "legacy_blob_present": legacy_blob is not None,
+                        "migrated_at": resolved_updated_at,
+                        "last_error": None,
+                        "updated_at": resolved_updated_at,
+                    },
+                    on_conflict="user_id",
+                )
+            )
 
             await self._queue_consent_export_refreshes_for_domain_write(
                 user_id=user_id,
@@ -2359,7 +2390,9 @@ class PersonalKnowledgeModelService:
             or None if no data exists
         """
         try:
-            result = self.supabase.table("pkm_data").select("*").eq("user_id", user_id).execute()
+            result = await self._execute_query(
+                self.supabase.table("pkm_data").select("*").eq("user_id", user_id)
+            )
 
             if not result.data:
                 return None
@@ -2399,13 +2432,12 @@ class PersonalKnowledgeModelService:
             if not domain:
                 return None
 
-            domain_blob_result = (
+            domain_blob_result = await self._execute_query(
                 self.supabase.table("pkm_blobs")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("domain", domain)
                 .order("segment_id")
-                .execute()
             )
             if domain_blob_result.data:
                 rows = domain_blob_result.data

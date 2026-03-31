@@ -475,9 +475,13 @@ function KaiOnboardingPageContent() {
           answers: nextAnswers,
           risk_score: score,
           risk_profile: score === null ? null : mapRiskProfile(score),
-        }).then((nextState) => {
-          setPreVaultState(nextState);
-        });
+        })
+          .then((nextState) => {
+            setPreVaultState(nextState);
+          })
+          .catch((error) => {
+            console.warn("[KaiOnboardingPage] Failed to save pre-vault onboarding draft:", error);
+          });
       }}
       onSkip={async () => {
         if (saving) return;

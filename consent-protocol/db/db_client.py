@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, QueuePool
 
 load_dotenv()
 
@@ -35,6 +35,34 @@ logger = logging.getLogger(__name__)
 
 # Singleton engine instance
 _engine: Optional[Engine] = None
+
+
+def _env_truthy(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid integer for %s=%r; using default %s", name, raw, default)
+        return default
+    if value < minimum:
+        logger.warning(
+            "Out-of-range integer for %s=%r; expected >= %s. Using default %s",
+            name,
+            raw,
+            minimum,
+            default,
+        )
+        return default
+    return value
 
 
 def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
@@ -73,7 +101,8 @@ def get_db_engine() -> Engine:
     """
     Get SQLAlchemy engine using session pooler credentials.
 
-    Uses NullPool to let Supabase's session pooler handle connection pooling.
+    Defaults to QueuePool to reuse local TCP connections and reduce repeated
+    connection handshakes; can be switched back to NullPool via env.
 
     Returns:
         SQLAlchemy Engine instance
@@ -112,8 +141,43 @@ def get_db_engine() -> Engine:
             database_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
             target = f"{db_host}:{db_port}/{db_name}"
 
+        connect_args: dict[str, Any] = {
+            "connect_timeout": _env_int("DB_CONNECT_TIMEOUT_SECONDS", 10, minimum=1)
+        }
+        if not db_unix_socket:
+            connect_args.update(
+                {
+                    "keepalives": 1,
+                    "keepalives_idle": _env_int("DB_TCP_KEEPALIVE_IDLE_SECONDS", 30, minimum=1),
+                    "keepalives_interval": _env_int(
+                        "DB_TCP_KEEPALIVE_INTERVAL_SECONDS", 10, minimum=1
+                    ),
+                    "keepalives_count": _env_int("DB_TCP_KEEPALIVE_COUNT", 5, minimum=1),
+                }
+            )
+
+        use_null_pool = _env_truthy("DB_SQLALCHEMY_USE_NULL_POOL", False)
         logger.info(f"Initializing database connection to {target}")
-        _engine = create_engine(database_url, poolclass=NullPool)
+        if use_null_pool:
+            _engine = create_engine(
+                database_url,
+                poolclass=NullPool,
+                connect_args=connect_args,
+                pool_pre_ping=True,
+            )
+            logger.info("Database engine initialized with NullPool")
+        else:
+            _engine = create_engine(
+                database_url,
+                poolclass=QueuePool,
+                pool_size=_env_int("DB_SQLALCHEMY_POOL_SIZE", 5, minimum=1),
+                max_overflow=_env_int("DB_SQLALCHEMY_MAX_OVERFLOW", 10, minimum=0),
+                pool_timeout=_env_int("DB_SQLALCHEMY_POOL_TIMEOUT_SECONDS", 30, minimum=1),
+                pool_recycle=_env_int("DB_SQLALCHEMY_POOL_RECYCLE_SECONDS", 1800, minimum=30),
+                pool_pre_ping=True,
+                connect_args=connect_args,
+            )
+            logger.info("Database engine initialized with QueuePool")
         logger.info("Database engine initialized")
 
     return _engine

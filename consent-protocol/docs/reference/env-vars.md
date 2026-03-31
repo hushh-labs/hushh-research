@@ -137,12 +137,14 @@ Professional verification providers:
 
 ## Kai Brokerage Boundary
 
-Plaid variables above enable read-only brokerage connectivity only:
+Plaid variables above enable read-only brokerage connectivity, plus sandbox-only funding transfer tests:
 
 - holdings
 - investment transactions
 - refresh/webhooks
 - OAuth resume
+- transfer authorization/create/get/cancel (sandbox testing flows)
+- funding transactions sync (sandbox testing flows)
 
 There are no live-trading broker execution environment variables yet. Future execution will use a separate broker-adapter layer with distinct consent scopes and approval flows; it must not reuse Plaid connectivity as an execution channel.
 

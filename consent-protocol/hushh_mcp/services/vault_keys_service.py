@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from sqlalchemy import text
+from starlette.concurrency import run_in_threadpool
 
 from db.db_client import get_db
 
@@ -174,6 +175,9 @@ class VaultKeysService:
         }
 
     async def ensure_user_entry(self, user_id: str) -> Dict[str, Any]:
+        return await run_in_threadpool(self._ensure_user_entry_sync, user_id)
+
+    def _ensure_user_entry_sync(self, user_id: str) -> Dict[str, Any]:
         """
         Ensure a vault_keys row exists for authenticated user presence tracking.
 
@@ -274,10 +278,13 @@ class VaultKeysService:
         return self._serialize_user_entry(refreshed.data[0])
 
     async def get_pre_vault_state(self, user_id: str) -> Dict[str, Any]:
+        return await run_in_threadpool(self._get_pre_vault_state_sync, user_id)
+
+    def _get_pre_vault_state_sync(self, user_id: str) -> Dict[str, Any]:
         """
         Return placeholder/active row metadata used for DB-first onboarding/tour gating.
         """
-        state = await self.ensure_user_entry(user_id)
+        state = self._ensure_user_entry_sync(user_id)
         return {
             "userId": state["userId"],
             "vaultStatus": state["vaultStatus"],
@@ -303,10 +310,29 @@ class VaultKeysService:
         pre_nav_tour_completed_at: Optional[int] = None,
         pre_nav_tour_skipped_at: Optional[int] = None,
     ) -> Dict[str, Any]:
+        return await run_in_threadpool(
+            self._update_pre_vault_state_sync,
+            user_id,
+            pre_onboarding_completed,
+            pre_onboarding_skipped,
+            pre_onboarding_completed_at,
+            pre_nav_tour_completed_at,
+            pre_nav_tour_skipped_at,
+        )
+
+    def _update_pre_vault_state_sync(
+        self,
+        user_id: str,
+        pre_onboarding_completed: Optional[bool] = None,
+        pre_onboarding_skipped: Optional[bool] = None,
+        pre_onboarding_completed_at: Optional[int] = None,
+        pre_nav_tour_completed_at: Optional[int] = None,
+        pre_nav_tour_skipped_at: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """
         Persist DB-first pre-vault onboarding/tour markers with basic consistency checks.
         """
-        current = await self.ensure_user_entry(user_id)
+        current = self._ensure_user_entry_sync(user_id)
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
             raise ValueError("userId is required")
@@ -485,9 +511,12 @@ class VaultKeysService:
         }
 
     async def check_vault_exists(self, user_id: str, *, ensure_entry: bool = True) -> bool:
+        return await run_in_threadpool(self._check_vault_exists_sync, user_id, ensure_entry)
+
+    def _check_vault_exists_sync(self, user_id: str, ensure_entry: bool = True) -> bool:
         """Check if a vault exists for the user."""
         if ensure_entry:
-            state = await self.ensure_user_entry(user_id)
+            state = self._ensure_user_entry_sync(user_id)
             status = state["vaultStatus"]
         else:
             supabase = self._get_supabase()

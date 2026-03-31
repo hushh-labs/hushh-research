@@ -30,6 +30,7 @@ class AccountService:
         self._supabase = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
             "kai_plaid_user_profile_cache": text(
                 "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
             ),

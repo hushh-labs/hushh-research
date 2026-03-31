@@ -31,6 +31,7 @@ class ConsentScope(str, Enum):
     PORTFOLIO_IMPORT = "portfolio.import"
     PORTFOLIO_ANALYZE = "portfolio.analyze"
     PORTFOLIO_READ = "portfolio.read"
+    BROKERAGE_TRANSFER_WRITE = "brokerage.transfer.write"
 
     # ==================== CHAT HISTORY ====================
     CHAT_HISTORY_READ = "chat.history.read"
@@ -171,6 +172,7 @@ class ConsentScope(str, Enum):
             cls.PORTFOLIO_IMPORT,
             cls.PORTFOLIO_ANALYZE,
             cls.PORTFOLIO_READ,
+            cls.BROKERAGE_TRANSFER_WRITE,
             cls.CHAT_HISTORY_READ,
             cls.CHAT_HISTORY_WRITE,
             cls.EMBEDDING_PROFILE_READ,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BadgeDollarSign,
   Building2,
@@ -22,6 +22,8 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import type {
   PlaidAccountSummary,
+  PlaidFundingStatusResponse,
+  PlaidFundingTransferRef,
   PlaidItemSummary,
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { cn } from "@/lib/utils";
@@ -383,6 +385,326 @@ export function PlaidInvestmentAccountsSection({
           />
         );
       })}
+    </SettingsGroup>
+  );
+}
+
+interface PlaidFundingTransfersSectionProps {
+  fundingStatus: PlaidFundingStatusResponse | null;
+  brokerageItems: PlaidItemSummary[];
+  onManageBrokerage?: () => Promise<void> | void;
+  onConnectFunding?: (itemId?: string) => Promise<void> | void;
+  onCreateTransfer?: (payload: {
+    fundingItemId: string;
+    fundingAccountId: string;
+    brokerageItemId?: string | null;
+    brokerageAccountId?: string | null;
+    amount: number;
+    userLegalName: string;
+    idempotencyKey: string;
+  }) => Promise<void> | void;
+  onRefreshTransfer?: (transferId: string) => Promise<void> | void;
+  onCancelTransfer?: (transferId: string) => Promise<void> | void;
+  isConnectingFunding?: boolean;
+  isSubmittingTransfer?: boolean;
+  className?: string;
+}
+
+function transferStatusTone(status: string | null | undefined): string {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (["pending", "submitted"].includes(normalized)) {
+    return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300 dark:border-sky-400/30 dark:bg-sky-400/10";
+  }
+  if (["failed", "canceled", "returned", "rejected"].includes(normalized)) {
+    return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300 dark:border-rose-400/30 dark:bg-rose-400/10";
+  }
+  if (["posted"].includes(normalized)) {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 dark:border-emerald-400/30 dark:bg-emerald-400/10";
+  }
+  return "border-muted bg-muted/20 text-muted-foreground";
+}
+
+export function PlaidFundingTransfersSection({
+  fundingStatus,
+  brokerageItems,
+  onManageBrokerage,
+  onConnectFunding,
+  onCreateTransfer,
+  onRefreshTransfer,
+  onCancelTransfer,
+  isConnectingFunding = false,
+  isSubmittingTransfer = false,
+  className,
+}: PlaidFundingTransfersSectionProps) {
+  const fundingItem = (fundingStatus?.items || [])[0] || null;
+  const fundingAccounts = fundingItem?.accounts || [];
+  const selectedFundingDefault =
+    fundingItem?.selected_funding_account_id ||
+    fundingAccounts.find((account) => account.is_selected_funding_account)?.account_id ||
+    fundingAccounts[0]?.account_id ||
+    "";
+  const brokerageItemOptions = useMemo(
+    () =>
+      brokerageItems.map((item) => ({
+        itemId: item.item_id,
+        label: item.institution_name || item.institution_id || item.item_id,
+      })),
+    [brokerageItems]
+  );
+  const brokerageAccountOptions = useMemo(
+    () =>
+      brokerageItems.flatMap((item) =>
+        (item.accounts || []).map((account) => ({
+          itemId: item.item_id,
+          accountId: account.account_id,
+          label: `${item.institution_name || "Brokerage"} · ${account.name || account.official_name || account.account_id}`,
+        }))
+      ),
+    [brokerageItems]
+  );
+  const [selectedFundingAccountId, setSelectedFundingAccountId] = useState<string>(selectedFundingDefault);
+  const [selectedBrokerageItemId, setSelectedBrokerageItemId] = useState<string>(
+    brokerageItemOptions[0]?.itemId || ""
+  );
+  const [selectedBrokerageAccountId, setSelectedBrokerageAccountId] = useState<string>(
+    brokerageAccountOptions[0]?.accountId || ""
+  );
+  const [amountInput, setAmountInput] = useState<string>("11.11");
+  const [legalNameInput, setLegalNameInput] = useState<string>("");
+
+  const latestTransfers = (fundingStatus?.latest_transfers || fundingItem?.transfers || []) as PlaidFundingTransferRef[];
+  const selectedBrokerage = brokerageAccountOptions.find(
+    (option) => option.accountId === selectedBrokerageAccountId
+  );
+
+  useEffect(() => {
+    if (selectedFundingDefault && selectedFundingDefault !== selectedFundingAccountId) {
+      setSelectedFundingAccountId(selectedFundingDefault);
+    }
+  }, [selectedFundingAccountId, selectedFundingDefault]);
+
+  useEffect(() => {
+    const firstBrokerageItemId = brokerageItemOptions[0]?.itemId || "";
+    if (!selectedBrokerageItemId && firstBrokerageItemId) {
+      setSelectedBrokerageItemId(firstBrokerageItemId);
+    }
+  }, [brokerageItemOptions, selectedBrokerageItemId]);
+
+  useEffect(() => {
+    const firstBrokerageAccountId = brokerageAccountOptions[0]?.accountId || "";
+    if (!selectedBrokerageAccountId && firstBrokerageAccountId) {
+      setSelectedBrokerageAccountId(firstBrokerageAccountId);
+    }
+  }, [brokerageAccountOptions, selectedBrokerageAccountId]);
+
+  return (
+    <SettingsGroup
+      className={className}
+      eyebrow="Funding and transfers"
+      title="Sandbox funding transfers"
+      description="Connect a depository account through Plaid Transfer and map transfers to a brokerage account context."
+    >
+      <SettingsRow
+        icon={WalletCards}
+        title={
+          fundingItem
+            ? fundingItem.institution_name || "Connected funding account"
+            : "No funding account connected"
+        }
+        description={
+          fundingItem
+            ? `${fundingAccounts.length} linked account${fundingAccounts.length === 1 ? "" : "s"} • Last sync ${formatRelativeTimestamp(fundingItem.last_synced_at)}`
+            : "Connect a funding account to run sandbox transfer tests."
+        }
+        trailing={
+          <Button
+            variant="none"
+            effect="fade"
+            disabled={isConnectingFunding}
+            onClick={() => void onConnectFunding?.(fundingItem?.item_id)}
+          >
+            {isConnectingFunding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+            {fundingItem ? "Manage funding link" : "Connect funding account"}
+          </Button>
+        }
+      />
+
+      {fundingItem && fundingAccounts.length > 0 && onCreateTransfer ? (
+        <div className="rounded-[20px] border border-border/60 bg-background/60 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Funding account
+              <select
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={selectedFundingAccountId}
+                onChange={(event) => setSelectedFundingAccountId(event.target.value)}
+              >
+                {fundingAccounts.map((account) => (
+                  <option key={account.account_id} value={account.account_id}>
+                    {`${account.name || account.official_name || account.account_id} ${account.mask ? `•••• ${account.mask}` : ""}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {brokerageAccountOptions.length > 0 ? (
+              <label className="space-y-1 text-xs text-muted-foreground">
+                Brokerage destination
+                <select
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  value={selectedBrokerageAccountId}
+                  onChange={(event) => setSelectedBrokerageAccountId(event.target.value)}
+                >
+                  {brokerageAccountOptions.map((option) => (
+                    <option key={`${option.itemId}:${option.accountId}`} value={option.accountId}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : brokerageItemOptions.length > 0 ? (
+              <label className="space-y-1 text-xs text-muted-foreground">
+                Destination broker
+                <select
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  value={selectedBrokerageItemId}
+                  onChange={(event) => setSelectedBrokerageItemId(event.target.value)}
+                >
+                  {brokerageItemOptions.map((option) => (
+                    <option key={option.itemId} value={option.itemId}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="space-y-1 rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                Brokerage destination
+                <p className="text-[11px] leading-5">
+                  No brokerage account is linked yet. You can still create a funding transfer and
+                  add destination mapping later.
+                </p>
+                {onManageBrokerage ? (
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    onClick={() => void onManageBrokerage()}
+                  >
+                    Connect brokerage account
+                  </Button>
+                ) : null}
+              </div>
+            )}
+
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Amount (USD)
+              <input
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={amountInput}
+                onChange={(event) => setAmountInput(event.target.value)}
+                inputMode="decimal"
+                placeholder="11.11"
+              />
+              <div className="flex gap-2 pt-1">
+                {["11.11", "22.22", "33.33"].map((preset) => (
+                  <Button
+                    key={preset}
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    onClick={() => setAmountInput(preset)}
+                  >
+                    {preset}
+                  </Button>
+                ))}
+              </div>
+            </label>
+
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Legal name
+              <input
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={legalNameInput}
+                onChange={(event) => setLegalNameInput(event.target.value)}
+                placeholder="Name on funding account"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              variant="none"
+              effect="fade"
+              disabled={isSubmittingTransfer}
+              onClick={() => {
+                const amount = Number(amountInput);
+                if (!Number.isFinite(amount) || amount <= 0) return;
+                if (!selectedFundingAccountId || !legalNameInput.trim()) return;
+                if (brokerageAccountOptions.length > 0 && !selectedBrokerageAccountId) return;
+                if (brokerageAccountOptions.length === 0 && brokerageItemOptions.length > 0 && !selectedBrokerageItemId) return;
+                const nonce =
+                  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                    ? crypto.randomUUID()
+                    : `${Date.now()}`;
+                void onCreateTransfer({
+                  fundingItemId: fundingItem.item_id,
+                  fundingAccountId: selectedFundingAccountId,
+                  brokerageItemId:
+                    selectedBrokerage?.itemId ||
+                    (brokerageAccountOptions.length === 0 ? selectedBrokerageItemId || null : null),
+                  brokerageAccountId: selectedBrokerageAccountId || null,
+                  amount,
+                  userLegalName: legalNameInput.trim(),
+                  idempotencyKey: `kai_${fundingItem.item_id}_${selectedFundingAccountId}_${amount.toFixed(2)}_${nonce}`,
+                });
+              }}
+            >
+              {isSubmittingTransfer ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BadgeDollarSign className="mr-2 h-4 w-4" />}
+              Create sandbox transfer
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {latestTransfers.length > 0 ? (
+        <div className="space-y-2">
+          {latestTransfers.map((transfer) => {
+            const transferId = String(transfer.transfer_id || "").trim();
+            return (
+              <SettingsRow
+                key={transferId}
+                icon={BadgeDollarSign}
+                title={transferId || "Transfer"}
+                description={[
+                  transfer.amount ? `$${transfer.amount}` : null,
+                  transfer.direction || null,
+                  transfer.brokerage_account_id ? `Destination ${transfer.brokerage_account_id}` : null,
+                  transfer.created_at ? formatRelativeTimestamp(transfer.created_at) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" • ")}
+                trailing={
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5 text-[11px]", transferStatusTone(transfer.status))}>
+                      {transfer.status || "pending"}
+                    </Badge>
+                    {transferId && onRefreshTransfer ? (
+                      <Button variant="none" effect="fade" size="sm" onClick={() => void onRefreshTransfer(transferId)}>
+                        Refresh
+                      </Button>
+                    ) : null}
+                    {transferId && onCancelTransfer ? (
+                      <Button variant="none" effect="fade" size="sm" onClick={() => void onCancelTransfer(transferId)}>
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </div>
+                }
+              />
+            );
+          })}
+        </div>
+      ) : null}
     </SettingsGroup>
   );
 }

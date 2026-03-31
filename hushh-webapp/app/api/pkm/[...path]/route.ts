@@ -13,6 +13,11 @@ const metadataHotGet = createHotGetJsonCache({
   freshTtlMs: 5 * 60 * 1000,
   staleTtlMs: 30 * 60 * 1000,
 });
+const PKM_PROXY_TIMEOUT_MS = Number.parseInt(process.env.PKM_PROXY_TIMEOUT_MS ?? "45000", 10);
+const PKM_PROXY_WRITE_TIMEOUT_MS = Number.parseInt(
+  process.env.PKM_PROXY_WRITE_TIMEOUT_MS ?? "90000",
+  10
+);
 
 async function proxyPkmRequest(
   request: NextRequest,
@@ -61,11 +66,15 @@ async function proxyPkmRequest(
     }
 
     const load = (async () => {
+      const timeoutMs =
+        method === "POST" || method === "PUT" || method === "DELETE"
+          ? PKM_PROXY_WRITE_TIMEOUT_MS
+          : PKM_PROXY_TIMEOUT_MS;
       const response = await fetch(backendUrl, {
         method,
         headers,
         body,
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
 
       const payload = await response
