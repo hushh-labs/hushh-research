@@ -97,6 +97,9 @@ class StartAnalyzeRunRequest(BaseModel):
     ticker: str
     risk_profile: str = "balanced"
     context: Optional[Dict[str, Any]] = None
+    pick_source: Optional[str] = None
+    pick_source_label: Optional[str] = None
+    pick_source_kind: Optional[str] = None
 
 
 # ============================================================================
@@ -639,16 +642,37 @@ def _validate_pkm_context_requirements(
         else {}
     )
 
-    holdings = request_context.get("holdings")
-    if not isinstance(holdings, list) or len(holdings) == 0:
+    request_holdings = request_context.get("holdings")
+    canonical_holdings = full_user_context.get("holdings")
+    holdings_summary = full_user_context.get("holdings_summary")
+    holdings_count = _safe_int(full_user_context.get("holdings_count"))
+    has_holdings = (
+        (isinstance(request_holdings, list) and len(request_holdings) > 0)
+        or (isinstance(canonical_holdings, list) and len(canonical_holdings) > 0)
+        or (isinstance(holdings_summary, list) and len(holdings_summary) > 0)
+        or (holdings_count is not None and holdings_count > 0)
+    )
+    if not has_holdings:
         missing.append("pkm_holdings")
 
     debate_context = request_context.get("debate_context")
+    if not isinstance(debate_context, dict):
+        debate_context = (
+            full_user_context.get("debate_context")
+            if isinstance(full_user_context.get("debate_context"), dict)
+            else {}
+        )
     if not isinstance(debate_context, dict):
         missing.append("pkm_debate_context")
         return missing
 
     portfolio_snapshot = debate_context.get("portfolio_snapshot")
+    if not isinstance(portfolio_snapshot, dict):
+        portfolio_snapshot = (
+            full_user_context.get("portfolio_snapshot")
+            if isinstance(full_user_context.get("portfolio_snapshot"), dict)
+            else {}
+        )
     if not isinstance(portfolio_snapshot, dict) or len(portfolio_snapshot) == 0:
         missing.append("pkm_portfolio_snapshot")
 
@@ -962,6 +986,7 @@ async def analyze_stream_generator(
         request_holdings = request_context.get("holdings")
         if isinstance(request_holdings, list):
             canonical_portfolio_context = _build_canonical_portfolio_context(request_holdings)
+            full_user_context["holdings"] = request_holdings
             full_user_context["holdings_summary"] = canonical_portfolio_context["holdings_summary"]
             full_user_context["holdings_count"] = canonical_portfolio_context["holdings_count"]
             full_user_context["portfolio_snapshot"] = {
@@ -1918,6 +1943,33 @@ async def analyze_stream_generator(
             "has_domain_summaries": bool(full_user_context.get("domain_summaries")),
         }
 
+        pick_source = str(full_user_context.get("pick_source") or "").strip() or None
+        pick_source_label = str(full_user_context.get("pick_source_label") or "").strip() or None
+        pick_source_kind = str(full_user_context.get("pick_source_kind") or "").strip() or None
+        structured_sources = [
+            {
+                "label": source,
+                "url": None,
+                "kind": "provider",
+            }
+            for source in list(
+                set(
+                    fundamental_insight.sources
+                    + sentiment_insight.sources
+                    + valuation_insight.sources
+                )
+            )
+            if isinstance(source, str) and source.strip()
+        ]
+        structured_sources.append(
+            {
+                "label": "AlphaAgents paper",
+                "paper_title": "AlphaAgents",
+                "url": "https://arxiv.org/pdf/2508.11152",
+                "kind": "paper",
+            }
+        )
+
         # Build raw_card structure
         raw_card = {
             "fundamental_insight": {
@@ -1947,6 +1999,7 @@ async def analyze_stream_generator(
                     + valuation_insight.sources
                 )
             ),
+            "structured_sources": structured_sources,
             "risk_persona_alignment": f"This {debate_result.decision.upper()} recommendation aligns with your {risk_profile} risk profile.",
             "debate_digest": debate_result.final_statement,
             "consensus_reached": debate_result.consensus_reached,
@@ -1974,6 +2027,8 @@ async def analyze_stream_generator(
             },
             "alphaagents_trace": {
                 "paper": "arXiv:2508.11152v1",
+                "paper_title": "AlphaAgents",
+                "paper_url": "https://arxiv.org/pdf/2508.11152",
                 "protocol": "round_robin_adversarial_debate",
                 "rounds_executed": len(debate_engine.rounds),
                 "turns_per_agent": 2,
@@ -2003,6 +2058,9 @@ async def analyze_stream_generator(
             "symbol_eligibility": symbol_eligibility,
             "eligibility_reason": eligibility_reason,
             "eligibility_source": eligibility_source,
+            "pick_source": pick_source,
+            "pick_source_label": pick_source_label,
+            "pick_source_kind": pick_source_kind,
         }
 
         yield create_event(
@@ -2037,6 +2095,9 @@ async def analyze_stream_generator(
                 "symbol_eligibility": symbol_eligibility,
                 "eligibility_reason": eligibility_reason,
                 "eligibility_source": eligibility_source,
+                "pick_source": pick_source,
+                "pick_source_label": pick_source_label,
+                "pick_source_kind": pick_source_kind,
                 "context_integrity": context_integrity,
                 "renaissance_comparison": renaissance_comparison,
                 "raw_card": raw_card,
@@ -2282,6 +2343,13 @@ async def analyze_run_start(
         authorization=authorization,
     )
     consent_service = ConsentDBService()
+    next_context = dict(body.context or {})
+    if body.pick_source:
+        next_context["pick_source"] = str(body.pick_source).strip()
+    if body.pick_source_label:
+        next_context["pick_source_label"] = str(body.pick_source_label).strip()
+    if body.pick_source_kind:
+        next_context["pick_source_kind"] = str(body.pick_source_kind).strip()
     await consent_service.log_operation(
         user_id=body.user_id,
         operation="kai.analyze.run.start",
@@ -2289,7 +2357,9 @@ async def analyze_run_start(
         metadata={
             "risk_profile": body.risk_profile,
             "debate_session_id": body.debate_session_id,
-            "has_context": body.context is not None,
+            "has_context": bool(next_context),
+            "pick_source": body.pick_source,
+            "pick_source_kind": body.pick_source_kind,
         },
     )
     state, run = await _RUN_MANAGER.start_or_get_active(
@@ -2297,7 +2367,7 @@ async def analyze_run_start(
         debate_session_id=body.debate_session_id,
         ticker=body.ticker,
         risk_profile=body.risk_profile,
-        context=body.context,
+        context=next_context or None,
         consent_token=consent_token,
         generator_factory=_stream_factory,
     )

@@ -24,6 +24,9 @@ export interface DebateRunTask {
   userId: string;
   debateSessionId: string;
   ticker: string;
+  pickSource?: string;
+  pickSourceLabel?: string;
+  pickSourceKind?: string;
   status: DebateRunStatus;
   startedAt: string;
   completedAt: string | null;
@@ -372,6 +375,18 @@ class DebateRunManager {
           : null,
       updatedAt: String(run.updated_at || nowIso()),
       latestCursor: toFiniteNumber(run.latest_cursor, 0),
+      pickSource:
+        typeof run.pick_source === "string" && run.pick_source.trim().length > 0
+          ? run.pick_source.trim()
+          : undefined,
+      pickSourceLabel:
+        typeof run.pick_source_label === "string" && run.pick_source_label.trim().length > 0
+          ? run.pick_source_label.trim()
+          : undefined,
+      pickSourceKind:
+        typeof run.pick_source_kind === "string" && run.pick_source_kind.trim().length > 0
+          ? run.pick_source_kind.trim()
+          : undefined,
       persistenceState: "none",
       persistenceError: null,
       dismissedAt: null,
@@ -424,6 +439,65 @@ class DebateRunManager {
     return () => {
       this.historyListeners.delete(listener);
     };
+  }
+
+  getHistoryEntriesForUser(userId: string): Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) return [];
+    const items: Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> = [];
+    for (const task of this.tasks.values()) {
+      if (task.userId !== normalizedUserId || task.dismissedAt) continue;
+      const existingEntry = this.runHistoryEntries.get(task.runId);
+      if (existingEntry) {
+        items.push({ entry: existingEntry, task });
+        continue;
+      }
+      if (task.status !== "completed" || !task.finalDecision) continue;
+      const buffer = this.runBuffers.get(task.runId) || [];
+      const decisionEnvelope = [...buffer].reverse().find((event) => event.event === "decision");
+      const payload =
+        decisionEnvelope?.payload && typeof decisionEnvelope.payload === "object"
+          ? (decisionEnvelope.payload as Record<string, unknown>)
+          : {};
+      const rawCard =
+        payload.raw_card && typeof payload.raw_card === "object"
+          ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<string, unknown>)
+          : {};
+      rawCard.debate_run_id = task.runId;
+      if (!rawCard.pick_source && task.pickSource) {
+        rawCard.pick_source = task.pickSource;
+      }
+      if (!rawCard.pick_source_label && task.pickSourceLabel) {
+        rawCard.pick_source_label = task.pickSourceLabel;
+      }
+      if (!rawCard.pick_source_kind && task.pickSourceKind) {
+        rawCard.pick_source_kind = task.pickSourceKind;
+      }
+      const transcript = buildTranscriptFromEnvelopes(buffer);
+      items.push({
+        task,
+        entry: {
+          ticker: toUpperTicker(String(payload.ticker || task.ticker)),
+          timestamp:
+            typeof payload.analysis_updated_at === "string" && payload.analysis_updated_at.trim().length > 0
+              ? payload.analysis_updated_at
+              : task.completedAt || task.updatedAt || nowIso(),
+          decision: String(payload.decision || task.finalDecision.decision || "hold"),
+          confidence: toFiniteNumber(payload.confidence, task.finalDecision.confidence || 0),
+          consensus_reached: Boolean(payload.consensus_reached),
+          agent_votes:
+            payload.agent_votes && typeof payload.agent_votes === "object"
+              ? (payload.agent_votes as Record<string, string>)
+              : {},
+          final_statement: String(
+            payload.final_statement || task.finalDecision.finalStatement || ""
+          ),
+          raw_card: rawCard as Record<string, any>,
+          debate_transcript: transcript as AnalysisHistoryEntry["debate_transcript"],
+        },
+      });
+    }
+    return items.sort((left, right) => Date.parse(right.entry.timestamp) - Date.parse(left.entry.timestamp));
   }
 
   subscribeRunEvents(
@@ -541,23 +615,42 @@ class DebateRunManager {
     ticker: string;
     riskProfile: string;
     userContext?: Record<string, unknown> | null;
+    pickSource?: string;
+    pickSourceLabel?: string;
+    pickSourceKind?: string;
     vaultOwnerToken: string;
     vaultKey?: string;
   }): Promise<EnsureRunResult> {
-    const { userId, ticker, riskProfile, userContext, vaultOwnerToken, vaultKey } = params;
+    const {
+      userId,
+      ticker,
+      riskProfile,
+      userContext,
+      pickSource,
+      pickSourceKind,
+      pickSourceLabel,
+      vaultOwnerToken,
+      vaultKey,
+    } = params;
     const activeTask = this.getActiveTaskForUser(userId);
     if (activeTask) {
-      this.runSecrets.set(activeTask.runId, { vaultOwnerToken, vaultKey });
-      if (activeTask.status === "running") {
-        await this.connectRunStream(activeTask.runId, {
+      const refreshedActiveTask = this.upsertTask({
+        ...activeTask,
+        pickSource: pickSource || activeTask.pickSource,
+        pickSourceLabel: pickSourceLabel || activeTask.pickSourceLabel,
+        pickSourceKind: pickSourceKind || activeTask.pickSourceKind,
+      });
+      this.runSecrets.set(refreshedActiveTask.runId, { vaultOwnerToken, vaultKey });
+      if (refreshedActiveTask.status === "running") {
+        await this.connectRunStream(refreshedActiveTask.runId, {
           userId,
           vaultOwnerToken,
           vaultKey,
           cursor: 0,
-          resetBuffer: this.getOrCreateBuffer(activeTask.runId).length === 0,
+          resetBuffer: this.getOrCreateBuffer(refreshedActiveTask.runId).length === 0,
         });
       }
-      return { kind: "blocked", task: activeTask };
+      return { kind: "blocked", task: refreshedActiveTask };
     }
 
     const response = await ApiService.startKaiDebateRun({
@@ -566,6 +659,9 @@ class DebateRunManager {
       ticker,
       riskProfile,
       userContext: userContext || undefined,
+      pickSource,
+      pickSourceLabel,
+      pickSourceKind,
       vaultOwnerToken,
     });
 
@@ -577,7 +673,12 @@ class DebateRunManager {
       if (!run) {
         throw new Error("Active run lock returned without active_run metadata.");
       }
-      const task = this.upsertTask(this.makeTaskFromServer(run));
+      const task = this.upsertTask({
+        ...this.makeTaskFromServer(run),
+        pickSource: pickSource || undefined,
+        pickSourceLabel: pickSourceLabel || undefined,
+        pickSourceKind: pickSourceKind || undefined,
+      });
       this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
       await this.connectRunStream(task.runId, {
         userId,
@@ -598,7 +699,12 @@ class DebateRunManager {
       throw new Error("Run start response missing run payload.");
     }
 
-    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
+    const task = this.upsertTask({
+      ...this.makeTaskFromServer(payload.run),
+      pickSource: pickSource || undefined,
+      pickSourceLabel: pickSourceLabel || undefined,
+      pickSourceKind: pickSourceKind || undefined,
+    });
     this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
     await this.connectRunStream(task.runId, {
       userId,
@@ -759,6 +865,15 @@ class DebateRunManager {
         ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<string, unknown>)
         : ({} as Record<string, unknown>);
     rawCard.debate_run_id = runId;
+    if (!rawCard.pick_source && task.pickSource) {
+      rawCard.pick_source = task.pickSource;
+    }
+    if (!rawCard.pick_source_label && task.pickSourceLabel) {
+      rawCard.pick_source_label = task.pickSourceLabel;
+    }
+    if (!rawCard.pick_source_kind && task.pickSourceKind) {
+      rawCard.pick_source_kind = task.pickSourceKind;
+    }
 
     const entry: AnalysisHistoryEntry = {
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),

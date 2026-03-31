@@ -5,7 +5,7 @@ const dotenv = require("dotenv");
 
 const CONSENT_PROTOCOL_ROOT = path.resolve(process.cwd(), "../consent-protocol");
 const REPO_ROOT = path.resolve(process.cwd(), "..");
-const ENV_FILES = [".env.local.local", ".env.local"];
+const ENV_FILES = [".env", ".env.local"];
 const ROUTE_LAYOUT_CONTRACT = require(path.resolve(
   process.cwd(),
   "lib/navigation/app-route-layout.contract.json"
@@ -32,9 +32,33 @@ function resolveRawPassphrase() {
   return process.env.KAI_TEST_PASSPHRASE || "";
 }
 
+function resolveReviewerUid() {
+  for (const fileName of ENV_FILES) {
+    const envPath = path.join(CONSENT_PROTOCOL_ROOT, fileName);
+    if (!fs.existsSync(envPath)) continue;
+    const source = fs.readFileSync(envPath, "utf8");
+    const reviewerMatch = source.match(/^REVIEWER_UID=(.+)$/m);
+    const reviewerUid = reviewerMatch?.[1]?.trim();
+    if (reviewerUid && !/^__.+__$/.test(reviewerUid)) {
+      return reviewerUid;
+    }
+    const kaiTestMatch = source.match(/^KAI_TEST_USER_ID=(.+)$/m);
+    if (kaiTestMatch?.[1]) {
+      return kaiTestMatch[1].trim();
+    }
+  }
+
+  const runtimeReviewer = process.env.REVIEWER_UID || "";
+  if (runtimeReviewer && !/^__.+__$/.test(runtimeReviewer)) {
+    return runtimeReviewer;
+  }
+  return process.env.KAI_TEST_USER_ID || "";
+}
+
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 const BASE_ORIGIN = new URL(BASE_URL).origin;
 const PASS = resolveRawPassphrase();
+const REVIEWER_UID = resolveReviewerUid();
 const SHELL_TOKEN_KEYS = [
   "--page-top-start",
   "--page-top-local-offset",
@@ -414,6 +438,128 @@ async function unlockIfNeeded(page) {
   throw new Error(`Vault unlock did not complete. Snapshot: ${JSON.stringify(snapshot)}`);
 }
 
+async function resolveInvestorOnboardingIfNeeded(page) {
+  const onboardingHeading = page.getByRole("heading", {
+    name: /how long do you expect to keep this money invested/i,
+  });
+  const onboardingProgress = page.getByText(/step 1 of 3|step 2 of 3|step 3 of 3/i).first();
+  const skipButton = page.getByRole("button", { name: /^skip$/i }).first();
+  const nextButton = page.getByRole("button", { name: /^next$/i }).first();
+  const continueButton = page.getByRole("button", { name: /^continue$/i }).first();
+  const openPortfolioButton = page.getByRole("button", { name: /open portfolio/i }).first();
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const onOnboardingRoute = /\/kai\/onboarding(?:[/?#]|$)/i.test(page.url());
+    const headingVisible = await onboardingHeading.isVisible().catch(() => false);
+    const progressVisible = await onboardingProgress.isVisible().catch(() => false);
+    const skipVisible = await skipButton.isVisible().catch(() => false);
+    if (!onOnboardingRoute && !headingVisible && !progressVisible && !skipVisible) {
+      return { resolved: false };
+    }
+
+    if (await openPortfolioButton.isVisible().catch(() => false)) {
+      await openPortfolioButton.click({ force: true }).catch(() => undefined);
+      await page.waitForFunction(
+        () => !/\/kai\/onboarding(?:[/?#]|$)/i.test(window.location.pathname),
+        undefined,
+        { timeout: 15000 }
+      ).catch(() => undefined);
+      await page.waitForTimeout(1200).catch(() => undefined);
+      await unlockIfNeeded(page);
+      continue;
+    }
+
+    const promptText = (
+      (await page
+        .locator("main [role='heading'], main h1, main h2")
+        .first()
+        .textContent()
+        .catch(() => "")) || ""
+    ).trim();
+
+    const optionMatchers = [
+      {
+        prompt: /how long do you expect to keep this money invested/i,
+        option: /3.?7 years/i,
+      },
+      {
+        prompt: /if your portfolio drops 20%/i,
+        option: /stay invested and review the situation/i,
+      },
+      {
+        prompt: /which feels more comfortable/i,
+        option: /moderate ups and downs for better returns/i,
+      },
+    ];
+    const optionMatch = optionMatchers.find((entry) => entry.prompt.test(promptText));
+    if (optionMatch) {
+      const option = page.getByRole("radio", { name: optionMatch.option }).first();
+      if (await option.isVisible().catch(() => false)) {
+        await option.click({ force: true }).catch(() => undefined);
+        await page.waitForTimeout(500).catch(() => undefined);
+      }
+    }
+
+    if (await nextButton.isVisible().catch(() => false)) {
+      await nextButton.click({ force: true }).catch(() => undefined);
+      await page.waitForTimeout(1200).catch(() => undefined);
+      continue;
+    }
+
+    if (await continueButton.isVisible().catch(() => false)) {
+      await continueButton.click({ force: true }).catch(() => undefined);
+      await page.waitForTimeout(1500).catch(() => undefined);
+      continue;
+    }
+
+    if (skipVisible) {
+      await skipButton.click({ force: true }).catch(() => undefined);
+      await page.waitForTimeout(1500).catch(() => undefined);
+      continue;
+    }
+
+    await page.waitForTimeout(800);
+  }
+
+  return { resolved: true };
+}
+
+async function seedKaiOnboardingResolved(page, userId = REVIEWER_UID) {
+  if (!userId) return { seeded: false };
+
+  const now = new Date().toISOString();
+  await page.evaluate(
+    ({ uid, completedAt }) => {
+      const onboardingState = {
+        version: 1,
+        completed: true,
+        skipped: true,
+        completed_at: completedAt,
+        answers: {
+          investment_horizon: "medium_term",
+          drawdown_response: "stay",
+          volatility_preference: "moderate",
+        },
+        risk_score: 3,
+        risk_profile: "balanced",
+        synced_to_vault_at: null,
+        updated_at: completedAt,
+      };
+
+      window.localStorage.setItem(
+        `kai_pre_vault_onboarding_v1:fallback:${uid}`,
+        JSON.stringify(onboardingState)
+      );
+      window.sessionStorage.setItem(`kai_onboarding_complete:${uid}`, "1");
+      document.cookie = "kai_onboarding_required=0; path=/; SameSite=Lax; max-age=2592000";
+      document.cookie = "kai_onboarding_flow_active=0; path=/; SameSite=Lax; max-age=2592000";
+    },
+    { uid: userId, completedAt: now }
+  );
+
+  return { seeded: true, userId };
+}
+
 async function waitForRouteSurface(page) {
   const anchor = page.locator('[data-top-content-anchor="true"]').first();
   const blockingLoaders = [
@@ -425,6 +571,7 @@ async function waitForRouteSurface(page) {
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
     await unlockIfNeeded(page);
+    await resolveInvestorOnboardingIfNeeded(page);
 
     if (await anchor.isVisible().catch(() => false)) {
       return;
@@ -449,31 +596,89 @@ async function waitForRouteSurface(page) {
 
 async function ensurePersona(page, persona) {
   const targetRoute = persona === "ria" ? "/ria" : "/kai";
+  const chooserHeading = page.getByRole("heading", {
+    name: /start as an investor or set up ria first/i,
+  });
+  const chooserButton =
+    persona === "ria"
+      ? page.getByRole("button", { name: /^ria\b/i }).first()
+      : page.getByRole("button", { name: /^investor\b/i }).first();
+  const personaMatches = (currentLabel) => {
+    if (persona === "ria") {
+      return currentLabel.includes("ria");
+    }
+
+    const pathname = (() => {
+      try {
+        return new URL(page.url()).pathname;
+      } catch {
+        return "";
+      }
+    })();
+    const investorOnKaiShell =
+      /^\/kai(?:\/|$)/i.test(pathname) && !/\/kai\/onboarding(?:\/|$)/i.test(pathname);
+    return currentLabel.includes("investor") || investorOnKaiShell;
+  };
+
+  if (await chooserHeading.isVisible().catch(() => false)) {
+    await chooserButton.click();
+    await page.waitForTimeout(1500);
+    await unlockIfNeeded(page);
+    await resolveInvestorOnboardingIfNeeded(page);
+  }
+
+  await resolveInvestorOnboardingIfNeeded(page);
+
   let label = page.locator('[data-testid="top-app-bar-title"]').first();
   const initialLabelVisible = await label.isVisible().catch(() => false);
   if (!initialLabelVisible) {
     await gotoStable(page, targetRoute);
+    if (await chooserHeading.isVisible().catch(() => false)) {
+      await chooserButton.click();
+      await page.waitForTimeout(1500);
+      await unlockIfNeeded(page);
+      await resolveInvestorOnboardingIfNeeded(page);
+    }
     await waitForRouteSurface(page);
     await page.waitForTimeout(600);
   }
   label = page.locator('[data-testid="top-app-bar-title"]').first();
   await label.waitFor({ state: "visible", timeout: 15000 });
   let current = ((await label.textContent()) || "").trim().toLowerCase();
+  const onboardingShellVisible =
+    current.includes("get started") ||
+    (await page
+      .getByRole("heading", { name: /how long do you expect to keep this money invested/i })
+      .isVisible()
+      .catch(() => false)) ||
+    (await page.getByRole("button", { name: /^skip$/i }).first().isVisible().catch(() => false));
 
-  if ((persona === "ria" && current.includes("ria")) || (persona === "investor" && current.includes("investor"))) {
+  if (onboardingShellVisible) {
+    await resolveInvestorOnboardingIfNeeded(page);
+    await gotoStable(page, targetRoute);
+    await page.waitForTimeout(1200);
+    await unlockIfNeeded(page);
+    await waitForRouteSurface(page);
+    label = page.locator('[data-testid="top-app-bar-title"]').first();
+    await label.waitFor({ state: "visible", timeout: 15000 });
+    current = ((await label.textContent()) || "").trim().toLowerCase();
+  }
+
+  if (personaMatches(current)) {
     return { persona, switched: false };
   }
 
   await gotoStable(page, targetRoute);
   await page.waitForTimeout(1000);
   await unlockIfNeeded(page);
+  await resolveInvestorOnboardingIfNeeded(page);
   await page.waitForTimeout(600);
 
   label = page.locator('[data-testid="top-app-bar-title"]').first();
   await label.waitFor({ state: "visible", timeout: 15000 });
   current = ((await label.textContent()) || "").trim().toLowerCase();
 
-  if ((persona === "ria" && current.includes("ria")) || (persona === "investor" && current.includes("investor"))) {
+  if (personaMatches(current)) {
     return { persona, switched: false };
   }
 
@@ -882,6 +1087,7 @@ module.exports = {
   gotoStable,
   installPasskeyBypass,
   normalizeTokenValue,
+  seedKaiOnboardingResolved,
   resolveScenarioPath,
   slugify,
   summarizeRequests,

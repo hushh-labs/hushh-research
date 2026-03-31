@@ -75,6 +75,7 @@ export interface AnalysisHistoryDashboardProps {
   onSelectTicker: (ticker: string) => void;
   onViewHistory: (entry: AnalysisHistoryEntry) => void;
   showDebateInputs?: boolean;
+  ephemeralEntry?: AnalysisHistoryEntry | null;
 }
 
 interface DebateCoverageRow {
@@ -483,6 +484,17 @@ function upsertEntryInHistoryMap(
   return nextMap;
 }
 
+function mergeRunManagerHistoryEntries(
+  historyMap: AnalysisHistoryMap,
+  items: Array<{ entry: AnalysisHistoryEntry }>
+): AnalysisHistoryMap {
+  let nextMap = historyMap;
+  for (const { entry } of items) {
+    nextMap = upsertEntryInHistoryMap(nextMap, entry);
+  }
+  return nextMap;
+}
+
 function removeEntryFromHistoryMap(
   historyMap: AnalysisHistoryMap,
   entry: AnalysisHistoryEntry
@@ -694,6 +706,7 @@ export function AnalysisHistoryDashboard({
   onSelectTicker,
   onViewHistory,
   showDebateInputs = true,
+  ephemeralEntry,
 }: AnalysisHistoryDashboardProps) {
   const [entries, setEntries] = useState<HistoryEntryWithVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -717,6 +730,12 @@ export function AnalysisHistoryDashboard({
     setEntries(processHistory(nextMap));
   }, []);
 
+  useEffect(() => {
+    if (!ephemeralEntry) return;
+    const nextMap = upsertEntryInHistoryMap(historyMapRef.current, ephemeralEntry);
+    applyHistoryMap(nextMap);
+  }, [applyHistoryMap, ephemeralEntry]);
+
   const fetchHistory = useCallback(async () => {
     try {
       setLoading(true);
@@ -725,10 +744,18 @@ export function AnalysisHistoryDashboard({
         vaultKey,
         vaultOwnerToken,
       });
-      applyHistoryMap(nextMap);
+      const mergedMap = mergeRunManagerHistoryEntries(
+        nextMap,
+        DebateRunManagerService.getHistoryEntriesForUser(userId)
+      );
+      applyHistoryMap(mergedMap);
     } catch (err) {
       console.error("[AnalysisHistoryDashboard] Failed to load history:", err);
-      setEntries([]);
+      const mergedMap = mergeRunManagerHistoryEntries(
+        {},
+        DebateRunManagerService.getHistoryEntriesForUser(userId)
+      );
+      applyHistoryMap(mergedMap);
     } finally {
       setLoading(false);
     }
@@ -868,6 +895,14 @@ export function AnalysisHistoryDashboard({
   }, [applyHistoryMap, historyMap, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
+    const pendingEntries = DebateRunManagerService.getHistoryEntriesForUser(userId);
+    if (pendingEntries.length > 0) {
+      let nextMap = historyMapRef.current;
+      for (const { entry } of pendingEntries) {
+        nextMap = upsertEntryInHistoryMap(nextMap, entry);
+      }
+      applyHistoryMap(nextMap);
+    }
     return DebateRunManagerService.subscribeHistory((entry, task) => {
       if (task.userId !== userId) return;
       const nextMap = upsertEntryInHistoryMap(historyMapRef.current, entry);

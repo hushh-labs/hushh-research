@@ -26,6 +26,7 @@
     "verify:routes": "node scripts/verify-route-contracts.cjs",
     "verify:parity": "node scripts/verify-native-parity.cjs",
     "playwright:pkm-cache:audit": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/pkm-cache-audit playwright test --output=/tmp/hushh-audit/test-results scripts/playwright/pkm-cache-audit.spec.js",
+    "playwright:kai:debate": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/kai-debate playwright test --output=/tmp/hushh-audit/test-results scripts/playwright/kai-debate-flow.spec.js",
     "playwright:ria:audit": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/ria-audit playwright test --output=/tmp/hushh-audit/test-results scripts/playwright/ria-audit.spec.js",
     "playwright:top-shell:audit": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/top-shell-route-audit playwright test --output=/tmp/hushh-audit/test-results scripts/playwright/top-shell-route-audit.spec.js",
     "playwright:runtime:audit": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/runtime-audit playwright test --output=/tmp/hushh-audit/test-results scripts/playwright/runtime-audit.spec.js",
