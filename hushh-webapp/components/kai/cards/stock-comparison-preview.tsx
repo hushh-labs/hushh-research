@@ -94,7 +94,7 @@ export function StockComparisonPreview({
           {preview ? (
             <SurfaceInset className="p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-1">
+                <div className="min-w-0 space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                     Debate source
                   </p>
@@ -102,24 +102,30 @@ export function StockComparisonPreview({
                     Kai will use this active list context when the debate starts and when the result is saved.
                   </p>
                 </div>
-                <Select
-                  value={selectedSource?.id || preview.active_pick_source || "default"}
-                  onValueChange={(nextValue) => {
-                    if (!onPickSourceChange || nextValue === selectedSource?.id) return;
-                    onPickSourceChange(nextValue);
-                  }}
-                >
-                  <SelectTrigger className="h-10 min-w-[190px] rounded-full border-border/80 bg-background/80 text-left">
-                    <SelectValue placeholder="Default list" />
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    {displaySources.map((source: KaiHomePickSource) => (
-                      <SelectItem key={source.id} value={source.id}>
-                        {source.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="w-full sm:w-auto sm:min-w-[220px]">
+                  <Select
+                    value={selectedSource?.id || preview.active_pick_source || "default"}
+                    onValueChange={(nextValue) => {
+                      if (!onPickSourceChange || nextValue === selectedSource?.id) return;
+                      onPickSourceChange(nextValue);
+                    }}
+                  >
+                    <SelectTrigger className="h-10 w-full rounded-full border-border/80 bg-background/80 text-left shadow-sm">
+                      <SelectValue placeholder="Default list" />
+                    </SelectTrigger>
+                    <SelectContent
+                      align="end"
+                      position="popper"
+                      className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
+                    >
+                      {displaySources.map((source: KaiHomePickSource) => (
+                        <SelectItem key={source.id} value={source.id}>
+                          {source.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </SurfaceInset>
           ) : null}

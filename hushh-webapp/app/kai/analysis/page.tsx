@@ -710,14 +710,14 @@ function KaiAnalysisPageContent() {
               className="w-full"
             >
               <div className="flex justify-center">
-                <TabsList className="mx-auto grid h-auto w-full max-w-xl grid-cols-1 gap-1 p-1 min-[430px]:grid-cols-3">
-                  <TabsTrigger value="debate" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                <TabsList className="mx-auto grid h-auto w-full max-w-2xl grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
+                  <TabsTrigger value="debate" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
                     Debate
                   </TabsTrigger>
-                  <TabsTrigger value="summary" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                  <TabsTrigger value="summary" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
                     Summary
                   </TabsTrigger>
-                  <TabsTrigger value="detailed" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                  <TabsTrigger value="detailed" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
                     Detailed View
                   </TabsTrigger>
                 </TabsList>

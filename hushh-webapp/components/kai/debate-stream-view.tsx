@@ -1333,7 +1333,8 @@ export function DebateStreamView({
 
       try {
         let resolvedTask: DebateRunTask | null = null;
-        if (runId) {
+        const forceFreshRun = reloadNonce > 0;
+        if (runId && !forceFreshRun) {
           const existingTask = DebateRunManagerService.getTask(runId);
           if (existingTask && existingTask.userId === userId) {
             resolvedTask = existingTask;
@@ -1505,6 +1506,8 @@ export function DebateStreamView({
                   size="sm"
                   onClick={() => {
                     resetState();
+                    setCurrentRunId(null);
+                    setManagerTask(null);
                     setReloadNonce((prev) => prev + 1);
                   }}
                 >

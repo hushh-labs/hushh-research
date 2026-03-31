@@ -49,6 +49,7 @@ PROD_PROJECT_ID="${PROD_PROJECT_ID:-hushh-pda}"
 FORCE=false
 STRICT=false
 LOCAL_UATDB_PROXY_PORT="${LOCAL_UATDB_PROXY_PORT:-6543}"
+DEFAULT_LOCAL_CLOUDSQL_INSTANCE="${DEFAULT_LOCAL_CLOUDSQL_INSTANCE:-hushh-pda-uat:us-central1:hushh-uat-pg}"
 GCLOUD_TIMEOUT_SECONDS="${GCLOUD_TIMEOUT_SECONDS:-5}"
 LEGACY_CACHE_FIRST="${LEGACY_CACHE_FIRST:-false}"
 
@@ -650,6 +651,9 @@ hydrate_backend_local_uatdb() {
   runtime_db_port="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" 'DB_PORT' "$cache_file")"
   runtime_socket="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" 'DB_UNIX_SOCKET' "$cache_file")"
   instance_name="$(cloudsql_instance_for_backend "$project" || true)"
+  if [ -z "$instance_name" ] && [ "$project" = "$UAT_PROJECT_ID" ]; then
+    instance_name="$DEFAULT_LOCAL_CLOUDSQL_INSTANCE"
+  fi
 
   if [[ "$runtime_db_host" == "cloudsql-socket" || "$runtime_socket" == /cloudsql/* || -n "$instance_name" ]]; then
     upsert_env_value "$file" "DB_HOST" "127.0.0.1"
