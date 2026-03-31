@@ -15,7 +15,7 @@ const metadataHotGet = createHotGetJsonCache({
 });
 const PKM_PROXY_TIMEOUT_MS = Number.parseInt(process.env.PKM_PROXY_TIMEOUT_MS ?? "45000", 10);
 const PKM_PROXY_WRITE_TIMEOUT_MS = Number.parseInt(
-  process.env.PKM_PROXY_WRITE_TIMEOUT_MS ?? "90000",
+  process.env.PKM_PROXY_WRITE_TIMEOUT_MS ?? "180000",
   10
 );
 

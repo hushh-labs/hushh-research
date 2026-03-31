@@ -271,7 +271,7 @@ export function Providers({ children }: ProvidersProps) {
                                       "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
                                       "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
                                       "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
-                                      "--app-bar-glass-blur": "6px",
+                                      "--app-bar-glass-blur": "2px",
                                       "--app-bar-shadow": "none",
                                       "--app-bar-mask-overscan": "30px",
                                     } as CSSProperties
@@ -356,7 +356,7 @@ export function Providers({ children }: ProvidersProps) {
                                       "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
                                       "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
                                       "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
-                                      "--app-bar-glass-blur": "6px",
+                                      "--app-bar-glass-blur": "2px",
                                       "--app-bar-shadow": "none",
                                       "--app-bar-mask-overscan": "30px",
                                     } as CSSProperties

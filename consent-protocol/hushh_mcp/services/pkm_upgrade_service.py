@@ -325,6 +325,8 @@ class PkmUpgradeService:
         if latest_run:
             latest_run["mode"] = self._clean_text(latest_run.get("mode")) or "real"
             latest_run["error_context"] = self._extract_run_error_context(latest_run)
+        if latest_run and latest_run.get("status") == "failed" and not stale_domains:
+            latest_run = None
         if latest_run and latest_run["status"] in _ACTIVE_RUN_STATUSES:
             upgrade_status = latest_run["status"]
         elif latest_run and latest_run["status"] == "failed" and stale_domains:
