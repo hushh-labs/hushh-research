@@ -57,7 +57,7 @@ bash scripts/env/use_profile.sh uat-remote
 bash scripts/env/use_profile.sh prod-remote
 ```
 
-`make local` and `make local-backend` now run IAM schema verification against the active UAT-backed database before booting. If IAM is incomplete, the launcher exits instead of silently falling back to investor-compatibility mode.
+The local UAT-backed backend launcher now runs IAM schema verification before booting. If IAM is incomplete, it exits instead of silently falling back to investor-compatibility mode.
 
 Profile-aware frontend-only launcher:
 

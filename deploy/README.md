@@ -69,7 +69,7 @@ Runtime profile sources (local only, not committed):
 `local-uatdb` backend note:
 
 - Start the backend with `bash scripts/runtime/run_backend_local.sh local-uatdb`
-  or the `make local-backend` wrapper.
+  when you need the UAT-backed local backend path.
 - Do not start local UAT DB access with bare `python`/`uvicorn` unless the
   proxy is already running.
 - The launcher starts `cloud-sql-proxy` automatically for the UAT Cloud SQL
@@ -77,17 +77,6 @@ Runtime profile sources (local only, not committed):
   active backend env, or `CLOUDSQL_PROXY_CREDENTIALS_FILE` if explicitly set.
 - The launcher refuses to fall back to local `gcloud`/ADC credentials for this
   path.
-
-Makefile wrappers:
-
-```bash
-make local
-make uat
-make prod
-make local-web
-make uat-web
-make local-backend
-```
 
 ### Blocking vs optional validation
 
@@ -100,7 +89,7 @@ Blocking by default:
 
 Canonical executor:
 
-- `scripts/ci/orchestrate.sh` (used by GitHub Actions stages and local wrappers)
+- `scripts/ci/orchestrate.sh` (used by GitHub Actions stages and local entrypoints)
 
 Optional/advisory by default:
 
