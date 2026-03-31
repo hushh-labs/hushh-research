@@ -1,31 +1,21 @@
 #!/usr/bin/env bash
 
-runtime_modes() {
-  printf '%s\n' "local" "uat" "prod"
-}
-
 runtime_profiles() {
-  runtime_modes
+  printf '%s\n' "local-uatdb" "uat-remote" "prod-remote"
 }
 
 runtime_profiles_csv() {
-  printf 'local, uat, prod'
+  printf 'local-uatdb, uat-remote, prod-remote'
 }
 
-normalize_runtime_mode() {
+normalize_runtime_profile() {
   local raw="${1:-}"
   local normalized
   normalized="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | xargs)"
 
   case "$normalized" in
-    local|development|dev|local-uatdb)
-      printf 'local'
-      ;;
-    uat|uat-remote)
-      printf 'uat'
-      ;;
-    prod|production|prod-remote)
-      printf 'prod'
+    local-uatdb|uat-remote|prod-remote)
+      printf '%s' "$normalized"
       ;;
     *)
       return 1
@@ -33,30 +23,26 @@ normalize_runtime_mode() {
   esac
 }
 
-normalize_runtime_profile() {
-  normalize_runtime_mode "$1"
-}
-
 runtime_profile_backend_mode() {
   case "${1:-}" in
-    local) printf 'local' ;;
-    uat|prod) printf 'remote' ;;
+    local-uatdb) printf 'local' ;;
+    uat-remote|prod-remote) printf 'remote' ;;
     *) return 1 ;;
   esac
 }
 
 runtime_profile_frontend_mode() {
   case "${1:-}" in
-    local|uat|prod) printf 'local' ;;
+    local-uatdb|uat-remote|prod-remote) printf 'local' ;;
     *) return 1 ;;
   esac
 }
 
 runtime_profile_backend_environment() {
   case "${1:-}" in
-    local) printf 'development' ;;
-    uat) printf 'uat' ;;
-    prod) printf 'production' ;;
+    local-uatdb) printf 'development' ;;
+    uat-remote) printf 'uat' ;;
+    prod-remote) printf 'production' ;;
     *) return 1 ;;
   esac
 }
@@ -67,21 +53,21 @@ runtime_profile_frontend_environment() {
 
 runtime_profile_resource_target() {
   case "${1:-}" in
-    local|uat) printf 'uat' ;;
-    prod) printf 'production' ;;
+    local-uatdb|uat-remote) printf 'uat' ;;
+    prod-remote) printf 'production' ;;
     *) return 1 ;;
   esac
 }
 
 runtime_profile_description() {
   case "${1:-}" in
-    local)
+    local-uatdb)
       printf 'local frontend + local backend, backed by UAT cloud resources'
       ;;
-    uat)
+    uat-remote)
       printf 'local frontend only, pointed at deployed UAT backend'
       ;;
-    prod)
+    prod-remote)
       printf 'local frontend only, pointed at deployed production backend'
       ;;
     *)
@@ -90,11 +76,10 @@ runtime_profile_description() {
   esac
 }
 
+runtime_profile_backend_source() {
+  printf '.env.%s.local' "${1:-}"
+}
+
 runtime_profile_frontend_source() {
-  case "${1:-}" in
-    local) printf '.env.local.local' ;;
-    uat) printf '.env.uat.local' ;;
-    prod) printf '.env.prod.local' ;;
-    *) return 1 ;;
-  esac
+  printf '.env.%s.local' "${1:-}"
 }
