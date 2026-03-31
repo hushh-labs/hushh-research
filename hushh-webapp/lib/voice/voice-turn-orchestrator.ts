@@ -40,6 +40,7 @@ type VoicePlannerV2Envelope = {
   response_id?: unknown;
   intent?: { name?: unknown; confidence?: unknown } | null;
   action?: { type?: unknown; payload?: unknown } | null;
+  execution_allowed?: unknown;
   needs_confirmation?: unknown;
   ack_text?: unknown;
   final_text?: unknown;
@@ -107,6 +108,8 @@ export type VoiceTurnOrchestratorConfig = {
     response: VoiceResponse;
     groundedPlan?: GroundedVoicePlan;
     memory?: VoiceMemoryHint;
+    executionAllowed?: boolean;
+    needsConfirmation?: boolean;
   }) => Promise<unknown> | unknown;
   speak: (input: VoiceTurnOrchestratorSpeakInput) => Promise<void>;
   onStageChange?: (stage: "planning" | "dispatch" | "speaking_ack" | "speaking_final" | "idle") => void;
@@ -157,9 +160,8 @@ export class VoiceTurnOrchestrator {
     this.activeToken += 1;
     const active = this.activeAbortController;
     this.activeAbortController = null;
-    if (active) {
-      active.abort(reason);
-    }
+    if (!active) return;
+    active.abort(reason);
     this.config.onStageChange?.("idle");
     this.config.onDebug?.("orchestrator_turn_cancelled", { reason });
   }
@@ -227,6 +229,20 @@ export class VoiceTurnOrchestrator {
       const plannerEnvelope = (await planningResponse
         .json()
         .catch(() => ({}))) as VoicePlannerV2Envelope;
+      if (!planningResponse.ok) {
+        const detail =
+          plannerEnvelope &&
+          typeof plannerEnvelope === "object" &&
+          "detail" in plannerEnvelope
+            ? plannerSafeText((plannerEnvelope as Record<string, unknown>).detail)
+            : null;
+        this.config.onDebug?.("planner_http_error", {
+          status: planningResponse.status,
+          response_id: plannerSafeText(plannerEnvelope.response_id),
+          detail,
+        });
+        throw new Error(detail || `VOICE_PLANNER_HTTP_${planningResponse.status}`);
+      }
       const validatedPlan = validateVoicePlanPayload(plannerEnvelope);
       const normalizedPlan =
         validatedPlan ||
@@ -251,6 +267,8 @@ export class VoiceTurnOrchestrator {
       const plannerResponse = normalizedPlan.response;
       const responseId =
         plannerSafeText(plannerEnvelope.response_id) || makeResponseId(turnId);
+      const executionAllowed = normalizedPlan.execution_allowed !== false;
+      const needsConfirmation = normalizedPlan.needs_confirmation === true;
       const isLongRunning = plannerEnvelope.is_long_running === true;
       const ackText = plannerSafeText(plannerEnvelope.ack_text);
       const memoryWriteCandidates = parsePlannerMemoryWriteCandidates(
@@ -414,6 +432,8 @@ export class VoiceTurnOrchestrator {
           response,
           groundedPlan,
           memory: normalizedPlan.memory,
+          executionAllowed,
+          needsConfirmation,
         })
       );
 
@@ -432,12 +452,19 @@ export class VoiceTurnOrchestrator {
           responseId,
           segmentType: "final",
         });
-        await this.config.speak({
-          text: finalText,
-          turnId,
-          responseId,
-          segmentType: "final",
-        });
+        try {
+          await this.config.speak({
+            text: finalText,
+            turnId,
+            responseId,
+            segmentType: "final",
+          });
+        } catch (error) {
+          this.config.onDebug?.("final_tts_failed_turn_continues", {
+            error: error instanceof Error ? error.message : "unknown_error",
+            response_kind: response.kind,
+          });
+        }
       }
 
       if (!this.isTokenActive(token)) return null;

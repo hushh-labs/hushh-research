@@ -16,6 +16,10 @@ type VoiceCompactStatusProps = {
   onStopSpeaking?: () => void;
   onReplay?: () => void;
   onRetry?: () => void;
+  onConfirm?: () => void;
+  onCancel?: () => void;
+  confirmLabel?: string;
+  cancelLabel?: string;
 };
 
 function renderDots() {
@@ -37,8 +41,13 @@ export function VoiceCompactStatus({
   onStopSpeaking,
   onReplay,
   onRetry,
+  onConfirm,
+  onCancel,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
 }: VoiceCompactStatusProps) {
   const showWaveform = mode !== "processing";
+  const showReplay = Boolean(onReplay) && (mode === "speaking" || mode === "retry_ready");
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-lg backdrop-blur">
@@ -64,7 +73,7 @@ export function VoiceCompactStatus({
           ) : null}
         </div>
 
-        {mode === "speaking" && (onStopSpeaking || onReplay) ? (
+        {mode === "speaking" && (onStopSpeaking || showReplay) ? (
           <div className="flex shrink-0 items-center gap-1.5">
             {onStopSpeaking ? (
               <button
@@ -76,7 +85,7 @@ export function VoiceCompactStatus({
                 <VolumeX className="h-3.5 w-3.5" />
               </button>
             ) : null}
-            {onReplay ? (
+            {showReplay ? (
               <button
                 type="button"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -90,14 +99,45 @@ export function VoiceCompactStatus({
         ) : null}
 
         {mode === "retry_ready" ? (
-          <button
-            type="button"
-            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-border/60 bg-background px-3 text-[11px] font-semibold text-foreground transition-colors hover:bg-muted"
-            onClick={onRetry}
-          >
-            <Volume2 className="h-3.5 w-3.5" />
-            Retry
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {showReplay ? (
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={onReplay}
+                aria-label="Replay last response"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+            {onCancel ? (
+              <button
+                type="button"
+                className="inline-flex h-8 shrink-0 items-center rounded-full border border-border/60 bg-background px-3 text-[11px] font-semibold text-foreground transition-colors hover:bg-muted"
+                onClick={onCancel}
+              >
+                {cancelLabel}
+              </button>
+            ) : null}
+            {onConfirm ? (
+              <button
+                type="button"
+                className="inline-flex h-8 shrink-0 items-center rounded-full bg-primary px-3 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                onClick={onConfirm}
+              >
+                {confirmLabel}
+              </button>
+            ) : onRetry ? (
+              <button
+                type="button"
+                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-border/60 bg-background px-3 text-[11px] font-semibold text-foreground transition-colors hover:bg-muted"
+                onClick={onRetry}
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

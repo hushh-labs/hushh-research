@@ -14,6 +14,7 @@ const originalEnv = { ...process.env };
 class FakeAudio {
   static instances: FakeAudio[] = [];
   static autoEnd = true;
+  static rejectPlayWith: Error | null = null;
 
   src = "";
   onended: (() => void) | null = null;
@@ -27,6 +28,9 @@ class FakeAudio {
   }
 
   play(): Promise<void> {
+    if (FakeAudio.rejectPlayWith) {
+      return Promise.reject(FakeAudio.rejectPlayWith);
+    }
     this.onplay?.();
     if (FakeAudio.autoEnd) {
       window.setTimeout(() => {
@@ -49,6 +53,7 @@ describe("VoiceTtsPlaybackManager", () => {
     synthesizeKaiVoiceMock.mockReset();
     FakeAudio.instances = [];
     FakeAudio.autoEnd = true;
+    FakeAudio.rejectPlayWith = null;
     globalThis.Audio = FakeAudio as unknown as typeof Audio;
     URL.createObjectURL = vi.fn(() => "blob:voice-test");
     URL.revokeObjectURL = vi.fn();
@@ -233,5 +238,59 @@ describe("VoiceTtsPlaybackManager", () => {
 
     expect(speechSynthesisSpeak).not.toHaveBeenCalled();
     expect(playbackFailures).toContain("VOICE_TTS_HTTP_502");
+  });
+
+  it("falls back from realtime stream TTS to backend TTS when enabled", async () => {
+    process.env.NEXT_PUBLIC_VOICE_V2_TTS_BACKEND_FALLBACK_ENABLED = "true";
+    const states: string[] = [];
+    const manager = new VoiceTtsPlaybackManager((state) => states.push(state));
+    const realtimeSpeak = vi.fn().mockRejectedValue(new Error("VOICE_STREAM_TTS_PLAYBACK_FAILED"));
+
+    synthesizeKaiVoiceMock.mockResolvedValue(
+      new Response(new Uint8Array([97, 98, 99]), {
+        status: 200,
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "X-Kai-TTS-Model": "gpt-4o-mini-tts",
+          "X-Kai-TTS-Voice": "alloy",
+          "X-Kai-TTS-Format": "mp3",
+          "X-Kai-TTS-Audio-Bytes": "3",
+        },
+      })
+    );
+
+    await manager.speak({
+      userId: "user_1",
+      vaultOwnerToken: "token_1",
+      text: "Hello world",
+      voiceTurnId: "vturn_realtime_fallback",
+      adapter: "realtime_stream_tts",
+      realtimeAdapter: {
+        speak: realtimeSpeak,
+      },
+    });
+
+    expect(realtimeSpeak).toHaveBeenCalledTimes(1);
+    expect(synthesizeKaiVoiceMock).toHaveBeenCalledTimes(1);
+    expect(states).toEqual(["loading", "idle", "loading", "playing", "idle"]);
+  });
+
+  it("rejects realtime stream TTS when playback never starts and fallback is disabled", async () => {
+    const manager = new VoiceTtsPlaybackManager();
+
+    await expect(
+      manager.speak({
+        userId: "user_1",
+        vaultOwnerToken: "token_1",
+        text: "Hello world",
+        voiceTurnId: "vturn_realtime_no_play",
+        adapter: "realtime_stream_tts",
+        realtimeAdapter: {
+          speak: async () => undefined,
+        },
+      })
+    ).rejects.toThrow("VOICE_STREAM_TTS_PLAYBACK_NOT_STARTED");
+
+    expect(synthesizeKaiVoiceMock).not.toHaveBeenCalled();
   });
 });

@@ -95,6 +95,37 @@ def _voice_rollout_state(user_id: str) -> dict[str, Any]:
     }
 
 
+def _voice_capability_state(user_id: str) -> dict[str, Any]:
+    rollout = _voice_rollout_state(user_id)
+    tool_execution_disabled = _voice_tool_execution_disabled()
+    execution_allowed = bool(rollout["enabled"] and not tool_execution_disabled)
+    enabled = bool(rollout["enabled"] and voice_service.realtime_enabled)
+    if enabled:
+        reason = None
+    elif not rollout["enabled"]:
+        reason = _VOICE_NOT_ENABLED_MESSAGE
+    else:
+        reason = "Realtime voice is temporarily unavailable."
+    return {
+        "user_id": user_id,
+        "enabled": enabled,
+        "reason": reason,
+        "voice_enabled": bool(rollout["enabled"]),
+        "execution_allowed": execution_allowed,
+        "tool_execution_disabled": tool_execution_disabled,
+        "rollout_reason": rollout["reason"],
+        "bucket": rollout["bucket"],
+        "canary_percent": rollout["canary_percent"],
+        "realtime_enabled": bool(rollout["enabled"] and voice_service.realtime_enabled),
+        "stt_enabled": bool(rollout["enabled"]),
+        "tts_enabled": bool(rollout["enabled"]),
+        "tts_timeout_ms": int(voice_service.tts_timeout_seconds * 1000),
+        "tts_model": str(voice_service.tts_model or ""),
+        "tts_voice": str(voice_service.tts_default_voice or ""),
+        "tts_format": str(voice_service.tts_format or ""),
+    }
+
+
 def _resolve_voice_turn_id(request: Request) -> str:
     raw = (request.headers.get("x-voice-turn-id") or "").strip()
     if raw:
@@ -146,6 +177,7 @@ def _log_voice_audit(
         ),
         "ticker": response_payload.get("ticker"),
         "run_id": response_payload.get("run_id"),
+        "execution_allowed": response_payload.get("execution_allowed"),
         "meta": meta or {},
     }
     logger.info("[KAI_VOICE_AUDIT] %s", json.dumps(payload, sort_keys=True))
@@ -304,6 +336,7 @@ class VoiceResponsePayload(BaseModel):
     kind: str
     message: str
     speak: bool = True
+    execution_allowed: bool = False
     reason: Optional[str] = None
     task: Optional[str] = None
     ticker: Optional[str] = None
@@ -314,6 +347,7 @@ class VoiceResponsePayload(BaseModel):
 
 class VoicePlanResponse(BaseModel):
     response: VoiceResponsePayload
+    execution_allowed: bool = False
     tool_call: dict[str, Any]
     memory: VoiceMemoryHints
     elapsed_ms: int
@@ -345,6 +379,29 @@ class VoiceTTSRequest(BaseModel):
     voice: Optional[str] = "alloy"
 
 
+class VoiceCapabilityRequest(BaseModel):
+    user_id: str
+
+
+class VoiceCapabilityResponse(BaseModel):
+    user_id: str
+    enabled: bool
+    reason: Optional[str] = None
+    voice_enabled: bool
+    execution_allowed: bool
+    tool_execution_disabled: bool
+    rollout_reason: str
+    bucket: Optional[int] = None
+    canary_percent: Optional[int] = None
+    realtime_enabled: bool = False
+    stt_enabled: bool = False
+    tts_enabled: bool = False
+    tts_timeout_ms: int
+    tts_model: str
+    tts_voice: str
+    tts_format: str
+
+
 class VoiceRealtimeSessionRequest(BaseModel):
     user_id: str
     voice: Optional[str] = None
@@ -370,6 +427,7 @@ class VoiceUnderstandResponse(BaseModel):
     stt_audio_bytes: int
     stt_model: str
     response: VoiceResponsePayload
+    execution_allowed: bool = False
     tool_call: dict[str, Any]
     memory: VoiceMemoryHints
     planner_elapsed_ms: int
@@ -815,6 +873,46 @@ async def kai_voice_realtime_session(
         raise HTTPException(status_code=500, detail="Realtime session creation failed")
 
 
+@router.post("/voice/capability", response_model=VoiceCapabilityResponse)
+async def kai_voice_capability(
+    request: Request,
+    http_response: Response,
+    body: VoiceCapabilityRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    turn_id = _resolve_voice_turn_id(request)
+    _set_voice_turn_id_header(http_response, turn_id)
+    if token_data.get("user_id") != body.user_id:
+        _trace_voice_stage(
+            turn_id,
+            "response_sent",
+            {
+                "route": "/voice/capability",
+                "status": "error",
+                "http_status": 403,
+                "error": "Token user_id does not match request user_id",
+            },
+            finalize=True,
+        )
+        raise HTTPException(status_code=403, detail="Token user_id does not match request user_id")
+
+    capability = _voice_capability_state(body.user_id)
+    _trace_voice_stage(
+        turn_id,
+        "response_sent",
+        {
+            "route": "/voice/capability",
+            "status": "ok",
+            "http_status": 200,
+            "voice_enabled": capability["voice_enabled"],
+            "execution_allowed": capability["execution_allowed"],
+            "rollout_reason": capability["rollout_reason"],
+        },
+        finalize=True,
+    )
+    return VoiceCapabilityResponse(**capability)
+
+
 @router.post("/voice/stt", response_model=VoiceSTTResponse)
 async def kai_voice_stt(
     request: Request,
@@ -850,6 +948,33 @@ async def kai_voice_stt(
         raise HTTPException(status_code=403, detail="Token user_id does not match request user_id")
 
     try:
+        rollout = _voice_rollout_state(user_id)
+        if not rollout["enabled"]:
+            _log_voice_metric(
+                "stt_rollout_blocked_count",
+                1,
+                turn_id=turn_id,
+                user_id=user_id,
+                tags={
+                    "reason": rollout["reason"],
+                    "canary_percent": rollout["canary_percent"],
+                },
+            )
+            _trace_voice_stage(
+                turn_id,
+                "response_sent",
+                {
+                    "route": "/voice/stt",
+                    "status": "error",
+                    "http_status": 403,
+                    "error": _VOICE_NOT_ENABLED_MESSAGE,
+                    "rollout_reason": rollout["reason"],
+                    "canary_percent": rollout["canary_percent"],
+                    "bucket": rollout["bucket"],
+                },
+                finalize=True,
+            )
+            raise HTTPException(status_code=403, detail=_VOICE_NOT_ENABLED_MESSAGE)
         max_audio_bytes = _voice_upload_max_bytes()
         await _ensure_client_connected(request, turn_id=turn_id, route="/voice/stt")
         _enforce_voice_request_size_guard(request, max_bytes=max_audio_bytes)
@@ -1197,6 +1322,7 @@ async def kai_voice_understand(
                 stt_audio_bytes=0,
                 stt_model="not_run",
                 response=VoiceResponsePayload(**response_payload),
+                execution_allowed=bool(response_payload.get("execution_allowed")),
                 tool_call=tool_call,
                 memory=VoiceMemoryHints(**memory_hint),
                 planner_elapsed_ms=0,
@@ -1510,6 +1636,7 @@ async def kai_voice_understand(
                 stt_audio_bytes=len(audio_bytes),
                 stt_model=stt_model_used,
                 response=VoiceResponsePayload(**response_payload),
+                execution_allowed=bool(response_payload.get("execution_allowed")),
                 tool_call=tool_call,
                 memory=VoiceMemoryHints(**memory_hint),
                 planner_elapsed_ms=planner_elapsed_ms,
@@ -1733,6 +1860,7 @@ async def kai_voice_understand(
             stt_audio_bytes=len(audio_bytes),
             stt_model=stt_model_used,
             response=VoiceResponsePayload(**response_payload),
+            execution_allowed=bool(response_payload.get("execution_allowed")),
             tool_call=tool_call,
             memory=VoiceMemoryHints(**memory_hint),
             planner_elapsed_ms=planner_elapsed_ms,
@@ -2177,6 +2305,7 @@ async def kai_voice_plan(
             )
             return VoicePlanResponse(
                 response=VoiceResponsePayload(**response_payload),
+                execution_allowed=bool(response_payload.get("execution_allowed")),
                 tool_call=tool_call,
                 memory=VoiceMemoryHints(**response_payload["memory"]),
                 elapsed_ms=elapsed_ms,
@@ -2220,6 +2349,18 @@ async def kai_voice_plan(
             context=planner_context,
             active_analysis=active_analysis,
             active_import=active_import,
+        )
+        await _ensure_client_connected(
+            request,
+            turn_id=turn_id,
+            route="/voice/plan",
+            stage="request_aborted",
+            metadata={
+                "abort_stage": "post_planner_upstream",
+                "current_stage": "planner_finished",
+                "upstream_in_flight": False,
+            },
+            finalize=False,
         )
         _trace_voice_stage(
             turn_id,
@@ -2345,6 +2486,7 @@ async def kai_voice_plan(
         )
         return VoicePlanResponse(
             response=VoiceResponsePayload(**response),
+            execution_allowed=bool(response.get("execution_allowed")),
             tool_call=tool_call,
             memory=VoiceMemoryHints(**memory_hint),
             elapsed_ms=elapsed_ms,
@@ -2474,6 +2616,35 @@ async def kai_voice_tts(
         raise HTTPException(status_code=403, detail="Token user_id does not match request user_id")
 
     try:
+        rollout = _voice_rollout_state(body.user_id)
+        if not rollout["enabled"]:
+            _log_voice_metric(
+                "tts_rollout_blocked_count",
+                1,
+                turn_id=turn_id,
+                user_id=body.user_id,
+                tags={
+                    "reason": rollout["reason"],
+                    "canary_percent": rollout["canary_percent"],
+                },
+            )
+            _trace_voice_stage(
+                turn_id,
+                "response_sent",
+                {
+                    "route": "/voice/tts",
+                    "origin": "backend_confirmed",
+                    "source": "kai_voice_tts",
+                    "status": "error",
+                    "http_status": 403,
+                    "error": _VOICE_NOT_ENABLED_MESSAGE,
+                    "rollout_reason": rollout["reason"],
+                    "canary_percent": rollout["canary_percent"],
+                    "bucket": rollout["bucket"],
+                },
+                finalize=True,
+            )
+            raise HTTPException(status_code=403, detail=_VOICE_NOT_ENABLED_MESSAGE)
         await _ensure_client_connected(request, turn_id=turn_id, route="/voice/tts")
         _trace_voice_stage(
             turn_id,
@@ -2482,7 +2653,8 @@ async def kai_voice_tts(
                 "route": "/voice/tts",
                 "text_chars": len(body.text or ""),
                 "voice": body.voice or voice_service.tts_default_voice,
-                "candidate_order": voice_service._ordered_tts_model_candidates(),
+                "model": voice_service.tts_model,
+                "timeout_ms": int(voice_service.tts_timeout_seconds * 1000),
             },
         )
         _trace_voice_stage(
@@ -2494,7 +2666,8 @@ async def kai_voice_tts(
                 "source": "kai_voice_tts",
                 "text_chars": len(body.text or ""),
                 "voice": body.voice or voice_service.tts_default_voice,
-                "candidate_order": voice_service._ordered_tts_model_candidates(),
+                "model": voice_service.tts_model,
+                "timeout_ms": int(voice_service.tts_timeout_seconds * 1000),
             },
         )
 
@@ -2515,6 +2688,18 @@ async def kai_voice_tts(
             voice=body.voice or voice_service.tts_default_voice,
             trace_hook=_trace_tts_upstream,
         )
+        await _ensure_client_connected(
+            request,
+            turn_id=turn_id,
+            route="/voice/tts",
+            stage="request_aborted",
+            metadata={
+                "abort_stage": "post_tts_upstream",
+                "current_stage": "tts_finished",
+                "upstream_in_flight": False,
+            },
+            finalize=False,
+        )
         _trace_voice_stage(
             turn_id,
             "tts_finished",
@@ -2525,11 +2710,7 @@ async def kai_voice_tts(
                 "voice": tts_meta.get("voice"),
                 "format": tts_meta.get("format"),
                 "source": tts_meta.get("source") or "backend_openai_audio",
-                "fallback_attempted": tts_meta.get("fallback_attempted"),
-                "candidate_order": tts_meta.get("candidate_order"),
                 "attempts": tts_meta.get("attempts"),
-                "pruned_unavailable": tts_meta.get("pruned_unavailable"),
-                "pruned_models": tts_meta.get("pruned_models"),
                 "mime_type": mime_type,
                 "audio_bytes": len(audio_bytes),
             },
@@ -2551,7 +2732,7 @@ async def kai_voice_tts(
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info(
             "[Kai Voice] route=/voice/tts status=ok turn_id=%s elapsed_ms=%s text_chars=%s "
-            "audio_bytes=%s model=%s voice=%s format=%s source=%s pruned_unavailable=%s pruned_models=%s",
+            "audio_bytes=%s model=%s voice=%s format=%s source=%s",
             turn_id,
             elapsed_ms,
             len(body.text or ""),
@@ -2560,8 +2741,6 @@ async def kai_voice_tts(
             tts_meta.get("voice", ""),
             tts_meta.get("format", ""),
             tts_meta.get("source", "backend_openai_audio"),
-            tts_meta.get("pruned_unavailable", "false"),
-            tts_meta.get("pruned_models", ""),
         )
         _log_voice_metric(
             "tts_latency_ms",
@@ -2591,9 +2770,7 @@ async def kai_voice_tts(
             "X-Kai-TTS-Voice": str(tts_meta.get("voice") or ""),
             "X-Kai-TTS-Format": str(tts_meta.get("format") or ""),
             "X-Kai-TTS-Source": str(tts_meta.get("source") or "backend_openai_audio"),
-            "X-Kai-TTS-Candidate-Order": str(tts_meta.get("candidate_order") or ""),
-            "X-Kai-TTS-Fallback-Attempted": str(tts_meta.get("fallback_attempted") or "false"),
-            "X-Kai-TTS-Attempts-Count": str(len(list(tts_meta.get("attempts") or []))),
+            "X-Kai-TTS-Timeout-Ms": str(int(voice_service.tts_timeout_seconds * 1000)),
             "X-Kai-TTS-Audio-Bytes": str(len(audio_bytes)),
             "X-Kai-TTS-OpenAI-Http-Ms": str(int(tts_meta.get("openai_http_ms") or 0)),
             "Cache-Control": "no-store",

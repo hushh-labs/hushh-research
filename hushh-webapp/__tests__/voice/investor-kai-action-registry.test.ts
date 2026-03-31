@@ -69,7 +69,9 @@ describe("investor-kai-action-registry", () => {
       (action) => action.wiring.status === "dead"
     );
     expect(deadActions.length).toBeGreaterThan(0);
-    expect(deadActions.some((action) => action.id === "command.optimize_legacy")).toBe(true);
+    expect(deadActions.some((action) => action.id === "analysis.open_transcript_tab_legacy")).toBe(
+      true
+    );
   });
 
   it("keeps Gmail and support backend effect paths aligned with live profile APIs", () => {

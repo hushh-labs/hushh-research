@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { KaiSearchBar } from "@/components/kai/kai-search-bar";
@@ -18,6 +18,7 @@ import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { isVoiceEligibleRouteScreen } from "@/lib/voice/voice-route-eligibility";
 import type { AppRuntimeState, VoiceMemoryHint, VoiceResponse } from "@/lib/voice/voice-types";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
 import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
@@ -53,6 +54,7 @@ function computeAnalyzeEligibilityFromHolding(holding: Record<string, unknown>):
 export function KaiCommandBarGlobal() {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken, vaultKey, tokenExpiresAt } = useVault();
   const handleBack = useCallback(() => {
@@ -62,6 +64,7 @@ export function KaiCommandBarGlobal() {
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const analysisParams = useKaiSession((s) => s.analysisParams);
   const appendVoiceDebugEvent = useVoiceSession((s) => s.appendDebugEvent);
+  const setPendingConfirmation = useVoiceSession((s) => s.setPendingConfirmation);
   const { lastToolName, lastTicker, setLastVoiceTurn } = useVoiceSession();
   const cache = useMemo(() => CacheService.getInstance(), []);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
@@ -71,6 +74,15 @@ export function KaiCommandBarGlobal() {
   );
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const userId = user?.uid ?? "";
+  const [voiceCapabilityState, setVoiceCapabilityState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    enabled: boolean;
+    reason: string | null;
+  }>({
+    status: "idle",
+    enabled: false,
+    reason: null,
+  });
 
   useEffect(() => {
     const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
@@ -196,18 +208,87 @@ export function KaiCommandBarGlobal() {
   const signedIn = Boolean(user?.uid);
   const tokenAvailable = Boolean(vaultOwnerToken);
   const tokenValid = Boolean(vaultOwnerToken) && (!tokenExpiresAt || tokenExpiresAt > Date.now());
-  const voiceAvailable = signedIn && isVaultUnlocked && tokenAvailable && tokenValid;
-  const onVaultScreen = pathname?.startsWith("/kai") ?? false;
+  const localVoiceReady = signedIn && isVaultUnlocked && tokenAvailable && tokenValid;
+  const routeQuery = searchParams?.toString() || "";
+  const pathnameWithQuery = routeQuery ? `${pathname || ""}?${routeQuery}` : pathname || "";
+  const routeInfo = useMemo(
+    () => deriveVoiceRouteScreen(pathname || "", routeQuery),
+    [pathname, routeQuery]
+  );
+  const voiceEligibleRoute = isVoiceEligibleRouteScreen(routeInfo.screen, chromeState.hideCommandBar);
+
+  useEffect(() => {
+    if (!voiceEligibleRoute) {
+      setVoiceCapabilityState({
+        status: "idle",
+        enabled: false,
+        reason: null,
+      });
+      return;
+    }
+    if (!localVoiceReady || !userId || !vaultOwnerToken) {
+      setVoiceCapabilityState({
+        status: "idle",
+        enabled: false,
+        reason: null,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setVoiceCapabilityState((current) => ({
+      status: "loading",
+      enabled: current.enabled,
+      reason: current.reason,
+    }));
+
+    void ApiService.getKaiVoiceCapabilityJson({
+      userId,
+      vaultOwnerToken,
+    })
+      .then((capability) => {
+        if (cancelled) return;
+        setVoiceCapabilityState({
+          status: "ready",
+          enabled: capability.enabled,
+          reason: capability.reason,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message =
+          error instanceof Error && error.message.trim()
+            ? error.message.trim()
+            : "Voice is temporarily unavailable.";
+        setVoiceCapabilityState({
+          status: "error",
+          enabled: false,
+          reason: message,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [localVoiceReady, userId, vaultOwnerToken, voiceEligibleRoute]);
+
+  const voiceCapabilityReady = voiceCapabilityState.status === "ready";
+  const voiceCapabilityEnabled = !localVoiceReady ? false : voiceCapabilityState.enabled;
+  const voiceAvailable = localVoiceReady && voiceCapabilityReady && voiceCapabilityEnabled;
   const voiceVisibilityMode: "enabled" | "disabled" | "hidden" = voiceAvailable
     ? "enabled"
-    : onVaultScreen
+    : voiceEligibleRoute
       ? "disabled"
       : "hidden";
   const voiceUnavailableReason = voiceAvailable
     ? undefined
     : !signedIn
       ? "Sign in to use voice"
-      : "Unlock your vault to use voice";
+      : !isVaultUnlocked || !tokenAvailable || !tokenValid
+        ? "Unlock your vault to use voice"
+        : voiceCapabilityState.status === "loading"
+          ? "Checking voice availability..."
+          : voiceCapabilityState.reason || "Voice is not enabled for this account yet.";
 
   const activeAnalysisTask = useMemo(() => {
     if (!userId) return null;
@@ -227,7 +308,6 @@ export function KaiCommandBarGlobal() {
     );
   }, [backgroundTaskState.tasks, userId]);
 
-  const routeInfo = useMemo(() => deriveVoiceRouteScreen(pathname || ""), [pathname]);
   const appRuntimeState = useMemo<AppRuntimeState>(
     () => ({
       auth: {
@@ -240,7 +320,7 @@ export function KaiCommandBarGlobal() {
         token_valid: tokenValid,
       },
       route: {
-        pathname: pathname || "",
+        pathname: pathnameWithQuery,
         screen: routeInfo.screen,
         subview: routeInfo.subview ?? null,
       },
@@ -273,7 +353,7 @@ export function KaiCommandBarGlobal() {
       isVaultUnlocked,
       lastTicker,
       lastToolName,
-      pathname,
+      pathnameWithQuery,
       routeInfo.screen,
       routeInfo.subview,
       runningImportTask,
@@ -289,13 +369,22 @@ export function KaiCommandBarGlobal() {
   const voiceContext = useMemo(
     () => ({
       route: pathname,
+      route_query: routeQuery || null,
       stock_analysis_active: appRuntimeState.runtime.analysis_active,
       last_tool_name: lastToolName,
       last_ticker: lastTicker,
       current_ticker: appRuntimeState.runtime.analysis_ticker || null,
       has_portfolio_data: hasPortfolioData,
     }),
-    [appRuntimeState.runtime.analysis_active, appRuntimeState.runtime.analysis_ticker, hasPortfolioData, lastTicker, lastToolName, pathname]
+    [
+      appRuntimeState.runtime.analysis_active,
+      appRuntimeState.runtime.analysis_ticker,
+      hasPortfolioData,
+      lastTicker,
+      lastToolName,
+      pathname,
+      routeQuery,
+    ]
   );
 
   const runKaiCommand = (command: KaiCommandAction, params?: Record<string, unknown>) => {
@@ -335,10 +424,14 @@ export function KaiCommandBarGlobal() {
         response: VoiceResponse;
         groundedPlan?: GroundedVoicePlan;
         memory?: VoiceMemoryHint;
+        executionAllowed?: boolean;
+        needsConfirmation?: boolean;
       }) => {
         const outcome = await executeVoiceResponse({
           response: payload.response,
           groundedPlan: payload.groundedPlan,
+          executionAllowed: payload.executionAllowed,
+          needsConfirmation: payload.needsConfirmation,
           turnId: payload.turnId,
           responseId: payload.responseId,
           userId,
@@ -361,6 +454,7 @@ export function KaiCommandBarGlobal() {
               payload: telemetryPayload,
             });
           },
+          setPendingConfirmation,
         });
 
         if (outcome.shortTermMemoryWrite) {

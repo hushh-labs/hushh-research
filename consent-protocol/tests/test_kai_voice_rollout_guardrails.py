@@ -226,6 +226,8 @@ def test_voice_plan_respects_rollout_allowlist(
     assert response.status_code == 200
     assert payload["response"]["kind"] == "speak_only"
     assert payload["response"]["message"] == "Voice is not enabled for this account yet."
+    assert payload["response"]["execution_allowed"] is False
+    assert payload["execution_allowed"] is False
     assert payload["memory"]["allow_durable_write"] is False
     assert called["value"] is False
 
@@ -298,6 +300,31 @@ def test_voice_realtime_session_allows_rollout_included_user(
     assert payload["client_secret"] == "ephemeral_secret"  # noqa: S105
 
 
+def test_voice_capability_reports_rollout_and_execution_state(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "true")
+
+    response = client.post(
+        "/api/kai/voice/capability",
+        json={"user_id": "user_a"},
+        headers=_auth(token),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["voice_enabled"] is True
+    assert payload["execution_allowed"] is False
+    assert payload["tool_execution_disabled"] is True
+    assert payload["tts_timeout_ms"] == 20000
+    assert payload["tts_model"] == VOICE_ROUTES.voice_service.tts_model
+
+
 def test_voice_plan_respects_canary_percent(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -324,6 +351,34 @@ def test_voice_plan_respects_canary_percent(
     payload = response.json()
     assert payload["response"]["kind"] == "speak_only"
     assert payload["response"]["message"] == "Voice is not enabled for this account yet."
+    assert payload["response"]["execution_allowed"] is False
+    assert payload["execution_allowed"] is False
+
+
+@pytest.mark.anyio
+async def test_voice_stt_rollout_blocks_before_audio_read(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
+    guarded_upload = _GuardedUploadFile()
+
+    async def _never_transcribe(*args, **kwargs):  # pragma: no cover - safety assertion
+        raise AssertionError("transcribe_audio should not run for rollout-blocked STT requests")
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "transcribe_audio", _never_transcribe)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await VOICE_ROUTES.kai_voice_stt(
+            request=_FakeRequest(),
+            http_response=Response(),
+            user_id="user_a",
+            audio_file=guarded_upload,
+            audio_mime_type="audio/webm",
+            token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
+        )
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Voice is not enabled for this account yet."
+    assert guarded_upload.read_called is False
 
 
 @pytest.mark.anyio
@@ -356,8 +411,34 @@ async def test_voice_understand_rollout_blocks_before_audio_read(monkeypatch: py
     assert response.stt_audio_bytes == 0
     assert response.response.kind == "speak_only"
     assert response.response.message == "Voice is not enabled for this account yet."
+    assert response.response.execution_allowed is False
+    assert response.execution_allowed is False
     assert response.memory.allow_durable_write is False
     assert response.model == "deterministic_rollout"
+
+
+def test_voice_tts_rollout_blocks_before_upstream_call(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
+
+    async def _never_tts(*args, **kwargs):
+        raise AssertionError("synthesize_speech should not run for rollout-blocked TTS requests")
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "synthesize_speech", _never_tts)
+
+    response = client.post(
+        "/api/kai/voice/tts",
+        json={"user_id": "user_a", "text": "hello"},
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Voice is not enabled for this account yet."
 
 
 @pytest.mark.anyio
@@ -390,6 +471,53 @@ async def test_voice_understand_sanitizes_debug_message_in_error_response(
     assert detail["error_code"] == "stt_upstream_error"
     assert detail["message"] == "Speech recognition failed. Please try again."
     assert "debug_message" not in detail
+
+
+@pytest.mark.anyio
+async def test_voice_understand_kill_switch_downgrades_execute_to_speak_only(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "true")
+    upload = _ChunkedUploadFile(chunks=[b"\x1a\x45\xdf\xa3voice-bytes"])
+
+    async def _fake_transcribe(*args, **kwargs):
+        return ("open dashboard", 3, "gpt-4o-mini-transcribe")
+
+    async def _fake_plan(*args, **kwargs):
+        return (
+            {
+                "kind": "execute",
+                "message": "Opening dashboard.",
+                "speak": True,
+                "execution_allowed": True,
+                "tool_call": {"tool_name": "execute_kai_command", "args": {"command": "dashboard"}},
+                "memory": {"allow_durable_write": True},
+            },
+            5,
+            "fake-model",
+        )
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "transcribe_audio", _fake_transcribe)
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "plan_voice_response", _fake_plan)
+
+    response = await VOICE_ROUTES.kai_voice_understand(
+        request=_FakeRequest(),
+        http_response=Response(),
+        user_id="user_a",
+        audio_file=upload,
+        audio_mime_type="audio/webm",
+        context_json=None,
+        app_state_json=None,
+        token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
+    )
+
+    assert response.response.kind == "speak_only"
+    assert response.response.execution_allowed is False
+    assert response.execution_allowed is False
+    assert response.tool_call["tool_name"] == "clarify"
+    assert response.memory.allow_durable_write is False
 
 
 @pytest.mark.anyio
@@ -486,6 +614,8 @@ def test_voice_plan_prefers_run_manager_truth_over_stale_runtime_flag(
 
     assert response.status_code == 200
     assert payload["response"]["kind"] == "execute"
+    assert payload["response"]["execution_allowed"] is True
+    assert payload["execution_allowed"] is True
     assert payload["tool_call"]["tool_name"] == "execute_kai_command"
     assert payload["tool_call"]["args"]["command"] == "analyze"
     assert payload["tool_call"]["args"]["params"]["symbol"] == "GOOGL"
@@ -525,6 +655,8 @@ def test_voice_plan_kill_switch_downgrades_execute_to_speak_only(
 
     assert response.status_code == 200
     assert payload["response"]["kind"] == "speak_only"
+    assert payload["response"]["execution_allowed"] is False
+    assert payload["execution_allowed"] is False
     assert (
         payload["response"]["message"]
         == "Voice actions are temporarily unavailable. I can still respond and guide you."
@@ -573,12 +705,20 @@ def test_voice_tts_echoes_voice_turn_id_header(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
 
     async def _fake_tts(*args, **kwargs):
         return (
             b"abc",
             "audio/mpeg",
-            {"model": "gpt-4o-mini-tts", "voice": "alloy", "format": "mp3"},
+            {
+                "model": "gpt-4o-mini-tts",
+                "voice": "alloy",
+                "format": "mp3",
+                "source": "backend_openai_audio",
+                "openai_http_ms": 12,
+            },
         )
 
     monkeypatch.setattr(VOICE_ROUTES.voice_service, "synthesize_speech", _fake_tts)
@@ -592,4 +732,5 @@ def test_voice_tts_echoes_voice_turn_id_header(
     assert response.status_code == 200
     assert response.headers.get("X-Voice-Turn-Id") == "vturn_test_003"
     assert response.headers.get("content-type", "").startswith("audio/mpeg")
+    assert response.headers.get("X-Kai-TTS-Timeout-Ms") == "20000"
     assert response.content == b"abc"

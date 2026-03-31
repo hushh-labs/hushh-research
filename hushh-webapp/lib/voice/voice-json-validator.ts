@@ -272,6 +272,13 @@ export function validateVoicePlanPayload(input: unknown): VoicePlanPayload | nul
     payload.memory = memory;
   }
 
+  if (typeof input.execution_allowed === "boolean") {
+    payload.execution_allowed = input.execution_allowed;
+  }
+  if (typeof input.needs_confirmation === "boolean") {
+    payload.needs_confirmation = input.needs_confirmation;
+  }
+
   if (typeof input.elapsed_ms === "number") {
     payload.elapsed_ms = input.elapsed_ms;
   }

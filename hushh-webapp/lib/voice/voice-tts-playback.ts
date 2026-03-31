@@ -126,6 +126,10 @@ function resolveTtsTimeoutMs(explicitTimeout?: number): number {
   return 20000;
 }
 
+function isRealtimeBackendFallbackEnabled(): boolean {
+  return isTruthyEnvFlag(process.env.NEXT_PUBLIC_VOICE_V2_TTS_BACKEND_FALLBACK_ENABLED);
+}
+
 export class VoiceTtsPlaybackManager {
   private audio: HTMLAudioElement | null = null;
   private audioUrl: string | null = null;
@@ -391,6 +395,7 @@ export class VoiceTtsPlaybackManager {
       }
       const realtimeTtsStartedAt = performance.now();
       let realtimeFirstAudioMarked = false;
+      let realtimePlaybackStarted = false;
       this.emitTraceEvent(
         "tts_request_sent",
         {
@@ -467,6 +472,7 @@ export class VoiceTtsPlaybackManager {
           },
           onPlaybackStarted: () => {
             if (!this.isRunActive(runId)) return;
+            realtimePlaybackStarted = true;
             this.emitTraceEvent(
               "tts_playback_started",
               {
@@ -501,6 +507,9 @@ export class VoiceTtsPlaybackManager {
           },
         });
         if (!this.isRunActive(runId)) return;
+        if (!realtimePlaybackStarted) {
+          throw new Error("VOICE_STREAM_TTS_PLAYBACK_NOT_STARTED");
+        }
         this.emitTraceEvent(
           "tts_stream_protocol_done",
           {
@@ -514,10 +523,20 @@ export class VoiceTtsPlaybackManager {
         return;
       } catch (error) {
         if (!this.isRunActive(runId)) return;
+        const reason =
+          error instanceof Error ? error.message : "VOICE_STREAM_TTS_FAILED";
+        if (isRealtimeBackendFallbackEnabled()) {
+          this.setState("idle");
+          return this.speak({
+            ...input,
+            adapter: "backend_batch_tts",
+            realtimeAdapter: undefined,
+          });
+        }
         this.setState("idle");
         this.lifecycleHandlers?.onPlaybackFailed?.({
           voiceTurnId: input.voiceTurnId,
-          reason: error instanceof Error ? error.message : "VOICE_STREAM_TTS_FAILED",
+          reason,
           source: "realtime_stream_tts",
         });
         throw error;

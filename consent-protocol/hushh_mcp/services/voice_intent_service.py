@@ -19,6 +19,7 @@ _OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions"
 _OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 _OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
 _OPENAI_HTTP_TIMEOUT_SECONDS = 45.0
+_OPENAI_TTS_TIMEOUT_SECONDS = 20.0
 
 _ALLOWED_TOOL_NAMES = {
     "execute_kai_command",
@@ -802,18 +803,18 @@ class VoiceIntentService:
             prefer_quality=self.tts_prefer_quality,
         )
         self.tts_model = self.tts_models[0]
-        self.tts_last_success_model: str | None = None
+        self.tts_models = [self.tts_model]
         self.tts_default_voice = (
             os.getenv("OPENAI_VOICE_TTS_DEFAULT_VOICE") or "alloy"
         ).strip() or "alloy"
         self.tts_format = (os.getenv("OPENAI_VOICE_TTS_FORMAT") or "mp3").strip() or "mp3"
-        self.tts_unavailable_models: set[str] = set()
         self.upstream_http_timeout_seconds = _OPENAI_HTTP_TIMEOUT_SECONDS
+        self.tts_timeout_seconds = _OPENAI_TTS_TIMEOUT_SECONDS
         logger.info(
             (
                 "[VOICE_MODEL_CONFIG] stt_models=%s planner_models=%s "
                 "tts_models=%s tts_prefer_quality=%s tts_voice=%s tts_format=%s "
-                "upstream_timeout_seconds=%s realtime_enabled=%s realtime_model=%s "
+                "upstream_timeout_seconds=%s tts_timeout_seconds=%s realtime_enabled=%s realtime_model=%s "
                 "disable_voice_fallbacks=%s fail_fast_voice=%s force_realtime_voice=%s"
             ),
             self.stt_models,
@@ -823,6 +824,7 @@ class VoiceIntentService:
             self.tts_default_voice,
             self.tts_format,
             self.upstream_http_timeout_seconds,
+            self.tts_timeout_seconds,
             self.realtime_enabled,
             self.realtime_model,
             self.disable_voice_fallbacks,
@@ -835,31 +837,7 @@ class VoiceIntentService:
             )
 
     def _ordered_tts_model_candidates(self) -> list[str]:
-        base_candidates = list(self.tts_models)
-        if self.disable_voice_fallbacks:
-            return [base_candidates[0]] if base_candidates else ["gpt-4o-mini-tts"]
-        pruned_models = [
-            model_name
-            for model_name in base_candidates
-            if model_name in self.tts_unavailable_models
-        ]
-        candidates = [
-            model_name
-            for model_name in base_candidates
-            if model_name not in self.tts_unavailable_models
-        ]
-        if pruned_models:
-            logger.info(
-                "[VOICE_TTS_MODEL_PRUNE] pruned_due_to_unavailable=%s remaining_candidates=%s",
-                pruned_models,
-                candidates,
-            )
-        if not candidates:
-            candidates = base_candidates or ["gpt-4o-mini-tts"]
-        if self.tts_last_success_model and self.tts_last_success_model in candidates:
-            candidates.remove(self.tts_last_success_model)
-            candidates.insert(0, self.tts_last_success_model)
-        return candidates
+        return [self.tts_model or "gpt-4o-mini-tts"]
 
     def _require_api_key(self) -> None:
         if not self.api_key:
@@ -1300,11 +1278,15 @@ class VoiceIntentService:
         run_id: str | None = None,
         candidate: str | None = None,
         tool_call: dict[str, Any] | None = None,
+        execution_allowed: bool | None = None,
     ) -> dict[str, Any]:
         response: dict[str, Any] = {
             "kind": kind,
             "message": _coerce_str(message),
             "speak": True,
+            "execution_allowed": (
+                kind == "execute" if execution_allowed is None else bool(execution_allowed)
+            ),
         }
         if reason:
             response["reason"] = reason
@@ -1769,39 +1751,21 @@ class VoiceIntentService:
         selected_voice = str(voice or self.tts_default_voice).strip() or self.tts_default_voice
         response: httpx.Response | None = None
         error_payload: dict[str, Any] = {}
-        configured_candidates = self._ordered_tts_model_candidates()
-        selected_model = (
-            configured_candidates[0]
-            if configured_candidates
-            else self.tts_model or "gpt-4o-mini-tts"
-        )
-        # Long-term voice architecture: no automatic provider/model fallback masking for TTS.
-        candidate_models = [selected_model]
-        fallback_attempted = False
+        selected_model = self.tts_model or "gpt-4o-mini-tts"
         tts_attempts: list[dict[str, Any]] = []
-        pruned_unavailable = any(
-            model_name in self.tts_unavailable_models for model_name in self.tts_models
-        )
-        pruned_models = [
-            model_name
-            for model_name in self.tts_models
-            if model_name in self.tts_unavailable_models
-        ]
         upstream_http_ms = 0
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with httpx.AsyncClient(timeout=self.tts_timeout_seconds) as client:
             attempt_started_at = time.perf_counter()
             if trace_hook:
                 trace_hook(
                     "tts_upstream_started",
                     {
-                        "model_candidate_order": list(candidate_models),
                         "model_attempted": selected_model,
                         "attempt_index": 1,
                         "attempt_count": 1,
-                        "timeout_seconds": 45.0,
+                        "timeout_seconds": self.tts_timeout_seconds,
                         "text_chars": len(clean_text),
-                        "fallback_enabled": False,
                     },
                 )
             payload = {
@@ -1843,18 +1807,6 @@ class VoiceIntentService:
             else:
                 maybe_payload = candidate_response.json() if candidate_response.content else {}
                 extracted_error = _extract_openai_error(maybe_payload)
-                if _is_model_unavailable_error(candidate_response.status_code, maybe_payload):
-                    self.tts_unavailable_models.add(selected_model)
-                    logger.warning(
-                        (
-                            "[VOICE_TTS_MODEL_UNAVAILABLE] model=%s status=%s error=%s "
-                            "unavailable_models=%s"
-                        ),
-                        selected_model,
-                        candidate_response.status_code,
-                        extracted_error,
-                        sorted(self.tts_unavailable_models),
-                    )
                 tts_attempts.append(
                     {
                         "model": selected_model,
@@ -1862,7 +1814,6 @@ class VoiceIntentService:
                         "elapsed_ms": attempt_elapsed_ms,
                         "result": "failed",
                         "error": extracted_error or "",
-                        "next_model": None,
                     }
                 )
                 if trace_hook:
@@ -1877,9 +1828,6 @@ class VoiceIntentService:
                             "upstream_error_payload": maybe_payload.get("error")
                             if isinstance(maybe_payload, dict)
                             else maybe_payload,
-                            "will_retry": False,
-                            "next_model": None,
-                            "fallback_enabled": False,
                         },
                     )
                 response = candidate_response
@@ -1897,21 +1845,15 @@ class VoiceIntentService:
         audio_bytes = response.content or b""
         if not audio_bytes:
             raise VoiceServiceError(502, "TTS response was empty")
-        self.tts_last_success_model = selected_model
         mime_type = "audio/mpeg" if self.tts_format == "mp3" else f"audio/{self.tts_format}"
         logger.info(
             (
                 "[VOICE_TTS] status=ok source=backend_openai_audio model=%s voice=%s format=%s "
-                "candidates=%s fallback_attempted=%s pruned_unavailable=%s pruned_models=%s "
                 "text_chars=%s audio_bytes=%s attempts=%s"
             ),
             selected_model,
             selected_voice,
             self.tts_format,
-            candidate_models,
-            fallback_attempted,
-            pruned_unavailable,
-            pruned_models,
             len(clean_text),
             len(audio_bytes),
             tts_attempts,
@@ -1924,10 +1866,6 @@ class VoiceIntentService:
                 "voice": selected_voice,
                 "format": self.tts_format,
                 "source": "backend_openai_audio",
-                "pruned_unavailable": "true" if pruned_unavailable else "false",
-                "pruned_models": ",".join(pruned_models),
-                "candidate_order": ",".join(candidate_models),
-                "fallback_attempted": "true" if fallback_attempted else "false",
                 "attempts": tts_attempts,
                 "openai_http_ms": upstream_http_ms,
             },

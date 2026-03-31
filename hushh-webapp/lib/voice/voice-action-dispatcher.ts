@@ -41,6 +41,7 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     executeKaiCommand,
     setAnalysisParams,
   } = input;
+  const toolName = toolCall.tool_name;
 
   const canonicalAction = getInvestorKaiActionByVoiceToolCall(toolCall);
   if (canonicalAction) {
@@ -96,7 +97,7 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     console.info("[VOICE_UI] dispatch_result=blocked_missing_vault_token");
     return {
       status: "blocked",
-      toolName: toolCall.tool_name,
+      toolName,
       reason: "missing_vault_token",
     };
   }
@@ -188,7 +189,7 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
 
   return {
     status: "invalid",
-    toolName: toolCall.tool_name,
+    toolName,
     reason: "unsupported_tool_call",
   };
 }

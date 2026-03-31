@@ -190,7 +190,7 @@ function resolveActionFromResponse(response: VoiceResponse): InvestorKaiActionDe
     response.tool_call.tool_name === "execute_kai_command" &&
     response.tool_call.args.command === "optimize"
   ) {
-    return getInvestorKaiActionById("command.optimize_legacy");
+    return getInvestorKaiActionById("nav.kai_optimize");
   }
 
   return null;

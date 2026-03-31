@@ -26,7 +26,7 @@ import { Kai, PORTFOLIO_STREAM_EVENT, KAI_STREAM_EVENT } from "@/lib/capacitor/k
 import type { PortfolioSharePayload } from "@/lib/portfolio-share/contract";
 import { isKaiStreamEnvelope, type KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState, VoiceCapabilityResponse } from "@/lib/voice/voice-types";
 import {
   toDurationBucket,
   trackApiRequestCompleted,
@@ -1225,6 +1225,59 @@ export class ApiService {
       }),
       signal: data.signal,
     });
+  }
+
+  static async getKaiVoiceCapability(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/kai/voice/capability", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async getKaiVoiceCapabilityJson(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<VoiceCapabilityResponse> {
+    const response = await ApiService.getKaiVoiceCapability(data);
+    const payload = (await response.json().catch(() => ({}))) as Partial<VoiceCapabilityResponse>;
+    if (!response.ok) {
+      const detail =
+        typeof (payload as Record<string, unknown>).detail === "string"
+          ? String((payload as Record<string, unknown>).detail)
+          : `VOICE_CAPABILITY_HTTP_${response.status}`;
+      throw new Error(detail);
+    }
+    const enabled =
+      typeof payload.enabled === "boolean"
+        ? payload.enabled
+        : typeof payload.realtime_enabled === "boolean"
+          ? payload.realtime_enabled
+          : payload.voice_enabled === true;
+    const reason =
+      typeof payload.reason === "string"
+        ? payload.reason
+        : typeof payload.rollout_reason === "string"
+          ? payload.rollout_reason
+          : null;
+    return {
+      ...payload,
+      enabled,
+      reason,
+    };
   }
 
   // ==================== App Config ====================

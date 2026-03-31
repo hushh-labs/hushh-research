@@ -217,14 +217,49 @@ export function VaultProvider({ children }: VaultProviderProps) {
     }
     lastUpgradeKickoffKeyRef.current = kickoffKey;
 
-    void PkmUpgradeOrchestrator.ensureRunning({
-      userId: user.uid,
-      vaultKey,
-      vaultOwnerToken,
-      initiatedBy: "app_entry",
-    }).catch((error) => {
-      console.warn("[VaultProvider] PKM upgrade orchestration failed during app entry:", error);
-    });
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let idleHandle: number | null = null;
+
+    const kickoffUpgrade = () => {
+      if (cancelled) return;
+      void PkmUpgradeOrchestrator.ensureRunning({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        initiatedBy: "app_entry",
+      }).catch((error) => {
+        console.warn("[VaultProvider] PKM upgrade orchestration failed during app entry:", error);
+      });
+    };
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      idleHandle = requestIdle(() => {
+        kickoffUpgrade();
+      }, { timeout: 6000 });
+      return () => {
+        cancelled = true;
+        if (idleHandle !== null) {
+          cancelIdle(idleHandle);
+        }
+      };
+    }
+
+    timeoutId = globalThis.setTimeout(() => {
+      kickoffUpgrade();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+    };
   }, [user?.uid, vaultKey, vaultOwnerToken]);
 
   /**

@@ -5,9 +5,23 @@ export type VoiceRouteScreenInfo = {
   subview?: string | null;
 };
 
-export function deriveVoiceRouteScreen(pathname: string): VoiceRouteScreenInfo {
+function toSearchParams(searchParams?: URLSearchParams | string): URLSearchParams {
+  if (searchParams instanceof URLSearchParams) {
+    return new URLSearchParams(searchParams.toString());
+  }
+  if (typeof searchParams === "string") {
+    const normalized = searchParams.startsWith("?") ? searchParams.slice(1) : searchParams;
+    return new URLSearchParams(normalized);
+  }
+  return new URLSearchParams();
+}
+
+export function deriveVoiceRouteScreen(
+  pathname: string,
+  searchParams?: URLSearchParams | string
+): VoiceRouteScreenInfo {
   const [normalizedPath, rawQuery = ""] = String(pathname || "").split("?");
-  const query = new URLSearchParams(rawQuery);
+  const query = searchParams === undefined ? new URLSearchParams(rawQuery) : toSearchParams(searchParams);
   if (!normalizedPath) {
     return { screen: "unknown", subview: null };
   }

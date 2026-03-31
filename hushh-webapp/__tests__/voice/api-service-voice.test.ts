@@ -183,6 +183,31 @@ describe("ApiService voice planning contract", () => {
     expect(ttsHeaders["X-Voice-Turn-Id"]).toBe("vturn_tts_1");
   });
 
+  it("calls voice capability route with auth and turn id", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ enabled: true, reason: null }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await ApiService.getKaiVoiceCapability({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      voiceTurnId: "vturn_capability_1",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("/api/kai/voice/capability");
+    const headers = request?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer vault_token");
+    expect(headers["X-Voice-Turn-Id"]).toBe("vturn_capability_1");
+    const body = JSON.parse(String(request?.body || "{}")) as Record<string, unknown>;
+    expect(body.user_id).toBe("user_1");
+  });
+
   it("sends combined understand payload to /api/kai/voice/understand", async () => {
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

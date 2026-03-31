@@ -103,6 +103,7 @@ async def test_plan_voice_response_stt_unusable_returns_exact_retry(
     assert response["kind"] == "clarify"
     assert response["reason"] == "stt_unusable"
     assert response["message"] == _UNCLEAR_STT_MESSAGE
+    assert response["execution_allowed"] is False
     assert openai_http_ms == 0
     assert model == "deterministic"
 
@@ -118,6 +119,7 @@ async def test_plan_voice_response_blocks_when_vault_invalid(voice_service: Voic
 
     assert response["kind"] == "blocked"
     assert response["reason"] == "vault_required"
+    assert response["execution_allowed"] is False
     assert response["memory"]["allow_durable_write"] is False
 
 
@@ -133,6 +135,7 @@ async def test_plan_voice_response_analyze_google_executes(
     )
 
     assert response["kind"] == "execute"
+    assert response["execution_allowed"] is True
     assert response["tool_call"]["tool_name"] == "execute_kai_command"
     assert response["tool_call"]["args"]["command"] == "analyze"
     assert response["tool_call"]["args"]["params"]["symbol"] == "GOOGL"
@@ -150,6 +153,7 @@ async def test_plan_voice_response_analysis_already_running(voice_service: Voice
     )
 
     assert response["kind"] == "already_running"
+    assert response["execution_allowed"] is False
     assert response["task"] == "analysis"
     assert response["ticker"] == "NVDA"
     assert response["run_id"] == "run_1"
@@ -172,6 +176,7 @@ async def test_plan_voice_response_screen_explain_is_deterministic_speak_only(
     )
 
     assert response["kind"] == "speak_only"
+    assert response["execution_allowed"] is False
     assert "screen" in response["message"].lower()
     assert openai_http_ms == 0
     assert model == "deterministic"
@@ -194,6 +199,7 @@ async def test_plan_voice_response_explain_screen_is_deterministic_speak_only(
     )
 
     assert response["kind"] == "speak_only"
+    assert response["execution_allowed"] is False
     assert "screen" in response["message"].lower()
     assert openai_http_ms == 0
     assert model == "deterministic"
@@ -247,9 +253,29 @@ async def test_plan_voice_response_import_routes_to_command(voice_service: Voice
     )
 
     assert response["kind"] == "execute"
+    assert response["execution_allowed"] is True
     assert response["tool_call"] == {
         "tool_name": "execute_kai_command",
         "args": {"command": "import"},
+    }
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_optimize_routes_to_canonical_command(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="open optimize",
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["execution_allowed"] is True
+    assert response["tool_call"] == {
+        "tool_name": "execute_kai_command",
+        "args": {"command": "optimize"},
     }
 
 
@@ -277,6 +303,7 @@ async def test_plan_voice_response_rejects_out_of_scope_tool_call(
     assert response["kind"] == "clarify"
     assert response["reason"] == "stt_unusable"
     assert response["message"] == _UNCLEAR_STT_MESSAGE
+    assert response["execution_allowed"] is False
     assert openai_http_ms == 9
     assert model == "fake-model"
 
@@ -292,6 +319,7 @@ async def test_plan_voice_response_blocks_when_signed_out(voice_service: VoiceIn
 
     assert response["kind"] == "blocked"
     assert response["reason"] == "auth_required"
+    assert response["execution_allowed"] is False
     assert response["memory"]["allow_durable_write"] is False
 
 
@@ -306,6 +334,7 @@ async def test_plan_voice_response_blocks_when_token_missing(voice_service: Voic
 
     assert response["kind"] == "blocked"
     assert response["reason"] == "vault_required"
+    assert response["execution_allowed"] is False
     assert response["memory"]["allow_durable_write"] is False
 
 

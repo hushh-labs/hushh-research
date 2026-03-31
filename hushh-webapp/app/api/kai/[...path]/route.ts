@@ -7,6 +7,7 @@ import {
   createUpstreamHeaders,
   resolveRequestId,
   withRequestIdJson,
+  withRequestIdResponse,
 } from "@/app/api/_utils/request-id";
 
 /**
@@ -52,6 +53,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   // Debug: Check if Authorization header is present
   const authHeader = request.headers.get("authorization");
   const acceptHeader = request.headers.get("accept");
+  const voiceTurnIdHeader =
+    request.headers.get("x-voice-turn-id") || request.headers.get("X-Voice-Turn-Id");
   const contentType = request.headers.get("content-type") || "";
   console.log(
     `[Kai API] request_id=${requestId} method=${request.method} path=${path} auth=${Boolean(authHeader)} content_type=${contentType || "none"}`
@@ -66,6 +69,9 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     }
     if (acceptHeader) {
       headers.set("Accept", acceptHeader);
+    }
+    if (voiceTurnIdHeader) {
+      headers.set("X-Voice-Turn-Id", voiceTurnIdHeader);
     }
 
     let body: BodyInit | undefined;
@@ -107,6 +113,11 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
           "x-request-id": requestId,
         },
       });
+    }
+
+    if (path === "voice/tts") {
+      console.log(`[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`);
+      return withRequestIdResponse(requestId, response);
     }
 
     const data = await response.json().catch(() => ({}));

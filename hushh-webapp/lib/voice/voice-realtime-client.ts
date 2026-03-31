@@ -19,6 +19,7 @@ type VoiceRealtimeConnectInput = {
   session: VoiceRealtimeSessionInfo;
   localStream?: MediaStream;
   turnId?: string;
+  signal?: AbortSignal;
   serverVadSilenceMs?: number;
   disableAutoResponse?: boolean;
   enableBargeIn?: boolean;
@@ -43,6 +44,7 @@ type PendingSpeechState = {
   timeoutHandle: number;
   started: boolean;
   firstAudio: boolean;
+  responseDone: boolean;
   turnId: string;
   responseId: string;
   segmentType: "ack" | "final";
@@ -55,6 +57,7 @@ type PendingSpeechState = {
 
 const DEFAULT_SPEECH_TIMEOUT_MS = 30000;
 const DEFAULT_FINAL_TRANSCRIPT_TIMEOUT_MS = 25000;
+const DEFAULT_REALTIME_SDP_TIMEOUT_MS = 15000;
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -152,8 +155,12 @@ export class VoiceRealtimeClient {
   }> = [];
   private pendingSpeech: PendingSpeechState | null = null;
   private isConnected = false;
+  private remoteAudioPlaybackError: Error | null = null;
 
   async connect(input: VoiceRealtimeConnectInput): Promise<MediaStream> {
+    if (input.signal?.aborted) {
+      throw new Error("VOICE_SESSION_CONNECT_ABORTED");
+    }
     await this.close();
     this.onTranscript = input.onTranscript;
     this.onDebug = input.onDebug;
@@ -174,13 +181,23 @@ export class VoiceRealtimeClient {
       if (!pending || pending.started) return;
       pending.started = true;
       pending.onPlaybackStarted?.();
+      if (pending.responseDone) {
+        pending.onPlaybackEnded?.();
+        pending.resolve();
+      }
     };
 
     pc.ontrack = (event: RTCTrackEvent) => {
       if (!this.remoteAudio) return;
       this.remoteAudio.srcObject = event.streams[0] || new MediaStream([event.track]);
-      void this.remoteAudio.play().catch(() => {
-        // Browser autoplay policy can block play until interaction.
+      this.remoteAudioPlaybackError = null;
+      const playResult = this.remoteAudio.play();
+      if (!playResult) return;
+      void playResult.catch((error: unknown) => {
+        const playbackError =
+          error instanceof Error ? error : new Error("VOICE_STREAM_TTS_PLAYBACK_FAILED");
+        this.remoteAudioPlaybackError = playbackError;
+        this.pendingSpeech?.reject(playbackError);
       });
     };
 
@@ -216,15 +233,46 @@ export class VoiceRealtimeClient {
     }
 
     const realtimeUrl = `https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(input.session.model)}`;
+    let realtimeFetchTimedOut = false;
+    const realtimeFetchAbortController = new AbortController();
+    const forwardAbort = () => {
+      if (!realtimeFetchAbortController.signal.aborted) {
+        realtimeFetchAbortController.abort();
+      }
+    };
+    const timeoutHandle = window.setTimeout(() => {
+      realtimeFetchTimedOut = true;
+      forwardAbort();
+    }, DEFAULT_REALTIME_SDP_TIMEOUT_MS);
+    input.signal?.addEventListener("abort", forwardAbort, { once: true });
+
+    let response: Response;
     // eslint-disable-next-line no-restricted-syntax -- Realtime SDP negotiation must call OpenAI directly with ephemeral client secret.
-    const response = await fetch(realtimeUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.session.clientSecret}`,
-        "Content-Type": "application/sdp",
-      },
-      body: offer.sdp,
-    });
+    try {
+      response = await fetch(realtimeUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.session.clientSecret}`,
+          "Content-Type": "application/sdp",
+        },
+        body: offer.sdp,
+        signal: realtimeFetchAbortController.signal,
+      });
+    } catch (error) {
+      if (input.signal?.aborted) {
+        throw new Error("VOICE_SESSION_CONNECT_ABORTED");
+      }
+      if (realtimeFetchTimedOut) {
+        throw new Error("VOICE_REALTIME_SDP_TIMEOUT");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutHandle);
+      input.signal?.removeEventListener("abort", forwardAbort);
+    }
+    if (input.signal?.aborted) {
+      throw new Error("VOICE_SESSION_CONNECT_ABORTED");
+    }
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       throw new Error(detail || `Realtime SDP exchange failed (${response.status})`);
@@ -235,8 +283,11 @@ export class VoiceRealtimeClient {
       type: "answer",
       sdp: answerSdp,
     });
+    if (input.signal?.aborted) {
+      throw new Error("VOICE_SESSION_CONNECT_ABORTED");
+    }
 
-    await this.waitForDataChannelOpen(channel, 10000);
+    await this.waitForDataChannelOpen(channel, 10000, input.signal);
     this.isConnected = true;
     this.onDebug?.("stream_session_start", {
       turn_id: input.turnId || null,
@@ -360,6 +411,7 @@ export class VoiceRealtimeClient {
         timeoutHandle,
         started: false,
         firstAudio: false,
+        responseDone: false,
         turnId: input.turnId,
         responseId: input.responseId,
         segmentType: input.segmentType,
@@ -452,6 +504,7 @@ export class VoiceRealtimeClient {
       this.remoteAudio.onplay = null;
       this.remoteAudio = null;
     }
+    this.remoteAudioPlaybackError = null;
     if (this.localStream && options?.stopLocalStream !== false) {
       this.localStream.getTracks().forEach((track) => {
         try {
@@ -466,8 +519,15 @@ export class VoiceRealtimeClient {
     }
   }
 
-  private waitForDataChannelOpen(channel: RTCDataChannel, timeoutMs: number): Promise<void> {
+  private waitForDataChannelOpen(
+    channel: RTCDataChannel,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<void> {
     if (channel.readyState === "open") return Promise.resolve();
+    if (signal?.aborted) {
+      return Promise.reject(new Error("VOICE_SESSION_CONNECT_ABORTED"));
+    }
     return new Promise<void>((resolve, reject) => {
       const timeoutHandle = window.setTimeout(() => {
         cleanup();
@@ -485,15 +545,21 @@ export class VoiceRealtimeClient {
         cleanup();
         reject(new Error("VOICE_STREAM_DATA_CHANNEL_CLOSED_BEFORE_OPEN"));
       };
+      const handleAbort = () => {
+        cleanup();
+        reject(new Error("VOICE_SESSION_CONNECT_ABORTED"));
+      };
       const cleanup = () => {
         window.clearTimeout(timeoutHandle);
         channel.removeEventListener("open", handleOpen);
         channel.removeEventListener("error", handleError);
         channel.removeEventListener("close", handleClose);
+        signal?.removeEventListener("abort", handleAbort);
       };
       channel.addEventListener("open", handleOpen);
       channel.addEventListener("error", handleError);
       channel.addEventListener("close", handleClose);
+      signal?.addEventListener("abort", handleAbort, { once: true });
     });
   }
 
@@ -609,10 +675,6 @@ export class VoiceRealtimeClient {
         pending.firstAudio = true;
         pending.onFirstAudio?.();
       }
-      if (!pending.started) {
-        pending.started = true;
-        pending.onPlaybackStarted?.();
-      }
       return;
     }
 
@@ -620,8 +682,22 @@ export class VoiceRealtimeClient {
       const pending = this.pendingSpeech;
       if (!pending) return;
       if (!this.shouldAcceptPendingSpeechEvent(payload)) return;
-      pending.onPlaybackEnded?.();
-      pending.resolve();
+      if (this.remoteAudioPlaybackError) {
+        pending.reject(this.remoteAudioPlaybackError);
+        return;
+      }
+      pending.responseDone = true;
+      if (pending.started) {
+        pending.onPlaybackEnded?.();
+        pending.resolve();
+        return;
+      }
+      if (this.remoteAudio && !this.remoteAudio.paused) {
+        pending.started = true;
+        pending.onPlaybackStarted?.();
+        pending.onPlaybackEnded?.();
+        pending.resolve();
+      }
       return;
     }
 

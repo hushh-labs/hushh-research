@@ -106,7 +106,7 @@ describe("resolveGroundedVoicePlan", () => {
     ]);
   });
 
-  it("marks dead actions as unavailable with a prompt step", () => {
+  it("grounds optimize command responses to the live optimize route", () => {
     const response: VoiceResponse = {
       kind: "execute",
       message: "Optimizing now.",
@@ -125,17 +125,17 @@ describe("resolveGroundedVoicePlan", () => {
       structuredContext: makeContext("/kai/portfolio"),
     });
 
-    expect(plan.status).toBe("unavailable");
-    expect(plan.actionId).toBe("command.optimize_legacy");
-    expect(plan.actionLabel).toBe("Legacy Optimize Voice Command");
+    expect(plan.status).toBe("resolved");
+    expect(plan.actionId).toBe("nav.kai_optimize");
+    expect(plan.actionLabel).toBe("Open Optimize Surface");
     expect(plan.destructive).toBe(false);
-    expect(plan.message).toBe("I can’t do that right now.");
-    expect(plan.execution.mode).toBe("unavailable");
+    expect(plan.message).toBeNull();
+    expect(plan.execution.mode).toBe("navigate_only");
     expect(plan.execution.steps).toEqual([
       {
-        type: "prompt",
-        message: "I can’t do that right now.",
-        reason: "executeKaiCommand('optimize') is still a placeholder and does not execute canonical optimize flow.",
+        type: "navigate",
+        href: "/kai/optimize",
+        reason: "route_bound_action",
       },
     ]);
   });

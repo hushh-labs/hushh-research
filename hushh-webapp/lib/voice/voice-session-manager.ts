@@ -43,7 +43,16 @@ export type VoiceSessionAcquireInput = {
   userId: string;
   vaultOwnerToken: string;
   voice?: string;
+  activate?: boolean;
 };
+
+function isVoiceSessionConnectCancellationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return (
+    message === "VOICE_SESSION_CONNECT_ABORTED" ||
+    message === "VOICE_SESSION_CONNECT_STALE"
+  );
+}
 
 function parseRealtimeSessionPayload(raw: unknown): {
   clientSecret: string;
@@ -123,6 +132,7 @@ class VoiceSessionManager {
 
   private listeners = new Set<VoiceSessionListener>();
   private scopeIds = new Set<string>();
+  private activeScopeIds = new Set<string>();
 
   private realtimeClient: VoiceRealtimeClient | null = null;
   private localStream: MediaStream | null = null;
@@ -143,6 +153,7 @@ class VoiceSessionManager {
   private connectGeneration = 0;
   private connectAbortController: AbortController | null = null;
   private transportRecoveryInFlight = false;
+  private foregroundResumeEligible = false;
 
   private visibilityHandlerRegistered = false;
 
@@ -216,6 +227,9 @@ class VoiceSessionManager {
 
   async acquire(input: VoiceSessionAcquireInput): Promise<void> {
     this.scopeIds.add(input.scopeId);
+    if (input.activate) {
+      this.activeScopeIds.add(input.scopeId);
+    }
     const credentialsChanged =
       this.userId !== input.userId || this.vaultOwnerToken !== input.vaultOwnerToken;
 
@@ -227,7 +241,10 @@ class VoiceSessionManager {
       this.registerVisibilityHandlers();
     }
 
-    if (credentialsChanged && this.connected()) {
+    if (
+      credentialsChanged &&
+      (this.connected() || this.connectPromise !== null || this.state === "connecting")
+    ) {
       await this.disconnect("credentials_changed", { stopLocalStream: true });
     }
 
@@ -236,8 +253,13 @@ class VoiceSessionManager {
 
   async release(scopeId: string): Promise<void> {
     this.scopeIds.delete(scopeId);
+    this.activeScopeIds.delete(scopeId);
     if (this.scopeIds.size > 0) return;
     await this.disconnect("all_scopes_released", { stopLocalStream: true });
+  }
+
+  hasActiveScope(scopeId: string): boolean {
+    return this.activeScopeIds.has(scopeId);
   }
 
   setMuted(nextMuted: boolean): void {
@@ -287,7 +309,7 @@ class VoiceSessionManager {
 
     try {
       await this.disconnect("transport_error_cleanup", { stopLocalStream: true });
-      if (this.scopeIds.size === 0 || !this.userId || !this.vaultOwnerToken) {
+      if (this.activeScopeIds.size === 0 || !this.userId || !this.vaultOwnerToken) {
         this.emitDebug("transport_recovery_skipped_no_scope", { reason });
         return;
       }
@@ -322,7 +344,8 @@ class VoiceSessionManager {
 
     const generation = ++this.connectGeneration;
     const connectStartedAt = performance.now();
-    this.connectAbortController = new AbortController();
+    const connectAbortController = new AbortController();
+    this.connectAbortController = connectAbortController;
     this.setState("connecting", reason);
 
     this.connectPromise = (async () => {
@@ -340,7 +363,7 @@ class VoiceSessionManager {
           vaultOwnerToken: this.vaultOwnerToken!,
           voice: this.configuredVoice,
           voiceTurnId: sessionTurnId,
-          signal: this.connectAbortController?.signal,
+          signal: connectAbortController.signal,
         });
         const sessionPayloadRaw = (await sessionResponse.json().catch(() => ({}))) as unknown;
         if (!sessionResponse.ok) {
@@ -363,10 +386,12 @@ class VoiceSessionManager {
         }
 
         const realtimeClient = new VoiceRealtimeClient();
+        this.realtimeClient = realtimeClient;
         await realtimeClient.connect({
           session: sessionPayload as VoiceRealtimeSessionInfo,
           localStream,
           turnId: sessionTurnId,
+          signal: connectAbortController.signal,
           onTranscript: (transcriptEvent) => {
             this.emit({
               type: "transcript",
@@ -374,6 +399,9 @@ class VoiceSessionManager {
             });
           },
           onDebug: (event, payload) => {
+            if (this.realtimeClient !== realtimeClient) {
+              return;
+            }
             this.emitDebug(event, payload || {});
             if (event === "stream_error" && isNonFatalRealtimeStreamError(payload || {})) {
               this.emitDebug("stream_error_ignored_non_fatal", payload || {});
@@ -411,15 +439,25 @@ class VoiceSessionManager {
           throw new Error("VOICE_SESSION_CONNECT_STALE");
         }
 
-        this.realtimeClient = realtimeClient;
         this.sessionId = sessionPayload.sessionId || null;
         this.model = sessionPayload.model;
         this.voice = sessionPayload.voice;
         this.reconnectLatencyMs = Math.max(0, Math.round(performance.now() - connectStartedAt));
+        this.foregroundResumeEligible = this.activeScopeIds.size > 0;
         this.applyMuteToLocalStream();
         this.setState("connected", reason);
       } catch (error) {
+        if (
+          generation !== this.connectGeneration ||
+          connectAbortController.signal.aborted ||
+          isVoiceSessionConnectCancellationError(error)
+        ) {
+          this.foregroundResumeEligible = false;
+          await this.disconnect("connect_cancelled_cleanup", { stopLocalStream: true });
+          throw new Error("VOICE_SESSION_CONNECT_ABORTED");
+        }
         const message = error instanceof Error ? error.message : "VOICE_SESSION_CONNECT_FAILED";
+        this.foregroundResumeEligible = false;
         this.setState("error", "connect_failed", message);
         await this.disconnect("connect_failed_cleanup", { stopLocalStream: true });
         throw error;
@@ -438,9 +476,13 @@ class VoiceSessionManager {
     reason: string,
     options: {
       stopLocalStream?: boolean;
+      preserveForegroundResume?: boolean;
     } = {}
   ): Promise<void> {
     this.connectGeneration += 1;
+    this.foregroundResumeEligible = Boolean(
+      options.preserveForegroundResume && this.activeScopeIds.size > 0
+    );
 
     if (this.connectAbortController) {
       this.connectAbortController.abort(reason);
@@ -510,11 +552,17 @@ class VoiceSessionManager {
 
     const onVisibility = () => {
       if (document.hidden) {
-        void this.disconnect("app_background", { stopLocalStream: true });
+        void this.disconnect("app_background", {
+          stopLocalStream: true,
+          preserveForegroundResume: this.foregroundResumeEligible,
+        });
         return;
       }
-      if (this.scopeIds.size > 0) {
+      if (this.activeScopeIds.size > 0 && this.foregroundResumeEligible) {
         void this.ensureConnected("foreground_resume").catch((error) => {
+          if (isVoiceSessionConnectCancellationError(error)) {
+            return;
+          }
           const message = error instanceof Error ? error.message : "VOICE_SESSION_RESUME_FAILED";
           this.setState("error", "foreground_resume_failed", message);
         });

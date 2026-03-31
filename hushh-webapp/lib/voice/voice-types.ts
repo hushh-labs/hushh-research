@@ -140,6 +140,8 @@ export type VoicePlanPayload = {
   response: VoiceResponse;
   tool_call?: VoiceToolCall;
   memory?: VoiceMemoryHint;
+  execution_allowed?: boolean;
+  needs_confirmation?: boolean;
   elapsed_ms?: number;
   openai_http_ms?: number;
   model?: string;
@@ -170,6 +172,7 @@ export type PlannerV2Response = {
   response_id: string;
   intent?: { name: string; confidence: number };
   action?: { type: "navigate" | "tool" | "none"; payload?: Record<string, unknown> };
+  execution_allowed?: boolean;
   needs_confirmation?: boolean;
   ack_text?: string;
   final_text?: string;
@@ -178,4 +181,22 @@ export type PlannerV2Response = {
     category: string;
     summary: string;
   }>;
+};
+
+export type VoiceCapabilityResponse = {
+  enabled: boolean;
+  reason: string | null;
+  voice_enabled?: boolean;
+  execution_allowed?: boolean;
+  tool_execution_disabled?: boolean;
+  rollout_reason?: string | null;
+  bucket?: number | null;
+  canary_percent?: number | null;
+  realtime_enabled?: boolean;
+  stt_enabled?: boolean;
+  tts_enabled?: boolean;
+  tts_timeout_ms?: number;
+  tts_model?: string;
+  tts_voice?: string;
+  tts_format?: string;
 };

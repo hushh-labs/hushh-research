@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { toInvestorLoading, toInvestorMessage } from "@/lib/copy/investor-language";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
 import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
+import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
 type WorkspaceTab = "debate" | "summary" | "detailed";
@@ -165,22 +166,26 @@ function KaiAnalysisPageContent() {
   );
 
   useEffect(() => {
-    const hasTabParam = searchParams.has("tab");
-    const focus = searchParams.get("focus");
-    const hasFocusActive = focus === "active";
-    const hasRunIdParam = searchParams.has("run_id");
-    const runIdParam = searchParams.get("run_id");
-    if (!hasTabParam && !hasFocusActive && !hasRunIdParam) return;
+    const routeIntent = deriveAnalysisRouteIntent(new URLSearchParams(searchParams.toString()));
+    if (!routeIntent.shouldApply) return;
 
-    if (hasFocusActive || hasRunIdParam) {
-      if (runIdParam && runIdParam.trim()) {
-        setFocusedRunId(runIdParam.trim());
+    if (routeIntent.focusActive || routeIntent.runId) {
+      if (routeIntent.runId) {
+        setFocusedRunId(routeIntent.runId);
       }
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       requestAnimationFrame(() => {
         workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       });
+    } else if (routeIntent.showHistory) {
+      setFocusedRunId(null);
+      setShowHistoryWhileActive(true);
+      setWorkspaceTab("debate");
+    } else if (routeIntent.workspaceTab) {
+      setFocusedRunId(null);
+      setShowHistoryWhileActive(false);
+      setWorkspaceTab(routeIntent.workspaceTab);
     }
 
     const params = new URLSearchParams(searchParams.toString());

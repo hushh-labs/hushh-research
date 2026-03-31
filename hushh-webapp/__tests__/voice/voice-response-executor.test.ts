@@ -122,6 +122,81 @@ describe("executeVoiceResponse", () => {
     });
   });
 
+  it("does not execute grounded or legacy actions when execution is disallowed", async () => {
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      executionAllowed: false,
+      response: {
+        kind: "execute",
+        message: "Resuming active analysis.",
+        speak: true,
+        tool_call: {
+          tool_name: "resume_active_analysis",
+          args: {},
+        },
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "analysis.resume_active",
+        actionLabel: "Resume Active Analysis Run",
+        destructive: false,
+        message: null,
+        execution: {
+          mode: "navigate_then_action",
+          steps: [
+            {
+              type: "navigate",
+              href: "/kai/analysis",
+              reason: "hidden_action_navigation_prerequisite",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "execute",
+    });
+  });
+
+  it("defers execution when the planner requires confirmation", async () => {
+    const setPendingConfirmation = vi.fn();
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      needsConfirmation: true,
+      setPendingConfirmation,
+      response: {
+        kind: "execute",
+        message: "Do you want me to cancel the active analysis?",
+        speak: true,
+        tool_call: {
+          tool_name: "cancel_active_analysis",
+          args: {
+            confirm: false,
+          },
+        },
+      },
+    });
+
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(setPendingConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "cancel_active_analysis",
+        prompt: "Do you want me to cancel the active analysis?",
+      })
+    );
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "execute",
+    });
+  });
+
   it("executes hidden action plans as navigation followed by tool dispatch", async () => {
     const input = baseInput();
     const result = await executeVoiceResponse({

@@ -10,8 +10,12 @@ import {
   VOICE_MANUAL_ONLY_MESSAGE,
   VOICE_UNAVAILABLE_MESSAGE,
 } from "@/lib/voice/voice-grounding";
+import type { PendingVoiceConfirmation } from "@/lib/voice/voice-session-store";
 import { logVoiceMetric } from "@/lib/voice/voice-telemetry";
-import type { VoiceExecuteKaiCommandCall, VoiceResponse } from "@/lib/voice/voice-types";
+import type {
+  VoiceExecuteKaiCommandCall,
+  VoiceResponse,
+} from "@/lib/voice/voice-types";
 import type { ExecuteKaiCommandResult } from "@/lib/kai/command-executor";
 
 type RouterLike = {
@@ -26,6 +30,8 @@ type VoiceExecutionTelemetryEmitter = (
 export type ExecuteVoiceResponseInput = {
   response: VoiceResponse;
   groundedPlan?: GroundedVoicePlan;
+  executionAllowed?: boolean;
+  needsConfirmation?: boolean;
   turnId?: string;
   responseId?: string;
   userId: string;
@@ -35,6 +41,7 @@ export type ExecuteVoiceResponseInput = {
   handleBack: () => void;
   executeKaiCommand: (toolCall: VoiceExecuteKaiCommandCall) => ExecuteKaiCommandResult;
   setAnalysisParams: (params: AnalysisParams | null) => void;
+  setPendingConfirmation?: (payload: PendingVoiceConfirmation) => void;
   emitTelemetry?: VoiceExecutionTelemetryEmitter;
 };
 
@@ -116,8 +123,28 @@ export async function executeVoiceResponse(
   const { response, groundedPlan } = input;
   const voiceFlags = getVoiceV2Flags();
   const groundedExecutionEnabled = voiceFlags.groundedActionExecutionEnabled;
+  const executionAllowed = input.executionAllowed !== false;
+  const waitingForConfirmation = input.needsConfirmation === true && response.kind === "execute";
 
-  if (groundedPlan && groundedPlan.status !== "none" && groundedExecutionEnabled) {
+  if (!executionAllowed) {
+    emitExecutionTelemetry(input, "execution_disallowed_by_backend", {
+      response_kind: response.kind,
+      grounded_status: groundedPlan?.status || "none",
+    });
+    return {
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: response.kind,
+    };
+  }
+
+  if (
+    response.kind === "execute" &&
+    groundedPlan &&
+    groundedPlan.status !== "none" &&
+    groundedExecutionEnabled
+  ) {
     if (groundedPlan.status === "manual_only") {
       const message = groundedPlan.message || VOICE_MANUAL_ONLY_MESSAGE;
       toast.info(message);
@@ -234,6 +261,45 @@ export async function executeVoiceResponse(
   }
 
   if (response.kind === "execute") {
+    if (
+      waitingForConfirmation &&
+      input.setPendingConfirmation &&
+      (response.tool_call.tool_name === "cancel_active_analysis" ||
+        response.tool_call.tool_name === "execute_kai_command" ||
+        response.tool_call.tool_name === "resume_active_analysis")
+    ) {
+      input.setPendingConfirmation({
+        kind: response.tool_call.tool_name,
+        toolCall: response.tool_call,
+        prompt: response.message,
+        transcript: response.message,
+        turnId: input.turnId || null,
+        responseId: input.responseId || null,
+      });
+      emitExecutionTelemetry(input, "confirmation_required", {
+        tool_name: response.tool_call.tool_name,
+      });
+      toast.info(response.message);
+      return {
+        shortTermMemoryWrite: false,
+        toolName: null,
+        ticker: null,
+        responseKind: response.kind,
+      };
+    }
+
+    if (waitingForConfirmation) {
+      emitExecutionTelemetry(input, "execution_deferred_confirmation_without_handler", {
+        tool_name: response.tool_call.tool_name,
+      });
+      return {
+        shortTermMemoryWrite: false,
+        toolName: null,
+        ticker: null,
+        responseKind: response.kind,
+      };
+    }
+
     try {
       const dispatchResult = await dispatchVoiceToolCall({
         toolCall: response.tool_call,

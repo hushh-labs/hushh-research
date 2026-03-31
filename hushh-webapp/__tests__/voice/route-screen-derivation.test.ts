@@ -46,4 +46,11 @@ describe("deriveVoiceRouteScreen", () => {
       subview: null,
     });
   });
+
+  it("accepts search params passed separately from the pathname", () => {
+    expect(deriveVoiceRouteScreen("/profile", "tab=account&panel=gmail")).toEqual({
+      screen: "profile_gmail_panel",
+      subview: "account",
+    });
+  });
 });

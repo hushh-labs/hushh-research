@@ -971,36 +971,6 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     mapReferences: ["app/profile/page.tsx"],
   },
   {
-    id: "command.optimize_legacy",
-    label: "Legacy Optimize Voice Command",
-    meaning: "Legacy optimize command path currently returns informational toast only.",
-    scope: {
-      routes: [ROUTES.KAI_PORTFOLIO, ROUTES.KAI_OPTIMIZE],
-      screens: ["kai_portfolio_dashboard", "kai_optimize"],
-      hiddenNavigable: true,
-      navigationPrerequisites: ["none"],
-    },
-    trigger: {
-      primary: "voice",
-      supported: ["voice", "programmatic"],
-    },
-    guards: [],
-    expectedEffects: {
-      stateChanges: ["toast message emitted", "no route or state transition guaranteed"],
-      backendEffects: [],
-    },
-    risk: {
-      level: "medium",
-      executionPolicy: "manual_only",
-    },
-    wiring: {
-      status: "dead",
-      reason: "executeKaiCommand('optimize') is still a placeholder and does not execute canonical optimize flow.",
-      legacyHandler: "executeKaiCommand",
-    },
-    mapReferences: ["lib/kai/command-executor.ts"],
-  },
-  {
     id: "analysis.open_transcript_tab_legacy",
     label: "Legacy Transcript Tab Route",
     meaning: "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",

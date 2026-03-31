@@ -233,6 +233,9 @@ PROXY_PORT="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_PORT')"
 PROXY_PORT="${PROXY_PORT:-$DB_PORT}"
 PROXY_CREDENTIALS_FILE="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_CREDENTIALS_FILE')"
 PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_SERVICE_ACCOUNT_JSON')"
+if [ -z "$PROXY_CREDENTIALS_JSON" ]; then
+  PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_AUTH_SERVICE_ACCOUNT_JSON')"
+fi
 PROXY_CREDENTIALS_TEMP=""
 
 cleanup_proxy_credentials() {
@@ -292,6 +295,15 @@ PY
       echo "Cloud SQL proxy failed to bind 127.0.0.1:${PROXY_PORT}. See /tmp/hushh-cloud-sql-proxy.log" >&2
       exit 1
     fi
+  fi
+fi
+
+if [ -z "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
+  if ! port_is_listening 127.0.0.1 "$DB_PORT"; then
+    echo "Backend env points at local DB ${DB_HOST}:${DB_PORT}, but CLOUDSQL_INSTANCE_CONNECTION_NAME is unset." >&2
+    echo "The launcher cannot start the Cloud SQL proxy without that value." >&2
+    echo "Run 'npm run bootstrap' to hydrate consent-protocol/.env, or set a reachable non-local DB_HOST override." >&2
+    exit 1
   fi
 fi
 

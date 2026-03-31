@@ -67,10 +67,19 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
       try {
         setGuardError(null);
         const cachedCompletionHint = readOnboardingCompletionHint(user.uid);
-        if (isVaultUnlocked && cachedCompletionHint !== false && !onOnboardingRoute) {
+        const unlockedOnStandardKaiRoute = isVaultUnlocked && !onOnboardingRoute;
+        if (unlockedOnStandardKaiRoute && cachedCompletionHint !== false) {
           setChecking(false);
         }
-        const hasVault = await VaultService.checkVault(user.uid);
+        if (unlockedOnStandardKaiRoute && cachedCompletionHint === true) {
+          setOnboardingRequiredCookie(false);
+          if (chromeState.onboardingFlowActive) {
+            setOnboardingFlowActiveCookie(false);
+          }
+          return;
+        }
+
+        const hasVault = isVaultUnlocked ? true : await VaultService.checkVault(user.uid);
         if (cancelled) return;
 
         if (!hasVault) {

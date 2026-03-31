@@ -1,4 +1,9 @@
 import { create } from "zustand";
+import type {
+  VoiceCancelActiveAnalysisCall,
+  VoiceExecuteKaiCommandCall,
+  VoiceResumeActiveAnalysisCall,
+} from "@/lib/voice/voice-types";
 
 export type VoiceDebugStage =
   | "turn"
@@ -19,6 +24,20 @@ export type VoiceDebugEvent = {
   payload?: Record<string, unknown>;
 };
 
+export type PendingVoiceConfirmation =
+  | {
+      kind: "cancel_active_analysis" | "execute_kai_command" | "resume_active_analysis";
+      toolCall:
+        | VoiceCancelActiveAnalysisCall
+        | VoiceExecuteKaiCommandCall
+        | VoiceResumeActiveAnalysisCall;
+      prompt: string;
+      transcript: string;
+      turnId: string | null;
+      responseId: string | null;
+    }
+  | null;
+
 export interface VoiceSessionState {
   lastTranscript: string | null;
   lastToolName: string | null;
@@ -27,11 +46,7 @@ export interface VoiceSessionState {
   lastResponseMessage: string | null;
   lastTurnId: string | null;
   debugEvents: VoiceDebugEvent[];
-  pendingConfirmation:
-    | {
-        kind: "cancel_active_analysis";
-      }
-    | null;
+  pendingConfirmation: PendingVoiceConfirmation;
   setLastVoiceTurn: (payload: {
     transcript: string;
     toolName: string | null;
@@ -46,7 +61,7 @@ export interface VoiceSessionState {
   }) => void;
   appendDebugEvent: (event: Omit<VoiceDebugEvent, "id" | "timestamp"> & { timestamp?: string }) => void;
   clearDebugEvents: () => void;
-  setPendingConfirmation: (payload: VoiceSessionState["pendingConfirmation"]) => void;
+  setPendingConfirmation: (payload: PendingVoiceConfirmation) => void;
   clearVoiceSession: () => void;
 }
 
