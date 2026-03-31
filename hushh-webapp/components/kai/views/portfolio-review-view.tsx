@@ -75,6 +75,7 @@ import {
   buildFinancialDomainSummary,
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
+import { consolidateHoldingsBySymbol } from "@/lib/utils/portfolio-normalize";
 
 
 
@@ -1423,11 +1424,14 @@ export function PortfolioReviewView({
       const normalizedActiveHoldings = activeHoldings.map((holding) =>
         normalizeHoldingForStorage(holding)
       );
+      const consolidatedActiveHoldings = consolidateHoldingsBySymbol(
+        normalizedActiveHoldings as unknown as Record<string, unknown>[]
+      ) as Holding[];
       const savePayload: PortfolioData = {
         account_info: accountInfo,
         account_summary: accountSummary,
         asset_allocation: assetAllocation,
-        holdings: normalizedActiveHoldings,
+        holdings: consolidatedActiveHoldings,
         income_summary: incomeSummary,
         realized_gain_loss: realizedGainLoss,
         cash_balance: toFiniteNumber(initialData.cash_balance),
@@ -1485,11 +1489,11 @@ export function PortfolioReviewView({
       const parsedAssetAllocation = sanitizeAssetAllocation(assetAllocation);
       const parsedCashBalance =
         toFiniteNumber(initialData.cash_balance) ?? parsedAccountSummary.cash_balance;
-      const holdingsTotal = normalizedActiveHoldings.reduce(
+      const holdingsTotal = consolidatedActiveHoldings.reduce(
         (sum, holding) => sum + (toFiniteNumber(holding.market_value) ?? 0),
         0
       );
-      const derivedCashBalance = deriveCashFromHoldings(normalizedActiveHoldings);
+      const derivedCashBalance = deriveCashFromHoldings(consolidatedActiveHoldings);
       const holdingsIncludeCash = derivedCashBalance !== undefined;
 
       // 3. Append structured statement snapshot (no raw PDF bytes).
@@ -1603,7 +1607,7 @@ export function PortfolioReviewView({
         asset_allocation: hasAllocationValues(resolvedAssetAllocation)
           ? resolvedAssetAllocation
           : undefined,
-        holdings: normalizedActiveHoldings,
+        holdings: consolidatedActiveHoldings,
         income_summary: hasRecordValues(normalizedIncomeSummary as Record<string, unknown>)
           ? normalizedIncomeSummary
           : undefined,
@@ -1790,13 +1794,13 @@ export function PortfolioReviewView({
       const financialSummary = {
         ...buildFinancialDomainSummary(nextFinancialDomain as Record<string, unknown>),
         intent_source: "kai_import_llm",
-        attribute_count: normalizedActiveHoldings.length,
-        item_count: normalizedActiveHoldings.length,
-        holdings_count: normalizedActiveHoldings.length,
-        investable_positions_count: normalizedActiveHoldings.filter(
+        attribute_count: consolidatedActiveHoldings.length,
+        item_count: consolidatedActiveHoldings.length,
+        holdings_count: consolidatedActiveHoldings.length,
+        investable_positions_count: consolidatedActiveHoldings.filter(
           (holding) => holding.is_investable
         ).length,
-        cash_positions_count: normalizedActiveHoldings.filter(
+        cash_positions_count: consolidatedActiveHoldings.filter(
           (holding) => holding.is_cash_equivalent
         ).length,
         allocation_coverage_pct: hasAllocationValues(resolvedAssetAllocation) ? 1 : 0,

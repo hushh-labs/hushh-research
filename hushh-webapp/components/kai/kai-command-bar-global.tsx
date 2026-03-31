@@ -14,7 +14,10 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
-import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
+import {
+  getKaiActivePickSource,
+  setKaiActivePickSource,
+} from "@/lib/kai/pick-source-selection";
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -57,6 +60,7 @@ export function KaiCommandBarGlobal() {
   const [previewData, setPreviewData] = useState<KaiStockPreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewPickSource, setPreviewPickSource] = useState("default");
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const userId = user?.uid ?? "";
 
@@ -192,10 +196,13 @@ export function KaiCommandBarGlobal() {
           userId,
           symbol: previewSymbol,
           vaultOwnerToken,
-          pickSource: getKaiActivePickSource(userId),
+          pickSource: previewPickSource,
         });
         if (!cancelled) {
           setPreviewData(payload);
+          if (payload.active_pick_source && payload.active_pick_source !== previewPickSource) {
+            setPreviewPickSource(payload.active_pick_source);
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -214,7 +221,20 @@ export function KaiCommandBarGlobal() {
     return () => {
       cancelled = true;
     };
-  }, [previewSymbol, userId, vaultOwnerToken]);
+  }, [previewPickSource, previewSymbol, userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!userId) {
+      setPreviewPickSource("default");
+      return;
+    }
+    setPreviewPickSource(getKaiActivePickSource(userId));
+  }, [userId, previewSymbol]);
+
+  useEffect(() => {
+    if (!userId) return;
+    setKaiActivePickSource(userId, previewPickSource);
+  }, [previewPickSource, userId]);
 
   // Command palette is hidden only during loading/review overlays.
   if (loading || !user || reviewScreenActive || !isVaultUnlocked) {
@@ -225,17 +245,16 @@ export function KaiCommandBarGlobal() {
     return null;
   }
 
-  const openFullAnalysisForSymbol = (symbol: string) => {
-    setPreviewSymbol(null);
-    router.push(`${ROUTES.KAI_ANALYSIS}?ticker=${encodeURIComponent(symbol)}`);
-  };
-
   const startDebateForSymbol = (symbol: string) => {
+    const previewSource =
+      previewData?.pick_sources.find((source) => source.id === previewPickSource) ?? null;
     setPreviewSymbol(null);
     setAnalysisParams({
       ticker: symbol,
       userId,
       riskProfile: "balanced",
+      pickSource: previewPickSource,
+      pickSourceLabel: previewSource?.label,
     });
     router.push(`${ROUTES.KAI_ANALYSIS}?ticker=${encodeURIComponent(symbol)}`);
   };
@@ -315,10 +334,9 @@ export function KaiCommandBarGlobal() {
               preview={previewData}
               loading={previewLoading}
               error={previewError}
+              activePickSource={previewPickSource}
+              onPickSourceChange={setPreviewPickSource}
               onStartDebate={() => previewSymbol && startDebateForSymbol(previewSymbol)}
-              onOpenFullAnalysis={() =>
-                previewSymbol && openFullAnalysisForSymbol(previewSymbol)
-              }
             />
           </div>
         </DialogContent>

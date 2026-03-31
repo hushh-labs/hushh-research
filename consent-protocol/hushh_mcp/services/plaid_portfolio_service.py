@@ -36,6 +36,9 @@ PortfolioSource = Literal["statement", "plaid"]
 
 _READONLY_ITEM_STATUSES = {"active", "error", "relink_required", "permission_revoked"}
 _ACTIVE_ITEM_STATUSES = {"active", "error", "relink_required"}
+_ITEM_PURPOSE_INVESTMENTS = "investments"
+_ITEM_PURPOSE_FUNDING = "funding"
+_FUNDING_TRANSFER_REFS_LIMIT = 30
 
 
 def _utcnow() -> datetime:
@@ -132,6 +135,12 @@ def _unique_texts(values: list[str]) -> list[str]:
         seen.add(key)
         out.append(cleaned)
     return out
+
+
+def _as_list_of_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [entry for entry in value if isinstance(entry, dict)]
 
 
 class PlaidPortfolioService:
@@ -295,6 +304,151 @@ class PlaidPortfolioService:
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.client.post(path, payload)
+
+    def _row_metadata(self, row: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(row, dict):
+            return {}
+        parsed = _json_load(row.get("latest_metadata_json"), fallback={})
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _item_purpose(self, row: dict[str, Any] | None) -> str:
+        metadata = self._row_metadata(row)
+        purpose = _clean_text(
+            metadata.get("item_purpose"), default=_ITEM_PURPOSE_INVESTMENTS
+        ).lower()
+        if purpose == _ITEM_PURPOSE_FUNDING:
+            return _ITEM_PURPOSE_FUNDING
+        return _ITEM_PURPOSE_INVESTMENTS
+
+    def _is_investment_item(self, row: dict[str, Any] | None) -> bool:
+        return self._item_purpose(row) == _ITEM_PURPOSE_INVESTMENTS
+
+    def _is_funding_item(self, row: dict[str, Any] | None) -> bool:
+        return self._item_purpose(row) == _ITEM_PURPOSE_FUNDING
+
+    def _merge_item_metadata(
+        self,
+        row: dict[str, Any] | None,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        merged = {**self._row_metadata(row)}
+        merged.update(updates)
+        return merged
+
+    def _update_item_metadata(self, *, item_id: str, metadata: dict[str, Any]) -> None:
+        self.db.execute_raw(
+            """
+            UPDATE kai_plaid_items
+            SET latest_metadata_json = CAST(:metadata_json AS JSONB),
+                updated_at = NOW()
+            WHERE item_id = :item_id
+            """,
+            {
+                "item_id": item_id,
+                "metadata_json": json.dumps(metadata),
+            },
+        )
+
+    def _update_item_transactions(
+        self, *, item_id: str, transactions: list[dict[str, Any]]
+    ) -> None:
+        self.db.execute_raw(
+            """
+            UPDATE kai_plaid_items
+            SET latest_transactions_json = CAST(:transactions_json AS JSONB),
+                updated_at = NOW()
+            WHERE item_id = :item_id
+            """,
+            {
+                "item_id": item_id,
+                "transactions_json": json.dumps(transactions),
+            },
+        )
+
+    def _list_funding_item_rows(self, *, user_id: str) -> list[dict[str, Any]]:
+        return [row for row in self._list_item_rows(user_id=user_id) if self._is_funding_item(row)]
+
+    def _find_funding_item_row(
+        self,
+        *,
+        user_id: str,
+        item_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        rows = self._list_funding_item_rows(user_id=user_id)
+        if item_id:
+            for row in rows:
+                if _clean_text(row.get("item_id")) == item_id:
+                    return row
+            return None
+        for row in rows:
+            status = _clean_text(row.get("status"), default="active")
+            if status in _READONLY_ITEM_STATUSES:
+                return row
+        return rows[0] if rows else None
+
+    def _extract_metadata_accounts(self, metadata: dict[str, Any] | None) -> list[str]:
+        if not isinstance(metadata, dict):
+            return []
+        raw_accounts = metadata.get("accounts")
+        out: list[str] = []
+        for account in _as_list_of_dicts(raw_accounts):
+            account_id = _clean_text(account.get("id")) or _clean_text(account.get("account_id"))
+            if account_id:
+                out.append(account_id)
+        return _unique_texts(out)
+
+    def _extract_transfer_refs(self, metadata: dict[str, Any] | None) -> list[dict[str, Any]]:
+        refs = _as_list_of_dicts((metadata or {}).get("transfer_refs"))
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for ref in refs:
+            transfer_id = _clean_text(ref.get("transfer_id"))
+            if not transfer_id:
+                continue
+            if transfer_id in seen:
+                continue
+            seen.add(transfer_id)
+            out.append(ref)
+        out.sort(
+            key=lambda row: _clean_text(row.get("created_at"), default=""),
+            reverse=True,
+        )
+        return out[:_FUNDING_TRANSFER_REFS_LIMIT]
+
+    def _upsert_transfer_ref(
+        self,
+        *,
+        row: dict[str, Any],
+        transfer_ref: dict[str, Any],
+    ) -> None:
+        metadata = self._row_metadata(row)
+        refs = self._extract_transfer_refs(metadata)
+        transfer_id = _clean_text(transfer_ref.get("transfer_id"))
+        if not transfer_id:
+            return
+        replaced = False
+        next_refs: list[dict[str, Any]] = []
+        for existing in refs:
+            if _clean_text(existing.get("transfer_id")) == transfer_id:
+                merged = {**existing, **transfer_ref}
+                next_refs.append(merged)
+                replaced = True
+            else:
+                next_refs.append(existing)
+        if not replaced:
+            next_refs.append(transfer_ref)
+        next_refs.sort(
+            key=lambda value: _clean_text(value.get("created_at"), default=""),
+            reverse=True,
+        )
+        item_id = _clean_text(row.get("item_id"))
+        if not item_id:
+            return
+        merged_metadata = self._merge_item_metadata(
+            row,
+            {"transfer_refs": next_refs[:_FUNDING_TRANSFER_REFS_LIMIT]},
+        )
+        self._update_item_metadata(item_id=item_id, metadata=merged_metadata)
 
     def _fetch_item_row(self, *, user_id: str, item_id: str) -> dict[str, Any] | None:
         result = self.db.execute_raw(
@@ -1298,6 +1452,7 @@ class PlaidPortfolioService:
                 "latest_portfolio_json": json.dumps(portfolio_payload),
                 "latest_metadata_json": json.dumps(
                     {
+                        "item_purpose": _ITEM_PURPOSE_INVESTMENTS,
                         "item_id": item_id,
                         "user_id": user_id,
                         "institution_id": institution_id,
@@ -1330,6 +1485,8 @@ class PlaidPortfolioService:
         for row in rows:
             item_id = _clean_text(row.get("item_id"))
             if not item_id:
+                continue
+            if not self._is_investment_item(row):
                 continue
             status = _clean_text(row.get("status"), default="active")
             sync_status = _clean_text(row.get("sync_status"), default="idle")
@@ -1596,6 +1753,684 @@ class PlaidPortfolioService:
 
         return self._aggregate_status_payload(user_id=user_id)
 
+    async def create_funding_link_token(
+        self,
+        *,
+        user_id: str,
+        item_id: str | None = None,
+        redirect_uri: str | None = None,
+        transfer_authorization_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not self.is_configured():
+            return {
+                **self.configuration_status(),
+                "mode": "unconfigured",
+                "flow_type": _ITEM_PURPOSE_FUNDING,
+                "link_token": None,
+                "expiration": None,
+                "resume_session_id": None,
+            }
+
+        payload: dict[str, Any] = {
+            "client_name": self._client_name(),
+            "user": {"client_user_id": user_id},
+            "country_codes": self._country_codes(),
+            "language": self._language(),
+            "products": ["transfer"],
+            "optional_products": ["auth", "transactions"],
+            "account_filters": {
+                "depository": {
+                    "account_subtypes": ["checking", "savings"],
+                }
+            },
+        }
+        webhook_url = self._webhook_url()
+        if webhook_url:
+            payload["webhook"] = webhook_url
+        resolved_redirect_uri = self.resolve_redirect_uri(redirect_uri)
+        if resolved_redirect_uri:
+            payload["redirect_uri"] = resolved_redirect_uri
+        cleaned_authorization_id = _clean_text(transfer_authorization_id)
+        if cleaned_authorization_id:
+            payload["transfer"] = {"authorization_id": cleaned_authorization_id}
+
+        mode: str = "create"
+        if item_id:
+            existing = self._fetch_item_row(user_id=user_id, item_id=item_id)
+            if existing is None or not self._is_funding_item(existing):
+                raise RuntimeError("Plaid funding Item not found for update-mode link token.")
+            payload["access_token"] = self._decrypt_access_token(existing)
+            payload["update"] = {"account_selection_enabled": True}
+            mode = "update"
+
+        response = await self._post("/link/token/create", payload)
+        link_token = _clean_text(response.get("link_token")) or None
+        expiration = _clean_text(response.get("expiration")) or None
+        resume_session_id = None
+        if link_token and resolved_redirect_uri:
+            session = self._create_link_session(
+                user_id=user_id,
+                item_id=item_id,
+                mode=mode,
+                redirect_uri=resolved_redirect_uri,
+                link_token=link_token,
+                expires_at=expiration,
+            )
+            resume_session_id = _clean_text(session.get("resume_session_id")) or None
+        return {
+            **self.configuration_status(),
+            "mode": mode,
+            "flow_type": _ITEM_PURPOSE_FUNDING,
+            "link_token": link_token,
+            "expiration": expiration,
+            "request_id": response.get("request_id"),
+            "redirect_uri": resolved_redirect_uri,
+            "resume_session_id": resume_session_id,
+        }
+
+    def _choose_funding_account_id(
+        self,
+        *,
+        accounts: list[dict[str, Any]],
+        preferred_ids: list[str],
+    ) -> str | None:
+        account_ids = [_clean_text(account.get("account_id")) for account in accounts]
+        account_ids = [account_id for account_id in account_ids if account_id]
+        for preferred in preferred_ids:
+            if preferred in account_ids:
+                return preferred
+
+        for account in accounts:
+            account_id = _clean_text(account.get("account_id"))
+            subtype = _clean_text(account.get("subtype")).lower()
+            if account_id and subtype in {"checking", "savings"}:
+                return account_id
+
+        return account_ids[0] if account_ids else None
+
+    async def _sync_funding_item_snapshot(
+        self,
+        *,
+        user_id: str,
+        item_id: str,
+        access_token: str,
+        institution_id: str | None,
+        institution_name: str | None,
+        selected_account_candidates: list[str],
+    ) -> dict[str, Any]:
+        accounts_payload = await self._post(
+            "/accounts/get",
+            {"access_token": access_token},
+        )
+        accounts_raw = accounts_payload.get("accounts")
+        accounts_all = _as_list_of_dicts(accounts_raw)
+        depository_accounts = [
+            account
+            for account in accounts_all
+            if _clean_text(account.get("type")).lower() == "depository"
+        ]
+        source_accounts = depository_accounts if depository_accounts else accounts_all
+        item_row = {
+            "item_id": item_id,
+            "institution_id": institution_id,
+            "institution_name": institution_name,
+        }
+        normalized_accounts = [self._normalize_account(item_row, row) for row in source_accounts]
+
+        existing = self._fetch_item_row(user_id=user_id, item_id=item_id)
+        existing_metadata = self._row_metadata(existing)
+        selected_account_id = self._choose_funding_account_id(
+            accounts=normalized_accounts,
+            preferred_ids=[
+                *selected_account_candidates,
+                _clean_text(existing_metadata.get("selected_funding_account_id")),
+            ],
+        )
+        for account in normalized_accounts:
+            account["is_selected_funding_account"] = (
+                _clean_text(account.get("account_id")) == selected_account_id
+            )
+
+        last_synced_at = _utcnow_iso()
+        summary_payload = {
+            "item_id": item_id,
+            "institution_id": institution_id,
+            "institution_name": institution_name,
+            "last_synced_at": last_synced_at,
+            "sync_status": "completed",
+            "account_count": len(normalized_accounts),
+            "selected_funding_account_id": selected_account_id,
+        }
+        merged_metadata = {
+            **existing_metadata,
+            "item_purpose": _ITEM_PURPOSE_FUNDING,
+            "item_id": item_id,
+            "user_id": user_id,
+            "institution_id": institution_id,
+            "institution_name": institution_name,
+            "selected_funding_account_id": selected_account_id,
+            "funding_account_ids": [
+                _clean_text(account.get("account_id"))
+                for account in normalized_accounts
+                if _clean_text(account.get("account_id"))
+            ],
+            "last_synced_at": last_synced_at,
+        }
+
+        envelope = self._encrypt_access_token(access_token)
+        self.db.execute_raw(
+            """
+            INSERT INTO kai_plaid_items (
+                item_id,
+                user_id,
+                access_token_ciphertext,
+                access_token_iv,
+                access_token_tag,
+                access_token_algorithm,
+                institution_id,
+                institution_name,
+                plaid_env,
+                status,
+                sync_status,
+                last_sync_at,
+                last_error_code,
+                last_error_message,
+                latest_accounts_json,
+                latest_holdings_json,
+                latest_securities_json,
+                latest_transactions_json,
+                latest_summary_json,
+                latest_portfolio_json,
+                latest_metadata_json,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :item_id,
+                :user_id,
+                :access_token_ciphertext,
+                :access_token_iv,
+                :access_token_tag,
+                :access_token_algorithm,
+                :institution_id,
+                :institution_name,
+                :plaid_env,
+                'active',
+                'completed',
+                NOW(),
+                NULL,
+                NULL,
+                CAST(:latest_accounts_json AS JSONB),
+                CAST(:latest_holdings_json AS JSONB),
+                CAST(:latest_securities_json AS JSONB),
+                CAST(:latest_transactions_json AS JSONB),
+                CAST(:latest_summary_json AS JSONB),
+                CAST(:latest_portfolio_json AS JSONB),
+                CAST(:latest_metadata_json AS JSONB),
+                NOW(),
+                NOW()
+            )
+            ON CONFLICT (item_id) DO UPDATE
+            SET user_id = EXCLUDED.user_id,
+                access_token_ciphertext = EXCLUDED.access_token_ciphertext,
+                access_token_iv = EXCLUDED.access_token_iv,
+                access_token_tag = EXCLUDED.access_token_tag,
+                access_token_algorithm = EXCLUDED.access_token_algorithm,
+                institution_id = EXCLUDED.institution_id,
+                institution_name = EXCLUDED.institution_name,
+                plaid_env = EXCLUDED.plaid_env,
+                status = EXCLUDED.status,
+                sync_status = EXCLUDED.sync_status,
+                last_sync_at = NOW(),
+                last_error_code = NULL,
+                last_error_message = NULL,
+                latest_accounts_json = EXCLUDED.latest_accounts_json,
+                latest_holdings_json = EXCLUDED.latest_holdings_json,
+                latest_securities_json = EXCLUDED.latest_securities_json,
+                latest_summary_json = EXCLUDED.latest_summary_json,
+                latest_portfolio_json = EXCLUDED.latest_portfolio_json,
+                latest_metadata_json = EXCLUDED.latest_metadata_json,
+                updated_at = NOW()
+            """,
+            {
+                "item_id": item_id,
+                "user_id": user_id,
+                "access_token_ciphertext": envelope["ciphertext"],
+                "access_token_iv": envelope["iv"],
+                "access_token_tag": envelope["tag"],
+                "access_token_algorithm": envelope["algorithm"],
+                "institution_id": institution_id,
+                "institution_name": institution_name,
+                "plaid_env": self._plaid_env(),
+                "latest_accounts_json": json.dumps(normalized_accounts),
+                "latest_holdings_json": json.dumps([]),
+                "latest_securities_json": json.dumps([]),
+                "latest_transactions_json": json.dumps(
+                    _as_list_of_dicts(existing.get("latest_transactions_json")) if existing else []
+                ),
+                "latest_summary_json": json.dumps(summary_payload),
+                "latest_portfolio_json": json.dumps({}),
+                "latest_metadata_json": json.dumps(merged_metadata),
+            },
+        )
+        return {
+            "summary": summary_payload,
+            "accounts": normalized_accounts,
+            "metadata": merged_metadata,
+        }
+
+    async def exchange_funding_public_token(
+        self,
+        *,
+        user_id: str,
+        public_token: str,
+        metadata: dict[str, Any] | None = None,
+        resume_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not self.is_configured():
+            return await self.get_funding_status(user_id=user_id)
+
+        exchange = await self._post(
+            "/item/public_token/exchange",
+            {"public_token": public_token},
+        )
+        item_id = _clean_text(exchange.get("item_id"))
+        access_token = _clean_text(exchange.get("access_token"))
+        if not item_id or not access_token:
+            raise RuntimeError("Plaid exchange did not return an item_id/access_token pair.")
+
+        institution = metadata if isinstance(metadata, dict) else {}
+        institution_name = None
+        institution_id = None
+        institution_value = (
+            institution.get("institution")
+            if isinstance(institution.get("institution"), dict)
+            else institution
+        )
+        if isinstance(institution_value, dict):
+            institution_name = _clean_text(institution_value.get("name")) or None
+            institution_id = (
+                _clean_text(institution_value.get("institution_id"))
+                or _clean_text(institution_value.get("id"))
+                or None
+            )
+        else:
+            institution_name = _clean_text(institution.get("institution_name")) or None
+            institution_id = _clean_text(institution.get("institution_id")) or None
+        selected_accounts = self._extract_metadata_accounts(metadata)
+
+        await self._sync_funding_item_snapshot(
+            user_id=user_id,
+            item_id=item_id,
+            access_token=access_token,
+            institution_id=institution_id,
+            institution_name=institution_name,
+            selected_account_candidates=selected_accounts,
+        )
+
+        cleaned_resume_session_id = _clean_text(resume_session_id) or None
+        if cleaned_resume_session_id:
+            self._complete_link_session(
+                user_id=user_id,
+                resume_session_id=cleaned_resume_session_id,
+            )
+        return await self.get_funding_status(user_id=user_id)
+
+    async def get_funding_status(self, *, user_id: str) -> dict[str, Any]:
+        if not self.is_configured():
+            return {
+                **self.configuration_status(),
+                "user_id": user_id,
+                "items": [],
+                "latest_transfers": [],
+                "aggregate": {
+                    "item_count": 0,
+                    "account_count": 0,
+                    "institution_names": [],
+                    "last_synced_at": None,
+                },
+            }
+
+        rows = self._list_funding_item_rows(user_id=user_id)
+        items: list[dict[str, Any]] = []
+        institution_names: list[str] = []
+        last_synced_candidates: list[str] = []
+        all_transfer_refs: list[dict[str, Any]] = []
+        account_count = 0
+
+        for row in rows:
+            item_id = _clean_text(row.get("item_id"))
+            if not item_id:
+                continue
+            metadata = self._row_metadata(row)
+            status = _clean_text(row.get("status"), default="active")
+            if status == "removed":
+                continue
+            accounts = _as_list_of_dicts(_json_load(row.get("latest_accounts_json"), fallback=[]))
+            selected_account_id = _clean_text(metadata.get("selected_funding_account_id")) or None
+            for account in accounts:
+                account["is_selected_funding_account"] = (
+                    _clean_text(account.get("account_id")) == selected_account_id
+                )
+            transfer_refs = self._extract_transfer_refs(metadata)
+            all_transfer_refs.extend(transfer_refs)
+            institution_name = _clean_text(row.get("institution_name")) or None
+            if institution_name:
+                institution_names.append(institution_name)
+            last_synced_at = (
+                _clean_text(row.get("last_sync_at"))
+                or _clean_text(metadata.get("last_synced_at"))
+                or None
+            )
+            if last_synced_at:
+                last_synced_candidates.append(last_synced_at)
+            account_count += len(accounts)
+            items.append(
+                {
+                    "item_id": item_id,
+                    "institution_id": _clean_text(row.get("institution_id")) or None,
+                    "institution_name": institution_name,
+                    "status": status,
+                    "sync_status": _clean_text(row.get("sync_status"), default="idle"),
+                    "last_synced_at": last_synced_at,
+                    "selected_funding_account_id": selected_account_id,
+                    "accounts": accounts,
+                    "transactions_cursor": _clean_text(metadata.get("transactions_cursor")) or None,
+                    "transfers": transfer_refs,
+                }
+            )
+
+        all_transfer_refs.sort(
+            key=lambda ref: _clean_text(ref.get("created_at"), default=""),
+            reverse=True,
+        )
+        latest_transfers = all_transfer_refs[:_FUNDING_TRANSFER_REFS_LIMIT]
+        return {
+            **self.configuration_status(),
+            "user_id": user_id,
+            "items": items,
+            "latest_transfers": latest_transfers,
+            "aggregate": {
+                "item_count": len(items),
+                "account_count": account_count,
+                "institution_names": _unique_texts(institution_names),
+                "last_synced_at": max(last_synced_candidates) if last_synced_candidates else None,
+            },
+        }
+
+    async def sync_funding_transactions(
+        self,
+        *,
+        user_id: str,
+        item_id: str,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._find_funding_item_row(user_id=user_id, item_id=item_id)
+        if row is None:
+            raise RuntimeError("No linked Plaid funding Item is available.")
+
+        access_token = self._decrypt_access_token(row)
+        metadata = self._row_metadata(row)
+        working_cursor = (
+            _clean_text(cursor) or _clean_text(metadata.get("transactions_cursor")) or None
+        )
+        added: list[dict[str, Any]] = []
+        modified: list[dict[str, Any]] = []
+        removed: list[dict[str, Any]] = []
+
+        while True:
+            payload: dict[str, Any] = {"access_token": access_token}
+            if working_cursor:
+                payload["cursor"] = working_cursor
+            response = await self._post("/transactions/sync", payload)
+            added.extend(_as_list_of_dicts(response.get("added")))
+            modified.extend(_as_list_of_dicts(response.get("modified")))
+            removed.extend(_as_list_of_dicts(response.get("removed")))
+            next_cursor = _clean_text(response.get("next_cursor")) or working_cursor
+            has_more = _to_bool(response.get("has_more"))
+            working_cursor = next_cursor
+            if not has_more:
+                break
+
+        merged_metadata = self._merge_item_metadata(
+            row,
+            {
+                "transactions_cursor": working_cursor,
+                "last_transactions_sync_at": _utcnow_iso(),
+            },
+        )
+        item_id_value = _clean_text(row.get("item_id"))
+        self._update_item_metadata(item_id=item_id_value, metadata=merged_metadata)
+        self._update_item_transactions(item_id=item_id_value, transactions=added[-500:])
+
+        return {
+            "item_id": item_id_value,
+            "next_cursor": working_cursor,
+            "added": added,
+            "modified": modified,
+            "removed": removed,
+            "counts": {
+                "added": len(added),
+                "modified": len(modified),
+                "removed": len(removed),
+            },
+        }
+
+    def _transfer_ref_for_user(
+        self,
+        *,
+        user_id: str,
+        transfer_id: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        cleaned_transfer_id = _clean_text(transfer_id)
+        if not cleaned_transfer_id:
+            return None
+        for row in self._list_funding_item_rows(user_id=user_id):
+            metadata = self._row_metadata(row)
+            for ref in self._extract_transfer_refs(metadata):
+                if _clean_text(ref.get("transfer_id")) == cleaned_transfer_id:
+                    return row, ref
+        return None
+
+    def _normalize_transfer_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        transfer = payload.get("transfer") if isinstance(payload.get("transfer"), dict) else payload
+        transfer_id = _clean_text(transfer.get("id")) or _clean_text(transfer.get("transfer_id"))
+        authorization_id = _clean_text(transfer.get("authorization_id")) or None
+        created_at = (
+            _clean_text(transfer.get("created"))
+            or _clean_text(transfer.get("created_at"))
+            or _utcnow_iso()
+        )
+        return {
+            "transfer_id": transfer_id or None,
+            "authorization_id": authorization_id,
+            "status": _clean_text(transfer.get("status")) or None,
+            "type": _clean_text(transfer.get("type")) or None,
+            "network": _clean_text(transfer.get("network")) or None,
+            "ach_class": _clean_text(transfer.get("ach_class")) or None,
+            "description": _clean_text(transfer.get("description")) or None,
+            "amount": _clean_text(transfer.get("amount")) or None,
+            "iso_currency_code": _clean_text(transfer.get("iso_currency_code")) or "USD",
+            "failure_reason": transfer.get("failure_reason"),
+            "created_at": created_at,
+            "raw": transfer if isinstance(transfer, dict) else {},
+        }
+
+    async def create_transfer(
+        self,
+        *,
+        user_id: str,
+        funding_item_id: str,
+        funding_account_id: str,
+        amount: float | str,
+        user_legal_name: str,
+        direction: str = "to_brokerage",
+        network: str = "ach",
+        ach_class: str = "web",
+        description: str | None = None,
+        idempotency_key: str | None = None,
+        brokerage_item_id: str | None = None,
+        brokerage_account_id: str | None = None,
+        redirect_uri: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._find_funding_item_row(user_id=user_id, item_id=funding_item_id)
+        if row is None:
+            raise RuntimeError("No linked Plaid funding Item is available.")
+
+        selected_funding_account_id = _clean_text(funding_account_id)
+        normalized_accounts = _as_list_of_dicts(
+            _json_load(row.get("latest_accounts_json"), fallback=[])
+        )
+        available_account_ids = {
+            _clean_text(account.get("account_id")) for account in normalized_accounts
+        }
+        available_account_ids.discard("")
+        if selected_funding_account_id not in available_account_ids:
+            raise RuntimeError(
+                "Selected funding account does not belong to the linked funding Item."
+            )
+
+        amount_value = _to_float(amount)
+        if amount_value is None or amount_value <= 0:
+            raise RuntimeError("Transfer amount must be greater than zero.")
+        legal_name = _clean_text(user_legal_name)
+        if not legal_name:
+            raise RuntimeError("A legal name is required to create a transfer.")
+
+        cleaned_idempotency_key = _clean_text(idempotency_key) or f"kai_transfer_{uuid.uuid4().hex}"
+        metadata = self._row_metadata(row)
+        existing_ref = next(
+            (
+                ref
+                for ref in self._extract_transfer_refs(metadata)
+                if _clean_text(ref.get("idempotency_key")) == cleaned_idempotency_key
+            ),
+            None,
+        )
+        existing_transfer_id = _clean_text((existing_ref or {}).get("transfer_id"))
+        if existing_transfer_id:
+            existing_transfer = await self.get_transfer(
+                user_id=user_id,
+                transfer_id=existing_transfer_id,
+            )
+            existing_transfer["deduped"] = True
+            existing_transfer["idempotency_key"] = cleaned_idempotency_key
+            return existing_transfer
+
+        transfer_type = "debit" if _clean_text(direction).lower() != "from_brokerage" else "credit"
+        access_token = self._decrypt_access_token(row)
+        amount_text = f"{amount_value:.2f}"
+        auth_response = await self._post(
+            "/transfer/authorization/create",
+            {
+                "access_token": access_token,
+                "account_id": selected_funding_account_id,
+                "type": transfer_type,
+                "network": _clean_text(network, default="ach"),
+                "amount": amount_text,
+                "ach_class": _clean_text(ach_class, default="web"),
+                "user": {"legal_name": legal_name},
+                "idempotency_key": cleaned_idempotency_key,
+            },
+        )
+        decision = _clean_text(auth_response.get("decision")).lower()
+        decision_rationale = auth_response.get("decision_rationale")
+        authorization_id = _clean_text(auth_response.get("authorization_id")) or None
+        if decision != "approved" or not authorization_id:
+            action_link = None
+            if decision == "user_action_required" and authorization_id:
+                try:
+                    action_link = await self.create_funding_link_token(
+                        user_id=user_id,
+                        item_id=_clean_text(row.get("item_id")),
+                        redirect_uri=redirect_uri,
+                        transfer_authorization_id=authorization_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "plaid.transfer_action_link_failed user_id=%s item_id=%s",
+                        user_id,
+                        _clean_text(row.get("item_id")),
+                    )
+            return {
+                "approved": False,
+                "decision": decision or "unknown",
+                "decision_rationale": decision_rationale,
+                "authorization_id": authorization_id,
+                "action_link_token": action_link,
+                "idempotency_key": cleaned_idempotency_key,
+            }
+
+        create_response = await self._post(
+            "/transfer/create",
+            {
+                "access_token": access_token,
+                "account_id": selected_funding_account_id,
+                "authorization_id": authorization_id,
+                "description": _clean_text(description, default="BROKERAGE"),
+            },
+        )
+        transfer = self._normalize_transfer_payload(create_response)
+        transfer_id = _clean_text(transfer.get("transfer_id"))
+        if not transfer_id:
+            raise RuntimeError("Plaid transfer create did not return a transfer ID.")
+        transfer_ref = {
+            "transfer_id": transfer_id,
+            "authorization_id": authorization_id,
+            "status": _clean_text(transfer.get("status")) or "pending",
+            "amount": amount_text,
+            "direction": _clean_text(direction, default="to_brokerage"),
+            "funding_account_id": selected_funding_account_id,
+            "brokerage_item_id": _clean_text(brokerage_item_id) or None,
+            "brokerage_account_id": _clean_text(brokerage_account_id) or None,
+            "idempotency_key": cleaned_idempotency_key,
+            "created_at": _clean_text(transfer.get("created_at")) or _utcnow_iso(),
+        }
+        self._upsert_transfer_ref(row=row, transfer_ref=transfer_ref)
+        return {
+            "approved": True,
+            "decision": decision,
+            "decision_rationale": decision_rationale,
+            "idempotency_key": cleaned_idempotency_key,
+            "transfer": transfer,
+        }
+
+    async def get_transfer(self, *, user_id: str, transfer_id: str) -> dict[str, Any]:
+        ownership = self._transfer_ref_for_user(user_id=user_id, transfer_id=transfer_id)
+        if ownership is None:
+            raise RuntimeError("Transfer not found for this user.")
+        row, existing_ref = ownership
+        response = await self._post(
+            "/transfer/get",
+            {"transfer_id": transfer_id},
+        )
+        transfer = self._normalize_transfer_payload(response)
+        updated_ref = {
+            **existing_ref,
+            "status": _clean_text(transfer.get("status"))
+            or _clean_text(existing_ref.get("status")),
+            "created_at": _clean_text(transfer.get("created_at"))
+            or _clean_text(existing_ref.get("created_at"))
+            or _utcnow_iso(),
+        }
+        self._upsert_transfer_ref(row=row, transfer_ref=updated_ref)
+        return {
+            "transfer": transfer,
+            "reference": updated_ref,
+        }
+
+    async def cancel_transfer(self, *, user_id: str, transfer_id: str) -> dict[str, Any]:
+        ownership = self._transfer_ref_for_user(user_id=user_id, transfer_id=transfer_id)
+        if ownership is None:
+            raise RuntimeError("Transfer not found for this user.")
+        await self._post(
+            "/transfer/cancel",
+            {"transfer_id": transfer_id},
+        )
+        transfer_payload = await self.get_transfer(user_id=user_id, transfer_id=transfer_id)
+        transfer_payload["canceled"] = True
+        return transfer_payload
+
     async def refresh_items(
         self,
         *,
@@ -1608,6 +2443,7 @@ class PlaidPortfolioService:
             row
             for row in rows
             if _clean_text(row.get("item_id"))
+            and self._is_investment_item(row)
             and (item_id is None or _clean_text(row.get("item_id")) == item_id)
             and _clean_text(row.get("status"), default="active") in _ACTIVE_ITEM_STATUSES
         ]
@@ -1745,6 +2581,8 @@ class PlaidPortfolioService:
         updated: list[dict[str, Any]] = []
         for row in rows:
             if not isinstance(row, dict):
+                continue
+            if not self._is_investment_item(row):
                 continue
             current_item_id = _clean_text(row.get("item_id"))
             if not current_item_id:
@@ -1941,15 +2779,192 @@ class PlaidPortfolioService:
             "result_summary_json": _json_load(row.get("result_summary_json"), fallback={}),
         }
 
+    def _extract_transfer_id_from_webhook(self, payload: dict[str, Any]) -> str | None:
+        direct_candidates = [
+            payload.get("transfer_id"),
+            payload.get("transferId"),
+            payload.get("id"),
+        ]
+        for candidate in direct_candidates:
+            transfer_id = _clean_text(candidate)
+            if transfer_id:
+                return transfer_id
+
+        transfer_payload = (
+            payload.get("transfer") if isinstance(payload.get("transfer"), dict) else {}
+        )
+        for key in ("id", "transfer_id"):
+            transfer_id = _clean_text(transfer_payload.get(key))
+            if transfer_id:
+                return transfer_id
+
+        event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+        for key in ("transfer_id", "transferId", "id"):
+            transfer_id = _clean_text(event_payload.get(key))
+            if transfer_id:
+                return transfer_id
+
+        return None
+
+    def _find_funding_item_row_by_transfer_id(self, transfer_id: str) -> dict[str, Any] | None:
+        cleaned_transfer_id = _clean_text(transfer_id)
+        if not cleaned_transfer_id:
+            return None
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_plaid_items
+            WHERE (latest_metadata_json -> 'transfer_refs') @> CAST(:needle_json AS JSONB)
+            ORDER BY COALESCE(updated_at, created_at) DESC
+            LIMIT 1
+            """,
+            {
+                "needle_json": json.dumps([{"transfer_id": cleaned_transfer_id}]),
+            },
+        )
+        if not result.data:
+            return None
+        row = result.data[0]
+        return row if self._is_funding_item(row) else None
+
+    async def _refresh_funding_transfer_reference(
+        self,
+        *,
+        row: dict[str, Any],
+        transfer_id: str,
+    ) -> dict[str, Any] | None:
+        cleaned_transfer_id = _clean_text(transfer_id)
+        if not cleaned_transfer_id:
+            return None
+
+        try:
+            response = await self._post(
+                "/transfer/get",
+                {"transfer_id": cleaned_transfer_id},
+            )
+        except Exception:
+            logger.exception(
+                "plaid.funding_transfer_webhook_refresh_failed item_id=%s transfer_id=%s",
+                _clean_text(row.get("item_id")),
+                cleaned_transfer_id,
+            )
+            return None
+
+        transfer = self._normalize_transfer_payload(response)
+        metadata = self._row_metadata(row)
+        existing_ref = next(
+            (
+                ref
+                for ref in self._extract_transfer_refs(metadata)
+                if _clean_text(ref.get("transfer_id")) == cleaned_transfer_id
+            ),
+            {},
+        )
+        updated_ref = {
+            **existing_ref,
+            "transfer_id": cleaned_transfer_id,
+            "status": _clean_text(transfer.get("status"))
+            or _clean_text(existing_ref.get("status")),
+            "created_at": _clean_text(transfer.get("created_at"))
+            or _clean_text(existing_ref.get("created_at"))
+            or _utcnow_iso(),
+        }
+        self._upsert_transfer_ref(row=row, transfer_ref=updated_ref)
+        return transfer
+
+    def _sync_status_from_transfer_status(self, status_value: str | None) -> str | None:
+        normalized = _clean_text(status_value).lower()
+        if normalized in {"failed", "canceled", "returned", "rejected"}:
+            return "failed"
+        if normalized in {"posted", "settled"}:
+            return "completed"
+        if normalized in {"pending", "submitted", "authorized"}:
+            return "running"
+        return None
+
+    async def _handle_funding_webhook(
+        self,
+        *,
+        row: dict[str, Any],
+        payload: dict[str, Any],
+        webhook_type: str,
+        webhook_code: str,
+        transfer_id: str | None,
+    ) -> dict[str, Any]:
+        item_id = _clean_text(row.get("item_id"))
+        user_id = _clean_text(row.get("user_id"))
+        current_sync_status = _clean_text(row.get("sync_status"), default="idle")
+        current_item_status = _clean_text(row.get("status"), default="active")
+        if item_id:
+            self._mark_item_sync_status(
+                item_id=item_id,
+                sync_status=current_sync_status,
+                status=current_item_status,
+                webhook_type=webhook_type or None,
+                webhook_code=webhook_code or None,
+            )
+
+        resolved_transfer_id = transfer_id or self._extract_transfer_id_from_webhook(payload)
+        transfer_status: str | None = None
+        if resolved_transfer_id:
+            refreshed_transfer = await self._refresh_funding_transfer_reference(
+                row=row,
+                transfer_id=resolved_transfer_id,
+            )
+            transfer_status = _clean_text((refreshed_transfer or {}).get("status")) or None
+
+        if item_id:
+            next_sync_status = self._sync_status_from_transfer_status(transfer_status)
+            if next_sync_status and next_sync_status != current_sync_status:
+                self._mark_item_sync_status(
+                    item_id=item_id,
+                    sync_status=next_sync_status,
+                    status=current_item_status,
+                    webhook_type=webhook_type or None,
+                    webhook_code=webhook_code or None,
+                )
+
+        if (
+            item_id
+            and user_id
+            and webhook_type == "TRANSACTIONS"
+            and webhook_code == "DEFAULT_UPDATE"
+        ):
+            try:
+                await self.sync_funding_transactions(
+                    user_id=user_id,
+                    item_id=item_id,
+                    cursor=None,
+                )
+            except Exception:
+                logger.exception(
+                    "plaid.funding_transactions_webhook_sync_failed user_id=%s item_id=%s",
+                    user_id,
+                    item_id,
+                )
+
+        return {
+            "accepted": True,
+            "handled": True,
+            "item_id": item_id or None,
+            "transfer_id": resolved_transfer_id,
+        }
+
     async def handle_webhook(self, payload: dict[str, Any]) -> dict[str, Any]:
         item_id = _clean_text(payload.get("item_id"))
         webhook_type = _clean_text(payload.get("webhook_type"))
         webhook_code = _clean_text(payload.get("webhook_code"))
-        if not item_id:
-            return {"accepted": True, "handled": False, "reason": "missing_item_id"}
+        transfer_id = self._extract_transfer_id_from_webhook(payload)
 
-        row = self._fetch_item_row_by_item_id(item_id)
+        row = self._fetch_item_row_by_item_id(item_id) if item_id else None
+        if row is None and transfer_id:
+            row = self._find_funding_item_row_by_transfer_id(transfer_id)
+            if row is not None:
+                item_id = _clean_text(row.get("item_id"))
+
         if row is None:
+            if not item_id:
+                return {"accepted": True, "handled": False, "reason": "missing_item_id"}
             logger.info(
                 "plaid.webhook_item_unknown item_id=%s type=%s code=%s",
                 item_id,
@@ -1957,6 +2972,14 @@ class PlaidPortfolioService:
                 webhook_code,
             )
             return {"accepted": True, "handled": False, "reason": "unknown_item"}
+        if self._is_funding_item(row):
+            return await self._handle_funding_webhook(
+                row=row,
+                payload=payload,
+                webhook_type=webhook_type,
+                webhook_code=webhook_code,
+                transfer_id=transfer_id,
+            )
 
         user_id = _clean_text(row.get("user_id"))
         if webhook_type == "HOLDINGS" and webhook_code == "DEFAULT_UPDATE":

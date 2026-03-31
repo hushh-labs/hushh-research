@@ -204,6 +204,7 @@ export function KaiPreferencesWizard(props: {
           {reserveBackSlot && (
             <div className="flex justify-start">
               <Button
+                type="button"
                 variant="link"
                 effect="fade"
                 size="sm"
@@ -263,6 +264,7 @@ export function KaiPreferencesWizard(props: {
 
         <div className="mt-auto pt-6 space-y-4">
           <Button
+            type="button"
             size="lg"
             fullWidth
             onClick={handlePrimary}
@@ -276,6 +278,7 @@ export function KaiPreferencesWizard(props: {
 
           {props.mode === "onboarding" && props.onSkip && (
             <Button
+              type="button"
               variant="blue-gradient"
               effect="fade"
               size="lg"
@@ -303,6 +306,7 @@ export function KaiPreferencesWizard(props: {
 
           <div className="grid gap-2 pt-2">
             <Button
+              type="button"
               variant="none"
               effect="fill"
               size="sm"
@@ -325,6 +329,7 @@ export function KaiPreferencesWizard(props: {
             </Button>
 
             <Button
+              type="button"
               variant="none"
               effect="fill"
               size="sm"
@@ -352,6 +357,7 @@ export function KaiPreferencesWizard(props: {
               Cancel
             </AlertDialogCancel>
             <Button
+              type="button"
               variant="blue-gradient"
               effect="fill"
               size="sm"

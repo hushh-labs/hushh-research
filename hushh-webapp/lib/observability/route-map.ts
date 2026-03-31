@@ -131,6 +131,34 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/plaid/exchange-public-token",
   },
   {
+    regex: /^\/api\/kai\/plaid\/funding\/link-token(?:\?.*)?$/i,
+    template: "/api/kai/plaid/funding/link-token",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/funding\/exchange-public-token(?:\?.*)?$/i,
+    template: "/api/kai/plaid/funding/exchange-public-token",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/funding\/status\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/plaid/funding/status/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/funding\/transactions\/sync(?:\?.*)?$/i,
+    template: "/api/kai/plaid/funding/transactions/sync",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/transfers\/create(?:\?.*)?$/i,
+    template: "/api/kai/plaid/transfers/create",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/transfers\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/plaid/transfers/{transfer_id}",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/transfers\/[^/?]+\/cancel(?:\?.*)?$/i,
+    template: "/api/kai/plaid/transfers/{transfer_id}/cancel",
+  },
+  {
     regex: /^\/api\/kai\/plaid\/refresh(?:\?.*)?$/i,
     template: "/api/kai/plaid/refresh",
   },

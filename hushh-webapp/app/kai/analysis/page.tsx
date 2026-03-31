@@ -39,7 +39,10 @@ import {
 import { cn } from "@/lib/utils";
 import { toInvestorLoading, toInvestorMessage } from "@/lib/copy/investor-language";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
-import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
+import {
+  getKaiActivePickSource,
+  setKaiActivePickSource,
+} from "@/lib/kai/pick-source-selection";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
 type WorkspaceTab = "debate" | "summary" | "detailed";
@@ -124,6 +127,7 @@ function KaiAnalysisPageContent() {
   const [resolvedEntry, setResolvedEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [resolvingEntry, setResolvingEntry] = useState(false);
   const [liveEntry, setLiveEntry] = useState<AnalysisHistoryEntry | null>(null);
+  const [historyFallbackEntry, setHistoryFallbackEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [activeRunTask, setActiveRunTask] = useState<DebateRunTask | null>(null);
   const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
@@ -134,6 +138,7 @@ function KaiAnalysisPageContent() {
   const [stockPreview, setStockPreview] = useState<KaiStockPreviewResponse | null>(null);
   const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
   const [stockPreviewError, setStockPreviewError] = useState<string | null>(null);
+  const [previewPickSource, setPreviewPickSource] = useState("default");
 
   const hasFreshAnalysisIntent =
     Boolean(analysisParams) &&
@@ -260,10 +265,10 @@ function KaiAnalysisPageContent() {
   }, [liveIntentReady, setBusyOperation]);
 
   useEffect(() => {
-    if (liveIntentReady) {
+    if (!liveEntry && !resolvedEntry && liveIntentReady) {
       setWorkspaceTab("debate");
     }
-  }, [liveIntentReady]);
+  }, [liveEntry, liveIntentReady, resolvedEntry]);
 
   useEffect(() => {
     if (!debateId || !userId || !vaultKey) {
@@ -316,6 +321,7 @@ function KaiAnalysisPageContent() {
         userId,
         riskProfile: "balanced",
       });
+      setHistoryFallbackEntry(null);
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
@@ -375,6 +381,7 @@ function KaiAnalysisPageContent() {
         userId,
         riskProfile: "balanced",
       });
+      setHistoryFallbackEntry(null);
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
@@ -389,19 +396,20 @@ function KaiAnalysisPageContent() {
     });
   }, []);
 
-  const handleLiveDecisionSaved = useCallback(
-    (entry: AnalysisHistoryEntry) => {
+  const handleLiveDecisionReady = useCallback(
+    (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => {
       if (summaryLoadingToastIdRef.current === null) {
-        summaryLoadingToastIdRef.current = toast.info("Preparing summary…", {
+        summaryLoadingToastIdRef.current = toast.info("Saving to history…", {
           duration: Infinity,
-          description: "Final recommendation is ready. Loading summary view.",
+          description: "Final recommendation is ready. Kai is storing this analysis in your PKM.",
         });
       }
       setLiveEntry(entry);
-      setResolvedEntry(entry);
+      setHistoryFallbackEntry(entry);
       setAnalysisParams(null);
+      setFocusedRunId(meta.runId);
       setShowHistoryWhileActive(false);
-      setWorkspaceTab("summary");
+      setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
       requestAnimationFrame(() => {
         workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       });
@@ -409,9 +417,23 @@ function KaiAnalysisPageContent() {
     [setAnalysisParams]
   );
 
+  const handleLiveDecisionPersisted = useCallback((entry: AnalysisHistoryEntry) => {
+    setLiveEntry(entry);
+    setResolvedEntry(entry);
+    setHistoryFallbackEntry(entry);
+    setShowHistoryWhileActive(false);
+    setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
+    if (summaryLoadingToastIdRef.current !== null) {
+      toast.dismiss(summaryLoadingToastIdRef.current);
+      summaryLoadingToastIdRef.current = null;
+    }
+    toast.success("Analysis saved to history.");
+  }, []);
+
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
-  const activeEntry = liveIntentReady ? liveEntry : resolvedEntry;
-  const showWorkspace = !showHistoryWhileActive && Boolean(liveIntentReady || resolvedEntry || hasFocusedRun);
+  const activeEntry = liveEntry || resolvedEntry;
+  const showWorkspace =
+    !showHistoryWhileActive && Boolean(liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
   const activeTicker = useMemo(() => {
     if (focusedRunTask?.ticker) {
       return String(focusedRunTask.ticker).trim().toUpperCase();
@@ -433,6 +455,15 @@ function KaiAnalysisPageContent() {
   const handleStartDebateFromPreview = useCallback(() => {
     const currentPreviewTicker = String(searchParams.get("ticker") || "").trim().toUpperCase();
     if (!currentPreviewTicker || !userId || showWorkspace) return;
+    const previewSource =
+      stockPreview?.pick_sources.find((source) => source.id === previewPickSource) ?? null;
+    const resolvedPickSourceLabel =
+      previewSource?.label ||
+      (previewPickSource === "default"
+        ? "Default list"
+        : previewPickSource.startsWith("ria:")
+          ? "Connected advisor list"
+          : previewPickSource);
     setResolvedEntry(null);
     setLiveEntry(null);
     setFocusedRunId(null);
@@ -441,10 +472,12 @@ function KaiAnalysisPageContent() {
       ticker: currentPreviewTicker,
       userId,
       riskProfile: "balanced",
+      pickSource: previewPickSource,
+      pickSourceLabel: resolvedPickSourceLabel,
     });
     setShowHistoryWhileActive(false);
     setWorkspaceTab("debate");
-  }, [searchParams, setAnalysisParams, showWorkspace, userId]);
+  }, [previewPickSource, searchParams, setAnalysisParams, showWorkspace, stockPreview?.pick_sources, userId]);
   const headerPriceLabel =
     headerSnapshotLoading && (headerSnapshot?.last_price ?? null) === null
       ? "Loading price..."
@@ -498,6 +531,19 @@ function KaiAnalysisPageContent() {
   }, [activeTicker, showWorkspace, userId, vaultOwnerToken]);
 
   useEffect(() => {
+    if (!userId) {
+      setPreviewPickSource("default");
+      return;
+    }
+    setPreviewPickSource(getKaiActivePickSource(userId));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    setKaiActivePickSource(userId, previewPickSource);
+  }, [previewPickSource, userId]);
+
+  useEffect(() => {
     if (!previewTickerFromQuery || !userId || !vaultOwnerToken) {
       setStockPreview(null);
       setStockPreviewLoading(false);
@@ -514,10 +560,13 @@ function KaiAnalysisPageContent() {
           userId,
           symbol: previewTickerFromQuery,
           vaultOwnerToken,
-          pickSource: getKaiActivePickSource(userId),
+          pickSource: previewPickSource,
         });
         if (!cancelled) {
           setStockPreview(payload);
+          if (payload.active_pick_source && payload.active_pick_source !== previewPickSource) {
+            setPreviewPickSource(payload.active_pick_source);
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -536,19 +585,19 @@ function KaiAnalysisPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [previewTickerFromQuery, userId, vaultOwnerToken]);
+  }, [previewPickSource, previewTickerFromQuery, userId, vaultOwnerToken]);
 
   useEffect(() => {
     if (
       summaryLoadingToastIdRef.current !== null &&
       workspaceTab === "summary" &&
-      activeEntry
+      resolvedEntry
     ) {
       toast.dismiss(summaryLoadingToastIdRef.current);
       toast.success("Summary ready.");
       summaryLoadingToastIdRef.current = null;
     }
-  }, [activeEntry, workspaceTab]);
+  }, [resolvedEntry, workspaceTab]);
 
   useEffect(
     () => () => {
@@ -573,13 +622,14 @@ function KaiAnalysisPageContent() {
       <AppPageShell as="div" width="narrow">
         <SurfaceCard>
           <SurfaceCardContent className="p-5 text-center">
-          <h2 className="text-lg font-semibold">Connect your portfolio first</h2>
+          <h2 className="text-lg font-semibold">Unlock your Vault to continue</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Stock analysis is available after your portfolio is saved in Vault.
+            Your portfolio and saved analysis stay encrypted in Vault. Unlock it to reopen analysis,
+            review history, or start a new debate with your stored holdings context.
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <MorphyButton onClick={() => router.push("/kai/import")}>
-              Open Import
+            <MorphyButton onClick={() => router.push("/kai")}>
+              Return to Kai
             </MorphyButton>
             <MorphyButton
               variant="none"
@@ -660,14 +710,14 @@ function KaiAnalysisPageContent() {
               className="w-full"
             >
               <div className="flex justify-center">
-                <TabsList className="mx-auto grid h-auto w-full max-w-xl grid-cols-1 gap-1 p-1 min-[430px]:grid-cols-3">
-                  <TabsTrigger value="debate" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                <TabsList className="mx-auto grid h-auto w-full max-w-2xl grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
+                  <TabsTrigger value="debate" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
                     Debate
                   </TabsTrigger>
-                  <TabsTrigger value="summary" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                  <TabsTrigger value="summary" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
                     Summary
                   </TabsTrigger>
-                  <TabsTrigger value="detailed" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                  <TabsTrigger value="detailed" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
                     Detailed View
                   </TabsTrigger>
                 </TabsList>
@@ -683,8 +733,12 @@ function KaiAnalysisPageContent() {
                     vaultKey={vaultKey}
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
+                    pickSource={analysisParams?.pickSource}
+                    pickSourceLabel={analysisParams?.pickSourceLabel}
+                    pickSourceKind={analysisParams?.pickSource?.startsWith("ria:") ? "ria" : "default"}
                     onClose={handleCloseLiveDebate}
-                    onDecisionSaved={handleLiveDecisionSaved}
+                    onDecisionReady={handleLiveDecisionReady}
+                    onDecisionPersisted={handleLiveDecisionPersisted}
                     showHeader={false}
                   />
                 ) : focusedRunTask ? (
@@ -697,8 +751,12 @@ function KaiAnalysisPageContent() {
                     vaultKey={vaultKey}
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
+                    pickSource={analysisParams?.pickSource}
+                    pickSourceLabel={analysisParams?.pickSourceLabel}
+                    pickSourceKind={analysisParams?.pickSource?.startsWith("ria:") ? "ria" : "default"}
                     onClose={handleCloseLiveDebate}
-                    onDecisionSaved={handleLiveDecisionSaved}
+                    onDecisionReady={handleLiveDecisionReady}
+                    onDecisionPersisted={handleLiveDecisionPersisted}
                     showHeader={false}
                   />
                 ) : canStartNewRun && analysisParams ? (
@@ -710,8 +768,12 @@ function KaiAnalysisPageContent() {
                     vaultKey={vaultKey}
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
+                    pickSource={analysisParams?.pickSource}
+                    pickSourceLabel={analysisParams?.pickSourceLabel}
+                    pickSourceKind={analysisParams?.pickSource?.startsWith("ria:") ? "ria" : "default"}
                     onClose={handleCloseLiveDebate}
-                    onDecisionSaved={handleLiveDecisionSaved}
+                    onDecisionReady={handleLiveDecisionReady}
+                    onDecisionPersisted={handleLiveDecisionPersisted}
                     showHeader={false}
                   />
                 ) : activeEntry ? (
@@ -724,14 +786,34 @@ function KaiAnalysisPageContent() {
               </TabsContent>
               <TabsContent value="summary" className="mt-4">
                 {activeEntry ? (
-                  <AnalysisSummaryView
-                    entry={activeEntry}
-                    onReanalyze={handleReanalyze}
-                    embedded
-                    userId={userId}
-                    vaultOwnerToken={vaultOwnerToken || undefined}
-                    showHeader={false}
-                  />
+                  <div className="space-y-3">
+                    {focusedRunTask?.persistenceState === "pending" ? (
+                      <div className="rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                        Kai is saving this debate to your PKM history.
+                      </div>
+                    ) : null}
+                    {focusedRunTask?.persistenceState === "failed" ? (
+                      <div className="rounded-2xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-700 dark:text-rose-300">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span>{focusedRunTask.persistenceError || "History save failed for this debate."}</span>
+                          <MorphyButton
+                            size="sm"
+                            onClick={() => void DebateRunManagerService.retryTaskPersistence(focusedRunTask.runId)}
+                          >
+                            Retry save
+                          </MorphyButton>
+                        </div>
+                      </div>
+                    ) : null}
+                    <AnalysisSummaryView
+                      entry={activeEntry}
+                      onReanalyze={handleReanalyze}
+                      embedded
+                      userId={userId}
+                      vaultOwnerToken={vaultOwnerToken || undefined}
+                      showHeader={false}
+                    />
+                  </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">
                     Your summary will appear as soon as the first recommendation is ready.
@@ -778,8 +860,8 @@ function KaiAnalysisPageContent() {
               loading={stockPreviewLoading}
               error={stockPreviewError}
               onStartDebate={handleStartDebateFromPreview}
-              onOpenFullAnalysis={handleStartDebateFromPreview}
-              showOpenFullAnalysis={false}
+              activePickSource={previewPickSource}
+              onPickSourceChange={setPreviewPickSource}
               compact
             />
           ) : null}
@@ -816,6 +898,7 @@ function KaiAnalysisPageContent() {
             onSelectTicker={handleSelectTicker}
             onViewHistory={handleViewHistory}
             showDebateInputs={false}
+            ephemeralEntry={historyFallbackEntry}
           />
             </SurfaceStack>
           </AppPageContentRegion>

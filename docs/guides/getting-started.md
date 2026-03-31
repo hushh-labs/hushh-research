@@ -59,6 +59,8 @@ The default recommended mode is `uat` because it gives you the fastest working a
 - deployed UAT backend
 - no local backend boot required
 
+If you are not doing backend work, stop there. Do not start the local backend or Cloud SQL proxy just to work on the app locally.
+
 ## Canonical Commands
 
 ```bash
@@ -96,6 +98,13 @@ npm run backend
 ```
 
 That remains a maintainer/deeper-development path, not the primary onboarding contract.
+
+The local backend path is the only place that uses:
+
+- `CLOUDSQL_INSTANCE_CONNECTION_NAME=hushh-pda-uat:us-central1:hushh-uat-pg`
+- `CLOUDSQL_PROXY_PORT=6543`
+
+Those keys live only in `consent-protocol/.env`. They are not frontend keys and they are not needed for `uat` or `prod` frontend simulation.
 
 ## What Not To Learn On Day One
 

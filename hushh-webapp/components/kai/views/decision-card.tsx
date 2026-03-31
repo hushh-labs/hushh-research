@@ -93,6 +93,15 @@ export interface DecisionResult {
       valuation?: Record<string, unknown>;
     };
     all_sources?: string[];
+    pick_source?: string;
+    pick_source_label?: string;
+    pick_source_kind?: string;
+    structured_sources?: Array<{
+      label?: string;
+      url?: string | null;
+      kind?: string;
+      paper_title?: string;
+    }>;
     risk_persona_alignment?: string;
     debate_digest?: string;
     consensus_reached?: boolean;
@@ -131,6 +140,8 @@ export interface DecisionResult {
     };
     alphaagents_trace?: {
       paper?: string;
+      paper_title?: string;
+      paper_url?: string;
       protocol?: string;
       rounds_executed?: number;
       turns_per_agent?: number;
@@ -199,12 +210,30 @@ const KNOWN_SOURCE_URLS: Record<string, string> = {
   "seeking alpha": "https://seekingalpha.com",
 };
 
+type StructuredSource = {
+  label: string;
+  url: string | null;
+  kind: string;
+  paperTitle?: string;
+};
+
 function parseSourceUrl(source: string): { text: string; url: string | null } {
+  const normalized = source.trim();
+  const lower = normalized.toLowerCase();
+  if (
+    lower.includes("alphaagents") ||
+    lower.includes("arxiv:2508.11152") ||
+    lower.includes("2508.11152")
+  ) {
+    return {
+      text: "AlphaAgents paper",
+      url: "https://arxiv.org/pdf/2508.11152",
+    };
+  }
   const urlMatch = source.match(/https?:\/\/[^\s)]+/);
   if (urlMatch) {
     return { text: source.replace(urlMatch[0], "").trim() || urlMatch[0], url: urlMatch[0] };
   }
-  const lower = source.toLowerCase();
   for (const [key, url] of Object.entries(KNOWN_SOURCE_URLS)) {
     if (lower.includes(key)) {
       return { text: source, url };
@@ -213,8 +242,49 @@ function parseSourceUrl(source: string): { text: string; url: string | null } {
   return { text: source, url: null };
 }
 
-function SourceLink({ source }: { source: string }) {
-  const { text, url } = parseSourceUrl(source);
+function normalizeSource(source: string | StructuredSource): StructuredSource {
+  if (typeof source !== "string") {
+    const label = String(source.label || "").trim();
+    if (label) {
+      return {
+        label,
+        url: typeof source.url === "string" && source.url.trim() ? source.url.trim() : null,
+        kind: String(source.kind || "reference").trim() || "reference",
+        paperTitle: source.paperTitle,
+      };
+    }
+  }
+  const raw = typeof source === "string" ? source : "";
+  const { text, url } = parseSourceUrl(raw);
+  return {
+    label: text || raw,
+    url,
+    kind: "reference",
+  };
+}
+
+function resolvePickSourceLabel(rawCard: DecisionResult["raw_card"]): string | null {
+  if (!rawCard || typeof rawCard !== "object") return null;
+  const explicit =
+    typeof rawCard.pick_source_label === "string" ? rawCard.pick_source_label.trim() : "";
+  if (explicit) return explicit;
+  const sourceId = typeof rawCard.pick_source === "string" ? rawCard.pick_source.trim() : "";
+  const kind = typeof rawCard.pick_source_kind === "string" ? rawCard.pick_source_kind.trim() : "";
+  if (sourceId === "default" || kind === "default") {
+    return "Default list";
+  }
+  if (sourceId.startsWith("ria:") || kind === "ria") {
+    return "Connected advisor list";
+  }
+  return sourceId || null;
+}
+
+function SourceLink({ source }: { source: string | StructuredSource }) {
+  const normalized = normalizeSource(source);
+  const text = normalized.paperTitle
+    ? `${normalized.label}`
+    : normalized.label;
+  const url = normalized.url;
   if (url) {
     return (
       <a
@@ -232,6 +302,18 @@ function SourceLink({ source }: { source: string }) {
     <p className="text-[10px] text-muted-foreground truncate pl-2 border-l-2 border-primary/20">
       {text}
     </p>
+  );
+}
+
+function renderCompactTooltip(title: string, label: string, value: string) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </span>
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm font-semibold">{value}</span>
+    </div>
   );
 }
 
@@ -346,14 +428,10 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
                 hideLabel
                 formatter={(value, _name, item) => {
                   const payload = item?.payload as { agent?: string; vote?: string } | undefined;
-                  return (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Agent Votes
-                      </span>
-                      <span className="text-xs text-muted-foreground">{payload?.agent || "Agent"}</span>
-                      <span className="text-sm font-semibold">{payload?.vote || String(value)}</span>
-                    </div>
+                  return renderCompactTooltip(
+                    "Agent Votes",
+                    payload?.agent || "Agent",
+                    payload?.vote || String(value)
                   );
                 }}
               />
@@ -493,14 +571,10 @@ function QuantMetricsBarChart({ metrics }: { metrics: Record<string, unknown> })
                 hideLabel
                 formatter={(value, _name, item) => {
                   const payload = item?.payload as { name?: string } | undefined;
-                  return (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Valuation & Fundamentals
-                      </span>
-                      <span className="text-xs text-muted-foreground">{payload?.name || "Metric"}</span>
-                      <span className="text-sm font-semibold">{Number(value).toLocaleString()}</span>
-                    </div>
+                  return renderCompactTooltip(
+                    "Valuation & Fundamentals",
+                    payload?.name || "Metric",
+                    Number(value).toLocaleString()
                   );
                 }}
               />
@@ -564,14 +638,10 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
                 hideLabel
                 formatter={(value, _name, item) => {
                   const payload = item?.payload as { scenario?: string } | undefined;
-                  return (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Price Scenarios
-                      </span>
-                      <span className="text-xs text-muted-foreground">{payload?.scenario || "Scenario"}</span>
-                      <span className="text-sm font-semibold">${Number(value).toFixed(2)}</span>
-                    </div>
+                  return renderCompactTooltip(
+                    "Price Scenarios",
+                    payload?.scenario || "Scenario",
+                    `$${Number(value).toFixed(2)}`
                   );
                 }}
               />
@@ -724,33 +794,63 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
   const isReduce = decisionPresentation.tone === "negative";
 
   const rawCard = result.raw_card;
+  const pickSourceDisplayLabel = resolvePickSourceLabel(rawCard);
   const sources = useMemo(() => {
-    const sourceList: string[] = [];
+    const sourceList: StructuredSource[] = [];
+    for (const source of rawCard?.structured_sources || []) {
+      if (!source || typeof source !== "object") continue;
+      const label = String(source.label || "").trim();
+      if (!label) continue;
+      sourceList.push({
+        label,
+        url: typeof source.url === "string" && source.url.trim() ? source.url.trim() : null,
+        kind: String(source.kind || "reference").trim() || "reference",
+        paperTitle:
+          typeof source.paper_title === "string" && source.paper_title.trim()
+            ? source.paper_title.trim()
+            : undefined,
+      });
+    }
     for (const source of rawCard?.all_sources || []) {
       if (typeof source === "string" && source.trim()) {
-        sourceList.push(source.trim());
+        sourceList.push(normalizeSource(source.trim()));
       }
     }
     for (const highlight of rawCard?.debate_highlights || []) {
       if (typeof highlight?.source === "string" && highlight.source.trim()) {
-        sourceList.push(highlight.source.trim());
+        sourceList.push(normalizeSource(highlight.source.trim()));
       }
     }
+    const alphaAgentsPaperUrl =
+      typeof rawCard?.alphaagents_trace?.paper_url === "string" &&
+      rawCard.alphaagents_trace.paper_url.trim()
+        ? rawCard.alphaagents_trace.paper_url.trim()
+        : null;
+    const alphaAgentsPaperTitle =
+      typeof rawCard?.alphaagents_trace?.paper_title === "string" &&
+      rawCard.alphaagents_trace.paper_title.trim()
+        ? rawCard.alphaagents_trace.paper_title.trim()
+        : "AlphaAgents";
     const alphaAgentsPaper = rawCard?.alphaagents_trace?.paper;
-    if (typeof alphaAgentsPaper === "string" && alphaAgentsPaper.trim()) {
-      sourceList.push(`AlphaAgents Reference: ${alphaAgentsPaper.trim()}`);
+    if (alphaAgentsPaperUrl || (typeof alphaAgentsPaper === "string" && alphaAgentsPaper.trim())) {
+      sourceList.push({
+        label: `${alphaAgentsPaperTitle} paper`,
+        url: alphaAgentsPaperUrl || "https://arxiv.org/pdf/2508.11152",
+        kind: "paper",
+        paperTitle: alphaAgentsPaperTitle,
+      });
     }
 
-    const deduped: string[] = [];
+    const deduped: StructuredSource[] = [];
     const seen = new Set<string>();
     for (const value of sourceList) {
-      const key = value.toLowerCase();
+      const key = `${value.label.toLowerCase()}::${(value.url || "").toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
       deduped.push(value);
     }
     return deduped;
-  }, [rawCard?.all_sources, rawCard?.alphaagents_trace?.paper, rawCard?.debate_highlights]);
+  }, [rawCard]);
   const hasQuantMetrics = rawCard?.quant_metrics && Object.keys(rawCard.quant_metrics).filter(
     (k) => rawCard.quant_metrics![k] !== null && rawCard.quant_metrics![k] !== undefined && typeof rawCard.quant_metrics![k] !== "object"
   ).length > 0;
@@ -816,6 +916,15 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
         </div>
 
         <Separator className="bg-primary/10" />
+
+        {pickSourceDisplayLabel ? (
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-sky-500/20 bg-sky-500/8 px-4 py-3">
+            <Badge className="bg-sky-500/12 text-sky-700 dark:text-sky-300">
+              Debate source
+            </Badge>
+            <p className="text-sm font-medium text-foreground">{pickSourceDisplayLabel}</p>
+          </div>
+        ) : null}
 
         {/* DATA VISUALIZATION GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1136,7 +1245,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
               </p>
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {sources.map((src, i) => (
-                  <SourceLink key={`${src}-${i}`} source={src} />
+                  <SourceLink key={`${src.label}-${src.url || "nolink"}-${i}`} source={src} />
                 ))}
               </div>
             </div>
