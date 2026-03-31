@@ -67,7 +67,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
       try {
         setGuardError(null);
         const cachedCompletionHint = readOnboardingCompletionHint(user.uid);
-        if (isVaultUnlocked && cachedCompletionHint === true && !onOnboardingRoute) {
+        if (isVaultUnlocked && cachedCompletionHint !== false && !onOnboardingRoute) {
           setChecking(false);
         }
         const hasVault = await VaultService.checkVault(user.uid);

@@ -18,6 +18,9 @@ describe("observability route map", () => {
   });
 
   it("normalizes known API endpoint templates", () => {
+    expect(normalizeApiPathToTemplate("/api/kai/market/insights/baseline/user_123")).toBe(
+      "/api/kai/market/insights/baseline/{user_id}"
+    );
     expect(normalizeApiPathToTemplate("/api/kai/market/insights/user_123")).toBe(
       "/api/kai/market/insights/{user_id}"
     );

@@ -12,6 +12,10 @@ def _valid_token(*_args, **_kwargs):
     return True, "", SimpleNamespace(user_id="user_1")
 
 
+def _unexpected_validate(*_args, **_kwargs):
+    raise AssertionError("validate_token should not run for public-safe market baseline fetches")
+
+
 @pytest.mark.asyncio
 async def test_market_data_falls_back_from_finnhub_to_pmp(monkeypatch):
     monkeypatch.setattr(fetchers, "validate_token", _valid_token)
@@ -193,6 +197,108 @@ async def test_market_news_falls_back_from_finnhub_to_pmp(monkeypatch):
     assert len(rows) == 1
     assert rows[0]["provider"] == "pmp_fmp"
     assert called[:2] == ["finnhub_news", "pmp_news"]
+
+
+@pytest.mark.asyncio
+async def test_market_data_batch_allows_public_fetch_without_token(monkeypatch):
+    monkeypatch.setattr(fetchers, "validate_token", _unexpected_validate)
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("PMP_API_KEY", raising=False)
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    fetchers._MARKET_DATA_CACHE.clear()
+
+    async def _yahoo_batch(_tickers):
+        return [
+            {
+                "ticker": "AAPL",
+                "price": 192.0,
+                "change_percent": 0.5,
+                "volume": 100,
+                "market_cap": 1,
+                "source": "Yahoo Quote (Batch)",
+                "fetched_at": "2026-03-30T00:00:00Z",
+                "ttl_seconds": 60,
+            }
+        ]
+
+    monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", _yahoo_batch)
+
+    payload = await fetchers.fetch_market_data_batch(["AAPL"], "user_1", None)
+    assert payload["AAPL"]["source"] == "Yahoo Quote (Batch)"
+
+
+@pytest.mark.asyncio
+async def test_market_data_allows_public_fetch_without_token(monkeypatch):
+    monkeypatch.setattr(fetchers, "validate_token", _unexpected_validate)
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("PMP_API_KEY", raising=False)
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    fetchers._MARKET_DATA_CACHE.clear()
+
+    async def _yfinance_ok(ticker: str):
+        return {
+            "ticker": ticker,
+            "price": 246.63,
+            "change_percent": 0.9,
+            "volume": 42,
+            "market_cap": 10,
+            "pe_ratio": 1,
+            "pb_ratio": 1,
+            "dividend_yield": 0,
+            "company_name": ticker,
+            "sector": "Technology",
+            "industry": "Software",
+            "source": "yfinance (Real-time)",
+            "fetched_at": "2026-03-30T00:00:00Z",
+            "ttl_seconds": 60,
+            "is_stale": False,
+        }
+
+    monkeypatch.setattr(fetchers, "_fetch_yfinance_quote", _yfinance_ok)
+    monkeypatch.setattr(fetchers, "_fetch_yahoo_quote_fast", _unexpected_validate)
+
+    payload = await fetchers.fetch_market_data(
+        "AAPL",
+        "user_1",
+        None,
+        allow_slow_fallbacks=False,
+    )
+    assert payload["source"] == "yfinance (Real-time)"
+
+
+@pytest.mark.asyncio
+async def test_market_news_allows_public_fetch_without_token(monkeypatch):
+    monkeypatch.setattr(fetchers, "validate_token", _unexpected_validate)
+
+    async def _empty_finnhub(_ticker: str, _days_back: int):
+        return []
+
+    async def _pmp_ok(_ticker: str):
+        return [
+            {
+                "title": "Apple ships new products",
+                "description": "desc",
+                "url": "https://example.com/apple-news",
+                "publishedAt": "2026-02-20T00:00:00Z",
+                "source": {"name": "PMP/FMP"},
+                "provider": "pmp_fmp",
+            }
+        ]
+
+    async def _empty_newsapi(_ticker: str, _days_back: int):
+        return []
+
+    async def _empty_google(_ticker: str, _days_back: int):
+        return []
+
+    monkeypatch.setattr(fetchers, "_fetch_finnhub_company_news", _empty_finnhub)
+    monkeypatch.setattr(fetchers, "_fetch_pmp_news", _pmp_ok)
+    monkeypatch.setattr(fetchers, "_fetch_newsapi_articles", _empty_newsapi)
+    monkeypatch.setattr(fetchers, "_fetch_google_news_rss", _empty_google)
+
+    rows = await fetchers.fetch_market_news("AAPL", "user_1", None)
+    assert len(rows) == 1
+    assert rows[0]["provider"] == "pmp_fmp"
 
 
 @pytest.mark.asyncio

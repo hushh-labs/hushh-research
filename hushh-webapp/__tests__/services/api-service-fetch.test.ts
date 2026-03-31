@@ -186,4 +186,27 @@ describe("ApiService.apiFetch", () => {
     const body = await response.json();
     expect(body).toEqual(payload);
   });
+
+  it("fetches baseline market insights with Firebase auth", async () => {
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce("firebase-id-token");
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        generated_at: "2026-03-30T00:00:00Z",
+        meta: { market_mode: "baseline" },
+      })
+    );
+
+    const payload = await ApiService.getKaiMarketBaselineInsights({
+      userId: "user_123",
+      daysBack: 7,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("/api/kai/market/insights/baseline/user_123?days_back=7");
+    expect((options.headers as Record<string, string>).Authorization).toBe(
+      "Bearer firebase-id-token"
+    );
+    expect(payload.meta?.market_mode).toBe("baseline");
+  });
 });

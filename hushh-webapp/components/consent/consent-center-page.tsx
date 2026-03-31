@@ -30,6 +30,7 @@ import {
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 import {
   humanizeConsentScope,
+  resolveConsentRequesterLabel,
   resolveConsentSupportingCopy,
 } from "@/lib/consent/consent-display";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
@@ -132,13 +133,12 @@ function entrySummary(entry: ConsentCenterEntry) {
 }
 
 function resolveCounterpartLabel(entry: ConsentCenterEntry) {
-  return (
-    entry.counterpart_label ||
-    entry.counterpart_email ||
-    entry.counterpart_secondary_label ||
-    entry.counterpart_id ||
-    "Requester"
-  );
+  return resolveConsentRequesterLabel({
+    counterpartLabel: entry.counterpart_label,
+    counterpartEmail: entry.counterpart_email,
+    counterpartSecondaryLabel: entry.counterpart_secondary_label,
+    counterpartId: entry.counterpart_id,
+  });
 }
 
 function toPendingConsent(entry: ConsentCenterEntry): PendingConsent {

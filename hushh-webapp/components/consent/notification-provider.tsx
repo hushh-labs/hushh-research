@@ -41,6 +41,7 @@ import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-rout
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import {
   humanizeConsentScope,
+  resolveConsentRequesterLabel,
   resolveConsentSupportingCopy,
 } from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
@@ -68,7 +69,15 @@ function consentFromFCMPayload(
   if (!requestId) return null;
   return {
     id: requestId,
-    developer: data.agent_label || data.agent_id || "Unknown Agent",
+    developer: resolveConsentRequesterLabel({
+      requesterLabel: data.requester_label,
+      counterpartLabel: data.counterpart_label,
+      developer: data.agent_label,
+      counterpartEmail: data.requester_email,
+      counterpartSecondaryLabel: data.requester_secondary_label,
+      counterpartId: data.requester_entity_id,
+      agentId: data.agent_id,
+    }),
     developerImageUrl: data.requester_image_url || undefined,
     developerWebsiteUrl: data.requester_website_url || undefined,
     scope: data.scope || "",

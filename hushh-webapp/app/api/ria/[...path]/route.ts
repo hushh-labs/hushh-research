@@ -9,6 +9,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const UPSTREAM_TIMEOUT_MS = 20_000;
 const HOT_GET_CACHE_TTL_MS = 30 * 1000;
 const hotGetCache = new Map<string, { status: number; payload: unknown; cachedAt: number }>();
 const hotGetInflight = new Map<string, Promise<{ status: number; payload: unknown }>>();
@@ -77,7 +78,7 @@ async function proxyRequest(
         method,
         headers,
         body,
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
       const payload = await response
         .json()

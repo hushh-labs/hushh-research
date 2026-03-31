@@ -21,6 +21,8 @@ Profile remains the reference implementation for settings rows. This document ex
    - `ios.contentInset = "never"`
    - `SystemBars.insetsHandling = "css"`
 8. Decorative glass fade is visual-only and must never add extra content spacing.
+9. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm.
+10. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks.
 
 ## Page Header Contract
 
@@ -49,6 +51,7 @@ Rules:
 5. `SettingsRow` is the default interactive list row contract and should be reused outside Profile when the surface is row-like.
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
+8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
 
 ## Consent Inbox And Notification Contract
 
@@ -108,6 +111,7 @@ Rules:
 9. `AppPageShell` owns route start and shared page gutter. Card breathing comes from `SurfaceStack`, not from per-page inline padding hacks.
 10. Outer app-facing surface shells must not rely on `overflow-hidden`; clipping is allowed only on inner media/chart/inset containers.
 11. Do not stack glass-inside-glass for list managers. Row-based managers should use one outer shell and flatter rows inside it.
+12. Compact density is the default for signed-in surface cards; if a route needs more space, opt into `comfortable` density explicitly instead of hardcoding larger padding at the page level.
 
 ### Card Depth Model
 
@@ -193,6 +197,7 @@ Rules:
 6. Root browse surfaces must not rely on load-all-then-slice page contracts when the result set can grow without bound.
 7. Preview widgets should prefer a shared first-page cache when they open the same underlying manager surface; use `top=n` only for dedicated preview-only fetches.
 8. Empty or single-page list views must not render pagination chrome.
+9. Shared paginated list primitives should provide direct page-number navigation plus optional instant list-level swipe. Do not reimplement carousel-like paging per route.
 
 ## RIA Information Architecture
 

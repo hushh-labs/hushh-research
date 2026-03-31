@@ -99,3 +99,40 @@ async def test_public_module_reads_back_from_l2_when_l1_is_cold(monkeypatch):
     assert tier == "postgres"
     assert cache_hit is True
     assert fetch_count["count"] == 1
+
+
+def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalization():
+    baseline_user_a = market_insights._market_home_cache_key(
+        user_id="user_a",
+        canonical_watchlist_key="AAPL,MSFT",
+        days_back=7,
+        active_pick_source="default",
+        roster_signature="none",
+        personalized=False,
+    )
+    baseline_user_b = market_insights._market_home_cache_key(
+        user_id="user_b",
+        canonical_watchlist_key="AAPL,MSFT",
+        days_back=7,
+        active_pick_source="default",
+        roster_signature="none",
+        personalized=False,
+    )
+    personalized_user_a = market_insights._market_home_cache_key(
+        user_id="user_a",
+        canonical_watchlist_key="AAPL,MSFT",
+        days_back=7,
+        active_pick_source="default",
+        roster_signature="ria:alpha",
+        personalized=True,
+    )
+
+    assert baseline_user_a == baseline_user_b
+    assert baseline_user_a.startswith("home:baseline:")
+    assert personalized_user_a.startswith("home:user_a:")
+
+
+def test_repair_quote_symbol_normalizes_known_provider_aliases():
+    assert market_insights._repair_quote_symbol("BRKB") == ("BRK-B", True)
+    assert market_insights._repair_quote_symbol("CMCS1") == ("CMCSA", True)
+    assert market_insights._repair_quote_symbol("MSFT") == ("MSFT", False)

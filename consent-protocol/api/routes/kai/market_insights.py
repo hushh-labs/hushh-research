@@ -18,7 +18,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
 from hushh_mcp.operons.kai.fetchers import (
     fetch_market_data,
     fetch_market_data_batch,
@@ -53,10 +53,14 @@ FINANCIAL_SUMMARY_STALE_TTL_SECONDS = 1800
 
 DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
 DEFAULT_PICK_SOURCE_ID = "default"
+QUOTE_SYMBOL_ALIASES: dict[str, str] = {
+    "BRKA": "BRK-A",
+    "BRKB": "BRK-B",
+    "CMCS1": "CMCSA",
+}
 WATCHLIST_MAX = 8
 NEWS_SYMBOL_MAX = 3
 NEWS_ROWS_MAX = 12
-RENAISSANCE_QUOTE_SYMBOL_MAX = 12
 QUOTE_FANOUT_CONCURRENCY = 4
 RECOMMENDATION_FANOUT_CONCURRENCY = 4
 NEWS_FANOUT_CONCURRENCY = 2
@@ -96,9 +100,11 @@ def _empty_market_home_payload(
     filtered_symbols: list[dict[str, Any]],
     stale_reason: str,
     provider_status: dict[str, str] | None = None,
+    market_mode: str = "personalized",
 ) -> dict[str, Any]:
     status_map = provider_status or {"home": "failed"}
     generated_at = _now_iso()
+    is_personalized = market_mode == "personalized"
     return {
         "layout_version": "kai_home_v2",
         "user_id": user_id,
@@ -115,7 +121,7 @@ def _empty_market_home_payload(
             "as_of": generated_at,
             "source_tags": ["Unavailable"],
             "degraded": True,
-            "holdings_count": 0,
+            "holdings_count": 0 if is_personalized else None,
             "portfolio_value_bucket": None,
         },
         "watchlist": [],
@@ -142,6 +148,9 @@ def _empty_market_home_payload(
             "cache_tier": "live",
             "cache_hit": False,
             "warm_source": "request",
+            "market_mode": market_mode,
+            "baseline_cache_tier": "live" if not is_personalized else None,
+            "personalized_cache_tier": "live" if is_personalized else None,
             "provider_cooldowns": market_insights_cache.provider_cooldown_snapshot(),
             "symbol_quality": {
                 "requested_count": len(requested_watchlist_symbols),
@@ -181,6 +190,22 @@ def _normalize_pick_source(value: str | None) -> str:
     return DEFAULT_PICK_SOURCE_ID
 
 
+def _repair_quote_symbol(symbol: str | None) -> tuple[str, bool]:
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        return "", False
+
+    alias_target = QUOTE_SYMBOL_ALIASES.get(normalized)
+    if alias_target:
+        return alias_target, True
+
+    dotted = normalized.replace(".", "-")
+    if dotted != normalized:
+        return dotted, True
+
+    return normalized, False
+
+
 def _pick_source_roster_signature(ria_sources: list[dict[str, Any]]) -> str:
     if not ria_sources:
         return "none"
@@ -198,6 +223,23 @@ def _pick_source_roster_signature(ria_sources: list[dict[str, Any]]) -> str:
             )
         )
     return "|".join(sorted(parts))
+
+
+def _market_home_cache_key(
+    *,
+    user_id: str,
+    canonical_watchlist_key: str,
+    days_back: int,
+    active_pick_source: str,
+    roster_signature: str,
+    personalized: bool,
+) -> str:
+    if not personalized:
+        return f"home:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+    return (
+        f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
+        f"{roster_signature}"
+    )
 
 
 async def _resolve_pick_source_rows(
@@ -539,8 +581,44 @@ async def _get_or_refresh_public_module(
     """
     now_ts = time()
 
+    def has_recoverable_degradation(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        provider_status = payload.get("provider_status")
+        applies_to_key = (
+            key.startswith("quotes:")
+            or key.startswith("home:")
+            or key.startswith("home:baseline:")
+            or key.startswith("home:personalized:")
+        )
+        if not applies_to_key:
+            return False
+        if isinstance(provider_status, dict) and any(
+            str(value or "partial") != "ok" for value in provider_status.values()
+        ):
+            return True
+        if key.startswith("home:"):
+            for row_key in ("pick_rows", "watchlist", "spotlights"):
+                rows = payload.get(row_key)
+                if not isinstance(rows, list):
+                    continue
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("filtered_out_reason") or "").strip():
+                        continue
+                    if str(row.get("quote_status") or "").strip().lower() == "unsupported":
+                        continue
+                    if row.get("degraded") and _safe_float(row.get("price")) is None:
+                        return True
+        return False
+
     existing_l1 = market_insights_cache.peek(key)
-    if existing_l1 and (now_ts - existing_l1.fetched_at) <= fresh_ttl_seconds:
+    if (
+        existing_l1
+        and (now_ts - existing_l1.fetched_at) <= fresh_ttl_seconds
+        and not has_recoverable_degradation(existing_l1.value)
+    ):
         return (
             existing_l1.value,
             False,
@@ -559,7 +637,7 @@ async def _get_or_refresh_public_module(
         logger.warning("[Kai Market] L2 cache read skipped for %s: %s", key, exc)
         store = None
         l2_entry = None
-    if l2_entry and l2_entry.is_fresh(now_ts):
+    if l2_entry and l2_entry.is_fresh(now_ts) and not has_recoverable_degradation(l2_entry.payload):
         market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
         return (l2_entry.payload, False, l2_entry.age_seconds(now_ts), "postgres", True)
 
@@ -1104,7 +1182,7 @@ async def _fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
 
 
 async def _fetch_sector_rotation_from_etf_quotes(
-    user_id: str, consent_token: str
+    user_id: str, consent_token: str | None
 ) -> tuple[list[dict[str, Any]], str]:
     rows: list[dict[str, Any]] = []
     failures = 0
@@ -1164,7 +1242,7 @@ async def _fetch_sector_rotation_from_etf_quotes(
 
 
 async def _fetch_sector_rotation_snapshot(
-    user_id: str, consent_token: str
+    user_id: str, consent_token: str | None
 ) -> tuple[list[dict[str, Any]], str]:
     rows, status = await _fetch_sector_rotation_from_etf_quotes(user_id, consent_token)
     if rows:
@@ -1539,59 +1617,36 @@ def start_market_insights_background_refresh() -> None:
     _MARKET_REFRESH_TASK = asyncio.create_task(_market_refresh_loop())
 
 
-@router.get("/market/insights/{user_id}")
-async def get_market_insights(
+async def _get_market_insights_payload(
+    *,
     user_id: str,
-    symbols: str | None = Query(default=None, description="CSV list of symbols, max 8"),
-    days_back: int = Query(default=7, ge=1, le=14),
-    pick_source: str | None = Query(
-        default=None,
-        description="Active market picks source. Only the default source is live today.",
-    ),
-    token_data: dict = Depends(require_vault_owner_token),
+    requested_watchlist_symbols: list[str],
+    filtered_symbols: list[dict[str, Any]],
+    watchlist_symbols: list[str],
+    days_back: int,
+    active_pick_source: str,
+    consent_token: str | None,
+    personalized: bool,
 ) -> dict[str, Any]:
-    if token_data["user_id"] != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User ID does not match token",
-        )
-
-    symbol_master = get_symbol_master_service()
-    requested_watchlist_symbols = _normalize_symbols(symbols)
-    filtered_symbols: list[dict[str, Any]] = []
-    watchlist_symbols: list[str] = []
-    for raw_symbol in requested_watchlist_symbols:
-        classification = symbol_master.classify(raw_symbol)
-        if classification.tradable:
-            watchlist_symbols.append(classification.symbol)
-            continue
-        filtered_symbols.append(
-            {
-                "input_symbol": raw_symbol,
-                "normalized_symbol": classification.symbol,
-                "reason": classification.reason,
-                "trust_tier": classification.trust_tier,
-            }
-        )
-    if watchlist_symbols:
-        watchlist_symbols = list(dict.fromkeys(watchlist_symbols))
-    if not watchlist_symbols:
-        watchlist_symbols = DEFAULT_SYMBOLS
-    active_pick_source = _normalize_pick_source(pick_source)
-    consent_token = _coerce_consent_token(token_data.get("token"))
-    if not consent_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid consent token",
-        )
+    effective_pick_source = active_pick_source if personalized else DEFAULT_PICK_SOURCE_ID
     canonical_watchlist_key = ",".join(sorted(set(watchlist_symbols)))
-    try:
-        ria_source_roster = await RIAIAMService().list_investor_pick_sources(user_id)
-    except Exception as exc:
-        logger.debug("[Kai Market] source roster unavailable for %s: %s", user_id, exc)
+    if personalized:
+        try:
+            ria_source_roster = await RIAIAMService().list_investor_pick_sources(user_id)
+        except Exception as exc:
+            logger.debug("[Kai Market] source roster unavailable for %s: %s", user_id, exc)
+            ria_source_roster = []
+    else:
         ria_source_roster = []
     roster_signature = _pick_source_roster_signature(ria_source_roster)
-    home_key = f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:{roster_signature}"
+    home_key = _market_home_cache_key(
+        user_id=user_id,
+        canonical_watchlist_key=canonical_watchlist_key,
+        days_back=days_back,
+        active_pick_source=effective_pick_source,
+        roster_signature=roster_signature,
+        personalized=personalized,
+    )
 
     async def build_payload() -> dict[str, Any]:
         provider_status: dict[str, str] = {}
@@ -1605,14 +1660,43 @@ async def get_market_insights(
             resolved_pick_source,
         ) = await _resolve_pick_source_rows(
             user_id,
-            active_pick_source,
-            ria_sources=ria_source_roster,
+            effective_pick_source,
+            ria_sources=ria_source_roster if personalized else [],
         )
+        symbol_master = get_symbol_master_service()
+        visible_pick_rows_source: list[dict[str, Any]] = []
+        hidden_pick_symbols: list[dict[str, Any]] = []
+        for stock in renaissance_rows_source:
+            input_symbol = str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
+            if not input_symbol:
+                continue
+            quote_symbol, alias_repaired = _repair_quote_symbol(input_symbol)
+            classification = symbol_master.classify(quote_symbol)
+            if not classification.tradable:
+                hidden_pick_symbols.append(
+                    {
+                        "input_symbol": input_symbol,
+                        "normalized_symbol": classification.symbol,
+                        "reason": classification.reason,
+                        "trust_tier": classification.trust_tier,
+                        "filtered_out_reason": "unsupported_quote_symbol",
+                    }
+                )
+                continue
+            visible_pick_rows_source.append(
+                {
+                    "row": stock,
+                    "input_symbol": input_symbol,
+                    "quote_symbol": classification.symbol,
+                    "alias_repaired": alias_repaired or classification.symbol != input_symbol,
+                }
+            )
+
         renaissance_symbols = [
-            str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
-            for stock in renaissance_rows_source
-            if str(_pick_row_value(stock, "ticker", "") or "").strip()
-        ][:RENAISSANCE_QUOTE_SYMBOL_MAX]
+            item["quote_symbol"]
+            for item in visible_pick_rows_source
+            if str(item.get("quote_symbol") or "").strip()
+        ]
 
         core_symbols = ["SPY", "QQQ"]
         symbol_set = sorted({*watchlist_symbols, *core_symbols, *renaissance_symbols})
@@ -1648,23 +1732,32 @@ async def get_market_insights(
 
             async def fetch_symbol_quote(symbol: str) -> tuple[str, dict[str, Any], str]:
                 async with semaphore:
-                    try:
-                        quote = await fetch_market_data(
-                            symbol,
-                            user_id,
-                            consent_token,
-                            allow_slow_fallbacks=False,
-                        )
-                        payload = quote or {}
-                        price = _safe_float(payload.get("price"))
-                        if price is not None:
+                    last_exc: Exception | None = None
+                    for allow_slow_fallbacks in (False, True):
+                        try:
+                            quote = await fetch_market_data(
+                                symbol,
+                                user_id,
+                                consent_token,
+                                allow_slow_fallbacks=allow_slow_fallbacks,
+                            )
+                            payload = quote or {}
+                            price = _safe_float(payload.get("price"))
+                            if price is None:
+                                continue
                             market_insights_cache.append_series_point(f"quote:{symbol}", price)
                             if symbol == "SPY":
                                 market_insights_cache.append_series_point("sparkline:SPY", price)
-                        return symbol, payload, "ok"
-                    except Exception as exc:
-                        logger.debug("[Kai Market] quote failed for %s: %s", symbol, exc)
-                        return symbol, {}, _provider_status_from_exception(exc)
+                            return symbol, payload, "ok"
+                        except Exception as exc:
+                            last_exc = exc
+                            logger.debug(
+                                "[Kai Market] quote failed for %s (allow_slow=%s): %s",
+                                symbol,
+                                allow_slow_fallbacks,
+                                exc,
+                            )
+                    return symbol, {}, _provider_status_from_exception(last_exc or RuntimeError())
 
             results = await asyncio.gather(
                 *(fetch_symbol_quote(symbol) for symbol in unresolved_symbols)
@@ -1852,15 +1945,50 @@ async def get_market_insights(
             aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, row_cache_tier)
             aggregated_cache_hit = aggregated_cache_hit and row_cache_hit
 
-        for stock in renaissance_rows_source:
+        for pick_row in visible_pick_rows_source:
+            stock = pick_row["row"]
+            input_symbol = str(pick_row.get("input_symbol") or "").strip().upper()
+            quote_symbol = str(pick_row.get("quote_symbol") or input_symbol).strip().upper()
+            alias_repaired = bool(pick_row.get("alias_repaired"))
             tier = str(_pick_row_value(stock, "tier", "") or "").strip().upper() or None
-            symbol = str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
-            quote = quote_map.get(symbol) if isinstance(quote_map, dict) else None
+            quote = quote_map.get(quote_symbol) if isinstance(quote_map, dict) else None
             quote_source = str((quote or {}).get("source") or "").strip() or "Unknown"
+            quote_status = str(provider_status.get(f"quote:{quote_symbol}") or "partial")
+            if not quote and quote_symbol and quote_status != "unsupported":
+                try:
+                    rescued_quote = await fetch_market_data(
+                        quote_symbol,
+                        user_id,
+                        consent_token,
+                        allow_slow_fallbacks=True,
+                    )
+                except Exception as rescue_error:
+                    logger.debug(
+                        "[Kai Market] row rescue quote failed for %s: %s",
+                        quote_symbol,
+                        rescue_error,
+                    )
+                else:
+                    rescued_price = _safe_float((rescued_quote or {}).get("price"))
+                    if rescued_price is not None:
+                        quote = rescued_quote or {}
+                        quote_source = str((quote or {}).get("source") or "").strip() or "Unknown"
+                        quote_status = "ok"
+                        provider_status[f"quote:{quote_symbol}"] = "ok"
+                        if isinstance(quote_map, dict):
+                            quote_map[quote_symbol] = quote
+                        market_insights_cache.append_series_point(
+                            f"quote:{quote_symbol}",
+                            rescued_price,
+                        )
             renaissance_rows.append(
                 {
-                    "symbol": symbol,
-                    "company_name": str(_pick_row_value(stock, "company_name", symbol) or symbol),
+                    "symbol": quote_symbol or input_symbol,
+                    "input_symbol": input_symbol or None,
+                    "quote_symbol": quote_symbol or None,
+                    "company_name": str(
+                        _pick_row_value(stock, "company_name", quote_symbol) or quote_symbol
+                    ),
                     "sector": str(_pick_row_value(stock, "sector", "") or "").strip() or None,
                     "tier": tier,
                     "tier_rank": int(_pick_row_value(stock, "tier_rank", 0) or 0),
@@ -1877,6 +2005,10 @@ async def get_market_insights(
                     "market_cap": _safe_float((quote or {}).get("market_cap")),
                     "source_tags": sorted(set(["Renaissance", quote_source])),
                     "degraded": bool(not quote),
+                    "alias_repaired": alias_repaired,
+                    "quote_provider": quote_source,
+                    "quote_status": "ok" if quote else quote_status,
+                    "filtered_out_reason": None,
                     "as_of": (quote or {}).get("fetched_at")
                     if isinstance((quote or {}).get("fetched_at"), str)
                     else None,
@@ -2057,25 +2189,33 @@ async def get_market_insights(
             spy_quote
         )
 
-        financial_summary_cache = await market_insights_cache.get_or_refresh(
-            f"financial-summary:{user_id}",
-            fresh_ttl_seconds=FINANCIAL_SUMMARY_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=FINANCIAL_SUMMARY_STALE_TTL_SECONDS,
-            fetcher=lambda: _get_financial_summary(user_id),
-            serve_stale_while_revalidate=True,
-        )
-        financial_summary = (
-            financial_summary_cache.value if isinstance(financial_summary_cache.value, dict) else {}
-        )
-        stale = stale or financial_summary_cache.stale
-        total_value = _safe_float(
-            financial_summary.get("total_value") or financial_summary.get("portfolio_total_value")
-        )
-        holdings_count = _summary_count(financial_summary)
-        if holdings_count == 0:
-            holdings_count = len([row for row in watchlist_rows if row.get("symbol")])
+        financial_summary: dict[str, Any] = {}
+        total_value = None
+        holdings_count: int | None = None
+        hero_degraded = False
+        if personalized:
+            financial_summary_cache = await market_insights_cache.get_or_refresh(
+                f"financial-summary:{user_id}",
+                fresh_ttl_seconds=FINANCIAL_SUMMARY_FRESH_TTL_SECONDS,
+                stale_ttl_seconds=FINANCIAL_SUMMARY_STALE_TTL_SECONDS,
+                fetcher=lambda: _get_financial_summary(user_id),
+                serve_stale_while_revalidate=True,
+            )
+            financial_summary = (
+                financial_summary_cache.value
+                if isinstance(financial_summary_cache.value, dict)
+                else {}
+            )
+            stale = stale or financial_summary_cache.stale
+            total_value = _safe_float(
+                financial_summary.get("total_value")
+                or financial_summary.get("portfolio_total_value")
+            )
+            holdings_count = _summary_count(financial_summary)
+            if holdings_count == 0:
+                holdings_count = len([row for row in watchlist_rows if row.get("symbol")])
+            hero_degraded = total_value is None
 
-        hero_degraded = total_value is None
         hero = {
             "total_value": total_value,
             "day_change_value": None,
@@ -2084,10 +2224,14 @@ async def get_market_insights(
             "as_of": (spy_quote or {}).get("fetched_at")
             if isinstance((spy_quote or {}).get("fetched_at"), str)
             else _now_iso(),
-            "source_tags": sorted(set([*(sparkline_sources or []), "PKM"])),
+            "source_tags": sorted(
+                set([*(sparkline_sources or []), *(["PKM"] if personalized else [])])
+            ),
             "degraded": bool(hero_degraded or sparkline_degraded),
             "holdings_count": holdings_count,
-            "portfolio_value_bucket": financial_summary.get("portfolio_value_bucket"),
+            "portfolio_value_bucket": (
+                financial_summary.get("portfolio_value_bucket") if personalized else None
+            ),
         }
 
         signals = _build_signals(
@@ -2174,13 +2318,16 @@ async def get_market_insights(
                 "cache_tier": aggregated_cache_tier,
                 "cache_hit": aggregated_cache_hit,
                 "warm_source": "request",
+                "market_mode": "personalized" if personalized else "baseline",
+                "baseline_cache_tier": None if personalized else aggregated_cache_tier,
+                "personalized_cache_tier": aggregated_cache_tier if personalized else None,
                 "provider_cooldowns": provider_cooldowns,
                 "symbol_quality": {
                     "requested_count": len(requested_watchlist_symbols),
                     "accepted_count": len(watchlist_symbols),
-                    "filtered_count": len(filtered_symbols),
+                    "filtered_count": len(filtered_symbols) + len(hidden_pick_symbols),
                 },
-                "filtered_symbols": filtered_symbols,
+                "filtered_symbols": [*filtered_symbols, *hidden_pick_symbols],
             },
             # Backward compatibility fields.
             "market_overview": market_overview,
@@ -2212,6 +2359,7 @@ async def get_market_insights(
             filtered_symbols=filtered_symbols,
             stale_reason="home_payload_build_failed",
             provider_status={"home": _provider_status_from_exception(exc)},
+            market_mode="personalized" if personalized else "baseline",
         )
 
     payload = home_value if isinstance(home_value, dict) else {}
@@ -2226,6 +2374,17 @@ async def get_market_insights(
     meta["cache_tier"] = str(meta.get("cache_tier") or home_cache_tier)
     meta["cache_hit"] = bool(meta.get("cache_hit")) or home_cache_hit
     meta["warm_source"] = str(meta.get("warm_source") or "request")
+    meta["market_mode"] = str(
+        meta.get("market_mode") or ("personalized" if personalized else "baseline")
+    )
+    meta["baseline_cache_tier"] = (
+        home_cache_tier if meta["market_mode"] == "baseline" else meta.get("baseline_cache_tier")
+    )
+    meta["personalized_cache_tier"] = (
+        home_cache_tier
+        if meta["market_mode"] == "personalized"
+        else meta.get("personalized_cache_tier")
+    )
     cooldown_snapshot = market_insights_cache.provider_cooldown_snapshot()
     if cooldown_snapshot:
         meta["provider_cooldowns"] = cooldown_snapshot
@@ -2249,6 +2408,88 @@ async def get_market_insights(
     return payload
 
 
+@router.get("/market/insights/baseline/{user_id}")
+async def get_market_insights_baseline(
+    user_id: str,
+    days_back: int = Query(default=7, ge=1, le=14),
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    verify_user_id_match(firebase_uid, user_id)
+
+    requested_watchlist_symbols = list(DEFAULT_SYMBOLS)
+    filtered_symbols: list[dict[str, Any]] = []
+    watchlist_symbols = list(DEFAULT_SYMBOLS)
+
+    return await _get_market_insights_payload(
+        user_id=user_id,
+        requested_watchlist_symbols=requested_watchlist_symbols,
+        filtered_symbols=filtered_symbols,
+        watchlist_symbols=watchlist_symbols,
+        days_back=days_back,
+        active_pick_source=DEFAULT_PICK_SOURCE_ID,
+        consent_token=None,
+        personalized=False,
+    )
+
+
+@router.get("/market/insights/{user_id}")
+async def get_market_insights(
+    user_id: str,
+    symbols: str | None = Query(default=None, description="CSV list of symbols, max 8"),
+    days_back: int = Query(default=7, ge=1, le=14),
+    pick_source: str | None = Query(
+        default=None,
+        description="Active market picks source. Only the default source is live today.",
+    ),
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+
+    symbol_master = get_symbol_master_service()
+    requested_watchlist_symbols = _normalize_symbols(symbols)
+    filtered_symbols: list[dict[str, Any]] = []
+    watchlist_symbols: list[str] = []
+    for raw_symbol in requested_watchlist_symbols:
+        classification = symbol_master.classify(raw_symbol)
+        if classification.tradable:
+            watchlist_symbols.append(classification.symbol)
+            continue
+        filtered_symbols.append(
+            {
+                "input_symbol": raw_symbol,
+                "normalized_symbol": classification.symbol,
+                "reason": classification.reason,
+                "trust_tier": classification.trust_tier,
+            }
+        )
+    if watchlist_symbols:
+        watchlist_symbols = list(dict.fromkeys(watchlist_symbols))
+    if not watchlist_symbols:
+        watchlist_symbols = DEFAULT_SYMBOLS
+    active_pick_source = _normalize_pick_source(pick_source)
+    consent_token = _coerce_consent_token(token_data.get("token"))
+    if not consent_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid consent token",
+        )
+
+    return await _get_market_insights_payload(
+        user_id=user_id,
+        requested_watchlist_symbols=requested_watchlist_symbols,
+        filtered_symbols=filtered_symbols,
+        watchlist_symbols=watchlist_symbols,
+        days_back=days_back,
+        active_pick_source=active_pick_source,
+        consent_token=consent_token,
+        personalized=True,
+    )
+
+
 @router.get("/stock-preview/{user_id}")
 async def get_stock_preview(
     user_id: str,
@@ -2269,7 +2510,8 @@ async def get_stock_preview(
             detail="Missing or invalid consent token",
         )
 
-    classification = get_symbol_master_service().classify(symbol)
+    repaired_symbol, _ = _repair_quote_symbol(symbol)
+    classification = get_symbol_master_service().classify(repaired_symbol)
     normalized_symbol = classification.symbol
     active_pick_source = _normalize_pick_source(pick_source)
     pick_rows_source, pick_sources, resolved_pick_source = await _resolve_pick_source_rows(
@@ -2286,14 +2528,15 @@ async def get_stock_preview(
 
     matched_row: dict[str, Any] | None = None
     for row in pick_rows_source:
+        candidate_symbol, _ = _repair_quote_symbol(_pick_row_value(row, "ticker", ""))
         if isinstance(row, dict):
-            row_symbol = str(row.get("ticker") or "").strip().upper()
+            row_symbol = candidate_symbol
             if row_symbol != normalized_symbol:
                 continue
             matched_row = row
             break
 
-        row_symbol = str(getattr(row, "ticker", "") or "").strip().upper()
+        row_symbol = candidate_symbol
         if row_symbol != normalized_symbol:
             continue
         matched_row = {

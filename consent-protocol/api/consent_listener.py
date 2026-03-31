@@ -13,9 +13,11 @@ Also runs:
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, Dict
 
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
@@ -38,6 +40,10 @@ _listener_active = False
 _notify_received_count = 0
 _last_notify_user_id: str | None = None
 _last_notify_action: str | None = None
+_UUID_LIKE_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def _as_string_map(payload: Dict[str, Any]) -> Dict[str, str]:
@@ -74,6 +80,21 @@ def _coerce_optional_int(value: object | None) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _looks_technical_requester_label(
+    value: object | None, *, counterpart_id: str | None = None
+) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return True
+    if counterpart_id and normalized == counterpart_id:
+        return True
+    if normalized.lower().startswith("ria:"):
+        return True
+    if _UUID_LIKE_PATTERN.match(normalized):
+        return True
+    return False
 
 
 async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
@@ -268,6 +289,25 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
             or data.get("agent_id")
             or ""
         )
+        requester_entity_id = str(metadata.get("requester_entity_id") or "").strip() or None
+        requester_actor_type = str(metadata.get("requester_actor_type") or "").strip().lower()
+        agent_id = str(data.get("agent_id") or row.get("agent_id") or "").strip()
+        if requester_actor_type == "ria" or agent_id.lower().startswith("ria:"):
+            identity_id = requester_entity_id
+            if not identity_id and agent_id.lower().startswith("ria:"):
+                identity_id = agent_id.split(":", 1)[1].strip() or None
+            if identity_id and _looks_technical_requester_label(
+                requester_label, counterpart_id=identity_id
+            ):
+                identity = (await ActorIdentityService().ensure_many([identity_id])).get(
+                    identity_id
+                ) or {}
+                identity_label = str(identity.get("display_name") or "").strip()
+                identity_photo = str(identity.get("photo_url") or "").strip()
+                if identity_label:
+                    requester_label = identity_label
+                if identity_photo and not str(data.get("requester_image_url") or "").strip():
+                    data["requester_image_url"] = identity_photo
 
         return {
             **data,

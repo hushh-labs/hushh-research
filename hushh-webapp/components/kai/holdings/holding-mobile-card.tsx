@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
-
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { cn } from "@/lib/utils";
 
 function formatCurrency(value: number): string {
@@ -26,47 +25,6 @@ function formatSignedCurrency(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "N/A";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}${formatCurrency(Math.abs(value))}`;
-}
-
-function hashText(value: string): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
-  }
-  return hash;
-}
-
-function getHoldingMarkerGlyph(symbol: string, isCash: boolean): string {
-  if (isCash) return "$";
-  const cleaned = symbol.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  return cleaned.length > 0 ? cleaned.charAt(0) : "•";
-}
-
-function getHoldingLogoUrl({
-  symbol,
-  name,
-  isCash,
-}: {
-  symbol: string;
-  name: string;
-  isCash: boolean;
-}): string | null {
-  if (isCash) {
-    if (/chase/i.test(name)) return "https://financialmodelingprep.com/image-stock/JPM.png";
-    return null;
-  }
-  const normalized = symbol.trim().toUpperCase();
-  if (!normalized) return null;
-  return `https://financialmodelingprep.com/image-stock/${encodeURIComponent(normalized)}.png`;
-}
-
-function getHoldingIconStyle(key: string, isCash: boolean): CSSProperties {
-  const baseHue = isCash ? 145 : hashText(key || "holding") % 360;
-  const accentHue = (baseHue + 38) % 360;
-  return {
-    background: `linear-gradient(140deg, hsla(${baseHue}, 60%, 30%, 0.95), hsla(${accentHue}, 66%, 22%, 0.95))`,
-    borderColor: `hsla(${baseHue}, 68%, 60%, 0.28)`,
-  };
 }
 
 export interface HoldingMobileCardViewModel {
@@ -105,18 +63,6 @@ export function HoldingMobileCard({
 
   const averagePriceText =
     holding.averagePrice !== null ? formatCurrency(holding.averagePrice) : "N/A";
-  const logoUrl = getHoldingLogoUrl({
-    symbol: holding.symbol,
-    name: holding.name,
-    isCash: holding.isCash,
-  });
-  const [logoFailed, setLogoFailed] = useState(false);
-  useEffect(() => {
-    setLogoFailed(false);
-  }, [logoUrl]);
-
-  const iconStyle = getHoldingIconStyle(holding.symbol || holding.name, holding.isCash);
-  const markerGlyph = getHoldingMarkerGlyph(holding.symbol, holding.isCash);
 
   return (
     <div
@@ -133,32 +79,13 @@ export function HoldingMobileCard({
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border",
-                logoUrl && !logoFailed
-                  ? "border-white/25 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
-                  : "text-[9px] font-bold uppercase text-white/85 shadow-[inset_0_1px_1px_rgba(255,255,255,0.18)]",
-                holding.pendingDelete && "line-through"
-              )}
-              style={logoUrl && !logoFailed ? undefined : iconStyle}
-              aria-hidden="true"
-            >
-              {logoUrl && !logoFailed ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={logoUrl}
-                  alt=""
-                  className="h-3.5 w-3.5 object-contain"
-                  loading="lazy"
-                  decoding="async"
-                  referrerPolicy="no-referrer"
-                  onError={() => setLogoFailed(true)}
-                />
-              ) : (
-                markerGlyph
-              )}
-            </span>
+            <SymbolAvatar
+              symbol={holding.symbol}
+              name={holding.name}
+              isCash={holding.isCash}
+              size="sm"
+              className={holding.pendingDelete ? "line-through" : undefined}
+            />
 
             <div className="min-w-0">
               <p

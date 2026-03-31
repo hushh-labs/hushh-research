@@ -655,20 +655,21 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
 async def fetch_market_data_batch(
     tickers: List[str],
     user_id: UserID,
-    consent_token: str,
+    consent_token: str | None = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Fetch a batch of market quotes using one public Yahoo request before per-symbol fallbacks."""
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope("agent.kai.analyze"),
-    )
+    if consent_token:
+        valid, reason, token = validate_token(
+            consent_token,
+            ConsentScope("agent.kai.analyze"),
+        )
 
-    if not valid:
-        logger.error(f"[Market Data Batch Fetcher] TrustLink validation failed: {reason}")
-        raise PermissionError(f"Market data access denied: {reason}")
+        if not valid:
+            logger.error(f"[Market Data Batch Fetcher] TrustLink validation failed: {reason}")
+            raise PermissionError(f"Market data access denied: {reason}")
 
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
+        if token.user_id != user_id:
+            raise PermissionError("Token user mismatch")
 
     normalized_symbols = list(
         dict.fromkeys(
@@ -1050,7 +1051,7 @@ async def fetch_sec_filings(
 async def fetch_market_news(
     ticker: str,
     user_id: UserID,
-    consent_token: str,
+    consent_token: str | None = None,
     days_back: int = 7,
 ) -> List[Dict[str, Any]]:
     """
@@ -1081,18 +1082,19 @@ async def fetch_market_news(
     Raises:
         PermissionError: If TrustLink validation fails
     """
-    # Validate TrustLink
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope("agent.kai.analyze"),  # Changed from external.news.api
-    )
+    if consent_token:
+        # Validate TrustLink
+        valid, reason, token = validate_token(
+            consent_token,
+            ConsentScope("agent.kai.analyze"),  # Changed from external.news.api
+        )
 
-    if not valid:
-        logger.error(f"[News Fetcher] TrustLink validation failed: {reason}")
-        raise PermissionError(f"News data access denied: {reason}")
+        if not valid:
+            logger.error(f"[News Fetcher] TrustLink validation failed: {reason}")
+            raise PermissionError(f"News data access denied: {reason}")
 
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
+        if token.user_id != user_id:
+            raise PermissionError("Token user mismatch")
 
     logger.info(f"[News Fetcher] Fetching news for {ticker} - user {user_id}")
 
@@ -1185,7 +1187,7 @@ async def fetch_market_news(
 async def fetch_market_data(
     ticker: str,
     user_id: UserID,
-    consent_token: str,
+    consent_token: str | None = None,
     *,
     allow_slow_fallbacks: bool = True,
 ) -> Dict[str, Any]:
@@ -1218,18 +1220,19 @@ async def fetch_market_data(
     Raises:
         PermissionError: If TrustLink validation fails
     """
-    # Validate TrustLink
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope("agent.kai.analyze"),  # Changed from external.market.data
-    )
+    if consent_token:
+        # Validate TrustLink
+        valid, reason, token = validate_token(
+            consent_token,
+            ConsentScope("agent.kai.analyze"),  # Changed from external.market.data
+        )
 
-    if not valid:
-        logger.error(f"[Market Data Fetcher] TrustLink validation failed: {reason}")
-        raise PermissionError(f"Market data access denied: {reason}")
+        if not valid:
+            logger.error(f"[Market Data Fetcher] TrustLink validation failed: {reason}")
+            raise PermissionError(f"Market data access denied: {reason}")
 
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
+        if token.user_id != user_id:
+            raise PermissionError("Token user mismatch")
 
     symbol = ticker.upper().strip()
     finnhub_enabled = bool(_finnhub_api_key())

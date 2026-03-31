@@ -69,7 +69,7 @@ const SURFACE_CONTRACTS: SurfaceContract[] = [
   },
   {
     file: "components/kai/views/kai-market-preview-view.tsx",
-    includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "SurfaceCard"],
+    includes: ["AppPageShell", "AppPageContentRegion", "SurfaceStack", "SectionHeader", "SurfaceCard"],
     excludes: ['<Card variant="muted"', 'rounded-[24px] p-0'],
   },
   {

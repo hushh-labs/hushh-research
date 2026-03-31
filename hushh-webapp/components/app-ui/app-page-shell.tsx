@@ -5,6 +5,7 @@ import type { ComponentPropsWithoutRef, ElementType } from "react";
 import { cn } from "@/lib/utils";
 
 export type AppPageShellWidth = "narrow" | "content" | "wide" | "profile";
+export type AppPageDensity = "compact" | "comfortable";
 
 const WIDTH_CLASS_MAP: Record<AppPageShellWidth, string> = {
   narrow: "max-w-xl",
@@ -16,6 +17,7 @@ const WIDTH_CLASS_MAP: Record<AppPageShellWidth, string> = {
 type AppPageShellProps<T extends ElementType> = {
   as?: T;
   width?: AppPageShellWidth;
+  density?: AppPageDensity;
 } & Omit<ComponentPropsWithoutRef<T>, "as">;
 
 type AppPageRegionProps<T extends ElementType> = {
@@ -25,6 +27,7 @@ type AppPageRegionProps<T extends ElementType> = {
 export function AppPageShell<T extends ElementType = "main">({
   as,
   width = "content",
+  density = "compact",
   className,
   ...props
 }: AppPageShellProps<T>) {
@@ -37,6 +40,7 @@ export function AppPageShell<T extends ElementType = "main">({
         WIDTH_CLASS_MAP[width],
         className
       )}
+      data-app-density={density}
       data-top-content-anchor="true"
       {...props}
     />

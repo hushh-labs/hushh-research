@@ -10,6 +10,38 @@ type ConsentDisplayInput = {
   existingGrantedScopes?: string[] | null;
 };
 
+type ConsentRequesterLabelInput = {
+  requesterLabel?: string | null;
+  counterpartLabel?: string | null;
+  developer?: string | null;
+  counterpartEmail?: string | null;
+  counterpartSecondaryLabel?: string | null;
+  counterpartId?: string | null;
+  agentId?: string | null;
+};
+
+const UUID_LIKE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function firstNonEmptyLabel(values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function isTechnicalRequesterIdentity(value: string | null | undefined): boolean {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  if (normalized.toLowerCase().startsWith("ria:")) return true;
+  if (UUID_LIKE_PATTERN.test(normalized)) return true;
+  if (!normalized.includes("@") && !normalized.includes(" ") && normalized.length >= 20) {
+    return true;
+  }
+  return false;
+}
+
 export function humanizeConsentScope(scope: string | null | undefined): string {
   const normalized = String(scope || "").trim();
   if (!normalized) return "Consent request";
@@ -46,3 +78,31 @@ export function resolveConsentSupportingCopy(input: ConsentDisplayInput): string
   return humanizeConsentScope(input.scope);
 }
 
+export function resolveConsentRequesterLabel(
+  input: ConsentRequesterLabelInput
+): string {
+  const friendlyLabel = firstNonEmptyLabel(
+    [
+      input.requesterLabel,
+      input.counterpartLabel,
+      input.developer,
+      input.counterpartEmail,
+      input.counterpartSecondaryLabel,
+    ].filter((value) => !isTechnicalRequesterIdentity(value))
+  );
+  if (friendlyLabel) return friendlyLabel;
+
+  if (
+    String(input.agentId || "").trim().toLowerCase().startsWith("ria:") ||
+    isTechnicalRequesterIdentity(input.counterpartId)
+  ) {
+    return "Connected advisor";
+  }
+
+  return (
+    firstNonEmptyLabel([
+      input.counterpartId,
+      input.agentId,
+    ]) || "Requester"
+  );
+}
