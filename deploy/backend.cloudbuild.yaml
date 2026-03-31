@@ -72,6 +72,19 @@ steps:
           env_vars="${env_vars},RIA_DEV_BYPASS_ENABLED=${_RIA_DEV_BYPASS_ENABLED}"
         fi
 
+        append_optional_secret() {
+          local secret_name="$1"
+          local env_name="$2"
+          if [[ -z "${secret_name}" ]]; then
+            return
+          fi
+          if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            secrets="${secrets},${env_name}=${secret_name}:latest"
+          else
+            echo "Skipping optional secret ${secret_name}; not found in project ${PROJECT_ID}."
+          fi
+        }
+
         secrets="SECRET_KEY=SECRET_KEY:latest,VAULT_ENCRYPTION_KEY=VAULT_ENCRYPTION_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,FIREBASE_SERVICE_ACCOUNT_JSON=FIREBASE_SERVICE_ACCOUNT_JSON:latest,FIREBASE_AUTH_SERVICE_ACCOUNT_JSON=FIREBASE_AUTH_SERVICE_ACCOUNT_JSON:latest,FRONTEND_URL=FRONTEND_URL:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_REVIEW_MODE=APP_REVIEW_MODE:latest,REVIEWER_UID=REVIEWER_UID:latest"
         if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
           secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
@@ -82,15 +95,9 @@ steps:
         if [[ -n "${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}" ]]; then
           secrets="${secrets},PLAID_TOKEN_ENCRYPTION_KEY=${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}:latest"
         fi
-        if [[ -n "${_FINNHUB_API_KEY_SECRET}" ]]; then
-          secrets="${secrets},FINNHUB_API_KEY=${_FINNHUB_API_KEY_SECRET}:latest"
-        fi
-        if [[ -n "${_PMP_API_KEY_SECRET}" ]]; then
-          secrets="${secrets},PMP_API_KEY=${_PMP_API_KEY_SECRET}:latest"
-        fi
-        if [[ -n "${_NEWSAPI_KEY_SECRET}" ]]; then
-          secrets="${secrets},NEWSAPI_KEY=${_NEWSAPI_KEY_SECRET}:latest"
-        fi
+        append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
+        append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
+        append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
