@@ -14,7 +14,9 @@
     "034_pkm_upgrade_engine.sql",
     "035_strict_zero_knowledge_consent_exports.sql",
     "036_relationship_share_grants.sql",
-    "037_actor_identity_cache.sql"
+    "037_actor_identity_cache.sql",
+    "038_kai_gmail_sync_run_cancel_status.sql",
+    "039_kai_gmail_watch_history_sync.sql"
   ],
   "groups": {
     "iam": [

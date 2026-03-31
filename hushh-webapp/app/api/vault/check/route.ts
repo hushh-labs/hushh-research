@@ -19,11 +19,13 @@ import {
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
 import { logSecurityEvent } from "@/lib/config";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
 const ROUTE_CACHE_TTL_MS = 60 * 1000;
+const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
 const vaultCheckCache = new Map<
   string,
   { hasVault: boolean; cachedAt: number }
@@ -90,7 +92,7 @@ export async function GET(request: NextRequest) {
           "Content-Type": "application/json",
           Authorization: authHeader,
         }),
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         body: JSON.stringify({ userId }),
       });
 

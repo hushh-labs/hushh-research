@@ -1,0 +1,427 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2, Mail, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/lib/morphy-ux/button";
+import { useAuth } from "@/hooks/use-auth";
+import { ROUTES } from "@/lib/navigation/routes";
+import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import {
+  getCachedGmailReceipts,
+  isCachedGmailReceiptsFresh,
+  mergeCachedReceiptItems,
+  primeCachedGmailReceipts,
+} from "@/lib/profile/gmail-receipts-cache";
+import {
+  GmailReceiptsService,
+  type GmailSyncRun,
+  type ReceiptListItem,
+} from "@/lib/services/gmail-receipts-service";
+
+function formatDate(value?: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function formatAmount(currency?: string | null, amount?: number | null): string {
+  if (typeof amount !== "number" || Number.isNaN(amount)) return "—";
+  const normalized = (currency || "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: normalized,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${normalized} ${amount.toFixed(2)}`;
+  }
+}
+
+function computeSyncProgressPercent(run: GmailSyncRun | null): number {
+  if (!run) return 0;
+  if (run.status === "queued") return 8;
+  if (run.status === "running") {
+    const listed = Math.max(1, run.listed_count || 0);
+    const pipelineWork = (run.filtered_count || 0) + (run.synced_count || 0) + (run.extracted_count || 0);
+    const ratio = Math.max(0, Math.min(1, pipelineWork / (listed * 3)));
+    return Math.max(12, Math.min(95, Math.round(ratio * 100)));
+  }
+  if (run.status === "completed") return 100;
+  return 100;
+}
+
+export default function ProfileReceiptsPage() {
+  const router = useRouter();
+  const { user, loading } = useAuth();
+
+  const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [loadingReceipts, setLoadingReceipts] = useState(false);
+  const receiptsRef = useRef<ReceiptListItem[]>([]);
+  const pageRef = useRef(1);
+
+  useEffect(() => {
+    receiptsRef.current = receipts;
+  }, [receipts]);
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  const canLoad = Boolean(user?.uid);
+  const hasStoredReceipts = receipts.length > 0;
+
+  const loadReceipts = useCallback(
+    async (
+      nextPage: number,
+      options?: {
+        preserveCachedItems?: boolean;
+        silent?: boolean;
+      }
+    ) => {
+      if (!user?.uid) return;
+      const showBlockingLoader = !options?.silent;
+      if (showBlockingLoader) {
+        setLoadingReceipts(true);
+      }
+      try {
+        const idToken = await user.getIdToken();
+        const response = await GmailReceiptsService.listReceipts({
+          idToken,
+          userId: user.uid,
+          page: nextPage,
+          perPage: 20,
+        });
+
+        const previousItems = receiptsRef.current;
+        const nextItems =
+          nextPage > 1
+            ? mergeCachedReceiptItems({
+                existing: previousItems,
+                incoming: response.items,
+                mode: "append",
+              })
+            : options?.preserveCachedItems
+              ? mergeCachedReceiptItems({
+                  existing: previousItems,
+                  incoming: response.items,
+                  mode: "prepend_refresh",
+                })
+              : response.items;
+        const nextLoadedPage =
+          nextPage > 1
+            ? response.page
+            : options?.preserveCachedItems
+              ? Math.max(pageRef.current, response.page)
+              : response.page;
+        const nextHasMore = nextItems.length < response.total;
+
+        setReceipts(nextItems);
+        setPage(nextLoadedPage);
+        setHasMore(nextHasMore);
+        setTotal(response.total);
+        primeCachedGmailReceipts({
+          userId: user.uid,
+          response: {
+            ...response,
+            items: nextItems,
+            page: nextLoadedPage,
+            has_more: nextHasMore,
+          },
+        });
+      } finally {
+        if (showBlockingLoader) {
+          setLoadingReceipts(false);
+        }
+      }
+    },
+    [user]
+  );
+
+  const gmail = useGmailConnectorStatus({
+    userId: user?.uid || null,
+    enabled: Boolean(user?.uid) && !loading,
+    idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
+    routeHref: ROUTES.PROFILE_RECEIPTS,
+    refreshKey: user?.uid || "",
+    onSyncComplete: async () => {
+      await loadReceipts(1, {
+        preserveCachedItems: true,
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (loading || !canLoad || !user?.uid) return;
+
+    const cached = getCachedGmailReceipts(user.uid);
+    if (cached) {
+      setReceipts(cached.items);
+      setPage(cached.page);
+      setHasMore(cached.has_more);
+      setTotal(cached.total);
+      if (isCachedGmailReceiptsFresh(user.uid)) {
+        return;
+      }
+      void loadReceipts(1, {
+        preserveCachedItems: true,
+        silent: true,
+      });
+      return;
+    }
+
+    void loadReceipts(1);
+  }, [canLoad, loadReceipts, loading, user?.uid]);
+
+  const syncing = gmail.refreshingStatus || gmail.syncingRun;
+  const isConnected = gmail.presentation.isConnected;
+  const loadingStatus = gmail.loadingStatus;
+  const connectorState = gmail.presentation.state;
+  const connectorSummary = gmail.presentation.description;
+  const latestSyncText = gmail.presentation.latestSyncText;
+  const latestSyncBadge = gmail.presentation.latestSyncBadge;
+
+  const handleSyncNow = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      if (!isConnected || syncing) {
+        return;
+      }
+      const queued = await gmail.syncNow();
+      if (!queued?.run?.run_id) {
+        toast.message("Gmail sync is already running.");
+        return;
+      }
+      toast.message("Gmail sync started in the background.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to start Gmail sync.");
+    }
+  }, [gmail, isConnected, syncing, user?.uid]);
+
+  const showConnectPrompt =
+    !gmail.loadingStatus &&
+    !gmail.statusError &&
+    !isConnected &&
+    !hasStoredReceipts &&
+    gmail.status?.configured !== false;
+  const showDisconnectedNotice =
+    !gmail.loadingStatus && !gmail.statusError && !isConnected && hasStoredReceipts;
+  const progressPercent = useMemo(() => computeSyncProgressPercent(gmail.syncRun), [gmail.syncRun]);
+  const latestRunMetrics = useMemo(() => {
+    if (!gmail.syncRun) return null;
+    const extractionSuccessPercent = Math.round((gmail.syncRun.extraction_success_rate || 0) * 100);
+    return {
+      listed: gmail.syncRun.listed_count || 0,
+      filtered: gmail.syncRun.filtered_count || 0,
+      synced: gmail.syncRun.synced_count || 0,
+      extracted: gmail.syncRun.extracted_count || 0,
+      duplicates: gmail.syncRun.duplicates_dropped || 0,
+      extractionSuccessPercent,
+    };
+  }, [gmail.syncRun]);
+  const pageTitle = useMemo(
+    () =>
+      gmail.status?.google_email
+        ? `Synced from ${gmail.status.google_email}`
+        : connectorState === "connected_initial_scan_running"
+          ? "Your initial Gmail scan is running in the background."
+          : connectorState === "connected_backfill_running"
+            ? "Older receipts are still being backfilled."
+            : hasStoredReceipts
+          ? "Stored Gmail receipts"
+          : "Your Gmail receipts",
+    [connectorState, gmail.status?.google_email, hasStoredReceipts]
+  );
+  const isSyncingState =
+    connectorState === "connected_initial_scan_running" ||
+    connectorState === "connected_backfill_running" ||
+    connectorState === "syncing";
+
+  const handleLoadMore = useCallback(async () => {
+    try {
+      await loadReceipts(page + 1);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load older receipts.");
+    }
+  }, [loadReceipts, page]);
+
+  return (
+    <AppPageShell
+      as="div"
+      width="profile"
+      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+    >
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow="Profile"
+          title="Receipts"
+          description={pageTitle}
+          actions={
+            <Button
+              onClick={() => void handleSyncNow()}
+              disabled={!isConnected || syncing}
+              className="min-w-[140px]"
+            >
+              {syncing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Sync now
+            </Button>
+          }
+        />
+      </AppPageHeaderRegion>
+
+      <AppPageContentRegion>
+        <SurfaceStack compact>
+          <SurfaceInset className="flex items-start justify-between gap-3 px-4 py-3 text-sm">
+            <div className="space-y-1">
+              <p className="text-muted-foreground">Connector status</p>
+              <p className="font-medium text-foreground">{gmail.presentation.badgeLabel}</p>
+              <p className="text-xs text-muted-foreground">{connectorSummary}</p>
+              <p className="text-xs text-muted-foreground">{latestSyncText}</p>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <Badge variant="secondary">{total} receipts</Badge>
+              {latestSyncBadge ? <Badge variant="outline">{latestSyncBadge}</Badge> : null}
+            </div>
+          </SurfaceInset>
+
+          {loadingStatus ? (
+            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading Gmail connector status...
+            </SurfaceInset>
+          ) : null}
+
+          {isSyncingState && gmail.syncRun ? (
+            <SurfaceInset className="space-y-1 px-4 py-3 text-sm">
+              <p className="font-medium text-foreground">Latest sync</p>
+              <p className="text-muted-foreground">Run: {gmail.syncRun.run_id}</p>
+              <p className="text-muted-foreground">Status: {gmail.syncRun.status}</p>
+              <p className="text-muted-foreground">
+                Synced {gmail.syncRun.synced_count} / Filtered {gmail.syncRun.filtered_count} / Extracted {gmail.syncRun.extracted_count}
+              </p>
+              {latestRunMetrics ? (
+                <div className="space-y-2 pt-1">
+                  <Progress value={progressPercent} className="h-2" />
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+                    <span>Scanned: {latestRunMetrics.listed}</span>
+                    <span>Matched: {latestRunMetrics.filtered}</span>
+                    <span>Stored: {latestRunMetrics.synced}</span>
+                    <span>Extracted: {latestRunMetrics.extracted}</span>
+                    <span>Duplicates: {latestRunMetrics.duplicates}</span>
+                    <span>Extract %: {latestRunMetrics.extractionSuccessPercent}%</span>
+                  </div>
+                </div>
+              ) : null}
+              {gmail.syncRun.error_message ? (
+                <p className="text-destructive">{gmail.syncRun.error_message}</p>
+              ) : null}
+            </SurfaceInset>
+          ) : null}
+
+          {gmail.status?.configured === false && !loadingStatus ? (
+            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
+              Gmail receipts are not configured in this environment yet.
+            </SurfaceInset>
+          ) : null}
+
+          {showConnectPrompt ? (
+            <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-foreground">
+                <Mail className="h-4 w-4" />
+                Connect Gmail from Profile to start syncing receipts.
+              </div>
+              <Button onClick={() => router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)}>
+                Open Gmail connector
+              </Button>
+            </SurfaceInset>
+          ) : null}
+
+          {showDisconnectedNotice ? (
+            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
+              Gmail is currently disconnected. Your previously synced receipts stay available below,
+              but Sync now is disabled until you reconnect.
+            </SurfaceInset>
+          ) : null}
+
+          {isConnected && loadingReceipts && !loadingStatus ? (
+            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading receipts...
+            </SurfaceInset>
+          ) : null}
+
+          {isConnected && !loadingReceipts && receipts.length === 0 && !loadingStatus ? (
+            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
+              {gmail.syncRun?.synced_count
+                ? "Sync reported stored receipts, but none are visible yet. Click Sync now once more to refresh from the latest DB state."
+                : "No receipts synced yet. Run a manual sync to fetch your latest purchases."}
+            </SurfaceInset>
+          ) : null}
+
+          {receipts.length > 0
+            ? receipts.map((item) => (
+                <SurfaceInset key={item.id} className="space-y-2 px-4 py-4 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="font-medium text-foreground">{item.merchant_name || item.from_name || "Unknown merchant"}</p>
+                      <p className="text-muted-foreground">{item.subject || "No subject"}</p>
+                    </div>
+                    <Badge variant="secondary">{formatAmount(item.currency, item.amount)}</Badge>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                    <span>Order: {item.order_id || "—"}</span>
+                    <span>Receipt date: {formatDate(item.receipt_date || item.gmail_internal_date)}</span>
+                    <span>Source: {item.classification_source || "deterministic"}</span>
+                  </div>
+                </SurfaceInset>
+              ))
+            : null}
+
+          {receipts.length > 0 && hasMore ? (
+            <div className="flex justify-center pt-2">
+              <Button
+                variant="none"
+                effect="fade"
+                onClick={() => void handleLoadMore()}
+                disabled={loadingReceipts}
+              >
+                Load older receipts
+              </Button>
+            </div>
+          ) : null}
+
+          {gmail.statusError ? (
+            <p className="text-center text-xs text-destructive">{gmail.statusError}</p>
+          ) : null}
+
+          {gmail.status?.last_sync_error ? (
+            <p className="text-center text-xs text-destructive">{gmail.status.last_sync_error}</p>
+          ) : null}
+        </SurfaceStack>
+      </AppPageContentRegion>
+    </AppPageShell>
+  );
+}

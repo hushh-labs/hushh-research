@@ -21,6 +21,7 @@ from .analyze import router as analyze_router
 from .chat import router as chat_router
 from .consent import router as consent_router
 from .decisions import router as decisions_router
+from .gmail import router as gmail_router
 from .health import router as health_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
@@ -64,6 +65,15 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/plaid/refresh/{run_id}/cancel",
     "/plaid/source",
     "/plaid/webhook",
+    "/gmail/connect/start",
+    "/gmail/connect/complete",
+    "/gmail/status/{user_id}",
+    "/gmail/disconnect",
+    "/gmail/sync",
+    "/gmail/reconcile",
+    "/gmail/sync/{run_id}",
+    "/gmail/receipts/{user_id}",
+    "/gmail/webhook",
     "/support/message",
     "/dashboard/profile-picks/{user_id}",
     "/portfolio/analyze-losers",
@@ -78,6 +88,7 @@ kai_router.include_router(health_router)
 kai_router.include_router(chat_router)
 kai_router.include_router(portfolio_router)
 kai_router.include_router(plaid_router)
+kai_router.include_router(gmail_router)
 kai_router.include_router(consent_router)
 kai_router.include_router(analyze_router)
 kai_router.include_router(stream_router)

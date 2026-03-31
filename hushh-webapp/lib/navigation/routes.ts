@@ -10,6 +10,8 @@ export const ROUTES = {
   LOGOUT: "/logout",
   LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
+  PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
+  PROFILE_RECEIPTS: "/profile/receipts",
   CONSENTS: "/consents",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",

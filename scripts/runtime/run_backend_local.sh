@@ -82,6 +82,13 @@ if [ ! -f "$BACKEND_ENV_FILE" ]; then
   exit 1
 fi
 
+BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
+if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
+  echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
+  echo "Run 'make bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
+  exit 1
+fi
+
 read_env_value() {
   local file="$1"
   local key="$2"
@@ -195,7 +202,7 @@ verify_iam_readiness() {
   echo "Verifying IAM schema readiness for ${profile}..."
   (
     cd "$REPO_ROOT/consent-protocol"
-    PYTHONPATH=. python3 scripts/verify_iam_schema.py
+    PYTHONPATH=. "$BACKEND_VENV_PYTHON" scripts/verify_iam_schema.py
   )
 }
 
@@ -310,4 +317,4 @@ case "$reload_mode" in
     echo "Uvicorn autoreload disabled (faster local runtime). Use --reload to enable watch mode."
     ;;
 esac
-python3 -m uvicorn "${uvicorn_args[@]}"
+"$BACKEND_VENV_PYTHON" -m uvicorn "${uvicorn_args[@]}"
