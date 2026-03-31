@@ -36,6 +36,13 @@ class ConsentCenterService:
             if not counterpart_id and normalized_agent.startswith("ria:"):
                 counterpart_id = normalized_agent.split(":", 1)[1] or None
             return "ria", counterpart_id
+        if metadata.get("requester_actor_type") == "investor" or normalized_agent.startswith(
+            "investor:"
+        ):
+            counterpart_id = metadata.get("requester_entity_id")
+            if not counterpart_id and normalized_agent.startswith("investor:"):
+                counterpart_id = normalized_agent.split(":", 1)[1] or None
+            return "investor", counterpart_id
         if normalized_agent in {"self", ""}:
             return "self", None
         return "developer", normalized_agent or None
@@ -51,6 +58,12 @@ class ConsentCenterService:
             ).strip()
             if ria_label:
                 return ria_label
+        if metadata.get("requester_actor_type") == "investor":
+            investor_label = str(
+                metadata.get("requester_label") or metadata.get("requester_entity_id") or ""
+            ).strip()
+            if investor_label:
+                return investor_label
         return str(agent_id or "").strip()
 
     @staticmethod
@@ -254,6 +267,25 @@ class ConsentCenterService:
                 return 0
 
         return sorted(entries, key=_timestamp, reverse=True)
+
+    @staticmethod
+    def _is_connection_entry(entry: dict[str, Any], *, actor: str) -> bool:
+        counterpart_type = str(entry.get("counterpart_type") or "").strip().lower()
+        if actor == "ria":
+            return counterpart_type == "investor"
+        return counterpart_type == "ria"
+
+    @classmethod
+    def _filter_mode_entries(
+        cls,
+        entries: list[dict[str, Any]],
+        *,
+        actor: str,
+        mode: str,
+    ) -> list[dict[str, Any]]:
+        if mode != "connections":
+            return entries
+        return [entry for entry in entries if cls._is_connection_entry(entry, actor=actor)]
 
     @staticmethod
     def _paginate_entries(
@@ -649,18 +681,49 @@ class ConsentCenterService:
             ],
         }
 
-    async def _get_surface_count(self, user_id: str, *, actor: str, surface: str) -> int:
+    async def _get_surface_count(
+        self,
+        user_id: str,
+        *,
+        actor: str,
+        surface: str,
+        mode: str = "consents",
+    ) -> int:
         normalized_actor = "ria" if actor == "ria" else "investor"
         if normalized_actor == "investor":
             if surface == "pending":
-                return len(await self._load_investor_pending_entries(user_id))
+                return len(
+                    self._filter_mode_entries(
+                        await self._load_investor_pending_entries(user_id),
+                        actor=normalized_actor,
+                        mode=mode,
+                    )
+                )
             if surface == "active":
-                return len(await self._load_investor_active_entries(user_id))
-            return len(await self._load_investor_previous_entries(user_id))
+                return len(
+                    self._filter_mode_entries(
+                        await self._load_investor_active_entries(user_id),
+                        actor=normalized_actor,
+                        mode=mode,
+                    )
+                )
+            return len(
+                self._filter_mode_entries(
+                    await self._load_investor_previous_entries(user_id),
+                    actor=normalized_actor,
+                    mode=mode,
+                )
+            )
 
         if surface == "active":
             payload = await self._load_ria_active_entries(user_id, page=1, limit=1)
-            return int(payload.get("total") or 0)
+            return len(
+                self._filter_mode_entries(
+                    list(payload.get("items") or []),
+                    actor=normalized_actor,
+                    mode=mode,
+                )
+            )
 
         outgoing_entries = await self._load_ria_outgoing_entries(user_id)
         invite_entries = await self._load_ria_invite_entries(user_id)
@@ -672,7 +735,7 @@ class ConsentCenterService:
             actor="ria",
             surface=surface,
         )
-        return len(items)
+        return len(self._filter_mode_entries(items, actor=normalized_actor, mode=mode))
 
     async def list_outgoing_requests(self, user_id: str) -> list[dict[str, Any]]:
         try:
@@ -828,26 +891,33 @@ class ConsentCenterService:
             "self_activity_summary": self_activity_summary,
         }
 
-    async def get_center_summary(self, user_id: str, *, actor: str) -> dict[str, Any]:
+    async def get_center_summary(
+        self, user_id: str, *, actor: str, mode: str = "consents"
+    ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
+        normalized_mode = "connections" if mode == "connections" else "consents"
         return {
             "user_id": user_id,
             "actor": normalized_actor,
+            "mode": normalized_mode,
             "counts": {
                 "pending": await self._get_surface_count(
                     user_id,
                     actor=normalized_actor,
                     surface="pending",
+                    mode=normalized_mode,
                 ),
                 "active": await self._get_surface_count(
                     user_id,
                     actor=normalized_actor,
                     surface="active",
+                    mode=normalized_mode,
                 ),
                 "previous": await self._get_surface_count(
                     user_id,
                     actor=normalized_actor,
                     surface="previous",
+                    mode=normalized_mode,
                 ),
             },
         }
@@ -858,6 +928,7 @@ class ConsentCenterService:
         *,
         actor: str,
         surface: str,
+        mode: str = "consents",
         query: str | None = None,
         top: int | None = None,
         page: int = 1,
@@ -865,6 +936,7 @@ class ConsentCenterService:
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_surface = surface if surface in {"pending", "active", "previous"} else "pending"
+        normalized_mode = "connections" if mode == "connections" else "consents"
         safe_top = max(1, min(int(top), 10)) if top is not None else None
         safe_limit = safe_top or max(1, min(limit, 100))
         safe_page = 1 if safe_top is not None else max(1, page)
@@ -876,6 +948,11 @@ class ConsentCenterService:
                 entries = await self._load_investor_active_entries(user_id)
             else:
                 entries = await self._load_investor_previous_entries(user_id)
+            entries = self._filter_mode_entries(
+                entries,
+                actor=normalized_actor,
+                mode=normalized_mode,
+            )
             paged = self._paginate_entries(
                 entries,
                 page=safe_page,
@@ -889,6 +966,18 @@ class ConsentCenterService:
                 page=safe_page,
                 limit=safe_limit,
             )
+            items = self._filter_mode_entries(
+                list(paged.get("items") or []),
+                actor=normalized_actor,
+                mode=normalized_mode,
+            )
+            paged = {
+                "page": paged["page"],
+                "limit": paged["limit"],
+                "total": len(items),
+                "has_more": False,
+                "items": items,
+            }
         else:
             outgoing_entries = await self._load_ria_outgoing_entries(user_id)
             invite_entries = await self._load_ria_invite_entries(user_id)
@@ -899,6 +988,11 @@ class ConsentCenterService:
                 },
                 actor="ria",
                 surface=normalized_surface,
+            )
+            entries = self._filter_mode_entries(
+                entries,
+                actor=normalized_actor,
+                mode=normalized_mode,
             )
             paged = self._paginate_entries(
                 entries,
@@ -911,6 +1005,7 @@ class ConsentCenterService:
             "user_id": user_id,
             "actor": normalized_actor,
             "surface": normalized_surface,
+            "mode": normalized_mode,
             "query": query or "",
             "page": paged["page"],
             "limit": paged["limit"],

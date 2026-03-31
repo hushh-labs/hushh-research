@@ -1447,6 +1447,28 @@ def _build_signals(
     if watchlist:
         dominant = max(recommendation_counts.items(), key=lambda item: item[1])
         if dominant[1] > 0:
+            supporting_rows = [
+                row
+                for row in watchlist
+                if str(row.get("recommendation") or "NEUTRAL").upper().strip() == dominant[0]
+            ]
+            supporting_rows.sort(
+                key=lambda row: (
+                    0 if not bool(row.get("degraded")) else 1,
+                    -abs(_safe_float(row.get("change_pct")) or 0),
+                    str(row.get("symbol") or ""),
+                )
+            )
+            supporting_items = [
+                {
+                    "symbol": str(row.get("symbol") or "").strip().upper(),
+                    "company_name": str(
+                        row.get("company_name") or row.get("symbol") or "Unknown"
+                    ).strip(),
+                }
+                for row in supporting_rows[:4]
+                if str(row.get("symbol") or "").strip()
+            ]
             signals.append(
                 {
                     "id": "recommendation-consensus",
@@ -1457,6 +1479,7 @@ def _build_signals(
                     ),
                     "confidence": 0.64,
                     "source_tags": ["Finnhub", "PMP/FMP", "Fallback"],
+                    "supporting_items": supporting_items,
                     "degraded": any(bool(row.get("degraded")) for row in watchlist),
                 }
             )

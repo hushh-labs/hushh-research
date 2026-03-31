@@ -669,6 +669,7 @@ export class RiaService {
   ): Promise<{
     ria_profile_id: string;
     verification_status: string;
+    verification_provider?: string;
     advisory_status: string;
     brokerage_status: string;
     requested_capabilities: string[];
@@ -730,6 +731,7 @@ export class RiaService {
   ): Promise<{
     ria_profile_id: string;
     verification_status: string;
+    verification_provider?: string;
     advisory_status: string;
     brokerage_status: string;
     requested_capabilities: string[];

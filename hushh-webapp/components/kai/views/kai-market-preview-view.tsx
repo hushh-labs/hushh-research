@@ -4,11 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  ArrowUpRight,
   BriefcaseBusiness,
   ChartColumnIncreasing,
+  ChevronDown,
   Cpu,
+  ExternalLink,
   LineChart,
   Loader2,
+  Newspaper,
   Percent,
   RefreshCw,
   Target,
@@ -23,15 +27,16 @@ import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page
 import {
   SurfaceCard,
   SurfaceCardContent,
+  SurfaceInset,
   SurfaceStack,
 } from "@/components/app-ui/surfaces";
-import { NewsTape } from "@/components/kai/home/news-tape";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
 import { MarketOverviewGrid, type MarketOverviewMetric } from "@/components/kai/cards/market-overview-grid";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
-import { SpotlightCard } from "@/components/kai/cards/spotlight-card";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -44,12 +49,17 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
 import {
   type KaiHomeInsightsV2,
+  type KaiHomeNewsItem,
   type KaiHomePickSource,
+  type KaiHomeSignal,
+  type KaiHomeRenaissanceItem,
+  type KaiHomeWatchlistItem,
 } from "@/lib/services/api-service";
 import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -173,6 +183,270 @@ function signalConfidenceTone(signal: {
   return "bg-violet-500/10 text-violet-700 dark:text-violet-300";
 }
 
+function visibleSignalSourceTags(signal: KaiHomeSignal | undefined): string[] {
+  if (!Array.isArray(signal?.source_tags)) return [];
+  return signal.source_tags
+    .map((tag) => String(tag || "").trim())
+    .filter(Boolean)
+    .filter((tag) => !/fallback|unavailable|cache|derived/i.test(tag));
+}
+
+function deriveSignalSupportingItems(
+  signal:
+    | (KaiHomeSignal & {
+        supporting_items?: Array<{ symbol?: string; company_name?: string }>;
+      })
+    | undefined,
+  pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
+): Array<{ symbol: string; company_name?: string }> {
+  const directItems = Array.isArray(signal?.supporting_items)
+    ? signal.supporting_items
+        .map((item) => ({
+          symbol: String(item?.symbol || "").trim().toUpperCase(),
+          company_name: String(item?.company_name || "").trim() || undefined,
+        }))
+        .filter((item) => item.symbol)
+    : [];
+  if (directItems.length > 0) return directItems.slice(0, 4);
+
+  const signalId = String(signal?.id || "").trim().toLowerCase();
+  const title = String(signal?.title || "").trim().toUpperCase();
+  if (signalId !== "recommendation-consensus" && !title.endsWith("TILT")) return [];
+
+  const dominantRecommendation = title.replace(/\s+TILT$/, "").trim();
+  if (!dominantRecommendation) return [];
+
+  const normalizeRecommendationFamily = (value: string): string => {
+    const normalized = value.trim().toUpperCase();
+    if (
+      normalized === "BUY" ||
+      normalized === "STRONG_BUY" ||
+      normalized === "BULLISH" ||
+      normalized === "HOLD_TO_BUY"
+    ) {
+      return "BUY";
+    }
+    if (
+      normalized === "REDUCE" ||
+      normalized === "SELL" ||
+      normalized === "BEARISH"
+    ) {
+      return "REDUCE";
+    }
+    if (normalized === "HOLD" || normalized === "NEUTRAL" || normalized === "WATCH") {
+      return "HOLD";
+    }
+    return normalized;
+  };
+
+  const rowRecommendation = (row: KaiHomeWatchlistItem | KaiHomeRenaissanceItem): string => {
+    if ("recommendation" in row && typeof row.recommendation === "string") {
+      return normalizeRecommendationFamily(row.recommendation);
+    }
+    if ("recommendation_bias" in row && typeof row.recommendation_bias === "string") {
+      return normalizeRecommendationFamily(row.recommendation_bias);
+    }
+    return "";
+  };
+
+  return pickRows
+    .filter((row) => rowRecommendation(row) === normalizeRecommendationFamily(dominantRecommendation))
+    .sort((left, right) => {
+      const leftDegraded = Boolean(left.degraded) ? 1 : 0;
+      const rightDegraded = Boolean(right.degraded) ? 1 : 0;
+      if (leftDegraded !== rightDegraded) return leftDegraded - rightDegraded;
+      const leftChange = Math.abs(Number(left.change_pct || 0));
+      const rightChange = Math.abs(Number(right.change_pct || 0));
+      return rightChange - leftChange;
+    })
+    .slice(0, 4)
+    .map((row) => ({
+      symbol: String(row.symbol || "").trim().toUpperCase(),
+      company_name: String(row.company_name || row.symbol || "").trim() || undefined,
+    }))
+    .filter((item) => item.symbol);
+}
+
+function signalDetailGroups(
+  signal: KaiHomeSignal | undefined,
+  payload: KaiHomeInsightsV2 | null,
+  pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
+): Array<{ label: string; symbols: string[] }> {
+  if (!signal) return [];
+  const signalId = String(signal.id || "").trim().toLowerCase();
+
+  if (signalId === "breadth") {
+    const higher = pickRows
+      .filter((row) => typeof row.change_pct === "number" && row.change_pct > 0)
+      .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
+      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .filter(Boolean);
+    const lower = pickRows
+      .filter((row) => typeof row.change_pct === "number" && row.change_pct < 0)
+      .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
+      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .filter(Boolean);
+    return [
+      higher.length ? { label: "Higher today", symbols: higher } : null,
+      lower.length ? { label: "Lower today", symbols: lower } : null,
+    ].filter((group): group is { label: string; symbols: string[] } => Boolean(group));
+  }
+
+  if (signalId === "recommendation-consensus") {
+    const title = String(signal.title || "").trim().toUpperCase();
+    const dominantRecommendation = title.replace(/\s+TILT$/, "").trim();
+    const supporting = pickRows
+      .filter((row) => {
+        const recommendation =
+          "recommendation" in row && typeof row.recommendation === "string"
+            ? row.recommendation
+            : "recommendation_bias" in row && typeof row.recommendation_bias === "string"
+              ? row.recommendation_bias
+              : "";
+        const normalized = recommendation.trim().toUpperCase();
+        if (
+          dominantRecommendation === "BUY" &&
+          ["BUY", "STRONG_BUY", "BULLISH", "HOLD_TO_BUY"].includes(normalized)
+        ) {
+          return true;
+        }
+        if (
+          dominantRecommendation === "REDUCE" &&
+          ["REDUCE", "SELL", "BEARISH"].includes(normalized)
+        ) {
+          return true;
+        }
+        if (
+          dominantRecommendation === "HOLD" &&
+          ["HOLD", "NEUTRAL", "WATCH"].includes(normalized)
+        ) {
+          return true;
+        }
+        return normalized === dominantRecommendation;
+      })
+      .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
+      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .filter(Boolean);
+    return supporting.length ? [{ label: "Buy leaders", symbols: supporting }] : [];
+  }
+
+  return [];
+}
+
+function signalEvidenceLines(
+  signal: KaiHomeSignal | undefined,
+  payload: KaiHomeInsightsV2 | null,
+  pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
+): string[] {
+  if (!signal) return [];
+  const signalId = String(signal.id || "").trim().toLowerCase();
+
+  if (signalId === "breadth") {
+    return [];
+  }
+
+  if (signalId === "volatility-regime") {
+    const volatilityRow = Array.isArray(payload?.market_overview)
+      ? payload.market_overview.find((row) =>
+          String(row?.label || "").toLowerCase().includes("volatility")
+        )
+      : null;
+    const volatilityValue =
+      volatilityRow && (typeof volatilityRow.value === "number" || typeof volatilityRow.value === "string")
+        ? String(volatilityRow.value).trim()
+        : "";
+    return volatilityValue ? [`VIX spot: ${volatilityValue}`] : [];
+  }
+
+  if (signalId === "recommendation-consensus") {
+    return [];
+  }
+
+  return [];
+}
+
+function signalHeadlineLabel(signal: KaiHomeSignal | undefined): string {
+  const signalId = String(signal?.id || "").trim().toLowerCase();
+  if (signalId === "breadth") return "Tape read";
+  if (signalId === "volatility-regime") return "Risk condition";
+  if (signalId === "recommendation-consensus") return "Watchlist leaning";
+  return "Signal";
+}
+
+function signalAccentClass(signal: KaiHomeSignal | undefined): string {
+  const signalId = String(signal?.id || "").trim().toLowerCase();
+  if (signalId === "breadth") return "text-violet-700 dark:text-violet-300";
+  if (signalId === "volatility-regime") return "text-amber-700 dark:text-amber-300";
+  if (signalId === "recommendation-consensus") return "text-emerald-700 dark:text-emerald-300";
+  return "text-sky-700 dark:text-sky-300";
+}
+
+function SignalGroupBlock({
+  scopeId,
+  label,
+  symbols,
+}: {
+  scopeId: string;
+  label: string;
+  symbols: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const visibleSymbols = open ? symbols : symbols.slice(0, 6);
+  const hiddenCount = Math.max(0, symbols.length - visibleSymbols.length);
+
+  return (
+    <SurfaceInset className="space-y-1.5 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          {label}
+        </p>
+        <Badge
+          variant="outline"
+          className="border-border/60 bg-background/80 px-1.5 py-0 text-[10px] font-medium text-muted-foreground"
+        >
+          {symbols.length}
+        </Badge>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {visibleSymbols.map((symbol) => (
+          <Badge
+            key={`${scopeId}:${label}:${symbol}`}
+            variant="outline"
+            className="border-sky-500/18 bg-sky-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-foreground"
+          >
+            {symbol}
+          </Badge>
+        ))}
+      </div>
+      {symbols.length > 6 ? (
+        <Collapsible open={open} onOpenChange={setOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="none" effect="fade" size="sm" className="h-7 px-0 text-[11px] text-muted-foreground">
+              {open ? "Show fewer" : `Show ${hiddenCount} more`}
+              <ChevronDown className={cn("ml-1 h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-1">
+            <div className="max-h-28 overflow-y-auto pr-1">
+              <div className="flex flex-wrap gap-1.5">
+                {symbols.slice(6).map((symbol) => (
+                  <Badge
+                    key={`${scopeId}:${label}:extra:${symbol}`}
+                    variant="outline"
+                    className="border-sky-500/18 bg-sky-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-foreground"
+                  >
+                    {symbol}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
+    </SurfaceInset>
+  );
+}
+
 function formatSpotlightPrice(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "Price unavailable";
   return new Intl.NumberFormat("en-US", {
@@ -180,6 +454,191 @@ function formatSpotlightPrice(value: number | null | undefined): string {
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatHeadlinePublished(value: string | null | undefined): string {
+  const text = String(value || "").trim();
+  if (!text) return "Recent";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "Recent";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function SpotlightFeatureTile({
+  row,
+}: {
+  row: NonNullable<KaiHomeInsightsV2["spotlights"]>[number];
+}) {
+  const decision = toSpotlightDecision(row.recommendation);
+  const primaryHref = toSafeHttpUrl(row.headline_url) || `/kai/analysis?symbol=${encodeURIComponent(row.symbol)}`;
+  const confidenceLabel = spotlightConfidenceLabel(row);
+  const summary = summarizeSpotlight(row);
+  const context = spotlightContextLabel(row);
+  const companyName = String(row.company_name || row.symbol || "Unknown").trim();
+  const price = formatSpotlightPrice(row.price);
+  const decisionTone =
+    decision === "BUY"
+      ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+      : decision === "REDUCE"
+        ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+        : "bg-sky-500/12 text-sky-700 dark:text-sky-300";
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (/^https?:\/\//i.test(primaryHref)) {
+          openExternalUrl(primaryHref);
+          return;
+        }
+        window.location.assign(primaryHref);
+      }}
+      className={cn(
+        "group relative flex min-h-[240px] h-full flex-col justify-between overflow-hidden rounded-[28px] border border-white/60 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.98),rgba(248,250,252,0.96)_46%,rgba(241,245,249,0.92)_100%)] p-5 text-left shadow-[0_24px_60px_-44px_rgba(15,23,42,0.32)] transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out",
+        "hover:-translate-y-[1px] hover:border-rose-200/80 hover:shadow-[0_28px_70px_-42px_rgba(15,23,42,0.36)]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/70 focus-visible:ring-offset-2"
+      )}
+    >
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200",
+          decision === "BUY"
+            ? "bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.08),transparent_34%)] group-hover:opacity-100"
+            : decision === "REDUCE"
+              ? "bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.12),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(244,63,94,0.08),transparent_34%)] group-hover:opacity-100"
+              : "bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.11),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.08),transparent_34%)] group-hover:opacity-100"
+        )}
+      />
+      <div className="relative z-[1] space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <SymbolAvatar symbol={row.symbol} name={row.company_name} size="md" />
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className="border-border/55 bg-background/80 px-2 py-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
+                >
+                  {row.symbol}
+                </Badge>
+                <span className="text-[12px] font-medium text-muted-foreground">{context}</span>
+              </div>
+              <h3 className="line-clamp-2 text-[clamp(1.42rem,2vw,2rem)] font-black tracking-tight leading-[0.95] text-foreground">
+                {companyName}
+              </h3>
+            </div>
+          </div>
+          <div className="shrink-0 space-y-2 text-right">
+            {confidenceLabel ? (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {confidenceLabel}
+              </p>
+            ) : null}
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-extrabold tracking-[0.18em]",
+                decisionTone
+              )}
+            >
+              {decision}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[28px] font-semibold tracking-tight text-foreground">{price}</p>
+          <p className="line-clamp-3 text-[15px] leading-6 text-foreground/90">{summary}</p>
+        </div>
+      </div>
+
+      <div className="relative z-[1] mt-5 flex items-center justify-between gap-3 border-t border-border/45 pt-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Linked context
+          </p>
+          <p className="line-clamp-1 text-[13px] font-medium text-foreground/88">
+            {String(row.headline || summary).trim()}
+          </p>
+        </div>
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/55 bg-background/85 text-muted-foreground transition-colors duration-200 group-hover:text-foreground">
+          <ArrowUpRight className="h-4 w-4" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
+  if (!rows.length) {
+    return (
+      <SurfaceCard className="h-full">
+        <SurfaceCardContent className="flex h-full min-h-[240px] items-center justify-center p-5 text-sm text-muted-foreground">
+          No recent market headlines are available right now.
+        </SurfaceCardContent>
+      </SurfaceCard>
+    );
+  }
+
+  return (
+    <SurfaceCard className="h-full overflow-hidden">
+      <SurfaceCardContent className="flex h-full min-h-[240px] flex-col p-0">
+        <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Latest coverage
+            </p>
+            <h3 className="text-[15px] font-semibold tracking-tight text-foreground">
+              Fast reads from the tape
+            </h3>
+          </div>
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/55 bg-background/85 text-muted-foreground">
+            <Newspaper className="h-4 w-4" />
+          </span>
+        </div>
+        <div className="max-h-[520px] overflow-y-auto">
+          <div className="divide-y divide-border/40">
+            {rows.slice(0, 8).map((row, index) => (
+              <button
+                key={`${row.symbol}-${index}-${row.url}`}
+                type="button"
+                onClick={() => openExternalUrl(row.url)}
+                className="group flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-foreground/[0.03]"
+              >
+                <div className="min-w-0 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className="border-border/60 bg-background/80 px-2 py-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
+                    >
+                      {row.symbol}
+                    </Badge>
+                    <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {row.source_name}
+                    </span>
+                  </div>
+                  <p className="line-clamp-2 text-[14px] font-medium leading-5 text-foreground">
+                    {row.title}
+                  </p>
+                  <p className="text-[12px] text-muted-foreground">
+                    {formatHeadlinePublished(row.published_at)}
+                  </p>
+                </div>
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors duration-150 group-hover:border-border/60 group-hover:bg-background/80 group-hover:text-foreground">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </SurfaceCardContent>
+    </SurfaceCard>
+  );
 }
 
 function isUnavailableText(value: string): boolean {
@@ -328,6 +787,19 @@ function toBreadthMetric(payload: KaiHomeInsightsV2 | null): MarketOverviewMetri
   if (spread >= 4) value = "Broad participation";
   if (spread <= -4) value = "Narrow leadership";
   if (degraded && trackedCount === 0) value = "Updating";
+
+  const topHigher = Array.isArray(movers?.gainers)
+    ? movers.gainers
+        .map((row) => String(row?.symbol || "").trim().toUpperCase())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  const topLower = Array.isArray(movers?.losers)
+    ? movers.losers
+        .map((row) => String(row?.symbol || "").trim().toUpperCase())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
 
   return {
     id: "breadth",
@@ -878,6 +1350,10 @@ export function KaiMarketPreviewView() {
         : [],
     [effectivePayload]
   );
+  const scenarioSignalSupportingItems = useMemo(
+    () => deriveSignalSupportingItems(scenarioSignal, pickRows),
+    [pickRows, scenarioSignal]
+  );
   const showConnectPortfolio = useMemo(() => {
     if (!hasPayload) return false;
     if (effectivePayload?.meta?.market_mode !== "personalized") return false;
@@ -934,11 +1410,27 @@ export function KaiMarketPreviewView() {
               icon={ChartColumnIncreasing}
               accent="sky"
               actions={
-                marketStatus ? (
-                  <Badge variant="outline" className={cn("font-medium", marketStatus.className)}>
-                    {marketStatus.label}
-                  </Badge>
-                ) : null
+                <div className="flex items-center gap-2">
+                  {marketStatus ? (
+                    <Badge variant="outline" className={cn("font-medium", marketStatus.className)}>
+                      {marketStatus.label}
+                    </Badge>
+                  ) : null}
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    disabled={refreshing}
+                    size="sm"
+                    onClick={() => void loadInsights({ manual: true })}
+                  >
+                    {refreshing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Refresh
+                  </Button>
+                </div>
               }
             />
             <MarketOverviewGrid metrics={overviewMetrics} />
@@ -970,61 +1462,85 @@ export function KaiMarketPreviewView() {
             />
             {scenarioSignal ? (
               <SurfaceCard accent="violet">
-                <SurfaceCardContent className="space-y-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-base font-semibold tracking-tight text-foreground">
+                <SurfaceCardContent className="space-y-3">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(220px,0.85fr)]">
+                    <div className="space-y-1.5">
+                      <p className={cn("text-[10px] font-semibold uppercase tracking-[0.18em]", signalAccentClass(scenarioSignal))}>
+                        {signalHeadlineLabel(scenarioSignal)}
+                      </p>
+                      <p className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
                         {scenarioSignal.title}
                       </p>
-                      <p className="text-sm leading-6 text-muted-foreground">
+                      <p className="max-w-3xl text-sm leading-5 text-muted-foreground">
                         {scenarioSignal.summary}
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={cn(
-                          "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                          signalConfidenceTone(scenarioSignal)
-                        )}
-                      >
-                        {signalConfidenceLabel(scenarioSignal)}
-                      </span>
-                      {scenarioSignal.degraded ? (
-                        <Badge
-                          variant="outline"
-                          className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                    <SurfaceInset className="space-y-2 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                            signalConfidenceTone(scenarioSignal)
+                          )}
                         >
-                          Partial feed
-                        </Badge>
+                          {signalConfidenceLabel(scenarioSignal)}
+                        </span>
+                      </div>
+                      {visibleSignalSourceTags(scenarioSignal).length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
+                            <Badge
+                              key={tag}
+                              variant="outline"
+                              className="border-border/70 bg-background/80 text-[10px] font-medium text-muted-foreground"
+                            >
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
                       ) : null}
-                    </div>
+                    </SurfaceInset>
                   </div>
 
-                  {scenarioSignal.source_tags?.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {scenarioSignal.source_tags.slice(0, 3).map((tag) => (
-                        <Badge
-                          key={tag}
-                          variant="outline"
-                          className="border-border/70 bg-background/80 text-[10px] font-medium text-muted-foreground"
-                        >
-                          {tag}
-                        </Badge>
+                  {signalEvidenceLines(scenarioSignal, effectivePayload, pickRows).length ? (
+                    <SurfaceInset className="space-y-1.5 p-2.5">
+                      {signalEvidenceLines(scenarioSignal, effectivePayload, pickRows).map((line) => (
+                        <p key={line} className="text-xs leading-5 text-foreground/85">
+                          {line}
+                        </p>
+                      ))}
+                    </SurfaceInset>
+                  ) : null}
+
+                  {signalDetailGroups(scenarioSignal, effectivePayload, pickRows).length ? (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {signalDetailGroups(scenarioSignal, effectivePayload, pickRows).map((group) => (
+                        <SignalGroupBlock
+                          key={`${scenarioSignal.id}:${group.label}`}
+                          scopeId={scenarioSignal.id}
+                          label={group.label}
+                          symbols={group.symbols}
+                        />
                       ))}
                     </div>
                   ) : null}
 
                   {scenarioSignals.length > 1 ? (
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-2 md:grid-cols-2">
                       {scenarioSignals.slice(1).map((signal) => (
-                        <div
+                        <SurfaceInset
                           key={signal.id}
-                          className="rounded-2xl border border-border/70 bg-background/72 px-3 py-3"
+                          className="space-y-2 p-2.5"
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-semibold tracking-tight text-foreground">
-                              {signal.title}
-                            </p>
+                            <div className="space-y-1">
+                              <p className={cn("text-[10px] font-semibold uppercase tracking-[0.16em]", signalAccentClass(signal))}>
+                                {signalHeadlineLabel(signal)}
+                              </p>
+                              <p className="text-sm font-semibold tracking-tight text-foreground">
+                                {signal.title}
+                              </p>
+                            </div>
                             <span
                               className={cn(
                                 "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
@@ -1034,10 +1550,31 @@ export function KaiMarketPreviewView() {
                               {signalConfidenceLabel(signal)}
                             </span>
                           </div>
-                          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          <p className="text-sm leading-5 text-muted-foreground">
                             {signal.summary}
                           </p>
-                        </div>
+                          {signalEvidenceLines(signal, effectivePayload, pickRows).length ? (
+                            <div className="space-y-1">
+                              {signalEvidenceLines(signal, effectivePayload, pickRows).map((line) => (
+                                <p key={line} className="text-xs leading-5 text-foreground/85">
+                                  {line}
+                                </p>
+                              ))}
+                            </div>
+                          ) : null}
+                          {signalDetailGroups(signal, effectivePayload, pickRows).length ? (
+                            <div className="space-y-1.5">
+                              {signalDetailGroups(signal, effectivePayload, pickRows).map((group) => (
+                                <SignalGroupBlock
+                                  key={`${signal.id}:${group.label}`}
+                                  scopeId={signal.id}
+                                  label={group.label}
+                                  symbols={group.symbols}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                        </SurfaceInset>
                       ))}
                     </div>
                   ) : null}
@@ -1072,43 +1609,43 @@ export function KaiMarketPreviewView() {
               description="News and spotlight names grouped together so the freshest market context stays in one place."
               icon={Target}
               accent="rose"
-              actions={
-                <Button
-                  variant="none"
-                  effect="fade"
-                  disabled={refreshing}
-                  size="sm"
-                  onClick={() => void loadInsights({ manual: true })}
-                >
-                  {refreshing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  Refresh
-                </Button>
-              }
             />
-            {spotlightRows.length > 0 ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {spotlightRows.map((row) => (
-                  <SpotlightCard
-                    key={row.symbol}
-                    symbol={row.symbol}
-                    companyName={row.company_name}
-                    title={String(row.company_name || row.symbol || "Unknown")}
-                    price={formatSpotlightPrice(row.price)}
-                    decision={toSpotlightDecision(row.recommendation)}
-                    confidenceLabel={spotlightConfidenceLabel(row)}
-                    summary={summarizeSpotlight(row)}
-                    context={spotlightContextLabel(row)}
-                    contextHref={toSafeHttpUrl(row.headline_url)}
-                    fallbackHref={`/kai/analysis?symbol=${encodeURIComponent(row.symbol)}`}
-                  />
-                ))}
-              </div>
-            ) : null}
-            <NewsTape rows={effectivePayload?.news_tape || []} />
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.9fr)]">
+              {spotlightRows.length > 0 ? (
+                <SurfaceCard className="overflow-hidden">
+                  <SurfaceCardContent className="space-y-4 p-4 md:p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                          Featured names
+                        </p>
+                        <h3 className="text-[15px] font-semibold tracking-tight text-foreground">
+                          Highest-conviction names in the current tape
+                        </h3>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="border-border/60 bg-background/80 px-2.5 py-1 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
+                      >
+                        {spotlightRows.length} live
+                      </Badge>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 md:auto-rows-fr">
+                      {spotlightRows.map((row) => (
+                        <SpotlightFeatureTile key={row.symbol} row={row} />
+                      ))}
+                    </div>
+                  </SurfaceCardContent>
+                </SurfaceCard>
+              ) : (
+                <SurfaceCard>
+                  <SurfaceCardContent className="flex min-h-[240px] items-center justify-center p-5 text-sm text-muted-foreground">
+                    Spotlight names are loading right now.
+                  </SurfaceCardContent>
+                </SurfaceCard>
+              )}
+              <MarketHeadlinesRail rows={effectivePayload?.news_tape || []} />
+            </div>
           </section>
 
           {showConnectPortfolio ? (

@@ -569,18 +569,6 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
             </div>
           )}
         </div>
-
-        {debateTasks.length > 0 ? (
-          <div className={TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME}>
-            <button
-              type="button"
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => openAnalysis(latestActiveTask?.runId)}
-            >
-              Open analysis workspace
-            </button>
-          </div>
-        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

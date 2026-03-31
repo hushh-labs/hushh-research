@@ -410,17 +410,25 @@ export default function RiaOnboardingPage() {
         dev_ria_bypass_allowed: mode === "dev_activate" ? true : current?.dev_ria_bypass_allowed,
       }));
 
+      const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
+      const verificationOutcome = (result.verification_outcome || "").toLowerCase();
+      const canActivateDiscoverability =
+        mode === "dev_activate" ||
+        advisoryOutcome === "verified" ||
+        advisoryOutcome === "active" ||
+        advisoryOutcome === "bypassed";
+
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
-        enabled: true,
+        enabled: canActivateDiscoverability,
         headline: draft.headline.trim() || undefined,
         strategy_summary: draft.strategySummary.trim() || undefined,
       }).catch(() => null);
       await refreshPersonaState({ force: true });
-      await RiaOnboardingDraftLocalService.clear(user.uid);
-      setShouldPersistDraft(false);
+      if (canActivateDiscoverability) {
+        await RiaOnboardingDraftLocalService.clear(user.uid);
+        setShouldPersistDraft(false);
+      }
 
-      const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
-      const verificationOutcome = (result.verification_outcome || "").toLowerCase();
       if (mode === "dev_activate") {
         toast.success("Developer activation completed", {
           description: "The RIA workspace is ready in this environment.",
@@ -454,14 +462,14 @@ export default function RiaOnboardingPage() {
             "Verification bypass is active in this environment. Your RIA workspace is ready for flow testing."
         );
       } else if (verificationOutcome === "provider_unavailable") {
-        toast.warning("Verification service unavailable", {
+        toast.error("Verification service unavailable", {
           description:
             result.verification_message ||
-            "This environment is missing CRD/IAPD verification provider configuration.",
+            "This environment is missing regulatory verification provider configuration.",
         });
         setNotice(
           result.verification_message ||
-            "Verification providers are unavailable in this environment. Configure IAPD/RIA intelligence providers."
+            "Regulatory verification is unavailable in this environment. Onboarding stays blocked until the verification provider is healthy."
         );
       } else {
         toast.info("Verification submitted", {
@@ -547,7 +555,7 @@ export default function RiaOnboardingPage() {
               onChange={(value) => updateDraft({ displayName: value })}
             />
             <p className="text-sm leading-6 text-muted-foreground">
-              Investors should recognize this name immediately on discovery cards, relationship
+              Investors should recognize this name immediately on discovery cards, connection
               requests, and consent prompts.
             </p>
           </div>
@@ -695,7 +703,7 @@ export default function RiaOnboardingPage() {
                   <div className="space-y-2">
                     <p className="text-sm font-semibold">Verification passed. Your RIA workspace is ready.</p>
                     <p className="text-sm text-background/78">
-                      The trust surface is active, and you can move into relationship building and consent flows.
+                      The trust surface is active, and you can move into investor connections and consent flows.
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Link
