@@ -941,6 +941,9 @@ async def get_metadata(
         # Read PKM index metadata.
         index = await pkm_service.get_index_v2(user_id)
         upgrade_status_payload = await upgrade_service.build_status(user_id)
+        upgrade_status_payload = await upgrade_service._maybe_reconcile_current_index(
+            user_id, upgrade_status_payload
+        )
 
         if index is None:
             encrypted_data = await pkm_service.get_encrypted_data(user_id)
@@ -1272,7 +1275,9 @@ async def get_upgrade_status(
             detail="Token user_id does not match request user_id",
         )
 
-    payload = await get_pkm_upgrade_service().build_status(user_id)
+    service = get_pkm_upgrade_service()
+    payload = await service.build_status(user_id)
+    payload = await service._maybe_reconcile_current_index(user_id, payload)
     return _build_upgrade_status_response(payload)
 
 

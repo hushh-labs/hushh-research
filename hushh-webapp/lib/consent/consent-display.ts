@@ -78,6 +78,12 @@ export function resolveConsentSupportingCopy(input: ConsentDisplayInput): string
   return humanizeConsentScope(input.scope);
 }
 
+export function resolveCompactConsentSummary(input: ConsentDisplayInput): string {
+  if (input.kind === "invite") return "Relationship request pending review.";
+  if (input.isScopeUpgrade) return "Additional access request pending review.";
+  return humanizeConsentScope(input.scope);
+}
+
 export function resolveConsentRequesterLabel(
   input: ConsentRequesterLabelInput
 ): string {

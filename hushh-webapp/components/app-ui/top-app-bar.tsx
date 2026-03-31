@@ -229,7 +229,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
     () => ({
       "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.6)",
       "--app-bar-glass-bg-dark": "rgba(12, 15, 21, 0.56)",
-      "--app-bar-glass-blur": "6px",
+      "--app-bar-glass-blur": "2px",
       "--app-bar-shadow": "none",
       "--app-bar-mask-overscan": "18px",
     } as React.CSSProperties),

@@ -38,11 +38,13 @@ import {
 } from "@/lib/notifications";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
-import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import {
-  humanizeConsentScope,
+  CONSENT_STATE_CHANGED_EVENT,
+  dispatchConsentStateChanged,
+} from "@/lib/consent/consent-events";
+import {
+  resolveCompactConsentSummary,
   resolveConsentRequesterLabel,
-  resolveConsentSupportingCopy,
 } from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
@@ -154,6 +156,7 @@ type PersistedDeliveryState = {
 
 const DELIVERY_STATE_SESSION_KEY_PREFIX = "consent_delivery_state";
 const QUEUED_PENDING_CONSENTS_SESSION_KEY_PREFIX = "queued_pending_consents";
+const REVIEWED_PENDING_CONSENTS_SESSION_KEY_PREFIX = "reviewed_pending_consents";
 
 function getDeliveryStateSessionKey(userId: string) {
   return `${DELIVERY_STATE_SESSION_KEY_PREFIX}:${userId}`;
@@ -161,6 +164,10 @@ function getDeliveryStateSessionKey(userId: string) {
 
 function getQueuedPendingConsentsSessionKey(userId: string) {
   return `${QUEUED_PENDING_CONSENTS_SESSION_KEY_PREFIX}:${userId}`;
+}
+
+function getReviewedPendingConsentsSessionKey(userId: string) {
+  return `${REVIEWED_PENDING_CONSENTS_SESSION_KEY_PREFIX}:${userId}`;
 }
 
 function deliveryModeFromInitStatus(
@@ -253,6 +260,52 @@ function clearQueuedPendingConsents(userId: string) {
   }
 }
 
+function readReviewedPendingConsentKeys(userId: string): Set<string> {
+  try {
+    const raw = getSessionItem(getReviewedPendingConsentsSessionKey(userId));
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.map((value) => String(value || "").trim()).filter(Boolean))
+      : new Set<string>();
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeReviewedPendingConsentKeys(userId: string, keys: Set<string>) {
+  try {
+    setSessionItem(
+      getReviewedPendingConsentsSessionKey(userId),
+      JSON.stringify(Array.from(keys))
+    );
+  } catch {
+    // Ignore session storage write failures.
+  }
+}
+
+function markPendingConsentReviewed(
+  userId: string,
+  requestId?: string,
+  bundleId?: string
+): Set<string> {
+  const next = readReviewedPendingConsentKeys(userId);
+  const requestKey = String(requestId || "").trim();
+  const bundleKey = String(bundleId || "").trim();
+  if (requestKey) next.add(requestKey);
+  if (bundleKey) next.add(bundleKey);
+  writeReviewedPendingConsentKeys(userId, next);
+  return next;
+}
+
+function clearReviewedPendingConsents(userId: string) {
+  try {
+    removeSessionItem(getReviewedPendingConsentsSessionKey(userId));
+  } catch {
+    // Ignore session storage cleanup failures.
+  }
+}
+
 function shouldPrioritizeConsentHydration(pathname: string): boolean {
   const normalized = String(pathname || "").trim().toLowerCase();
   if (!normalized) return false;
@@ -309,6 +362,7 @@ export function ConsentNotificationProvider({
   const lastAuthenticatedUidRef = useRef<string | null>(null);
   // Track which request IDs we've already toasted this session
   const toastedIdsRef = useRef(new Set<string>());
+  const reviewedIdsRef = useRef(new Set<string>());
 
   // Use the centralized consent actions hook
   const { handleDeny } = useConsentActions({
@@ -323,23 +377,27 @@ export function ConsentNotificationProvider({
   const showConsentToast = useCallback(
     (consent: PendingConsent) => {
       const toastKey = consent.bundleId || consent.id;
+      if (
+        reviewedIdsRef.current.has(toastKey) ||
+        reviewedIdsRef.current.has(consent.id)
+      ) {
+        return;
+      }
       // De-duplicate: don't show the same toast twice in one session
       if (toastedIdsRef.current.has(toastKey)) return;
       toastedIdsRef.current.add(toastKey);
 
       const isBundle = Boolean(consent.bundleId);
-      const supportingCopy = resolveConsentSupportingCopy({
-        scope: consent.scope,
-        scopeDescription: consent.scopeDescription,
-        reason: consent.reason,
-        additionalAccessSummary: consent.additionalAccessSummary,
-        isScopeUpgrade: consent.isScopeUpgrade,
-        existingGrantedScopes: consent.existingGrantedScopes ?? null,
-      });
-      const scopeLabel = humanizeConsentScope(consent.scope);
-      const shouldShowScopeLabel =
-        Boolean(consent.scope) &&
-        scopeLabel.trim().toLowerCase() !== supportingCopy.trim().toLowerCase();
+      const summary = isBundle
+        ? "Bundled consent request pending review."
+        : resolveCompactConsentSummary({
+            scope: consent.scope,
+            scopeDescription: consent.scopeDescription,
+            reason: consent.reason,
+            additionalAccessSummary: consent.additionalAccessSummary,
+            isScopeUpgrade: consent.isScopeUpgrade,
+            existingGrantedScopes: consent.existingGrantedScopes ?? null,
+          });
       const currentQuery = searchParams.toString();
       const currentInternalHref = `${pathname}${currentQuery ? `?${currentQuery}` : ""}`;
       const reviewTarget = resolveConsentNavigationTarget(consent.requestUrl, "pending", {
@@ -349,22 +407,12 @@ export function ConsentNotificationProvider({
       });
 
       toast(
-        <div className="flex flex-col gap-3">
-          <div className="space-y-1">
-            <p className="font-semibold text-sm">{consent.developer}</p>
-            <p className="text-xs text-muted-foreground">
-              {isBundle
-                ? "Bundled consent request waiting for review in Consent Manager."
-                : supportingCopy}
-            </p>
-            {shouldShowScopeLabel ? (
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                {scopeLabel}
-              </p>
-            ) : null}
+        <div className="flex flex-col gap-2">
+          <div className="space-y-0.5">
+            <p className="line-clamp-1 text-sm font-semibold">{consent.developer}</p>
+            <p className="line-clamp-1 text-xs text-muted-foreground">{summary}</p>
           </div>
 
-          {/* Action buttons */}
           <div className="flex gap-2 justify-center">
             <button
               onClick={() => {
@@ -384,7 +432,7 @@ export function ConsentNotificationProvider({
               }}
               className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
             >
-              Review request
+              Review
             </button>
             <button
               onClick={() => {
@@ -423,6 +471,7 @@ export function ConsentNotificationProvider({
       if (lastAuthenticatedUidRef.current) {
         clearPersistedDeliveryState(lastAuthenticatedUidRef.current);
         clearQueuedPendingConsents(lastAuthenticatedUidRef.current);
+        clearReviewedPendingConsents(lastAuthenticatedUidRef.current);
       }
       lastAuthenticatedUidRef.current = null;
       setFcmInitStatus(null);
@@ -435,6 +484,7 @@ export function ConsentNotificationProvider({
 
     let cancelled = false;
     lastAuthenticatedUidRef.current = user.uid;
+    reviewedIdsRef.current = readReviewedPendingConsentKeys(user.uid);
 
     const run = async () => {
       const shouldRestoreFromSession = fcmInitGeneration === 0;
@@ -636,6 +686,29 @@ export function ConsentNotificationProvider({
 
   // Listen for FCM messages -- extract consent data directly from payload (no HTTP fetch)
   useEffect(() => {
+    if (!user) return;
+
+    const handleConsentStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
+      const action = String(detail.action || "").trim().toLowerCase();
+      if (action !== "approve" && action !== "deny" && action !== "cancel") return;
+
+      const requestId = String(detail.requestId || "").trim();
+      const bundleId = String(detail.bundleId || "").trim();
+      const next = markPendingConsentReviewed(user.uid, requestId, bundleId);
+      reviewedIdsRef.current = next;
+      if (requestId || bundleId) {
+        toast.dismiss(bundleId || requestId);
+        toastedIdsRef.current.delete(bundleId || requestId);
+      }
+    };
+
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
+    return () =>
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
+  }, [user]);
+
+  useEffect(() => {
     const handleFCMMessage = (event: Event) => {
       const customEvent = event as CustomEvent;
       const detail = customEvent.detail || {};
@@ -675,6 +748,13 @@ export function ConsentNotificationProvider({
         // A consent was resolved (approved/denied/revoked) -- dismiss any matching toast
         const requestId = data.request_id;
         const toastKey = data.bundle_id || requestId;
+        if (user?.uid) {
+          reviewedIdsRef.current = markPendingConsentReviewed(
+            user.uid,
+            requestId,
+            data.bundle_id
+          );
+        }
         if (toastKey) {
           toast.dismiss(toastKey);
           toastedIdsRef.current.delete(toastKey);

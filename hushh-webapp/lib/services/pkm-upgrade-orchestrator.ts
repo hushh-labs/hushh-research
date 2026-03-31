@@ -249,6 +249,15 @@ function failureMetadata(params: {
   return base;
 }
 
+function isAmbiguousPkmProxyWriteError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes("failed to store domain data") &&
+    normalized.includes("failed to proxy request to backend")
+  );
+}
+
 function needsVisibleMetadataReconciliation(status: PkmUpgradeStatus): boolean {
   return (
     status.upgradeStatus === "current" &&
@@ -1021,24 +1030,65 @@ export class PkmUpgradeOrchestrator {
         runId: run.runId,
       });
 
-      const stored = await PersonalKnowledgeModelService.storeMergedDomain({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        domain: params.stepDomain,
-        domainData: prepared.upgradedDomainData,
-        summary: prepared.nextSummary,
-        manifest: prepared.nextManifest,
-        expectedDataVersion: prepared.domainBlobDataVersion,
-        upgradeContext: {
-          runId: run.runId,
-          priorDomainContractVersion: domainState.currentDomainContractVersion,
-          newDomainContractVersion: domainState.targetDomainContractVersion,
-          priorReadableSummaryVersion: domainState.currentReadableSummaryVersion,
-          newReadableSummaryVersion: domainState.targetReadableSummaryVersion,
-          retryCount: attempt - 1,
-        },
-        vaultOwnerToken: params.vaultOwnerToken,
-      });
+      let stored: Awaited<ReturnType<typeof PersonalKnowledgeModelService.storeMergedDomain>>;
+      try {
+        stored = await PersonalKnowledgeModelService.storeMergedDomain({
+          userId: params.userId,
+          vaultKey: params.vaultKey,
+          domain: params.stepDomain,
+          domainData: prepared.upgradedDomainData,
+          summary: prepared.nextSummary,
+          manifest: prepared.nextManifest,
+          expectedDataVersion: prepared.domainBlobDataVersion,
+          upgradeContext: {
+            runId: run.runId,
+            priorDomainContractVersion: domainState.currentDomainContractVersion,
+            newDomainContractVersion: domainState.targetDomainContractVersion,
+            priorReadableSummaryVersion: domainState.currentReadableSummaryVersion,
+            newReadableSummaryVersion: domainState.targetReadableSummaryVersion,
+            retryCount: attempt - 1,
+          },
+          vaultOwnerToken: params.vaultOwnerToken,
+        });
+      } catch (error) {
+        if (!isAmbiguousPkmProxyWriteError(error)) {
+          throw error;
+        }
+
+        const persistedManifest = await PersonalKnowledgeModelService.getDomainManifest(
+          params.userId,
+          params.stepDomain,
+          params.vaultOwnerToken
+        ).catch(() => null);
+        const persistedBlob = await PersonalKnowledgeModelService.getDomainData(
+          params.userId,
+          params.stepDomain,
+          params.vaultOwnerToken
+        ).catch(() => null);
+        const persistedDomainVersion = Number(
+          persistedManifest?.domain_contract_version || 0
+        );
+        const persistedReadableVersion = Number(
+          persistedManifest?.readable_summary_version || 0
+        );
+        const landedUpgrade =
+          persistedDomainVersion >= domainState.targetDomainContractVersion &&
+          persistedReadableVersion >= domainState.targetReadableSummaryVersion;
+
+        if (!landedUpgrade) {
+          throw error;
+        }
+
+        stored = {
+          success: true,
+          conflict: false,
+          message:
+            "Recovered after an ambiguous PKM proxy timeout once the upgraded domain was confirmed.",
+          dataVersion: persistedBlob?.dataVersion,
+          updatedAt: persistedBlob?.updatedAt,
+          fullBlob: {},
+        };
+      }
 
       if (stored.conflict) {
         currentStatus = await PkmUpgradeService.updateStep({
