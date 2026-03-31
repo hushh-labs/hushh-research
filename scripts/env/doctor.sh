@@ -8,10 +8,10 @@ source "$SCRIPT_DIR/runtime_profile_lib.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/env/doctor.sh <local-uatdb|uat-remote|prod-remote> [--json]
+  scripts/env/doctor.sh <local|uat|prod> [--json]
 
 Description:
-  Verify that a runtime profile is coherent and runnable.
+  Verify that a runtime mode is coherent and runnable.
   Reports:
   - profile identity
   - backend/frontend source and active files
@@ -47,7 +47,7 @@ for arg in "$@"; do
 done
 
 if ! PROFILE="$(normalize_runtime_profile "$RAW_PROFILE")"; then
-  echo "Invalid runtime profile: $RAW_PROFILE" >&2
+  echo "Invalid runtime mode: $RAW_PROFILE" >&2
   echo "Expected one of: $(runtime_profiles_csv)" >&2
   exit 1
 fi
@@ -100,11 +100,11 @@ add_check() {
 
 EXPECTED_BACKEND_ENV="$(runtime_profile_backend_environment "$PROFILE")"
 EXPECTED_FRONTEND_ENV="$(runtime_profile_frontend_environment "$PROFILE")"
-EXPECTED_BACKEND_MODE="$(runtime_profile_backend_mode "$PROFILE")"
+EXPECTED_BACKEND_MODE="local"
 EXPECTED_FRONTEND_MODE="$(runtime_profile_frontend_mode "$PROFILE")"
 
-BACKEND_SOURCE="$REPO_ROOT/consent-protocol/.env.${PROFILE}.local"
-FRONTEND_SOURCE="$REPO_ROOT/hushh-webapp/.env.${PROFILE}.local"
+BACKEND_SOURCE="$REPO_ROOT/consent-protocol/.env"
+FRONTEND_SOURCE="$REPO_ROOT/hushh-webapp/$(runtime_profile_frontend_source "$PROFILE")"
 BACKEND_ACTIVE="$REPO_ROOT/consent-protocol/.env"
 FRONTEND_ACTIVE="$REPO_ROOT/hushh-webapp/.env.local"
 
@@ -113,8 +113,12 @@ RUNNABLE=true
 if [ -f "$BACKEND_SOURCE" ]; then
   add_check "backend_source_file" "pass" "${BACKEND_SOURCE#$REPO_ROOT/}"
 else
-  add_check "backend_source_file" "fail" "Missing ${BACKEND_SOURCE#$REPO_ROOT/}"
-  RUNNABLE=false
+  if [ "$PROFILE" = "local" ]; then
+    add_check "backend_source_file" "fail" "Missing ${BACKEND_SOURCE#$REPO_ROOT/}"
+    RUNNABLE=false
+  else
+    add_check "backend_source_file" "warn" "Missing ${BACKEND_SOURCE#$REPO_ROOT/}; local backend is not required for $PROFILE"
+  fi
 fi
 
 if [ -f "$FRONTEND_SOURCE" ]; then
@@ -126,8 +130,14 @@ fi
 
 BACKEND_SOURCE_ENV="$(read_env_value "$BACKEND_SOURCE" "ENVIRONMENT")"
 FRONTEND_SOURCE_ENV="$(read_env_value "$FRONTEND_SOURCE" "NEXT_PUBLIC_APP_ENV")"
-BACKEND_SOURCE_PROFILE="$(read_env_value "$BACKEND_SOURCE" "APP_RUNTIME_PROFILE")"
-FRONTEND_SOURCE_PROFILE="$(read_env_value "$FRONTEND_SOURCE" "APP_RUNTIME_PROFILE")"
+BACKEND_SOURCE_PROFILE="$(read_env_value "$BACKEND_SOURCE" "APP_RUNTIME_MODE")"
+if [ -z "$BACKEND_SOURCE_PROFILE" ]; then
+  BACKEND_SOURCE_PROFILE="$(read_env_value "$BACKEND_SOURCE" "APP_RUNTIME_PROFILE")"
+fi
+FRONTEND_SOURCE_PROFILE="$(read_env_value "$FRONTEND_SOURCE" "APP_RUNTIME_MODE")"
+if [ -z "$FRONTEND_SOURCE_PROFILE" ]; then
+  FRONTEND_SOURCE_PROFILE="$(read_env_value "$FRONTEND_SOURCE" "APP_RUNTIME_PROFILE")"
+fi
 FRONTEND_BACKEND_TARGET="$(read_env_value "$FRONTEND_SOURCE" "NEXT_PUBLIC_BACKEND_URL")"
 FRONTEND_FRONTEND_TARGET="$(read_env_value "$FRONTEND_SOURCE" "NEXT_PUBLIC_FRONTEND_URL")"
 BACKEND_FRONTEND_TARGET="$(read_env_value "$BACKEND_SOURCE" "FRONTEND_URL")"
@@ -135,11 +145,15 @@ BACKEND_DB_HOST="$(read_env_value "$BACKEND_SOURCE" "DB_HOST")"
 BACKEND_CLOUDSQL_INSTANCE="$(read_env_value "$BACKEND_SOURCE" "CLOUDSQL_INSTANCE_CONNECTION_NAME")"
 BACKEND_FIREBASE_JSON="$(read_env_value "$BACKEND_SOURCE" "FIREBASE_SERVICE_ACCOUNT_JSON")"
 
-if [ "$BACKEND_SOURCE_PROFILE" = "$PROFILE" ]; then
-  add_check "backend_source_profile" "pass" "APP_RUNTIME_PROFILE=$BACKEND_SOURCE_PROFILE"
+if [ "$BACKEND_SOURCE_PROFILE" = "local" ]; then
+  add_check "backend_source_profile" "pass" "backend local runtime mode preserved"
 else
-  add_check "backend_source_profile" "fail" "Expected APP_RUNTIME_PROFILE=$PROFILE but found ${BACKEND_SOURCE_PROFILE:-"(unset)"}"
-  RUNNABLE=false
+  if [ "$PROFILE" = "local" ]; then
+    add_check "backend_source_profile" "fail" "Expected backend runtime mode local but found ${BACKEND_SOURCE_PROFILE:-"(unset)"}"
+    RUNNABLE=false
+  else
+    add_check "backend_source_profile" "warn" "Backend local runtime mode is ${BACKEND_SOURCE_PROFILE:-"(unset)"}; $PROFILE only requires the frontend target"
+  fi
 fi
 
 if [ "$FRONTEND_SOURCE_PROFILE" = "$PROFILE" ]; then
@@ -149,11 +163,16 @@ else
   RUNNABLE=false
 fi
 
-if [ "$BACKEND_SOURCE_ENV" = "$EXPECTED_BACKEND_ENV" ]; then
+EXPECTED_BACKEND_SOURCE_ENV="development"
+if [ "$BACKEND_SOURCE_ENV" = "$EXPECTED_BACKEND_SOURCE_ENV" ]; then
   add_check "backend_environment" "pass" "ENVIRONMENT=$BACKEND_SOURCE_ENV"
 else
-  add_check "backend_environment" "fail" "Expected ENVIRONMENT=$EXPECTED_BACKEND_ENV but found ${BACKEND_SOURCE_ENV:-"(unset)"}"
-  RUNNABLE=false
+  if [ "$PROFILE" = "local" ]; then
+    add_check "backend_environment" "fail" "Expected ENVIRONMENT=$EXPECTED_BACKEND_SOURCE_ENV but found ${BACKEND_SOURCE_ENV:-"(unset)"}"
+    RUNNABLE=false
+  else
+    add_check "backend_environment" "warn" "Backend local ENVIRONMENT is ${BACKEND_SOURCE_ENV:-"(unset)"}; $PROFILE only requires the frontend target"
+  fi
 fi
 
 if [ "$FRONTEND_SOURCE_ENV" = "$EXPECTED_FRONTEND_ENV" ]; then
@@ -163,13 +182,26 @@ else
   RUNNABLE=false
 fi
 
-if [ -f "$BACKEND_ACTIVE" ] && [ "$(read_env_value "$BACKEND_ACTIVE" "APP_RUNTIME_PROFILE")" = "$PROFILE" ]; then
-  add_check "backend_active_file" "pass" "${BACKEND_ACTIVE#$REPO_ROOT/} currently matches $PROFILE"
+ACTIVE_BACKEND_MODE="$(read_env_value "$BACKEND_ACTIVE" "APP_RUNTIME_MODE")"
+if [ -z "$ACTIVE_BACKEND_MODE" ]; then
+  ACTIVE_BACKEND_MODE="$(read_env_value "$BACKEND_ACTIVE" "APP_RUNTIME_PROFILE")"
+fi
+if [ -f "$BACKEND_ACTIVE" ] && [ "$ACTIVE_BACKEND_MODE" = "local" ]; then
+  add_check "backend_active_file" "pass" "${BACKEND_ACTIVE#$REPO_ROOT/} is ready for the local backend contract"
 else
-  add_check "backend_active_file" "warn" "Active backend file is not using $PROFILE. Run: bash scripts/env/use_profile.sh $PROFILE"
+  if [ "$PROFILE" = "local" ]; then
+    add_check "backend_active_file" "fail" "Active backend file is not ready for local runtime. Run: bash scripts/env/bootstrap_profiles.sh"
+    RUNNABLE=false
+  else
+    add_check "backend_active_file" "warn" "Active backend file is not configured for the local backend contract. This does not block $PROFILE frontend simulation."
+  fi
 fi
 
-if [ -f "$FRONTEND_ACTIVE" ] && [ "$(read_env_value "$FRONTEND_ACTIVE" "APP_RUNTIME_PROFILE")" = "$PROFILE" ]; then
+ACTIVE_FRONTEND_MODE="$(read_env_value "$FRONTEND_ACTIVE" "APP_RUNTIME_MODE")"
+if [ -z "$ACTIVE_FRONTEND_MODE" ]; then
+  ACTIVE_FRONTEND_MODE="$(read_env_value "$FRONTEND_ACTIVE" "APP_RUNTIME_PROFILE")"
+fi
+if [ -f "$FRONTEND_ACTIVE" ] && [ "$ACTIVE_FRONTEND_MODE" = "$PROFILE" ]; then
   add_check "frontend_active_file" "pass" "${FRONTEND_ACTIVE#$REPO_ROOT/} currently matches $PROFILE"
 else
   add_check "frontend_active_file" "warn" "Active frontend file is not using $PROFILE. Run: bash scripts/env/use_profile.sh $PROFILE"
@@ -197,18 +229,18 @@ else
 fi
 
 case "$PROFILE" in
-  local-uatdb)
+  local)
     if [[ "$FRONTEND_BACKEND_TARGET" == http://localhost:* || "$FRONTEND_BACKEND_TARGET" == http://127.0.0.1:* ]]; then
       add_check "backend_target_shape" "pass" "local profile points at local backend"
     else
-      add_check "backend_target_shape" "fail" "local-uatdb must point NEXT_PUBLIC_BACKEND_URL at localhost/127.0.0.1"
+      add_check "backend_target_shape" "fail" "local must point NEXT_PUBLIC_BACKEND_URL at localhost/127.0.0.1"
       RUNNABLE=false
     fi
     if [ -n "$BACKEND_CLOUDSQL_INSTANCE" ] || [[ "$BACKEND_DB_HOST" == "127.0.0.1" || "$BACKEND_DB_HOST" == "localhost" ]]; then
       if command -v cloud-sql-proxy >/dev/null 2>&1; then
         add_check "cloudsql_proxy_binary" "pass" "cloud-sql-proxy is installed"
       else
-        add_check "cloudsql_proxy_binary" "fail" "cloud-sql-proxy is required for local-uatdb when DB_HOST is local"
+        add_check "cloudsql_proxy_binary" "fail" "cloud-sql-proxy is required for local when DB_HOST is local"
         RUNNABLE=false
       fi
 
@@ -219,23 +251,23 @@ case "$PROFILE" in
         RUNNABLE=false
       fi
     else
-      add_check "cloudsql_proxy_binary" "warn" "local-uatdb is not configured for local DB proxying"
+      add_check "cloudsql_proxy_binary" "warn" "local is not configured for local DB proxying"
     fi
     ;;
-  uat-remote)
+  uat)
     if [[ "$FRONTEND_BACKEND_TARGET" == http://localhost:* || "$FRONTEND_BACKEND_TARGET" == http://127.0.0.1:* ]]; then
-      add_check "backend_target_shape" "fail" "uat-remote must not point at localhost"
+      add_check "backend_target_shape" "fail" "uat must not point at localhost"
       RUNNABLE=false
     else
-      add_check "backend_target_shape" "pass" "uat-remote points at a remote backend"
+      add_check "backend_target_shape" "pass" "uat points at a remote backend"
     fi
     ;;
-  prod-remote)
+  prod)
     if [[ "$FRONTEND_BACKEND_TARGET" == http://localhost:* || "$FRONTEND_BACKEND_TARGET" == http://127.0.0.1:* ]]; then
-      add_check "backend_target_shape" "fail" "prod-remote must not point at localhost"
+      add_check "backend_target_shape" "fail" "prod must not point at localhost"
       RUNNABLE=false
     else
-      add_check "backend_target_shape" "pass" "prod-remote points at a remote backend"
+      add_check "backend_target_shape" "pass" "prod points at a remote backend"
     fi
     ;;
 esac
@@ -245,9 +277,13 @@ for path in \
   "$REPO_ROOT/consent-protocol/.env.dev.local" \
   "$REPO_ROOT/consent-protocol/.env.uat.local" \
   "$REPO_ROOT/consent-protocol/.env.prod.local" \
+  "$REPO_ROOT/consent-protocol/.env.local-uatdb.local" \
+  "$REPO_ROOT/consent-protocol/.env.uat-remote.local" \
+  "$REPO_ROOT/consent-protocol/.env.prod-remote.local" \
   "$REPO_ROOT/hushh-webapp/.env.dev.local" \
-  "$REPO_ROOT/hushh-webapp/.env.uat.local" \
-  "$REPO_ROOT/hushh-webapp/.env.prod.local"
+  "$REPO_ROOT/hushh-webapp/.env.local-uatdb.local" \
+  "$REPO_ROOT/hushh-webapp/.env.uat-remote.local" \
+  "$REPO_ROOT/hushh-webapp/.env.prod-remote.local"
 do
   if [ -f "$path" ]; then
     LEGACY_ENV_FOUND=1
@@ -255,9 +291,9 @@ do
 done
 
 if [ "$LEGACY_ENV_FOUND" -eq 1 ]; then
-  add_check "legacy_env_files" "warn" "Legacy *.dev.local / *.uat.local / *.prod.local files still exist locally"
+  add_check "legacy_env_files" "warn" "Legacy runtime env files still exist locally"
 else
-  add_check "legacy_env_files" "pass" "Only canonical runtime-profile files are present"
+  add_check "legacy_env_files" "pass" "Only canonical runtime-mode files are present"
 fi
 
 STATUS_TEXT="runnable"
@@ -289,7 +325,7 @@ PY
   exit 0
 fi
 
-echo "Runtime profile doctor: $PROFILE"
+echo "Runtime mode doctor: $PROFILE"
 echo "Description: $(runtime_profile_description "$PROFILE")"
 echo "Backend mode: $EXPECTED_BACKEND_MODE"
 echo "Frontend mode: $EXPECTED_FRONTEND_MODE"

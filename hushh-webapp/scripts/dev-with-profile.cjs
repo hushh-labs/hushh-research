@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 
-const CANONICAL_PROFILES = ['local-uatdb', 'uat-remote', 'prod-remote'];
+const CANONICAL_MODES = ['local', 'uat', 'prod'];
 
 const repoRoot = path.resolve(__dirname, '../..');
 const webRoot = path.resolve(__dirname, '..');
@@ -82,6 +82,15 @@ function parseArgs(argv) {
       passthrough.push(...argv.slice(i + 1));
       break;
     }
+    if (arg.startsWith('--mode=')) {
+      profile = arg.split('=', 2)[1] || null;
+      continue;
+    }
+    if (arg === '--mode') {
+      profile = argv[i + 1] || null;
+      i += 1;
+      continue;
+    }
     if (arg.startsWith('--profile=')) {
       profile = arg.split('=', 2)[1] || null;
       continue;
@@ -100,7 +109,10 @@ function parseArgs(argv) {
 function normalizeProfile(raw) {
   const normalized = String(raw || '').trim().toLowerCase();
   if (!normalized) return null;
-  if (CANONICAL_PROFILES.includes(normalized)) return normalized;
+  if (normalized === 'local-uatdb' || normalized === 'development' || normalized === 'dev') return 'local';
+  if (normalized === 'uat-remote') return 'uat';
+  if (normalized === 'prod-remote' || normalized === 'production') return 'prod';
+  if (CANONICAL_MODES.includes(normalized)) return normalized;
   return null;
 }
 
@@ -155,18 +167,18 @@ async function main() {
   const { profile: argProfile, passthrough } = parseArgs(process.argv.slice(2));
   const envProfile = normalizeProfile(process.env.APP_RUNTIME_PROFILE);
   const requested = normalizeProfile(argProfile) || envProfile;
-  const defaultProfile = 'local-uatdb';
+  const defaultProfile = 'uat';
 
   const profile = requested || defaultProfile;
   if (!requested) {
     console.log(
-      `No runtime profile was specified. Defaulting to ${profile}. ` +
-        'Use npm run web -- --profile=<profile> from the repo root or npm run dev -- --profile=<profile> in hushh-webapp for an explicit target.'
+      `No runtime mode was specified. Defaulting to ${profile}. ` +
+        'Use npm run web -- --mode=<local|uat|prod> from the repo root or npm run dev -- --mode=<local|uat|prod> in hushh-webapp for an explicit target.'
     );
   }
 
   if (!profile) {
-    console.error('Invalid runtime profile. Use one of: local-uatdb, uat-remote, prod-remote');
+    console.error('Invalid runtime mode. Use one of: local, uat, prod');
     process.exit(1);
   }
 

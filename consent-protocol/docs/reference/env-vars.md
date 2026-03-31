@@ -62,7 +62,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `PLAID_WEBHOOK_URL` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Public webhook URL for `/api/kai/plaid/webhook`. Localhost must use a tunnel. Plaid webhook URLs are provided during Link token creation; they are not dashboard-allowlisted. |
 | `PLAID_REDIRECT_PATH` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended for OAuth | Relative callback path used with `FRONTEND_URL`. Default: `/kai/plaid/oauth/return`. |
 | `PLAID_REDIRECT_URI` / `PLAID_OAUTH_REDIRECT_URI` | `hushh_mcp/services/plaid_portfolio_service.py` | Optional override | Full allowlisted redirect URI, including path. Use only when overriding `FRONTEND_URL + PLAID_REDIRECT_PATH`. |
-| `PLAID_TOKEN_ENCRYPTION_KEY` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Encryption key for stored Plaid access tokens. Keep the same value anywhere that must read/write the same Plaid item records, especially `local-uatdb` and UAT when they share a DB. If omitted, backend derives a fallback key from Plaid credentials. |
+| `PLAID_TOKEN_ENCRYPTION_KEY` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Encryption key for stored Plaid access tokens. Keep the same value anywhere that must read/write the same Plaid item records, especially `local` and UAT when they share a DB. If omitted, backend derives a fallback key from Plaid credentials. |
 | `PLAID_TX_HISTORY_DAYS` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Investment transaction lookback window. Default `730`. |
 
 ---

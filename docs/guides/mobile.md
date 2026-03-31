@@ -60,16 +60,16 @@ Every visible page route must be classified as native-supported or explicitly ex
 
 Recommended commands:
 
-- Terminal A (repo root): `bash scripts/runtime/run_backend_local.sh local-uatdb`
+- Terminal A (repo root): `npm run backend`
 - Terminal B (repo root):
-  - Android: `npm run native:android -- --profile local-uatdb --fresh`
-  - iOS: `npm run native:ios -- --profile local-uatdb --fresh`
+  - Android: `npm run native:android -- --mode local --fresh`
+  - iOS: `npm run native:ios -- --mode local --fresh`
 
 Required env:
 
 - `NEXT_PUBLIC_BACKEND_URL` must point to your dev/staging Python backend.
   - If you use a local backend on your host machine, remember Android emulator needs `10.0.2.2` instead of `localhost`.
-  - The runtime profile launcher handles that rewrite automatically in `capacitor.config.ts` for Android when the active profile uses localhost.
+  - The runtime mode launcher handles that rewrite automatically in `capacitor.config.ts` for Android when the active mode uses localhost.
 
 ### Passkey domain association (production)
 

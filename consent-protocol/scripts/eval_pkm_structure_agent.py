@@ -31,7 +31,7 @@ from hushh_mcp.services.personal_knowledge_model_service import (  # noqa: E402
 )
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service  # noqa: E402
 
-DEFAULT_ENV_FILE = CONSENT_PROTOCOL_ROOT / ".env.local-uatdb.local"
+DEFAULT_ENV_FILE = CONSENT_PROTOCOL_ROOT / ".env"
 DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent_eval_latest.json"
 DEFAULT_PRIMARY_MODEL = "gemini-3.1-flash-lite-preview"
 DEFAULT_SECONDARY_MODEL = ""

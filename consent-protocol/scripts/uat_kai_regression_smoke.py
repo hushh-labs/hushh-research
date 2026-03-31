@@ -38,11 +38,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from dotenv import dotenv_values
 
 DEFAULT_BACKEND_URL = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
-DEFAULT_PROTOCOL_ENV = os.path.expanduser(
-    "~/Documents/GitHub/hushh-research/consent-protocol/.env.uat-remote.local"
-)
+DEFAULT_PROTOCOL_ENV = os.path.expanduser("~/Documents/GitHub/hushh-research/consent-protocol/.env")
 DEFAULT_WEBAPP_ENV = os.path.expanduser(
-    "~/Documents/GitHub/hushh-research/hushh-webapp/.env.uat-remote.local"
+    "~/Documents/GitHub/hushh-research/hushh-webapp/.env.uat.local"
 )
 DEFAULT_TIMEOUT = 45
 

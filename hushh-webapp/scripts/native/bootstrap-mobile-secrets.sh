@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "${SCRIPT_DIR}/../../.." rev-parse --show-toplevel)"
 WEB_DIR="${REPO_ROOT}/hushh-webapp"
-PROFILE="${APP_RUNTIME_PROFILE:-uat-remote}"
+PROFILE="${APP_RUNTIME_MODE:-${APP_RUNTIME_PROFILE:-uat}}"
 
 echo "bootstrap-mobile-secrets.sh is now a compatibility shim." >&2
 bash "${REPO_ROOT}/scripts/env/bootstrap_profiles.sh"

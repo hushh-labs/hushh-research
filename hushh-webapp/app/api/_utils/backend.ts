@@ -33,6 +33,10 @@ function normalizeEnvironment(
     case "uat":
     case "production":
       return normalized;
+    case "local":
+      return "development";
+    case "prod":
+      return "production";
     case "local-uatdb":
       return "development";
     case "uat-remote":
@@ -48,6 +52,7 @@ function resolveEnvironment(): CanonicalEnvironment {
   return (
     normalizeEnvironment(process.env.NEXT_PUBLIC_APP_ENV) ||
     normalizeEnvironment(process.env.ENVIRONMENT) ||
+    normalizeEnvironment(process.env.APP_RUNTIME_MODE) ||
     normalizeEnvironment(process.env.APP_RUNTIME_PROFILE) ||
     (process.env.NODE_ENV === "production" ? "production" : "development")
   );

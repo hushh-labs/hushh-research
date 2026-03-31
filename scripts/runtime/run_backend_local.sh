@@ -8,10 +8,10 @@ source "$REPO_ROOT/scripts/env/runtime_profile_lib.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/runtime/run_backend_local.sh <local-uatdb> [--skip-activate] [--preflight-only] [--skip-preflight] [--reload|--no-reload]
+  scripts/runtime/run_backend_local.sh <local> [--skip-activate] [--preflight-only] [--skip-preflight] [--reload|--no-reload]
 
-Starts the local backend for a runtime profile.
-For local-uatdb, this will start a Cloud SQL proxy automatically when the
+Starts the local backend for a runtime mode.
+For local, this will start a Cloud SQL proxy automatically when the
 active backend profile includes CLOUDSQL_INSTANCE_CONNECTION_NAME.
 
 Options:
@@ -62,13 +62,13 @@ for arg in "$@"; do
 done
 
 if ! PROFILE="$(normalize_runtime_profile "$RAW_PROFILE")"; then
-  echo "Invalid runtime profile: $RAW_PROFILE" >&2
+  echo "Invalid runtime mode: $RAW_PROFILE" >&2
   exit 1
 fi
 
 if [ "$(runtime_profile_backend_mode "$PROFILE")" != "local" ]; then
-  echo "Runtime profile $PROFILE does not start a local backend." >&2
-  echo "Use a remote profile with 'npm run web -- --profile=$PROFILE' or 'make stack PROFILE=$PROFILE'." >&2
+  echo "Runtime mode $PROFILE does not start a local backend." >&2
+  echo "Use a remote mode with 'npm run web -- --mode=$PROFILE'." >&2
   exit 1
 fi
 
@@ -188,7 +188,7 @@ stop_existing_repo_backend() {
 
 verify_iam_readiness() {
   local profile="$1"
-  if [ "$profile" != "local-uatdb" ]; then
+  if [ "$profile" != "local" ]; then
     return 0
   fi
 
@@ -247,8 +247,8 @@ PY
     echo "Assuming an existing DB listener is already running on 127.0.0.1:${PROXY_PORT} for ${INSTANCE}."
   else
     if ! command -v cloud-sql-proxy >/dev/null 2>&1; then
-      echo "local-uatdb requires cloud-sql-proxy to reach the UAT Cloud SQL instance." >&2
-      echo "Install it and rerun, or provide a reachable DB_HOST override in consent-protocol/.env.local-uatdb.local." >&2
+      echo "local requires cloud-sql-proxy to reach the UAT Cloud SQL instance." >&2
+      echo "Install it and rerun, or provide a reachable DB_HOST override in consent-protocol/.env." >&2
       exit 1
     fi
     proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
@@ -268,7 +268,7 @@ PY
       PROXY_CREDENTIALS_FILE="$PROXY_CREDENTIALS_TEMP"
     fi
     if [ -z "$PROXY_CREDENTIALS_FILE" ]; then
-      echo "local-uatdb requires Cloud SQL proxy credentials from FIREBASE_SERVICE_ACCOUNT_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
+      echo "local requires Cloud SQL proxy credentials from FIREBASE_SERVICE_ACCOUNT_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
       echo "Refusing to fall back to local gcloud/ADC credentials." >&2
       exit 1
     fi
@@ -293,11 +293,11 @@ if [ "$SKIP_PREFLIGHT" != "true" ]; then
 fi
 
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
-  echo "Backend preflight passed for runtime profile ${PROFILE}."
+  echo "Backend preflight passed for runtime mode ${PROFILE}."
   exit 0
 fi
 
-echo "Starting backend on :8000 for runtime profile ${PROFILE}..."
+echo "Starting backend on :8000 for runtime mode ${PROFILE}..."
 cd "$REPO_ROOT/consent-protocol"
 uvicorn_args=(server:app --port 8000)
 reload_mode="$(printf '%s' "$BACKEND_RELOAD" | tr '[:upper:]' '[:lower:]')"

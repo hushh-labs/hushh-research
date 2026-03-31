@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -34,8 +35,9 @@ import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation
 import { StatementCashflowChart } from "@/components/kai/charts/statement-cashflow-chart";
 import { TransactionActivity } from "@/components/kai/cards/transaction-activity";
 import { PlaidBrokerageSummarySection } from "@/components/kai/plaid/plaid-brokerage-sections";
-import { HoldingsMobileList } from "@/components/kai/holdings/holdings-mobile-list";
+import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import type { Holding as PortfolioHolding, PortfolioData } from "@/components/kai/types/portfolio";
 import { ProfileBasedPicksList } from "@/components/kai/cards/profile-based-picks-list";
 import { useCache, type PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
@@ -43,6 +45,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { KAI_EXPERIENCE_CONTRACT } from "@/lib/kai/experience-contract";
+import { DataTable } from "@/components/app-ui/data-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -157,6 +160,10 @@ function formatCurrency(value: number): string {
 
 function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
+}
+
+function formatSignedCurrency(value: number): string {
+  return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
 }
 
 function isDashboardMainTab(value: string): value is DashboardMainTab {
@@ -1498,6 +1505,165 @@ export function DashboardMasterView({
     );
   }, []);
 
+  const holdingsTableDenominator = useMemo(() => {
+    const activeTotal = sourceHoldingRows
+      .filter((holding) => !holding.pending_delete)
+      .reduce((sum, holding) => sum + Number(holding.market_value || 0), 0);
+    if (activeTotal > 0) return activeTotal;
+    return sourceHoldingRows.reduce((sum, holding) => sum + Number(holding.market_value || 0), 0);
+  }, [sourceHoldingRows]);
+
+  const holdingsTableColumns = useMemo<ColumnDef<ManagedHolding>[]>(
+    () => {
+      const columns: ColumnDef<ManagedHolding>[] = [
+        {
+          accessorKey: "symbol",
+          header: "Holding",
+          cell: ({ row }) => {
+            const holding = row.original;
+            const isCash = holding.is_cash_equivalent === true;
+            const isDeleted = Boolean(holding.pending_delete);
+            return (
+              <div className={cn("flex min-w-[220px] items-center gap-3", isDeleted && "opacity-60")}>
+                <SymbolAvatar
+                  symbol={holding.symbol}
+                  name={holding.name}
+                  isCash={isCash}
+                  size="sm"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={cn("font-semibold text-foreground", isDeleted && "line-through")}>
+                      {holding.symbol || "—"}
+                    </span>
+                    {isCash ? (
+                      <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                        Cash
+                      </span>
+                    ) : null}
+                    {isDeleted ? (
+                      <span className="rounded-full border border-rose-500/25 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400">
+                        Pending delete
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className={cn("truncate text-xs text-muted-foreground", isDeleted && "line-through")}>
+                    {holding.name || "Unnamed security"}
+                  </div>
+                </div>
+              </div>
+            );
+          },
+        },
+        {
+          id: "shares",
+          header: "Shares",
+          cell: ({ row }) => {
+            const holding = row.original;
+            return (
+              <span className={cn("text-sm text-foreground", holding.pending_delete && "line-through text-muted-foreground")}>
+                {Number(holding.quantity || 0).toLocaleString()}
+              </span>
+            );
+          },
+        },
+        {
+          accessorKey: "price",
+          header: "Price",
+          cell: ({ row }) => {
+            const holding = row.original;
+            return (
+              <span className={cn("text-sm text-foreground", holding.pending_delete && "line-through text-muted-foreground")}>
+                {formatCurrency(Number(holding.price || 0))}
+              </span>
+            );
+          },
+        },
+        {
+          accessorKey: "market_value",
+          header: "Market Value",
+          cell: ({ row }) => {
+            const holding = row.original;
+            return (
+              <span className={cn("font-semibold text-foreground", holding.pending_delete && "line-through text-muted-foreground")}>
+                {formatCurrency(Number(holding.market_value || 0))}
+              </span>
+            );
+          },
+        },
+        {
+          id: "weight",
+          header: "Weight",
+          cell: ({ row }) => {
+            const holding = row.original;
+            const marketValue = Number(holding.market_value || 0);
+            const weightPct = holdingsTableDenominator > 0 ? (marketValue / holdingsTableDenominator) * 100 : 0;
+            return (
+              <span className={cn("text-sm text-muted-foreground", holding.pending_delete && "line-through")}>
+                {formatPercent(weightPct)}
+              </span>
+            );
+          },
+        },
+        {
+          id: "gain_loss",
+          header: "Gain / Loss",
+          cell: ({ row }) => {
+            const holding = row.original;
+            const explicitGain = Number.isFinite(Number(holding.unrealized_gain_loss))
+              ? Number(holding.unrealized_gain_loss)
+              : null;
+            const derivedGain =
+              Number.isFinite(Number(holding.market_value)) && Number.isFinite(Number(holding.cost_basis))
+                ? Number(holding.market_value) - Number(holding.cost_basis)
+                : null;
+            const gain = explicitGain ?? derivedGain;
+            if (gain === null) {
+              return <span className="text-sm text-muted-foreground">—</span>;
+            }
+            return (
+              <span
+                className={cn(
+                  "font-medium",
+                  holding.pending_delete
+                    ? "line-through text-muted-foreground"
+                    : gain >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-rose-600 dark:text-rose-400"
+                )}
+              >
+                {formatSignedCurrency(gain)}
+              </span>
+            );
+          },
+        },
+      ];
+
+      if (canEditStatement) {
+        columns.unshift({
+          id: "row_actions",
+          header: () => <span className="sr-only">Actions</span>,
+          cell: ({ row }) => (
+            <div className="flex items-center justify-center" onClick={(event) => event.stopPropagation()}>
+              <HoldingRowActions
+                symbol={row.original.symbol}
+                isDeleted={Boolean(row.original.pending_delete)}
+                disableEdit={Boolean(row.original.pending_delete)}
+                layout="row"
+                className="w-auto"
+                onEdit={() => handleEditHolding(row.original.client_id)}
+                onToggleDelete={() => handleToggleDeleteHolding(row.original.client_id)}
+              />
+            </div>
+          ),
+        });
+      }
+
+      return columns;
+    },
+    [canEditStatement, handleEditHolding, handleToggleDeleteHolding, holdingsTableDenominator]
+  );
+
   const handleSharePortfolioPdf = useCallback(async () => {
     if (isSharingPortfolioPdf || !hasShareablePortfolioData) return;
 
@@ -1945,17 +2111,21 @@ export function DashboardMasterView({
                 ) : null}
               </SurfaceInset>
 
-              <HoldingsMobileList
-                holdings={sourceHoldingRows}
-                canManageHoldings={canEditStatement}
-                onEditHolding={(holdingId) => {
-                  if (!canEditStatement) return;
-                  handleEditHolding(holdingId);
-                }}
-                onToggleDeleteHolding={(holdingId) => {
-                  if (!canEditStatement) return;
-                  handleToggleDeleteHolding(holdingId);
-                }}
+              <DataTable
+                columns={holdingsTableColumns}
+                data={sourceHoldingRows}
+                searchKey="symbol"
+                globalSearchKeys={["symbol", "name"]}
+                searchPlaceholder="Search holdings by ticker or company"
+                initialPageSize={8}
+                pageSizeOptions={[8, 16, 24]}
+                tableContainerClassName="border-border/60 bg-background/75"
+                rowClassName={(holding) =>
+                  cn(
+                    "transition-colors",
+                    holding.pending_delete && "bg-rose-500/5"
+                  )
+                }
               />
 
               {canEditStatement && hasHoldingsChanges ? (

@@ -16,6 +16,7 @@ See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.
 
 - **Local:** `.env` (backend) and `.env.local` (frontend) must contain exactly the keys the application code reads. Use the repo `.env.example` files as the template; they are audited to match the code.
 - **Production:** GCP Secret Manager must hold **exactly** the secrets the code expects — no more, no less. The Cloud Build config (`deploy/*.cloudbuild.yaml`) injects only these; do not add secrets that are not read by the code, and do not remove any that are.
+- **Canonical runtime modes:** the supported frontend `local`, `uat`, and `prod` files must share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`.
 
 ## Canonical 3-environment contract
 
@@ -24,9 +25,9 @@ See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.
 3. Legacy frontend fallback keys are read-only compatibility paths for one release cycle:
 - `NEXT_PUBLIC_OBSERVABILITY_ENV`
 - `NEXT_PUBLIC_ENVIRONMENT_MODE`
-4. Local runtime-profile model (non-committed):
-- backend templates: `consent-protocol/.env.local-uatdb.local.example`, `consent-protocol/.env.uat-remote.local.example`, `consent-protocol/.env.prod-remote.local.example`
-- frontend templates: `hushh-webapp/.env.local-uatdb.local.example`, `hushh-webapp/.env.uat-remote.local.example`, `hushh-webapp/.env.prod-remote.local.example`
+4. Local runtime-mode model (non-committed):
+- backend template/source: `consent-protocol/.env.example` -> `consent-protocol/.env`
+- frontend templates: `hushh-webapp/.env.local.local.example`, `hushh-webapp/.env.uat.local.example`, `hushh-webapp/.env.prod.local.example`
 - local source files are created from templates and kept uncommitted
 - active files: `consent-protocol/.env`, `hushh-webapp/.env.local`
 - `NEXT_PUBLIC_PKM_UPGRADE_REHEARSAL` is local/UAT-only and should remain `false` unless you are intentionally running the Kai test-user no-write PKM rehearsal
@@ -42,19 +43,19 @@ It does not print secret values and sets profile files to `chmod 600`.
 6. Activate the chosen runtime profile:
 
 ```bash
-npm run doctor -- --profile=local-uatdb
-npm run web -- --profile=uat-remote
-npm run web -- --profile=prod-remote
-npm run native:ios -- --profile=uat-remote
-npm run native:android -- --profile=uat-remote
+npm run doctor -- --mode=local
+npm run web -- --mode=uat
+npm run web -- --mode=prod
+npm run native:ios -- --mode=uat
+npm run native:android -- --mode=uat
 ```
 
 Low-level activation still exists when you need it:
 
 ```bash
-bash scripts/env/use_profile.sh local-uatdb
-bash scripts/env/use_profile.sh uat-remote
-bash scripts/env/use_profile.sh prod-remote
+bash scripts/env/use_profile.sh local
+bash scripts/env/use_profile.sh uat
+bash scripts/env/use_profile.sh prod
 ```
 
 The local UAT-backed backend launcher now runs IAM schema verification before booting. If IAM is incomplete, it exits instead of silently falling back to investor-compatibility mode.
@@ -63,7 +64,7 @@ Profile-aware frontend-only launcher:
 
 ```bash
 cd hushh-webapp
-npm run dev -- --profile=local-uatdb
+npm run dev -- --mode=local
 ```
 
 ### One-command parity audit
@@ -88,6 +89,19 @@ The script reports:
 - required backend/frontend key lists
 - whether each required key exists in the target project
 - missing keys (if any), with non-zero exit on failure
+
+### Runtime profile shape audit
+
+Use this when the local profile files feel inconsistent or a new env key was added in only one place:
+
+```bash
+python3 scripts/ops/verify-runtime-profile-env-shape.py --include-runtime
+```
+
+It checks that:
+- tracked backend profile templates share one canonical backend key set
+- tracked frontend profile templates share one canonical frontend key set
+- the real local canonical profile files and active `.env` / `.env.local` match those same shapes
 
 ### Firebase identity plane rule
 

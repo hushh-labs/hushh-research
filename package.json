@@ -4,6 +4,7 @@
   "scripts": {
     "bootstrap": "bash scripts/npm/bootstrap.sh",
     "doctor": "bash scripts/npm/doctor.sh",
+    "backend": "bash scripts/npm/backend.sh",
     "web": "bash scripts/npm/web.sh",
     "native:ios": "bash scripts/npm/native.sh ios",
     "native:android": "bash scripts/npm/native.sh android"

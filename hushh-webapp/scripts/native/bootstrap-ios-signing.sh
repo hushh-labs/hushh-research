@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 REPO_ROOT="$(git -C "${SCRIPT_DIR}/../../.." rev-parse --show-toplevel)"
-PROFILE="${APP_RUNTIME_PROFILE:-uat-remote}"
+PROFILE="${APP_RUNTIME_MODE:-${APP_RUNTIME_PROFILE:-uat}}"
 
 echo "bootstrap-ios-signing.sh is now a compatibility shim." >&2
 bash "${REPO_ROOT}/scripts/env/bootstrap_profiles.sh"

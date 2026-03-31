@@ -5,9 +5,8 @@ const { test, expect, devices } = require("@playwright/test");
 
 const CONSENT_PROTOCOL_ROOT = path.resolve(process.cwd(), "../consent-protocol");
 const ENV_FILES = [
-  ".env.local-uatdb.local",
-  ".env.dev.local",
-  ".env",
+  ".env.local.local",
+  ".env.local",
 ];
 
 ENV_FILES.forEach((fileName) => {

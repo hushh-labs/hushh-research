@@ -73,7 +73,7 @@ If you are working inside the `hushh-research` monorepo, use the repo-root boots
 ```bash
 cd ..
 make bootstrap
-make backend PROFILE=local-uatdb
+npm run backend
 ```
 
 Standalone subtree/backend-only setup:

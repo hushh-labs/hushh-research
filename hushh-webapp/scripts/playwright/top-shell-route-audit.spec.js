@@ -4,7 +4,7 @@ const dotenv = require("dotenv");
 const { test, expect, devices } = require("@playwright/test");
 
 const CONSENT_PROTOCOL_ROOT = path.resolve(process.cwd(), "../consent-protocol");
-const ENV_FILES = [".env.local-uatdb.local", ".env.dev.local", ".env"];
+const ENV_FILES = [".env.local.local", ".env.local"];
 const ROUTE_LAYOUT_CONTRACT = require(path.resolve(
   process.cwd(),
   "lib/navigation/app-route-layout.contract.json"

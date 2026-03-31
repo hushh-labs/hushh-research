@@ -8,15 +8,15 @@ source "$SCRIPT_DIR/runtime_profile_lib.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/env/use_profile.sh <local-uatdb|uat-remote|prod-remote> [--dry-run]
+  scripts/env/use_profile.sh <local|uat|prod> [--dry-run]
 
 Description:
-  Activates local runtime profile files by copying:
-    consent-protocol/.env.<runtime-profile>.local  -> consent-protocol/.env
-    hushh-webapp/.env.<runtime-profile>.local      -> hushh-webapp/.env.local
+  Activates the selected frontend runtime mode by copying:
+    hushh-webapp/<mode-source-file> -> hushh-webapp/.env.local
 
 Notes:
-  - Active runtime files remain `consent-protocol/.env` and `hushh-webapp/.env.local`.
+  - Backend local runtime stays in `consent-protocol/.env`.
+  - Frontend active runtime stays in `hushh-webapp/.env.local`.
   - This command prints the exact runtime topology after activation.
 EOF
 }
@@ -45,21 +45,14 @@ done
 
 if ! PROFILE="$(normalize_runtime_profile "$RAW_PROFILE")"; then
   echo "Invalid profile: $RAW_PROFILE" >&2
-  echo "Expected one of: local-uatdb, uat-remote, prod-remote" >&2
+  echo "Expected one of: local, uat, prod" >&2
   exit 1
 fi
 
-BACKEND_SOURCE="$REPO_ROOT/consent-protocol/$(runtime_profile_backend_source "$PROFILE")"
 FRONTEND_SOURCE="$REPO_ROOT/hushh-webapp/$(runtime_profile_frontend_source "$PROFILE")"
 BACKEND_TARGET="$REPO_ROOT/consent-protocol/.env"
 FRONTEND_TARGET="$REPO_ROOT/hushh-webapp/.env.local"
 NATIVE_MATERIALIZER="$REPO_ROOT/hushh-webapp/scripts/native/materialize-active-native-profile.sh"
-
-if [ ! -f "$BACKEND_SOURCE" ]; then
-  echo "Missing backend profile file: $BACKEND_SOURCE" >&2
-  echo "Create it from: ${BACKEND_SOURCE}.example or run scripts/env/bootstrap_profiles.sh" >&2
-  exit 1
-fi
 
 if [ ! -f "$FRONTEND_SOURCE" ]; then
   echo "Missing frontend profile file: $FRONTEND_SOURCE" >&2
@@ -195,10 +188,10 @@ PY
 
 gcp_project_for_profile() {
   case "$1" in
-    local-uatdb|uat-remote)
+    local|uat)
       printf 'hushh-pda-uat'
       ;;
-    prod-remote)
+    prod)
       printf 'hushh-pda'
       ;;
     *)
@@ -209,18 +202,22 @@ gcp_project_for_profile() {
 
 legacy_frontend_sources_for_profile() {
   case "$1" in
-    local-uatdb)
+    local)
       printf '%s\n%s\n' \
+        "$REPO_ROOT/hushh-webapp/.env.local-uatdb.local" \
         "$REPO_ROOT/hushh-webapp/.env.uat.local" \
         "$REPO_ROOT/hushh-webapp/.env.dev.local"
       ;;
-    uat-remote)
+    uat)
       printf '%s\n%s\n' \
+        "$REPO_ROOT/hushh-webapp/.env.uat-remote.local" \
         "$REPO_ROOT/hushh-webapp/.env.uat.local" \
         "$REPO_ROOT/hushh-webapp/.env.dev.local"
       ;;
-    prod-remote)
-      printf '%s\n' "$REPO_ROOT/hushh-webapp/.env.prod.local"
+    prod)
+      printf '%s\n%s\n' \
+        "$REPO_ROOT/hushh-webapp/.env.prod-remote.local" \
+        "$REPO_ROOT/hushh-webapp/.env.prod.local"
       ;;
   esac
 }
@@ -306,23 +303,30 @@ require_non_placeholder_value() {
   value="$(read_env_value "$file" "$key")"
   case "$value" in
     ""|replace_with_*|REPLACE_WITH_*|dummy-*|changeme|CHANGEME|*replace_with_*|*REPLACE_WITH_*)
-      echo "Invalid runtime profile value for ${key} in ${file#$REPO_ROOT/}. Run scripts/env/bootstrap_profiles.sh to hydrate real values." >&2
+      echo "Invalid runtime mode value for ${key} in ${file#$REPO_ROOT/}. Run scripts/env/bootstrap_profiles.sh to hydrate real values." >&2
       exit 1
       ;;
   esac
 }
 
-SUMMARY_BACKEND_FILE="$BACKEND_SOURCE"
+SUMMARY_BACKEND_FILE="$BACKEND_TARGET"
 SUMMARY_FRONTEND_FILE="$FRONTEND_SOURCE"
 
 repair_frontend_profile_if_needed "$FRONTEND_SOURCE" "$PROFILE"
 
 if [ "$DRY_RUN" != "true" ]; then
-  cp "$BACKEND_SOURCE" "$BACKEND_TARGET"
   cp "$FRONTEND_SOURCE" "$FRONTEND_TARGET"
-  upsert_env_value "$BACKEND_TARGET" "APP_RUNTIME_PROFILE" "$PROFILE"
+  if [ ! -f "$BACKEND_TARGET" ]; then
+    echo "Missing backend local runtime file: ${BACKEND_TARGET#$REPO_ROOT/}" >&2
+    echo "Run scripts/env/bootstrap_profiles.sh to hydrate the local backend env." >&2
+    exit 1
+  fi
+  upsert_env_value "$BACKEND_TARGET" "APP_RUNTIME_MODE" "local"
+  upsert_env_value "$BACKEND_TARGET" "APP_RUNTIME_PROFILE" "local"
+  upsert_env_value "$BACKEND_TARGET" "RESOURCE_TARGET" "uat"
+  upsert_env_value "$BACKEND_TARGET" "DB_RESOURCE_TARGET" "uat"
+  upsert_env_value "$FRONTEND_TARGET" "APP_RUNTIME_MODE" "$PROFILE"
   upsert_env_value "$FRONTEND_TARGET" "APP_RUNTIME_PROFILE" "$PROFILE"
-  normalize_env_json_values "$BACKEND_TARGET"
   normalize_env_json_values "$FRONTEND_TARGET"
   require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_FIREBASE_API_KEY"
   require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"
@@ -335,9 +339,9 @@ if [ "$DRY_RUN" != "true" ]; then
   SUMMARY_FRONTEND_FILE="$FRONTEND_TARGET"
 fi
 
-BACKEND_ENVIRONMENT="$(runtime_profile_backend_environment "$PROFILE")"
+BACKEND_ENVIRONMENT="development"
 FRONTEND_ENVIRONMENT="$(runtime_profile_frontend_environment "$PROFILE")"
-BACKEND_MODE="$(runtime_profile_backend_mode "$PROFILE")"
+BACKEND_MODE="local"
 FRONTEND_MODE="$(runtime_profile_frontend_mode "$PROFILE")"
 RESOURCE_TARGET="$(runtime_profile_resource_target "$PROFILE")"
 
@@ -345,7 +349,7 @@ SUMMARY_BACKEND_URL="$(read_env_value "${SUMMARY_BACKEND_FILE}" "FRONTEND_URL")"
 SUMMARY_FRONTEND_BACKEND_URL="$(read_env_value "${SUMMARY_FRONTEND_FILE}" "NEXT_PUBLIC_BACKEND_URL")"
 SUMMARY_FRONTEND_URL="$(read_env_value "${SUMMARY_FRONTEND_FILE}" "NEXT_PUBLIC_FRONTEND_URL")"
 
-echo "Activated runtime profile: $PROFILE"
+echo "Activated runtime mode: $PROFILE"
 echo "Description: $(runtime_profile_description "$PROFILE")"
 echo "Frontend runtime: ${FRONTEND_MODE}"
 echo "Backend runtime: ${BACKEND_MODE}"
@@ -355,10 +359,10 @@ echo "Backend allowed frontend URL: ${SUMMARY_BACKEND_URL:-"(unset)"}"
 echo "Backend ENVIRONMENT: ${BACKEND_ENVIRONMENT}"
 echo "Frontend NEXT_PUBLIC_APP_ENV: ${FRONTEND_ENVIRONMENT}"
 echo "Resource target: ${RESOURCE_TARGET}"
-echo "Backend source: $BACKEND_SOURCE"
 echo "Frontend source: $FRONTEND_SOURCE"
-if [ "$PROFILE" = "prod-remote" ]; then
-  echo "WARNING: prod-remote points the local frontend at production services."
+echo "Backend runtime file: $BACKEND_TARGET"
+if [ "$PROFILE" = "prod" ]; then
+  echo "WARNING: prod points the local frontend at production services."
 fi
 if [ "$DRY_RUN" = "true" ]; then
   echo "Dry run: no files were copied."

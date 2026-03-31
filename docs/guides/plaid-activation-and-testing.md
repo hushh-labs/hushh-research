@@ -60,7 +60,7 @@ Webhook values to use:
 Use:
 
 - frontend: `http://localhost:3000`
-- backend profile: `consent-protocol/.env` or the local copy created from `consent-protocol/.env.local-uatdb.local.example`
+- backend runtime file: `consent-protocol/.env`
 - webhook tunnel: ngrok or Cloudflare tunnel
 
 Example webhook target:
@@ -85,7 +85,7 @@ Backend must use the matching `FRONTEND_URL` for each profile so the callback or
 
 1. Apply `consent-protocol/db/migrations/023_kai_plaid_portfolio.sql`.
 2. Set `PLAID_WEBHOOK_URL` for the active backend:
-   - localhost/local-uatdb: your current tunnel URL ending in `/api/kai/plaid/webhook`
+   - localhost/local: your current tunnel URL ending in `/api/kai/plaid/webhook`
    - UAT: `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
 3. Set a stable `PLAID_TOKEN_ENCRYPTION_KEY`.
 4. Restart the backend so the new Plaid env values load.

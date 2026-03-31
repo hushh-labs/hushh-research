@@ -21,23 +21,21 @@ Options:
   -h, --help                         Show this help
 
 Description:
-  Creates and hydrates local runtime profile files:
-    consent-protocol/.env.local-uatdb.local
-    consent-protocol/.env.uat-remote.local
-    consent-protocol/.env.prod-remote.local
-    hushh-webapp/.env.local-uatdb.local
-    hushh-webapp/.env.uat-remote.local
-    hushh-webapp/.env.prod-remote.local
+  Creates and hydrates the supported local runtime files:
+    consent-protocol/.env
+    hushh-webapp/.env.local.local
+    hushh-webapp/.env.uat.local
+    hushh-webapp/.env.prod.local
 
-  Runtime profile model:
-  - local-uatdb : local frontend + local backend, backed by UAT resources
-  - uat-remote  : local frontend only, pointed at deployed UAT backend
-  - prod-remote : local frontend only, pointed at deployed production backend
+  Runtime mode model:
+  - local : local frontend + local backend, backed by UAT resources
+  - uat   : local frontend only, pointed at deployed UAT backend
+  - prod  : local frontend only, pointed at deployed production backend
 
   Notes:
   - No secret values are printed.
   - Generated local profiles are chmod 600.
-  - local-uatdb uses a localhost-compatible backend profile and, when UAT uses
+  - local uses a localhost-compatible backend profile and, when UAT uses
     Cloud SQL sockets, writes CLOUDSQL_INSTANCE_CONNECTION_NAME + CLOUDSQL_PROXY_PORT
     so the launcher can open a local Cloud SQL proxy automatically.
 USAGE
@@ -319,6 +317,45 @@ copy_template_if_needed() {
   fi
 }
 
+ensure_shape_from_template() {
+  local template="$1"
+  local target="$2"
+  python3 - "$template" "$target" <<'PY'
+import pathlib
+import re
+import sys
+
+template_path = pathlib.Path(sys.argv[1])
+target_path = pathlib.Path(sys.argv[2])
+assign_re = re.compile(r"^([A-Z0-9_]+)=")
+
+template_lines = template_path.read_text(encoding="utf-8").splitlines()
+target_lines = target_path.read_text(encoding="utf-8").splitlines() if target_path.exists() else []
+target_keys = {
+    match.group(1)
+    for line in target_lines
+    if (match := assign_re.match(line))
+}
+
+missing_lines: list[str] = []
+for line in template_lines:
+    match = assign_re.match(line)
+    if not match:
+      continue
+    key = match.group(1)
+    if key not in target_keys:
+      missing_lines.append(line)
+
+if not missing_lines:
+    raise SystemExit(0)
+
+if target_lines and target_lines[-1].strip():
+    target_lines.append("")
+target_lines.extend(missing_lines)
+target_path.write_text("\n".join(target_lines) + "\n", encoding="utf-8")
+PY
+}
+
 get_secret_value() {
   local project="$1"
   local secret="$2"
@@ -539,8 +576,13 @@ hydrate_backend_cloud_reference() {
   local env_name="$4"
   local cache_file="$file"
 
+  upsert_env_value "$file" "APP_RUNTIME_MODE" "$profile"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "ENVIRONMENT" "$env_name"
+  upsert_env_value "$file" "RESOURCE_TARGET" "$(runtime_profile_resource_target "$profile")"
+  if [ "$profile" = "local" ]; then
+    upsert_env_value "$file" "DB_RESOURCE_TARGET" "uat"
+  fi
 
   local front_secret=""
   if front_secret="$(resolve_cloud_or_cached_secret_value "$project" "FRONTEND_URL" "$cache_file")"; then
@@ -585,7 +627,7 @@ hydrate_backend_cloud_reference() {
 
 hydrate_backend_local_uatdb() {
   local file="$1"
-  local profile="local-uatdb"
+  local profile="local"
   local project="$2"
   local existing_local_plaid_webhook=""
 
@@ -594,7 +636,11 @@ hydrate_backend_local_uatdb() {
   hydrate_backend_cloud_reference "$file" "$profile" "$project" "development"
   upsert_env_value "$file" "FRONTEND_URL" "http://localhost:3000"
   upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "http://localhost:3000"
+  upsert_env_value "$file" "APP_RUNTIME_MODE" "local"
+  upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
+  upsert_env_value "$file" "RESOURCE_TARGET" "uat"
+  upsert_env_value "$file" "DB_RESOURCE_TARGET" "uat"
   upsert_env_value "$file" "PORT" "8000"
   upsert_env_value "$file" "PLAID_WEBHOOK_URL" "$existing_local_plaid_webhook"
 
@@ -633,6 +679,7 @@ hydrate_frontend_cloud() {
   local env_name="$4"
   local cache_file="$file"
 
+  upsert_env_value "$file" "APP_RUNTIME_MODE" "$profile"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_ENV" "$env_name"
 
@@ -703,13 +750,15 @@ hydrate_frontend_cloud() {
 hydrate_frontend_local_uatdb() {
   local file="$1"
   local project="$2"
-  local profile="local-uatdb"
+  local profile="local"
 
   hydrate_frontend_cloud "$file" "$profile" "$project" "development"
   upsert_env_value "$file" "NEXT_PUBLIC_BACKEND_URL" "http://localhost:8000"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_URL" "http://localhost:3000"
   upsert_env_value "$file" "NEXT_PUBLIC_FRONTEND_URL" "http://localhost:3000"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_ENV" "development"
+  upsert_env_value "$file" "APP_RUNTIME_MODE" "local"
+  upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
 }
 
 validate_canonical_keys() {
@@ -736,59 +785,64 @@ validate_canonical_keys() {
   fi
 }
 
-profiles=(local-uatdb uat-remote prod-remote)
+profiles=(local uat prod)
+
+copy_template_if_needed "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
 for profile in "${profiles[@]}"; do
-  copy_template_if_needed "$BACKEND_DIR/.env.${profile}.local.example" "$BACKEND_DIR/.env.${profile}.local"
-  copy_template_if_needed "$FRONTEND_DIR/.env.${profile}.local.example" "$FRONTEND_DIR/.env.${profile}.local"
+  copy_template_if_needed "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile").example" "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile")"
 done
 
-hydrate_backend_local_uatdb "$BACKEND_DIR/.env.local-uatdb.local" "$UAT_PROJECT_ID"
-hydrate_frontend_local_uatdb "$FRONTEND_DIR/.env.local-uatdb.local" "$UAT_PROJECT_ID"
-hydrate_backend_cloud_reference "$BACKEND_DIR/.env.uat-remote.local" "uat-remote" "$UAT_PROJECT_ID" "uat"
-hydrate_frontend_cloud "$FRONTEND_DIR/.env.uat-remote.local" "uat-remote" "$UAT_PROJECT_ID" "uat"
-hydrate_backend_cloud_reference "$BACKEND_DIR/.env.prod-remote.local" "prod-remote" "$PROD_PROJECT_ID" "production"
-hydrate_frontend_cloud "$FRONTEND_DIR/.env.prod-remote.local" "prod-remote" "$PROD_PROJECT_ID" "production"
+hydrate_backend_local_uatdb "$BACKEND_DIR/.env" "$UAT_PROJECT_ID"
+hydrate_frontend_local_uatdb "$FRONTEND_DIR/.env.local.local" "$UAT_PROJECT_ID"
+hydrate_frontend_cloud "$FRONTEND_DIR/.env.uat.local" "uat" "$UAT_PROJECT_ID" "uat"
+hydrate_frontend_cloud "$FRONTEND_DIR/.env.prod.local" "prod" "$PROD_PROJECT_ID" "production"
 
+ensure_shape_from_template "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
 for profile in "${profiles[@]}"; do
-  chmod 600 "$BACKEND_DIR/.env.${profile}.local" "$FRONTEND_DIR/.env.${profile}.local"
+  ensure_shape_from_template "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile").example" "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile")"
+done
+
+chmod 600 "$BACKEND_DIR/.env"
+for profile in "${profiles[@]}"; do
+  chmod 600 "$FRONTEND_DIR/$(runtime_profile_frontend_source "$profile")"
 done
 
 for path in \
-  "$BACKEND_DIR/.env.local-uatdb.local" "$BACKEND_DIR/.env.uat-remote.local" "$BACKEND_DIR/.env.prod-remote.local" \
-  "$FRONTEND_DIR/.env.local-uatdb.local" "$FRONTEND_DIR/.env.uat-remote.local" "$FRONTEND_DIR/.env.prod-remote.local" \
+  "$BACKEND_DIR/.env" \
+  "$FRONTEND_DIR/.env.local.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.prod.local" \
   "$BACKEND_DIR/.env.dev.local" "$BACKEND_DIR/.env.uat.local" "$BACKEND_DIR/.env.prod.local" \
   "$FRONTEND_DIR/.env.dev.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.prod.local"
 do
   normalize_env_json_values "$path"
 done
 
-validate_canonical_keys "local-uatdb" \
-  "$BACKEND_DIR/.env.local-uatdb.local" \
-  "$FRONTEND_DIR/.env.local-uatdb.local" \
+validate_canonical_keys "local" \
+  "$BACKEND_DIR/.env" \
+  "$FRONTEND_DIR/.env.local.local" \
   "development" \
   "development"
 
-validate_canonical_keys "uat-remote" \
-  "$BACKEND_DIR/.env.uat-remote.local" \
-  "$FRONTEND_DIR/.env.uat-remote.local" \
-  "uat" \
+validate_canonical_keys "uat" \
+  "$BACKEND_DIR/.env" \
+  "$FRONTEND_DIR/.env.uat.local" \
+  "development" \
   "uat"
 
-validate_canonical_keys "prod-remote" \
-  "$BACKEND_DIR/.env.prod-remote.local" \
-  "$FRONTEND_DIR/.env.prod-remote.local" \
-  "production" \
+validate_canonical_keys "prod" \
+  "$BACKEND_DIR/.env" \
+  "$FRONTEND_DIR/.env.prod.local" \
+  "development" \
   "production"
 
 for path in \
-  "$BACKEND_DIR/.env.local-uatdb.local" "$BACKEND_DIR/.env.uat-remote.local" "$BACKEND_DIR/.env.prod-remote.local" \
-  "$FRONTEND_DIR/.env.local-uatdb.local" "$FRONTEND_DIR/.env.uat-remote.local" "$FRONTEND_DIR/.env.prod-remote.local"
+  "$BACKEND_DIR/.env" \
+  "$FRONTEND_DIR/.env.local.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.prod.local"
 do
   key_count="$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$path" | wc -l | tr -d ' ')"
   SUMMARY+=("hydrated ${path#$REPO_ROOT/} (${key_count} keys)")
 done
 
-echo "Bootstrap runtime profile summary:"
+echo "Bootstrap runtime mode summary:"
 for item in "${SUMMARY[@]}"; do
   echo "- $item"
 done
@@ -818,6 +872,10 @@ if [ "$GCLOUD_AVAILABLE" = "true" ]; then
 else
   echo "Hydration source: templates and cached local profile files only"
 fi
+
+if [ -f "$REPO_ROOT/scripts/ops/verify-runtime-profile-env-shape.py" ]; then
+  python3 "$REPO_ROOT/scripts/ops/verify-runtime-profile-env-shape.py" --include-runtime
+fi
 echo ""
-echo "Done. Use a runtime profile with:"
-echo "  bash scripts/env/use_profile.sh local-uatdb|uat-remote|prod-remote"
+echo "Done. Use a runtime mode with:"
+echo "  bash scripts/env/use_profile.sh local|uat|prod"
