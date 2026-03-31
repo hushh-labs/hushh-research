@@ -5,7 +5,7 @@ const dotenv = require("dotenv");
 
 const CONSENT_PROTOCOL_ROOT = path.resolve(process.cwd(), "../consent-protocol");
 const REPO_ROOT = path.resolve(process.cwd(), "..");
-const ENV_FILES = [".env.local-uatdb.local", ".env.dev.local", ".env"];
+const ENV_FILES = [".env.local.local", ".env.local"];
 const ROUTE_LAYOUT_CONTRACT = require(path.resolve(
   process.cwd(),
   "lib/navigation/app-route-layout.contract.json"

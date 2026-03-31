@@ -25,7 +25,7 @@ Define environment policy for IAM changes without risking production behavior.
 4. Runtime behavior is environment-owned (`ENVIRONMENT` and `NEXT_PUBLIC_APP_ENV`), not RIA feature-flag-driven.
 5. IAM table activation requires explicit migration gate:
    `python db/migrate.py --iam` and `python scripts/verify_iam_schema.py`.
-6. Any UAT-backed local runtime (`local-uatdb`) must fail fast on IAM verification before starting the backend or full stack.
+6. Any UAT-backed local runtime (`local`) must fail fast on IAM verification before starting the backend or full stack.
 
 ## Branch and CI Rules
 

@@ -9,12 +9,12 @@ Use this after [Getting Started](./getting-started.md). This is the operational 
 
 ## Cloud SQL Proxy
 
-`local-uatdb` can open a local Cloud SQL proxy automatically when the active backend profile points at UAT Cloud SQL.
+`local` can open a local Cloud SQL proxy automatically when the active backend runtime points at UAT Cloud SQL.
 
 Use:
 
 ```bash
-make backend PROFILE=local-uatdb
+npm run backend
 ```
 
 Do not replace that with raw `uvicorn` unless you already know the proxy and IAM prerequisites are satisfied.

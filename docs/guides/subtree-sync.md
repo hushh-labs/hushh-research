@@ -20,7 +20,7 @@ Normal contributors should use the monorepo-first flow:
 
 ```bash
 npm run bootstrap
-npm run web -- --profile=uat-remote
+npm run web -- --mode=uat
 ```
 
 If you are coordinating the `consent-protocol` upstream relationship, use:

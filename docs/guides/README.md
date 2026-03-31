@@ -23,7 +23,7 @@ flowchart TD
 ## Canonical Guides
 
 - [getting-started.md](./getting-started.md): the only supported first-run path.
-- [environment-model.md](./environment-model.md): the three supported runtime profiles.
+- [environment-model.md](./environment-model.md): the three supported runtime modes.
 - [advanced-ops.md](./advanced-ops.md): deeper operator and release workflows.
 - [mobile.md](./mobile.md): native/mobile operating model.
 - [new-feature.md](./new-feature.md): implementation checklist when adding product surface.

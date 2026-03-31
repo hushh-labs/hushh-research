@@ -65,9 +65,9 @@
     "cap:ios:sync": "bash scripts/native/run-profile.sh --platform ios --sync-only",
     "cap:sync:android:prod": "npm run cap:sync:android",
     "cap:sync:ios:prod": "npm run cap:sync:ios",
-    "cap:android:prod:fresh:run": "bash scripts/native/run-profile.sh --platform android --profile prod-remote --fresh",
-    "cap:ios:prod:fresh:run": "bash scripts/native/run-profile.sh --platform ios --profile prod-remote --fresh",
-    "cap:ios:prod:sync": "bash scripts/native/run-profile.sh --platform ios --profile prod-remote --sync-only"
+    "cap:android:prod:fresh:run": "bash scripts/native/run-profile.sh --platform android --mode prod --fresh",
+    "cap:ios:prod:fresh:run": "bash scripts/native/run-profile.sh --platform ios --mode prod --fresh",
+    "cap:ios:prod:sync": "bash scripts/native/run-profile.sh --platform ios --mode prod --sync-only"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",

@@ -8,12 +8,12 @@ source "$REPO_ROOT/scripts/env/runtime_profile_lib.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/runtime/launch_stack.sh <local-uatdb|uat-remote|prod-remote> [-- <next-dev args>]
+  scripts/runtime/launch_stack.sh <local|uat|prod> [-- <next-dev args>]
 
 Launches the canonical local runtime stack:
-- local-uatdb: activates profile, starts local backend, then starts frontend
-- uat-remote : activates profile, starts frontend only
-- prod-remote: activates profile, starts frontend only
+- local: activates mode, starts local backend, then starts frontend
+- uat  : activates mode, starts frontend only
+- prod : activates mode, starts frontend only
 USAGE
 }
 
@@ -95,7 +95,7 @@ if [ "$(runtime_profile_backend_mode "$PROFILE")" = "local" ]; then
   done
 fi
 
-echo "Starting frontend on :3000 for runtime profile ${PROFILE}..."
+echo "Starting frontend on :3000 for runtime mode ${PROFILE}..."
 cd "$REPO_ROOT/hushh-webapp"
 stop_existing_repo_frontend
 echo "Cleaning stale .next build artifacts before starting the frontend..."

@@ -99,7 +99,7 @@ If you add a new `.swift` file (e.g. a new plugin or helper) and need to edit `i
 
 ## Testing
 
-- [ ] Test on web (`npm run web -- --profile=local-uatdb`)
+- [ ] Test on web (`npm run web -- --mode=local`)
 - [ ] Test on iOS simulator (if available)
 - [ ] Test on Android emulator
 - [ ] Verify data persists after refresh

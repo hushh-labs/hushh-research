@@ -34,7 +34,7 @@ Optional, depending on the work:
 
 - `gcloud` for profile hydration, live parity, and deploy work
 - Xcode / Android Studio for native work
-- `cloud-sql-proxy` only for the `local-uatdb` backend path
+- `cloud-sql-proxy` only for the `local` backend path
 
 ## First Run
 
@@ -42,7 +42,7 @@ Optional, depending on the work:
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 npm run bootstrap
-npm run web -- --profile=uat-remote
+npm run web -- --mode=uat
 ```
 
 `npm run bootstrap` is the only supported onboarding entrypoint. It:
@@ -53,7 +53,7 @@ npm run web -- --profile=uat-remote
 - materializes generated native artifacts under `hushh-webapp/.env.local.d/`
 - runs the environment doctor
 
-The default recommended profile is `uat-remote` because it gives you the fastest working app:
+The default recommended mode is `uat` because it gives you the fastest working app:
 
 - local frontend
 - deployed UAT backend
@@ -63,25 +63,25 @@ The default recommended profile is `uat-remote` because it gives you the fastest
 
 ```bash
 npm run bootstrap
-npm run doctor -- --profile=local-uatdb
-npm run doctor -- --profile=uat-remote
-npm run doctor -- --profile=prod-remote
+npm run doctor -- --mode=local
+npm run doctor -- --mode=uat
+npm run doctor -- --mode=prod
 
-npm run web -- --profile=uat-remote
-npm run web -- --profile=prod-remote
-npm run native:ios -- --profile=uat-remote
-npm run native:android -- --profile=uat-remote
+npm run web -- --mode=uat
+npm run web -- --mode=prod
+npm run native:ios -- --mode=uat
+npm run native:android -- --mode=uat
 ```
 
 Public docs should not teach legacy make-first bootstrap paths or ad hoc env assembly as the normal first-run path.
 
 ## Runtime Profiles
 
-Supported profiles:
+Supported modes:
 
-- `local-uatdb`: local frontend + local backend using UAT-backed resources
-- `uat-remote`: local frontend against deployed UAT backend
-- `prod-remote`: local frontend against deployed production backend
+- `local`: local frontend + local backend using UAT-backed resources
+- `uat`: local frontend against deployed UAT backend
+- `prod`: local frontend against deployed production backend
 
 See [environment-model.md](./environment-model.md) for the exact rules.
 
@@ -92,7 +92,7 @@ The default contributor path does not require it.
 When you do need the full local stack:
 
 ```bash
-make backend PROFILE=local-uatdb
+npm run backend
 ```
 
 That remains a maintainer/deeper-development path, not the primary onboarding contract.

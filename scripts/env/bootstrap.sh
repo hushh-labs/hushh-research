@@ -8,29 +8,33 @@ source "$SCRIPT_DIR/runtime_profile_lib.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/env/bootstrap.sh [--profile <local-uatdb|uat-remote|prod-remote>]
+  scripts/env/bootstrap.sh [--mode <local|uat|prod>] [--profile <local|uat|prod>]
 
 Description:
   Canonical contributor bootstrap for the monorepo.
   - verifies required local tools
   - installs/refreshes frontend and backend dependencies
-  - hydrates the three canonical runtime profiles
+  - hydrates the three canonical frontend runtime modes plus the local backend env
   - hydrates native secret values into the frontend profile files when available
   - activates the selected frontend profile and materializes .env.local.d
   - runs the environment doctor for the selected profile
 
 Notes:
-  - Default profile is uat-remote so a first-time contributor can get the app
+  - Default mode is uat so a first-time contributor can get the app
     running against deployed UAT without local backend/proxy setup.
-  - If gcloud is unavailable, runtime profiles are created from templates and
+  - If gcloud is unavailable, runtime files are created from templates and
     cached local values where possible.
   - This command does not print secrets.
 USAGE
 }
 
-PROFILE="uat-remote"
+PROFILE="uat"
 while [ "$#" -gt 0 ]; do
   case "${1:-}" in
+    --mode)
+      PROFILE="${2:-}"
+      shift 2
+      ;;
     --profile)
       PROFILE="${2:-}"
       shift 2
@@ -48,7 +52,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if ! PROFILE="$(normalize_runtime_profile "$PROFILE")"; then
-  echo "Invalid runtime profile: ${PROFILE}" >&2
+  echo "Invalid runtime mode: ${PROFILE}" >&2
   echo "Expected one of: $(runtime_profiles_csv)" >&2
   exit 1
 fi
@@ -98,9 +102,13 @@ warn_legacy_envs() {
     "$REPO_ROOT/consent-protocol/.env.dev.local" \
     "$REPO_ROOT/consent-protocol/.env.uat.local" \
     "$REPO_ROOT/consent-protocol/.env.prod.local" \
+    "$REPO_ROOT/consent-protocol/.env.local-uatdb.local" \
+    "$REPO_ROOT/consent-protocol/.env.uat-remote.local" \
+    "$REPO_ROOT/consent-protocol/.env.prod-remote.local" \
     "$REPO_ROOT/hushh-webapp/.env.dev.local" \
-    "$REPO_ROOT/hushh-webapp/.env.uat.local" \
-    "$REPO_ROOT/hushh-webapp/.env.prod.local"
+    "$REPO_ROOT/hushh-webapp/.env.local-uatdb.local" \
+    "$REPO_ROOT/hushh-webapp/.env.uat-remote.local" \
+    "$REPO_ROOT/hushh-webapp/.env.prod-remote.local"
   do
     if [ -f "$path" ]; then
       if [ "$found" -eq 0 ]; then
@@ -111,7 +119,7 @@ warn_legacy_envs() {
     fi
   done
   if [ "$found" -eq 1 ]; then
-    echo "Use only the canonical runtime profiles: $(runtime_profiles_csv)"
+    echo "Use only the canonical runtime modes: $(runtime_profiles_csv)"
     echo ""
   fi
 }
@@ -131,8 +139,8 @@ check_min_version "npm" "$NPM_VERSION" "10.0.0"
 check_min_version "python3" "$PYTHON_VERSION" "3.13.0"
 
 echo "== Hushh Bootstrap =="
-echo "Runtime profiles: $(runtime_profiles_csv)"
-echo "Selected doctor profile: $PROFILE"
+echo "Runtime modes: $(runtime_profiles_csv)"
+echo "Selected doctor mode: $PROFILE"
 echo "Required prerequisites:"
 echo "  - git"
 echo "  - node >= 20 (found ${NODE_VERSION})"
@@ -141,7 +149,7 @@ echo "  - python3 >= 3.13 (found ${PYTHON_VERSION})"
 echo "  - jq"
 echo "Optional but recommended:"
 optional_tool_note gcloud "needed to hydrate profiles from GCP and run live parity checks"
-optional_tool_note cloud-sql-proxy "needed only for local-uatdb backend work"
+optional_tool_note cloud-sql-proxy "needed only for local backend work"
 echo ""
 
 warn_legacy_envs
@@ -163,11 +171,11 @@ fi
 "$REPO_ROOT/consent-protocol/.venv/bin/pip" install --disable-pip-version-check -r "$REPO_ROOT/consent-protocol/requirements.txt" -r "$REPO_ROOT/consent-protocol/requirements-dev.txt"
 echo ""
 
-echo "Hydrating canonical runtime profiles..."
+echo "Hydrating canonical frontend modes and the local backend runtime..."
 bash "$REPO_ROOT/scripts/env/bootstrap_profiles.sh"
 echo ""
 
-echo "Activating selected runtime profile..."
+echo "Activating selected runtime mode..."
 bash "$REPO_ROOT/scripts/env/use_profile.sh" "$PROFILE"
 echo ""
 
@@ -177,6 +185,6 @@ echo ""
 
 echo "Bootstrap complete."
 echo "Next steps:"
-echo "  npm run web -- --profile=uat-remote"
-echo "  npm run doctor -- --profile=local-uatdb"
-echo "  make backend PROFILE=local-uatdb   # when you need local backend work"
+echo "  npm run web -- --mode=uat"
+echo "  npm run doctor -- --mode=local"
+echo "  npm run backend   # when you need local backend work"

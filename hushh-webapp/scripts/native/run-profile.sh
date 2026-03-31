@@ -11,7 +11,8 @@ Usage:
   hushh-webapp/scripts/native/run-profile.sh --platform <ios|android> [options]
 
 Options:
-  --profile <runtime-profile>   Runtime profile (default: local-uatdb)
+  --mode <runtime-mode>         Runtime mode (default: uat)
+  --profile <runtime-profile>   Compatibility alias for --mode
   --fresh                       Clean web and platform build artifacts first
   --sync-only                   Build + sync only, do not run the native app
   --target <device-id>          Pass through a Capacitor run target
@@ -19,7 +20,7 @@ Options:
 USAGE
 }
 
-PROFILE="local-uatdb"
+PROFILE="uat"
 PLATFORM=""
 FRESH=false
 SYNC_ONLY=false
@@ -28,6 +29,10 @@ TARGET=""
 while [ "$#" -gt 0 ]; do
   case "${1:-}" in
     --profile)
+      PROFILE="${2:-}"
+      shift 2
+      ;;
+    --mode)
       PROFILE="${2:-}"
       shift 2
       ;;
@@ -66,8 +71,8 @@ fi
 
 bash "$REPO_ROOT/scripts/env/use_profile.sh" "$PROFILE"
 
-if [ "$PROFILE" = "local-uatdb" ]; then
-  echo "local-uatdb selected: make sure the backend is running locally (make backend PROFILE=local-uatdb)."
+if [ "$PROFILE" = "local" ]; then
+  echo "local selected: make sure the backend is running locally (npm run backend)."
 fi
 
 cd "$WEB_DIR"
