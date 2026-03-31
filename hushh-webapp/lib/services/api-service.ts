@@ -452,6 +452,8 @@ export interface KaiHomeWatchlistItem {
 
 export interface KaiHomeRenaissanceItem {
   symbol: string;
+  input_symbol?: string | null;
+  quote_symbol?: string | null;
   company_name: string;
   sector?: string | null;
   tier?: string | null;
@@ -466,6 +468,10 @@ export interface KaiHomeRenaissanceItem {
   market_cap: number | null;
   source_tags: string[];
   degraded: boolean;
+  alias_repaired?: boolean;
+  quote_provider?: string | null;
+  quote_status?: string | null;
+  filtered_out_reason?: string | null;
   as_of: string | null;
 }
 
@@ -606,6 +612,9 @@ export interface KaiHomeMeta {
   cache_tier?: "memory" | "postgres" | "live";
   cache_hit?: boolean;
   warm_source?: "startup" | "unlock" | "request";
+  market_mode?: "baseline" | "personalized";
+  baseline_cache_tier?: "memory" | "postgres" | "live" | null;
+  personalized_cache_tier?: "memory" | "postgres" | "live" | null;
   provider_cooldowns?: Record<string, number>;
   provider_status: Record<string, string>;
   symbol_quality?: {
@@ -2200,6 +2209,46 @@ export class ApiService {
         Authorization: `Bearer ${data.vaultOwnerToken}`,
       },
     });
+  }
+
+  /**
+   * Fetch baseline market insights for Kai home without requiring vault access.
+   */
+  static async getKaiMarketBaselineInsights(data: {
+    userId: string;
+    daysBack?: number;
+    signal?: AbortSignal;
+  }): Promise<KaiHomeInsightsV2> {
+    const startedAt = Date.now();
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      throw new Error("Missing Firebase ID token for market baseline");
+    }
+
+    const query = new URLSearchParams();
+    if (typeof data.daysBack === "number" && Number.isFinite(data.daysBack)) {
+      query.set("days_back", String(data.daysBack));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const path = `/api/kai/market/insights/baseline/${data.userId}${suffix}`;
+
+    const response = await apiFetch(path, {
+      method: "GET",
+      signal: data.signal,
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    const durationMs = Math.max(0, Date.now() - startedAt);
+    trackEvent("market_insights_loaded", {
+      result: toResultFromStatus(response.status),
+      status_bucket: toStatusBucketFromStatus(response.status),
+      duration_ms_bucket: toDurationBucket(durationMs),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to load baseline market insights: ${response.status}`);
+    }
+    return (await response.json()) as KaiHomeInsightsV2;
   }
 
   /**

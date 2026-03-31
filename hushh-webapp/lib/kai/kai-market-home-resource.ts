@@ -13,7 +13,7 @@ import {
 } from "@/lib/services/device-resource-cache-service";
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
-const inflightRefreshes = new Map<string, Promise<KaiHomeInsightsV2>>();
+const inflightRefreshes = new Map<string, Promise<KaiHomeInsightsV2 | null>>();
 
 const TICKER_CANDIDATE_RE = /^[A-Z][A-Z0-9.-]{0,5}$/;
 const EXCLUDED_SYMBOLS = new Set([
@@ -83,7 +83,19 @@ function readCachedPortfolioHoldings(userId: string): Array<Record<string, unkno
   ) as Array<Record<string, unknown>>;
 }
 
-function toStoredRecordKey(params: {
+function toStoredBaselineRecordKey(daysBack: number): string {
+  return `kai_market_home:baseline:${daysBack}`;
+}
+
+function toStoredPersonalizedRecordKey(params: {
+  pickSource: string;
+  daysBack: number;
+  symbolsKey: string;
+}): string {
+  return `kai_market_home:personalized:${params.pickSource}:${params.daysBack}:${params.symbolsKey}`;
+}
+
+function toLegacyStoredRecordKey(params: {
   pickSource: string;
   daysBack: number;
   symbolsKey: string;
@@ -102,7 +114,7 @@ type StoredMarketCandidate = {
   resourceKey: string;
 };
 
-function readAnyCachedMarketHome(params: {
+function readAnyCachedPersonalizedMarketHome(params: {
   userId: string;
   daysBack?: number;
   pickSource?: string;
@@ -138,24 +150,41 @@ function readAnyCachedMarketHome(params: {
   return bestCandidate;
 }
 
-async function readAnyStoredMarketHome(params: {
+async function readAnyStoredPersonalizedMarketHome(params: {
   userId: string;
   daysBack?: number;
   pickSource?: string;
 }): Promise<StoredMarketCandidate | null> {
   const daysBack = params.daysBack ?? 7;
   const pickSource = params.pickSource ?? "default";
-  const stored = await DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
+  const [modern, legacy] = await Promise.all([
+    DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
+      userId: params.userId,
+      resourcePrefix: `kai_market_home:personalized:${pickSource}:${daysBack}:`,
+    }),
+    DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
+      userId: params.userId,
+      resourcePrefix: `kai_market_home:${pickSource}:${daysBack}:`,
+    }),
+  ]);
+  const stored = modern ?? legacy;
+  return stored
+    ? {
+        payload: stored.value,
+        resourceKey: stored.resourceKey,
+      }
+    : null;
+}
+
+async function readStoredBaselineMarketHome(params: {
+  userId: string;
+  daysBack?: number;
+}): Promise<KaiHomeInsightsV2 | null> {
+  const daysBack = params.daysBack ?? 7;
+  return await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
     userId: params.userId,
-    resourcePrefix: `kai_market_home:${pickSource}:${daysBack}:`,
+    resourceKey: toStoredBaselineRecordKey(daysBack),
   });
-  if (!stored) {
-    return null;
-  }
-  return {
-    payload: stored.value,
-    resourceKey: stored.resourceKey,
-  };
 }
 
 function hasUsableNumber(value: unknown): value is number {
@@ -339,7 +368,138 @@ export class KaiMarketHomeResourceService {
       .slice(0, 8);
   }
 
-  static async getStaleFirst(params: {
+  static async getBaselineStaleFirst(params: {
+    userId: string;
+    daysBack?: number;
+    forceRefresh?: boolean;
+    backgroundRefresh?: boolean;
+  }): Promise<KaiHomeInsightsV2 | null> {
+    const daysBack = params.daysBack ?? 7;
+    const cacheKey = CACHE_KEYS.KAI_MARKET_HOME_BASELINE(params.userId, daysBack);
+    const cache = CacheService.getInstance();
+    const memory = cache.peek<KaiHomeInsightsV2>(cacheKey);
+
+    if (!params.forceRefresh && memory?.isFresh) {
+      logRequest("cache_hit", {
+        mode: "baseline",
+        tier: "memory",
+        userId: params.userId,
+        cacheKey,
+      });
+      return memory.data;
+    }
+
+    if (!params.forceRefresh && memory?.data) {
+      logRequest("stale_hit", {
+        mode: "baseline",
+        tier: "memory",
+        userId: params.userId,
+        cacheKey,
+      });
+      if (params.backgroundRefresh !== false) {
+        void this.refreshBaseline(params);
+      }
+      return memory.data;
+    }
+
+    if (!params.forceRefresh) {
+      const stored = await readStoredBaselineMarketHome({
+        userId: params.userId,
+        daysBack,
+      });
+      if (stored) {
+        cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
+        logRequest("device_hit", {
+          mode: "baseline",
+          userId: params.userId,
+          cacheKey,
+        });
+        if (params.backgroundRefresh !== false) {
+          void this.refreshBaseline(params);
+        }
+        return stored;
+      }
+    }
+
+    logRequest("cache_miss", {
+      mode: "baseline",
+      userId: params.userId,
+      cacheKey,
+    });
+    return await this.refreshBaseline(params);
+  }
+
+  static async refreshBaseline(params: {
+    userId: string;
+    daysBack?: number;
+  }): Promise<KaiHomeInsightsV2> {
+    const daysBack = params.daysBack ?? 7;
+    const cacheKey = CACHE_KEYS.KAI_MARKET_HOME_BASELINE(params.userId, daysBack);
+    const inflightKey = `baseline:${params.userId}:${daysBack}`;
+    const cache = CacheService.getInstance();
+    const existing = inflightRefreshes.get(inflightKey);
+    if (existing) {
+      logRequest("inflight_dedupe_hit", {
+        mode: "baseline",
+        userId: params.userId,
+        cacheKey,
+      });
+      const resolved = await existing;
+      if (!resolved) {
+        throw new Error("Missing baseline market payload");
+      }
+      return resolved;
+    }
+
+    logRequest("network_fetch", {
+      mode: "baseline",
+      userId: params.userId,
+      cacheKey,
+    });
+    const request = (async () => {
+      const baseline =
+        cache.peek<KaiHomeInsightsV2>(cacheKey)?.data ??
+        (await readStoredBaselineMarketHome({
+          userId: params.userId,
+          daysBack,
+        }));
+      try {
+        const payload = await ApiService.getKaiMarketBaselineInsights({
+          userId: params.userId,
+          daysBack,
+        });
+        const stabilized = withStablePayloadFromCache(payload, baseline);
+        cache.set(cacheKey, stabilized, CACHE_TTL.MEDIUM);
+        await DeviceResourceCacheService.write({
+          userId: params.userId,
+          resourceKey: toStoredBaselineRecordKey(daysBack),
+          value: stabilized,
+          ttlMs: DEVICE_TTL_MS,
+        });
+        return stabilized;
+      } catch (error) {
+        if (baseline) {
+          logRequest("stale_hit", {
+            mode: "baseline",
+            tier: "refresh_failure_fallback",
+            userId: params.userId,
+            cacheKey,
+          });
+          return baseline;
+        }
+        throw error;
+      }
+    })().finally(() => {
+      if (inflightRefreshes.get(inflightKey) === request) {
+        inflightRefreshes.delete(inflightKey);
+      }
+    });
+
+    inflightRefreshes.set(inflightKey, request);
+    return await request;
+  }
+
+  static async getPersonalizedStaleFirst(params: {
     userId: string;
     vaultOwnerToken?: string | null;
     pickSource?: string;
@@ -358,6 +518,7 @@ export class KaiMarketHomeResourceService {
 
     if (!params.forceRefresh && memory?.isFresh) {
       logRequest("cache_hit", {
+        mode: "personalized",
         tier: "memory",
         userId: params.userId,
         cacheKey,
@@ -367,36 +528,43 @@ export class KaiMarketHomeResourceService {
 
     if (!params.forceRefresh && memory?.data) {
       logRequest("stale_hit", {
+        mode: "personalized",
         tier: "memory",
         userId: params.userId,
         cacheKey,
       });
       if (params.backgroundRefresh !== false) {
-        void this.refresh(params);
+        void this.refreshPersonalized(params);
       }
       return memory.data;
     }
 
     if (!params.forceRefresh) {
-      const stored = await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
-        userId: params.userId,
-        resourceKey: toStoredRecordKey({ pickSource, daysBack, symbolsKey }),
-      });
+      const stored =
+        (await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
+          userId: params.userId,
+          resourceKey: toStoredPersonalizedRecordKey({ pickSource, daysBack, symbolsKey }),
+        })) ??
+        (await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
+          userId: params.userId,
+          resourceKey: toLegacyStoredRecordKey({ pickSource, daysBack, symbolsKey }),
+        }));
       if (stored) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
         logRequest("device_hit", {
+          mode: "personalized",
           userId: params.userId,
           cacheKey,
         });
         if (params.backgroundRefresh !== false) {
-          void this.refresh(params);
+          void this.refreshPersonalized(params);
         }
         return stored;
       }
     }
 
     if (!params.forceRefresh) {
-      const anyMemory = readAnyCachedMarketHome({
+      const anyMemory = readAnyCachedPersonalizedMarketHome({
         userId: params.userId,
         daysBack,
         pickSource,
@@ -404,20 +572,21 @@ export class KaiMarketHomeResourceService {
       if (anyMemory?.payload) {
         cache.set(cacheKey, anyMemory.payload, CACHE_TTL.MEDIUM);
         logRequest("cache_hit", {
+          mode: "personalized",
           tier: "memory_fallback",
           userId: params.userId,
           cacheKey,
           fallbackCacheKey: anyMemory.cacheKey,
         });
         if (params.backgroundRefresh !== false) {
-          void this.refresh(params);
+          void this.refreshPersonalized(params);
         }
         return anyMemory.payload;
       }
     }
 
     if (!params.forceRefresh) {
-      const storedFallback = await readAnyStoredMarketHome({
+      const storedFallback = await readAnyStoredPersonalizedMarketHome({
         userId: params.userId,
         daysBack,
         pickSource,
@@ -425,41 +594,44 @@ export class KaiMarketHomeResourceService {
       if (storedFallback?.payload) {
         cache.set(cacheKey, storedFallback.payload, CACHE_TTL.MEDIUM);
         logRequest("device_hit", {
+          mode: "personalized",
           tier: "device_fallback",
           userId: params.userId,
           cacheKey,
           fallbackResourceKey: storedFallback.resourceKey,
         });
         if (params.backgroundRefresh !== false) {
-          void this.refresh(params);
+          void this.refreshPersonalized(params);
         }
         return storedFallback.payload;
       }
     }
 
     logRequest("cache_miss", {
+      mode: "personalized",
       userId: params.userId,
       cacheKey,
     });
     if (!params.vaultOwnerToken) {
       logRequest("refresh_skipped", {
+        mode: "personalized",
         reason: "missing_vault_owner_token",
         userId: params.userId,
         cacheKey,
       });
       return null;
     }
-    return await this.refresh(params);
+    return await this.refreshPersonalized(params);
   }
 
-  static async refresh(params: {
+  static async refreshPersonalized(params: {
     userId: string;
     vaultOwnerToken?: string | null;
     pickSource?: string;
     symbols?: string[];
     daysBack?: number;
     allowDefaultNetworkFallback?: boolean;
-  }): Promise<KaiHomeInsightsV2> {
+  }): Promise<KaiHomeInsightsV2 | null> {
     const pickSource = params.pickSource ?? "default";
     const daysBack = params.daysBack ?? 7;
     const symbols = Array.isArray(params.symbols) ? params.symbols : [];
@@ -470,6 +642,7 @@ export class KaiMarketHomeResourceService {
     const existing = inflightRefreshes.get(inflightKey);
     if (existing) {
       logRequest("inflight_dedupe_hit", {
+        mode: "personalized",
         userId: params.userId,
         cacheKey,
       });
@@ -477,29 +650,39 @@ export class KaiMarketHomeResourceService {
     }
 
     logRequest("network_fetch", {
+      mode: "personalized",
       userId: params.userId,
       cacheKey,
     });
     const request = (async () => {
-      const baseline =
+      const personalizedBaseline =
         cache.peek<KaiHomeInsightsV2>(cacheKey)?.data ??
-        readAnyCachedMarketHome({
+        readAnyCachedPersonalizedMarketHome({
           userId: params.userId,
           daysBack,
           pickSource,
         })?.payload ??
         null;
+      const sharedBaseline =
+        cache.peek<KaiHomeInsightsV2>(CACHE_KEYS.KAI_MARKET_HOME_BASELINE(params.userId, daysBack))
+          ?.data ??
+        (await readStoredBaselineMarketHome({
+          userId: params.userId,
+          daysBack,
+        }));
+      const stabilityBaseline = personalizedBaseline ?? sharedBaseline;
       const vaultOwnerToken = String(params.vaultOwnerToken || "").trim();
       if (!vaultOwnerToken) {
-        if (baseline) {
+        if (personalizedBaseline) {
           logRequest("stale_hit", {
             tier: "missing_token_fallback",
+            mode: "personalized",
             userId: params.userId,
             cacheKey,
           });
-          return baseline;
+          return personalizedBaseline;
         }
-        throw new Error("Missing vault owner token for market refresh");
+        return null;
       }
 
       try {
@@ -510,23 +693,24 @@ export class KaiMarketHomeResourceService {
           daysBack,
           pickSource,
         });
-        const stabilized = withStablePayloadFromCache(payload, baseline);
+        const stabilized = withStablePayloadFromCache(payload, stabilityBaseline);
         cache.set(cacheKey, stabilized, CACHE_TTL.MEDIUM);
         await DeviceResourceCacheService.write({
           userId: params.userId,
-          resourceKey: toStoredRecordKey({ pickSource, daysBack, symbolsKey }),
+          resourceKey: toStoredPersonalizedRecordKey({ pickSource, daysBack, symbolsKey }),
           value: stabilized,
           ttlMs: DEVICE_TTL_MS,
         });
         return stabilized;
       } catch (error) {
-        if (baseline) {
+        if (personalizedBaseline) {
           logRequest("stale_hit", {
             tier: "refresh_failure_fallback",
+            mode: "personalized",
             userId: params.userId,
             cacheKey,
           });
-          return baseline;
+          return personalizedBaseline;
         }
         if (symbols.length > 0 && params.allowDefaultNetworkFallback !== false) {
           const fallback = await ApiService.getKaiMarketInsights({
@@ -535,13 +719,13 @@ export class KaiMarketHomeResourceService {
             daysBack,
             pickSource,
           });
-          const stabilized = withStablePayloadFromCache(fallback, baseline);
+          const stabilized = withStablePayloadFromCache(fallback, stabilityBaseline);
           const fallbackKey = CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", daysBack, pickSource);
           cache.set(cacheKey, stabilized, CACHE_TTL.MEDIUM);
           cache.set(fallbackKey, stabilized, CACHE_TTL.MEDIUM);
           await DeviceResourceCacheService.write({
             userId: params.userId,
-            resourceKey: toStoredRecordKey({
+            resourceKey: toStoredPersonalizedRecordKey({
               pickSource,
               daysBack,
               symbolsKey,
@@ -551,7 +735,7 @@ export class KaiMarketHomeResourceService {
           });
           await DeviceResourceCacheService.write({
             userId: params.userId,
-            resourceKey: toStoredRecordKey({
+            resourceKey: toStoredPersonalizedRecordKey({
               pickSource,
               daysBack,
               symbolsKey: "default",
@@ -571,6 +755,30 @@ export class KaiMarketHomeResourceService {
 
     inflightRefreshes.set(inflightKey, request);
     return await request;
+  }
+
+  static async getStaleFirst(params: {
+    userId: string;
+    vaultOwnerToken?: string | null;
+    pickSource?: string;
+    symbols?: string[];
+    daysBack?: number;
+    forceRefresh?: boolean;
+    backgroundRefresh?: boolean;
+    allowDefaultNetworkFallback?: boolean;
+  }): Promise<KaiHomeInsightsV2 | null> {
+    return await this.getPersonalizedStaleFirst(params);
+  }
+
+  static async refresh(params: {
+    userId: string;
+    vaultOwnerToken?: string | null;
+    pickSource?: string;
+    symbols?: string[];
+    daysBack?: number;
+    allowDefaultNetworkFallback?: boolean;
+  }): Promise<KaiHomeInsightsV2 | null> {
+    return await this.refreshPersonalized(params);
   }
 
   static invalidateUser(userId: string, options?: { includeDevice?: boolean }): void {

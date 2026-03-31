@@ -344,7 +344,12 @@ function attachAudit(page) {
       try {
         const url = new URL(response.url());
         if (url.origin !== BASE_ORIGIN) return;
-        if (!url.pathname.startsWith("/api/kai/market/insights/")) return;
+        if (
+          !url.pathname.startsWith("/api/kai/market/insights/") &&
+          !url.pathname.startsWith("/api/kai/market/insights/baseline/")
+        ) {
+          return;
+        }
         if (!response.ok()) return;
         const payload = await response.json().catch(() => null);
         const candidateSets = [

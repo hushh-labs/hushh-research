@@ -1310,11 +1310,6 @@ export function KaiFlow({
       return;
     }
 
-    if (financialResourceLoading) {
-      setState("checking");
-      return;
-    }
-
     const cachedPortfolioData = getPortfolioData(userId) ?? undefined;
     const normalizedCachedPortfolio =
       cachedPortfolioData && Array.isArray(cachedPortfolioData.holdings)
@@ -1330,6 +1325,35 @@ export function KaiFlow({
         : null);
     const plaidPortfolio = financialResource?.plaidPortfolio ?? plaidPortfolioData ?? null;
     const primaryPortfolio = financialResource?.activePortfolio ?? statementPortfolio ?? plaidPortfolio;
+    const fallbackPortfolio =
+      primaryPortfolio ?? statementPortfolio ?? plaidPortfolio ?? normalizedCachedPortfolio;
+
+    const optimisticPortfolio =
+      primaryPortfolio && hasPortfolioHoldings(primaryPortfolio)
+        ? primaryPortfolio
+        : statementPortfolio && hasPortfolioHoldings(statementPortfolio)
+          ? statementPortfolio
+          : plaidPortfolio && hasPortfolioHoldings(plaidPortfolio)
+            ? plaidPortfolio
+            : null;
+
+    if (financialResourceLoading) {
+      if (optimisticPortfolio) {
+        setFlowData({
+          hasFinancialData: true,
+          holdingsCount: optimisticPortfolio.holdings?.length || 0,
+          portfolioData: fallbackPortfolio ?? undefined,
+          holdings: optimisticPortfolio.holdings?.map((holding) => holding.symbol) || [],
+        });
+        if (isDashboardMode) {
+          setOnboardingFlowActiveCookie(false);
+        }
+        setState(isDashboardMode ? "dashboard" : "import_required");
+        return;
+      }
+      setState("checking");
+      return;
+    }
 
     if (normalizedCachedPortfolio) {
       setPortfolioData(userId, normalizedCachedPortfolio);
@@ -1342,7 +1366,7 @@ export function KaiFlow({
       setFlowData({
         hasFinancialData: true,
         holdingsCount: primaryPortfolio.holdings?.length || 0,
-        portfolioData: statementPortfolio ?? undefined,
+        portfolioData: fallbackPortfolio ?? undefined,
         holdings: primaryPortfolio.holdings?.map((holding) => holding.symbol) || [],
       });
       if (isDashboardMode) {
@@ -1356,7 +1380,7 @@ export function KaiFlow({
       setFlowData({
         hasFinancialData: true,
         holdingsCount: plaidPortfolio.holdings?.length || 0,
-        portfolioData: statementPortfolio ?? undefined,
+        portfolioData: fallbackPortfolio ?? undefined,
         holdings: plaidPortfolio.holdings?.map((holding) => holding.symbol) || [],
       });
       if (isDashboardMode) {

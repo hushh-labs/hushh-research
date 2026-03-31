@@ -31,6 +31,7 @@
           "/portfolio/summary/{user_id}",
           "/portfolio/analyze-losers",
           "/portfolio/analyze-losers/stream",
+          "/market/insights/baseline/{user_id}",
           "/market/insights/{user_id}"
         ]
       },

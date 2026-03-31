@@ -82,6 +82,15 @@ steps:
         if [[ -n "${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}" ]]; then
           secrets="${secrets},PLAID_TOKEN_ENCRYPTION_KEY=${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}:latest"
         fi
+        if [[ -n "${_FINNHUB_API_KEY_SECRET}" ]]; then
+          secrets="${secrets},FINNHUB_API_KEY=${_FINNHUB_API_KEY_SECRET}:latest"
+        fi
+        if [[ -n "${_PMP_API_KEY_SECRET}" ]]; then
+          secrets="${secrets},PMP_API_KEY=${_PMP_API_KEY_SECRET}:latest"
+        fi
+        if [[ -n "${_NEWSAPI_KEY_SECRET}" ]]; then
+          secrets="${secrets},NEWSAPI_KEY=${_NEWSAPI_KEY_SECRET}:latest"
+        fi
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
@@ -141,6 +150,9 @@ substitutions:
   _PLAID_CLIENT_ID_SECRET: ""
   _PLAID_SECRET_SECRET: ""
   _PLAID_TOKEN_ENCRYPTION_KEY_SECRET: ""
+  _FINNHUB_API_KEY_SECRET: ""
+  _PMP_API_KEY_SECRET: ""
+  _NEWSAPI_KEY_SECRET: ""
   _IMAGE_TAG: v2.1.0
 
 # Options

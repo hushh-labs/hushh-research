@@ -11,6 +11,7 @@ This ensures consistent consent-first architecture throughout the system.
 """
 
 import logging
+import re
 import time
 from typing import Dict
 
@@ -23,6 +24,7 @@ from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
@@ -34,6 +36,10 @@ router = APIRouter(prefix="/api/consent", tags=["Consent Management"])
 # NOTE: Export data is now persisted to database via ConsentDBService.store_consent_export()
 # The in-memory dict is kept as a fast cache but database is the source of truth
 _consent_exports: Dict[str, Dict] = {}
+_UUID_LIKE_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def get_scope_description(scope: str) -> str:
@@ -43,6 +49,60 @@ def get_scope_description(scope: str) -> str:
     Delegated to centralized dynamic scope resolution.
     """
     return get_dynamic_scope_description(scope)
+
+
+def _looks_technical_requester_label(
+    value: object | None, *, counterpart_id: str | None = None
+) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return True
+    if counterpart_id and normalized == counterpart_id:
+        return True
+    if normalized.lower().startswith("ria:"):
+        return True
+    if _UUID_LIKE_PATTERN.match(normalized):
+        return True
+    return False
+
+
+async def _hydrate_pending_requester_labels(pending_items: list[dict]) -> list[dict]:
+    if not pending_items:
+        return pending_items
+
+    identity_ids: list[str] = []
+    pending_identity_map: list[str | None] = []
+    for item in pending_items:
+        metadata = item.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        agent_id = str(item.get("agent_id") or item.get("developer") or "").strip()
+        counterpart_id = str(metadata.get("requester_entity_id") or "").strip() or None
+        requester_actor_type = str(metadata.get("requester_actor_type") or "").strip().lower()
+        identity_id: str | None = None
+        if requester_actor_type == "ria" or agent_id.lower().startswith("ria:"):
+            identity_id = counterpart_id
+            if not identity_id and agent_id.lower().startswith("ria:"):
+                identity_id = agent_id.split(":", 1)[1].strip() or None
+        pending_identity_map.append(identity_id)
+        if identity_id:
+            identity_ids.append(identity_id)
+
+    identities = await ActorIdentityService().ensure_many(identity_ids)
+
+    for item, identity_id in zip(pending_items, pending_identity_map, strict=False):
+        if not identity_id:
+            continue
+        identity = identities.get(identity_id) or {}
+        display_name = str(identity.get("display_name") or "").strip()
+        photo_url = str(identity.get("photo_url") or "").strip()
+        current_label = str(item.get("requesterLabel") or "").strip()
+        if display_name and _looks_technical_requester_label(
+            current_label, counterpart_id=identity_id
+        ):
+            item["requesterLabel"] = display_name
+        if photo_url and not str(item.get("requesterImageUrl") or "").strip():
+            item["requesterImageUrl"] = photo_url
+    return pending_items
 
 
 # ============================================================================
@@ -110,6 +170,7 @@ async def get_pending_consents(
 
     service = ConsentDBService()
     pending_from_db = await service.get_pending_requests(userId)
+    pending_from_db = await _hydrate_pending_requester_labels(pending_from_db)
     logger.info("consent.pending_fetched count=%s", len(pending_from_db))
     return {"pending": pending_from_db}
 

@@ -95,6 +95,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/pkm/domain-data/{user_id}/{domain}",
   },
   {
+    regex: /^\/api\/kai\/market\/insights\/baseline\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/market/insights/baseline/{user_id}",
+  },
+  {
     regex: /^\/api\/kai\/market\/insights\/[^/?]+(?:\?.*)?$/i,
     template: "/api/kai/market/insights/{user_id}",
   },

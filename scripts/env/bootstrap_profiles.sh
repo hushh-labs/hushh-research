@@ -52,7 +52,7 @@ FORCE=false
 STRICT=false
 LOCAL_UATDB_PROXY_PORT="${LOCAL_UATDB_PROXY_PORT:-6543}"
 GCLOUD_TIMEOUT_SECONDS="${GCLOUD_TIMEOUT_SECONDS:-5}"
-LEGACY_CACHE_FIRST="${LEGACY_CACHE_FIRST:-true}"
+LEGACY_CACHE_FIRST="${LEGACY_CACHE_FIRST:-false}"
 
 while [ "$#" -gt 0 ]; do
   case "${1:-}" in
@@ -395,6 +395,24 @@ set_if_non_empty() {
   fi
 }
 
+is_placeholder_value() {
+  local value="${1:-}"
+  case "$value" in
+    "" )
+      return 1
+      ;;
+    replace_with_*|REPLACE_WITH_*|dummy-*|changeme|CHANGEME)
+      return 0
+      ;;
+    *replace_with_*|*REPLACE_WITH_*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 set_secret_key() {
   local file="$1"
   local profile="$2"
@@ -418,15 +436,24 @@ resolve_cloud_or_cached_env_value() {
   local service="$2"
   local key="$3"
   local cache_file="$4"
-  local value
+  local value=""
   if [ "$LEGACY_CACHE_FIRST" = "true" ] && [ -f "$cache_file" ]; then
     value="$(read_env_value "$cache_file" "$key")"
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
   fi
   if [ -z "$value" ]; then
     value="$(run_env_value "$project" "$service" "$key")"
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
   fi
   if [ -z "$value" ] && [ "$LEGACY_CACHE_FIRST" != "true" ] && [ -f "$cache_file" ]; then
     value="$(read_env_value "$cache_file" "$key")"
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
   fi
   printf '%s' "$value"
 }
@@ -438,17 +465,28 @@ resolve_cloud_or_cached_secret_value() {
   local value=""
   if [ "$LEGACY_CACHE_FIRST" = "true" ] && [ -f "$cache_file" ]; then
     value="$(read_env_value "$cache_file" "$secret")"
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
     if [ -n "$value" ]; then
       printf '%s' "$value"
       return 0
     fi
   fi
   if value="$(get_secret_value "$project" "$secret")"; then
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
+  fi
+  if [ -n "$value" ]; then
     printf '%s' "$value"
     return 0
   fi
   if [ "$LEGACY_CACHE_FIRST" != "true" ] && [ -f "$cache_file" ]; then
     value="$(read_env_value "$cache_file" "$secret")"
+    if is_placeholder_value "$value"; then
+      value=""
+    fi
     if [ -n "$value" ]; then
       printf '%s' "$value"
       return 0
@@ -531,6 +569,7 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "HUSHH_DEVELOPER_TOKEN" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "FINNHUB_API_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PMP_API_KEY" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "NEWSAPI_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_CLIENT_ID" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_SECRET" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_TOKEN_ENCRYPTION_KEY" "false" "$cache_file"
