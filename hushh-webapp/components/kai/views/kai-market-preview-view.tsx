@@ -9,7 +9,6 @@ import {
   Cpu,
   LineChart,
   Loader2,
-  Newspaper,
   Percent,
   RefreshCw,
   Target,
