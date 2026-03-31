@@ -1,6 +1,11 @@
 "use client";
 
 import { Preferences } from "@capacitor/preferences";
+import {
+  getLocalItem,
+  removeLocalItem,
+  setLocalItem,
+} from "@/lib/utils/session-storage";
 import type {
   DrawdownResponse,
   InvestmentHorizon,
@@ -11,6 +16,7 @@ import { setOnboardingRequiredCookie } from "@/lib/services/onboarding-route-coo
 
 const KEY_PREFIX = "kai_pre_vault_onboarding_v1";
 const VERSION = 1 as const;
+const FALLBACK_STORAGE_PREFIX = `${KEY_PREFIX}:fallback`;
 
 export type PreVaultOnboardingAnswers = {
   investment_horizon: InvestmentHorizon | null;
@@ -133,11 +139,27 @@ function keyForUser(userId: string): string {
   return `${KEY_PREFIX}:${userId}`;
 }
 
+function fallbackKeyForUser(userId: string): string {
+  return `${FALLBACK_STORAGE_PREFIX}:${userId}`;
+}
+
 async function persist(userId: string, state: PreVaultOnboardingState): Promise<void> {
-  await Preferences.set({
-    key: keyForUser(userId),
-    value: JSON.stringify(state),
-  });
+  const serialized = JSON.stringify(state);
+  try {
+    await Preferences.set({
+      key: keyForUser(userId),
+      value: serialized,
+    });
+    setLocalItem(fallbackKeyForUser(userId), serialized);
+  } catch (error) {
+    // Keep onboarding progression fail-open when native Preferences temporarily fails.
+    if (typeof window !== "undefined") {
+      setLocalItem(fallbackKeyForUser(userId), serialized);
+      setOnboardingRequiredCookie(!state.completed);
+      return;
+    }
+    throw error;
+  }
   setOnboardingRequiredCookie(!state.completed);
 }
 
@@ -151,10 +173,22 @@ export class PreVaultOnboardingService {
       const { value } = await Preferences.get({ key: keyForUser(userId) });
       if (!value) return null;
       return normalizeState(JSON.parse(value));
-    } catch (error) {
-      console.warn("[PreVaultOnboardingService] Failed to load state:", error);
-      return null;
+    } catch {
+      // Fall through to localStorage fallback for WKWebView/plugin hiccups.
     }
+
+    if (typeof window !== "undefined") {
+      try {
+        const fallback = getLocalItem(fallbackKeyForUser(userId));
+        if (!fallback) return null;
+        return normalizeState(JSON.parse(fallback));
+      } catch (error) {
+        console.warn("[PreVaultOnboardingService] Failed to load fallback state:", error);
+        return null;
+      }
+    }
+
+    return null;
   }
 
   static async saveDraft(
@@ -237,9 +271,11 @@ export class PreVaultOnboardingService {
   static async clear(userId: string): Promise<void> {
     try {
       await Preferences.remove({ key: keyForUser(userId) });
-      setOnboardingRequiredCookie(false);
     } catch (error) {
       console.warn("[PreVaultOnboardingService] Failed to clear state:", error);
+    } finally {
+      setOnboardingRequiredCookie(false);
+      removeLocalItem(fallbackKeyForUser(userId));
     }
   }
 }

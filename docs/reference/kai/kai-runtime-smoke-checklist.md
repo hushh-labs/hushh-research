@@ -7,6 +7,21 @@ Canonical visual owner: [Kai Index](README.md). Use that map for the top-down sy
 
 Use this lightweight checklist instead of expanding automated test coverage.
 
+Runtime truth note:
+
+1. Use script-first regression for Kai runtime truth:
+   - auth/bootstrap
+   - debate completion
+   - PKM persistence
+   - saved analysis history
+2. Playwright is visual-only in this lane:
+   - layout
+   - tabs
+   - tooltips
+   - styling
+3. For local debate/history verification, run:
+   - `python3 consent-protocol/scripts/local_kai_debate_regression.py`
+
 ## 0) Route/System Audit
 1. Run:
    - open local OpenAPI and confirm required Kai API routes exist
@@ -59,6 +74,7 @@ Use this lightweight checklist instead of expanding automated test coverage.
 2. Confirm quick recommendation card appears with final decision.
 3. Confirm decision card PKM context shows non-zero holdings count when applicable.
 4. If providers degrade, confirm degraded messaging appears without hard failure.
+5. Treat the local regression script as the source of truth for whether debate saves into evolved PKM `financial.analysis_history`.
 
 ## 4a) Post-upgrade regression gate
 1. After the PKM upgrade or no-write rehearsal finishes, confirm these still work on the upgraded contract:

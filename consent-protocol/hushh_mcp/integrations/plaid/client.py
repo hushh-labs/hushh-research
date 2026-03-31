@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 import httpx
 
 from .config import PlaidRuntimeConfig
 
-_PLAID_TIMEOUT = httpx.Timeout(45.0, connect=15.0)
+logger = logging.getLogger(__name__)
+
+_PLAID_TIMEOUT = httpx.Timeout(30.0, connect=6.0)
+_PLAID_NETWORK_RETRY_ATTEMPTS = 2
+_PLAID_ATTEMPT_DEADLINE_SECONDS = 10.0
 
 
 def _clean_text(value: Any, *, default: str = "") -> str:
@@ -54,11 +60,49 @@ class PlaidHttpClient:
             "secret": self._config.secret,
             **payload,
         }
+        response: httpx.Response | None = None
         async with httpx.AsyncClient(
             base_url=self._config.base_url,
             timeout=_PLAID_TIMEOUT,
         ) as client:
-            response = await client.post(path, json=request_payload)
+            for attempt in range(1, _PLAID_NETWORK_RETRY_ATTEMPTS + 1):
+                try:
+                    response = await asyncio.wait_for(
+                        client.post(path, json=request_payload),
+                        timeout=_PLAID_ATTEMPT_DEADLINE_SECONDS,
+                    )
+                    break
+                except (httpx.TimeoutException, httpx.NetworkError, asyncio.TimeoutError) as exc:
+                    if attempt >= _PLAID_NETWORK_RETRY_ATTEMPTS:
+                        raise PlaidApiError(
+                            message=("Could not reach Plaid right now. Please retry in a moment."),
+                            status_code=504,
+                            error_code="PLAID_NETWORK_TIMEOUT",
+                            error_type="NETWORK_ERROR",
+                            payload={
+                                "path": path,
+                                "attempts": attempt,
+                                "base_url": self._config.base_url,
+                            },
+                        ) from exc
+
+                    logger.warning(
+                        "plaid.network_retry path=%s attempt=%s/%s error=%s",
+                        path,
+                        attempt,
+                        _PLAID_NETWORK_RETRY_ATTEMPTS,
+                        exc.__class__.__name__,
+                    )
+                    await asyncio.sleep(0.25 * attempt)
+
+        if response is None:
+            raise PlaidApiError(
+                message="Could not reach Plaid right now. Please retry in a moment.",
+                status_code=504,
+                error_code="PLAID_NETWORK_TIMEOUT",
+                error_type="NETWORK_ERROR",
+                payload={"path": path, "base_url": self._config.base_url},
+            )
 
         try:
             data = response.json()

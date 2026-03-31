@@ -5,7 +5,7 @@ const { test, expect, devices } = require("@playwright/test");
 
 const CONSENT_PROTOCOL_ROOT = path.resolve(process.cwd(), "../consent-protocol");
 const ENV_FILES = [
-  ".env.local.local",
+  ".env",
   ".env.local",
 ];
 

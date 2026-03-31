@@ -130,6 +130,47 @@ def test_scope_exposure_route_forwards_payload(monkeypatch):
     }
 
 
+def test_manifest_route_serializes_datetime_fields(monkeypatch):
+    upgraded = datetime(2026, 3, 28, 17, 45, 0, tzinfo=timezone.utc)
+    structured = datetime(2026, 3, 28, 17, 46, 0, tzinfo=timezone.utc)
+    content = datetime(2026, 3, 28, 17, 47, 0, tzinfo=timezone.utc)
+
+    class _FakePkmService:
+        async def get_domain_manifest(self, user_id: str, domain: str):
+            assert user_id == "user_123"
+            assert domain == "financial"
+            return {
+                "user_id": user_id,
+                "domain": domain,
+                "manifest_version": 3,
+                "domain_contract_version": 2,
+                "readable_summary_version": 1,
+                "upgraded_at": upgraded,
+                "structure_decision": {},
+                "summary_projection": {},
+                "top_level_scope_paths": [],
+                "externalizable_paths": [],
+                "path_count": 0,
+                "externalizable_path_count": 0,
+                "segment_ids": [],
+                "last_structured_at": structured,
+                "last_content_at": content,
+                "paths": [],
+                "scope_registry": [],
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    client = TestClient(_build_app())
+    response = client.get("/api/pkm/manifest/user_123/financial")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["upgraded_at"] == upgraded.isoformat()
+    assert payload["last_structured_at"] == structured.isoformat()
+    assert payload["last_content_at"] == content.isoformat()
+
+
 def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
     class _FakeUpgradeService:
         async def build_status(self, user_id: str):

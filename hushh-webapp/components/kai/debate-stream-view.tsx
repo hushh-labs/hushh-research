@@ -439,8 +439,12 @@ interface DebateStreamViewProps {
   runId?: string;
   portfolioContextOverride?: Record<string, unknown> | null;
   portfolioSource?: PortfolioSource;
+  pickSource?: string;
+  pickSourceLabel?: string;
+  pickSourceKind?: string;
   onClose: () => void;
-  onDecisionSaved?: (entry: AnalysisHistoryEntry) => void;
+  onDecisionReady?: (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => void;
+  onDecisionPersisted?: (entry: AnalysisHistoryEntry, meta: { runId: string }) => void;
   showHeader?: boolean;
 }
 
@@ -666,8 +670,12 @@ export function DebateStreamView({
   runId,
   portfolioContextOverride,
   portfolioSource,
+  pickSource,
+  pickSourceKind,
+  pickSourceLabel,
   onClose,
-  onDecisionSaved,
+  onDecisionReady,
+  onDecisionPersisted,
   showHeader = true,
 }: DebateStreamViewProps) {
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
@@ -762,6 +770,7 @@ export function DebateStreamView({
   const processedSeqRef = useRef(0);
   const decisionNotifiedRef = useRef(false);
   const finalizingNotifiedRef = useRef(false);
+  const persistedNotifiedRef = useRef(false);
   // Helper to update specific agent state in current round
   const updateAgentState = useCallback((round: 1 | 2, agent: string, update: Partial<AgentState>) => {
     // Update Ref (Source of Truth for Stream)
@@ -877,6 +886,7 @@ export function DebateStreamView({
     setRetryCountdown(null);
     decisionNotifiedRef.current = false;
     finalizingNotifiedRef.current = false;
+    persistedNotifiedRef.current = false;
     processedSeqRef.current = 0;
     // Reset refs
     round1StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
@@ -1094,10 +1104,22 @@ export function DebateStreamView({
           );
           const resolvedMarketSnapshot =
             pickPreferredMarketSnapshot(marketSnapshot, cachedMarketSnapshot) || marketSnapshot;
-          const incomingRawCard =
+          const incomingRawCard: Record<string, unknown> =
             data.raw_card && typeof data.raw_card === "object"
-              ? (data.raw_card as DecisionResult["raw_card"])
+              ? ((data.raw_card as DecisionResult["raw_card"]) ?? {})
               : {};
+          const fallbackPickSource =
+            typeof data.pick_source === "string" && data.pick_source.trim().length > 0
+              ? data.pick_source.trim()
+              : pickSource;
+          const fallbackPickSourceLabel =
+            typeof data.pick_source_label === "string" && data.pick_source_label.trim().length > 0
+              ? data.pick_source_label.trim()
+              : pickSourceLabel;
+          const fallbackPickSourceKind =
+            typeof data.pick_source_kind === "string" && data.pick_source_kind.trim().length > 0
+              ? data.pick_source_kind.trim()
+              : pickSourceKind;
           const normalizedDecision: DecisionResult = {
             ticker: String(data.ticker || ticker).toUpperCase(),
             decision: String(data.decision || "hold"),
@@ -1146,6 +1168,11 @@ export function DebateStreamView({
             raw_card: {
               ...incomingRawCard,
               market_snapshot: resolvedMarketSnapshot,
+              pick_source: incomingRawCard.pick_source || fallbackPickSource,
+              pick_source_label:
+                incomingRawCard.pick_source_label || fallbackPickSourceLabel,
+              pick_source_kind:
+                incomingRawCard.pick_source_kind || fallbackPickSourceKind,
             } as DecisionResult["raw_card"],
           };
           setDecision(normalizedDecision);
@@ -1154,6 +1181,11 @@ export function DebateStreamView({
           setBusyOperation("stock_analysis_stream", false);
           if (!decisionNotifiedRef.current) {
             decisionNotifiedRef.current = true;
+            const completedRunId =
+              (typeof data.run_id === "string" && data.run_id.trim()) ||
+              currentRunId ||
+              runId ||
+              null;
             const historyEntry: AnalysisHistoryEntry = {
               ticker: ticker.toUpperCase(),
               timestamp: new Date().toISOString(),
@@ -1168,7 +1200,7 @@ export function DebateStreamView({
                 round2: round2StatesRef.current,
               },
             };
-            onDecisionSaved?.(historyEntry);
+            onDecisionReady?.(historyEntry, { runId: completedRunId });
           }
           break;
         }
@@ -1195,7 +1227,19 @@ export function DebateStreamView({
           break;
       }
     },
-    [onDecisionSaved, resolveRoundForEnvelope, setBusyOperation, ticker, updateAgentState, userId]
+    [
+      currentRunId,
+      onDecisionReady,
+      pickSource,
+      pickSourceKind,
+      pickSourceLabel,
+      resolveRoundForEnvelope,
+      runId,
+      setBusyOperation,
+      ticker,
+      updateAgentState,
+      userId,
+    ]
   );
 
   useEffect(() => {
@@ -1301,7 +1345,8 @@ export function DebateStreamView({
 
       try {
         let resolvedTask: DebateRunTask | null = null;
-        if (runId) {
+        const forceFreshRun = reloadNonce > 0;
+        if (runId && !forceFreshRun) {
           const existingTask = DebateRunManagerService.getTask(runId);
           if (existingTask && existingTask.userId === userId) {
             resolvedTask = existingTask;
@@ -1336,6 +1381,9 @@ export function DebateStreamView({
             ticker,
             riskProfile: effectiveRiskProfile,
             userContext: context,
+            pickSource,
+            pickSourceLabel,
+            pickSourceKind,
             vaultOwnerToken,
             vaultKey,
           });
@@ -1370,6 +1418,14 @@ export function DebateStreamView({
           setManagerTask(nextTask);
         });
 
+        const unsubscribeHistory = DebateRunManagerService.subscribeHistory((entry, task) => {
+          if (task.runId !== resolvedTask!.runId) return;
+          if (task.persistenceState !== "saved") return;
+          if (persistedNotifiedRef.current) return;
+          persistedNotifiedRef.current = true;
+          onDecisionPersisted?.(entry, { runId: resolvedTask!.runId });
+        });
+
         unsubscribeRun = DebateRunManagerService.subscribeRunEvents(
           resolvedTask.runId,
           (envelope) => {
@@ -1379,6 +1435,11 @@ export function DebateStreamView({
           },
           { replay: true }
         );
+        const originalUnsubscribeRun = unsubscribeRun;
+        unsubscribeRun = () => {
+          originalUnsubscribeRun();
+          unsubscribeHistory();
+        };
       } catch (streamError) {
         if (cancelled) return;
         setError((streamError as Error).message || "Unable to start analysis right now.");
@@ -1400,8 +1461,12 @@ export function DebateStreamView({
     };
   }, [
     applyEnvelope,
+    onDecisionPersisted,
     portfolioContextOverride,
     portfolioSource,
+    pickSource,
+    pickSourceKind,
+    pickSourceLabel,
     reloadNonce,
     resetState,
     riskProfileProp,
@@ -1454,6 +1519,8 @@ export function DebateStreamView({
                   size="sm"
                   onClick={() => {
                     resetState();
+                    setCurrentRunId(null);
+                    setManagerTask(null);
                     setReloadNonce((prev) => prev + 1);
                   }}
                 >

@@ -18,7 +18,8 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { logSecurityEvent } from "@/lib/config";
+import { validateFirebaseToken } from "@/lib/auth/validate";
+import { isDevelopment, logSecurityEvent } from "@/lib/config";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
 
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader) {
+    if (!authHeader && !isDevelopment()) {
       logSecurityEvent("VAULT_CHECK_REJECTED", {
         reason: "No auth header",
         userId,
@@ -72,6 +73,25 @@ export async function GET(request: NextRequest) {
         { error: "Authorization required", code: "AUTH_REQUIRED" },
         { status: 401 }
       );
+    }
+
+    if (authHeader) {
+      const validation = await validateFirebaseToken(authHeader);
+
+      if (!validation.valid) {
+        logSecurityEvent("VAULT_CHECK_REJECTED", {
+          reason: validation.error,
+          userId,
+        });
+        return withRequestIdJson(
+          requestId,
+          {
+            error: `Authentication failed: ${validation.error}`,
+            code: "AUTH_INVALID",
+          },
+          { status: 401 }
+        );
+      }
     }
 
     const cached = readFreshVaultCheck(userId);
@@ -90,7 +110,7 @@ export async function GET(request: NextRequest) {
         method: "POST",
         headers: createUpstreamHeaders(requestId, {
           "Content-Type": "application/json",
-          Authorization: authHeader,
+          ...(authHeader ? { Authorization: authHeader } : {}),
         }),
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         body: JSON.stringify({ userId }),

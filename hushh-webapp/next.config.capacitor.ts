@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 /**
  * Next.js Configuration for Capacitor iOS/Android Static Export
@@ -9,6 +10,9 @@ import type { NextConfig } from "next";
  * Usage: CAPACITOR_BUILD=true npm run build
  */
 const capacitorConfig: NextConfig = {
+  // Keep file tracing and workspace discovery scoped to this monorepo.
+  outputFileTracingRoot: path.join(process.cwd(), ".."),
+
   // Static export for Capacitor WebView
   output: "export",
 

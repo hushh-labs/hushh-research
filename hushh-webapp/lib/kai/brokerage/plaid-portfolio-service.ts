@@ -3,6 +3,8 @@
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ApiService } from "@/lib/services/api-service";
 import type {
+  PlaidFundingStatusResponse,
+  PlaidTransferPayload,
   PlaidPortfolioStatusResponse,
   PortfolioSource,
 } from "@/lib/kai/brokerage/portfolio-sources";
@@ -21,6 +23,20 @@ export interface PlaidRefreshResponse {
   accepted: boolean;
   runs: Array<Record<string, unknown>>;
 }
+
+export interface PlaidTransferCreateResponse {
+  approved: boolean;
+  decision?: string;
+  decision_rationale?: unknown;
+  authorization_id?: string | null;
+  idempotency_key?: string | null;
+  deduped?: boolean;
+  action_link_token?: PlaidLinkTokenResponse | null;
+  transfer?: PlaidTransferPayload;
+  reference?: Record<string, unknown>;
+}
+
+const PLAID_STATUS_CACHE_TTL_MS = 15_000;
 
 async function extractPlaidError(response: Response, fallback: string): Promise<string> {
   const raw = await response.text().catch(() => "");
@@ -59,23 +75,95 @@ async function extractPlaidError(response: Response, fallback: string): Promise<
 }
 
 export class PlaidPortfolioService {
+  private static statusCache = new Map<
+    string,
+    { value: PlaidPortfolioStatusResponse; expiresAt: number }
+  >();
+  private static statusInflight = new Map<string, Promise<PlaidPortfolioStatusResponse>>();
+  private static fundingStatusCache = new Map<
+    string,
+    { value: PlaidFundingStatusResponse; expiresAt: number }
+  >();
+  private static fundingStatusInflight = new Map<string, Promise<PlaidFundingStatusResponse>>();
+
+  private static statusKey(userId: string): string {
+    return String(userId || "").trim();
+  }
+
+  private static readStatusCache(key: string): PlaidPortfolioStatusResponse | null {
+    const entry = this.statusCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.statusCache.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  private static readFundingStatusCache(key: string): PlaidFundingStatusResponse | null {
+    const entry = this.fundingStatusCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.fundingStatusCache.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  static invalidateStatusCache(userId?: string): void {
+    const key = String(userId || "").trim();
+    if (key) {
+      this.statusCache.delete(key);
+      this.statusInflight.delete(key);
+      this.fundingStatusCache.delete(key);
+      this.fundingStatusInflight.delete(key);
+      return;
+    }
+    this.statusCache.clear();
+    this.statusInflight.clear();
+    this.fundingStatusCache.clear();
+    this.fundingStatusInflight.clear();
+  }
+
   static async getStatus(params: {
     userId: string;
     vaultOwnerToken: string;
-  }): Promise<PlaidPortfolioStatusResponse> {
-    const response = await ApiService.apiFetch(
-      `/api/kai/plaid/status/${encodeURIComponent(params.userId)}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${params.vaultOwnerToken}`,
-        },
-      }
-    );
-    if (!response.ok) {
-      throw new Error(`Failed to load Plaid portfolio status: ${response.status}`);
+  }, options?: { force?: boolean }): Promise<PlaidPortfolioStatusResponse> {
+    const key = this.statusKey(params.userId);
+    if (!options?.force) {
+      const cached = this.readStatusCache(key);
+      if (cached) return cached;
+      const inflight = this.statusInflight.get(key);
+      if (inflight) return inflight;
     }
-    return (await response.json()) as PlaidPortfolioStatusResponse;
+
+    const request = (async () => {
+      const response = await ApiService.apiFetch(
+        `/api/kai/plaid/status/${encodeURIComponent(params.userId)}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${params.vaultOwnerToken}`,
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to load Plaid portfolio status: ${response.status}`);
+      }
+      const payload = (await response.json()) as PlaidPortfolioStatusResponse;
+      this.statusCache.set(key, {
+        value: payload,
+        expiresAt: Date.now() + PLAID_STATUS_CACHE_TTL_MS,
+      });
+      return payload;
+    })().finally(() => {
+      if (this.statusInflight.get(key) === request) {
+        this.statusInflight.delete(key);
+      }
+    });
+
+    this.statusInflight.set(key, request);
+    return request;
   }
 
   static async createLinkToken(params: {
@@ -138,6 +226,7 @@ export class PlaidPortfolioService {
       throw new Error(detail);
     }
     const payload = (await response.json()) as PlaidPortfolioStatusResponse;
+    this.invalidateStatusCache(params.userId);
     CacheSyncService.onPlaidSourceProjected(params.userId);
     return payload;
   }
@@ -165,6 +254,7 @@ export class PlaidPortfolioService {
       );
       throw new Error(detail);
     }
+    this.invalidateStatusCache(params.userId);
     return (await response.json()) as PlaidRefreshResponse;
   }
 
@@ -270,6 +360,261 @@ export class PlaidPortfolioService {
       );
       throw new Error(detail);
     }
+    this.invalidateStatusCache(params.userId);
     return (await response.json()) as { user_id: string; active_source: PortfolioSource };
+  }
+
+  static async createFundingLinkToken(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    itemId?: string;
+    redirectUri?: string;
+  }): Promise<PlaidLinkTokenResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/link-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        item_id: params.itemId,
+        redirect_uri: params.redirectUri || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Plaid could not start the funding connection flow right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as PlaidLinkTokenResponse;
+  }
+
+  static async exchangeFundingPublicToken(params: {
+    userId: string;
+    publicToken: string;
+    vaultOwnerToken: string;
+    metadata?: Record<string, unknown> | null;
+    resumeSessionId?: string | null;
+  }): Promise<PlaidFundingStatusResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/exchange-public-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        public_token: params.publicToken,
+        metadata: params.metadata || null,
+        resume_session_id: params.resumeSessionId || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Plaid could not finish connecting this funding account."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async getFundingStatus(params: {
+    userId: string;
+    vaultOwnerToken: string;
+  }, options?: { force?: boolean }): Promise<PlaidFundingStatusResponse> {
+    const key = this.statusKey(params.userId);
+    if (!options?.force) {
+      const cached = this.readFundingStatusCache(key);
+      if (cached) return cached;
+      const inflight = this.fundingStatusInflight.get(key);
+      if (inflight) return inflight;
+    }
+
+    const request = (async () => {
+      const response = await ApiService.apiFetch(
+        `/api/kai/plaid/funding/status/${encodeURIComponent(params.userId)}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${params.vaultOwnerToken}`,
+          },
+        }
+      );
+      if (!response.ok) {
+        const detail = await extractPlaidError(
+          response,
+          "Plaid funding status is not available right now."
+        );
+        throw new Error(detail);
+      }
+      const payload = (await response.json()) as PlaidFundingStatusResponse;
+      this.fundingStatusCache.set(key, {
+        value: payload,
+        expiresAt: Date.now() + PLAID_STATUS_CACHE_TTL_MS,
+      });
+      return payload;
+    })().finally(() => {
+      if (this.fundingStatusInflight.get(key) === request) {
+        this.fundingStatusInflight.delete(key);
+      }
+    });
+
+    this.fundingStatusInflight.set(key, request);
+    return request;
+  }
+
+  static async syncFundingTransactions(params: {
+    userId: string;
+    itemId: string;
+    vaultOwnerToken: string;
+    cursor?: string | null;
+  }): Promise<{
+    item_id: string;
+    next_cursor?: string | null;
+    added: Array<Record<string, unknown>>;
+    modified: Array<Record<string, unknown>>;
+    removed: Array<Record<string, unknown>>;
+    counts: { added: number; modified: number; removed: number };
+  }> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/transactions/sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        item_id: params.itemId,
+        cursor: params.cursor || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding transactions could not be synced right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as {
+      item_id: string;
+      next_cursor?: string | null;
+      added: Array<Record<string, unknown>>;
+      modified: Array<Record<string, unknown>>;
+      removed: Array<Record<string, unknown>>;
+      counts: { added: number; modified: number; removed: number };
+    };
+  }
+
+  static async createTransfer(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    fundingItemId: string;
+    fundingAccountId: string;
+    amount: number;
+    userLegalName: string;
+    direction?: "to_brokerage" | "from_brokerage";
+    network?: string;
+    achClass?: string;
+    description?: string;
+    idempotencyKey?: string;
+    brokerageItemId?: string | null;
+    brokerageAccountId?: string | null;
+    redirectUri?: string | null;
+  }): Promise<PlaidTransferCreateResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/transfers/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        funding_item_id: params.fundingItemId,
+        funding_account_id: params.fundingAccountId,
+        amount: params.amount,
+        user_legal_name: params.userLegalName,
+        direction: params.direction || "to_brokerage",
+        network: params.network || "ach",
+        ach_class: params.achClass || "web",
+        description: params.description || null,
+        idempotency_key: params.idempotencyKey || null,
+        brokerage_item_id: params.brokerageItemId || null,
+        brokerage_account_id: params.brokerageAccountId || null,
+        redirect_uri: params.redirectUri || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(response, "Transfer could not be created right now.");
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidTransferCreateResponse;
+  }
+
+  static async getTransfer(params: {
+    userId: string;
+    transferId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    transfer: PlaidTransferPayload;
+    reference?: Record<string, unknown>;
+  }> {
+    const query = new URLSearchParams({ user_id: params.userId }).toString();
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/transfers/${encodeURIComponent(params.transferId)}?${query}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(response, "Transfer status is not available right now.");
+      throw new Error(detail);
+    }
+    return (await response.json()) as {
+      transfer: PlaidTransferPayload;
+      reference?: Record<string, unknown>;
+    };
+  }
+
+  static async cancelTransfer(params: {
+    userId: string;
+    transferId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    transfer: PlaidTransferPayload;
+    reference?: Record<string, unknown>;
+    canceled?: boolean;
+  }> {
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/transfers/${encodeURIComponent(params.transferId)}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(response, "Transfer could not be canceled right now.");
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as {
+      transfer: PlaidTransferPayload;
+      reference?: Record<string, unknown>;
+      canceled?: boolean;
+    };
   }
 }

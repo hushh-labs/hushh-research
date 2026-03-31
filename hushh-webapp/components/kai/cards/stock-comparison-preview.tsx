@@ -8,9 +8,19 @@ import {
   SurfaceCardContent,
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/lib/morphy-ux/button";
-import { type KaiStockPreviewResponse } from "@/lib/services/api-service";
+import {
+  type KaiHomePickSource,
+  type KaiStockPreviewResponse,
+} from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";
 
 function formatCurrency(value: number | null | undefined): string {
@@ -38,28 +48,34 @@ export function StockComparisonPreview({
   loading = false,
   error,
   onStartDebate,
-  onOpenFullAnalysis,
+  activePickSource,
+  onPickSourceChange,
   compact = false,
-  showOpenFullAnalysis = true,
 }: {
   preview: KaiStockPreviewResponse | null;
   loading?: boolean;
   error?: string | null;
   onStartDebate: () => void;
-  onOpenFullAnalysis: () => void;
+  activePickSource?: string;
+  onPickSourceChange?: (sourceId: string) => void;
   compact?: boolean;
-  showOpenFullAnalysis?: boolean;
 }) {
+  const displaySources = preview?.pick_sources || [];
+  const selectedSource =
+    displaySources.find((source) => source.id === (activePickSource || preview?.active_pick_source)) ||
+    displaySources[0] ||
+    null;
+
   return (
     <section>
       <SurfaceCard tone="feature">
         <SurfaceCardContent className={cn("space-y-6", compact ? "p-4 sm:p-5" : "p-5 sm:p-6")}>
           <SectionHeader
             eyebrow="Stock preview"
-            title={preview ? `${preview.symbol} vs the selected picks list` : "Compare before debate"}
+            title={preview ? `${preview.symbol} vs the active picks list` : "Compare before debate"}
             description={
               preview
-                ? "See where the live quote stands against the current Kai list context before launching the full debate."
+                ? "Confirm the live quote against the current Kai list source before you launch the debate."
                 : "Kai is preparing a live quote and list comparison."
             }
             icon={GitCompareArrows}
@@ -74,6 +90,45 @@ export function StockComparisonPreview({
           ) : null}
 
           {error ? <p className="px-1 py-1 text-sm text-red-500">{error}</p> : null}
+
+          {preview ? (
+            <SurfaceInset className="p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    Debate source
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Kai will use this active list context when the debate starts and when the result is saved.
+                  </p>
+                </div>
+                <div className="w-full sm:w-auto sm:min-w-[220px]">
+                  <Select
+                    value={selectedSource?.id || preview.active_pick_source || "default"}
+                    onValueChange={(nextValue) => {
+                      if (!onPickSourceChange || nextValue === selectedSource?.id) return;
+                      onPickSourceChange(nextValue);
+                    }}
+                  >
+                    <SelectTrigger className="h-10 w-full rounded-full border-border/80 bg-background/80 text-left shadow-sm">
+                      <SelectValue placeholder="Default list" />
+                    </SelectTrigger>
+                    <SelectContent
+                      align="end"
+                      position="popper"
+                      className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
+                    >
+                      {displaySources.map((source: KaiHomePickSource) => (
+                        <SelectItem key={source.id} value={source.id}>
+                          {source.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </SurfaceInset>
+          ) : null}
 
           {!loading && !error && preview ? (
             <div className="space-y-4">
@@ -149,7 +204,7 @@ export function StockComparisonPreview({
                   {preview.list_match.investment_thesis || "Kai can launch the full debate to generate the deeper thesis and recommendation context."}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Source: {preview.list_match.label || preview.list_match.source_id} · Quote as of{" "}
+                  Source: {selectedSource?.label || preview.list_match.label || preview.list_match.source_id} · Quote as of{" "}
                   {new Date(preview.quote.as_of || Date.now()).toLocaleString()}
                 </p>
               </div>
@@ -160,11 +215,6 @@ export function StockComparisonPreview({
             <Button variant="blue-gradient" effect="fill" onClick={onStartDebate}>
               Start debate
             </Button>
-            {showOpenFullAnalysis ? (
-              <Button variant="none" effect="fade" onClick={onOpenFullAnalysis}>
-                Open full analysis
-              </Button>
-            ) : null}
           </div>
         </div>
           ) : null}

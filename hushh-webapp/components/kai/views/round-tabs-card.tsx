@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card as MorphyCard,
   CardContent as MorphyCardContent,
@@ -78,14 +78,24 @@ export function RoundTabsCard({
   description,
   isCollapsed,
   onToggleCollapse,
-  activeAgent: _activeAgent,
+  activeAgent,
   agentStates,
   onTabChange,
   className,
 }: RoundTabsCardProps) {
-  const [currentTab, setCurrentTab] = useState<string>("fundamental");
+  const [currentTab, setCurrentTab] = useState<string>(activeAgent || "fundamental");
+
+  useEffect(() => {
+    if (activeAgent && activeAgent !== currentTab) {
+      setCurrentTab(activeAgent);
+    }
+  }, [activeAgent, currentTab]);
 
   const handleTabChange = (val: string) => {
+    if (activeAgent) {
+      onTabChange?.(val);
+      return;
+    }
     setCurrentTab(val);
     onTabChange?.(val);
   };
@@ -158,7 +168,7 @@ export function RoundTabsCard({
 
       {!isCollapsed && (
         <MorphyCardContent>
-          <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
+          <Tabs value={activeAgent || currentTab} onValueChange={handleTabChange} className="w-full">
             <TabsList className="mb-4 grid h-10 w-full grid-cols-3 gap-1">
               {AGENT_ORDER.map((agent) => {
                 const config = AGENT_CONFIG[agent];

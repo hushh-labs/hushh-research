@@ -13,6 +13,8 @@ def test_stream_defines_context_validation_helpers():
     assert "pkm_holdings" in _STREAM_SOURCE
     assert "pkm_portfolio_snapshot" in _STREAM_SOURCE
     assert "pkm_coverage" in _STREAM_SOURCE
+    assert 'full_user_context.get("holdings_summary")' in _STREAM_SOURCE
+    assert 'full_user_context.get("debate_context")' in _STREAM_SOURCE
     assert "def _validate_renaissance_context_requirements" in _STREAM_SOURCE
     assert "renaissance_context_lookup" in _STREAM_SOURCE
 

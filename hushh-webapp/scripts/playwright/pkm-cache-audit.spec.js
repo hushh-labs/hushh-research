@@ -4,7 +4,7 @@ const dotenv = require("dotenv");
 const { test, expect, devices } = require("@playwright/test");
 
 const CONSENT_PROTOCOL_ROOT = path.resolve(process.cwd(), "../consent-protocol");
-const ENV_FILES = [".env.local.local", ".env.local"];
+const ENV_FILES = [".env", ".env.local"];
 
 ENV_FILES.forEach((fileName) => {
   const envPath = path.join(CONSENT_PROTOCOL_ROOT, fileName);

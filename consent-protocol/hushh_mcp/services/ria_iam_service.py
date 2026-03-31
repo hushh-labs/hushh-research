@@ -1627,17 +1627,72 @@ class RIAIAMService:
         user_id: str,
         *,
         display_name: str,
-        legal_name: str | None,
-        finra_crd: str | None,
-        sec_iard: str | None,
-        bio: str | None,
-        strategy: str | None,
-        disclosures_url: str | None,
-        primary_firm_name: str | None,
-        primary_firm_role: str | None,
+        requested_capabilities: list[str] | tuple[str, ...] | None = None,
+        individual_legal_name: str | None = None,
+        individual_crd: str | None = None,
+        advisory_firm_legal_name: str | None = None,
+        advisory_firm_iapd_number: str | None = None,
+        broker_firm_legal_name: str | None = None,
+        broker_firm_crd: str | None = None,
+        legal_name: str | None = None,
+        finra_crd: str | None = None,
+        sec_iard: str | None = None,
+        bio: str | None = None,
+        strategy: str | None = None,
+        disclosures_url: str | None = None,
+        primary_firm_name: str | None = None,
+        primary_firm_role: str | None = None,
     ) -> dict[str, Any]:
         if not display_name.strip():
             raise RIAIAMPolicyError("display_name is required", status_code=400)
+
+        normalized_requested_capabilities: list[str] = []
+        for capability in requested_capabilities or []:
+            candidate = str(capability or "").strip().lower()
+            if not candidate:
+                continue
+            if candidate not in _ALLOWED_PROFESSIONAL_CAPABILITIES:
+                raise RIAIAMPolicyError(
+                    "requested_capabilities contains unsupported capability",
+                    status_code=400,
+                )
+            if candidate not in normalized_requested_capabilities:
+                normalized_requested_capabilities.append(candidate)
+        if not normalized_requested_capabilities:
+            normalized_requested_capabilities = ["advisory"]
+
+        effective_legal_name = (
+            self._normalize_optional_text(individual_legal_name)
+            or self._normalize_optional_text(legal_name)
+            or display_name.strip()
+        )
+        effective_finra_crd = self._normalize_optional_text(
+            individual_crd
+        ) or self._normalize_optional_text(finra_crd)
+        effective_sec_iard = self._normalize_optional_text(
+            advisory_firm_iapd_number
+        ) or self._normalize_optional_text(sec_iard)
+        effective_primary_firm_name = self._normalize_optional_text(
+            advisory_firm_legal_name
+        ) or self._normalize_optional_text(primary_firm_name)
+        effective_broker_firm_name = self._normalize_optional_text(broker_firm_legal_name)
+        effective_broker_firm_crd = self._normalize_optional_text(broker_firm_crd)
+
+        if not effective_legal_name:
+            raise RIAIAMPolicyError(
+                "individual_legal_name is required for regulatory verification",
+                status_code=400,
+            )
+        if not effective_finra_crd:
+            raise RIAIAMPolicyError(
+                "individual_crd is required for regulatory verification",
+                status_code=400,
+            )
+        if "advisory" in normalized_requested_capabilities and not effective_sec_iard:
+            raise RIAIAMPolicyError(
+                "advisory_firm_iapd_number is required for regulatory verification",
+                status_code=400,
+            )
 
         conn = await self._conn()
         try:
@@ -1708,9 +1763,9 @@ class RIAIAMService:
                     """,
                     user_id,
                     display_name.strip(),
-                    (legal_name or "").strip(),
-                    (finra_crd or "").strip(),
-                    (sec_iard or "").strip(),
+                    effective_legal_name,
+                    effective_finra_crd,
+                    effective_sec_iard or "",
                     (bio or "").strip(),
                     (strategy or "").strip(),
                     (disclosures_url or "").strip(),
@@ -1719,7 +1774,7 @@ class RIAIAMService:
                     raise RuntimeError("Failed to create RIA profile")
 
                 firm_id: str | None = None
-                if primary_firm_name and primary_firm_name.strip():
+                if effective_primary_firm_name and effective_primary_firm_name.strip():
                     firm_row = await conn.fetchrow(
                         """
                         INSERT INTO ria_firms (legal_name)
@@ -1728,7 +1783,7 @@ class RIAIAMService:
                         SET updated_at = NOW()
                         RETURNING id
                         """,
-                        primary_firm_name.strip(),
+                        effective_primary_firm_name.strip(),
                     )
                     if firm_row:
                         firm_id = str(firm_row["id"])
@@ -1755,13 +1810,15 @@ class RIAIAMService:
                         )
 
                 verification_result: VerificationResult = await self._verification_gateway.verify(
-                    legal_name=(legal_name or "").strip() or display_name.strip(),
-                    finra_crd=(finra_crd or "").strip() or None,
-                    sec_iard=(sec_iard or "").strip() or None,
+                    legal_name=effective_legal_name,
+                    finra_crd=effective_finra_crd,
+                    sec_iard=effective_sec_iard,
                 )
 
                 next_status = "submitted"
-                if verification_result.verified:
+                if verification_result.outcome == "bypassed":
+                    next_status = "bypassed"
+                elif verification_result.verified:
                     next_status = "finra_verified"
                 elif verification_result.rejected:
                     next_status = "rejected"
@@ -1817,7 +1874,7 @@ class RIAIAMService:
                       $2,
                       COALESCE(NULLIF($3, ''), NULLIF($4, ''), 'Registered Investment Advisor'),
                       NULLIF($4, ''),
-                      CASE WHEN $5 IN ('finra_verified', 'active') THEN 'finra_verified' ELSE 'pending' END,
+                      CASE WHEN $5 IN ('finra_verified', 'active', 'bypassed') THEN 'finra_verified' ELSE 'pending' END,
                       TRUE,
                       NOW()
                     )
@@ -1838,13 +1895,41 @@ class RIAIAMService:
                     next_status,
                 )
 
+                advisory_status = self._normalize_legacy_verification_status(next_status)
+                brokerage_status = (
+                    "draft" if "brokerage" in normalized_requested_capabilities else "draft"
+                )
+                professional_access_granted = advisory_status in {"verified", "active", "bypassed"}
+                brokerage_outcome = (
+                    "not_requested"
+                    if "brokerage" not in normalized_requested_capabilities
+                    else "unsupported"
+                )
+                brokerage_message = (
+                    "Brokerage capability was not requested."
+                    if "brokerage" not in normalized_requested_capabilities
+                    else "Brokerage verification is not yet enabled in this onboarding path."
+                )
+
                 return {
                     "ria_profile_id": str(ria["id"]),
                     "user_id": str(ria["user_id"]),
                     "display_name": str(ria["display_name"]),
                     "verification_status": next_status,
+                    "advisory_status": advisory_status,
+                    "brokerage_status": brokerage_status,
+                    "requested_capabilities": normalized_requested_capabilities,
                     "verification_outcome": verification_result.outcome,
                     "verification_message": verification_result.message,
+                    "brokerage_outcome": brokerage_outcome,
+                    "brokerage_message": brokerage_message,
+                    "professional_access_granted": professional_access_granted,
+                    "individual_legal_name": effective_legal_name,
+                    "individual_crd": effective_finra_crd,
+                    "advisory_firm_legal_name": effective_primary_firm_name,
+                    "advisory_firm_iapd_number": effective_sec_iard,
+                    "broker_firm_legal_name": effective_broker_firm_name,
+                    "broker_firm_crd": effective_broker_firm_crd,
                     "firm_id": firm_id,
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:
@@ -1857,14 +1942,21 @@ class RIAIAMService:
         user_id: str,
         *,
         display_name: str,
-        legal_name: str | None,
-        finra_crd: str | None,
-        sec_iard: str | None,
-        bio: str | None,
-        strategy: str | None,
-        disclosures_url: str | None,
-        primary_firm_name: str | None,
-        primary_firm_role: str | None,
+        requested_capabilities: list[str] | tuple[str, ...] | None = None,
+        individual_legal_name: str | None = None,
+        individual_crd: str | None = None,
+        advisory_firm_legal_name: str | None = None,
+        advisory_firm_iapd_number: str | None = None,
+        broker_firm_legal_name: str | None = None,
+        broker_firm_crd: str | None = None,
+        legal_name: str | None = None,
+        finra_crd: str | None = None,
+        sec_iard: str | None = None,
+        bio: str | None = None,
+        strategy: str | None = None,
+        disclosures_url: str | None = None,
+        primary_firm_name: str | None = None,
+        primary_firm_role: str | None = None,
     ) -> dict[str, Any]:
         if not self._is_dev_bypass_allowed(user_id):
             raise RIAIAMPolicyError(
@@ -1872,6 +1964,38 @@ class RIAIAMService:
             )
         if not display_name.strip():
             raise RIAIAMPolicyError("display_name is required", status_code=400)
+
+        normalized_requested_capabilities: list[str] = []
+        for capability in requested_capabilities or []:
+            candidate = str(capability or "").strip().lower()
+            if not candidate:
+                continue
+            if candidate not in _ALLOWED_PROFESSIONAL_CAPABILITIES:
+                raise RIAIAMPolicyError(
+                    "requested_capabilities contains unsupported capability",
+                    status_code=400,
+                )
+            if candidate not in normalized_requested_capabilities:
+                normalized_requested_capabilities.append(candidate)
+        if not normalized_requested_capabilities:
+            normalized_requested_capabilities = ["advisory"]
+
+        effective_legal_name = (
+            self._normalize_optional_text(individual_legal_name)
+            or self._normalize_optional_text(legal_name)
+            or display_name.strip()
+        )
+        effective_finra_crd = self._normalize_optional_text(
+            individual_crd
+        ) or self._normalize_optional_text(finra_crd)
+        effective_sec_iard = self._normalize_optional_text(
+            advisory_firm_iapd_number
+        ) or self._normalize_optional_text(sec_iard)
+        effective_primary_firm_name = self._normalize_optional_text(
+            advisory_firm_legal_name
+        ) or self._normalize_optional_text(primary_firm_name)
+        effective_broker_firm_name = self._normalize_optional_text(broker_firm_legal_name)
+        effective_broker_firm_crd = self._normalize_optional_text(broker_firm_crd)
 
         conn = await self._conn()
         try:
@@ -1943,9 +2067,9 @@ class RIAIAMService:
                     """,
                     user_id,
                     display_name.strip(),
-                    (legal_name or "").strip(),
-                    (finra_crd or "").strip(),
-                    (sec_iard or "").strip(),
+                    effective_legal_name,
+                    effective_finra_crd or "",
+                    effective_sec_iard or "",
                     (bio or "").strip(),
                     (strategy or "").strip(),
                     (disclosures_url or "").strip(),
@@ -1954,7 +2078,7 @@ class RIAIAMService:
                     raise RuntimeError("Failed to create RIA profile")
 
                 firm_id: str | None = None
-                if primary_firm_name and primary_firm_name.strip():
+                if effective_primary_firm_name and effective_primary_firm_name.strip():
                     firm_row = await conn.fetchrow(
                         """
                         INSERT INTO ria_firms (legal_name)
@@ -1963,7 +2087,7 @@ class RIAIAMService:
                         SET updated_at = NOW()
                         RETURNING id
                         """,
-                        primary_firm_name.strip(),
+                        effective_primary_firm_name.strip(),
                     )
                     if firm_row:
                         firm_id = str(firm_row["id"])
@@ -2048,8 +2172,30 @@ class RIAIAMService:
                     "user_id": str(ria["user_id"]),
                     "display_name": str(ria["display_name"]),
                     "verification_status": "active",
+                    "advisory_status": "active",
+                    "brokerage_status": (
+                        "draft" if "brokerage" in normalized_requested_capabilities else "draft"
+                    ),
+                    "requested_capabilities": normalized_requested_capabilities,
                     "verification_outcome": "dev_allowlist",
                     "verification_message": "RIA activated for an allowlisted development account",
+                    "brokerage_outcome": (
+                        "not_requested"
+                        if "brokerage" not in normalized_requested_capabilities
+                        else "unsupported"
+                    ),
+                    "brokerage_message": (
+                        "Brokerage capability was not requested."
+                        if "brokerage" not in normalized_requested_capabilities
+                        else "Brokerage verification is not yet enabled in this onboarding path."
+                    ),
+                    "professional_access_granted": True,
+                    "individual_legal_name": effective_legal_name,
+                    "individual_crd": effective_finra_crd,
+                    "advisory_firm_legal_name": effective_primary_firm_name,
+                    "advisory_firm_iapd_number": effective_sec_iard,
+                    "broker_firm_legal_name": effective_broker_firm_name,
+                    "broker_firm_crd": effective_broker_firm_crd,
                     "firm_id": firm_id,
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:

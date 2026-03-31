@@ -3332,6 +3332,9 @@ export class ApiService {
     ticker: string;
     riskProfile: string;
     userContext?: Record<string, unknown>;
+    pickSource?: string;
+    pickSourceLabel?: string;
+    pickSourceKind?: string;
     vaultOwnerToken: string;
   }): Promise<Response> {
     const response = await apiFetch("/api/kai/analyze/run/start", {
@@ -3345,6 +3348,9 @@ export class ApiService {
         ticker: data.ticker.toUpperCase(),
         risk_profile: data.riskProfile,
         context: data.userContext,
+        pick_source: data.pickSource,
+        pick_source_label: data.pickSourceLabel,
+        pick_source_kind: data.pickSourceKind,
       }),
     });
     if (response.ok) {

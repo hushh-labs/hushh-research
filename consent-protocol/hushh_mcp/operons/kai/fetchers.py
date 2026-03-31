@@ -49,6 +49,14 @@ _YFINANCE_TIMEOUT_COOLDOWN_SECONDS = max(
     60,
     int(os.getenv("KAI_YFINANCE_TIMEOUT_COOLDOWN_SECONDS", "180") or "180"),
 )
+_YAHOO_FAST_TIMEOUT_SECONDS = max(
+    3.0,
+    float(os.getenv("KAI_YAHOO_FAST_TIMEOUT_SECONDS", "8") or "8"),
+)
+_YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS = max(
+    60,
+    int(os.getenv("KAI_YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS", "180") or "180"),
+)
 
 
 def _provider_in_cooldown(key: str) -> bool:
@@ -158,7 +166,17 @@ async def _fetch_yahoo_quote_fast(ticker: str) -> Dict[str, Any]:
 
     timeout = httpx.Timeout(connect=3.0, read=4.0, write=4.0, pool=3.0)
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        res = await client.get(url, params=params)
+        try:
+            res = await asyncio.wait_for(
+                client.get(url, params=params),
+                timeout=_YAHOO_FAST_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            _mark_provider_cooldown_for_duration(
+                "yahoo_quote_fast:global",
+                _YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS,
+            )
+            raise RuntimeError("yahoo_quote_fast_timeout") from exc
         if not res.is_success:
             _mark_provider_cooldown("yahoo_quote_fast:global", res.status_code)
         res.raise_for_status()
@@ -1272,16 +1290,33 @@ async def fetch_market_data(
 
         errors: list[str] = []
         providers: list[tuple[str, Any]] = []
+        skip_yahoo_fast_for_symbol = False
 
         if finnhub_enabled:
             providers.append(("finnhub", _fetch_finnhub_quote))
         if pmp_enabled:
             providers.append(("pmp", _fetch_pmp_quote))
-        if allow_slow_fallbacks or require_yfinance_rescue:
+        # In fast-only mode we still use yfinance when rescue is explicitly requested
+        # or when no paid providers are configured at all.
+        should_include_yfinance = (
+            allow_slow_fallbacks
+            or require_yfinance_rescue
+            or (not finnhub_enabled and not pmp_enabled)
+        )
+        if should_include_yfinance:
             providers.append(("yfinance", _fetch_yfinance_quote))
         providers.append(("yahoo_quote_fast", _fetch_yahoo_quote_fast))
 
         for provider_name, provider_fetch in providers:
+            if provider_name == "yahoo_quote_fast" and skip_yahoo_fast_for_symbol:
+                errors.append("yahoo_quote_fast:skipped_after_yfinance_timeout")
+                _emit_realtime_telemetry(
+                    "market_data_provider_skipped",
+                    ticker=symbol,
+                    provider=provider_name,
+                    reason="yfinance_timeout_fast_mode",
+                )
+                continue
             started_at = time.perf_counter()
             provider_cooldown_key = _provider_cooldown_key(provider_name, symbol)
             if provider_cooldown_key and _provider_in_cooldown(provider_cooldown_key):
@@ -1331,6 +1366,10 @@ async def fetch_market_data(
                         provider_cooldown_key,
                         _YFINANCE_TIMEOUT_COOLDOWN_SECONDS,
                     )
+                    if not allow_slow_fallbacks:
+                        # Fast-mode requests prefer failing quickly over spending
+                        # another network round-trip on Yahoo after yfinance timeout.
+                        skip_yahoo_fast_for_symbol = True
                 if isinstance(exc, httpx.HTTPStatusError) and provider_cooldown_key:
                     _mark_provider_cooldown(
                         provider_cooldown_key,

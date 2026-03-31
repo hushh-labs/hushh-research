@@ -22,6 +22,8 @@ interface AnalysisParams {
   userContext?: Record<string, unknown>;
   portfolioSource?: PortfolioSource;
   portfolioContext?: Record<string, unknown> | null;
+  pickSource?: string;
+  pickSourceLabel?: string;
 }
 
 interface LosersInput {

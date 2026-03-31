@@ -9,7 +9,6 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
@@ -20,8 +19,7 @@ import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { isVoiceEligibleRouteScreen } from "@/lib/voice/voice-route-eligibility";
 import type { AppRuntimeState, VoiceMemoryHint, VoiceResponse } from "@/lib/voice/voice-types";
-import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
-import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
+import { ApiService } from "@/lib/services/api-service";
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
