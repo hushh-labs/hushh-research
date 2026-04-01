@@ -34,6 +34,7 @@ class RIAOnboardingSubmitRequest(BaseModel):
     disclosures_url: str | None = None
     primary_firm_name: str | None = None
     primary_firm_role: str | None = None
+    force_live_verification: bool = False
 
 
 class RIAConsentRequestCreate(BaseModel):
@@ -151,6 +152,7 @@ async def submit_onboarding(
             strategy=payload.strategy,
             disclosures_url=payload.disclosures_url,
             primary_firm_role=payload.primary_firm_role,
+            force_live_verification=payload.force_live_verification,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
@@ -374,6 +376,67 @@ async def create_ria_request_bundle(
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/universe")
+async def renaissance_universe(
+    tier: str | None = Query(None),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Return the Renaissance investable universe (default Kai stock list)."""
+    from hushh_mcp.services.renaissance_service import get_renaissance_service
+
+    service = get_renaissance_service()
+    if tier:
+        stocks = await service.get_by_tier(tier.upper())
+    else:
+        stocks = await service.get_all_investable()
+    return {
+        "items": [
+            {
+                "ticker": s.ticker,
+                "company_name": s.company_name,
+                "sector": s.sector,
+                "tier": s.tier,
+                "tier_rank": s.tier_rank,
+                "fcf_billions": s.fcf_billions,
+                "investment_thesis": s.investment_thesis,
+            }
+            for s in stocks
+        ],
+        "total": len(stocks),
+    }
+
+
+@router.get("/universe/avoid")
+async def renaissance_avoid_list(firebase_uid: str = Depends(require_firebase_auth)):
+    """Return the Renaissance avoid list."""
+    from hushh_mcp.services.renaissance_service import get_renaissance_service
+
+    service = get_renaissance_service()
+    members = await service.list_members("renaissance_avoid")
+    return {
+        "items": [
+            {
+                "ticker": m.ticker,
+                "company_name": m.company_name,
+                "sector": m.sector,
+                "category": m.metadata.get("category") if m.metadata else None,
+                "why_avoid": m.metadata.get("why_avoid") if m.metadata else None,
+            }
+            for m in members
+        ],
+    }
+
+
+@router.get("/universe/screening")
+async def renaissance_screening(firebase_uid: str = Depends(require_firebase_auth)):
+    """Return the Renaissance screening criteria rubric."""
+    from hushh_mcp.services.renaissance_service import get_renaissance_service
+
+    service = get_renaissance_service()
+    criteria = await service.get_screening_criteria()
+    return {"items": criteria}
 
 
 @router.get("/picks")

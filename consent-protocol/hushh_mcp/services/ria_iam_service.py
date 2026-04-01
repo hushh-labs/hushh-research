@@ -15,7 +15,10 @@ import asyncpg
 from db.connection import get_pool
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.consent_request_links import build_consent_request_url
+from hushh_mcp.services.consent_request_links import (
+    build_connection_request_url,
+    build_consent_request_url,
+)
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
@@ -111,6 +114,28 @@ class RIAIAMService:
         self._verification_gateway = VerificationGateway(FinraVerificationAdapter())
 
     @staticmethod
+    def _runtime_environment() -> str:
+        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
+            value = str(os.getenv(name, "")).strip().lower()
+            if value:
+                return value
+        return "development"
+
+    @classmethod
+    def _is_production_runtime(cls) -> bool:
+        return cls._runtime_environment() in {"prod", "production"}
+
+    @staticmethod
+    def _search_matches(query: str | None, *values: str | None) -> bool:
+        normalized_query = str(query or "").strip().lower()
+        if not normalized_query:
+            return True
+        haystack = " ".join(
+            str(value or "").strip().lower() for value in values if str(value or "").strip()
+        )
+        return normalized_query in haystack
+
+    @staticmethod
     def _read_cached_persona_state(user_id: str) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
@@ -144,13 +169,6 @@ class RIAIAMService:
     def _env_truthy(name: str, fallback: str = "false") -> bool:
         raw = str(os.getenv(name, fallback)).strip().lower()
         return raw in {"1", "true", "yes", "on"}
-
-    def _runtime_environment(self) -> str:
-        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
-            value = str(os.getenv(name, "")).strip().lower()
-            if value:
-                return value
-        return ""
 
     def _is_ria_dev_bypass_enabled(self) -> bool:
         if not self._env_truthy("RIA_DEV_BYPASS_ENABLED"):
@@ -348,6 +366,13 @@ class RIAIAMService:
             "active",
             "bypassed",
         }
+
+    @staticmethod
+    def _verification_provider_label(result: VerificationResult) -> str:
+        provider = str((result.metadata or {}).get("provider") or "").strip().lower()
+        if provider in {"ria_intelligence", "iapd", "dev_allowlist", "advisory_bypass"}:
+            return provider
+        return "regulatory_verification"
 
     @staticmethod
     def _prepare_professional_onboarding_inputs(
@@ -829,10 +854,27 @@ class RIAIAMService:
             requester_actor_type=self._normalize_actor(str(row["requester_actor_type"])),
             subject_actor_type=self._normalize_actor(str(row["subject_actor_type"])),
             template_name=str(row["template_name"]),
-            allowed_scopes=list(row["allowed_scopes"] or []),
+            allowed_scopes=self._canonicalize_scope_aliases(list(row["allowed_scopes"] or [])),
             default_duration_hours=int(row["default_duration_hours"]),
             max_duration_hours=int(row["max_duration_hours"]),
         )
+
+    @staticmethod
+    def _canonicalize_scope_alias(scope: str | None) -> str:
+        normalized = str(scope or "").strip()
+        if normalized == "world_model.read":
+            return "pkm.read"
+        if normalized == "world_model.write":
+            return "pkm.write"
+        return normalized
+
+    @classmethod
+    def _canonicalize_scope_aliases(cls, scopes: list[str] | tuple[str, ...] | None) -> list[str]:
+        return [
+            canonical
+            for canonical in (cls._canonicalize_scope_alias(scope) for scope in list(scopes or []))
+            if canonical
+        ]
 
     @staticmethod
     def _parse_metadata(value: Any) -> dict[str, Any]:
@@ -1289,7 +1331,7 @@ class RIAIAMService:
         try:
             await self._ensure_iam_schema_ready(conn)
             ria = await self._get_ria_profile_by_user(conn, user_id)
-            if ria["verification_status"] not in {"finra_verified", "active"}:
+            if not self._is_verified_ria_status(ria["verification_status"]):
                 raise RIAIAMPolicyError(
                     "RIA verification incomplete; cannot request investor scopes",
                     status_code=403,
@@ -1312,7 +1354,7 @@ class RIAIAMService:
             )
             items: list[dict[str, Any]] = []
             for row in rows:
-                allowed_scopes = [str(scope) for scope in list(row["allowed_scopes"] or [])]
+                allowed_scopes = self._canonicalize_scope_aliases(list(row["allowed_scopes"] or []))
                 items.append(
                     {
                         "template_id": str(row["template_id"]),
@@ -1541,18 +1583,14 @@ class RIAIAMService:
                 await self._ensure_actor_profile_row(conn, subject_user_id)
 
                 ria = await self._get_ria_profile_by_user(conn, user_id)
-                if ria["verification_status"] not in {"finra_verified", "active"}:
+                if not self._is_verified_ria_status(ria["verification_status"]):
                     raise RIAIAMPolicyError(
                         "RIA verification incomplete; cannot create consent requests",
                         status_code=403,
                     )
 
                 template = await self._load_scope_template(conn, scope_template_id)
-                normalized_scopes = [
-                    str(scope or "").strip()
-                    for scope in selected_scopes
-                    if str(scope or "").strip()
-                ]
+                normalized_scopes = self._canonicalize_scope_aliases(selected_scopes)
                 deduped_scopes = list(dict.fromkeys(normalized_scopes))
                 if not deduped_scopes:
                     deduped_scopes = list(template.allowed_scopes[:1])
@@ -1642,6 +1680,7 @@ class RIAIAMService:
         disclosures_url: str | None = None,
         primary_firm_name: str | None = None,
         primary_firm_role: str | None = None,
+        force_live_verification: bool = False,
     ) -> dict[str, Any]:
         if not display_name.strip():
             raise RIAIAMPolicyError("display_name is required", status_code=400)
@@ -1813,7 +1852,9 @@ class RIAIAMService:
                     legal_name=effective_legal_name,
                     finra_crd=effective_finra_crd,
                     sec_iard=effective_sec_iard,
+                    force_live=force_live_verification,
                 )
+                verification_provider = self._verification_provider_label(verification_result)
 
                 next_status = "submitted"
                 if verification_result.outcome == "bypassed":
@@ -1828,14 +1869,30 @@ class RIAIAMService:
                     UPDATE ria_profiles
                     SET
                       verification_status = $2,
-                      verification_provider = 'finra',
-                      verification_expires_at = $3,
+                      verification_provider = $3,
+                      verification_expires_at = $4,
                       updated_at = NOW()
                     WHERE id = $1
                     """,
                     ria["id"],
                     next_status,
+                    verification_provider,
                     verification_result.expires_at,
+                )
+
+                await conn.execute(
+                    """
+                    UPDATE marketplace_public_profiles
+                    SET
+                      verification_badge = CASE
+                        WHEN $2 IN ('finra_verified', 'active', 'bypassed') THEN 'verified'
+                        ELSE 'pending'
+                      END,
+                      updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                    next_status,
                 )
 
                 await conn.execute(
@@ -1848,9 +1905,10 @@ class RIAIAMService:
                       expires_at,
                       reference_metadata
                     )
-                    VALUES ($1, 'finra', $2, NOW(), $3, $4::jsonb)
+                    VALUES ($1, $2, $3, NOW(), $4, $5::jsonb)
                     """,
                     ria["id"],
+                    verification_provider,
                     verification_result.outcome,
                     verification_result.expires_at,
                     json.dumps(verification_result.metadata),
@@ -1874,7 +1932,7 @@ class RIAIAMService:
                       $2,
                       COALESCE(NULLIF($3, ''), NULLIF($4, ''), 'Registered Investment Advisor'),
                       NULLIF($4, ''),
-                      CASE WHEN $5 IN ('finra_verified', 'active', 'bypassed') THEN 'finra_verified' ELSE 'pending' END,
+                      CASE WHEN $5 IN ('finra_verified', 'active', 'bypassed') THEN 'verified' ELSE 'pending' END,
                       TRUE,
                       NOW()
                     )
@@ -1916,6 +1974,7 @@ class RIAIAMService:
                     "user_id": str(ria["user_id"]),
                     "display_name": str(ria["display_name"]),
                     "verification_status": next_status,
+                    "verification_provider": verification_provider,
                     "advisory_status": advisory_status,
                     "brokerage_status": brokerage_status,
                     "requested_capabilities": normalized_requested_capabilities,
@@ -3604,7 +3663,7 @@ class RIAIAMService:
                 await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
 
                 ria = await self._get_ria_profile_by_user(conn, user_id)
-                if ria["verification_status"] not in {"finra_verified", "active"}:
+                if not self._is_verified_ria_status(ria["verification_status"]):
                     raise RIAIAMPolicyError(
                         "RIA verification incomplete; cannot send invites",
                         status_code=403,
@@ -3910,6 +3969,12 @@ class RIAIAMService:
                 )
                 if ria is None:
                     raise RIAIAMPolicyError("RIA profile not found", status_code=404)
+                verification_status = str(ria["verification_status"] or "")
+                if enabled and not self._is_verified_ria_status(verification_status):
+                    raise RIAIAMPolicyError(
+                        "RIA verification must be complete before the profile can become discoverable.",
+                        status_code=403,
+                    )
 
                 await conn.execute(
                     """
@@ -3949,14 +4014,14 @@ class RIAIAMService:
                     ria["display_name"],
                     (headline or "").strip(),
                     (strategy_summary or str(ria["strategy"] or "")).strip(),
-                    str(ria["verification_status"] or ""),
+                    "verified" if self._is_verified_ria_status(verification_status) else "pending",
                     bool(enabled),
                 )
 
                 return {
                     "user_id": user_id,
                     "is_discoverable": bool(enabled),
-                    "verification_status": str(ria["verification_status"] or ""),
+                    "verification_status": verification_status,
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
@@ -4204,8 +4269,10 @@ class RIAIAMService:
     ) -> dict[str, Any]:
         requester = self._normalize_actor(requester_actor_type)
         subject = self._normalize_actor(subject_actor_type)
-        if requester != "ria" or subject != "investor":
-            raise RIAIAMPolicyError("Only ria -> investor requests are allowed in this phase")
+        if (requester, subject) not in {("ria", "investor"), ("investor", "ria")}:
+            raise RIAIAMPolicyError(
+                "Only investor <-> ria connection requests are allowed in this phase"
+            )
 
         conn = await self._conn()
         try:
@@ -4213,13 +4280,47 @@ class RIAIAMService:
                 await self._ensure_vault_user_row(conn, user_id)
                 await self._ensure_vault_user_row(conn, subject_user_id)
                 await self._ensure_iam_schema_ready(conn)
-                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
-                await self._ensure_actor_profile_row(conn, subject_user_id)
+                if requester == "ria":
+                    await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                    await self._ensure_actor_profile_row(conn, subject_user_id)
+                    ria = await self._get_ria_profile_by_user(conn, user_id)
+                    investor_user_id = subject_user_id
+                    request_subject_user_id = subject_user_id
+                    request_agent_id = f"ria:{ria['id']}"
+                    request_origin_value = request_origin or "direct_ria_request"
+                    requester_label = (
+                        str(ria["display_name"] or ria["legal_name"] or "").strip()
+                        or f"RIA {str(ria['id'])[:8]}"
+                    )
+                    additional_access_summary = self._relationship_share_summary(
+                        _RELATIONSHIP_SHARE_ACTIVE_PICKS
+                    )
+                    included_relationship_shares = [
+                        {
+                            **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
+                            "share_origin": _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT,
+                            "status": "included_on_approval",
+                        }
+                    ]
+                else:
+                    await self._ensure_actor_profile_row(conn, user_id)
+                    await self._ensure_actor_profile_row(
+                        conn, subject_user_id, include_ria_persona=True
+                    )
+                    ria = await self._get_ria_profile_by_user(conn, subject_user_id)
+                    investor_user_id = user_id
+                    request_subject_user_id = subject_user_id
+                    request_agent_id = f"investor:{user_id}"
+                    request_origin_value = request_origin or "marketplace_investor_connect"
+                    requester_label = user_id
+                    additional_access_summary = (
+                        "Connection request to view the advisor's disclosure and strategy surface."
+                    )
+                    included_relationship_shares = []
 
-                ria = await self._get_ria_profile_by_user(conn, user_id)
-                if ria["verification_status"] not in {"finra_verified", "active"}:
+                if not self._is_verified_ria_status(ria["verification_status"]):
                     raise RIAIAMPolicyError(
-                        "RIA verification incomplete; cannot create consent requests",
+                        "RIA verification incomplete; cannot create connection requests",
                         status_code=403,
                     )
 
@@ -4256,21 +4357,171 @@ class RIAIAMService:
                     )
                     if membership is None:
                         raise RIAIAMPolicyError("Firm membership is not active", status_code=403)
-                created = await self._create_ria_consent_request_record(
-                    conn,
-                    ria=ria,
-                    subject_user_id=subject_user_id,
-                    template=template,
-                    chosen_scope=chosen_scope,
-                    firm_id=firm_id,
-                    reason=reason,
-                    invite_id=invite_id,
-                    invite_token=invite_token,
-                    request_origin=request_origin or "direct_ria_request",
-                    bundle_id=None,
-                    bundle_label=None,
-                    bundle_scope_count=1,
+
+                request_id = uuid.uuid4().hex
+                now_ms = self._now_ms()
+                expires_at_ms = now_ms + (template.default_duration_hours * 60 * 60 * 1000)
+                connection_selected = str(ria["user_id"] if requester == "ria" else user_id)
+                request_url = build_connection_request_url(
+                    selected=connection_selected,
+                    tab="pending",
                 )
+                requester_website_url = (
+                    str(ria["disclosures_url"] or "").strip() or None
+                    if requester == "ria"
+                    else None
+                )
+                metadata = {
+                    "requester_actor_type": requester,
+                    "subject_actor_type": subject,
+                    "requester_entity_id": str(ria["id"]) if requester == "ria" else user_id,
+                    "subject_entity_id": str(ria["id"]) if subject == "ria" else None,
+                    "requester_label": requester_label,
+                    "requester_image_url": None,
+                    "requester_website_url": requester_website_url,
+                    "firm_id": firm_id,
+                    "scope_template_id": template.template_id,
+                    "duration_mode": "investor_decides",
+                    "duration_hours": None,
+                    "request_timeout_hours": template.default_duration_hours,
+                    "approval_timeout_minutes": template.default_duration_hours * 60,
+                    "approval_timeout_at": expires_at_ms,
+                    "reason": (reason or "").strip() or None,
+                    "request_origin": request_origin_value,
+                    "invite_id": invite_id,
+                    "invite_token": invite_token,
+                    "bundle_id": None,
+                    "bundle_label": None,
+                    "bundle_scope_count": 1,
+                    "request_url": request_url,
+                    "additional_access_summary": additional_access_summary,
+                    "included_relationship_shares": included_relationship_shares,
+                }
+
+                await conn.execute(
+                    """
+                    INSERT INTO consent_audit (
+                      token_id,
+                      user_id,
+                      agent_id,
+                      scope,
+                      action,
+                      issued_at,
+                      expires_at,
+                      poll_timeout_at,
+                      request_id,
+                      scope_description,
+                      metadata
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      $3,
+                      $4,
+                      'REQUESTED',
+                      $5,
+                      $6,
+                      $7,
+                      $8,
+                      $9,
+                      $10::jsonb
+                    )
+                    """,
+                    f"req_{request_id}",
+                    request_subject_user_id,
+                    request_agent_id,
+                    chosen_scope,
+                    now_ms,
+                    expires_at_ms,
+                    expires_at_ms,
+                    request_id,
+                    template.template_name,
+                    json.dumps(metadata),
+                )
+
+                relationship = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM advisor_investor_relationships
+                    WHERE investor_user_id = $1
+                      AND ria_profile_id = $2
+                      AND (
+                        (firm_id IS NULL AND $3::uuid IS NULL)
+                        OR firm_id = $3::uuid
+                      )
+                    LIMIT 1
+                    """,
+                    investor_user_id,
+                    ria["id"],
+                    firm_id,
+                )
+                relationship_id: str | None = None
+                if relationship is None:
+                    relationship_row = await conn.fetchrow(
+                        """
+                        INSERT INTO advisor_investor_relationships (
+                          investor_user_id,
+                          ria_profile_id,
+                          firm_id,
+                          status,
+                          last_request_id,
+                          granted_scope,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3::uuid,
+                          'request_pending',
+                          $4,
+                          $5,
+                          NOW(),
+                          NOW()
+                        )
+                        RETURNING id
+                        """,
+                        investor_user_id,
+                        ria["id"],
+                        firm_id,
+                        request_id,
+                        chosen_scope,
+                    )
+                    relationship_id = (
+                        str(relationship_row["id"])
+                        if relationship_row and relationship_row["id"] is not None
+                        else None
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE advisor_investor_relationships
+                        SET
+                          status = 'request_pending',
+                          last_request_id = $2,
+                          granted_scope = COALESCE(granted_scope, $3),
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        relationship["id"],
+                        request_id,
+                        chosen_scope,
+                    )
+                    relationship_id = str(relationship["id"])
+
+                created = {
+                    "request_id": request_id,
+                    "subject_user_id": request_subject_user_id,
+                    "scope": chosen_scope,
+                    "duration_hours": template.default_duration_hours,
+                    "duration_mode": "investor_decides",
+                    "expires_at": expires_at_ms,
+                    "scope_template_id": template.template_id,
+                    "requester_entity_id": str(ria["id"]) if requester == "ria" else user_id,
+                    "relationship_id": relationship_id,
+                    "status": "REQUESTED",
+                    "metadata": metadata,
+                }
                 if duration_mode or duration_hours:
                     created["requested_duration_mode"] = (duration_mode or "").strip() or "preset"
                     created["requested_duration_hours"] = duration_hours
@@ -4536,12 +4787,29 @@ class RIAIAMService:
                     return
 
                 metadata = self._parse_metadata(row["metadata"])
-                if metadata.get("requester_actor_type") != "ria":
+                requester_actor_type = self._normalize_actor(
+                    str(metadata.get("requester_actor_type") or "ria")
+                )
+                subject_actor_type = self._normalize_actor(
+                    str(metadata.get("subject_actor_type") or "investor")
+                )
+                if (requester_actor_type, subject_actor_type) not in {
+                    ("ria", "investor"),
+                    ("investor", "ria"),
+                }:
                     return
 
-                requester_entity_id = metadata.get("requester_entity_id")
-                if not requester_entity_id:
-                    return
+                if requester_actor_type == "ria":
+                    investor_user_id = str(row["user_id"] or "").strip()
+                    requester_entity_id = metadata.get("requester_entity_id")
+                    if not requester_entity_id:
+                        return
+                    ria_profile_id = str(requester_entity_id).strip()
+                else:
+                    investor_user_id = str(metadata.get("requester_entity_id") or "").strip()
+                    ria_profile_id = str(metadata.get("subject_entity_id") or "").strip()
+                    if not investor_user_id or not ria_profile_id:
+                        return
 
                 relationship = await conn.fetchrow(
                     """
@@ -4557,8 +4825,8 @@ class RIAIAMService:
                     ORDER BY rel.updated_at DESC
                     LIMIT 1
                     """,
-                    user_id,
-                    requester_entity_id,
+                    investor_user_id,
+                    ria_profile_id,
                     row["request_id"],
                     row["scope"],
                 )
@@ -4584,7 +4852,7 @@ class RIAIAMService:
                     latest_by_scope[scope_key] = audit_row
 
                 active_tokens = await ConsentDBService().get_active_tokens(
-                    user_id,
+                    str(row["user_id"] or user_id),
                     agent_id=row["agent_id"],
                 )
                 has_active_grant = bool(active_tokens)
@@ -4626,12 +4894,12 @@ class RIAIAMService:
 
                 relationship_id = str(relationship["id"])
                 provider_user_id = str(relationship["ria_user_id"])
-                if action == "CONSENT_GRANTED":
+                if action == "CONSENT_GRANTED" and requester_actor_type == "ria":
                     await self._materialize_relationship_share_grant(
                         conn,
                         relationship_id=relationship_id,
                         provider_user_id=provider_user_id,
-                        receiver_user_id=user_id,
+                        receiver_user_id=investor_user_id,
                         grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
                         metadata=self._implicit_picks_relationship_share_metadata(
                             source="relationship_sync",
@@ -4641,7 +4909,10 @@ class RIAIAMService:
                             },
                         ),
                     )
-                elif action in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}:
+                elif (
+                    action in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}
+                    and requester_actor_type == "ria"
+                ):
                     await self._revoke_relationship_share_grant(
                         conn,
                         relationship_id=relationship_id,
@@ -4649,7 +4920,7 @@ class RIAIAMService:
                         status="revoked",
                         reason=f"consent_action:{action.lower()}",
                     )
-                elif action == "TIMEOUT":
+                elif action == "TIMEOUT" and requester_actor_type == "ria":
                     await self._revoke_relationship_share_grant(
                         conn,
                         relationship_id=relationship_id,
@@ -4684,6 +4955,11 @@ class RIAIAMService:
                   mp.headline,
                   mp.strategy_summary,
                   rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
                   COALESCE(
                     json_agg(
                       DISTINCT jsonb_build_object(
@@ -4708,6 +4984,7 @@ class RIAIAMService:
                 WHERE
                   ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
                   AND ($2::text IS NULL OR rp.verification_status = $2)
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
                   AND (
                     $3::text IS NULL
                     OR EXISTS (
@@ -4719,7 +4996,14 @@ class RIAIAMService:
                         AND f2.legal_name ILIKE ('%' || $3 || '%')
                     )
                   )
-                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status
+                GROUP BY
+                  rp.id,
+                  rp.user_id,
+                  mp.display_name,
+                  mp.headline,
+                  mp.strategy_summary,
+                  mp.metadata,
+                  rp.verification_status
                 ORDER BY
                   CASE WHEN rp.verification_status IN ('active', 'finra_verified') THEN 0 ELSE 1 END,
                   mp.display_name ASC
@@ -4749,6 +5033,11 @@ class RIAIAMService:
                   mp.headline,
                   mp.strategy_summary,
                   rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
                   rp.bio,
                   rp.strategy,
                   rp.disclosures_url,
@@ -4774,7 +5063,8 @@ class RIAIAMService:
                 LEFT JOIN ria_firms f
                   ON f.id = m.firm_id
                 WHERE rp.id = $1::uuid
-                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
+                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url, is_test_profile
                 """,
                 ria_id,
             )
@@ -4801,7 +5091,12 @@ class RIAIAMService:
                   mp.display_name,
                   mp.headline,
                   mp.location_hint,
-                  mp.strategy_summary
+                  mp.strategy_summary,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile
                 FROM actor_profiles ap
                 JOIN marketplace_public_profiles mp
                   ON mp.user_id = ap.user_id
@@ -4810,6 +5105,7 @@ class RIAIAMService:
                 WHERE
                   ap.investor_marketplace_opt_in = TRUE
                   AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
                 ORDER BY mp.display_name ASC
                 LIMIT $2
                 """,

@@ -6,11 +6,13 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
 const HOT_GET_CACHE_TTL_MS = 30 * 1000;
 const HOT_GET_STALE_TTL_MS = 10 * 60 * 1000;
+const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000);
 const hotGetCache = new Map<string, { status: number; payload: unknown; cachedAt: number }>();
 const hotGetInflight = new Map<string, Promise<{ status: number; payload: unknown }>>();
 
@@ -84,7 +86,7 @@ async function proxyRequest(
         method,
         headers,
         body,
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
       const payload = await response
         .json()

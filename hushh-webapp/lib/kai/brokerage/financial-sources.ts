@@ -316,6 +316,71 @@ export function setActiveStatementSnapshot(
   return nextFinancial;
 }
 
+type HoldingLike = {
+  symbol?: string;
+  name?: string;
+  asset_type?: string;
+  asset_class?: string;
+  is_cash_equivalent?: boolean;
+  market_value?: number;
+};
+
+function isCashEquivalentHolding(row: HoldingLike): boolean {
+  if (row.is_cash_equivalent === true) return true;
+  const hint = `${row.symbol || ""} ${row.name || ""} ${row.asset_type || ""}`.toLowerCase();
+  return (
+    hint.includes("cash") ||
+    hint.includes("money market") ||
+    hint.includes("sweep") ||
+    hint.includes("retail prime") ||
+    hint.includes("first american")
+  );
+}
+
+function computeAllocationPct(holdings: HoldingLike[]): {
+  cash: number;
+  equities: number;
+  bonds: number;
+  other: number;
+} {
+  let totalValue = 0;
+  let cashValue = 0;
+  let equitiesValue = 0;
+  let bondsValue = 0;
+
+  for (const h of holdings) {
+    const mv = typeof h.market_value === "number" ? h.market_value : 0;
+    if (mv <= 0) continue;
+    totalValue += mv;
+
+    if (isCashEquivalentHolding(h)) {
+      cashValue += mv;
+      continue;
+    }
+
+    const assetType = String(h.asset_type || h.asset_class || "").toLowerCase();
+    if (
+      assetType.includes("bond") ||
+      assetType.includes("fixed income") ||
+      assetType.includes("treasury") ||
+      assetType.includes("debt")
+    ) {
+      bondsValue += mv;
+    } else {
+      equitiesValue += mv;
+    }
+  }
+
+  if (totalValue <= 0) return { cash: 0, equities: 0, bonds: 0, other: 0 };
+
+  const round4 = (n: number) => Math.round(n * 10000) / 10000;
+  const cash = round4(cashValue / totalValue);
+  const equities = round4(equitiesValue / totalValue);
+  const bonds = round4(bondsValue / totalValue);
+  const other = round4(Math.max(0, 1 - cash - equities - bonds));
+  return { cash, equities, bonds, other };
+}
+
 export function buildFinancialDomainSummary(financial: AnyObj | null | undefined): AnyObj {
   const activeSource = cleanText(getSources(financial).active_source) ?? "statement";
   const statementSnapshots = getStatementSnapshots(financial);
@@ -324,14 +389,24 @@ export function buildFinancialDomainSummary(financial: AnyObj | null | undefined
   const holdings = Array.isArray(portfolio?.holdings) ? portfolio.holdings : [];
   const accountInfo = asRecord(portfolio?.account_info);
 
+  const cashHoldings = holdings.filter((h) => isCashEquivalentHolding(h));
+  const investableHoldings = holdings.filter((h) => !isCashEquivalentHolding(h));
+  const accountSummary = asRecord(portfolio?.account_summary);
+  const riskProfile = cleanText(asRecord(financial)?.risk_profile) ?? cleanText(accountSummary?.risk_profile) ?? null;
+  const allocationPct = computeAllocationPct(holdings);
+
   return {
     intent_source: "kai_portfolio_sources",
     active_source: activeSource,
     attribute_count: holdings.length,
     item_count: holdings.length,
     holdings_count: holdings.length,
+    investable_positions_count: investableHoldings.length,
+    cash_positions_count: cashHoldings.length,
     documents_count: statementSnapshots.length,
     plaid_item_count: plaidItems.length,
+    risk_profile: riskProfile,
+    asset_allocation_pct: allocationPct,
     last_brokerage:
       cleanText(accountInfo?.brokerage) ??
       cleanText(accountInfo?.brokerage_name) ??

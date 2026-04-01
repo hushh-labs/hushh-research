@@ -36,6 +36,12 @@ export type ObservabilityEventName =
   | "profile_method_switch_result"
   | "account_delete_requested"
   | "account_delete_completed"
+  | "gmail_connect_started"
+  | "gmail_connect_result"
+  | "gmail_disconnect_result"
+  | "gmail_sync_requested"
+  | "gmail_sync_result"
+  | "gmail_receipts_loaded"
   | "api_request_completed";
 
 export type StatusBucket =
@@ -184,6 +190,28 @@ export interface EventPayloadMap {
   account_delete_completed: {
     result: EventResult;
     status_bucket?: StatusBucket;
+  };
+  gmail_connect_started: {
+    action: "incremental" | "full";
+    result: "success";
+  };
+  gmail_connect_result: {
+    action: "start" | "complete";
+    result: EventResult;
+  };
+  gmail_disconnect_result: {
+    result: EventResult;
+  };
+  gmail_sync_requested: {
+    action: "manual";
+    result: "success";
+  };
+  gmail_sync_result: {
+    action: "queue" | "already_running";
+    result: EventResult;
+  };
+  gmail_receipts_loaded: {
+    result: EventResult;
   };
   api_request_completed: {
     route_id?: RouteId;

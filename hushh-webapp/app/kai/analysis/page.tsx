@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, BarChart3, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -18,6 +19,7 @@ import { AnalysisHistoryDashboard } from "@/components/kai/views/analysis-histor
 import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-view";
 import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -43,6 +45,7 @@ import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
+import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
 type WorkspaceTab = "debate" | "summary" | "detailed";
@@ -132,6 +135,7 @@ function KaiAnalysisPageContent() {
   const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
   const [showHistoryWhileActive, setShowHistoryWhileActive] = useState(false);
+  const [historyCount, setHistoryCount] = useState(0);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("debate");
   const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
@@ -170,22 +174,26 @@ function KaiAnalysisPageContent() {
   );
 
   useEffect(() => {
-    const hasTabParam = searchParams.has("tab");
-    const focus = searchParams.get("focus");
-    const hasFocusActive = focus === "active";
-    const hasRunIdParam = searchParams.has("run_id");
-    const runIdParam = searchParams.get("run_id");
-    if (!hasTabParam && !hasFocusActive && !hasRunIdParam) return;
+    const routeIntent = deriveAnalysisRouteIntent(new URLSearchParams(searchParams.toString()));
+    if (!routeIntent.shouldApply) return;
 
-    if (hasFocusActive || hasRunIdParam) {
-      if (runIdParam && runIdParam.trim()) {
-        setFocusedRunId(runIdParam.trim());
+    if (routeIntent.focusActive || routeIntent.runId) {
+      if (routeIntent.runId) {
+        setFocusedRunId(routeIntent.runId);
       }
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       requestAnimationFrame(() => {
         workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       });
+    } else if (routeIntent.showHistory) {
+      setFocusedRunId(null);
+      setShowHistoryWhileActive(true);
+      setWorkspaceTab("debate");
+    } else if (routeIntent.workspaceTab) {
+      setFocusedRunId(null);
+      setShowHistoryWhileActive(false);
+      setWorkspaceTab(routeIntent.workspaceTab);
     }
 
     const params = new URLSearchParams(searchParams.toString());
@@ -651,7 +659,7 @@ function KaiAnalysisPageContent() {
         <AppPageShell as="div" width="wide">
           <AppPageHeaderRegion>
             <PageHeader
-              eyebrow="Kai Analysis"
+              eyebrow="Kai"
               title="Analysis"
               description="Move between live debate, summary, and detailed review without losing the current ticker context."
               icon={BarChart3}
@@ -678,9 +686,12 @@ function KaiAnalysisPageContent() {
             <SurfaceCard>
               <SurfaceCardContent className="px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h1 className="text-2xl font-black tracking-tighter text-foreground sm:text-3xl">
-                  {activeTicker}
-                </h1>
+                <div className="flex items-center gap-3">
+                  <SymbolAvatar symbol={activeTicker} name={activeTicker} size="lg" />
+                  <h1 className="text-2xl font-black tracking-tighter text-foreground sm:text-3xl">
+                    {activeTicker}
+                  </h1>
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold tabular-nums text-muted-foreground sm:text-base">
                     {headerPriceLabel}
@@ -845,8 +856,15 @@ function KaiAnalysisPageContent() {
         <AppPageShell as="div" width="wide">
           <AppPageHeaderRegion>
             <PageHeader
-              eyebrow="Kai Analysis"
-              title="Analysis"
+              eyebrow="Kai"
+              title={
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  Analysis
+                  {historyCount > 0 ? (
+                    <Badge variant="secondary" className="text-[10px]">{historyCount}</Badge>
+                  ) : null}
+                </span>
+              }
               description="Review saved debates, reopen active analysis, and keep the running history of Kai decisions in one place."
               icon={BarChart3}
               accent="violet"
@@ -897,6 +915,7 @@ function KaiAnalysisPageContent() {
             vaultOwnerToken={vaultOwnerToken || ""}
             onSelectTicker={handleSelectTicker}
             onViewHistory={handleViewHistory}
+            onHistoryCount={setHistoryCount}
             showDebateInputs={false}
             ephemeralEntry={historyFallbackEntry}
           />

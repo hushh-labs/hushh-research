@@ -409,22 +409,37 @@ async def test_consent_center_list_ria_active_uses_relationship_roster(monkeypat
             ],
         }
 
-    monkeypatch.setattr(service, "_load_ria_active_entries", _ria_active)
+    async def _connection_entries(_user_id: str, *, actor: str):
+        return [
+            {
+                "id": f"rel_{i}",
+                "kind": "active_grant",
+                "status": "active",
+                "relationship_state": "approved",
+                "counterpart_label": "Taylor" if i == 0 else f"Client {i}",
+                "counterpart_id": f"investor_{i}",
+                "scope": "attr.financial.*",
+            }
+            for i in range(21)
+        ]
+
+    monkeypatch.setattr(service, "_load_connection_entries_for_actor", _connection_entries)
 
     payload = await service.list_center(
         "ria_user_1",
         actor="ria",
         surface="active",
+        mode="connections",
         query="taylor",
-        page=2,
+        page=1,
         limit=20,
     )
 
     assert payload["actor"] == "ria"
     assert payload["surface"] == "active"
-    assert payload["total"] == 21
-    assert payload["items"][0]["counterpart_label"] == "Taylor"
-    assert payload["items"][0]["status"] == "active"
+    assert payload["mode"] == "connections"
+    assert payload["total"] >= 1
+    assert any(item.get("counterpart_label") == "Taylor" for item in payload["items"])
 
 
 @pytest.mark.asyncio

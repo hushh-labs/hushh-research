@@ -5,6 +5,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 export const CONSENT_CENTER_PAGE_SIZE = 20;
 
 export type ConsentCenterActor = "investor" | "ria";
+export type ConsentCenterMode = "consents" | "connections";
 export type ConsentCenterView =
   | "incoming"
   | "outgoing"
@@ -20,6 +21,8 @@ export interface ConsentCenterEntry {
   action: string;
   scope?: string | null;
   scope_description?: string | null;
+  scope_icon_name?: string | null;
+  scope_color_hex?: string | null;
   counterpart_type: "ria" | "investor" | "developer" | "self";
   counterpart_id?: string | null;
   counterpart_label?: string | null;
@@ -131,6 +134,7 @@ export interface ConsentCenterResponse {
 export interface ConsentCenterPageSummary {
   user_id: string;
   actor: ConsentCenterActor;
+  mode?: ConsentCenterMode;
   counts: {
     pending: number;
     active: number;
@@ -141,6 +145,7 @@ export interface ConsentCenterPageSummary {
 export interface ConsentCenterPageListResponse {
   user_id: string;
   actor: ConsentCenterActor;
+  mode?: ConsentCenterMode;
   surface: "pending" | "active" | "previous";
   query: string;
   page: number;
@@ -163,8 +168,8 @@ interface CreateRequestOptions {
   userId: string;
   payload: {
     subject_user_id: string;
-    requester_actor_type?: "ria";
-    subject_actor_type?: "investor";
+    requester_actor_type?: ConsentCenterActor;
+    subject_actor_type?: ConsentCenterActor;
     scope_template_id: string;
     selected_scope?: string;
     duration_mode?: "preset" | "custom";
@@ -248,16 +253,18 @@ export class ConsentCenterService {
     idToken: string;
     userId: string;
     actor?: ConsentCenterActor;
+    mode?: ConsentCenterMode;
     force?: boolean;
   }): Promise<ConsentCenterPageSummary> {
     const actor = options.actor || "investor";
-    const cacheKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(options.userId, actor);
+    const mode = options.mode || "consents";
+    const cacheKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(options.userId, `${actor}:${mode}`);
     const cache = CacheService.getInstance();
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageSummary>(cacheKey);
       if (cached) return cached;
     }
-    const query = new URLSearchParams({ actor });
+    const query = new URLSearchParams({ actor, mode });
     const response = await ApiService.apiFetch(`/api/consent/center/summary?${query.toString()}`, {
       method: "GET",
       headers: {
@@ -276,6 +283,7 @@ export class ConsentCenterService {
     idToken: string;
     userId: string;
     actor?: ConsentCenterActor;
+    mode?: ConsentCenterMode;
     surface: "pending" | "active" | "previous";
     q?: string;
     page?: number;
@@ -284,13 +292,26 @@ export class ConsentCenterService {
     force?: boolean;
   }): Promise<ConsentCenterPageListResponse> {
     const actor = options.actor || "investor";
+    const mode = options.mode || "consents";
     const q = options.q || "";
     const previewTop = typeof options.top === "number" ? Math.max(1, Math.min(options.top, 10)) : null;
     const page = previewTop ? 1 : options.page || 1;
     const limit = previewTop ?? (options.limit || CONSENT_CENTER_PAGE_SIZE);
     const cacheKey = previewTop
-      ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(options.userId, actor, options.surface, previewTop)
-      : CACHE_KEYS.CONSENT_CENTER_LIST(options.userId, actor, options.surface, q, page, limit);
+      ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(
+          options.userId,
+          `${actor}:${mode}`,
+          options.surface,
+          previewTop
+        )
+      : CACHE_KEYS.CONSENT_CENTER_LIST(
+          options.userId,
+          `${actor}:${mode}`,
+          options.surface,
+          q,
+          page,
+          limit
+        );
     const cache = CacheService.getInstance();
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageListResponse>(cacheKey);
@@ -298,6 +319,7 @@ export class ConsentCenterService {
     }
     const query = new URLSearchParams({
       actor,
+      mode,
       surface: options.surface,
     });
     if (previewTop) {
@@ -332,9 +354,9 @@ export class ConsentCenterService {
         Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify({
+        duration_mode: "preset",
         requester_actor_type: "ria",
         subject_actor_type: "investor",
-        duration_mode: "preset",
         ...payload,
       }),
     });

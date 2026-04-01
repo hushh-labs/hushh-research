@@ -7,9 +7,10 @@ import {
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
 import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
-const UPSTREAM_TIMEOUT_MS = 20_000;
+const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
 const hotGet = createHotGetJsonCache({
   freshTtlMs: 30 * 1000,
   staleTtlMs: 5 * 60 * 1000,
@@ -37,11 +38,11 @@ export async function GET(request: NextRequest) {
   try {
     const load = (async () => {
       const response = await fetch(targetUrl, {
-      method: "GET",
-      headers: createUpstreamHeaders(requestId, {
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      }),
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        method: "GET",
+        headers: createUpstreamHeaders(requestId, {
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        }),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
       const payload = await response
         .json()

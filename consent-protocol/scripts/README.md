@@ -32,6 +32,7 @@ Use the scripts here only when you are working on backend verification, migratio
 ### Inspection and Evaluation
 
 - `inspect_pkm_upgrade_state.py`: inspect per-user PKM upgrade status, runs, steps, and failure context.
+- `audit_legacy_pkm_readonly.py`: read-only redacted audit for legacy world-model / PKM blobs; decrypts locally in memory and emits structure-only output with no plaintext values.
 - `eval_pkm_structure_agent.py`: evaluate PKM structure-agent output.
 - `eval_portfolio_stream_quality.py`: evaluate portfolio/stream quality signals.
 - `run_kai_accuracy_suite.py`: maintainer-only Kai quality suite.

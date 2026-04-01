@@ -15,7 +15,9 @@
     "035_strict_zero_knowledge_consent_exports.sql",
     "036_relationship_share_grants.sql",
     "037_actor_identity_cache.sql",
-    "038_kai_alpaca_funding_orchestration.sql"
+    "038_kai_alpaca_funding_orchestration.sql",
+    "039_kai_gmail_watch_history_sync.sql",
+    "040_kai_receipt_memory_artifacts.sql"
   ],
   "groups": {
     "iam": [

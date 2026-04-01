@@ -28,6 +28,7 @@ export interface MarketplaceRia {
   strategy?: string | null;
   disclosures_url?: string | null;
   verification_status: string;
+  is_test_profile?: boolean;
   firms?: Array<{
     firm_id: string;
     legal_name: string;
@@ -42,6 +43,7 @@ export interface MarketplaceInvestor {
   headline?: string | null;
   location_hint?: string | null;
   strategy_summary?: string | null;
+  is_test_profile?: boolean;
 }
 
 export interface RiaOnboardingStatus {
@@ -381,8 +383,17 @@ export class RiaApiError extends Error {
 }
 
 function normalizeMarketplaceRia(payload: MarketplaceRia): MarketplaceRia {
-  const firms = Array.isArray(payload?.firms)
-    ? payload.firms.filter(
+  let rawFirms = payload?.firms;
+  // Backend may return firms as a JSON string — parse it
+  if (typeof rawFirms === "string") {
+    try {
+      rawFirms = JSON.parse(rawFirms);
+    } catch {
+      rawFirms = [];
+    }
+  }
+  const firms = Array.isArray(rawFirms)
+    ? rawFirms.filter(
         (
           firm
         ): firm is NonNullable<MarketplaceRia["firms"]>[number] =>
@@ -665,10 +676,12 @@ export class RiaService {
       strategy?: string;
       disclosures_url?: string;
       primary_firm_role?: string;
+      force_live_verification?: boolean;
     }
   ): Promise<{
     ria_profile_id: string;
     verification_status: string;
+    verification_provider?: string;
     advisory_status: string;
     brokerage_status: string;
     requested_capabilities: string[];
@@ -730,6 +743,7 @@ export class RiaService {
   ): Promise<{
     ria_profile_id: string;
     verification_status: string;
+    verification_provider?: string;
     advisory_status: string;
     brokerage_status: string;
     requested_capabilities: string[];
@@ -1166,6 +1180,38 @@ export class RiaService {
       method: "POST",
       idToken,
       body: payload,
+    });
+    return toJsonOrThrow(response);
+  }
+
+  static async getRenaissanceUniverse(
+    idToken: string,
+    tier?: string
+  ): Promise<{ items: RiaPickRow[]; total: number }> {
+    const params = tier ? `?tier=${encodeURIComponent(tier)}` : "";
+    const response = await authFetch(`/api/ria/universe${params}`, {
+      method: "GET",
+      idToken,
+    });
+    return toJsonOrThrow(response);
+  }
+
+  static async getRenaissanceAvoid(
+    idToken: string
+  ): Promise<{ items: Array<{ ticker: string; company_name?: string; sector?: string; category?: string; why_avoid?: string }> }> {
+    const response = await authFetch("/api/ria/universe/avoid", {
+      method: "GET",
+      idToken,
+    });
+    return toJsonOrThrow(response);
+  }
+
+  static async getRenaissanceScreening(
+    idToken: string
+  ): Promise<{ items: Array<{ section: string; rule_index: number; title: string; detail: string; value_text?: string }> }> {
+    const response = await authFetch("/api/ria/universe/screening", {
+      method: "GET",
+      idToken,
     });
     return toJsonOrThrow(response);
   }

@@ -462,6 +462,17 @@ type HeaderMarketQuote = {
   source: string;
 };
 
+function toDecisionMarketSnapshot(quote: HeaderMarketQuote | null): NonNullable<
+  NonNullable<DecisionResult["raw_card"]>["market_snapshot"]
+> {
+  return {
+    last_price: quote?.last_price ?? null,
+    change_pct: quote?.change_pct ?? null,
+    observed_at: quote?.observed_at ?? null,
+    source: quote?.source ?? "unavailable",
+  };
+}
+
 type StreamPayload = Record<string, unknown>;
 
 function toMarketNumber(value: unknown): number | null {
@@ -820,11 +831,6 @@ export function DebateStreamView({
   }, [retryCountdown]);
 
   useEffect(() => {
-    if (!showHeader) {
-      setHeaderMarketQuote(null);
-      setHeaderQuoteLoading(false);
-      return;
-    }
     if (!userId || !normalizedTicker) {
       setHeaderMarketQuote(null);
       setHeaderQuoteLoading(false);
@@ -832,9 +838,22 @@ export function DebateStreamView({
     }
     let cancelled = false;
     const cached = getCachedHeaderQuote(userId, normalizedTicker);
-    setHeaderQuoteLoading(Boolean(vaultOwnerToken) && !cached);
+    setHeaderQuoteLoading(Boolean(showHeader && vaultOwnerToken) && !cached);
     if (!cancelled) {
       setHeaderMarketQuote(cached);
+      if (cached) {
+        setDecision((prev) =>
+          prev
+            ? {
+                ...prev,
+                raw_card: {
+                  ...(prev.raw_card || {}),
+                  market_snapshot: toDecisionMarketSnapshot(cached),
+                },
+              }
+            : prev
+        );
+      }
     }
 
     if (!vaultOwnerToken) {
@@ -853,7 +872,21 @@ export function DebateStreamView({
           daysBack: 7,
         });
         if (!cancelled) {
-          setHeaderMarketQuote((prev) => pickPreferredHeaderQuote(prev, liveQuote));
+          setHeaderMarketQuote((prev) => {
+            const nextQuote = pickPreferredHeaderQuote(prev, liveQuote);
+            setDecision((currentDecision) =>
+              currentDecision
+                ? {
+                    ...currentDecision,
+                    raw_card: {
+                      ...(currentDecision.raw_card || {}),
+                      market_snapshot: toDecisionMarketSnapshot(nextQuote),
+                    },
+                  }
+                : currentDecision
+            );
+            return nextQuote;
+          });
         }
       } catch {
         // Non-blocking: keep best known cached quote in header.

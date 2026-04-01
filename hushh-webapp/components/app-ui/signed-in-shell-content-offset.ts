@@ -21,7 +21,7 @@ function normalizeLocalOffset(value?: string | null): string {
   return next.length > 0 ? next : "0px";
 }
 
-const STANDARD_PAGE_TOP_START = "75px";
+const STANDARD_PAGE_TOP_START = "32px";
 
 export function resolveSignedInShellContentOffset(params: {
   shellVisible: boolean;

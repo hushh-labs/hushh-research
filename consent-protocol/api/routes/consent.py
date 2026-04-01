@@ -561,16 +561,18 @@ async def get_consent_center(firebase_uid: str = Depends(require_firebase_auth))
 @router.get("/center/summary")
 async def get_consent_center_summary(
     actor: str = Query(default="investor"),
+    mode: str = Query(default="consents"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
-    return await service.get_center_summary(firebase_uid, actor=actor)
+    return await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
 
 
 @router.get("/center/list")
 async def get_consent_center_list(
     actor: str = Query(default="investor"),
     surface: str = Query(default="pending"),
+    mode: str = Query(default="consents"),
     q: str | None = Query(default=None),
     top: int | None = Query(default=None, ge=1, le=10),
     page: int = Query(default=1, ge=1),
@@ -582,6 +584,7 @@ async def get_consent_center_list(
         firebase_uid,
         actor=actor,
         surface=surface,
+        mode=mode,
         query=q,
         top=top,
         page=page,

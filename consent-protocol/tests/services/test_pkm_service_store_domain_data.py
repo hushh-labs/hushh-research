@@ -179,7 +179,8 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     summary_payload = service._normalize_domain_summary("financial", raw_summary_payload)
     assert summary_payload["storage_mode"] == "per_domain_blob"
     assert summary_payload["manifest_version"] == 1
-    assert "risk_profile" not in summary_payload
+    # risk_profile is now allowed through the financial domain enrichment keys
+    assert "risk_profile" in summary_payload or "risk_profile" not in raw_summary_payload
     assert summary_payload["readable_summary"] == "Kai saved a readable financial update."
     assert summary_payload["readable_highlights"] == [
         "Updated sections: Portfolio",

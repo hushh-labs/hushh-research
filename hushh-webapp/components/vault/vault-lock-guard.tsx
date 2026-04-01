@@ -38,12 +38,28 @@ interface VaultLockGuardProps {
 
 const vaultPresenceCache = new Map<string, boolean>();
 
+/**
+ * Module-level flag: once the vault has been unlocked in this JS session,
+ * never show the unlock dialog again — even if React state briefly flickers
+ * during route transitions or layout re-mounts.
+ */
+let sessionUnlockedOnce = false;
+
 // ============================================================================
 // Component
 // ============================================================================
 
+function markSessionUnlocked() {
+  sessionUnlockedOnce = true;
+}
+
 export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const { isVaultUnlocked } = useVault();
+
+  // Latch: once unlocked, remember for the rest of this JS session
+  if (isVaultUnlocked && !sessionUnlockedOnce) {
+    markSessionUnlocked();
+  }
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
@@ -145,10 +161,11 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   }, [authLoading, completeTaskStep, endTask, hasVault, isVaultUnlocked, userId]);
 
   // ============================================================================
-  // FAST PATH: If vault is unlocked (in memory), render children immediately
-  // This eliminates flicker on route changes - no state, no effects, just render
+  // FAST PATH: If vault is unlocked (in memory) OR was unlocked earlier in this
+  // session, render children immediately. The latch prevents the dialog from
+  // flashing during route transitions where React state briefly resets.
   // ============================================================================
-  if (isVaultUnlocked) {
+  if (isVaultUnlocked || sessionUnlockedOnce) {
     return <>{children}</>;
   }
 

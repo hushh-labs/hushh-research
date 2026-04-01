@@ -21,34 +21,34 @@ const ACCENT_STYLES: Record<SectionAccent, {
   divider: string;
 }> = {
   default: {
-    eyebrow: "text-muted-foreground/88",
-    icon: "border-border/70 bg-background/90 text-foreground shadow-[0_18px_38px_-28px_rgba(15,23,42,0.24)] dark:shadow-[0_22px_40px_-30px_rgba(0,0,0,0.5)]",
-    divider: "bg-border/82 dark:bg-border/72",
+    eyebrow: "text-muted-foreground",
+    icon: "bg-muted/60 text-foreground dark:bg-white/8",
+    divider: "bg-border/50",
   },
   sky: {
-    eyebrow: "text-sky-700/90 dark:text-sky-300/90",
-    icon: "border-sky-200/80 bg-sky-500/[0.08] text-sky-700 shadow-[0_18px_38px_-28px_rgba(56,189,248,0.38)] dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-200 dark:shadow-[0_22px_40px_-28px_rgba(56,189,248,0.22)]",
+    eyebrow: "text-sky-700 dark:text-sky-300",
+    icon: "bg-sky-500/10 text-sky-700 dark:bg-sky-400/10 dark:text-sky-200",
     divider: "bg-sky-300/82 dark:bg-sky-400/42",
   },
   emerald: {
-    eyebrow: "text-emerald-700/90 dark:text-emerald-300/90",
-    icon: "border-emerald-200/80 bg-emerald-500/[0.08] text-emerald-700 shadow-[0_18px_38px_-28px_rgba(16,185,129,0.34)] dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200 dark:shadow-[0_22px_40px_-28px_rgba(16,185,129,0.22)]",
-    divider: "bg-emerald-300/78 dark:bg-emerald-400/38",
+    eyebrow: "text-emerald-700 dark:text-emerald-300",
+    icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
+    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
   },
   amber: {
-    eyebrow: "text-amber-700/92 dark:text-amber-300/92",
-    icon: "border-amber-200/80 bg-amber-500/[0.08] text-amber-700 shadow-[0_18px_38px_-28px_rgba(245,158,11,0.34)] dark:border-amber-400/22 dark:bg-amber-400/10 dark:text-amber-200 dark:shadow-[0_22px_40px_-28px_rgba(245,158,11,0.22)]",
-    divider: "bg-amber-300/78 dark:bg-amber-400/38",
+    eyebrow: "text-amber-700 dark:text-amber-300",
+    icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
+    divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   rose: {
-    eyebrow: "text-rose-700/90 dark:text-rose-300/90",
-    icon: "border-rose-200/80 bg-rose-500/[0.08] text-rose-700 shadow-[0_18px_38px_-28px_rgba(244,63,94,0.34)] dark:border-rose-400/20 dark:bg-rose-400/10 dark:text-rose-200 dark:shadow-[0_22px_40px_-28px_rgba(244,63,94,0.22)]",
-    divider: "bg-rose-300/78 dark:bg-rose-400/38",
+    eyebrow: "text-rose-700 dark:text-rose-300",
+    icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
+    divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   violet: {
-    eyebrow: "text-violet-700/90 dark:text-violet-300/90",
-    icon: "border-violet-200/80 bg-violet-500/[0.08] text-violet-700 shadow-[0_18px_38px_-28px_rgba(139,92,246,0.34)] dark:border-violet-400/20 dark:bg-violet-400/10 dark:text-violet-200 dark:shadow-[0_22px_40px_-28px_rgba(139,92,246,0.22)]",
-    divider: "bg-violet-300/78 dark:bg-violet-400/38",
+    eyebrow: "text-violet-700 dark:text-violet-300",
+    icon: "bg-violet-500/10 text-violet-700 dark:bg-violet-400/10 dark:text-violet-200",
+    divider: "bg-violet-300/50 dark:bg-violet-400/30",
   },
 };
 
@@ -72,9 +72,9 @@ function HeaderLeading({
   }
 
   return (
-    <span className={iconClassName}>
+    <div className={iconClassName}>
       <Icon icon={icon} size={iconSize} />
-    </span>
+    </div>
   );
 }
 
@@ -104,42 +104,40 @@ export function PageHeader({
       data-slot="page-header"
       data-page-primary="true"
     >
-      <div className="flex flex-col gap-[var(--page-header-row-gap)] lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-3xl min-w-0 space-y-[var(--page-header-copy-gap)]">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <HeaderLeading
-              icon={icon}
-              leading={leading}
-              iconSize="lg"
-              iconClassName={cn(
-                "inline-flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-[18px] border sm:h-11 sm:w-11 sm:rounded-[20px]",
-                styles.icon
+      <div className="flex items-stretch gap-3 sm:gap-4">
+        {icon || leading ? (
+          <HeaderLeading
+            icon={icon}
+            leading={leading}
+            iconSize="lg"
+            iconClassName={cn(
+              "flex w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] sm:w-12",
+              styles.icon
+            )}
+          />
+        ) : null}
+        <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
+          {eyebrow ? (
+            <p
+              className={cn(
+                "text-xs font-semibold uppercase tracking-[0.24em]",
+                styles.eyebrow
               )}
-            />
-            <div className="min-w-0 space-y-1">
-              {eyebrow ? (
-                <p
-                  className={cn(
-                    "text-[10px] font-semibold uppercase tracking-[0.28em]",
-                    styles.eyebrow
-                  )}
-                >
-                  {eyebrow}
-                </p>
-              ) : null}
-              <h1 className="text-[clamp(1.28rem,3vw,1.95rem)] font-semibold tracking-tight leading-[1.05] text-foreground">
-                {title}
-              </h1>
-            </div>
-          </div>
+            >
+              {eyebrow}
+            </p>
+          ) : null}
+          <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
+            {title}
+          </h1>
           {description ? (
-            <div className="max-w-2xl text-[13px] leading-5 text-muted-foreground sm:text-[14px]">
+            <div className="max-w-2xl text-sm leading-6 text-muted-foreground">
               {description}
             </div>
           ) : null}
         </div>
         {actions ? (
-          <div className="flex flex-wrap gap-[var(--page-header-actions-gap)]">{actions}</div>
+          <div className="flex shrink-0 items-center gap-2">{actions}</div>
         ) : null}
       </div>
       <div className={cn("h-px w-full", styles.divider)} />
@@ -169,44 +167,33 @@ export function SectionHeader({
   const styles = ACCENT_STYLES[accent];
   return (
     <div className={cn("space-y-[var(--section-header-stack-gap)]", className)}>
-      <div className="flex flex-col gap-[var(--section-header-row-gap)] sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-[var(--section-header-copy-gap)]">
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <HeaderLeading
-              icon={icon}
-              leading={leading}
-              iconSize="md"
-              iconClassName={cn(
-                "inline-flex h-9 w-9 shrink-0 self-center items-center justify-center rounded-[16px] border sm:h-10 sm:w-10 sm:rounded-[18px]",
-                styles.icon
-              )}
-            />
-            <div className="min-w-0 space-y-1">
-              {eyebrow ? (
-                <p
-                  className={cn(
-                    "text-[10px] font-semibold uppercase tracking-[0.22em]",
-                    styles.eyebrow
-                  )}
-                >
-                  {eyebrow}
-                </p>
-              ) : null}
-              <h2 className="text-[14px] font-semibold tracking-tight leading-[1.08] text-foreground sm:text-[16px]">
-                {title}
-              </h2>
-            </div>
-          </div>
+      <div className="flex items-stretch gap-3">
+        {icon || leading ? (
+          <HeaderLeading
+            icon={icon}
+            leading={leading}
+            iconSize="md"
+            iconClassName={cn(
+              "flex w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] sm:w-10",
+              styles.icon
+            )}
+          />
+        ) : null}
+        <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
+          {eyebrow ? (
+            <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
+              {eyebrow}
+            </p>
+          ) : null}
+          <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+            {title}
+          </h2>
           {description ? (
-            <div className="text-[13px] leading-5 text-muted-foreground sm:text-[14px]">
-              {description}
-            </div>
+            <div className="text-sm leading-6 text-muted-foreground">{description}</div>
           ) : null}
         </div>
         {actions ? (
-          <div className="flex shrink-0 flex-wrap gap-[var(--section-header-actions-gap)]">
-            {actions}
-          </div>
+          <div className="flex shrink-0 items-center gap-2">{actions}</div>
         ) : null}
       </div>
       <div className={cn("h-px w-full", styles.divider)} />

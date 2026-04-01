@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
+  Compass,
   FileSpreadsheet,
   LayoutDashboard,
   LineChart,
@@ -30,8 +31,8 @@ import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 import { useVault } from "@/lib/vault/vault-context";
 
-type InvestorNavKey = "dashboard" | "market" | "analysis" | "profile";
-type RiaNavKey = "home" | "clients" | "picks" | "profile";
+type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
+type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
 type NavKey = InvestorNavKey | RiaNavKey;
 
 export const Navbar = () => {
@@ -116,6 +117,12 @@ export const Navbar = () => {
               dataTourId: "nav-ria-picks",
             },
             {
+              value: "connect",
+              label: "Connect",
+              icon: Compass,
+              dataTourId: "nav-ria-connect",
+            },
+            {
               value: "profile",
               label: "Profile",
               icon: User,
@@ -125,22 +132,28 @@ export const Navbar = () => {
           ]
         : [
             {
-              value: "dashboard",
-              label: "Portfolio",
-              icon: LayoutDashboard,
-              dataTourId: "nav-portfolio",
-            },
-            {
               value: "market",
               label: "Market",
               icon: Store,
               dataTourId: "nav-market",
             },
             {
+              value: "dashboard",
+              label: "Portfolio",
+              icon: LayoutDashboard,
+              dataTourId: "nav-portfolio",
+            },
+            {
               value: "analysis",
               label: "Analysis",
               icon: LineChart,
               dataTourId: "nav-analysis",
+            },
+            {
+              value: "connect",
+              label: "Connect",
+              icon: Compass,
+              dataTourId: "nav-connect",
             },
             {
               value: "profile",
@@ -208,6 +221,9 @@ export const Navbar = () => {
       case "analysis":
         router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);
         return;
+      case "connect":
+        router.push(ROUTES.MARKETPLACE);
+        return;
       case "home":
         router.push(ROUTES.RIA_HOME);
         return;
@@ -260,8 +276,8 @@ export const Navbar = () => {
           ariaLabel="Main navigation"
           className={cn(
             "relative z-10 w-full chrome-bottom-foreground",
-            !isVaultUnlocked &&
-              "!border-border/80 !bg-background/92 !backdrop-blur-none shadow-[0_10px_22px_rgba(15,23,42,0.08)] dark:!bg-background/94"
+            "!border-0 !bg-background/80 !backdrop-blur-[var(--blur-standard)]",
+            "dark:!bg-background/90"
           )}
         />
       </div>
