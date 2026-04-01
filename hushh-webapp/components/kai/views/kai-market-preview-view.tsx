@@ -7,7 +7,6 @@ import {
   ArrowUpRight,
   BriefcaseBusiness,
   ChartColumnIncreasing,
-  ChevronDown,
   Cpu,
   ExternalLink,
   LineChart,
@@ -36,7 +35,6 @@ import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
 import { Badge } from "@/components/ui/badge";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -336,7 +334,7 @@ function signalDetailGroups(
 function signalEvidenceLines(
   signal: KaiHomeSignal | undefined,
   payload: KaiHomeInsightsV2 | null,
-  pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
+  _pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
 ): string[] {
   if (!signal) return [];
   const signalId = String(signal.id || "").trim().toLowerCase();
@@ -437,7 +435,7 @@ function SpotlightFeatureTile({
 }) {
   const decision = toSpotlightDecision(row.recommendation);
   const primaryHref = toSafeHttpUrl(row.headline_url) || `/kai/analysis?symbol=${encodeURIComponent(row.symbol)}`;
-  const confidenceLabel = spotlightConfidenceLabel(row);
+  const _confidenceLabel = spotlightConfidenceLabel(row);
   const summary = summarizeSpotlight(row);
   const context = spotlightContextLabel(row);
   const companyName = String(row.company_name || row.symbol || "Unknown").trim();
@@ -710,13 +708,13 @@ function toBreadthMetric(payload: KaiHomeInsightsV2 | null): MarketOverviewMetri
   if (spread <= -4) value = "Narrow leadership";
   if (degraded && trackedCount === 0) value = "Updating";
 
-  const topHigher = Array.isArray(movers?.gainers)
+  const _topHigher = Array.isArray(movers?.gainers)
     ? movers.gainers
         .map((row) => String(row?.symbol || "").trim().toUpperCase())
         .filter(Boolean)
         .slice(0, 3)
     : [];
-  const topLower = Array.isArray(movers?.losers)
+  const _topLower = Array.isArray(movers?.losers)
     ? movers.losers
         .map((row) => String(row?.symbol || "").trim().toUpperCase())
         .filter(Boolean)
@@ -1272,7 +1270,7 @@ export function KaiMarketPreviewView() {
         : [],
     [effectivePayload]
   );
-  const scenarioSignalSupportingItems = useMemo(
+  const _scenarioSignalSupportingItems = useMemo(
     () => deriveSignalSupportingItems(scenarioSignal, pickRows),
     [pickRows, scenarioSignal]
   );

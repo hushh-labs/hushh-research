@@ -49,12 +49,16 @@ let sessionUnlockedOnce = false;
 // Component
 // ============================================================================
 
+function markSessionUnlocked() {
+  sessionUnlockedOnce = true;
+}
+
 export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const { isVaultUnlocked } = useVault();
 
   // Latch: once unlocked, remember for the rest of this JS session
-  if (isVaultUnlocked) {
-    sessionUnlockedOnce = true;
+  if (isVaultUnlocked && !sessionUnlockedOnce) {
+    markSessionUnlocked();
   }
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid ?? null;
