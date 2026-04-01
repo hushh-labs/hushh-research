@@ -738,7 +738,7 @@
     },
     {
       "id": "marketplaceConnectionPortfolioPage",
-      "pageFile": "hushh-webapp/app/marketplace/connections/[connectionId]/portfolio/page.tsx",
+      "pageFile": "hushh-webapp/app/marketplace/connections/portfolio/page.tsx",
       "serviceFiles": [
         "hushh-webapp/lib/services/connection-center-service.ts",
         "hushh-webapp/lib/services/ria-service.ts"

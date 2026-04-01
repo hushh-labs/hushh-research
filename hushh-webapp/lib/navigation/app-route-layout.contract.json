@@ -136,10 +136,10 @@
     }
   },
   {
-    "route": "/marketplace/connections/*/portfolio",
+    "route": "/marketplace/connections/portfolio",
     "mode": "standard",
     "shellVerification": {
-      "file": "app/marketplace/connections/[connectionId]/portfolio/page.tsx",
+      "file": "app/marketplace/connections/portfolio/page.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion"]
     }
   },

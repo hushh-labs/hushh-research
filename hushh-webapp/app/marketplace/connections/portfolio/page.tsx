@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpRight, ChevronRight, Loader2, WalletCards } from "lucide-react";
 
 import {
@@ -90,11 +90,11 @@ function AllocationBar({ allocation }: { allocation: Record<string, unknown> }) 
 }
 
 export default function ConnectionPortfolioPage() {
-  const params = useParams<{ connectionId: string }>();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { user } = useAuth();
   const { activePersona } = usePersonaState();
-  const connectionId = decodeURIComponent(String(params?.connectionId || ""));
+  const connectionId = searchParams.get("connectionId") || "";
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -161,27 +161,6 @@ export default function ConnectionPortfolioPage() {
   return (
     <AppPageShell as="main" width="profile" className="pb-24">
       <AppPageHeaderRegion>
-        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <button
-            type="button"
-            className="hover:text-foreground transition-colors"
-            onClick={() => router.push(buildMarketplaceConnectionsRoute({ tab: "active" }))}
-          >
-            Connections
-          </button>
-          <ChevronRight className="h-3 w-3" />
-          <button
-            type="button"
-            className="hover:text-foreground transition-colors"
-            onClick={() =>
-              router.push(buildMarketplaceConnectionsRoute({ tab: "active", selected: connectionId }))
-            }
-          >
-            {workspace?.investor_display_name || "Connection"}
-          </button>
-          <ChevronRight className="h-3 w-3" />
-          <span className="text-foreground">Portfolio</span>
-        </div>
         <PageHeader
           eyebrow="Connect"
           title={workspace?.investor_display_name || "Portfolio explorer"}
@@ -276,7 +255,7 @@ export default function ConnectionPortfolioPage() {
               {summaryRows.length > 0 ? (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   {summaryRows.map(([label, value]) => (
-                    <div key={label} className="rounded-[18px] border border-border/70 bg-background/70 p-4">
+                    <div key={label} className="rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
                       <p className="mt-2 text-lg font-semibold text-foreground">{String(value)}</p>
                     </div>

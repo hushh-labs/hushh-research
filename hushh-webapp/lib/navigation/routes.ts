@@ -63,7 +63,7 @@ export function buildMarketplaceConnectionsRoute(entries?: {
 export function buildMarketplaceConnectionPortfolioRoute(connectionId?: string | null) {
   const normalized = String(connectionId ?? "").trim();
   if (!normalized) return ROUTES.MARKETPLACE_CONNECTIONS;
-  return `${ROUTES.MARKETPLACE_CONNECTIONS}/${encodeURIComponent(normalized)}/portfolio`;
+  return withQuery(`${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`, { connectionId: normalized });
 }
 
 export function buildRiaWorkspaceRoute(clientId?: string | null) {
