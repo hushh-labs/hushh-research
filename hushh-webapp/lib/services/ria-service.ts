@@ -1184,6 +1184,38 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
+  static async getRenaissanceUniverse(
+    idToken: string,
+    tier?: string
+  ): Promise<{ items: RiaPickRow[]; total: number }> {
+    const params = tier ? `?tier=${encodeURIComponent(tier)}` : "";
+    const response = await authFetch(`/api/ria/universe${params}`, {
+      method: "GET",
+      idToken,
+    });
+    return toJsonOrThrow(response);
+  }
+
+  static async getRenaissanceAvoid(
+    idToken: string
+  ): Promise<{ items: Array<{ ticker: string; company_name?: string; sector?: string; category?: string; why_avoid?: string }> }> {
+    const response = await authFetch("/api/ria/universe/avoid", {
+      method: "GET",
+      idToken,
+    });
+    return toJsonOrThrow(response);
+  }
+
+  static async getRenaissanceScreening(
+    idToken: string
+  ): Promise<{ items: Array<{ section: string; rule_index: number; title: string; detail: string; value_text?: string }> }> {
+    const response = await authFetch("/api/ria/universe/screening", {
+      method: "GET",
+      idToken,
+    });
+    return toJsonOrThrow(response);
+  }
+
   static async resolveInvite(inviteToken: string): Promise<RiaInviteResolution> {
     const response = await ApiService.apiFetch(`/api/invites/${encodeURIComponent(inviteToken)}`, {
       method: "GET",
