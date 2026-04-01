@@ -2,22 +2,33 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileSpreadsheet, Loader2, Upload, Waves } from "lucide-react";
+import {
+  Crown,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+  Medal,
+  Search,
+  Star,
+  Trophy,
+  Upload,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import {
-  RiaCompatibilityState,
-  RiaPageShell,
-  RiaStatusPanel,
-  RiaSurface,
-} from "@/components/ria/ria-page-shell";
-import { SectionHeader } from "@/components/app-ui/page-sections";
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
-import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
@@ -26,37 +37,40 @@ import {
   type RiaPickRow,
   type RiaPickUploadRecord,
 } from "@/lib/services/ria-service";
+import { cn } from "@/lib/utils";
 
-function statusTone(status: string) {
-  switch (status) {
-    case "active":
-      return "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-300";
-    case "superseded":
-      return "bg-sky-500/10 text-sky-700 border-sky-500/20 dark:text-sky-300";
-    case "failed":
-      return "bg-rose-500/10 text-rose-700 border-rose-500/20 dark:text-rose-300";
-    default:
-      return "bg-muted text-muted-foreground border-border";
-  }
-}
+const TIER_CONFIG: Record<string, { icon: typeof Crown; color: string; label: string }> = {
+  ACE: { icon: Crown, color: "text-fuchsia-600 dark:text-fuchsia-400", label: "ACE" },
+  KING: { icon: Trophy, color: "text-amber-600 dark:text-amber-400", label: "KING" },
+  QUEEN: { icon: Star, color: "text-violet-600 dark:text-violet-400", label: "QUEEN" },
+  JACK: { icon: Medal, color: "text-sky-600 dark:text-sky-400", label: "JACK" },
+};
 
-function formatDate(value?: string | null) {
-  if (!value) return "Pending";
-  return new Date(value).toLocaleString();
+function TierBadge({ tier }: { tier?: string | null }) {
+  const normalized = String(tier || "").toUpperCase();
+  const config = TIER_CONFIG[normalized];
+  if (!config) return <Badge variant="secondary" className="text-[10px]">{tier || "—"}</Badge>;
+  const Icon = config.icon;
+  return (
+    <span className={cn("inline-flex items-center gap-1 text-xs font-semibold", config.color)}>
+      <Icon className="h-3.5 w-3.5" />
+      {config.label}
+    </span>
+  );
 }
 
 export default function RiaPicksPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const {
-    riaCapability,
-    loading: personaLoading,
-    refreshing: personaRefreshing,
-  } = usePersonaState();
+  const { riaCapability, loading: personaLoading, refreshing: personaRefreshing } = usePersonaState();
+
+  const [tab, setTab] = useState<"active" | "upload">("active");
+  const [searchQuery, setSearchQuery] = useState("");
   const [label, setLabel] = useState("");
-  const [fileName, setFileName] = useState<string>("");
-  const [fileContent, setFileContent] = useState<string>("");
+  const [fileName, setFileName] = useState("");
+  const [fileContent, setFileContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
   const picksResource = useStaleResource<{
     items: RiaPickUploadRecord[];
     active_rows: RiaPickRow[];
@@ -64,15 +78,12 @@ export default function RiaPicksPage() {
     cacheKey: user?.uid ? `ria_picks_${user.uid}` : "ria_picks_guest",
     enabled: Boolean(user?.uid && (riaCapability !== "setup" || personaRefreshing)),
     load: async () => {
-      if (!user?.uid) {
-        throw new Error("Sign in to manage advisor picks");
-      }
+      if (!user?.uid) throw new Error("Sign in to manage picks");
       const idToken = await user.getIdToken();
       return RiaService.listPicks(idToken, { userId: user.uid });
     },
   });
 
-  const uploads = useMemo(() => picksResource.data?.items || [], [picksResource.data?.items]);
   const activeRows = picksResource.data?.active_rows || [];
   const loading = picksResource.loading;
   const error = picksResource.error;
@@ -84,20 +95,26 @@ export default function RiaPicksPage() {
     }
   }, [personaLoading, personaRefreshing, riaCapability, router]);
 
-  const activeUpload = useMemo(
-    () => uploads.find((item) => item.status === "active") || uploads[0] || null,
-    [uploads]
-  );
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return activeRows;
+    return activeRows.filter(
+      (r) =>
+        r.ticker.toLowerCase().includes(q) ||
+        (r.company_name || "").toLowerCase().includes(q) ||
+        (r.sector || "").toLowerCase().includes(q) ||
+        (r.tier || "").toLowerCase().includes(q)
+    );
+  }, [activeRows, searchQuery]);
 
-  async function onFileSelected(file: File | null) {
-    if (!file) {
-      setFileName("");
-      setFileContent("");
-      return;
+  const tierCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of activeRows) {
+      const tier = String(row.tier || "OTHER").toUpperCase();
+      counts[tier] = (counts[tier] || 0) + 1;
     }
-    setFileName(file.name);
-    setFileContent(await file.text());
-  }
+    return counts;
+  }, [activeRows]);
 
   async function onUpload() {
     if (!user || !fileContent.trim()) return;
@@ -109,219 +126,201 @@ export default function RiaPicksPage() {
         source_filename: fileName || undefined,
         label: label.trim() || undefined,
       });
-      toast.success("RIA picks uploaded", {
-        description: "The new upload is now the active picks list for this advisor.",
-      });
+      toast.success("Picks uploaded", { description: "Active list updated." });
       setLabel("");
       setFileName("");
       setFileContent("");
-      await picksResource.refresh({ force: true });
-    } catch (uploadError) {
-      toast.error(uploadError instanceof Error ? uploadError.message : "Failed to upload picks");
+      setTab("active");
+      void picksResource.refresh({ force: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setSubmitting(false);
     }
   }
 
+  if (personaLoading) return null;
+  if (riaCapability === "setup") {
+    return <RiaCompatibilityState title="Complete RIA onboarding" description="Finish onboarding to manage picks." />;
+  }
+
   return (
-    <RiaPageShell
-      eyebrow="RIA Picks"
-      title="Advisor picks feed"
-      description="Keep one current investor-facing list live, keep prior uploads traceable, and avoid turning this into a reporting dashboard."
-      icon={FileSpreadsheet}
-      statusPanel={
-        iamUnavailable ? null : (
-          <RiaStatusPanel
-            title="List state before row detail"
-            description="Keep the active upload, history depth, and current row count visible before the advisor starts editing files or reviewing rows."
-            dataTestId="ria-picks-primary"
-            items={[
-              {
-                label: "Active upload",
-                value: activeUpload?.label || "None yet",
-                helper: activeUpload ? "Current investor-facing list" : "Upload a CSV to activate your first list",
-                tone: activeUpload ? "success" : "neutral",
-              },
-              {
-                label: "History",
-                value: loading ? "..." : String(uploads.length),
-                helper: "Uploads retained for traceability",
-                tone: uploads.length > 1 ? "neutral" : "warning",
-              },
-              {
-                label: "Active rows",
-                value: loading ? "..." : String(activeRows.length),
-                helper: "Rows exposed in the active advisor list",
-                tone: activeRows.length > 0 ? "success" : "warning",
-              },
-              {
-                label: "Template",
-                value: "Renaissance CSV",
-                helper: "Same schema as the default investor list",
-                tone: "neutral",
-              },
+    <AppPageShell as="main" width="wide" className="pb-28">
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow="Picks"
+          title={
+            <span className="inline-flex flex-wrap items-center gap-2">
+              Advisor picks
+              {activeRows.length > 0 ? (
+                <Badge variant="secondary" className="text-[10px]">{activeRows.length}</Badge>
+              ) : null}
+            </span>
+          }
+          description="Your active stock picks list. Investors see these in their Kai market view."
+          icon={FileSpreadsheet}
+          accent="emerald"
+          actions={
+            <Button asChild variant="none" effect="fade" size="sm">
+              <a href="/templates/ria-picks-template.csv" download>
+                <Download className="mr-2 h-4 w-4" />
+                Template
+              </a>
+            </Button>
+          }
+        />
+      </AppPageHeaderRegion>
+
+      <AppPageContentRegion>
+        <div className="flex flex-col gap-6">
+          <SettingsSegmentedTabs
+            value={tab}
+            onValueChange={(v) => setTab(v as typeof tab)}
+            options={[
+              { value: "active", label: `Active list (${activeRows.length})` },
+              { value: "upload", label: "Upload new" },
             ]}
           />
-        )
-      }
-      actions={
-        <Button asChild variant="none" effect="fade">
-          <a href="/templates/ria-picks-template.csv" download>
-            <Download className="mr-2 h-4 w-4" />
-            Download template
-          </a>
-        </Button>
-      }
-    >
-      {iamUnavailable ? (
-        <RiaCompatibilityState
-          title="RIA picks are waiting on the IAM rollout"
-          description="The page is ready, but this environment still needs the IAM schema and pick-list tables before uploads can be activated."
-        />
-      ) : null}
 
-      {!iamUnavailable ? (
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-          <section className="space-y-3" data-testid="ria-picks-upload">
-            <SectionHeader
-              eyebrow="Upload"
-              title="Drop in the next active picks list"
-              description="Cached state stays visible while fresh upload history syncs quietly in the background."
-              icon={Upload}
+          {iamUnavailable ? (
+            <RiaCompatibilityState
+              title="Waiting on IAM schema"
+              description="Pick lists need the IAM tables before they can activate."
             />
-            <RiaSurface className="space-y-4 p-4">
-              <Input
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                placeholder="Upload label, for example Q2 growth rotation"
-              />
-              <Input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) => void onFileSelected(event.target.files?.[0] || null)}
-              />
-              {fileName ? (
-                <p className="text-sm text-muted-foreground">
-                  Ready to upload: <span className="font-medium text-foreground">{fileName}</span>
-                </p>
+          ) : null}
+
+          {/* ── Active List Tab ── */}
+          {!iamUnavailable && tab === "active" ? (
+            <div className="space-y-4">
+              {/* Tier summary */}
+              {activeRows.length > 0 ? (
+                <div className="flex flex-wrap gap-3">
+                  {Object.entries(TIER_CONFIG).map(([tier, config]) => {
+                    const count = tierCounts[tier] || 0;
+                    if (count === 0) return null;
+                    const Icon = config.icon;
+                    return (
+                      <div key={tier} className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-card px-3 py-2 shadow-[var(--app-card-shadow-standard)]">
+                        <Icon className={cn("h-4 w-4", config.color)} />
+                        <span className="text-sm font-semibold text-foreground">{count}</span>
+                        <span className="text-xs text-muted-foreground">{tier}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : null}
-              {error && !iamUnavailable ? <p className="text-sm text-red-500">{error}</p> : null}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="blue-gradient"
-                  effect="fill"
-                  onClick={() => void onUpload()}
-                  disabled={submitting || !fileContent.trim()}
-                >
-                  {submitting ? "Uploading..." : "Upload and activate"}
-                </Button>
-                <Button asChild variant="none" effect="fade">
-                  <a href="/templates/ria-picks-template.csv" download>
-                    Download sample CSV
-                  </a>
-                </Button>
-              </div>
-            </RiaSurface>
-          </section>
 
-          <section className="space-y-3">
-            <SectionHeader
-              eyebrow="Active list"
-              title="What investors will compare against today"
-              description="The active upload is the advisor list that later search and market comparisons can resolve for linked investors."
-              icon={Waves}
-            />
-            <RiaSurface className="space-y-4 p-4" data-testid="ria-picks-active">
+              {/* Search */}
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by ticker, company, sector, or tier"
+                  className="min-h-10 border-0 bg-card pl-10 shadow-[var(--app-card-shadow-standard)]"
+                />
+              </div>
+
+              {/* Table */}
               {loading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading picks...
                 </div>
-              ) : null}
-              {!loading && picksResource.refreshing ? (
-                <p className="text-xs text-muted-foreground">
-                  Refreshing the active advisor feed in the background.
-                </p>
-              ) : null}
-              {!loading && activeRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No active rows yet. Upload a CSV using the template to populate the list.
-                </p>
-              ) : null}
-              {!loading && activeRows.length > 0 ? (
-                <SettingsGroup>
-                  {activeRows.slice(0, 20).map((row) => (
-                    <SettingsRow
-                      key={`${row.ticker}-${row.company_name || "company"}`}
-                      icon={FileSpreadsheet}
-                      title={
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span>{row.ticker}</span>
-                          {row.tier ? <Badge variant="outline">Tier {row.tier}</Badge> : null}
-                          {row.recommendation_bias ? (
-                            <Badge variant="secondary">{row.recommendation_bias}</Badge>
-                          ) : null}
-                        </div>
-                      }
-                      description={
-                        row.investment_thesis ||
-                        row.company_name ||
-                        row.sector ||
-                        "RIA active-list row"
-                      }
-                      trailing={
-                        row.fcf_billions != null ? (
-                          <Badge variant="outline">${row.fcf_billions}B FCF</Badge>
-                        ) : undefined
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
-            </RiaSurface>
+              ) : filteredRows.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  {activeRows.length === 0
+                    ? "No picks yet. Upload a CSV or use Kai defaults to get started."
+                    : "No matches for this search."}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-[var(--radius-md)] bg-card shadow-[var(--app-card-shadow-standard)]">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-border/30 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        <th className="px-4 py-3">Ticker</th>
+                        <th className="px-4 py-3">Company</th>
+                        <th className="hidden px-4 py-3 sm:table-cell">Sector</th>
+                        <th className="px-4 py-3">Tier</th>
+                        <th className="hidden px-4 py-3 md:table-cell">Thesis</th>
+                        <th className="hidden px-4 py-3 lg:table-cell">FCF</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/20">
+                      {filteredRows.map((row, i) => (
+                        <tr
+                          key={`${row.ticker}-${i}`}
+                          className="transition-colors hover:bg-muted/30"
+                        >
+                          <td className="px-4 py-3 font-semibold text-foreground">{row.ticker}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{row.company_name || "—"}</td>
+                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">{row.sector || "—"}</td>
+                          <td className="px-4 py-3"><TierBadge tier={row.tier} /></td>
+                          <td className="hidden max-w-xs truncate px-4 py-3 text-xs text-muted-foreground md:table-cell">{row.investment_thesis || "—"}</td>
+                          <td className="hidden px-4 py-3 text-muted-foreground lg:table-cell">
+                            {row.fcf_billions != null ? `$${row.fcf_billions}B` : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
 
-            <SectionHeader
-              eyebrow="Upload history"
-              title="Previous list versions stay traceable"
-              description="New uploads replace the active list, but older uploads remain in history so the advisor can audit what changed."
-              icon={FileSpreadsheet}
-            />
-            <RiaSurface className="p-4" data-testid="ria-picks-history">
-              <SettingsGroup>
-                {uploads.map((upload) => (
-                  <SettingsRow
-                    key={upload.upload_id}
-                    icon={upload.status === "active" ? Waves : FileSpreadsheet}
-                    title={
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span>{upload.label}</span>
-                        <Badge className={statusTone(upload.status)}>{upload.status}</Badge>
-                      </div>
-                    }
-                    description={
-                      upload.source_filename
-                        ? `${upload.source_filename} · ${upload.row_count} rows`
-                        : `${upload.row_count} rows`
-                    }
-                    trailing={
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(upload.created_at)}
-                      </span>
-                    }
+          {/* ── Upload Tab ── */}
+          {!iamUnavailable && tab === "upload" ? (
+            <div className="mx-auto w-full max-w-lg space-y-4">
+              <div className="rounded-[var(--radius-md)] bg-card p-5 shadow-[var(--app-card-shadow-standard)]">
+                <h3 className="text-sm font-semibold text-foreground">Upload a new picks list</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  The new list replaces the current active picks. Previous versions stay in history.
+                </p>
+                <div className="mt-4 space-y-3">
+                  <Input
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    placeholder="Label, e.g. Q2 growth rotation"
                   />
-                ))}
-                {!loading && uploads.length === 0 ? (
-                  <SettingsRow
-                    icon={FileSpreadsheet}
-                    title="No upload history yet"
-                    description="Upload the first CSV to create an investor-facing picks feed."
+                  <Input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setFileName(file.name);
+                        void file.text().then(setFileContent);
+                      }
+                    }}
                   />
-                ) : null}
-              </SettingsGroup>
-            </RiaSurface>
-          </section>
+                  {fileName ? (
+                    <p className="text-xs text-muted-foreground">
+                      Ready: <span className="font-medium text-foreground">{fileName}</span>
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="blue-gradient"
+                      effect="fill"
+                      size="sm"
+                      onClick={() => void onUpload()}
+                      disabled={submitting || !fileContent.trim()}
+                    >
+                      {submitting ? "Uploading..." : "Upload and activate"}
+                    </Button>
+                    <Button asChild variant="none" effect="fade" size="sm">
+                      <a href="/templates/ria-picks-template.csv" download>
+                        Download template CSV
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
-      ) : null}
-    </RiaPageShell>
+      </AppPageContentRegion>
+    </AppPageShell>
   );
 }
