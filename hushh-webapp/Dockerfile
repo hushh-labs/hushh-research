@@ -76,20 +76,23 @@ ENV PORT=8080
 # HOSTname required for proper listening in container
 ENV HOSTNAME="0.0.0.0"
 
-# Copy public assets
+# Copy public assets to both root and monorepo subdir paths
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/public ./hushh-webapp/public
 
 # Copy standalone build
-# This includes necessary node_modules and server.js
+# Next.js 16 outputs server.js under the project directory name when in a monorepo
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+# Also copy static into the monorepo subdirectory path for Next.js 16 compat
+COPY --from=builder /app/.next/static ./hushh-webapp/.next/static
 
 # Expose port
 EXPOSE 8080
 
-# Health check (Next.js doesn't have default /health, but / should work)
+# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-# Start Node.js server
-CMD ["node", "server.js"]
+# Start Node.js server — use the monorepo-aware path if it exists
+CMD ["sh", "-c", "if [ -f server.js ]; then node server.js; elif [ -f hushh-webapp/server.js ]; then node hushh-webapp/server.js; else echo 'server.js not found' && exit 1; fi"]
