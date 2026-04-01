@@ -383,8 +383,17 @@ export class RiaApiError extends Error {
 }
 
 function normalizeMarketplaceRia(payload: MarketplaceRia): MarketplaceRia {
-  const firms = Array.isArray(payload?.firms)
-    ? payload.firms.filter(
+  let rawFirms = payload?.firms;
+  // Backend may return firms as a JSON string — parse it
+  if (typeof rawFirms === "string") {
+    try {
+      rawFirms = JSON.parse(rawFirms);
+    } catch {
+      rawFirms = [];
+    }
+  }
+  const firms = Array.isArray(rawFirms)
+    ? rawFirms.filter(
         (
           firm
         ): firm is NonNullable<MarketplaceRia["firms"]>[number] =>
