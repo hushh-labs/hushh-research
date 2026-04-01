@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { PkmExplorerPanel } from "@/components/profile/pkm-explorer-panel";
@@ -751,43 +752,47 @@ export default function PkmAgentLabPageClient() {
         return;
       }
 
-      try {
-        setTogglingKey(
-          `${domainKey}:${changes.map((change) => change.scopeHandle || change.topLevelScopePath).join(",")}`
-        );
-        setError(null);
-        const result = await PersonalKnowledgeModelService.updateScopeExposure({
-          userId: user.uid,
-          domain: domainKey,
-          expectedManifestVersion: manifest.manifest_version,
-          revokeMatchingActiveGrants: true,
-          changes: changes.map((change) => ({
-            scopeHandle: change.scopeHandle,
-            topLevelScopePath: change.topLevelScopePath,
-            exposureEnabled: change.exposureEnabled,
-          })),
-          vaultOwnerToken,
-        });
-        setManifests((current) => ({
-          ...current,
-          [domainKey]: result.manifest,
-        }));
-        await loadBootstrap(true);
-        setNaturalRefreshToken((value) => value + 1);
-        setSaveMessage(
-          result.revokedGrantCount > 0
-            ? `Updated permissions and revoked ${result.revokedGrantCount} overlapping active grant${result.revokedGrantCount === 1 ? "" : "s"}.`
-            : "Updated PKM permissions."
-        );
-      } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : "Failed to update PKM permissions."
-        );
-      } finally {
-        setTogglingKey(null);
-      }
+      setTogglingKey(
+        `${domainKey}:${changes.map((change) => change.scopeHandle || change.topLevelScopePath).join(",")}`
+      );
+      setError(null);
+
+      // Fire in background — don't block UI
+      void (async () => {
+        try {
+          const result = await PersonalKnowledgeModelService.updateScopeExposure({
+            userId: user.uid,
+            domain: domainKey,
+            expectedManifestVersion: manifest.manifest_version,
+            revokeMatchingActiveGrants: true,
+            changes: changes.map((change) => ({
+              scopeHandle: change.scopeHandle,
+              topLevelScopePath: change.topLevelScopePath,
+              exposureEnabled: change.exposureEnabled,
+            })),
+            vaultOwnerToken,
+          });
+          setManifests((current) => ({
+            ...current,
+            [domainKey]: result.manifest,
+          }));
+          void loadBootstrap(true);
+          setNaturalRefreshToken((value) => value + 1);
+          toast.success(
+            result.revokedGrantCount > 0
+              ? `Permissions updated, ${result.revokedGrantCount} grant${result.revokedGrantCount === 1 ? "" : "s"} revoked`
+              : "Permissions updated"
+          );
+        } catch (nextError) {
+          toast.error(
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to update PKM scope exposure"
+          );
+        } finally {
+          setTogglingKey(null);
+        }
+      })();
     },
     [
       handleVaultAccessRequired,

@@ -318,7 +318,12 @@ export function SettingsRow({
 
   if (splitPrimaryAction) {
     return (
-      <div className={rowShellClassName}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={rowShellClassName}
+      >
         <span
           aria-hidden
           className={cn(
@@ -328,38 +333,21 @@ export function SettingsRow({
         />
         <div
           className={cn(
-            "relative z-10 grid w-full",
+            "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
             shouldStackTrailing
               ? "grid-cols-1 gap-y-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3"
-              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-0"
+              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3"
           )}
         >
-          <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className={primaryActionClassName}
-          >
-            {mainContent}
-            <MaterialRipple
-              variant="none"
-              effect="fade"
-              disabled={disabled}
-              className="z-10"
-            />
-          </button>
+          <div className="min-w-0">{mainContent}</div>
           {trailingContent ? (
-            <div
-              className={cn(
-                "px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
-                shouldStackTrailing && "pt-0 sm:pt-[var(--settings-row-py)]"
-              )}
-            >
+            <div onClick={(e) => e.stopPropagation()}>
               {trailingContent}
             </div>
           ) : null}
         </div>
-      </div>
+        <MaterialRipple variant="none" effect="fade" disabled={disabled} className="z-10" />
+      </button>
     );
   }
 
