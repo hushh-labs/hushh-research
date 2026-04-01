@@ -107,6 +107,13 @@ class RIAIntelligenceVerificationAdapter:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = str(os.getenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "")).strip().rstrip("/")
+        self._verify_url = str(os.getenv("RIA_INTELLIGENCE_VERIFY_URL", "")).strip()
+        endpoint_path = str(
+            os.getenv("RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH", "/v1/ria/profile")
+        ).strip()
+        if endpoint_path and not endpoint_path.startswith("/"):
+            endpoint_path = f"/{endpoint_path}"
+        self._endpoint_path = endpoint_path or "/v1/ria/profile"
         self._api_key = str(os.getenv("RIA_INTELLIGENCE_VERIFY_API_KEY", "")).strip()
         self._timeout_seconds = float(os.getenv("RIA_INTELLIGENCE_VERIFY_TIMEOUT_SECONDS", "25"))
         self._transport = transport
@@ -119,7 +126,10 @@ class RIAIntelligenceVerificationAdapter:
         sec_iard: str | None,
     ) -> VerificationResult:
         _ = legal_name
-        if not self._base_url:
+        request_url = self._verify_url or (
+            f"{self._base_url}{self._endpoint_path}" if self._base_url else ""
+        )
+        if not request_url:
             return VerificationResult(
                 verified=False,
                 rejected=False,
@@ -176,7 +186,7 @@ class RIAIntelligenceVerificationAdapter:
                 headers=headers,
             ) as client:
                 response = await client.post(
-                    f"{self._base_url}/v1/ria/profile",
+                    request_url,
                     json={"query": query},
                 )
         except Exception as exc:  # noqa: BLE001

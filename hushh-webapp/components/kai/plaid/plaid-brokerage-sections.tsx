@@ -408,6 +408,17 @@ interface PlaidFundingTransfersSectionProps {
   }) => Promise<void> | void;
   onRefreshTransfer?: (transferId: string) => Promise<void> | void;
   onCancelTransfer?: (transferId: string) => Promise<void> | void;
+  onSearchFundingRecords?: (payload: {
+    transferId?: string;
+    relationshipId?: string;
+    limit?: number;
+  }) => Promise<{ count: number; items: Array<Record<string, unknown>> }> | { count: number; items: Array<Record<string, unknown>> };
+  onCreateFundingEscalation?: (payload: {
+    transferId?: string;
+    relationshipId?: string;
+    severity: "low" | "normal" | "high" | "urgent";
+    notes: string;
+  }) => Promise<void> | void;
   isConnectingFunding?: boolean;
   isSubmittingTransfer?: boolean;
   isReconciling?: boolean;
@@ -442,6 +453,13 @@ function relationshipStatusTone(status: string | null | undefined): string {
   return "border-muted bg-muted/20 text-muted-foreground";
 }
 
+function readRecordText(row: Record<string, unknown>, key: string): string {
+  const value = row[key];
+  if (typeof value === "string") return value.trim();
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
 export function PlaidFundingTransfersSection({
   fundingStatus,
   brokerageItems,
@@ -452,6 +470,8 @@ export function PlaidFundingTransfersSection({
   onCreateTransfer,
   onRefreshTransfer,
   onCancelTransfer,
+  onSearchFundingRecords,
+  onCreateFundingEscalation,
   isConnectingFunding = false,
   isSubmittingTransfer = false,
   isReconciling = false,
@@ -495,6 +515,16 @@ export function PlaidFundingTransfersSection({
   );
   const [amountInput, setAmountInput] = useState<string>("11.11");
   const [legalNameInput, setLegalNameInput] = useState<string>("");
+  const [supportTransferId, setSupportTransferId] = useState<string>("");
+  const [supportRelationshipId, setSupportRelationshipId] = useState<string>("");
+  const [supportSeverity, setSupportSeverity] = useState<"low" | "normal" | "high" | "urgent">(
+    "normal"
+  );
+  const [supportNotes, setSupportNotes] = useState<string>("");
+  const [supportResults, setSupportResults] = useState<Array<Record<string, unknown>>>([]);
+  const [supportError, setSupportError] = useState<string | null>(null);
+  const [isSearchingSupport, setIsSearchingSupport] = useState<boolean>(false);
+  const [isEscalatingSupport, setIsEscalatingSupport] = useState<boolean>(false);
 
   const latestTransfers = (fundingStatus?.latest_transfers || fundingItem?.transfers || []) as PlaidFundingTransferRef[];
   const selectedBrokerage = brokerageAccountOptions.find(
@@ -517,6 +547,7 @@ export function PlaidFundingTransfersSection({
   const relationshipFailed = ["rejected", "canceled", "disabled", "error"].includes(
     selectedRelationshipStatus
   );
+  const hasSupportTools = Boolean(onSearchFundingRecords || onCreateFundingEscalation);
 
   useEffect(() => {
     if (selectedFundingDefault && selectedFundingDefault !== selectedFundingAccountId) {
@@ -537,6 +568,79 @@ export function PlaidFundingTransfersSection({
       setSelectedBrokerageAccountId(firstBrokerageAccountId);
     }
   }, [brokerageAccountOptions, selectedBrokerageAccountId]);
+
+  useEffect(() => {
+    if (!supportTransferId && latestTransfers[0]?.transfer_id) {
+      setSupportTransferId(String(latestTransfers[0].transfer_id || "").trim());
+    }
+  }, [latestTransfers, supportTransferId]);
+
+  useEffect(() => {
+    const relationshipId = String(selectedFundingRelationship?.relationship_id || "").trim();
+    if (!supportRelationshipId && relationshipId) {
+      setSupportRelationshipId(relationshipId);
+    }
+  }, [selectedFundingRelationship?.relationship_id, supportRelationshipId]);
+
+  const handleSupportSearch = async () => {
+    if (!onSearchFundingRecords) return;
+    setIsSearchingSupport(true);
+    setSupportError(null);
+    try {
+      const response = await onSearchFundingRecords({
+        transferId: supportTransferId || undefined,
+        relationshipId: supportRelationshipId || undefined,
+        limit: 25,
+      });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      setSupportResults(items);
+
+      if (!supportTransferId) {
+        const firstTransferId = readRecordText(items[0] || {}, "transfer_id");
+        if (firstTransferId) setSupportTransferId(firstTransferId);
+      }
+      if (!supportRelationshipId) {
+        const firstRelationshipId = readRecordText(items[0] || {}, "relationship_id");
+        if (firstRelationshipId) setSupportRelationshipId(firstRelationshipId);
+      }
+    } catch (error) {
+      setSupportError(
+        error instanceof Error
+          ? error.message
+          : "Funding support records could not be loaded right now."
+      );
+    } finally {
+      setIsSearchingSupport(false);
+    }
+  };
+
+  const handleCreateEscalation = async () => {
+    if (!onCreateFundingEscalation) return;
+    const notes = supportNotes.trim();
+    if (!notes) {
+      setSupportError("Escalation notes are required.");
+      return;
+    }
+    setIsEscalatingSupport(true);
+    setSupportError(null);
+    try {
+      await onCreateFundingEscalation({
+        transferId: supportTransferId || undefined,
+        relationshipId: supportRelationshipId || undefined,
+        severity: supportSeverity,
+        notes,
+      });
+      setSupportNotes("");
+    } catch (error) {
+      setSupportError(
+        error instanceof Error
+          ? error.message
+          : "Funding escalation could not be created right now."
+      );
+    } finally {
+      setIsEscalatingSupport(false);
+    }
+  };
 
   return (
     <SettingsGroup
@@ -854,6 +958,144 @@ export function PlaidFundingTransfersSection({
               />
             );
           })}
+        </div>
+      ) : null}
+
+      {hasSupportTools ? (
+        <div className="rounded-[20px] border border-border/60 bg-background/60 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Support tools
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Search transfer records and create a manual escalation with notes for operations.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Transfer ID
+              <input
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={supportTransferId}
+                onChange={(event) => setSupportTransferId(event.target.value)}
+                placeholder="Optional transfer ID"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Relationship ID
+              <input
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={supportRelationshipId}
+                onChange={(event) => setSupportRelationshipId(event.target.value)}
+                placeholder="Optional relationship ID"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Escalation severity
+              <select
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={supportSeverity}
+                onChange={(event) =>
+                  setSupportSeverity(
+                    event.target.value as "low" | "normal" | "high" | "urgent"
+                  )
+                }
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Escalation notes
+              <input
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={supportNotes}
+                onChange={(event) => setSupportNotes(event.target.value)}
+                placeholder="Required for escalation"
+              />
+            </label>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {onSearchFundingRecords ? (
+              <Button
+                variant="none"
+                effect="fade"
+                disabled={isSearchingSupport}
+                onClick={() => void handleSupportSearch()}
+              >
+                {isSearchingSupport ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Search records
+              </Button>
+            ) : null}
+            {onCreateFundingEscalation ? (
+              <Button
+                variant="none"
+                effect="fade"
+                disabled={isEscalatingSupport || !supportNotes.trim()}
+                onClick={() => void handleCreateEscalation()}
+              >
+                {isEscalatingSupport ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldAlert className="mr-2 h-4 w-4" />
+                )}
+                Create escalation
+              </Button>
+            ) : null}
+          </div>
+
+          {supportError ? (
+            <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{supportError}</p>
+          ) : null}
+
+          {supportResults.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {supportResults.slice(0, 8).map((row, index) => {
+                const transferId = readRecordText(row, "transfer_id") || `result-${index + 1}`;
+                const relationshipId = readRecordText(row, "relationship_id");
+                const status =
+                  readRecordText(row, "user_facing_status") ||
+                  readRecordText(row, "status") ||
+                  "pending";
+                const amount = readRecordText(row, "amount");
+                const requestedAt = readRecordText(row, "requested_at");
+                const failureReason = readRecordText(row, "failure_reason_message");
+
+                return (
+                  <div
+                    key={`${transferId}:${index}`}
+                    className="rounded-xl border border-border/60 bg-background px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{transferId}</p>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "rounded-full px-2.5 py-0.5 text-[11px]",
+                          transferStatusTone(status)
+                        )}
+                      >
+                        {status}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {[amount ? `$${amount}` : null, relationshipId || null, requestedAt || null]
+                        .filter(Boolean)
+                        .join(" • ")}
+                    </p>
+                    {failureReason ? (
+                      <p className="mt-1 text-xs text-muted-foreground">Reason: {failureReason}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </SettingsGroup>

@@ -54,6 +54,57 @@ def test_ria_intelligence_verifier_accepts_matching_crd_and_iard(monkeypatch):
     assert result.outcome == "verified"
 
 
+def test_ria_intelligence_verifier_supports_full_verify_url_override(monkeypatch):
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", raising=False)
+    monkeypatch.setenv(
+        "RIA_INTELLIGENCE_VERIFY_URL",
+        "https://hushh-ria-intelligence-api-53407187172.us-central1.run.app/v1/ria/profile/stage1",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == (
+            "https://hushh-ria-intelligence-api-53407187172.us-central1.run.app/v1/ria/profile/stage1"
+        )
+        return httpx.Response(
+            status_code=200,
+            json={
+                "subject": {
+                    "full_name": "Akash Katla",
+                    "crd_number": "1234567",
+                },
+                "verified_profiles": [
+                    {
+                        "platform": "FINRA BrokerCheck",
+                        "url": "https://files.brokercheck.finra.org/individual/individual_1234567.pdf",
+                    }
+                ],
+                "key_facts": [
+                    {
+                        "fact": "IARD 80112345 advisory registration confirmed",
+                        "source_title": "SEC Adviser",
+                        "source_url": "https://adviserinfo.sec.gov/",
+                        "evidence_note": "Official SEC reference",
+                    }
+                ],
+                "unverified_or_not_found": [],
+            },
+        )
+
+    adapter = RIAIntelligenceVerificationAdapter(transport=httpx.MockTransport(handler))
+
+    result = _run(
+        adapter.verify(
+            legal_name="",
+            finra_crd="1234567",
+            sec_iard="801-12345",
+        )
+    )
+
+    assert result.verified is True
+    assert result.rejected is False
+    assert result.outcome == "verified"
+
+
 def test_ria_intelligence_verifier_rejects_crd_mismatch(monkeypatch):
     monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
 

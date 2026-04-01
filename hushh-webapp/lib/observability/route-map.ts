@@ -151,6 +151,14 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/plaid/funding/default-account",
   },
   {
+    regex: /^\/api\/kai\/plaid\/funding\/admin\/search(?:\?.*)?$/i,
+    template: "/api/kai/plaid/funding/admin/search",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/funding\/admin\/escalations(?:\?.*)?$/i,
+    template: "/api/kai/plaid/funding/admin/escalations",
+  },
+  {
     regex: /^\/api\/kai\/plaid\/funding\/admin\/transfers\/[^/?]+\/refresh(?:\?.*)?$/i,
     template: "/api/kai/plaid/funding/admin/transfers/{transfer_id}/refresh",
   },

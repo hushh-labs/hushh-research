@@ -646,6 +646,49 @@ export function InvestmentsMasterView({
     [reload, userId, vaultOwnerToken]
   );
 
+  const handleSearchFundingRecords = useCallback(
+    async (payload: {
+      transferId?: string;
+      relationshipId?: string;
+      limit?: number;
+    }) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Please unlock your Vault and try again.");
+      }
+      return await PlaidPortfolioService.searchFundingRecords({
+        userId,
+        vaultOwnerToken,
+        transferId: payload.transferId || null,
+        relationshipId: payload.relationshipId || null,
+        limit: payload.limit,
+      });
+    },
+    [userId, vaultOwnerToken]
+  );
+
+  const handleCreateFundingEscalation = useCallback(
+    async (payload: {
+      transferId?: string;
+      relationshipId?: string;
+      severity: "low" | "normal" | "high" | "urgent";
+      notes: string;
+    }) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Please unlock your Vault and try again.");
+      }
+      await PlaidPortfolioService.createFundingEscalation({
+        userId,
+        vaultOwnerToken,
+        transferId: payload.transferId || null,
+        relationshipId: payload.relationshipId || null,
+        severity: payload.severity,
+        notes: payload.notes,
+      });
+      toast.success("Support escalation created.");
+    },
+    [userId, vaultOwnerToken]
+  );
+
   const handleOptimize = useCallback(() => {
     if (!workingPortfolio || !Array.isArray(workingPortfolio.holdings) || !workingPortfolio.holdings.length) {
       toast.error("No holdings are ready for optimization yet.");
@@ -861,6 +904,8 @@ export function InvestmentsMasterView({
           onCreateTransfer={(payload) => void handleCreateFundingTransfer(payload)}
           onRefreshTransfer={(transferId) => void handleRefreshTransfer(transferId)}
           onCancelTransfer={(transferId) => void handleCancelTransfer(transferId)}
+          onSearchFundingRecords={(payload) => handleSearchFundingRecords(payload)}
+          onCreateFundingEscalation={(payload) => handleCreateFundingEscalation(payload)}
           isConnectingFunding={isLinkingFunding}
           isSubmittingTransfer={isSubmittingTransfer}
           isReconciling={isReconcilingFunding}

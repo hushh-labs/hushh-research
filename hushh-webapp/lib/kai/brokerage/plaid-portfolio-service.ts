@@ -36,6 +36,11 @@ export interface PlaidTransferCreateResponse {
   reference?: Record<string, unknown>;
 }
 
+export interface PlaidFundingAdminSearchResponse {
+  count: number;
+  items: Array<Record<string, unknown>>;
+}
+
 const PLAID_STATUS_CACHE_TTL_MS = 15_000;
 const DEFAULT_FUNDING_TERMS_VERSION =
   String(process.env.NEXT_PUBLIC_KAI_FUNDING_TERMS_VERSION || "").trim() || "v1";
@@ -719,6 +724,70 @@ export class PlaidPortfolioService {
       throw new Error(detail);
     }
     this.invalidateStatusCache(params.userId);
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  static async searchFundingRecords(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    transferId?: string | null;
+    relationshipId?: string | null;
+    limit?: number;
+  }): Promise<PlaidFundingAdminSearchResponse> {
+    const query = new URLSearchParams({
+      user_id: params.userId,
+      ...(params.transferId ? { transfer_id: params.transferId } : {}),
+      ...(params.relationshipId ? { relationship_id: params.relationshipId } : {}),
+      ...(typeof params.limit === "number" ? { limit: String(params.limit) } : {}),
+    }).toString();
+
+    const response = await ApiService.apiFetch(`/api/kai/plaid/funding/admin/search?${query}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding support records are not available right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as PlaidFundingAdminSearchResponse;
+  }
+
+  static async createFundingEscalation(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    transferId?: string | null;
+    relationshipId?: string | null;
+    notes: string;
+    severity?: "low" | "normal" | "high" | "urgent";
+    createdBy?: string | null;
+  }): Promise<Record<string, unknown>> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/admin/escalations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        transfer_id: params.transferId || null,
+        relationship_id: params.relationshipId || null,
+        notes: params.notes,
+        severity: params.severity || "normal",
+        created_by: params.createdBy || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding escalation could not be created right now."
+      );
+      throw new Error(detail);
+    }
     return (await response.json()) as Record<string, unknown>;
   }
 }

@@ -35,6 +35,7 @@ _COMPLETED_TRANSFER_STATUSES = {"COMPLETE", "COMPLETED", "SETTLED", "POSTED"}
 _CANCELED_TRANSFER_STATUSES = {"CANCELED", "CANCELLED", "VOIDED"}
 _RETURNED_TRANSFER_STATUSES = {"RETURNED", "REVERSED"}
 _FAILED_TRANSFER_STATUSES = {"FAILED", "REJECTED", "ERROR"}
+_NOTIFIABLE_TRANSFER_USER_STATUSES = {"completed", "failed", "returned", "canceled"}
 
 _RELATIONSHIP_APPROVED_STATUSES = {"APPROVED"}
 _RELATIONSHIP_PENDING_STATUSES = {"QUEUED", "PENDING", "SUBMITTED"}
@@ -1527,6 +1528,177 @@ class BrokerFundingService:
                 },
             )
 
+    def _transfer_status_notification_copy(
+        self,
+        *,
+        transfer_id: str,
+        user_facing_status: str,
+        amount_text: str | None,
+        direction: str | None,
+        failure_reason: str | None,
+    ) -> tuple[str, str]:
+        direction_label = (
+            "deposit to brokerage"
+            if _clean_text(direction).upper() != _FUNDS_DIRECTION_OUTGOING
+            else "withdrawal to bank"
+        )
+        amount_label = f"${amount_text}" if _clean_text(amount_text) else "your transfer"
+        title = "Funding transfer update"
+        if user_facing_status == "completed":
+            return title, f"{amount_label} {direction_label} completed."
+        if user_facing_status == "returned":
+            return title, f"{amount_label} {direction_label} was returned by the provider."
+        if user_facing_status == "canceled":
+            return title, f"{amount_label} {direction_label} was canceled."
+        if user_facing_status == "failed":
+            if failure_reason:
+                return title, f"{amount_label} {direction_label} failed: {failure_reason}"
+            return title, f"{amount_label} {direction_label} failed."
+        return title, f"Transfer {transfer_id} changed status to {user_facing_status}."
+
+    def _stringify_notification_data(self, payload: dict[str, Any]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for key, value in payload.items():
+            if value is None:
+                continue
+            if isinstance(value, (dict, list)):
+                out[key] = json.dumps(value)
+                continue
+            out[key] = str(value)
+        return out
+
+    async def _send_transfer_status_notification(
+        self,
+        *,
+        user_id: str,
+        transfer_id: str,
+        user_facing_status: str,
+        raw_status: str,
+        amount_text: str | None,
+        direction: str | None,
+        failure_reason: str | None,
+    ) -> None:
+        try:
+            result = self.db.execute_raw(
+                "SELECT token, platform FROM user_push_tokens WHERE user_id = :uid",
+                {"uid": user_id},
+            )
+            if result.error or not result.data:
+                logger.info(
+                    "funding.transfer_notification_skipped_no_tokens user_id=%s transfer_id=%s",
+                    user_id,
+                    transfer_id,
+                )
+                return
+
+            from api.utils.firebase_admin import ensure_firebase_admin
+
+            configured, _ = ensure_firebase_admin()
+            if not configured:
+                logger.warning(
+                    "funding.transfer_notification_skipped_firebase_not_configured user_id=%s",
+                    user_id,
+                )
+                return
+
+            from firebase_admin import messaging
+
+            title, body = self._transfer_status_notification_copy(
+                transfer_id=transfer_id,
+                user_facing_status=user_facing_status,
+                amount_text=amount_text,
+                direction=direction,
+                failure_reason=failure_reason,
+            )
+            message_data = self._stringify_notification_data(
+                {
+                    "type": "funding_transfer_status",
+                    "user_id": user_id,
+                    "transfer_id": transfer_id,
+                    "status": raw_status.lower(),
+                    "user_facing_status": user_facing_status,
+                    "amount": amount_text,
+                    "direction": direction,
+                    "failure_reason_message": failure_reason,
+                    "deep_link": "/kai/portfolio",
+                }
+            )
+
+            for row in result.data:
+                token = _clean_text(row.get("token"))
+                if not token:
+                    continue
+                message = messaging.Message(
+                    token=token,
+                    data=message_data,
+                    notification=messaging.Notification(title=title, body=body),
+                )
+                try:
+                    messaging.send(message)
+                except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
+                    logger.warning(
+                        "funding.transfer_notification_stale_token user_id=%s transfer_id=%s",
+                        user_id,
+                        transfer_id,
+                    )
+                    try:
+                        self.db.execute_raw(
+                            "DELETE FROM user_push_tokens WHERE token = :token",
+                            {"token": token},
+                        )
+                    except Exception as cleanup_exc:
+                        logger.warning(
+                            "funding.transfer_notification_stale_token_cleanup_failed user_id=%s error=%s",
+                            user_id,
+                            cleanup_exc,
+                        )
+                except Exception as send_exc:
+                    logger.warning(
+                        "funding.transfer_notification_send_failed user_id=%s transfer_id=%s error=%s",
+                        user_id,
+                        transfer_id,
+                        send_exc,
+                    )
+        except Exception:
+            logger.exception(
+                "funding.transfer_notification_failed user_id=%s transfer_id=%s",
+                user_id,
+                transfer_id,
+            )
+
+    def _queue_transfer_status_notification_if_needed(
+        self,
+        *,
+        user_id: str,
+        transfer_id: str,
+        previous_status: str | None,
+        current_status: str | None,
+        amount_text: str | None,
+        direction: str | None,
+        failure_reason: str | None,
+    ) -> None:
+        previous_user_status = _user_facing_transfer_status(previous_status)
+        next_user_status = _user_facing_transfer_status(current_status)
+        if next_user_status == previous_user_status:
+            return
+        if next_user_status not in _NOTIFIABLE_TRANSFER_USER_STATUSES:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(
+            self._send_transfer_status_notification(
+                user_id=user_id,
+                transfer_id=transfer_id,
+                user_facing_status=next_user_status,
+                raw_status=_clean_text(current_status, default="pending"),
+                amount_text=amount_text,
+                direction=direction,
+                failure_reason=failure_reason,
+            )
+        )
+
     async def exchange_funding_public_token(
         self,
         *,
@@ -2125,6 +2297,15 @@ class BrokerFundingService:
                 else {},
             },
         )
+        self._queue_transfer_status_notification_if_needed(
+            user_id=user_id,
+            transfer_id=transfer_id,
+            previous_status=None,
+            current_status=transfer_status,
+            amount_text=amount_text,
+            direction=alpaca_direction,
+            failure_reason=_clean_text(transfer_payload.get("failure_reason_message")) or None,
+        )
 
         return {
             "approved": True,
@@ -2223,6 +2404,18 @@ class BrokerFundingService:
             or None,
             "raw": _json_load(refreshed_row.get("response_payload_json"), fallback={}),
         }
+        refreshed_status = _clean_text(refreshed_row.get("status")).upper()
+        self._queue_transfer_status_notification_if_needed(
+            user_id=user_id,
+            transfer_id=transfer_id,
+            previous_status=prior_status,
+            current_status=refreshed_status,
+            amount_text=_clean_text(str(refreshed_row.get("amount")))
+            if refreshed_row.get("amount") is not None
+            else None,
+            direction=_clean_text(refreshed_row.get("direction")) or None,
+            failure_reason=_clean_text(refreshed_row.get("failure_reason_message")) or None,
+        )
 
         return {
             "transfer": transfer_payload,
