@@ -34,3 +34,22 @@ def build_consent_request_url(
     view: str = "pending",
 ) -> str:
     return f"{frontend_origin()}{build_consent_request_path(request_id=request_id, bundle_id=bundle_id, view=view)}"
+
+
+def build_connection_request_path(
+    *,
+    selected: str | None = None,
+    tab: str = "pending",
+) -> str:
+    params: dict[str, str] = {"tab": tab or "pending"}
+    if selected:
+        params["selected"] = selected
+    return f"/marketplace/connections?{urlencode(params)}"
+
+
+def build_connection_request_url(
+    *,
+    selected: str | None = None,
+    tab: str = "pending",
+) -> str:
+    return f"{frontend_origin()}{build_connection_request_path(selected=selected, tab=tab)}"

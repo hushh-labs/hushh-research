@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, BarChart3, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -133,6 +134,7 @@ function KaiAnalysisPageContent() {
   const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
   const [showHistoryWhileActive, setShowHistoryWhileActive] = useState(false);
+  const [historyCount, setHistoryCount] = useState(0);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("debate");
   const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
@@ -850,7 +852,14 @@ function KaiAnalysisPageContent() {
           <AppPageHeaderRegion>
             <PageHeader
               eyebrow="Kai"
-              title="Analysis"
+              title={
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  Analysis
+                  {historyCount > 0 ? (
+                    <Badge variant="secondary" className="text-[10px]">{historyCount}</Badge>
+                  ) : null}
+                </span>
+              }
               description="Review saved debates, reopen active analysis, and keep the running history of Kai decisions in one place."
               icon={BarChart3}
               accent="violet"
@@ -901,6 +910,7 @@ function KaiAnalysisPageContent() {
             vaultOwnerToken={vaultOwnerToken || ""}
             onSelectTicker={handleSelectTicker}
             onViewHistory={handleViewHistory}
+            onHistoryCount={setHistoryCount}
             showDebateInputs={false}
             ephemeralEntry={historyFallbackEntry}
           />

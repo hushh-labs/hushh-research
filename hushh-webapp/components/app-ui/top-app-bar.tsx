@@ -86,10 +86,10 @@ export {
 
 /* ── Constants ─────────────────────────────────────────────────────── */
 export const TOP_SHELL_ICON_BUTTON_CLASSNAME =
-  "relative grid h-10 w-10 place-items-center rounded-full border border-border/55 bg-background/72 text-foreground shadow-[0_16px_34px_-22px_rgba(15,23,42,0.28)] backdrop-blur-md transition-colors hover:bg-background/88 active:bg-muted/62";
+  "relative grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95";
 
 const TOP_SHELL_TITLE_PILL_CLASSNAME =
-  "group relative inline-flex min-h-10 min-w-0 max-w-full items-center justify-center gap-2 overflow-hidden rounded-full border border-transparent bg-background/42 px-3.5 py-1.5 text-[15px] font-semibold tracking-tight text-foreground shadow-[0_18px_34px_-28px_rgba(15,23,42,0.32)] backdrop-blur-md transition-colors hover:bg-background/68 sm:px-4 sm:text-base";
+  "group relative inline-flex min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 overflow-hidden rounded-full border-0 bg-card/70 px-2.5 py-1.5 text-[14px] font-semibold tracking-tight text-foreground shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)] transition-colors hover:bg-card/90 sm:gap-2 sm:px-4 sm:text-base";
 
 /* ── Stubs (kept for import stability) ─────────────────────────────── */
 export function TopBarBackground() { return null; }
@@ -227,11 +227,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
   const topGlassStyle = useMemo<React.CSSProperties>(
     () => ({
-      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.6)",
-      "--app-bar-glass-bg-dark": "rgba(12, 15, 21, 0.56)",
+      "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
+      "--app-bar-glass-bg-dark": "rgba(29, 29, 31, 0.72)",
       "--app-bar-glass-blur": "2px",
       "--app-bar-shadow": "none",
-      "--app-bar-mask-overscan": "18px",
+      "--app-bar-mask-overscan": "14px",
     } as React.CSSProperties),
     []
   );
@@ -306,7 +306,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                 icon={switchingPersona ? Loader2 : centerTitle.icon!}
                                 size="sm"
                                 className={cn(
-                                  "shrink-0 text-current",
+                                  "hidden shrink-0 text-current sm:inline-flex",
                                   switchingPersona ? "animate-spin" : ""
                                 )}
                               />
@@ -318,7 +318,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               {!switchingPersona && (
                                 <span
                                   className={cn(
-                                    "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+                                    "hidden h-1.5 w-1.5 shrink-0 rounded-full sm:inline-block",
                                     activePersona === "ria"
                                       ? "bg-amber-500"
                                       : "bg-emerald-500"
@@ -326,7 +326,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                   aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
                                 />
                               )}
-                              <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
+                              <ChevronDown className="hidden h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current sm:inline-block" />
                             </span>
                             <MaterialRipple variant="none" effect="fade" className="z-0" />
                           </button>

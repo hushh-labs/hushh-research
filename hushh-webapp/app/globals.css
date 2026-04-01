@@ -92,6 +92,25 @@ html body[data-scroll-locked] {
   --color-voteBearish: hsl(var(--chart-5));
 
   --radius: 1.25rem;
+
+  /* ── Design token scale ─────────────────────────────────────────── */
+  /* Border radius: 3-tier scale. Use these instead of arbitrary px. */
+  --radius-sm: 16px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+
+  /* Shadow elevation scale — Apple iCloud single-shadow model */
+  --shadow-xs: 0 4px 12px 0 rgba(120, 120, 128, 0.08);
+  --shadow-sm: 0 8px 24px 0 rgba(120, 120, 128, 0.12);
+  --shadow-md: 0 11px 34px 0 rgba(120, 120, 128, 0.16);
+  --shadow-lg: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
+  --shadow-xl: 0 16px 48px 0 rgba(120, 120, 128, 0.28);
+
+  /* Glass blur scale */
+  --blur-light: 4px;
+  --blur-standard: 8px;
+  --blur-heavy: 16px;
+
   /* Lucide defaults (see docs/reference/quality/design-system.md): change once to update all icons. */
   --lucide-stroke-width: 1;
   /* Safe area and fixed-bottom UI spacing tokens (single source of truth). */
@@ -104,7 +123,7 @@ html body[data-scroll-locked] {
   /* Runtime-measured bottom fixed UI (Navbar / floating theme pill). Overridden by navbar at runtime. */
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-chrome-lift: 0px;
-  --bottom-chrome-fade-overscan: 34px;
+  --bottom-chrome-fade-overscan: 18px;
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)
   );
@@ -139,7 +158,7 @@ html body[data-scroll-locked] {
   /* Single visual clearance between the fixed top shell and the first page block.
    * `--page-top-start` is the body-start gap token designers inspect/tune directly.
    * The actual structural spacer adds reserved shell height on top of this value. */
-  --page-top-start: 75px;
+  --page-top-start: 32px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
   --top-systembar-row-gap: 4px;
@@ -213,9 +232,10 @@ html body[data-scroll-locked] {
   --motion-deck-scale-active: 1.14;
   --motion-deck-scale-adjacent: 0.9;
   --motion-deck-scale-other: 0.84;
-  --background: oklch(1 0 0);
+  /* Apple HIG: light bg is off-white #f5f5f7, card is pure white #ffffff */
+  --background: oklch(0.968 0.002 264);
   --foreground: oklch(0 0 0);
-  --card: oklch(0.98 0.002 264);
+  --card: oklch(1 0 0);
   --card-foreground: oklch(0 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0 0 0);
@@ -281,10 +301,10 @@ html body[data-scroll-locked] {
   --crystal-glass-border: rgba(0, 113, 227, 0.2);
   --crystal-glass-blur: 20px;
 
-  /* App Background - Clean White/Blue Gradient */
-  --app-bg-start: #ffffff;
-  --app-bg-mid: #f9fafb;
-  --app-bg-end: #f3f4f6;
+  /* App Background - Apple iCloud light: uniform off-white */
+  --app-bg-start: #f5f5f7;
+  --app-bg-mid: #f5f5f7;
+  --app-bg-end: #f5f5f7;
 
   --glass1: #ffffff60 !important;
   --glass2: #6464643b !important;
@@ -334,21 +354,29 @@ html body[data-scroll-locked] {
   --md-ripple-hover-opacity: 0.08;
   --md-ripple-pressed-opacity: 0.12;
 
-  /* Shared outer-card contract: glass-first, borderless by default. */
-  --app-card-surface-compact: rgba(255, 255, 255, 0.9);
-  --app-card-surface-default: rgba(255, 255, 255, 0.92);
-  --app-card-surface-surface: rgba(255, 255, 255, 0.94);
-  --app-card-surface-hero: rgba(255, 255, 255, 0.96);
-  --app-card-border-standard: rgba(15, 23, 42, 0.06);
-  --app-card-border-strong: rgba(15, 23, 42, 0.08);
-  --app-card-shadow-standard:
-    0 26px 54px -30px rgba(15, 23, 42, 0.22),
-    0 12px 26px -18px rgba(15, 23, 42, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  --app-card-shadow-feature:
-    0 30px 62px -30px rgba(15, 23, 42, 0.28),
-    0 14px 28px -18px rgba(15, 23, 42, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  /* ── Apple iCloud card contract ───────────────────────────────── */
+  /* No borders. Single box-shadow for all depth. Contrast does the rest. */
+  --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
+  --app-card-surface-compact: #ffffff;
+  --app-card-surface-default: #ffffff;
+  --app-card-surface-surface: #ffffff;
+  --app-card-surface-hero: #ffffff;
+  --app-card-border-standard: transparent;
+  --app-card-border-strong: transparent;
+  --app-card-shadow-standard: 0 11px 34px 0 rgba(120, 120, 128, 0.16);
+  --app-card-shadow-feature: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
+}
+
+/* Mobile: reduce card shadow spread — device edge is the frame */
+@media (max-width: 639px) {
+  :root {
+    --app-card-shadow-standard: 0 1px 3px 0 rgba(120, 120, 128, 0.1);
+    --shadow-md: 0 4px 16px 0 rgba(120, 120, 128, 0.12);
+  }
+  .dark {
+    --app-card-shadow-standard: 0 1px 3px 0 rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 4px 16px 0 rgba(0, 0, 0, 0.45);
+  }
 }
 
 @media (min-width: 640px) {
@@ -356,8 +384,8 @@ html body[data-scroll-locked] {
     --top-bar-side-w: 106px;
     --top-content-safe-gap: 16px;
     --page-top-body-gap: 22px;
-    --app-top-body-start-gap: 75px;
-    --bottom-chrome-fade-overscan: 38px;
+    --app-top-body-start-gap: 32px;
+    --bottom-chrome-fade-overscan: 22px;
     --top-subnav-gap: 14px;
     --page-inline-gutter-standard: 28px;
     --page-surface-overscan: 18px;
@@ -403,19 +431,19 @@ html body[data-scroll-locked] {
 }
 
 .app-page-shell[data-app-density="compact"] {
-  --page-surface-gap-standard: 14px;
+  --page-surface-gap-standard: 16px;
   --page-surface-gap-compact: 12px;
   --page-header-stack-gap: 8px;
   --page-header-row-gap: 8px;
   --page-header-copy-gap: 4px;
-  --page-header-actions-gap: 8px;
-  --page-header-section-gap: 12px;
-  --section-header-stack-gap: 6px;
-  --section-header-row-gap: 8px;
-  --section-header-copy-gap: 4px;
-  --section-header-actions-gap: 8px;
-  --surface-stack-gap-standard: 18px;
-  --surface-stack-gap-compact: 14px;
+  --page-header-actions-gap: 6px;
+  --page-header-section-gap: 10px;
+  --section-header-stack-gap: 4px;
+  --section-header-row-gap: 6px;
+  --section-header-copy-gap: 3px;
+  --section-header-actions-gap: 6px;
+  --surface-stack-gap-standard: 24px;
+  --surface-stack-gap-compact: 18px;
   --surface-card-header-px: 14px;
   --surface-card-header-pt: 14px;
   --surface-card-header-pb: 8px;
@@ -547,17 +575,18 @@ html.native-ios {
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  /* Apple iCloud: dark bg #1d1d1f, elevated card #2c2c2e */
+  --background: oklch(0.16 0.002 264);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.002 264);
+  --card: oklch(0.23 0.003 264);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.002 264);
+  --popover: oklch(0.23 0.003 264);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.7 0.18 250);
   --primary-foreground: oklch(0.15 0 0);
-  --secondary: oklch(0.27 0.003 264);
+  --secondary: oklch(0.25 0.003 264);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.27 0.003 264);
+  --muted: oklch(0.25 0.003 264);
   --muted-foreground: oklch(0.71 0.005 264);
   --accent: oklch(0.7 0.2 260);
   --accent-foreground: oklch(0.985 0 0);
@@ -577,11 +606,11 @@ html.native-ios {
   --chart-3: oklch(0.72 0.19 155);
   --chart-4: oklch(0.78 0.15 80);
   --chart-5: oklch(0.7 0.19 22);
-  --sidebar: oklch(0.17 0 0);
+  --sidebar: oklch(0.14 0.002 264);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.7 0.18 250);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.27 0.003 264);
+  --sidebar-accent: oklch(0.25 0.003 264);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.7 0.18 250);
@@ -590,10 +619,10 @@ html.native-ios {
   --crystal-glass-bg: rgba(0, 113, 227, 0.06);
   --crystal-glass-border: rgba(0, 113, 227, 0.15);
 
-  /* App Background - Dark Gradient */
-  --app-bg-start: #0a0a0c;
-  --app-bg-mid: #0f0f14;
-  --app-bg-end: #141418;
+  /* App Background - Dark: Apple iCloud warm dark gray */
+  --app-bg-start: #1d1d1f;
+  --app-bg-mid: #1d1d1f;
+  --app-bg-end: #1d1d1f;
 
   --glass1: #ffffff40 !important;
   --glass2: #6464643b !important;
@@ -639,20 +668,16 @@ html.native-ios {
   --md-ripple-hover-opacity: 0.08;
   --md-ripple-pressed-opacity: 0.12;
 
-  --app-card-surface-compact: rgba(18, 22, 30, 0.76);
-  --app-card-surface-default: rgba(15, 19, 27, 0.82);
-  --app-card-surface-surface: rgba(13, 17, 24, 0.86);
-  --app-card-surface-hero: rgba(11, 15, 22, 0.9);
-  --app-card-border-standard: rgba(255, 255, 255, 0.08);
-  --app-card-border-strong: rgba(255, 255, 255, 0.12);
-  --app-card-shadow-standard:
-    0 28px 58px -30px rgba(0, 0, 0, 0.72),
-    0 14px 28px -18px rgba(2, 6, 23, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --app-card-shadow-feature:
-    0 34px 70px -30px rgba(0, 0, 0, 0.78),
-    0 18px 32px -18px rgba(2, 6, 23, 0.54),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  /* Dark: Apple iCloud — single box-shadow, no borders */
+  --theme-color-boxShadow: rgba(0, 0, 0, 0.65);
+  --app-card-surface-compact: #2c2c2e;
+  --app-card-surface-default: #2c2c2e;
+  --app-card-surface-surface: #2c2c2e;
+  --app-card-surface-hero: #3a3a3c;
+  --app-card-border-standard: transparent;
+  --app-card-border-strong: transparent;
+  --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
+  --app-card-shadow-feature: 0 11px 34px 0 rgba(0, 0, 0, 0.75);
 }
 
 /* Hero card specific glass effect - automatically switches between light/dark modes */
@@ -892,12 +917,13 @@ md-ripple.morphy-md-ripple {
 
 /* Shared masked glass for top/bottom app chrome. */
 .bar-glass {
-  --app-bar-glass-bg-light: rgba(255, 255, 255, 0.46);
-  --app-bar-glass-bg-dark: rgba(10, 12, 16, 0.66);
+  /* Apple iCloud: match bg colors with transparency for glass blend */
+  --app-bar-glass-bg-light: rgba(245, 245, 247, 0.72);
+  --app-bar-glass-bg-dark: rgba(29, 29, 31, 0.72);
   --app-bar-glass-blur: 2px;
   --app-bar-border-top: 0;
   --app-bar-shadow: none;
-  --app-bar-mask-overscan: 26px;
+  --app-bar-mask-overscan: 14px;
   position: relative;
   transform: translate3d(0, 0, 0);
   will-change: transform;
@@ -966,10 +992,10 @@ md-ripple.morphy-md-ripple {
   opacity: 1;
   background: linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.14) 0%,
-    rgba(255, 255, 255, 0.11) 46%,
-    rgba(255, 255, 255, 0.065) 72%,
-    rgba(255, 255, 255, 0.022) 90%,
+    rgba(245, 245, 247, 0.14) 0%,
+    rgba(245, 245, 247, 0.11) 46%,
+    rgba(245, 245, 247, 0.065) 72%,
+    rgba(245, 245, 247, 0.022) 90%,
     transparent 100%
   );
 }
@@ -977,10 +1003,10 @@ md-ripple.morphy-md-ripple {
 .dark .bar-glass-top::after {
   background: linear-gradient(
     to bottom,
-    rgba(17, 20, 27, 0.12) 0%,
-    rgba(17, 20, 27, 0.095) 46%,
-    rgba(17, 20, 27, 0.055) 72%,
-    rgba(17, 20, 27, 0.02) 90%,
+    rgba(29, 29, 31, 0.14) 0%,
+    rgba(29, 29, 31, 0.11) 46%,
+    rgba(29, 29, 31, 0.065) 72%,
+    rgba(29, 29, 31, 0.022) 90%,
     transparent 100%
   );
 }
@@ -990,21 +1016,21 @@ md-ripple.morphy-md-ripple {
   mask-image: linear-gradient(
     to top,
     black 0%,
-    rgba(0, 0, 0, 0.985) 34%,
-    rgba(0, 0, 0, 0.94) 50%,
-    rgba(0, 0, 0, 0.82) 68%,
+    rgba(0, 0, 0, 0.985) 38%,
+    rgba(0, 0, 0, 0.94) 54%,
+    rgba(0, 0, 0, 0.82) 70%,
     rgba(0, 0, 0, 0.56) 84%,
-    rgba(0, 0, 0, 0.22) 95%,
+    rgba(0, 0, 0, 0.22) 94%,
     transparent 100%
   );
   -webkit-mask-image: linear-gradient(
     to top,
     black 0%,
-    rgba(0, 0, 0, 0.985) 34%,
-    rgba(0, 0, 0, 0.94) 50%,
-    rgba(0, 0, 0, 0.82) 68%,
+    rgba(0, 0, 0, 0.985) 38%,
+    rgba(0, 0, 0, 0.94) 54%,
+    rgba(0, 0, 0, 0.82) 70%,
     rgba(0, 0, 0, 0.56) 84%,
-    rgba(0, 0, 0, 0.22) 95%,
+    rgba(0, 0, 0, 0.22) 94%,
     transparent 100%
   );
 }
@@ -1014,10 +1040,10 @@ md-ripple.morphy-md-ripple {
   opacity: 1;
   background: linear-gradient(
     to top,
-    rgba(255, 255, 255, 0.17) 0%,
-    rgba(255, 255, 255, 0.13) 42%,
-    rgba(255, 255, 255, 0.07) 70%,
-    rgba(255, 255, 255, 0.024) 90%,
+    rgba(245, 245, 247, 0.17) 0%,
+    rgba(245, 245, 247, 0.13) 42%,
+    rgba(245, 245, 247, 0.07) 70%,
+    rgba(245, 245, 247, 0.024) 90%,
     transparent 100%
   );
 }
@@ -1025,33 +1051,29 @@ md-ripple.morphy-md-ripple {
 .dark .bar-glass-bottom::after {
   background: linear-gradient(
     to top,
-    rgba(17, 20, 27, 0.17) 0%,
-    rgba(17, 20, 27, 0.13) 42%,
-    rgba(17, 20, 27, 0.065) 70%,
-    rgba(17, 20, 27, 0.024) 90%,
+    rgba(29, 29, 31, 0.17) 0%,
+    rgba(29, 29, 31, 0.13) 42%,
+    rgba(29, 29, 31, 0.065) 70%,
+    rgba(29, 29, 31, 0.024) 90%,
     transparent 100%
   );
 }
 
 /* Shared frosted surface for persistent chrome (tabs / bottom nav / command bar). */
 .chrome-glass-surface {
-  background-color: color-mix(in oklch, lab(100 0 0 / 0.68) 24%, transparent);
-  border: 1px solid color-mix(in oklch, white 48%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, white 42%, transparent),
-    0 14px 32px color-mix(in oklch, black 22%, transparent);
-  -webkit-backdrop-filter: blur(12px) saturate(165%) contrast(105%);
-  backdrop-filter: blur(12px) saturate(165%) contrast(105%);
+  background-color: rgba(245, 245, 247, 0.8);
+  border: none;
+  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
+  -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(150%);
+  backdrop-filter: blur(var(--blur-standard)) saturate(150%);
   transform: translate3d(0, 0, 0);
   will-change: transform;
 }
 
 .dark .chrome-glass-surface {
-  background-color: color-mix(in oklch, lab(0 0 0 / 0.7) 44%, transparent);
-  border-color: color-mix(in oklch, white 16%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, white 14%, transparent),
-    0 16px 34px color-mix(in oklch, black 54%, transparent);
+  background-color: rgba(29, 29, 31, 0.8);
+  border: none;
+  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
@@ -1245,11 +1267,11 @@ md-ripple.morphy-md-ripple {
 
 /* Root app background: neutral surfaces only (no blue gradient cast). */
 .morphy-app-bg {
-  background: #ffffff;
+  background: #f5f5f7;
 }
 
 .dark .morphy-app-bg {
-  background: #000000;
+  background: #1d1d1f;
 }
 
 /* Keep class defined for compatibility; root overlay is intentionally disabled. */

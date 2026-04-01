@@ -21,6 +21,8 @@ export interface ConsentCenterEntry {
   action: string;
   scope?: string | null;
   scope_description?: string | null;
+  scope_icon_name?: string | null;
+  scope_color_hex?: string | null;
   counterpart_type: "ria" | "investor" | "developer" | "self";
   counterpart_id?: string | null;
   counterpart_label?: string | null;

@@ -724,6 +724,30 @@
       ]
     },
     {
+      "id": "marketplaceConnectionsPage",
+      "pageFile": "hushh-webapp/app/marketplace/connections/page.tsx",
+      "serviceFiles": [
+        "hushh-webapp/lib/services/connection-center-service.ts",
+        "hushh-webapp/lib/services/consent-center-service.ts",
+        "hushh-webapp/lib/services/ria-service.ts"
+      ],
+      "apiContractIds": [
+        "consentCenterProxy",
+        "riaProxy"
+      ]
+    },
+    {
+      "id": "marketplaceConnectionPortfolioPage",
+      "pageFile": "hushh-webapp/app/marketplace/connections/[connectionId]/portfolio/page.tsx",
+      "serviceFiles": [
+        "hushh-webapp/lib/services/connection-center-service.ts",
+        "hushh-webapp/lib/services/ria-service.ts"
+      ],
+      "apiContractIds": [
+        "riaProxy"
+      ]
+    },
+    {
       "id": "riaHomePage",
       "pageFile": "hushh-webapp/app/ria/page.tsx",
       "serviceFiles": [

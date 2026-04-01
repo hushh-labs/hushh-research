@@ -391,7 +391,7 @@ export default function RiaOnboardingPage() {
       const payload = buildSubmitPayload(draft);
       const result =
         mode === "submit"
-          ? await RiaService.submitOnboarding(idToken, payload)
+          ? await RiaService.submitOnboarding(idToken, { ...payload, force_live_verification: true })
           : await RiaService.activateDevRia(idToken, payload);
 
       setStatus((current) => ({

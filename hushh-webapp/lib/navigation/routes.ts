@@ -12,6 +12,7 @@ export const ROUTES = {
   PROFILE: "/profile",
   CONSENTS: "/consents",
   MARKETPLACE: "/marketplace",
+  MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
@@ -47,6 +48,22 @@ function withQuery(pathname: string, entries: Record<string, string | null | und
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
+}
+
+export function buildMarketplaceConnectionsRoute(entries?: {
+  tab?: "pending" | "active" | "previous" | null;
+  selected?: string | null;
+}) {
+  return withQuery(ROUTES.MARKETPLACE_CONNECTIONS, {
+    tab: entries?.tab,
+    selected: entries?.selected,
+  });
+}
+
+export function buildMarketplaceConnectionPortfolioRoute(connectionId?: string | null) {
+  const normalized = String(connectionId ?? "").trim();
+  if (!normalized) return ROUTES.MARKETPLACE_CONNECTIONS;
+  return `${ROUTES.MARKETPLACE_CONNECTIONS}/${encodeURIComponent(normalized)}/portfolio`;
 }
 
 export function buildRiaWorkspaceRoute(clientId?: string | null) {

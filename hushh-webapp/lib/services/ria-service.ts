@@ -28,6 +28,7 @@ export interface MarketplaceRia {
   strategy?: string | null;
   disclosures_url?: string | null;
   verification_status: string;
+  is_test_profile?: boolean;
   firms?: Array<{
     firm_id: string;
     legal_name: string;
@@ -42,6 +43,7 @@ export interface MarketplaceInvestor {
   headline?: string | null;
   location_hint?: string | null;
   strategy_summary?: string | null;
+  is_test_profile?: boolean;
 }
 
 export interface RiaOnboardingStatus {
@@ -665,6 +667,7 @@ export class RiaService {
       strategy?: string;
       disclosures_url?: string;
       primary_firm_role?: string;
+      force_live_verification?: boolean;
     }
   ): Promise<{
     ria_profile_id: string;

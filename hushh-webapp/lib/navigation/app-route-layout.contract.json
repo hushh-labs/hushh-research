@@ -128,6 +128,22 @@
     }
   },
   {
+    "route": "/marketplace/connections",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/marketplace/connections/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion"]
+    }
+  },
+  {
+    "route": "/marketplace/connections/*/portfolio",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/marketplace/connections/[connectionId]/portfolio/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion"]
+    }
+  },
+  {
     "route": "/portfolio/shared",
     "mode": "hidden",
     "exemptionReason": "Public shared portfolio view uses chrome-free layout for external recipients."

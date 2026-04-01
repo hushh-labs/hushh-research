@@ -192,10 +192,7 @@ export function ConsentInboxDropdown({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={cn(
-            triggerClassName,
-            "inline-flex h-10 w-10 items-center justify-center"
-          )}
+          className={triggerClassName}
           aria-label="Open consent inbox"
         >
           <Shield className="h-5 w-5" />

@@ -34,6 +34,7 @@ class RIAOnboardingSubmitRequest(BaseModel):
     disclosures_url: str | None = None
     primary_firm_name: str | None = None
     primary_firm_role: str | None = None
+    force_live_verification: bool = False
 
 
 class RIAConsentRequestCreate(BaseModel):
@@ -151,6 +152,7 @@ async def submit_onboarding(
             strategy=payload.strategy,
             disclosures_url=payload.disclosures_url,
             primary_firm_role=payload.primary_firm_role,
+            force_live_verification=payload.force_live_verification,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))

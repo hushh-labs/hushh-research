@@ -74,6 +74,7 @@ export interface AnalysisHistoryDashboardProps {
   vaultOwnerToken?: string;
   onSelectTicker: (ticker: string) => void;
   onViewHistory: (entry: AnalysisHistoryEntry) => void;
+  onHistoryCount?: (count: number) => void;
   showDebateInputs?: boolean;
   ephemeralEntry?: AnalysisHistoryEntry | null;
 }
@@ -705,6 +706,7 @@ export function AnalysisHistoryDashboard({
   vaultOwnerToken,
   onSelectTicker,
   onViewHistory,
+  onHistoryCount,
   showDebateInputs = true,
   ephemeralEntry,
 }: AnalysisHistoryDashboardProps) {
@@ -723,6 +725,10 @@ export function AnalysisHistoryDashboard({
   useEffect(() => {
     historyMapRef.current = historyMap;
   }, [historyMap]);
+
+  useEffect(() => {
+    onHistoryCount?.(entries.length);
+  }, [entries.length, onHistoryCount]);
 
   const applyHistoryMap = useCallback((nextMap: AnalysisHistoryMap) => {
     historyMapRef.current = nextMap;
@@ -1016,17 +1022,6 @@ export function AnalysisHistoryDashboard({
   // ----- Populated state -----
   return (
     <div className="w-full space-y-6 pb-safe">
-      {/* Header (search is global in Kai layout) */}
-      <div className="flex items-center gap-2">
-        <Icon icon={Search} size="sm" className="text-muted-foreground" />
-        <h2 className="app-section-heading text-muted-foreground uppercase tracking-[0.12em]">
-          Analysis History
-        </h2>
-        <Badge variant="secondary" className="text-[10px]">
-          {entries.length}
-        </Badge>
-      </div>
-
       {/* Data Table */}
       <DataTable
         columns={columns}

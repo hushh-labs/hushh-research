@@ -180,6 +180,8 @@ class PersonalKnowledgeModelService:
         self._blob_upsert_rpc_supported: Optional[bool] = None
 
     _SUMMARY_BLOCKLIST = {"holdings", "total_value", "vault_key", "password"}
+    _FINANCIAL_ENRICHMENT_INT_KEYS = {"investable_positions_count", "cash_positions_count"}
+    _FINANCIAL_ENRICHMENT_STR_KEYS = {"risk_profile"}
     _RETIRED_DOMAIN_KEYS = {str(key).strip().lower() for key in RETIRED_DOMAIN_REGISTRY_KEYS}
     _ALLOWED_DISCOVERY_LITERAL_KEYS = {
         "domain_contract_version",
@@ -804,6 +806,22 @@ class PersonalKnowledgeModelService:
             if normalized_key in self._SUMMARY_BLOCKLIST:
                 continue
             if normalized_key in {"attribute_count", "item_count", "holdings_count"}:
+                continue
+            if domain == "financial" and normalized_key in self._FINANCIAL_ENRICHMENT_INT_KEYS:
+                parsed = self._to_non_negative_int(value)
+                if parsed is not None:
+                    sanitized[normalized_key] = parsed
+                continue
+            if domain == "financial" and normalized_key in self._FINANCIAL_ENRICHMENT_STR_KEYS:
+                cleaned = self._clean_text(str(value))
+                if cleaned:
+                    sanitized[normalized_key] = cleaned
+                continue
+            if domain == "financial" and normalized_key == "asset_allocation_pct":
+                if isinstance(value, dict) and all(
+                    isinstance(v, (int, float)) for v in value.values()
+                ):
+                    sanitized[normalized_key] = {str(k).strip(): float(v) for k, v in value.items()}
                 continue
             if normalized_key in {"risk_profile", "risk_bucket", "risk_score"}:
                 continue

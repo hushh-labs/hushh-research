@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ExternalLink, Search, ShieldCheck } from "lucide-react";
+import { Building2, ExternalLink, Search, ShieldCheck, UserRound } from "lucide-react";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 import {
   AppPageContentRegion,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/consent/consent-display";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { buildMarketplaceConnectionsRoute } from "@/lib/navigation/routes";
 import {
   CONSENT_CENTER_PAGE_SIZE,
   ConsentCenterService,
@@ -63,10 +65,6 @@ function normalizeActor(
   fallback: ConsentCenterActor
 ): ConsentCenterActor {
   return value === "ria" || value === "investor" ? value : fallback;
-}
-
-function normalizeMode(value: string | null): ConsentManagerMode {
-  return value === "connections" ? "connections" : "consents";
 }
 
 function resolveConsentTab(searchParams: URLSearchParams | ReadonlyURLSearchParams): ConsentTab {
@@ -174,6 +172,36 @@ function toPendingConsent(entry: ConsentCenterEntry): PendingConsent {
   };
 }
 
+function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
+  const kind = entry.counterpart_type === "ria" ? "ria" : entry.counterpart_type === "developer" ? "developer" : "investor";
+  const Icon = kind === "ria" ? Building2 : UserRound;
+  const label = resolveCounterpartLabel(entry);
+  const initials = label
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
+  return (
+    <div
+      className={cn(
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border",
+        kind === "ria"
+          ? "border-sky-500/15 bg-sky-500/6 text-sky-700"
+          : kind === "developer"
+            ? "border-violet-500/15 bg-violet-500/6 text-violet-700"
+            : "border-emerald-500/15 bg-emerald-500/6 text-emerald-700"
+      )}
+    >
+      {initials ? (
+        <span className="text-xs font-semibold">{initials}</span>
+      ) : (
+        <Icon className="h-4 w-4" />
+      )}
+    </div>
+  );
+}
+
 function ConsentEntryRow({
   entry,
   selected,
@@ -188,31 +216,35 @@ function ConsentEntryRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        "w-full rounded-[18px] border px-4 py-4 text-left transition-colors",
+        "relative w-full overflow-hidden rounded-[var(--radius-md)] border px-4 py-3 text-left transition-colors",
         selected
           ? "border-sky-500/30 bg-sky-500/6"
           : "border-transparent bg-transparent hover:border-border/60 hover:bg-muted/35"
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <p className="truncate text-sm font-semibold text-foreground">
-            {resolveCounterpartLabel(entry)}
-          </p>
+      <div className="flex items-start gap-3">
+        <ConsentCounterpartAvatar entry={entry} />
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-sm font-semibold text-foreground">
+              {resolveCounterpartLabel(entry)}
+            </p>
+            <Badge className={cn("shrink-0 capitalize", badgeClassName(entry.status))}>
+              {formatStatus(entry.status)}
+            </Badge>
+          </div>
           <p className="truncate text-xs text-muted-foreground">
             {entry.counterpart_email || entry.counterpart_secondary_label || "Hushh connection"}
           </p>
         </div>
-        <Badge className={cn("shrink-0 capitalize", badgeClassName(entry.status))}>
-          {formatStatus(entry.status)}
-        </Badge>
       </div>
-      <p className="mt-3 line-clamp-2 text-sm leading-6 text-foreground/84">{entrySummary(entry)}</p>
+      <p className="mt-3 line-clamp-2 text-sm leading-6 text-foreground/80">{entrySummary(entry)}</p>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {entry.scope ? <span>{entry.scope_description || entry.scope}</span> : null}
         {entry.expires_at ? <span>{formatRelative(entry.expires_at)}</span> : null}
         {entry.issued_at ? <span>{formatDate(entry.issued_at)}</span> : null}
       </div>
+      <MaterialRipple variant="none" effect="fade" className="z-0" />
     </button>
   );
 }
@@ -378,7 +410,7 @@ export function ConsentCenterPage() {
   const { activePersona } = usePersonaState();
   const defaultActor: ConsentCenterActor = activePersona === "ria" ? "ria" : "investor";
   const actor = normalizeActor(searchParams.get("actor"), defaultActor);
-  const mode = normalizeMode(searchParams.get("mode"));
+  const mode: ConsentManagerMode = "consents";
   const tab = resolveConsentTab(searchParams);
   const managerView =
     searchParams.get("view") === "incoming" || searchParams.get("view") === "outgoing"
@@ -419,6 +451,17 @@ export function ConsentCenterPage() {
       setSearchValue(current);
     }
   }, [searchParams, searchValue]);
+
+  useEffect(() => {
+    if (searchParams.get("mode") !== "connections") return;
+    router.replace(
+      buildMarketplaceConnectionsRoute({
+        tab,
+        selected: selectedId,
+      }),
+      { scroll: false }
+    );
+  }, [router, searchParams, selectedId, tab]);
 
   useEffect(() => {
     const handleAction = () => setMutationTick((value) => value + 1);
@@ -523,26 +566,14 @@ export function ConsentCenterPage() {
   };
 
   const pageEyebrow = "Profile / Privacy";
-  const pageTitle =
-    mode === "connections"
-      ? actor === "ria"
-        ? "Investor connections"
-        : "Advisor connections"
-      : "Consent manager";
+  const pageTitle = "Consent manager";
   const pageDescription =
-    mode === "connections"
-      ? actor === "ria"
-        ? "Review pending investor connections, active investor access, and previous connection decisions in one shared workspace."
-        : "Review pending advisor connections, active advisor access, and previous connection decisions in one shared workspace."
-      : actor === "ria"
-        ? "Outgoing requests, active grants, and prior investor decisions stay in one privacy workspace for your active advisor persona."
-        : managerView === "outgoing"
-          ? "Outgoing consent activity and grants stay grouped in one privacy workspace."
-          : "Incoming requests, active grants, and prior decisions stay grouped in one privacy workspace.";
-  const searchPlaceholder =
-    mode === "connections"
-      ? `Search ${tab} connections by name, email, or status`
-      : `Search ${tab} by name, email, scope, or reason`;
+    actor === "ria"
+      ? "Outgoing requests, active grants, and prior investor decisions stay in one privacy workspace for your active advisor persona."
+      : managerView === "outgoing"
+        ? "Outgoing consent activity and grants stay grouped in one privacy workspace."
+        : "Incoming requests, active grants, and prior decisions stay grouped in one privacy workspace.";
+  const searchPlaceholder = `Search ${tab} by name, email, scope, or reason`;
 
   return (
     <AppPageShell as="main" width="profile" className="pb-28">
@@ -564,17 +595,6 @@ export function ConsentCenterPage() {
         <SurfaceStack>
           <section className="space-y-4" data-testid="consent-manager-primary">
             <SettingsSegmentedTabs
-              value={mode}
-              onValueChange={(value) =>
-                setParam({ mode: value, tab: "pending", page: "1", requestId: null })
-              }
-              options={[
-                { value: "connections", label: "Connections" },
-                { value: "consents", label: "Consent" },
-              ]}
-            />
-
-            <SettingsSegmentedTabs
               value={tab}
               onValueChange={(value) => setParam({ tab: value, page: "1", requestId: null })}
               options={[
@@ -584,7 +604,7 @@ export function ConsentCenterPage() {
                 },
                 {
                   value: "active",
-                  label: `${mode === "connections" ? "Connected" : "Active"} (${summaryData?.counts.active ?? 0})`,
+                  label: `Active (${summaryData?.counts.active ?? 0})`,
                 },
                 {
                   value: "previous",
@@ -626,7 +646,7 @@ export function ConsentCenterPage() {
                   ) : null}
                   {!listResource.loading && items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
-                      No {tab} {mode === "connections" ? "connections" : "entries"} match this view right now.
+                      No {tab} entries match this view right now.
                     </div>
                   ) : null}
                   {items.map((entry) => (
@@ -669,10 +689,8 @@ export function ConsentCenterPage() {
         title={selectedEntry ? resolveCounterpartLabel(selectedEntry) : "Consent details"}
         description={
           selectedEntry
-            ? mode === "connections"
-              ? `${formatStatus(selectedEntry.status)} connection`
-              : `${formatStatus(selectedEntry.status)} request`
-            : `Choose a ${mode === "connections" ? "connection" : "consent entry"} from the list to review details and next actions.`
+            ? `${formatStatus(selectedEntry.status)} request`
+            : "Choose a consent entry from the list to review details and next actions."
         }
       >
         <ConsentEntryDetail

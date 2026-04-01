@@ -15,7 +15,10 @@ import asyncpg
 from db.connection import get_pool
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.consent_request_links import build_consent_request_url
+from hushh_mcp.services.consent_request_links import (
+    build_connection_request_url,
+    build_consent_request_url,
+)
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
@@ -111,6 +114,28 @@ class RIAIAMService:
         self._verification_gateway = VerificationGateway(FinraVerificationAdapter())
 
     @staticmethod
+    def _runtime_environment() -> str:
+        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
+            value = str(os.getenv(name, "")).strip().lower()
+            if value:
+                return value
+        return "development"
+
+    @classmethod
+    def _is_production_runtime(cls) -> bool:
+        return cls._runtime_environment() in {"prod", "production"}
+
+    @staticmethod
+    def _search_matches(query: str | None, *values: str | None) -> bool:
+        normalized_query = str(query or "").strip().lower()
+        if not normalized_query:
+            return True
+        haystack = " ".join(
+            str(value or "").strip().lower() for value in values if str(value or "").strip()
+        )
+        return normalized_query in haystack
+
+    @staticmethod
     def _read_cached_persona_state(user_id: str) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
@@ -144,13 +169,6 @@ class RIAIAMService:
     def _env_truthy(name: str, fallback: str = "false") -> bool:
         raw = str(os.getenv(name, fallback)).strip().lower()
         return raw in {"1", "true", "yes", "on"}
-
-    def _runtime_environment(self) -> str:
-        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
-            value = str(os.getenv(name, "")).strip().lower()
-            if value:
-                return value
-        return ""
 
     def _is_ria_dev_bypass_enabled(self) -> bool:
         if not self._env_truthy("RIA_DEV_BYPASS_ENABLED"):
@@ -836,10 +854,27 @@ class RIAIAMService:
             requester_actor_type=self._normalize_actor(str(row["requester_actor_type"])),
             subject_actor_type=self._normalize_actor(str(row["subject_actor_type"])),
             template_name=str(row["template_name"]),
-            allowed_scopes=list(row["allowed_scopes"] or []),
+            allowed_scopes=self._canonicalize_scope_aliases(list(row["allowed_scopes"] or [])),
             default_duration_hours=int(row["default_duration_hours"]),
             max_duration_hours=int(row["max_duration_hours"]),
         )
+
+    @staticmethod
+    def _canonicalize_scope_alias(scope: str | None) -> str:
+        normalized = str(scope or "").strip()
+        if normalized == "world_model.read":
+            return "pkm.read"
+        if normalized == "world_model.write":
+            return "pkm.write"
+        return normalized
+
+    @classmethod
+    def _canonicalize_scope_aliases(cls, scopes: list[str] | tuple[str, ...] | None) -> list[str]:
+        return [
+            canonical
+            for canonical in (cls._canonicalize_scope_alias(scope) for scope in list(scopes or []))
+            if canonical
+        ]
 
     @staticmethod
     def _parse_metadata(value: Any) -> dict[str, Any]:
@@ -1319,7 +1354,7 @@ class RIAIAMService:
             )
             items: list[dict[str, Any]] = []
             for row in rows:
-                allowed_scopes = [str(scope) for scope in list(row["allowed_scopes"] or [])]
+                allowed_scopes = self._canonicalize_scope_aliases(list(row["allowed_scopes"] or []))
                 items.append(
                     {
                         "template_id": str(row["template_id"]),
@@ -1555,11 +1590,7 @@ class RIAIAMService:
                     )
 
                 template = await self._load_scope_template(conn, scope_template_id)
-                normalized_scopes = [
-                    str(scope or "").strip()
-                    for scope in selected_scopes
-                    if str(scope or "").strip()
-                ]
+                normalized_scopes = self._canonicalize_scope_aliases(selected_scopes)
                 deduped_scopes = list(dict.fromkeys(normalized_scopes))
                 if not deduped_scopes:
                     deduped_scopes = list(template.allowed_scopes[:1])
@@ -1649,6 +1680,7 @@ class RIAIAMService:
         disclosures_url: str | None = None,
         primary_firm_name: str | None = None,
         primary_firm_role: str | None = None,
+        force_live_verification: bool = False,
     ) -> dict[str, Any]:
         if not display_name.strip():
             raise RIAIAMPolicyError("display_name is required", status_code=400)
@@ -1820,6 +1852,7 @@ class RIAIAMService:
                     legal_name=effective_legal_name,
                     finra_crd=effective_finra_crd,
                     sec_iard=effective_sec_iard,
+                    force_live=force_live_verification,
                 )
                 verification_provider = self._verification_provider_label(verification_result)
 
@@ -4328,7 +4361,11 @@ class RIAIAMService:
                 request_id = uuid.uuid4().hex
                 now_ms = self._now_ms()
                 expires_at_ms = now_ms + (template.default_duration_hours * 60 * 60 * 1000)
-                request_url = build_consent_request_url(request_id=request_id, bundle_id=None)
+                connection_selected = str(ria["user_id"] if requester == "ria" else user_id)
+                request_url = build_connection_request_url(
+                    selected=connection_selected,
+                    tab="pending",
+                )
                 requester_website_url = (
                     str(ria["disclosures_url"] or "").strip() or None
                     if requester == "ria"
@@ -4918,6 +4955,11 @@ class RIAIAMService:
                   mp.headline,
                   mp.strategy_summary,
                   rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
                   COALESCE(
                     json_agg(
                       DISTINCT jsonb_build_object(
@@ -4942,6 +4984,7 @@ class RIAIAMService:
                 WHERE
                   ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
                   AND ($2::text IS NULL OR rp.verification_status = $2)
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
                   AND (
                     $3::text IS NULL
                     OR EXISTS (
@@ -4953,7 +4996,14 @@ class RIAIAMService:
                         AND f2.legal_name ILIKE ('%' || $3 || '%')
                     )
                   )
-                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status
+                GROUP BY
+                  rp.id,
+                  rp.user_id,
+                  mp.display_name,
+                  mp.headline,
+                  mp.strategy_summary,
+                  mp.metadata,
+                  rp.verification_status
                 ORDER BY
                   CASE WHEN rp.verification_status IN ('active', 'finra_verified') THEN 0 ELSE 1 END,
                   mp.display_name ASC
@@ -4983,6 +5033,11 @@ class RIAIAMService:
                   mp.headline,
                   mp.strategy_summary,
                   rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
                   rp.bio,
                   rp.strategy,
                   rp.disclosures_url,
@@ -5008,7 +5063,8 @@ class RIAIAMService:
                 LEFT JOIN ria_firms f
                   ON f.id = m.firm_id
                 WHERE rp.id = $1::uuid
-                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
+                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url, is_test_profile
                 """,
                 ria_id,
             )
@@ -5035,7 +5091,12 @@ class RIAIAMService:
                   mp.display_name,
                   mp.headline,
                   mp.location_hint,
-                  mp.strategy_summary
+                  mp.strategy_summary,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile
                 FROM actor_profiles ap
                 JOIN marketplace_public_profiles mp
                   ON mp.user_id = ap.user_id
@@ -5044,6 +5105,7 @@ class RIAIAMService:
                 WHERE
                   ap.investor_marketplace_opt_in = TRUE
                   AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
                 ORDER BY mp.display_name ASC
                 LIMIT $2
                 """,

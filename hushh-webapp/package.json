@@ -46,6 +46,7 @@
     "verify:parity:extended": "node scripts/verify-native-parity-extended.cjs",
     "playwright:investor:onboarding": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/investor-onboarding playwright test scripts/playwright/investor-onboarding-flow.spec.js",
     "playwright:ria:onboarding": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/ria-onboarding playwright test scripts/playwright/ria-onboarding-flow.spec.js",
+    "playwright:connection:flow": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/connection-flow playwright test scripts/playwright/connection-flow.spec.js",
     "playwright:pkm:migration": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/pkm-migration playwright test scripts/playwright/pkm-migration-audit.spec.js",
     "playwright:perf:budget": "cross-env PLAYWRIGHT_OUT_DIR=/tmp/hushh-audit/perf-budget playwright test scripts/playwright/performance-budget-audit.spec.js",
     "bootstrap:mobile-firebase": "bash scripts/native/bootstrap-mobile-secrets.sh",

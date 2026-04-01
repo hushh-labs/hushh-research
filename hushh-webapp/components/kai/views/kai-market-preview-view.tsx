@@ -498,77 +498,38 @@ function SpotlightFeatureTile({
         }
         window.location.assign(primaryHref);
       }}
-      className={cn(
-        "group relative flex min-h-[240px] h-full flex-col justify-between overflow-hidden rounded-[28px] border border-white/60 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.98),rgba(248,250,252,0.96)_46%,rgba(241,245,249,0.92)_100%)] p-5 text-left shadow-[0_24px_60px_-44px_rgba(15,23,42,0.32)] transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out",
-        "hover:-translate-y-[1px] hover:border-rose-200/80 hover:shadow-[0_28px_70px_-42px_rgba(15,23,42,0.36)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/70 focus-visible:ring-offset-2"
-      )}
+      className="group relative flex h-full min-h-[200px] flex-col justify-between overflow-hidden rounded-[var(--radius-md)] border-0 bg-card p-4 text-left shadow-[var(--app-card-shadow-standard)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-px hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 sm:p-5"
     >
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200",
-          decision === "BUY"
-            ? "bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.08),transparent_34%)] group-hover:opacity-100"
-            : decision === "REDUCE"
-              ? "bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.12),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(244,63,94,0.08),transparent_34%)] group-hover:opacity-100"
-              : "bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.11),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.08),transparent_34%)] group-hover:opacity-100"
-        )}
-      />
-      <div className="relative z-[1] space-y-4">
+      <div className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <SymbolAvatar symbol={row.symbol} name={row.company_name} size="md" />
             <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className="border-border/55 bg-background/80 px-2 py-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
-                >
-                  {row.symbol}
-                </Badge>
-                <span className="text-[12px] font-medium text-muted-foreground">{context}</span>
-              </div>
-              <h3 className="line-clamp-2 text-[clamp(1.42rem,2vw,2rem)] font-black tracking-tight leading-[0.95] text-foreground">
+              <p className="text-xs font-medium text-muted-foreground">{row.symbol} · {context}</p>
+              <h3 className="line-clamp-2 text-lg font-bold tracking-tight leading-tight text-foreground sm:text-xl">
                 {companyName}
               </h3>
             </div>
           </div>
-          <div className="shrink-0 space-y-2 text-right">
-            {confidenceLabel ? (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {confidenceLabel}
-              </p>
-            ) : null}
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-extrabold tracking-[0.18em]",
-                decisionTone
-              )}
-            >
-              {decision}
-            </span>
-          </div>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide",
+              decisionTone
+            )}
+          >
+            {decision}
+          </span>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-[28px] font-semibold tracking-tight text-foreground">{price}</p>
-          <p className="line-clamp-3 text-[15px] leading-6 text-foreground/90">{summary}</p>
-        </div>
+        <p className="text-2xl font-semibold tracking-tight text-foreground">{price}</p>
+        <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">{summary}</p>
       </div>
 
-      <div className="relative z-[1] mt-5 flex items-center justify-between gap-3 border-t border-border/45 pt-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Linked context
-          </p>
-          <p className="line-clamp-1 text-[13px] font-medium text-foreground/88">
-            {String(row.headline || summary).trim()}
-          </p>
-        </div>
-        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/55 bg-background/85 text-muted-foreground transition-colors duration-200 group-hover:text-foreground">
-          <ArrowUpRight className="h-4 w-4" />
-        </span>
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/30 pt-3">
+        <p className="line-clamp-1 min-w-0 text-xs text-muted-foreground">
+          {String(row.headline || summary).trim()}
+        </p>
+        <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
       </div>
     </button>
   );
@@ -1401,36 +1362,38 @@ export function KaiMarketPreviewView() {
       ) : null}
 
       {hasPayload ? (
-        <>
+        <div className="flex flex-col gap-12">
           <section className="space-y-4">
             <SectionHeader
               eyebrow="Pulse"
-              title="Market overview"
+              title={
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  Market overview
+                  {marketStatus ? (
+                    <Badge variant="outline" className={cn("text-[10px] font-medium", marketStatus.className)}>
+                      {marketStatus.label}
+                    </Badge>
+                  ) : null}
+                </span>
+              }
               description="A denser read of the current tape with stronger status cues and less filler."
               icon={ChartColumnIncreasing}
               accent="sky"
               actions={
-                <div className="flex items-center gap-2">
-                  {marketStatus ? (
-                    <Badge variant="outline" className={cn("font-medium", marketStatus.className)}>
-                      {marketStatus.label}
-                    </Badge>
-                  ) : null}
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    disabled={refreshing}
-                    size="sm"
-                    onClick={() => void loadInsights({ manual: true })}
-                  >
-                    {refreshing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                    )}
-                    Refresh
-                  </Button>
-                </div>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  disabled={refreshing}
+                  size="icon"
+                  className="h-9 w-9 rounded-full"
+                  onClick={() => void loadInsights({ manual: true })}
+                >
+                  {refreshing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                </Button>
               }
             />
             <MarketOverviewGrid metrics={overviewMetrics} />
@@ -1465,9 +1428,6 @@ export function KaiMarketPreviewView() {
                 <SurfaceCardContent className="space-y-3">
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(220px,0.85fr)]">
                     <div className="space-y-1.5">
-                      <p className={cn("text-[10px] font-semibold uppercase tracking-[0.18em]", signalAccentClass(scenarioSignal))}>
-                        {signalHeadlineLabel(scenarioSignal)}
-                      </p>
                       <p className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
                         {scenarioSignal.title}
                       </p>
@@ -1610,39 +1570,27 @@ export function KaiMarketPreviewView() {
               icon={Target}
               accent="rose"
             />
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.9fr)]">
+            <div className="space-y-4">
               {spotlightRows.length > 0 ? (
-                <SurfaceCard className="overflow-hidden">
-                  <SurfaceCardContent className="space-y-4 p-4 md:p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                          Featured names
-                        </p>
-                        <h3 className="text-[15px] font-semibold tracking-tight text-foreground">
-                          Highest-conviction names in the current tape
-                        </h3>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className="border-border/60 bg-background/80 px-2.5 py-1 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
-                      >
-                        {spotlightRows.length} live
-                      </Badge>
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2 md:auto-rows-fr">
-                      {spotlightRows.map((row) => (
-                        <SpotlightFeatureTile key={row.symbol} row={row} />
-                      ))}
-                    </div>
-                  </SurfaceCardContent>
-                </SurfaceCard>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold tracking-tight text-foreground">
+                      Highest-conviction names in the current tape
+                    </h3>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {spotlightRows.length} live
+                    </span>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {spotlightRows.map((row) => (
+                      <SpotlightFeatureTile key={row.symbol} row={row} />
+                    ))}
+                  </div>
+                </div>
               ) : (
-                <SurfaceCard>
-                  <SurfaceCardContent className="flex min-h-[240px] items-center justify-center p-5 text-sm text-muted-foreground">
-                    Spotlight names are loading right now.
-                  </SurfaceCardContent>
-                </SurfaceCard>
+                <div className="flex min-h-[120px] items-center justify-center rounded-[var(--radius-md)] bg-card p-5 text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
+                  Spotlight names are loading right now.
+                </div>
               )}
               <MarketHeadlinesRail rows={effectivePayload?.news_tape || []} />
             </div>
@@ -1660,7 +1608,7 @@ export function KaiMarketPreviewView() {
               <ConnectPortfolioCta />
             </section>
           ) : null}
-        </>
+        </div>
       ) : null}
         </SurfaceStack>
       </AppPageContentRegion>

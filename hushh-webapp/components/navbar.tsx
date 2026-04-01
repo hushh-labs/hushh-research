@@ -276,8 +276,8 @@ export const Navbar = () => {
           ariaLabel="Main navigation"
           className={cn(
             "relative z-10 w-full chrome-bottom-foreground",
-            !isVaultUnlocked &&
-              "!border-border/80 !bg-background/92 !backdrop-blur-none shadow-[0_10px_22px_rgba(15,23,42,0.08)] dark:!bg-background/94"
+            "!border-0 !bg-background/80 !backdrop-blur-[var(--blur-standard)]",
+            "dark:!bg-background/90"
           )}
         />
       </div>
