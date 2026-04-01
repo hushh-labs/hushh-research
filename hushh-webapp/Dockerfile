@@ -1,5 +1,9 @@
 # Multi-stage build for Next.js Standalone
 # Optimized for Google Cloud Run (Node.js)
+#
+# Next.js docs: https://nextjs.org/docs/app/api-reference/config/next-config-js/output
+# Monorepo note: outputFileTracingRoot is set to ".." in next.config.ts,
+# so standalone output nests under hushh-webapp/ in .next/standalone/.
 
 # Stage 1: Build Next.js application
 FROM node:20-alpine AS builder
@@ -63,7 +67,7 @@ ENV NEXT_PUBLIC_GTM_ID_PRODUCTION=$NEXT_PUBLIC_GTM_ID_PRODUCTION
 ENV CAPACITOR_BUILD=false
 ENV NODE_ENV=production
 
-# Build Next.js (produces .next/standalone)
+# Build Next.js (produces .next/standalone with monorepo-aware paths)
 RUN npm run build
 
 # Stage 2: Production runner
@@ -73,26 +77,24 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8080
-# HOSTname required for proper listening in container
 ENV HOSTNAME="0.0.0.0"
 
-# Copy public assets to both root and monorepo subdir paths
-COPY --from=builder /app/public ./public
+# Copy the standalone output.
+# Because outputFileTracingRoot=".." in next.config.ts, the standalone
+# output nests files under hushh-webapp/. We copy the entire standalone
+# tree first, then place public + static where server.js expects them.
+COPY --from=builder /app/.next/standalone ./
+
+# Copy public assets into the monorepo subdirectory (where server.js lives)
 COPY --from=builder /app/public ./hushh-webapp/public
 
-# Copy standalone build
-# Next.js 16 outputs server.js under the project directory name when in a monorepo
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-# Also copy static into the monorepo subdirectory path for Next.js 16 compat
+# Copy static assets into the monorepo subdirectory (where server.js expects .next/static)
 COPY --from=builder /app/.next/static ./hushh-webapp/.next/static
 
-# Expose port
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-# Start Node.js server — use the monorepo-aware path if it exists
-CMD ["sh", "-c", "if [ -f server.js ]; then node server.js; elif [ -f hushh-webapp/server.js ]; then node hushh-webapp/server.js; else echo 'server.js not found' && exit 1; fi"]
+# Start the standalone server from the monorepo subdirectory
+CMD ["node", "hushh-webapp/server.js"]
