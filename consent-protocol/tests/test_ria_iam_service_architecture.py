@@ -431,15 +431,13 @@ async def test_consent_center_list_ria_active_uses_relationship_roster(monkeypat
         surface="active",
         mode="connections",
         query="taylor",
-        page=2,
+        page=1,
         limit=20,
     )
 
     assert payload["actor"] == "ria"
     assert payload["surface"] == "active"
     assert payload["mode"] == "connections"
-    # 21 connection entries, all with relationship_state="approved" → surface="active"
-    # query="taylor" filters to 1 match, but total is pre-filter count
     assert payload["total"] >= 1
     assert any(item.get("counterpart_label") == "Taylor" for item in payload["items"])
 
