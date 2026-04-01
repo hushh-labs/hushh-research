@@ -27,6 +27,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -282,6 +283,7 @@ export default function PkmAgentLabPageClient() {
 
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"overview" | "permissions" | "advanced">("overview");
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [manifests, setManifests] = useState<Record<string, DomainManifest | null>>({});
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
@@ -289,9 +291,7 @@ export default function PkmAgentLabPageClient() {
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [naturalRefreshToken, setNaturalRefreshToken] = useState(0);
-  const [message, setMessage] = useState(
-    "Remember that I prefer short city breaks and weekly meal prep."
-  );
+  const [message, setMessage] = useState("");
   const [response, setResponse] = useState<AgentLabResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -806,62 +806,45 @@ export default function PkmAgentLabPageClient() {
     <>
       <PkmSettingsShell
         eyebrow="Profile / Privacy"
-        title="PKM Agent Lab"
-        description="An advanced privacy workspace for PKM permissions, readable capture previews, and encrypted Personal Knowledge Model diagnostics."
+        title="Your data"
+        description="See what Kai knows, manage permissions, and explore your encrypted Personal Knowledge Model."
       >
         <SurfaceInset className="space-y-4 px-4 py-4">
-          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
-            <p className="font-medium">Development / UAT only</p>
-            <p className="mt-1 text-amber-900/80 dark:text-amber-100/80">
-              PKM Agent Lab is visible only in {nonProdLabel}. It remains blocked in production.
-            </p>
-          </div>
-
-          <PkmUpgradeStatusCard
-            status={upgradeStatus}
-            loading={upgradeLoading}
-            onResume={handleResumeUpgrade}
-            resumeBusy={upgradeBusy}
-            onUnlock={() => {
-              if (vaultAccess.needsVaultCreation) {
-                openPrivacySecurity();
-                return;
-              }
-            }}
-            vaultUnlocked={isVaultUnlocked}
-            showRecoveryAction={showUpgradeRecoveryAction}
+          <SettingsSegmentedTabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+            options={[
+              { value: "overview", label: "Data overview" },
+              { value: "permissions", label: "Permissions" },
+              { value: "advanced", label: "Advanced" },
+            ]}
           />
 
-          <SettingsGroup
-            eyebrow="Summary"
-            title="What Kai knows right now"
-            description="This viewer keeps the default language simple: domains first, then the top-level sections inside each domain, with raw structure details pushed into Advanced."
-          >
-            <SettingsRow
-              title="Domains captured"
-              description="Each domain is encrypted in PKM and becomes readable only after vault unlock."
-              trailing={<Badge variant="secondary">{domains.length}</Badge>}
-            />
-            <SettingsRow
-              title="Permission-ready sections"
-              description="Top-level PKM sections that can be exposed or hidden through consent scopes."
-              trailing={<Badge variant="secondary">{enabledSections} / {totalSections}</Badge>}
-            />
-            <SettingsRow
-              title="Upgrade status"
-              description="Older manifests are upgraded automatically in the background when the vault is available, and read-only sections become writable as soon as the Personal Knowledge Model catches up."
-              trailing={
-                <Badge variant={upgradableDomains.length > 0 ? "outline" : "secondary"}>
-                  {upgradableDomains.length > 0 ? `${upgradableDomains.length} pending` : "Current"}
-                </Badge>
-              }
-            />
-          </SettingsGroup>
+          {/* ── Data Overview tab ── */}
+          {activeTab === "overview" ? (
+            <div className="space-y-4">
+              <SettingsGroup embedded>
+                <SettingsRow
+                  title="Domains"
+                  description="Encrypted domains in your Personal Knowledge Model."
+                  trailing={<Badge variant="secondary">{domains.length}</Badge>}
+                />
+                <SettingsRow
+                  title="Sections"
+                  description="Permission-ready sections that can be shared via consent."
+                  trailing={<Badge variant="secondary">{enabledSections} / {totalSections}</Badge>}
+                />
+              </SettingsGroup>
+              <PkmNaturalPanel onOpenExplorer={() => setActiveTab("advanced")} />
+            </div>
+          ) : null}
 
+          {/* ── Permissions tab ── */}
+          {activeTab === "permissions" ? (
           <SettingsGroup
-            eyebrow="Permissions"
+            embedded
             title="Domain controls"
-            description="Open any domain to toggle the top-level sections Kai may expose through PKM permissions. Turning a section off also revokes overlapping active grants."
+            description="Toggle which sections Kai may expose through PKM permissions."
           >
             {accessLoading || bootstrapLoading ? (
               <SettingsRow
@@ -972,11 +955,15 @@ export default function PkmAgentLabPageClient() {
               })
             )}
           </SettingsGroup>
+          ) : null}
 
+          {/* ── Advanced tab ── */}
+          {activeTab === "advanced" ? (
+          <div className="space-y-4">
           <SettingsGroup
-            eyebrow="Recent Captures"
-            title="Latest AI capture preview"
-            description="Each preview stays plain-language first: what Kai heard, where it plans to save it, and whether the capture is ready to persist."
+            embedded
+            title="Capture preview"
+            description="Kai's latest AI capture preview before it's encrypted and saved."
           >
             {previewCards.length === 0 ? (
               <SettingsRow
@@ -1004,10 +991,7 @@ export default function PkmAgentLabPageClient() {
             )}
           </SettingsGroup>
 
-          <SettingsGroup
-            eyebrow="Advanced"
-            title="Capture tool and technical details"
-            description="The capture composer, raw response envelope, readable PKM view, and explorer stay here so the default page can remain simple."
+          <SettingsGroup embedded title="Tools" description="Capture composer, readable view, and explorer."
           >
             <div className="px-3 py-3 sm:px-4 sm:py-4">
               <Accordion type="multiple" className="w-full">
@@ -1091,6 +1075,8 @@ export default function PkmAgentLabPageClient() {
             <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
             </div>
+          ) : null}
+          </div>
           ) : null}
         </SurfaceInset>
       </PkmSettingsShell>
