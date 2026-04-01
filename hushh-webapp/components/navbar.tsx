@@ -132,16 +132,16 @@ export const Navbar = () => {
           ]
         : [
             {
-              value: "dashboard",
-              label: "Portfolio",
-              icon: LayoutDashboard,
-              dataTourId: "nav-portfolio",
-            },
-            {
               value: "market",
               label: "Market",
               icon: Store,
               dataTourId: "nav-market",
+            },
+            {
+              value: "dashboard",
+              label: "Portfolio",
+              icon: LayoutDashboard,
+              dataTourId: "nav-portfolio",
             },
             {
               value: "analysis",

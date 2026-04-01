@@ -719,6 +719,12 @@ export function ConsentNotificationProvider({
 
       const msgType = data.type;
 
+      // Dedup: skip if we've already processed this exact message
+      const msgId = data.message_id || data.request_id || data.bundle_id || "";
+      const dedupKey = `${msgType}:${msgId}`;
+      if (msgId && toastedIdsRef.current.has(dedupKey)) return;
+      if (msgId) toastedIdsRef.current.add(dedupKey);
+
       if (msgType === "consent_request") {
         const consent = consentFromFCMPayload(data);
         if (!consent) return;

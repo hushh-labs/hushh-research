@@ -518,22 +518,18 @@ export default function RiaClientsPage() {
     <>
       <RiaPageShell
         eyebrow="Clients"
-        title="Client roster"
-        description="Scan connected, pending, and invited relationships first. Open the panel only when you need the full relationship detail."
+        title="Connected investors"
+        description="Portfolio access and Kai permissions for your connected investors."
         actions={
-          <>
-            <Button asChild variant="none" effect="fade">
-              <Link href={consentManagerHref}>Consent manager</Link>
-            </Button>
-            <Button
-              variant="blue-gradient"
-              effect="fill"
-              onClick={() => setInvitePanelOpen(true)}
-            >
-              <MailPlus className="mr-2 h-4 w-4" />
-              New invite
-            </Button>
-          </>
+          <Button
+            variant="none"
+            effect="fade"
+            size="sm"
+            onClick={() => setInvitePanelOpen(true)}
+          >
+            <MailPlus className="mr-2 h-4 w-4" />
+            Invite
+          </Button>
         }
         statusPanel={
           iamUnavailable ? null : (

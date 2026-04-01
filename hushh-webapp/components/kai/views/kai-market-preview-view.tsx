@@ -382,7 +382,6 @@ function signalAccentClass(signal: KaiHomeSignal | undefined): string {
 }
 
 function SignalGroupBlock({
-  scopeId,
   label,
   symbols,
 }: {
@@ -390,60 +389,22 @@ function SignalGroupBlock({
   label: string;
   symbols: string[];
 }) {
-  const [open, setOpen] = useState(false);
-  const visibleSymbols = open ? symbols : symbols.slice(0, 6);
-  const hiddenCount = Math.max(0, symbols.length - visibleSymbols.length);
+  const top = symbols.slice(0, 5);
 
   return (
-    <SurfaceInset className="space-y-1.5 p-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          {label}
+    <div className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] bg-background/50 px-3 py-2.5 dark:bg-white/5">
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="mt-1 text-sm font-semibold text-foreground">
+          {symbols.length} names
+          {top.length > 0 ? (
+            <span className="ml-2 font-normal text-muted-foreground">
+              {top.join(", ")}{symbols.length > 5 ? "..." : ""}
+            </span>
+          ) : null}
         </p>
-        <Badge
-          variant="outline"
-          className="border-border/60 bg-background/80 px-1.5 py-0 text-[10px] font-medium text-muted-foreground"
-        >
-          {symbols.length}
-        </Badge>
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {visibleSymbols.map((symbol) => (
-          <Badge
-            key={`${scopeId}:${label}:${symbol}`}
-            variant="outline"
-            className="border-sky-500/18 bg-sky-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-foreground"
-          >
-            {symbol}
-          </Badge>
-        ))}
-      </div>
-      {symbols.length > 6 ? (
-        <Collapsible open={open} onOpenChange={setOpen}>
-          <CollapsibleTrigger asChild>
-            <Button variant="none" effect="fade" size="sm" className="h-7 px-0 text-[11px] text-muted-foreground">
-              {open ? "Show fewer" : `Show ${hiddenCount} more`}
-              <ChevronDown className={cn("ml-1 h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-1">
-            <div className="max-h-28 overflow-y-auto pr-1">
-              <div className="flex flex-wrap gap-1.5">
-                {symbols.slice(6).map((symbol) => (
-                  <Badge
-                    key={`${scopeId}:${label}:extra:${symbol}`}
-                    variant="outline"
-                    className="border-sky-500/18 bg-sky-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-foreground"
-                  >
-                    {symbol}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      ) : null}
-    </SurfaceInset>
+    </div>
   );
 }
 
