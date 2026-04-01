@@ -7,6 +7,8 @@ export const GMAIL_RECEIPTS_API_TEMPLATES = {
   sync: "/api/kai/gmail/sync",
   syncRun: "/api/kai/gmail/sync/{run_id}",
   receipts: "/api/kai/gmail/receipts/{user_id}",
+  receiptsMemoryPreview: "/api/kai/gmail/receipts-memory/preview",
+  receiptsMemoryArtifact: "/api/kai/gmail/receipts-memory/artifacts/{artifact_id}",
 } as const;
 
 export const SUPPORT_API_TEMPLATES = {
@@ -27,4 +29,11 @@ export function buildGmailSyncRunPath(runId: string): string {
 
 export function buildGmailReceiptsPath(userId: string): string {
   return GMAIL_RECEIPTS_API_TEMPLATES.receipts.replace("{user_id}", encodePathParam(userId));
+}
+
+export function buildGmailReceiptMemoryArtifactPath(artifactId: string): string {
+  return GMAIL_RECEIPTS_API_TEMPLATES.receiptsMemoryArtifact.replace(
+    "{artifact_id}",
+    encodePathParam(artifactId)
+  );
 }

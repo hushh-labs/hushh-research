@@ -25,7 +25,7 @@ const TRANSITIONS: Record<VoiceUiState, VoiceUiState[]> = {
   sheet_submitting: ["processing_compact", "idle", "error_terminal"],
   processing_compact: ["speaking_compact", "retry_ready", "idle", "sheet_listening", "error_terminal"],
   speaking_compact: ["processing_compact", "retry_ready", "idle", "sheet_listening", "error_terminal"],
-  retry_ready: ["sheet_listening", "idle", "error_terminal"],
+  retry_ready: ["sheet_listening", "processing_compact", "speaking_compact", "idle", "error_terminal"],
   error_terminal: ["idle", "sheet_listening"],
 };
 

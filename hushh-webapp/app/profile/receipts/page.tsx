@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Mail, RefreshCw } from "lucide-react";
+import { Loader2, Lock, Mail, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -14,21 +14,35 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import {
+  buildShoppingReceiptMemoryPreparedDomain,
+  hasMatchingReceiptMemoryProvenance,
+} from "@/lib/profile/gmail-receipt-memory-pkm";
 import {
   getCachedGmailReceipts,
   isCachedGmailReceiptsFresh,
   mergeCachedReceiptItems,
   primeCachedGmailReceipts,
 } from "@/lib/profile/gmail-receipts-cache";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import {
+  GmailReceiptMemoryService,
+  type ReceiptMemoryArtifact,
+} from "@/lib/services/gmail-receipt-memory-service";
 import {
   GmailReceiptsService,
   type GmailSyncRun,
   type ReceiptListItem,
 } from "@/lib/services/gmail-receipts-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { VaultService } from "@/lib/services/vault-service";
+import { useVault } from "@/lib/vault/vault-context";
 
 function formatDate(value?: string | null): string {
   if (!value) return "—";
@@ -70,12 +84,21 @@ function computeSyncProgressPercent(run: GmailSyncRun | null): number {
 export default function ProfileReceiptsPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
+  const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [showVaultUnlock, setShowVaultUnlock] = useState(false);
+  const [receiptMemoryArtifact, setReceiptMemoryArtifact] = useState<ReceiptMemoryArtifact | null>(
+    null
+  );
+  const [receiptMemoryLoading, setReceiptMemoryLoading] = useState(false);
+  const [receiptMemorySaving, setReceiptMemorySaving] = useState(false);
+  const [receiptMemoryMessage, setReceiptMemoryMessage] = useState<string | null>(null);
   const receiptsRef = useRef<ReceiptListItem[]>([]);
   const pageRef = useRef(1);
 
@@ -86,6 +109,28 @@ export default function ProfileReceiptsPage() {
   useEffect(() => {
     pageRef.current = page;
   }, [page]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.uid) {
+      setHasVault(null);
+      return;
+    }
+    void VaultService.checkVault(user.uid)
+      .then((next) => {
+        if (!cancelled) {
+          setHasVault(next);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHasVault(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   const canLoad = Boolean(user?.uid);
   const hasStoredReceipts = receipts.length > 0;
@@ -255,6 +300,124 @@ export default function ProfileReceiptsPage() {
     connectorState === "connected_initial_scan_running" ||
     connectorState === "connected_backfill_running" ||
     connectorState === "syncing";
+  const canBuildReceiptMemoryPreview = Boolean(user?.uid) && (total > 0 || hasStoredReceipts);
+
+  const requestVaultUnlock = useCallback(() => {
+    if (hasVault === true) {
+      setShowVaultUnlock(true);
+      return;
+    }
+    toast.info("Create and unlock your vault from Profile before saving receipt memory.");
+  }, [hasVault]);
+
+  const handleBuildReceiptMemoryPreview = useCallback(
+    async (forceRefresh = false) => {
+      if (!user?.uid) return;
+      setReceiptMemoryLoading(true);
+      setReceiptMemoryMessage(null);
+      try {
+        const idToken = await user.getIdToken();
+        const artifact = await GmailReceiptMemoryService.preview({
+          idToken,
+          userId: user.uid,
+          forceRefresh,
+        });
+        setReceiptMemoryArtifact(artifact);
+        setReceiptMemoryMessage(
+          artifact.enrichment
+            ? "Preview includes deterministic facts plus LLM-readable summary."
+            : "Preview generated from deterministic receipt projection."
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to build receipt memory preview.";
+        setReceiptMemoryMessage(message);
+        toast.error(message);
+      } finally {
+        setReceiptMemoryLoading(false);
+      }
+    },
+    [user]
+  );
+
+  const handleSaveReceiptMemory = useCallback(async () => {
+    if (!user?.uid || !receiptMemoryArtifact) return;
+    if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
+      requestVaultUnlock();
+      return;
+    }
+
+    setReceiptMemorySaving(true);
+    setReceiptMemoryMessage(null);
+    try {
+      const existingContext = await PkmDomainResourceService.prepareDomainWriteContext({
+        userId: user.uid,
+        domain: "shopping",
+        vaultKey,
+        vaultOwnerToken,
+      });
+      if (
+        existingContext.domainData &&
+        hasMatchingReceiptMemoryProvenance(existingContext.domainData, receiptMemoryArtifact)
+      ) {
+        setReceiptMemoryMessage("Receipt memory is already current in PKM.");
+        toast.message("Receipt memory is already current in PKM.");
+        return;
+      }
+
+      const result = await PkmWriteCoordinator.savePreparedDomain({
+        userId: user.uid,
+        domain: "shopping",
+        vaultKey,
+        vaultOwnerToken,
+        build: async (context) => {
+          const prepared = buildShoppingReceiptMemoryPreparedDomain({
+            currentDomainData: context.currentDomainData,
+            currentManifest: context.currentManifest,
+            artifact: receiptMemoryArtifact,
+          });
+          const validation = await PersonalKnowledgeModelService.validatePreparedDomainStore({
+            userId: user.uid,
+            vaultKey,
+            vaultOwnerToken,
+            domain: "shopping",
+            domainData: prepared.domainData,
+            summary: prepared.summary,
+            manifest: prepared.manifest,
+            structureDecision: prepared.structureDecision,
+            baseFullBlob: context.baseFullBlob,
+            expectedDataVersion:
+              context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
+            upgradeContext: context.upgradeContext,
+          });
+          if (!validation.success) {
+            throw new Error(validation.message || "Failed to validate receipt memory for PKM.");
+          }
+          return prepared;
+        },
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || "Failed to save receipt memory to PKM.");
+      }
+      setReceiptMemoryMessage("Saved receipt memory to PKM.");
+      toast.success("Saved receipt memory to PKM.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save receipt memory to PKM.";
+      setReceiptMemoryMessage(message);
+      toast.error(message);
+    } finally {
+      setReceiptMemorySaving(false);
+    }
+  }, [
+    isVaultUnlocked,
+    receiptMemoryArtifact,
+    requestVaultUnlock,
+    user,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const handleLoadMore = useCallback(async () => {
     try {
@@ -305,6 +468,116 @@ export default function ProfileReceiptsPage() {
               <Badge variant="secondary">{total} receipts</Badge>
               {latestSyncBadge ? <Badge variant="outline">{latestSyncBadge}</Badge> : null}
             </div>
+          </SurfaceInset>
+
+          <SurfaceInset className="space-y-3 px-4 py-4 text-sm">
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">Add receipts to PKM</p>
+              <p className="text-muted-foreground">
+                Build a compact shopping memory snapshot from stored Gmail receipts and save it
+                into your encrypted PKM.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => void handleBuildReceiptMemoryPreview(Boolean(receiptMemoryArtifact))}
+                disabled={!canBuildReceiptMemoryPreview || receiptMemoryLoading}
+              >
+                {receiptMemoryLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                {receiptMemoryArtifact ? "Refresh receipt memory" : "Add receipts to memory"}
+              </Button>
+              <Button
+                onClick={() => void handleSaveReceiptMemory()}
+                disabled={!receiptMemoryArtifact || receiptMemorySaving}
+                variant="none"
+                effect="fade"
+              >
+                {receiptMemorySaving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : !vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
+                  <Lock className="mr-2 h-4 w-4" />
+                ) : null}
+                Save to PKM
+              </Button>
+            </div>
+            {!canBuildReceiptMemoryPreview ? (
+              <p className="text-xs text-muted-foreground">
+                Stored Gmail receipts are required before Kai can derive receipt memory.
+              </p>
+            ) : null}
+            {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
+              <p className="text-xs text-muted-foreground">
+                Unlock your vault to save receipt memory into PKM.
+              </p>
+            ) : null}
+            {receiptMemoryArtifact ? (
+              <div className="space-y-2 rounded-xl border border-border/60 bg-background/60 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">
+                    {receiptMemoryArtifact.freshness.is_stale ? "Stale preview" : "Fresh preview"}
+                  </Badge>
+                  <Badge variant="outline">
+                    {receiptMemoryArtifact.deterministic_projection.budget_stats.eligible_receipt_count} receipts
+                  </Badge>
+                  <Badge variant="outline">
+                    {receiptMemoryArtifact.debug_stats.enrichment_mode === "llm"
+                      ? "LLM summary"
+                      : "Deterministic summary"}
+                  </Badge>
+                </div>
+                <p className="font-medium text-foreground">
+                  {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.text}
+                </p>
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.highlights.map(
+                    (item) => (
+                      <Badge key={item} variant="outline">
+                        {item}
+                      </Badge>
+                    )
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                  <span>
+                    Merchants:{" "}
+                    {
+                      receiptMemoryArtifact.deterministic_projection.observed_facts.merchant_affinity
+                        .length
+                    }
+                  </span>
+                  <span>
+                    Patterns:{" "}
+                    {
+                      receiptMemoryArtifact.deterministic_projection.observed_facts.purchase_patterns
+                        .length
+                    }
+                  </span>
+                  <span>
+                    Highlights:{" "}
+                    {
+                      receiptMemoryArtifact.deterministic_projection.observed_facts.recent_highlights
+                        .length
+                    }
+                  </span>
+                  <span>
+                    Signals: {receiptMemoryArtifact.deterministic_projection.inferred_preferences.length}
+                  </span>
+                </div>
+                {receiptMemoryArtifact.freshness.is_stale ? (
+                  <p className="text-xs text-amber-600">
+                    This preview is older than {receiptMemoryArtifact.freshness.stale_after_days} days.
+                    Refresh it before saving if you want the latest snapshot.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {receiptMemoryMessage ? (
+              <p className="text-xs text-muted-foreground">{receiptMemoryMessage}</p>
+            ) : null}
           </SurfaceInset>
 
           {loadingStatus ? (
@@ -422,6 +695,20 @@ export default function ProfileReceiptsPage() {
           ) : null}
         </SurfaceStack>
       </AppPageContentRegion>
+
+      {hasVault === true && user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={showVaultUnlock}
+          onOpenChange={setShowVaultUnlock}
+          title="Unlock vault"
+          description="Unlock your vault before saving receipt memory into PKM."
+          onSuccess={() => {
+            setShowVaultUnlock(false);
+            toast.success("Vault unlocked.");
+          }}
+        />
+      ) : null}
     </AppPageShell>
   );
 }

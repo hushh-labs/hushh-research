@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 vi.mock("lucide-react", () => ({
@@ -34,15 +34,23 @@ vi.mock("@/components/kai/voice/voice-compact-status", () => ({
 vi.mock("@/components/kai/voice/voice-console-sheet", () => ({
   VoiceConsoleSheet: ({
     open,
+    paused,
+    transcriptPreview,
     onCancel,
   }: {
     open: boolean;
+    paused: boolean;
+    transcriptPreview: string;
     onCancel: () => void;
   }) =>
     open
       ? createElement(
           "div",
-          { "data-testid": "voice-console-sheet" },
+          {
+            "data-testid": "voice-console-sheet",
+            "data-paused": paused ? "true" : "false",
+          },
+          createElement("div", { "data-testid": "voice-console-preview" }, transcriptPreview),
           createElement(
             "button",
             { type: "button", onClick: onCancel },
@@ -128,7 +136,19 @@ vi.mock("@/lib/voice/voice-tts-playback", () => ({
 const acquireMock = vi.fn().mockResolvedValue(undefined);
 const releaseMock = vi.fn().mockResolvedValue(undefined);
 const setMutedMock = vi.fn();
+const connectedMock = vi.fn(() => true);
+const getSnapshotMock = vi.fn(() => ({
+  state: "connected",
+  muted: true,
+  sessionId: null,
+  model: null,
+  voice: null,
+  reconnectLatencyMs: null,
+  lastError: null,
+}));
+let sessionListener: ((event: unknown) => void) | null = null;
 const subscribeMock = vi.fn((listener: (event: unknown) => void) => {
+  sessionListener = listener;
   listener({
     type: "connection",
     snapshot: {
@@ -150,7 +170,8 @@ vi.mock("@/lib/voice/voice-session-manager", () => ({
     acquire: (...args: unknown[]) => acquireMock(...args),
     release: (...args: unknown[]) => releaseMock(...args),
     subscribe: (...args: unknown[]) => subscribeMock(...args),
-    connected: () => true,
+    connected: (...args: unknown[]) => connectedMock(...args),
+    getSnapshot: (...args: unknown[]) => getSnapshotMock(...args),
     isMuted: () => true,
     setMuted: (...args: unknown[]) => setMutedMock(...args),
     toggleMuted: vi.fn(() => true),
@@ -195,6 +216,19 @@ describe("kai-search-bar helpers", () => {
     acquireMock.mockClear();
     releaseMock.mockClear();
     setMutedMock.mockClear();
+    connectedMock.mockReset();
+    connectedMock.mockReturnValue(true);
+    getSnapshotMock.mockReset();
+    getSnapshotMock.mockReturnValue({
+      state: "connected",
+      muted: true,
+      sessionId: null,
+      model: null,
+      voice: null,
+      reconnectLatencyMs: null,
+      lastError: null,
+    });
+    sessionListener = null;
     mockVoiceSessionStore.appendDebugEvent.mockClear();
     mockVoiceSessionStore.setLastAssistantReply.mockClear();
     mockVoiceSessionStore.setPendingConfirmation.mockClear();
@@ -318,6 +352,172 @@ describe("kai-search-bar helpers", () => {
   it("does not surface retry UI when voice connect is cancelled", async () => {
     vi.useRealTimers();
     acquireMock.mockRejectedValueOnce(new Error("VOICE_SESSION_CONNECT_ABORTED"));
+
+    render(
+      createElement(KaiSearchBar, {
+        onCommand: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+      })
+    );
+
+    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+
+    await waitFor(() => {
+      expect(acquireMock).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("voice-compact-status")).toBeNull();
+      expect(screen.queryByText("Connection failed. Tap retry to try again.")).toBeNull();
+    });
+  });
+
+  it("shows the voice sheet immediately while the session is still connecting", async () => {
+    vi.useRealTimers();
+    Object.defineProperty(global.navigator, "permissions", {
+      configurable: true,
+      value: {
+        query: vi.fn().mockResolvedValue({ state: "prompt" }),
+      },
+    });
+    acquireMock.mockImplementationOnce(
+      () =>
+        new Promise<void>(() => {
+          // keep pending to simulate a slow live connect
+        })
+    );
+
+    render(
+      createElement(KaiSearchBar, {
+        onCommand: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+      })
+    );
+
+    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+
+    await waitFor(() => {
+      const sheet = screen.getByTestId("voice-console-sheet");
+      expect(sheet).toBeTruthy();
+      expect(sheet.getAttribute("data-paused")).toBe("false");
+      expect(screen.getByTestId("voice-console-preview").textContent).toContain(
+        "Waiting for microphone access"
+      );
+    });
+  });
+
+  it("shows connect-stage updates while the session is still muted and connecting", async () => {
+    vi.useRealTimers();
+    acquireMock.mockImplementationOnce(
+      () =>
+        new Promise<void>(() => {
+          // keep pending to simulate a live connect
+        })
+    );
+    connectedMock.mockReturnValue(false);
+    getSnapshotMock.mockReturnValue({
+      state: "connecting",
+      muted: true,
+      sessionId: null,
+      model: null,
+      voice: null,
+      reconnectLatencyMs: null,
+      lastError: null,
+    });
+
+    render(
+      createElement(KaiSearchBar, {
+        onCommand: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+      })
+    );
+
+    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("voice-console-sheet")).toBeTruthy();
+    });
+
+    await act(async () => {
+      sessionListener?.({
+        type: "debug",
+        event: "realtime_handshake_started",
+        payload: {},
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("voice-console-preview").textContent).toContain(
+        "Opening realtime voice connection"
+      );
+    });
+  });
+
+  it("unmutes an existing realtime session without reacquiring it", async () => {
+    vi.useRealTimers();
+    connectedMock.mockReturnValue(true);
+    getSnapshotMock.mockReturnValue({
+      state: "connected",
+      muted: true,
+      sessionId: "sess_1",
+      model: "gpt-realtime",
+      voice: "alloy",
+      reconnectLatencyMs: 420,
+      lastError: null,
+    });
+
+    render(
+      createElement(KaiSearchBar, {
+        onCommand: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+      })
+    );
+
+    await act(async () => {
+      sessionListener?.({
+        type: "connection",
+        snapshot: {
+          state: "connected",
+          muted: true,
+          sessionId: "sess_1",
+          model: "gpt-realtime",
+          voice: "alloy",
+          reconnectLatencyMs: 420,
+          lastError: null,
+        },
+        reason: "manual_restore",
+      });
+    });
+
+    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+
+    await waitFor(() => {
+      expect(setMutedMock).toHaveBeenCalledWith(false);
+      expect(acquireMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId("voice-console-preview").textContent).toContain("Listening");
+    });
+  });
+
+  it("treats an acquire race that ends back at idle as a cancellation instead of a failure", async () => {
+    vi.useRealTimers();
+    connectedMock.mockReturnValue(false);
+    getSnapshotMock.mockReturnValue({
+      state: "idle",
+      muted: true,
+      sessionId: null,
+      model: null,
+      voice: null,
+      reconnectLatencyMs: null,
+      lastError: null,
+    });
 
     render(
       createElement(KaiSearchBar, {

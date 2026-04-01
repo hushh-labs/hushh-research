@@ -123,6 +123,13 @@ function deriveMicDisabledReason(input: {
   return null;
 }
 
+function describeVoiceConnectStage(permissionStatus: string): string {
+  if (permissionStatus === "prompt") {
+    return "Waiting for microphone access...";
+  }
+  return "Connecting realtime voice session...";
+}
+
 type TimerRefLike = {
   current: number | null;
 };
@@ -608,8 +615,12 @@ export function KaiSearchBar({
       });
       const connected = voiceSessionManager.connected();
       setRealtimeSessionReady(connected);
-      setSessionMuted(voiceSessionManager.isMuted());
-      return connected ? "connected" : "failed";
+      const snapshot = voiceSessionManager.getSnapshot();
+      setSessionMuted(snapshot.muted);
+      if (connected) {
+        return "connected";
+      }
+      return snapshot.state === "idle" && !snapshot.lastError ? "cancelled" : "failed";
     } catch (error) {
       const message = error instanceof Error ? error.message : "Realtime voice session failed";
       if (isVoiceSessionConnectAbortedError(error)) {
@@ -635,9 +646,14 @@ export function KaiSearchBar({
       if (stableMicDisabledReason) toast.info(stableMicDisabledReason);
       return;
     }
+    if (sessionStateText === "connecting") {
+      return;
+    }
+    let permissionStatus = "unknown";
     if (navigator.permissions?.query) {
       try {
         const result = await navigator.permissions.query({ name: "microphone" as PermissionName });
+        permissionStatus = result.state;
         setMicPermissionStatus(result.state);
         if (result.state === "denied") {
           setVoiceError("Microphone permission denied", "Microphone permission denied");
@@ -647,6 +663,12 @@ export function KaiSearchBar({
         setMicPermissionStatus("unknown");
       }
     }
+
+    setVoiceErrorMessage(null);
+    setProcessingStageText(null);
+    setPendingConfirmation(null);
+    transitionVoiceState("sheet_listening", "mic_connect_started");
+    setTranscriptPreview(describeVoiceConnectStage(permissionStatus));
 
     const connectionState = await connectVoiceSession();
     if (connectionState !== "connected") {
@@ -660,19 +682,19 @@ export function KaiSearchBar({
       setTranscriptPreview("Could not connect to realtime voice.");
       return;
     }
+    setMicPermissionStatus("granted");
     voiceSessionManager.setMuted(false);
     setSessionMuted(false);
-    transitionVoiceState("sheet_listening", "mic_unmuted");
     setVoiceErrorMessage(null);
     setProcessingStageText(null);
-    setPendingConfirmation(null);
-    setTranscriptPreview(realtimeSessionReady ? "Listening..." : "Connecting realtime voice session...");
+    setTranscriptPreview("Listening...");
   }, [
     connectVoiceSession,
     micDisabled,
-    realtimeSessionReady,
+    sessionStateText,
     setPendingConfirmation,
     stableMicDisabledReason,
+    setVoiceError,
     transitionVoiceState,
   ]);
 
@@ -762,6 +784,15 @@ export function KaiSearchBar({
       event.preventDefault();
       event.stopPropagation();
       if (micHidden) return;
+      if (sessionMuted && realtimeSessionReady) {
+        voiceSessionManager.setMuted(false);
+        setSessionMuted(false);
+        setVoiceErrorMessage(null);
+        setProcessingStageText(null);
+        transitionVoiceState("sheet_listening", "mic_unmuted");
+        setTranscriptPreview("Listening...");
+        return;
+      }
       if (sessionMuted || voiceUiState === "idle" || voiceUiState === "retry_ready") {
         await startListening();
         return;
@@ -772,7 +803,14 @@ export function KaiSearchBar({
       transitionVoiceState("sheet_paused", "mic_muted_from_button");
       setTranscriptPreview("Listening paused. Tap mic to resume.");
     },
-    [micHidden, sessionMuted, startListening, transitionVoiceState, voiceUiState]
+    [
+      micHidden,
+      realtimeSessionReady,
+      sessionMuted,
+      startListening,
+      transitionVoiceState,
+      voiceUiState,
+    ]
   );
 
   useEffect(() => {
@@ -1054,6 +1092,24 @@ export function KaiSearchBar({
       }
 
       if (event.type === "debug") {
+        const allowConnectStageUpdates =
+          voiceUiStateRef.current === "sheet_listening" &&
+          (!sessionMutedRef.current || voiceSessionManager.getSnapshot().state === "connecting");
+        if (allowConnectStageUpdates) {
+          if (event.event === "permission_request_started") {
+            setTranscriptPreview("Waiting for microphone access...");
+          } else if (event.event === "permission_request_succeeded") {
+            setMicPermissionStatus("granted");
+            setTranscriptPreview("Creating realtime session...");
+          } else if (event.event === "realtime_session_request_started") {
+            setTranscriptPreview("Creating realtime session...");
+          } else if (
+            event.event === "realtime_session_request_succeeded" ||
+            event.event === "realtime_handshake_started"
+          ) {
+            setTranscriptPreview("Opening realtime voice connection...");
+          }
+        }
         if (
           event.event === "speech_started" &&
           !sessionMutedRef.current &&
@@ -1122,7 +1178,7 @@ export function KaiSearchBar({
       unsubscribe();
       clearClientVadFallbackTimer(partialFallbackTimerRef);
     };
-  }, [setRetryReadyError]);
+  }, [sessionScopeId, setRetryReadyError]);
 
   useEffect(() => {
     if (VOICE_V2_FLAGS.enabled && voiceAvailable && userId && vaultOwnerToken) {
@@ -1158,20 +1214,15 @@ export function KaiSearchBar({
 
   useEffect(() => {
     if (voiceUiState !== "sheet_listening") return;
+    if (!realtimeSessionReady) return;
     const timer = window.setInterval(() => {
       const activity = smoothedLevel > 0.06 ? "Audio detected..." : "Listening...";
-      const statusMessage =
-        sessionStateText === "error"
-          ? "Realtime session dropped. Reconnecting..."
-          : "Connecting realtime voice session...";
-      setTranscriptPreview(
-        realtimeSessionReady ? activity : statusMessage
-      );
+      setTranscriptPreview(activity);
     }, 280);
     return () => {
       window.clearInterval(timer);
     };
-  }, [realtimeSessionReady, sessionStateText, smoothedLevel, voiceUiState]);
+  }, [realtimeSessionReady, smoothedLevel, voiceUiState]);
 
   const showVoiceSheet =
     voiceUiState === "sheet_listening" || voiceUiState === "sheet_paused";
@@ -1213,7 +1264,7 @@ export function KaiSearchBar({
           {showVoiceSheet ? (
             <VoiceConsoleSheet
               open={showVoiceSheet}
-              paused={sessionMuted}
+              paused={sessionMuted && realtimeSessionReady}
               submitting={false}
               submitEnabled={VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady}
               showSubmit={VOICE_V2_FLAGS.submitDebugVisible}

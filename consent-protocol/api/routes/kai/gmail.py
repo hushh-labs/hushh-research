@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
+from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,17 @@ class GmailReconcileRequest(BaseModel):
     user_id: str = Field(min_length=1)
 
 
+class GmailReceiptMemoryPreviewRequest(BaseModel):
+    user_id: str = Field(min_length=1)
+    force_refresh: bool = False
+
+
 def _service():
     return get_gmail_receipts_service()
+
+
+def _receipt_memory_service():
+    return get_receipt_memory_preview_service()
 
 
 def _to_http_exception(exc: Exception) -> HTTPException:
@@ -196,6 +206,55 @@ async def gmail_receipts(
         )
     except Exception as exc:
         logger.exception("kai.gmail.receipts_failed user_id=%s", user_id)
+        raise _to_http_exception(exc) from exc
+
+
+@router.post("/gmail/receipts-memory/preview")
+async def gmail_receipts_memory_preview(
+    payload: GmailReceiptMemoryPreviewRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _receipt_memory_service().build_preview(
+            user_id=payload.user_id,
+            force_refresh=payload.force_refresh,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.receipts_memory_preview_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc) from exc
+
+
+@router.get("/gmail/receipts-memory/artifacts/{artifact_id}")
+async def gmail_receipts_memory_artifact(
+    artifact_id: str,
+    user_id: str = Query(..., min_length=1),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, user_id)
+    try:
+        artifact = _receipt_memory_service().get_artifact(
+            artifact_id=artifact_id,
+            user_id=user_id,
+        )
+        if artifact is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "GMAIL_RECEIPT_MEMORY_ARTIFACT_NOT_FOUND",
+                    "message": "No receipt-memory artifact found for this user.",
+                    "artifact_id": artifact_id,
+                },
+            )
+        return artifact
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "kai.gmail.receipts_memory_artifact_failed user_id=%s artifact_id=%s",
+            user_id,
+            artifact_id,
+        )
         raise _to_http_exception(exc) from exc
 
 

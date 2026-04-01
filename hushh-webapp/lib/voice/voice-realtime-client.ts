@@ -247,9 +247,8 @@ export class VoiceRealtimeClient {
     input.signal?.addEventListener("abort", forwardAbort, { once: true });
 
     let response: Response;
-    // eslint-disable-next-line no-restricted-syntax -- Realtime SDP negotiation must call OpenAI directly with ephemeral client secret.
     try {
-      response = await fetch(realtimeUrl, {
+      response = await globalThis.fetch(realtimeUrl, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${input.session.clientSecret}`,

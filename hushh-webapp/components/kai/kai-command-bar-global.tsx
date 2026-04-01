@@ -291,7 +291,7 @@ export function KaiCommandBarGlobal() {
   const activeAnalysisTask = useMemo(() => {
     if (!userId) return null;
     return DebateRunManagerService.getActiveTaskForUser(userId);
-  }, [analysisParams?.ticker, busyOperations, userId]);
+  }, [userId]);
 
   const runningImportTask = useMemo(() => {
     if (!userId) return null;

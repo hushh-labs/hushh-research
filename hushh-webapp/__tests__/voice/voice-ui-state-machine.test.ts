@@ -20,9 +20,10 @@ describe("voice-ui-state-machine", () => {
     expect(canTransitionVoiceUiState("speaking_compact", "idle")).toBe(true);
   });
 
-  it("rejects invalid jumps", () => {
+  it("rejects only truly invalid jumps", () => {
     expect(canTransitionVoiceUiState("idle", "processing_compact")).toBe(false);
-    expect(canTransitionVoiceUiState("retry_ready", "processing_compact")).toBe(false);
+    expect(canTransitionVoiceUiState("retry_ready", "processing_compact")).toBe(true);
+    expect(canTransitionVoiceUiState("retry_ready", "speaking_compact")).toBe(true);
   });
 
   it("lists available transitions", () => {

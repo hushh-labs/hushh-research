@@ -46,6 +46,8 @@ export type VoiceSessionAcquireInput = {
   activate?: boolean;
 };
 
+const BACKGROUND_DISCONNECT_DELAY_MS = 400;
+
 function isVoiceSessionConnectCancellationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
   return (
@@ -154,6 +156,7 @@ class VoiceSessionManager {
   private connectAbortController: AbortController | null = null;
   private transportRecoveryInFlight = false;
   private foregroundResumeEligible = false;
+  private hiddenDisconnectTimer: number | null = null;
 
   private visibilityHandlerRegistered = false;
 
@@ -223,6 +226,17 @@ class VoiceSessionManager {
 
   isMuted(): boolean {
     return this.muted;
+  }
+
+  private clearHiddenDisconnectTimer(reason?: string): void {
+    if (this.hiddenDisconnectTimer === null) return;
+    window.clearTimeout(this.hiddenDisconnectTimer);
+    this.hiddenDisconnectTimer = null;
+    if (reason) {
+      this.emitDebug("background_disconnect_cancelled", {
+        reason,
+      });
+    }
   }
 
   async acquire(input: VoiceSessionAcquireInput): Promise<void> {
@@ -336,8 +350,9 @@ class VoiceSessionManager {
       this.applyMuteToLocalStream();
       return;
     }
-    if (this.connectPromise) {
-      await this.connectPromise;
+    const inFlightConnect = this.connectPromise;
+    if (inFlightConnect && this.state === "connecting") {
+      await inFlightConnect;
       this.applyMuteToLocalStream();
       return;
     }
@@ -346,25 +361,49 @@ class VoiceSessionManager {
     const connectStartedAt = performance.now();
     const connectAbortController = new AbortController();
     this.connectAbortController = connectAbortController;
+    this.clearHiddenDisconnectTimer("ensure_connected");
     this.setState("connecting", reason);
 
-    this.connectPromise = (async () => {
+    let connectOperation: Promise<void> | null = null;
+    connectOperation = (async () => {
       try {
-        const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (generation !== this.connectGeneration) {
-          stopMediaStream(localStream);
-          throw new Error("VOICE_SESSION_CONNECT_STALE");
-        }
-        this.localStream = localStream;
-
         const sessionTurnId = createVoiceTurnId();
-        const sessionResponse = await ApiService.createKaiRealtimeSession({
+        const sessionRequestStartedAt = performance.now();
+
+        this.emitDebug("permission_request_started", {});
+        const localStreamPromise = navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((stream) => {
+            this.emitDebug("permission_request_succeeded", {});
+            return stream;
+          })
+          .catch((error) => {
+            this.emitDebug("permission_request_failed", {
+              message: error instanceof Error ? error.message : String(error || "unknown"),
+            });
+            throw error;
+          });
+
+        this.emitDebug("realtime_session_request_started", {
+          turn_id: sessionTurnId,
+        });
+        const sessionResponsePromise = ApiService.createKaiRealtimeSession({
           userId: this.userId!,
           vaultOwnerToken: this.vaultOwnerToken!,
           voice: this.configuredVoice,
           voiceTurnId: sessionTurnId,
           signal: connectAbortController.signal,
         });
+
+        const [localStream, sessionResponse] = await Promise.all([
+          localStreamPromise,
+          sessionResponsePromise,
+        ]);
+        if (generation !== this.connectGeneration) {
+          stopMediaStream(localStream);
+          throw new Error("VOICE_SESSION_CONNECT_STALE");
+        }
+        this.localStream = localStream;
         const sessionPayloadRaw = (await sessionResponse.json().catch(() => ({}))) as unknown;
         if (!sessionResponse.ok) {
           const detail =
@@ -375,6 +414,10 @@ class VoiceSessionManager {
               : `VOICE_SESSION_HTTP_${sessionResponse.status}`;
           throw new Error(detail);
         }
+        this.emitDebug("realtime_session_request_succeeded", {
+          turn_id: sessionTurnId,
+          latency_ms: Math.max(0, Math.round(performance.now() - sessionRequestStartedAt)),
+        });
 
         const sessionPayload = parseRealtimeSessionPayload(sessionPayloadRaw);
         if (!sessionPayload) {
@@ -387,6 +430,11 @@ class VoiceSessionManager {
 
         const realtimeClient = new VoiceRealtimeClient();
         this.realtimeClient = realtimeClient;
+        this.emitDebug("realtime_handshake_started", {
+          turn_id: sessionTurnId,
+          model: sessionPayload.model,
+          voice: sessionPayload.voice,
+        });
         await realtimeClient.connect({
           session: sessionPayload as VoiceRealtimeSessionInfo,
           localStream,
@@ -415,7 +463,7 @@ class VoiceSessionManager {
             const peerConnectionFailed =
               event === "peer_connection_state_changed" &&
               typeof payload?.connection_state === "string" &&
-              ["closed", "failed"].includes(payload.connection_state);
+              ["closed", "disconnected", "failed"].includes(payload.connection_state);
             const transportFailed =
               event === "data_channel_closed" ||
               event === "data_channel_error" ||
@@ -427,11 +475,15 @@ class VoiceSessionManager {
             const message =
               (typeof payload?.message === "string" && payload.message.trim()) ||
               (typeof payload?.connection_state === "string" &&
-              ["closed", "failed"].includes(payload.connection_state)
+              ["closed", "disconnected", "failed"].includes(payload.connection_state)
                 ? `VOICE_REALTIME_CONNECTION_${payload.connection_state.toUpperCase()}`
                 : "VOICE_REALTIME_TRANSPORT_ERROR");
             void this.recoverFromTransportFailure("realtime_transport_error", message, payload || {});
           },
+        });
+        this.emitDebug("realtime_handshake_succeeded", {
+          turn_id: sessionTurnId,
+          session_id: sessionPayload.sessionId || null,
         });
 
         if (generation !== this.connectGeneration) {
@@ -452,8 +504,12 @@ class VoiceSessionManager {
           connectAbortController.signal.aborted ||
           isVoiceSessionConnectCancellationError(error)
         ) {
-          this.foregroundResumeEligible = false;
-          await this.disconnect("connect_cancelled_cleanup", { stopLocalStream: true });
+          const preserveForegroundResume = this.foregroundResumeEligible && this.activeScopeIds.size > 0;
+          this.foregroundResumeEligible = preserveForegroundResume;
+          await this.disconnect("connect_cancelled_cleanup", {
+            stopLocalStream: true,
+            preserveForegroundResume,
+          });
           throw new Error("VOICE_SESSION_CONNECT_ABORTED");
         }
         const message = error instanceof Error ? error.message : "VOICE_SESSION_CONNECT_FAILED";
@@ -462,12 +518,16 @@ class VoiceSessionManager {
         await this.disconnect("connect_failed_cleanup", { stopLocalStream: true });
         throw error;
       } finally {
-        if (this.connectPromise) {
+        if (this.connectPromise === connectOperation) {
           this.connectPromise = null;
         }
-        this.connectAbortController = null;
+        if (this.connectAbortController === connectAbortController) {
+          this.connectAbortController = null;
+        }
       }
     })();
+
+    this.connectPromise = connectOperation;
 
     await this.connectPromise;
   }
@@ -479,6 +539,7 @@ class VoiceSessionManager {
       preserveForegroundResume?: boolean;
     } = {}
   ): Promise<void> {
+    this.clearHiddenDisconnectTimer();
     this.connectGeneration += 1;
     this.foregroundResumeEligible = Boolean(
       options.preserveForegroundResume && this.activeScopeIds.size > 0
@@ -552,12 +613,31 @@ class VoiceSessionManager {
 
     const onVisibility = () => {
       if (document.hidden) {
-        void this.disconnect("app_background", {
-          stopLocalStream: true,
-          preserveForegroundResume: this.foregroundResumeEligible,
+        if (this.hiddenDisconnectTimer !== null) {
+          return;
+        }
+        const preserveForegroundResume =
+          this.activeScopeIds.size > 0 &&
+          (this.foregroundResumeEligible || this.state === "connecting" || this.connectPromise !== null);
+        this.emitDebug("background_disconnect_scheduled", {
+          delay_ms: BACKGROUND_DISCONNECT_DELAY_MS,
+          preserve_foreground_resume: preserveForegroundResume,
+          state: this.state,
         });
+        this.hiddenDisconnectTimer = window.setTimeout(() => {
+          this.hiddenDisconnectTimer = null;
+          this.emitDebug("background_disconnect_fired", {
+            preserve_foreground_resume: preserveForegroundResume,
+            state: this.state,
+          });
+          void this.disconnect("app_background", {
+            stopLocalStream: true,
+            preserveForegroundResume,
+          });
+        }, BACKGROUND_DISCONNECT_DELAY_MS);
         return;
       }
+      this.clearHiddenDisconnectTimer("visibility_restored");
       if (this.activeScopeIds.size > 0 && this.foregroundResumeEligible) {
         void this.ensureConnected("foreground_resume").catch((error) => {
           if (isVoiceSessionConnectCancellationError(error)) {

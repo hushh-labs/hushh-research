@@ -86,6 +86,8 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/gmail/reconcile",
     "/gmail/sync/{run_id}",
     "/gmail/receipts/{user_id}",
+    "/gmail/receipts-memory/preview",
+    "/gmail/receipts-memory/artifacts/{artifact_id}",
     "/gmail/webhook",
     "/support/message",
     "/dashboard/profile-picks/{user_id}",
