@@ -2,7 +2,7 @@
 
 import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpRight, BriefcaseBusiness, Building2, Loader2, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, Building2, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import {

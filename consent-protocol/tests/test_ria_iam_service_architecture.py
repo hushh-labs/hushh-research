@@ -415,6 +415,7 @@ async def test_consent_center_list_ria_active_uses_relationship_roster(monkeypat
         "ria_user_1",
         actor="ria",
         surface="active",
+        mode="connections",
         query="taylor",
         page=2,
         limit=20,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpRight, ChevronRight, Loader2, WalletCards } from "lucide-react";
+import { ArrowUpRight, Loader2, WalletCards } from "lucide-react";
 
 import {
   AppPageContentRegion,
