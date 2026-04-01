@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Building2, Loader2, MailPlus, UserRound } from "lucide-react";
+import { ArrowUpRight, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -18,10 +18,8 @@ import {
 } from "@/components/profile/settings-ui";
 import {
   RiaCompatibilityState,
-  RiaSurface,
 } from "@/components/ria/ria-page-shell";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Button } from "@/lib/morphy-ux/button";

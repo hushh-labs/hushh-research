@@ -37,7 +37,6 @@ import {
   type ConsentCenterPageSummary,
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
-import { cn } from "@/lib/utils";
 
 function entrySummary(entry: ConsentCenterEntry) {
   if (entry.additional_access_summary) return entry.additional_access_summary;

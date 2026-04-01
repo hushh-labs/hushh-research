@@ -5,7 +5,7 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  Search,
+
   BarChart3,
   MessageSquareText,
   Trash2,

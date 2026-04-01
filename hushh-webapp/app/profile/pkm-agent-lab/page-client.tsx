@@ -16,7 +16,7 @@ import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { PkmExplorerPanel } from "@/components/profile/pkm-explorer-panel";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
-import { PkmUpgradeStatusCard } from "@/components/profile/pkm-upgrade-status-card";
+// import { PkmUpgradeStatusCard } from "@/components/profile/pkm-upgrade-status-card";
 import {
   SettingsDetailPanel,
   SettingsGroup,
@@ -280,7 +280,7 @@ export default function PkmAgentLabPageClient() {
     [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
   );
   const environment = resolveAppEnvironment();
-  const nonProdLabel = environment === "uat" ? "UAT" : "development";
+  const _nonProdLabel = environment === "uat" ? "UAT" : "development";
 
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
@@ -476,7 +476,7 @@ export default function PkmAgentLabPageClient() {
   const upgradeNeedsBackgroundResume =
     upgradeStatus?.upgradeStatus === "ready" ||
     upgradeStatus?.upgradeStatus === "awaiting_local_auth_resume";
-  const showUpgradeRecoveryAction = upgradeStatus?.upgradeStatus === "failed";
+  const _showUpgradeRecoveryAction = upgradeStatus?.upgradeStatus === "failed";
 
   const openDomain = useCallback((domainKey: string) => {
     setSelectedDomainKey(domainKey);

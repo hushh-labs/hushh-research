@@ -20,7 +20,6 @@ import { Button } from "@/lib/morphy-ux/button";
 import {
   TOP_SHELL_DROPDOWN_BODY_CLASSNAME,
   TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME,
-  TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME,
   TOP_SHELL_DROPDOWN_HEADER_CLASSNAME,
 } from "@/components/app-ui/top-shell-dropdown";
 import {

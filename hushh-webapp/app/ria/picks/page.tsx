@@ -10,10 +10,8 @@ import {
   Medal,
   Save,
   Search,
-  ShieldAlert,
   Star,
   Trophy,
-  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,7 +23,6 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
