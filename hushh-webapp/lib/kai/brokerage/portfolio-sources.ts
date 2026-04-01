@@ -118,7 +118,9 @@ export interface PlaidPortfolioStatusResponse {
 export interface PlaidFundingTransferRef {
   transfer_id: string;
   authorization_id?: string | null;
+  relationship_id?: string | null;
   status?: string | null;
+  user_facing_status?: string | null;
   amount?: string | null;
   direction?: string | null;
   funding_account_id?: string | null;
@@ -126,10 +128,25 @@ export interface PlaidFundingTransferRef {
   brokerage_account_id?: string | null;
   idempotency_key?: string | null;
   created_at?: string | null;
+  requested_at?: string | null;
+  completed_at?: string | null;
+  failure_reason_code?: string | null;
+  failure_reason_message?: string | null;
 }
 
 export interface PlaidFundingAccountSummary extends PlaidAccountSummary {
   is_selected_funding_account?: boolean;
+  is_default?: boolean;
+}
+
+export interface PlaidFundingRelationshipSummary {
+  relationship_id?: string | null;
+  alpaca_account_id?: string | null;
+  account_id?: string | null;
+  status?: string | null;
+  status_reason_code?: string | null;
+  status_reason_message?: string | null;
+  updated_at?: string | null;
 }
 
 export interface PlaidFundingItemSummary {
@@ -142,6 +159,7 @@ export interface PlaidFundingItemSummary {
   selected_funding_account_id?: string | null;
   transactions_cursor?: string | null;
   accounts: PlaidFundingAccountSummary[];
+  relationships?: PlaidFundingRelationshipSummary[];
   transfers: PlaidFundingTransferRef[];
 }
 
@@ -156,6 +174,7 @@ export interface PlaidFundingStatusResponse {
   aggregate: {
     item_count: number;
     account_count: number;
+    relationship_count?: number;
     institution_names: string[];
     last_synced_at?: string | null;
   };

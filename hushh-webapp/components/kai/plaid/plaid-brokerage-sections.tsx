@@ -394,6 +394,8 @@ interface PlaidFundingTransfersSectionProps {
   brokerageItems: PlaidItemSummary[];
   onManageBrokerage?: () => Promise<void> | void;
   onConnectFunding?: (itemId?: string) => Promise<void> | void;
+  onSetDefaultFundingAccount?: (payload: { itemId: string; accountId: string }) => Promise<void> | void;
+  onRunReconciliation?: () => Promise<void> | void;
   onCreateTransfer?: (payload: {
     fundingItemId: string;
     fundingAccountId: string;
@@ -401,25 +403,41 @@ interface PlaidFundingTransfersSectionProps {
     brokerageAccountId?: string | null;
     amount: number;
     userLegalName: string;
+    direction: "to_brokerage" | "from_brokerage";
     idempotencyKey: string;
   }) => Promise<void> | void;
   onRefreshTransfer?: (transferId: string) => Promise<void> | void;
   onCancelTransfer?: (transferId: string) => Promise<void> | void;
   isConnectingFunding?: boolean;
   isSubmittingTransfer?: boolean;
+  isReconciling?: boolean;
   className?: string;
 }
 
 function transferStatusTone(status: string | null | undefined): string {
   const normalized = String(status || "").trim().toLowerCase();
-  if (["pending", "submitted"].includes(normalized)) {
+  if (["pending", "submitted", "queued", "processing", "approval_pending"].includes(normalized)) {
     return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300 dark:border-sky-400/30 dark:bg-sky-400/10";
   }
   if (["failed", "canceled", "returned", "rejected"].includes(normalized)) {
     return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300 dark:border-rose-400/30 dark:bg-rose-400/10";
   }
-  if (["posted"].includes(normalized)) {
+  if (["posted", "completed", "complete", "settled", "funds_available"].includes(normalized)) {
     return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 dark:border-emerald-400/30 dark:bg-emerald-400/10";
+  }
+  return "border-muted bg-muted/20 text-muted-foreground";
+}
+
+function relationshipStatusTone(status: string | null | undefined): string {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (["approved"].includes(normalized)) {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 dark:border-emerald-400/30 dark:bg-emerald-400/10";
+  }
+  if (["queued", "pending", "submitted"].includes(normalized)) {
+    return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300 dark:border-sky-400/30 dark:bg-sky-400/10";
+  }
+  if (["rejected", "canceled", "disabled", "error"].includes(normalized)) {
+    return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300 dark:border-rose-400/30 dark:bg-rose-400/10";
   }
   return "border-muted bg-muted/20 text-muted-foreground";
 }
@@ -429,11 +447,14 @@ export function PlaidFundingTransfersSection({
   brokerageItems,
   onManageBrokerage,
   onConnectFunding,
+  onSetDefaultFundingAccount,
+  onRunReconciliation,
   onCreateTransfer,
   onRefreshTransfer,
   onCancelTransfer,
   isConnectingFunding = false,
   isSubmittingTransfer = false,
+  isReconciling = false,
   className,
 }: PlaidFundingTransfersSectionProps) {
   const fundingItem = (fundingStatus?.items || [])[0] || null;
@@ -469,12 +490,32 @@ export function PlaidFundingTransfersSection({
   const [selectedBrokerageAccountId, setSelectedBrokerageAccountId] = useState<string>(
     brokerageAccountOptions[0]?.accountId || ""
   );
+  const [transferDirection, setTransferDirection] = useState<"to_brokerage" | "from_brokerage">(
+    "to_brokerage"
+  );
   const [amountInput, setAmountInput] = useState<string>("11.11");
   const [legalNameInput, setLegalNameInput] = useState<string>("");
 
   const latestTransfers = (fundingStatus?.latest_transfers || fundingItem?.transfers || []) as PlaidFundingTransferRef[];
   const selectedBrokerage = brokerageAccountOptions.find(
     (option) => option.accountId === selectedBrokerageAccountId
+  );
+  const selectedFundingRelationship =
+    (fundingItem?.relationships || []).find(
+      (relationship) =>
+        String(relationship.account_id || "").trim() === selectedFundingAccountId
+    ) ||
+    (fundingItem?.relationships || [])[0] ||
+    null;
+  const selectedRelationshipStatus = String(
+    selectedFundingRelationship?.status || ""
+  ).trim().toLowerCase();
+  const relationshipApproved = selectedRelationshipStatus === "approved";
+  const relationshipPending = ["queued", "pending", "submitted"].includes(
+    selectedRelationshipStatus
+  );
+  const relationshipFailed = ["rejected", "canceled", "disabled", "error"].includes(
+    selectedRelationshipStatus
   );
 
   useEffect(() => {
@@ -501,8 +542,8 @@ export function PlaidFundingTransfersSection({
     <SettingsGroup
       className={className}
       eyebrow="Funding and transfers"
-      title="Sandbox funding transfers"
-      description="Connect a depository account through Plaid Transfer and map transfers to a brokerage account context."
+      title="Funding transfers"
+      description="Connect a bank account through Plaid Auth and move cash to or from your Alpaca brokerage account."
     >
       <SettingsRow
         icon={WalletCards}
@@ -514,18 +555,39 @@ export function PlaidFundingTransfersSection({
         description={
           fundingItem
             ? `${fundingAccounts.length} linked account${fundingAccounts.length === 1 ? "" : "s"} • Last sync ${formatRelativeTimestamp(fundingItem.last_synced_at)}`
-            : "Connect a funding account to run sandbox transfer tests."
+            : "Connect a funding account to enable deposits and withdrawals."
         }
         trailing={
-          <Button
-            variant="none"
-            effect="fade"
-            disabled={isConnectingFunding}
-            onClick={() => void onConnectFunding?.(fundingItem?.item_id)}
-          >
-            {isConnectingFunding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
-            {fundingItem ? "Manage funding link" : "Connect funding account"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {onRunReconciliation ? (
+              <Button
+                variant="none"
+                effect="fade"
+                disabled={isReconciling}
+                onClick={() => void onRunReconciliation()}
+              >
+                {isReconciling ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Reconcile
+              </Button>
+            ) : null}
+            <Button
+              variant="none"
+              effect="fade"
+              disabled={isConnectingFunding}
+              onClick={() => void onConnectFunding?.(fundingItem?.item_id)}
+            >
+              {isConnectingFunding ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <KeyRound className="mr-2 h-4 w-4" />
+              )}
+              {fundingItem ? "Manage funding link" : "Connect funding account"}
+            </Button>
+          </div>
         }
       />
 
@@ -537,7 +599,16 @@ export function PlaidFundingTransfersSection({
               <select
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={selectedFundingAccountId}
-                onChange={(event) => setSelectedFundingAccountId(event.target.value)}
+                onChange={(event) => {
+                  const accountId = event.target.value;
+                  setSelectedFundingAccountId(accountId);
+                  if (fundingItem?.item_id && onSetDefaultFundingAccount) {
+                    void onSetDefaultFundingAccount({
+                      itemId: fundingItem.item_id,
+                      accountId,
+                    });
+                  }
+                }}
               >
                 {fundingAccounts.map((account) => (
                   <option key={account.account_id} value={account.account_id}>
@@ -598,16 +669,30 @@ export function PlaidFundingTransfersSection({
             )}
 
             <label className="space-y-1 text-xs text-muted-foreground">
+              Transfer direction
+              <select
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={transferDirection}
+                onChange={(event) =>
+                  setTransferDirection(event.target.value as "to_brokerage" | "from_brokerage")
+                }
+              >
+                <option value="to_brokerage">Deposit to brokerage</option>
+                <option value="from_brokerage">Withdraw to bank</option>
+              </select>
+            </label>
+
+            <label className="space-y-1 text-xs text-muted-foreground">
               Amount (USD)
               <input
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={amountInput}
                 onChange={(event) => setAmountInput(event.target.value)}
                 inputMode="decimal"
-                placeholder="11.11"
+                placeholder="100.00"
               />
               <div className="flex gap-2 pt-1">
-                {["11.11", "22.22", "33.33"].map((preset) => (
+                {["100.00", "250.00", "500.00"].map((preset) => (
                   <Button
                     key={preset}
                     variant="none"
@@ -631,11 +716,44 @@ export function PlaidFundingTransfersSection({
               />
             </label>
           </div>
+          <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>ACH relationship</span>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-[11px]",
+                  relationshipStatusTone(selectedFundingRelationship?.status)
+                )}
+              >
+                {selectedFundingRelationship?.status || "not_started"}
+              </Badge>
+            </div>
+            {selectedFundingRelationship?.status_reason_message ? (
+              <p className="mt-1 text-[11px] leading-5">
+                {selectedFundingRelationship.status_reason_message}
+              </p>
+            ) : relationshipPending ? (
+              <p className="mt-1 text-[11px] leading-5">
+                Approval is still pending. Transfers are blocked until this relationship becomes
+                approved.
+              </p>
+            ) : relationshipFailed ? (
+              <p className="mt-1 text-[11px] leading-5">
+                This funding relationship is not eligible right now. Reconnect the bank account or
+                contact support.
+              </p>
+            ) : !relationshipApproved ? (
+              <p className="mt-1 text-[11px] leading-5">
+                No approved ACH relationship exists for this funding account yet.
+              </p>
+            ) : null}
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="none"
               effect="fade"
-              disabled={isSubmittingTransfer}
+              disabled={isSubmittingTransfer || !relationshipApproved}
               onClick={() => {
                 const amount = Number(amountInput);
                 if (!Number.isFinite(amount) || amount <= 0) return;
@@ -655,12 +773,17 @@ export function PlaidFundingTransfersSection({
                   brokerageAccountId: selectedBrokerageAccountId || null,
                   amount,
                   userLegalName: legalNameInput.trim(),
+                  direction: transferDirection,
                   idempotencyKey: `kai_${fundingItem.item_id}_${selectedFundingAccountId}_${amount.toFixed(2)}_${nonce}`,
                 });
               }}
             >
-              {isSubmittingTransfer ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BadgeDollarSign className="mr-2 h-4 w-4" />}
-              Create sandbox transfer
+              {isSubmittingTransfer ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <BadgeDollarSign className="mr-2 h-4 w-4" />
+              )}
+              Create transfer
             </Button>
           </div>
         </div>
@@ -670,6 +793,9 @@ export function PlaidFundingTransfersSection({
         <div className="space-y-2">
           {latestTransfers.map((transfer) => {
             const transferId = String(transfer.transfer_id || "").trim();
+            const transferStatus = String(
+              transfer.user_facing_status || transfer.status || "pending"
+            ).trim();
             return (
               <SettingsRow
                 key={transferId}
@@ -679,22 +805,47 @@ export function PlaidFundingTransfersSection({
                   transfer.amount ? `$${transfer.amount}` : null,
                   transfer.direction || null,
                   transfer.brokerage_account_id ? `Destination ${transfer.brokerage_account_id}` : null,
-                  transfer.created_at ? formatRelativeTimestamp(transfer.created_at) : null,
+                  transfer.completed_at
+                    ? `Completed ${formatRelativeTimestamp(transfer.completed_at)}`
+                    : transfer.requested_at
+                      ? formatRelativeTimestamp(transfer.requested_at)
+                      : transfer.created_at
+                        ? formatRelativeTimestamp(transfer.created_at)
+                        : null,
+                  transfer.failure_reason_message
+                    ? `Reason: ${transfer.failure_reason_message}`
+                    : null,
                 ]
                   .filter(Boolean)
                   .join(" • ")}
                 trailing={
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5 text-[11px]", transferStatusTone(transfer.status))}>
-                      {transfer.status || "pending"}
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-[11px]",
+                        transferStatusTone(transferStatus)
+                      )}
+                    >
+                      {transferStatus || "pending"}
                     </Badge>
                     {transferId && onRefreshTransfer ? (
-                      <Button variant="none" effect="fade" size="sm" onClick={() => void onRefreshTransfer(transferId)}>
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => void onRefreshTransfer(transferId)}
+                      >
                         Refresh
                       </Button>
                     ) : null}
                     {transferId && onCancelTransfer ? (
-                      <Button variant="none" effect="fade" size="sm" onClick={() => void onCancelTransfer(transferId)}>
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => void onCancelTransfer(transferId)}
+                      >
                         Cancel
                       </Button>
                     ) : null}

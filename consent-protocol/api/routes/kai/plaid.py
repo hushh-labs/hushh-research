@@ -68,6 +68,12 @@ class PlaidFundingTransactionsSyncRequest(BaseModel):
     cursor: str | None = None
 
 
+class PlaidFundingDefaultAccountRequest(BaseModel):
+    user_id: str
+    item_id: str = Field(min_length=1)
+    account_id: str = Field(min_length=1)
+
+
 class PlaidTransferCreateRequest(BaseModel):
     user_id: str
     funding_item_id: str = Field(min_length=1)
@@ -315,6 +321,26 @@ async def sync_plaid_funding_transactions(
     except Exception as exc:
         _raise_logged_http_exception(
             "kai.plaid.funding_transactions_sync_failed", request.user_id, exc
+        )
+
+
+@router.post("/plaid/funding/default-account")
+async def set_plaid_funding_default_account(
+    request: PlaidFundingDefaultAccountRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_broker_funding_service().set_default_funding_account(
+            user_id=request.user_id,
+            item_id=request.item_id,
+            account_id=request.account_id,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception(
+            "kai.plaid.funding_default_account_failed",
+            request.user_id,
+            exc,
         )
 
 

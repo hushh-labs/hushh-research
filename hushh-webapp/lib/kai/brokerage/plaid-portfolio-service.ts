@@ -37,6 +37,8 @@ export interface PlaidTransferCreateResponse {
 }
 
 const PLAID_STATUS_CACHE_TTL_MS = 15_000;
+const DEFAULT_FUNDING_TERMS_VERSION =
+  String(process.env.NEXT_PUBLIC_KAI_FUNDING_TERMS_VERSION || "").trim() || "v1";
 
 async function extractPlaidError(response: Response, fallback: string): Promise<string> {
   const raw = await response.text().catch(() => "");
@@ -398,7 +400,13 @@ export class PlaidPortfolioService {
     vaultOwnerToken: string;
     metadata?: Record<string, unknown> | null;
     resumeSessionId?: string | null;
+    termsVersion?: string | null;
+    consentTimestamp?: string | null;
+    alpacaAccountId?: string | null;
   }): Promise<PlaidFundingStatusResponse> {
+    const termsVersion = String(params.termsVersion || "").trim() || DEFAULT_FUNDING_TERMS_VERSION;
+    const consentTimestamp =
+      String(params.consentTimestamp || "").trim() || new Date().toISOString();
     const response = await ApiService.apiFetch("/api/kai/plaid/funding/exchange-public-token", {
       method: "POST",
       headers: {
@@ -410,12 +418,44 @@ export class PlaidPortfolioService {
         public_token: params.publicToken,
         metadata: params.metadata || null,
         resume_session_id: params.resumeSessionId || null,
+        terms_version: termsVersion,
+        consent_timestamp: consentTimestamp,
+        alpaca_account_id: params.alpacaAccountId || null,
       }),
     });
     if (!response.ok) {
       const detail = await extractPlaidError(
         response,
         "Plaid could not finish connecting this funding account."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async setDefaultFundingAccount(params: {
+    userId: string;
+    itemId: string;
+    accountId: string;
+    vaultOwnerToken: string;
+  }): Promise<PlaidFundingStatusResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/default-account", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        item_id: params.itemId,
+        account_id: params.accountId,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "The default funding account could not be updated right now."
       );
       throw new Error(detail);
     }
@@ -616,5 +656,69 @@ export class PlaidPortfolioService {
       reference?: Record<string, unknown>;
       canceled?: boolean;
     };
+  }
+
+  static async refreshFundingTransferStatus(params: {
+    userId: string;
+    transferId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    transfer: PlaidTransferPayload;
+    reference?: Record<string, unknown>;
+  }> {
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/funding/admin/transfers/${encodeURIComponent(params.transferId)}/refresh`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Transfer status could not be refreshed right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as {
+      transfer: PlaidTransferPayload;
+      reference?: Record<string, unknown>;
+    };
+  }
+
+  static async runFundingReconciliation(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    maxRows?: number;
+    triggerSource?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/reconcile", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        max_rows: params.maxRows ?? 200,
+        trigger_source: params.triggerSource || "manual_ui",
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding reconciliation could not be started right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as Record<string, unknown>;
   }
 }

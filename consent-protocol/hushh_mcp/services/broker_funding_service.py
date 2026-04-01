@@ -524,6 +524,41 @@ class BrokerFundingService:
                 "account_id": account_id,
             },
         )
+        self._update_selected_funding_account_metadata(
+            user_id=user_id,
+            item_id=item_id,
+            account_id=account_id,
+        )
+
+    def _update_selected_funding_account_metadata(
+        self,
+        *,
+        user_id: str,
+        item_id: str,
+        account_id: str,
+    ) -> None:
+        item_row = self._fetch_funding_item_row(user_id=user_id, item_id=item_id)
+        if item_row is None:
+            return
+        metadata = _json_load(item_row.get("latest_metadata_json"), fallback={})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["selected_funding_account_id"] = account_id
+        metadata["last_selected_funding_account_at"] = _utcnow_iso()
+        self.db.execute_raw(
+            """
+            UPDATE kai_funding_plaid_items
+            SET latest_metadata_json = CAST(:latest_metadata_json AS JSONB),
+                updated_at = NOW()
+            WHERE user_id = :user_id
+              AND item_id = :item_id
+            """,
+            {
+                "user_id": user_id,
+                "item_id": item_id,
+                "latest_metadata_json": json.dumps(metadata),
+            },
+        )
 
     def _store_funding_item(
         self,
@@ -1690,6 +1725,38 @@ class BrokerFundingService:
             institution_name = _clean_text(item.get("institution_name")) or None
             if institution_name:
                 institutions.append(institution_name)
+            item_metadata = _json_load(item.get("latest_metadata_json"), fallback={})
+            if not isinstance(item_metadata, dict):
+                item_metadata = {}
+            selected_funding_account_id = (
+                _clean_text(item_metadata.get("selected_funding_account_id")) or None
+            )
+            account_payloads: list[dict[str, Any]] = []
+            default_account_id: str | None = None
+            for account in accounts:
+                account_id = _clean_text(account.get("account_id")) or None
+                is_default = bool(account.get("is_default"))
+                if is_default and default_account_id is None:
+                    default_account_id = account_id
+                account_payloads.append(
+                    {
+                        "account_id": account_id,
+                        "name": _clean_text(account.get("account_name")) or None,
+                        "official_name": _clean_text(account.get("official_name")) or None,
+                        "mask": _clean_text(account.get("mask")) or None,
+                        "type": _clean_text(account.get("account_type")) or None,
+                        "subtype": _clean_text(account.get("account_subtype")) or None,
+                        "is_default": is_default,
+                        "is_selected_funding_account": False,
+                    }
+                )
+            if not selected_funding_account_id:
+                selected_funding_account_id = default_account_id
+            if selected_funding_account_id:
+                for account_payload in account_payloads:
+                    account_payload["is_selected_funding_account"] = (
+                        account_payload.get("account_id") == selected_funding_account_id
+                    )
 
             item_relationships = [
                 relationship
@@ -1703,30 +1770,17 @@ class BrokerFundingService:
                     "institution_name": institution_name,
                     "status": _clean_text(item.get("status"), default="active"),
                     "last_synced_at": _clean_text(item.get("last_synced_at"))
-                    or _clean_text(
-                        _json_load(item.get("latest_metadata_json"), fallback={}).get(
-                            "last_synced_at"
-                        )
-                    )
+                    or _clean_text(item_metadata.get("last_synced_at"))
                     or None,
-                    "accounts": [
-                        {
-                            "account_id": _clean_text(account.get("account_id")) or None,
-                            "name": _clean_text(account.get("account_name")) or None,
-                            "official_name": _clean_text(account.get("official_name")) or None,
-                            "mask": _clean_text(account.get("mask")) or None,
-                            "type": _clean_text(account.get("account_type")) or None,
-                            "subtype": _clean_text(account.get("account_subtype")) or None,
-                            "is_default": bool(account.get("is_default")),
-                        }
-                        for account in accounts
-                    ],
+                    "selected_funding_account_id": selected_funding_account_id,
+                    "accounts": account_payloads,
                     "relationships": [
                         {
                             "relationship_id": _clean_text(relationship.get("relationship_id"))
                             or None,
                             "alpaca_account_id": _clean_text(relationship.get("alpaca_account_id"))
                             or None,
+                            "account_id": _clean_text(relationship.get("account_id")) or None,
                             "status": _clean_text(relationship.get("status")) or None,
                             "status_reason_code": _clean_text(
                                 relationship.get("status_reason_code")
@@ -1858,6 +1912,40 @@ class BrokerFundingService:
                 "removed": len(removed),
             },
         }
+
+    async def set_default_funding_account(
+        self,
+        *,
+        user_id: str,
+        item_id: str,
+        account_id: str,
+    ) -> dict[str, Any]:
+        item_row = self._fetch_funding_item_row(user_id=user_id, item_id=item_id)
+        if item_row is None:
+            raise FundingOrchestrationError(
+                "No linked Plaid funding item is available.",
+                code="PLAID_FUNDING_ITEM_NOT_FOUND",
+                status_code=404,
+            )
+
+        account_row = self._find_funding_account(
+            user_id=user_id,
+            item_id=item_id,
+            account_id=account_id,
+        )
+        if account_row is None:
+            raise FundingOrchestrationError(
+                "Selected funding account does not belong to the linked Plaid item.",
+                code="PLAID_FUNDING_ACCOUNT_NOT_FOUND",
+                status_code=422,
+            )
+
+        self._set_default_funding_account(
+            user_id=user_id,
+            item_id=item_id,
+            account_id=account_id,
+        )
+        return await self.get_funding_status(user_id=user_id)
 
     async def create_transfer(
         self,
