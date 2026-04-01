@@ -35,14 +35,49 @@ export default function KaiLayout({
     if (onOnboardingRoute || onImportRoute) return;
     if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
 
-    void UnlockWarmOrchestrator.run({
-      userId: user.uid,
-      vaultKey,
-      vaultOwnerToken,
-      routePath: pathname,
-    }).catch((error) => {
-      console.warn("[KaiLayout] Route-priority warm orchestration failed:", error);
-    });
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let idleHandle: number | null = null;
+
+    const runWarm = () => {
+      if (cancelled) return;
+      void UnlockWarmOrchestrator.run({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        routePath: pathname,
+      }).catch((error) => {
+        console.warn("[KaiLayout] Route-priority warm orchestration failed:", error);
+      });
+    };
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      idleHandle = requestIdle(() => {
+        runWarm();
+      }, { timeout: 2500 });
+      return () => {
+        cancelled = true;
+        if (idleHandle !== null) {
+          cancelIdle(idleHandle);
+        }
+      };
+    }
+
+    timeoutId = globalThis.setTimeout(() => {
+      runWarm();
+    }, 900);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+    };
   }, [onImportRoute, onOnboardingRoute, pathname, user?.uid, vaultKey, vaultOwnerToken]);
 
   const shell = (

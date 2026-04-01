@@ -6,8 +6,8 @@
  * Legacy-compatible web vault existence check.
  *
  * The public route shape stays `/api/vault/check`, but the web implementation
- * now proxies through the current `/db/vault/bootstrap-state` backend contract
- * so placeholder rows and vault status stay aligned with the modern shell.
+ * proxies through the dedicated `/db/vault/check` backend contract because
+ * this route only needs a fast yes/no existence answer.
  */
 
 import { NextRequest } from "next/server";
@@ -20,11 +20,35 @@ import {
 } from "@/app/api/_utils/request-id";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment, logSecurityEvent } from "@/lib/config";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
-const VAULT_CHECK_TIMEOUT_MS = Number.parseInt(process.env.VAULT_CHECK_TIMEOUT_MS ?? "30000", 10);
+const ROUTE_CACHE_TTL_MS = 60 * 1000;
+const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
+const vaultCheckCache = new Map<
+  string,
+  { hasVault: boolean; cachedAt: number }
+>();
+const vaultCheckInflight = new Map<string, Promise<boolean>>();
+
+function readFreshVaultCheck(userId: string): boolean | null {
+  const cached = vaultCheckCache.get(userId);
+  if (!cached) return null;
+  if (Date.now() - cached.cachedAt > ROUTE_CACHE_TTL_MS) {
+    vaultCheckCache.delete(userId);
+    return null;
+  }
+  return cached.hasVault;
+}
+
+function writeVaultCheck(userId: string, hasVault: boolean): void {
+  vaultCheckCache.set(userId, {
+    hasVault,
+    cachedAt: Date.now(),
+  });
+}
 
 export async function GET(request: NextRequest) {
   const requestId = resolveRequestId(request);
@@ -70,47 +94,74 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const response = await fetch(`${PYTHON_API_URL}/db/vault/bootstrap-state`, {
-      method: "POST",
-      headers: createUpstreamHeaders(requestId, {
-        "Content-Type": "application/json",
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      }),
-      signal: AbortSignal.timeout(
-        Number.isFinite(VAULT_CHECK_TIMEOUT_MS) && VAULT_CHECK_TIMEOUT_MS > 0
-          ? VAULT_CHECK_TIMEOUT_MS
-          : 30000
-      ),
-      body: JSON.stringify({ userId }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(
-        `[API] request_id=${requestId} vault_check backend_error status=${response.status}`,
-        errorText
-      );
-      return withRequestIdJson(
-        requestId,
-        { error: "Backend error", hasVault: false },
-        { status: response.status }
-      );
+    const cached = readFreshVaultCheck(userId);
+    if (cached !== null) {
+      return withRequestIdJson(requestId, { hasVault: cached, cached: true });
     }
 
-    const data = await response.json();
+    const existing = vaultCheckInflight.get(userId);
+    if (existing) {
+      const hasVault = await existing;
+      return withRequestIdJson(requestId, { hasVault, deduped: true });
+    }
+
+    const load = (async () => {
+      const response = await fetch(`${PYTHON_API_URL}/db/vault/check`, {
+        method: "POST",
+        headers: createUpstreamHeaders(requestId, {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        }),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[API] request_id=${requestId} vault_check backend_error status=${response.status}`,
+          errorText
+        );
+        throw new Error(`backend_error:${response.status}`);
+      }
+
+      const data = await response.json();
+      const hasVault = Boolean(data.hasVault);
+      writeVaultCheck(userId, hasVault);
+      return hasVault;
+    })().finally(() => {
+      if (vaultCheckInflight.get(userId) === load) {
+        vaultCheckInflight.delete(userId);
+      }
+    });
+
+    vaultCheckInflight.set(userId, load);
+    const hasVault = await load;
 
     logSecurityEvent("VAULT_CHECK_SUCCESS", {
       userId,
-      exists: data.hasVault,
+      exists: hasVault,
     });
 
-    return withRequestIdJson(requestId, { hasVault: data.hasVault });
+    return withRequestIdJson(requestId, { hasVault });
   } catch (error) {
     console.error(`[API] request_id=${requestId} vault_check error:`, error);
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+    if (userId) {
+      const cached = readFreshVaultCheck(userId);
+      if (cached !== null) {
+        return withRequestIdJson(
+          requestId,
+          { hasVault: cached, degraded: true },
+          { status: 200 }
+        );
+      }
+    }
     return withRequestIdJson(
       requestId,
       { error: "Failed to check vault status", hasVault: false },
-      { status: 500 }
+      { status: 504 }
     );
   }
 }

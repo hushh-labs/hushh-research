@@ -82,6 +82,13 @@ if [ ! -f "$BACKEND_ENV_FILE" ]; then
   exit 1
 fi
 
+BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
+if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
+  echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
+  echo "Run 'make bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
+  exit 1
+fi
+
 read_env_value() {
   local file="$1"
   local key="$2"
@@ -195,7 +202,7 @@ verify_iam_readiness() {
   echo "Verifying IAM schema readiness for ${profile}..."
   (
     cd "$REPO_ROOT/consent-protocol"
-    PYTHONPATH=. python3 scripts/verify_iam_schema.py
+    PYTHONPATH=. "$BACKEND_VENV_PYTHON" scripts/verify_iam_schema.py
   )
 }
 
@@ -226,6 +233,9 @@ PROXY_PORT="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_PORT')"
 PROXY_PORT="${PROXY_PORT:-$DB_PORT}"
 PROXY_CREDENTIALS_FILE="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_CREDENTIALS_FILE')"
 PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_SERVICE_ACCOUNT_JSON')"
+if [ -z "$PROXY_CREDENTIALS_JSON" ]; then
+  PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_AUTH_SERVICE_ACCOUNT_JSON')"
+fi
 PROXY_CREDENTIALS_TEMP=""
 
 cleanup_proxy_credentials() {
@@ -288,6 +298,15 @@ PY
   fi
 fi
 
+if [ -z "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
+  if ! port_is_listening 127.0.0.1 "$DB_PORT"; then
+    echo "Backend env points at local DB ${DB_HOST}:${DB_PORT}, but CLOUDSQL_INSTANCE_CONNECTION_NAME is unset." >&2
+    echo "The launcher cannot start the Cloud SQL proxy without that value." >&2
+    echo "Run 'npm run bootstrap' to hydrate consent-protocol/.env, or set a reachable non-local DB_HOST override." >&2
+    exit 1
+  fi
+fi
+
 if [ "$SKIP_PREFLIGHT" != "true" ]; then
   run_preflight "$PROFILE"
 fi
@@ -310,4 +329,4 @@ case "$reload_mode" in
     echo "Uvicorn autoreload disabled (faster local runtime). Use --reload to enable watch mode."
     ;;
 esac
-python3 -m uvicorn "${uvicorn_args[@]}"
+"$BACKEND_VENV_PYTHON" -m uvicorn "${uvicorn_args[@]}"

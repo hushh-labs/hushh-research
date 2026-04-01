@@ -76,7 +76,7 @@ runtime_profile_resource_target() {
 runtime_profile_description() {
   case "${1:-}" in
     local)
-      printf 'local frontend + local backend, backed by UAT cloud resources'
+      printf 'local frontend + local backend, backed by UAT resources'
       ;;
     uat)
       printf 'local frontend only, pointed at deployed UAT backend'
