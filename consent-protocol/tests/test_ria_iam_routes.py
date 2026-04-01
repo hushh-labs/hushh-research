@@ -286,7 +286,7 @@ def test_consent_center_returns_combined_surface(monkeypatch):
 
 
 def test_consent_center_summary_route_returns_actor_counts(monkeypatch):
-    async def _mock_summary(self, user_id: str, *, actor: str):
+    async def _mock_summary(self, user_id: str, *, actor: str, mode: str = "consents"):
         assert user_id == "user_test_123"
         assert actor == "ria"
         return {
@@ -319,6 +319,7 @@ def test_consent_center_list_route_returns_page_contract(monkeypatch):
         *,
         actor: str,
         surface: str,
+        mode: str = "consents",
         query: str | None = None,
         top: int | None = None,
         page: int = 1,
@@ -367,6 +368,7 @@ def test_consent_center_list_route_supports_top_preview(monkeypatch):
         *,
         actor: str,
         surface: str,
+        mode: str = "consents",
         query: str | None = None,
         top: int | None = None,
         page: int = 1,
