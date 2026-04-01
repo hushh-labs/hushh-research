@@ -24,13 +24,11 @@ export const SurfaceCard = React.forwardRef<HTMLDivElement, SurfaceCardProps>(
   ({ tone = "default", accent = "none", className, children, ...props }, ref) => (
     <Card
       ref={ref}
+      type="apple"
       data-surface-tone={tone}
       data-surface-accent={accent}
-      preset={tone === "feature" ? "surface-feature" : "surface"}
       variant="none"
-      effect="glass"
       showRipple={false}
-      glassAccent={tone === "feature" ? "balanced" : "soft"}
       className={cn("min-w-0 overflow-visible", className)}
       {...props}
     >

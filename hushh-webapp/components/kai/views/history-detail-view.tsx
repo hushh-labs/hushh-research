@@ -18,6 +18,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { DecisionCard, type DecisionResult } from "./decision-card";
 import { RoundTabsCard } from "./round-tabs-card";
 import type { AgentState } from "../debate-stream-view";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import type { AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import {
   fetchLatestMarketSnapshot,
@@ -167,6 +168,7 @@ export function HistoryDetailView({
           <Card variant="none" effect="glass" preset="default">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
+                <SymbolAvatar symbol={entry.ticker} name={entry.ticker} size="md" />
                 <h2 className="text-2xl font-black tracking-tight">{entry.ticker}</h2>
                 <span className="text-sm font-semibold tabular-nums text-muted-foreground">{priceLabel}</span>
                 {todayChangePct !== null ? (
@@ -228,31 +230,34 @@ export function HistoryDetailView({
 
            {/* Hero Row */}
            <div className="flex items-end justify-between px-1">
-              <div>
-                <h1 className="text-2xl font-black tracking-tighter text-foreground leading-none">
-                  {entry.ticker}
-                </h1>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="text-sm font-semibold tabular-nums text-muted-foreground">{priceLabel}</span>
-                  {todayChangePct !== null ? (
-                    <span
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-xs font-semibold",
-                        todayChangePct >= 0
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                      )}
-                    >
-                      Today {todayChangePct >= 0 ? "+" : ""}
-                      {todayChangePct.toFixed(2)}%
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Today's status unavailable</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-1">
-                   <Icon icon={Clock} size={12} className="shrink-0" />
-                   <span>{formatTimestamp(entry.timestamp)}</span>
+              <div className="flex items-start gap-3">
+                <SymbolAvatar symbol={entry.ticker} name={entry.ticker} size="lg" className="mt-0.5" />
+                <div>
+                  <h1 className="text-2xl font-black tracking-tighter text-foreground leading-none">
+                    {entry.ticker}
+                  </h1>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-sm font-semibold tabular-nums text-muted-foreground">{priceLabel}</span>
+                    {todayChangePct !== null ? (
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-xs font-semibold",
+                          todayChangePct >= 0
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                        )}
+                      >
+                        Today {todayChangePct >= 0 ? "+" : ""}
+                        {todayChangePct.toFixed(2)}%
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Today's status unavailable</span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <Icon icon={Clock} size={12} className="shrink-0" />
+                    <span>{formatTimestamp(entry.timestamp)}</span>
+                  </div>
                 </div>
               </div>
 

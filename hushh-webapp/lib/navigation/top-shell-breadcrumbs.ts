@@ -47,6 +47,20 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  if (pathname === ROUTES.MARKETPLACE_CONNECTIONS || pathname.startsWith(`${ROUTES.MARKETPLACE_CONNECTIONS}/`)) {
+    const isPortfolio = pathname.includes("/portfolio");
+    return {
+      backHref: isPortfolio ? ROUTES.MARKETPLACE_CONNECTIONS : ROUTES.MARKETPLACE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Connect", href: ROUTES.MARKETPLACE },
+        { label: "Connections", href: ROUTES.MARKETPLACE_CONNECTIONS },
+        ...(isPortfolio ? [{ label: "Portfolio" }] : []),
+      ],
+    };
+  }
+
   if (pathname === ROUTES.PROFILE || !pathname.startsWith(`${ROUTES.PROFILE}/`)) {
     return null;
   }

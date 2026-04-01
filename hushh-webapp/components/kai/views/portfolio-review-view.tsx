@@ -1457,16 +1457,6 @@ export function PortfolioReviewView({
         description: "Securing and storing your portfolio in Vault.",
         routeHref: ROUTES.KAI_DASHBOARD,
       });
-      setIsBackgroundSaveRunning(true);
-      toast.success("Portfolio save started in background.");
-      setIsSaving(false);
-      baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
-      if (isMountedRef.current) {
-        setHasUnsavedChanges(false);
-        Promise.resolve(onSaveComplete(savePayload)).catch((saveCompleteError) => {
-          console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
-        });
-      }
 
       const nowIso = new Date().toISOString();
       const blobLoadStartedAt = nowMs();
@@ -1923,6 +1913,13 @@ export function PortfolioReviewView({
           }
         })();
       }
+      baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
+      if (isMountedRef.current) {
+        setHasUnsavedChanges(false);
+      }
+      await Promise.resolve(onSaveComplete(savePayload)).catch((saveCompleteError) => {
+        console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
+      });
       logSavePhase("post-save sync", postSaveSyncStartedAt);
       logSavePhase("total", saveStartedAt);
     } catch (error) {
@@ -1973,16 +1970,16 @@ export function PortfolioReviewView({
     <div className={cn("relative w-full", className)}>
 
 
-      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 pb-6 pt-[calc(var(--app-safe-area-top-effective)+0.75rem)] transition-all duration-500 ease-in-out md:px-6 md:pt-6">
+      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 pb-6 pt-4 transition-all duration-500 ease-in-out md:px-6 md:pt-6">
 
 
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
           <div className="px-1">
 	            <h1 className="text-xl font-bold tracking-tight">Review Portfolio</h1>
-	            <p className="text-sm text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] sm:max-w-none">
+	            <p className="max-w-[28rem] text-sm leading-snug text-muted-foreground">
 	              {hasVault === false
 	                ? "Review your portfolio, then create your Vault to save it."
 	                : "Review before saving to Vault"}
@@ -2345,34 +2342,38 @@ export function PortfolioReviewView({
                 className="space-y-3"
               >
                 <div className="pb-1">
-                  <TabsList className="grid h-8 w-full grid-cols-4 gap-0.5 rounded-lg bg-background/80 p-0.5">
+                  <TabsList className="grid h-auto min-h-10 w-full grid-cols-4 gap-0.5 rounded-lg bg-background/80 p-0.5">
                     <TabsTrigger
-                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
                       value="all"
                       title={`All holdings (${holdingTables.all.length})`}
                     >
-                      All ({holdingTables.all.length})
+                      <span className="block">All</span>
+                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.all.length})</span>
                     </TabsTrigger>
                     <TabsTrigger
-                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
                       value="analyze"
                       title={`Equities (${holdingTables.analyzeEligible.length})`}
                     >
-                      Equity ({holdingTables.analyzeEligible.length})
+                      <span className="block">Equity</span>
+                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.analyzeEligible.length})</span>
                     </TabsTrigger>
                     <TabsTrigger
-                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
                       value="non-analyze"
                       title={`Other assets (${holdingTables.nonAnalyzable.length})`}
                     >
-                      Other ({holdingTables.nonAnalyzable.length})
+                      <span className="block">Other</span>
+                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.nonAnalyzable.length})</span>
                     </TabsTrigger>
                     <TabsTrigger
-                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
                       value="cash"
                       title={`Cash holdings (${holdingTables.cashSweep.length})`}
                     >
-                      Cash ({holdingTables.cashSweep.length})
+                      <span className="block">Cash</span>
+                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.cashSweep.length})</span>
                     </TabsTrigger>
                   </TabsList>
                 </div>

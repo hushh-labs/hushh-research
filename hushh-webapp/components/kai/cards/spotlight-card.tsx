@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { LineChart } from "lucide-react";
 
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
-import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { Card as MorphyCard, CardContent as MorphyCardContent } from "@/lib/morphy-ux/card";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
@@ -37,15 +37,18 @@ export function SpotlightCard(props: {
   const isExternal = Boolean(props.contextHref);
 
   return (
-    <SurfaceCard
-      accent={
-        props.decision === "BUY"
-          ? "emerald"
-          : props.decision === "REDUCE"
-            ? "amber"
-            : "sky"
-      }
-      className="overflow-hidden"
+    <MorphyCard
+      preset="surface"
+      variant="none"
+      effect="glass"
+      showRipple={false}
+      glassAccent="soft"
+      className={cn(
+        "group relative isolate !overflow-hidden !gap-0 !py-0 rounded-[24px] transition-[border-color,box-shadow,background-color] duration-200 ease-out",
+        primaryHref
+          ? "hover:shadow-[0_16px_34px_rgba(15,23,42,0.08)]"
+          : undefined
+      )}
     >
       <button
         type="button"
@@ -59,11 +62,24 @@ export function SpotlightCard(props: {
           router.push(primaryHref);
         }}
         className={cn(
-          "group relative block w-full overflow-hidden rounded-[inherit] text-left outline-none transition-colors",
-          primaryHref ? "hover:bg-foreground/[0.03] active:bg-foreground/[0.055]" : "cursor-default"
+          "relative block h-full w-full overflow-hidden rounded-[inherit] text-left outline-none transition-[background-color] duration-200 ease-out",
+          primaryHref
+            ? "cursor-pointer hover:bg-white/[0.03] active:bg-white/[0.06]"
+            : "cursor-default"
         )}
       >
-        <SurfaceCardContent className="space-y-4 p-5">
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200",
+            props.decision === "BUY"
+              ? "bg-linear-to-br from-emerald-500/[0.06] via-transparent to-sky-500/[0.04] group-hover:opacity-100"
+              : props.decision === "REDUCE"
+                ? "bg-linear-to-br from-amber-500/[0.07] via-transparent to-rose-500/[0.04] group-hover:opacity-100"
+                : "bg-linear-to-br from-sky-500/[0.06] via-transparent to-violet-500/[0.04] group-hover:opacity-100"
+          )}
+        />
+        <MorphyCardContent className="relative z-[1] space-y-4 p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
               <SymbolAvatar symbol={props.symbol} name={props.companyName} size="md" />
@@ -74,7 +90,7 @@ export function SpotlightCard(props: {
             </div>
             <div className="flex items-center gap-1.5">
               {props.confidenceLabel ? (
-                <span className="inline-flex items-center rounded-full bg-background/70 px-2 py-1 text-[10px] font-bold tracking-wide text-muted-foreground">
+                <span className="inline-flex items-center rounded-full bg-background/75 px-2 py-1 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors duration-200 group-hover:bg-background/85">
                   {props.confidenceLabel}
                 </span>
               ) : null}
@@ -91,13 +107,15 @@ export function SpotlightCard(props: {
 
           <p className="text-sm font-medium leading-relaxed">{props.summary}</p>
 
-          <div className="flex items-center gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground transition-colors duration-200 group-hover:border-border/60">
             <Icon icon={LineChart} size="sm" />
-            <span className="line-clamp-1">{props.context}</span>
+            <span className="line-clamp-1 transition-colors duration-200 group-hover:text-foreground/85">
+              {props.context}
+            </span>
           </div>
-        </SurfaceCardContent>
+        </MorphyCardContent>
         {primaryHref ? <MaterialRipple variant="none" effect="fade" className="z-10" /> : null}
       </button>
-    </SurfaceCard>
+    </MorphyCard>
   );
 }

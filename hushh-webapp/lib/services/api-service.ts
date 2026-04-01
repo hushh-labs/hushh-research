@@ -876,6 +876,10 @@ export interface KaiHomeSignal {
   summary: string;
   confidence: number;
   source_tags: string[];
+  supporting_items?: Array<{
+    symbol: string;
+    company_name?: string;
+  }>;
   degraded: boolean;
 }
 

@@ -97,7 +97,7 @@ export const SegmentedPill = React.forwardRef<HTMLDivElement, SegmentedPillProps
         role="radiogroup"
         aria-label={ariaLabel}
         className={cn(
-          "pointer-events-none relative grid items-center rounded-full border border-border/70 bg-muted/75 shadow-sm backdrop-blur-xl",
+          "pointer-events-none relative grid items-center rounded-full border-0 bg-background/80 shadow-[0_11px_34px_0_var(--theme-color-boxShadow)] backdrop-blur-[var(--blur-standard)]",
           isStacked ? styles.stackedContainer : styles.container,
           className
         )}
@@ -108,7 +108,7 @@ export const SegmentedPill = React.forwardRef<HTMLDivElement, SegmentedPillProps
         <div
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-1 top-1 bottom-1 rounded-full bg-foreground text-background shadow-sm ring-1 ring-border/70 transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]"
+          className="pointer-events-none absolute left-1 top-1 bottom-1 rounded-full bg-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.08)] backdrop-blur-sm dark:bg-white/15 dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)] transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
           style={{
             width: `calc((100% - 0.5rem) / ${Math.max(options.length, 1)})`,
             transform: `translateX(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)))`,
@@ -140,10 +140,10 @@ export const SegmentedPill = React.forwardRef<HTMLDivElement, SegmentedPillProps
                 isStacked ? styles.stackedButton : styles.button,
                 isStacked ? styles.stackedGap : styles.gap,
                 isActive
-                  ? "text-background"
+                  ? "text-foreground font-semibold"
                   : isAccent
                     ? "text-primary/85 hover:text-primary"
-                    : "text-foreground/75 hover:text-foreground",
+                    : "text-foreground/60 hover:text-foreground/80",
                 isDisabled && "opacity-45"
               )}
             >

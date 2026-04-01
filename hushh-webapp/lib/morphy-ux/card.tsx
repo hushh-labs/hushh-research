@@ -16,10 +16,13 @@ import { cn } from "@/lib/utils";
 import { type MorphyCardBaseProps } from "@/lib/morphy-ux/types";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
+export type CardType = "apple" | "legacy";
+
 export interface CardProps
   extends React.HTMLAttributes<HTMLDivElement>,
     MorphyCardBaseProps {
   asChild?: boolean;
+  type?: CardType;
   icon?: {
     icon: React.ComponentType<{ className?: string; weight?: IconWeight }>;
     title?: string;
@@ -68,6 +71,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       variant = "none",
       effect = "glass",
       preset = "default",
+      type,
       asChild = false,
       showRipple = false,
       icon,
@@ -80,6 +84,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
     },
     ref
   ) => {
+    const isApple = type === "apple";
     const Comp = asChild ? Slot : StockCard;
     const presetConfig = CARD_PRESET_SHELL_CLASSES[preset];
 
@@ -137,13 +142,17 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       <Comp
         ref={ref}
         className={cn(
-          "relative !overflow-visible border border-solid border-transparent transition-[border-color,box-shadow,background-color] duration-200",
-          presetConfig.shell,
+          "relative !overflow-visible transition-[box-shadow,background-color] duration-200",
+          isApple
+            ? "!rounded-[var(--radius-md)] !border-0 !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]"
+            : cn("border border-solid border-transparent", presetConfig.shell),
           "!text-card-foreground",
-          effect === "fade"
-            ? "!backdrop-blur-none"
-            : "backdrop-blur-[22px] backdrop-saturate-[155%] backdrop-contrast-[1.02]",
-          presetConfig.spacing,
+          isApple
+            ? ""
+            : effect === "fade"
+              ? "!backdrop-blur-none"
+              : "backdrop-blur-[22px] backdrop-saturate-[155%] backdrop-contrast-[1.02]",
+          isApple ? "min-w-0 p-0" : presetConfig.spacing,
           interactive ? "cursor-pointer" : "",
           fullHeight ? "h-full" : "",
           selected ? "ring-1 ring-sky-500/25 dark:ring-sky-400/30" : "",
@@ -151,7 +160,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         )}
         {...props}
       >
-        {effect === "glass" ? (
+        {!isApple && effect === "glass" ? (
           <div
             aria-hidden
             className={cn(

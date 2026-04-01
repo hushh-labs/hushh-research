@@ -211,9 +211,10 @@ from api.routes import identity  # noqa: E402
 app.include_router(identity.router)
 
 # Phase 7: Personal Knowledge Model (Dynamic Domain Management)
-from api.routes import pkm  # noqa: E402
+from api.routes import pkm, pkm_routes_shared  # noqa: E402
 
 app.include_router(pkm.router)
+app.include_router(pkm_routes_shared.router)
 
 # Legacy world-model compatibility routes mapped to PKM.
 from api.routes import world_model  # noqa: E402

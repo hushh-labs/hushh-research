@@ -374,12 +374,12 @@ class UatKaiSmoke:
         )
         return response.json()
 
-    def get_consent_center_summary(self, *, actor: str) -> dict[str, Any]:
+    def get_consent_center_summary(self, *, actor: str, mode: str = "consents") -> dict[str, Any]:
         response = self._request(
             "GET",
             "/api/consent/center/summary",
-            headers=self._vault_headers(),
-            params={"actor": actor},
+            headers=self._firebase_auth_headers(),
+            params={"actor": actor, "mode": mode},
         )
         return response.json()
 
@@ -392,8 +392,9 @@ class UatKaiSmoke:
         page: int = 1,
         limit: int = 20,
         query: str | None = None,
+        mode: str = "consents",
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"actor": actor, "surface": surface}
+        params: dict[str, Any] = {"actor": actor, "surface": surface, "mode": mode}
         if top is not None:
             params["top"] = top
         else:
@@ -404,7 +405,7 @@ class UatKaiSmoke:
         response = self._request(
             "GET",
             "/api/consent/center/list",
-            headers=self._vault_headers(),
+            headers=self._firebase_auth_headers(),
             params=params,
         )
         return response.json()
@@ -881,6 +882,44 @@ class UatKaiSmoke:
         )
         return response.json()
 
+    def request_ria_consent_bundle(self, *, selected_scopes: list[str]) -> dict[str, Any]:
+        templates = self._request(
+            "GET",
+            "/api/ria/request-scopes",
+            headers=self._firebase_auth_headers(),
+        ).json()["items"]
+        target_template = next(
+            (
+                item
+                for item in templates
+                if str(item.get("template_id") or "") == "ria_financial_summary_v1"
+            ),
+            None,
+        )
+        if not isinstance(target_template, dict):
+            raise RuntimeError("ria_financial_summary_v1 template was not available.")
+        template_scopes = {
+            str(scope.get("name") or scope.get("scope") or "").strip()
+            for scope in (target_template.get("scopes") or [])
+        }
+        chosen_scopes = [scope for scope in selected_scopes if scope in template_scopes]
+        if not chosen_scopes:
+            raise RuntimeError(
+                f"Requested bundle scopes are not supported by the template: {selected_scopes}"
+            )
+        response = self._request(
+            "POST",
+            "/api/ria/request-bundles",
+            headers={**self._firebase_auth_headers(), "Content-Type": "application/json"},
+            json_body={
+                "subject_user_id": self.user_id,
+                "scope_template_id": target_template["template_id"],
+                "selected_scopes": chosen_scopes,
+                "reason": "Kai UAT portfolio sharing regression",
+            },
+        )
+        return response.json()
+
     def approve_ria_request(self, *, request_id: str) -> dict[str, Any]:
         response = self._request(
             "POST",
@@ -898,6 +937,14 @@ class UatKaiSmoke:
         response = self._request(
             "GET",
             f"/api/ria/clients/{quote_plus(self.user_id)}",
+            headers=self._firebase_auth_headers(),
+        )
+        return response.json()
+
+    def get_ria_workspace(self) -> dict[str, Any]:
+        response = self._request(
+            "GET",
+            f"/api/ria/workspace/{quote_plus(self.user_id)}",
             headers=self._firebase_auth_headers(),
         )
         return response.json()
@@ -1071,15 +1118,20 @@ class UatKaiSmoke:
         ria_request = self.request_ria_consent()
         if str(ria_request.get("status") or "").lower() != "requested":
             raise RuntimeError(f"RIA request creation failed: {ria_request}")
-        ria_summary = self.get_consent_center_summary(actor="ria")
-        ria_preview = self.get_consent_center_list(actor="ria", surface="pending", top=5)
+        ria_summary = self.get_consent_center_summary(actor="ria", mode="connections")
+        ria_preview = self.get_consent_center_list(
+            actor="ria",
+            surface="pending",
+            top=5,
+            mode="connections",
+        )
         if ria_preview.get("page") != 1 or ria_preview.get("limit") != 5:
             raise RuntimeError(f"Unexpected RIA consent preview pagination contract: {ria_preview}")
         if len(ria_preview.get("items") or []) > 5:
             raise RuntimeError(f"RIA consent preview returned more than 5 rows: {ria_preview}")
         if int((ria_summary.get("counts") or {}).get("pending") or 0) < 1:
             raise RuntimeError(
-                f"Expected at least one pending RIA consent after request: {ria_summary}"
+                f"Expected at least one pending RIA connection after request: {ria_summary}"
             )
         if not any(
             str(item.get("request_id") or item.get("id") or "")
@@ -1089,7 +1141,7 @@ class UatKaiSmoke:
             raise RuntimeError(
                 f"Expected RIA pending preview to include the new request: {ria_request} {ria_preview}"
             )
-        self.log("RIA consent summary + top-5 preview contract passed.")
+        self.log("RIA connections summary + top-5 preview contract passed.")
         self.approve_ria_request(request_id=str(ria_request["request_id"]))
         client_detail = self.get_ria_client_detail()
         relationship_shares = client_detail.get("relationship_shares") or []
@@ -1098,6 +1150,92 @@ class UatKaiSmoke:
         picks_feed_status = str(client_detail.get("picks_feed_status") or "")
         if picks_feed_status not in {"ready", "pending"}:
             raise RuntimeError(f"Unexpected picks feed status: {client_detail}")
+        ria_connections_active = self.get_consent_center_list(
+            actor="ria",
+            surface="active",
+            top=5,
+            mode="connections",
+        )
+        if not any(
+            str(item.get("counterpart_id") or "") == self.user_id
+            for item in (ria_connections_active.get("items") or [])
+        ):
+            raise RuntimeError(
+                "Expected active connections view to include the approved investor connection: "
+                f"{ria_connections_active}"
+            )
+        workspace = self.get_ria_workspace()
+        if not workspace.get("workspace_ready"):
+            raise RuntimeError(
+                f"Expected workspace_ready after connection approval, got: {workspace}"
+            )
+        financial_summary = (workspace.get("domain_summaries") or {}).get("financial") or {}
+        if not isinstance(financial_summary, dict) or not financial_summary:
+            raise RuntimeError(
+                f"Expected financial domain summary to materialize for the granted scope, got: {workspace}"
+            )
+        available_domains = [str(domain) for domain in (workspace.get("available_domains") or [])]
+        if "financial" not in available_domains:
+            raise RuntimeError(
+                f"Expected overview-only workspace to remain financial-scoped, got: {workspace}"
+            )
+        granted_scopes = [
+            str(item.get("scope") or "") for item in (workspace.get("granted_scopes") or [])
+        ]
+        if "attr.financial.*" not in granted_scopes:
+            raise RuntimeError(f"Expected attr.financial.* grant in workspace payload: {workspace}")
+        self.log("Connection-led Kai portfolio overview workspace path passed.")
+
+        full_portfolio_bundle = self.request_ria_consent_bundle(
+            selected_scopes=["attr.financial.*", "pkm.read"]
+        )
+        if str(full_portfolio_bundle.get("status") or "").lower() != "requested":
+            raise RuntimeError(
+                f"Expected full portfolio access bundle to remain pending, got: {full_portfolio_bundle}"
+            )
+        investor_access_summary = self.get_consent_center_summary(actor="investor", mode="consents")
+        investor_access_preview = self.get_consent_center_list(
+            actor="investor",
+            surface="pending",
+            top=10,
+            mode="consents",
+        )
+        if int((investor_access_summary.get("counts") or {}).get("pending") or 0) < 1:
+            raise RuntimeError(
+                "Expected consent-only inbox to carry the Kai portfolio access bundle: "
+                f"{investor_access_summary}"
+            )
+        if not set(
+            str(request_id) for request_id in (full_portfolio_bundle.get("request_ids") or [])
+        ) <= {
+            str(item.get("request_id") or item.get("id") or "")
+            for item in (investor_access_preview.get("items") or [])
+        }:
+            raise RuntimeError(
+                "Expected investor consent-only inbox to include the Kai portfolio access bundle requests: "
+                f"{full_portfolio_bundle} {investor_access_preview}"
+            )
+        for request_id in list(full_portfolio_bundle.get("request_ids") or []):
+            self.approve_ria_request(request_id=str(request_id))
+        expanded_workspace = self.get_ria_workspace()
+        expanded_granted_scopes = [
+            str(item.get("scope") or "")
+            for item in (expanded_workspace.get("granted_scopes") or [])
+        ]
+        if "pkm.read" not in expanded_granted_scopes:
+            raise RuntimeError(
+                f"Expected expanded connection grant to include pkm.read: {expanded_workspace}"
+            )
+        expanded_financial_summary = (expanded_workspace.get("domain_summaries") or {}).get(
+            "financial"
+        ) or {}
+        if not isinstance(expanded_financial_summary, dict) or not expanded_financial_summary:
+            raise RuntimeError(
+                "Expanded portfolio access did not retain readable financial summary output: "
+                f"{expanded_workspace}"
+            )
+        self.log("Connection-led Kai portfolio access bundle expansion passed.")
+
         market_home = self.get_market_insights()
         ria_source = next(
             (
@@ -1124,6 +1262,133 @@ class UatKaiSmoke:
 
         self.log("All live Kai UAT smoke checks passed.")
 
+    def run_connection_portfolio(self) -> None:
+        self.authenticate()
+        self.derive_vault_key()
+
+        metadata = self.fetch_pkm_metadata()
+        self.log(
+            f"PKM metadata reachable with domains={[domain.get('key') for domain in metadata.get('domains', [])]}."
+        )
+
+        ria_status = self.ensure_ria_profile()
+        self.log(
+            f"RIA profile ready with verification_status={ria_status.get('verification_status')}."
+        )
+        picks_upload = self.upload_ria_picks()
+        if not picks_upload.get("upload_id"):
+            raise RuntimeError(f"RIA pick upload failed: {picks_upload}")
+
+        ria_request = self.request_ria_consent()
+        if str(ria_request.get("status") or "").lower() != "requested":
+            raise RuntimeError(f"RIA request creation failed: {ria_request}")
+
+        pending_connections = self.get_consent_center_list(
+            actor="ria",
+            surface="pending",
+            top=10,
+            mode="connections",
+        )
+        if not any(
+            str(item.get("request_id") or item.get("id") or "")
+            == str(ria_request.get("request_id") or "")
+            for item in (pending_connections.get("items") or [])
+        ):
+            raise RuntimeError(
+                "Expected pending connections to include the new relationship request: "
+                f"{ria_request} {pending_connections}"
+            )
+
+        self.approve_ria_request(request_id=str(ria_request["request_id"]))
+
+        active_connections = self.get_consent_center_list(
+            actor="ria",
+            surface="active",
+            top=10,
+            mode="connections",
+        )
+        if not any(
+            str(item.get("counterpart_id") or "") == self.user_id
+            for item in (active_connections.get("items") or [])
+        ):
+            raise RuntimeError(
+                "Expected active connections to include the approved investor relationship: "
+                f"{active_connections}"
+            )
+
+        overview_workspace = self.get_ria_workspace()
+        if not overview_workspace.get("workspace_ready"):
+            raise RuntimeError(
+                f"Expected connection-led workspace to be ready after approval: {overview_workspace}"
+            )
+        overview_financial = (overview_workspace.get("domain_summaries") or {}).get(
+            "financial"
+        ) or {}
+        if not isinstance(overview_financial, dict) or not overview_financial:
+            raise RuntimeError(
+                "Expected connection-led overview scope to materialize financial data: "
+                f"{overview_workspace}"
+            )
+        overview_scopes = [
+            str(item.get("scope") or "")
+            for item in (overview_workspace.get("granted_scopes") or [])
+        ]
+        if "attr.financial.*" not in overview_scopes:
+            raise RuntimeError(
+                f"Expected attr.financial.* to be granted in the workspace payload: {overview_workspace}"
+            )
+        self.log("Connection approval -> Kai portfolio overview workspace path passed.")
+
+        bundle_payload = self.request_ria_consent_bundle(
+            selected_scopes=["attr.financial.*", "pkm.read"]
+        )
+        if str(bundle_payload.get("status") or "").lower() != "requested":
+            raise RuntimeError(
+                f"Expected expanded portfolio bundle to be pending, got: {bundle_payload}"
+            )
+
+        investor_access_preview = self.get_consent_center_list(
+            actor="investor",
+            surface="pending",
+            top=10,
+            mode="consents",
+        )
+        bundle_request_ids = {
+            str(request_id) for request_id in (bundle_payload.get("request_ids") or [])
+        }
+        preview_ids = {
+            str(item.get("request_id") or item.get("id") or "")
+            for item in (investor_access_preview.get("items") or [])
+        }
+        if not bundle_request_ids <= preview_ids:
+            raise RuntimeError(
+                "Expected investor consent inbox to contain the Kai portfolio access bundle: "
+                f"{bundle_payload} {investor_access_preview}"
+            )
+
+        for request_id in list(bundle_payload.get("request_ids") or []):
+            self.approve_ria_request(request_id=str(request_id))
+
+        expanded_workspace = self.get_ria_workspace()
+        expanded_scopes = [
+            str(item.get("scope") or "")
+            for item in (expanded_workspace.get("granted_scopes") or [])
+        ]
+        if "pkm.read" not in expanded_scopes:
+            raise RuntimeError(
+                f"Expected expanded portfolio access to include pkm.read: {expanded_workspace}"
+            )
+        expanded_financial = (expanded_workspace.get("domain_summaries") or {}).get(
+            "financial"
+        ) or {}
+        if not isinstance(expanded_financial, dict) or not expanded_financial:
+            raise RuntimeError(
+                "Expanded workspace lost readable financial output after the bundle grant: "
+                f"{expanded_workspace}"
+            )
+        self.log("Connection-led Kai portfolio access bundle expansion passed.")
+        self.log("Connection portfolio UAT smoke passed.")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Kai UAT regression smoke.")
@@ -1131,6 +1396,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--protocol-env", default=DEFAULT_PROTOCOL_ENV)
     parser.add_argument("--web-env", default=DEFAULT_WEBAPP_ENV)
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
+    parser.add_argument(
+        "--scenario",
+        choices=["full", "connection_portfolio"],
+        default="full",
+    )
     return parser.parse_args()
 
 
@@ -1142,7 +1412,10 @@ def main() -> int:
         web_env=args.web_env,
         timeout=args.timeout,
     )
-    runner.run()
+    if args.scenario == "connection_portfolio":
+        runner.run_connection_portfolio()
+    else:
+        runner.run()
     return 0
 
 

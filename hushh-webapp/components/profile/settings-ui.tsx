@@ -103,7 +103,7 @@ export function SettingsSegmentedTabs({
   return (
     <div
       className={cn(
-        "relative grid w-full rounded-full border border-border/70 bg-background/68 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid w-full rounded-[var(--radius-sm)] border-0 bg-muted/50 p-1.5 dark:bg-white/6 [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
         className
       )}
       style={
@@ -126,13 +126,13 @@ export function SettingsSegmentedTabs({
               onValueChange(option.value);
             }}
             className={cn(
-              "relative isolate min-h-9 overflow-hidden rounded-full px-2 py-1.5 text-center transition-[background-color,color,box-shadow,border-color] sm:min-h-10 sm:px-2.5",
+              "relative isolate min-h-9 overflow-hidden rounded-[calc(var(--radius-sm)-4px)] px-3 py-1.5 text-center transition-all duration-200 sm:min-h-10 sm:px-3.5",
               isActive
-                ? "border border-[var(--morphy-primary-start)]/18 bg-background/95 text-foreground shadow-[0_10px_24px_-18px_rgba(15,23,42,0.34)] dark:bg-background/96"
-                : "border border-transparent bg-transparent text-foreground/68 hover:bg-background/48 hover:text-foreground dark:hover:bg-background/18"
+                ? "bg-card text-foreground font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+                : "bg-transparent text-muted-foreground hover:text-foreground"
             )}
           >
-            <span className="relative z-0 block truncate text-[11px] font-medium tracking-tight sm:text-[13px]">
+            <span className="relative z-0 block truncate text-xs font-medium tracking-tight sm:text-sm">
               {option.label}
             </span>
             <MaterialRipple variant="none" effect="fade" className="z-10" />
@@ -167,7 +167,7 @@ export function SettingsGroup({
   const shell = (
     <div
       className={cn(
-        "relative isolate p-px [--settings-group-radius:20px] rounded-[20px] border border-border/60 bg-background/68 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]",
+        "relative isolate p-px [--settings-group-radius:20px] rounded-[var(--radius-md)] border-0 bg-card shadow-[var(--app-card-shadow-standard)]",
         !embedded && "sm:rounded-[22px]"
       )}
     >
@@ -308,9 +308,6 @@ export function SettingsRow({
     isInteractive &&
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
   );
-  const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
-  );
   const asChildContent =
     resolvedAsChild
       ? cloneElement(children as ReactElement, undefined, mainContent, trailingContent)
@@ -318,7 +315,12 @@ export function SettingsRow({
 
   if (splitPrimaryAction) {
     return (
-      <div className={rowShellClassName}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={rowShellClassName}
+      >
         <span
           aria-hidden
           className={cn(
@@ -328,38 +330,21 @@ export function SettingsRow({
         />
         <div
           className={cn(
-            "relative z-10 grid w-full",
+            "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
             shouldStackTrailing
               ? "grid-cols-1 gap-y-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3"
-              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-0"
+              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3"
           )}
         >
-          <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className={primaryActionClassName}
-          >
-            {mainContent}
-            <MaterialRipple
-              variant="none"
-              effect="fade"
-              disabled={disabled}
-              className="z-10"
-            />
-          </button>
+          <div className="min-w-0">{mainContent}</div>
           {trailingContent ? (
-            <div
-              className={cn(
-                "px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
-                shouldStackTrailing && "pt-0 sm:pt-[var(--settings-row-py)]"
-              )}
-            >
+            <div onClick={(e) => e.stopPropagation()}>
               {trailingContent}
             </div>
           ) : null}
         </div>
-      </div>
+        <MaterialRipple variant="none" effect="fade" disabled={disabled} className="z-10" />
+      </button>
     );
   }
 
@@ -438,7 +423,7 @@ export function SettingsDetailPanel({
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-background">
-          <DrawerHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-4 py-3 text-left backdrop-blur-xl sm:px-5 sm:py-4">
+          <DrawerHeader className="sticky top-0 z-10 border-b border-border/90 bg-background px-4 py-3 text-left sm:px-5 sm:py-4">
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
@@ -460,9 +445,10 @@ export function SettingsDetailPanel({
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent
         side="right"
-        className="w-full border-l border-border/90 p-0 sm:max-w-[480px]"
+        className="w-full border-l border-border/90 !bg-background p-0 sm:max-w-[480px]"
+        style={{ backgroundColor: "var(--background)" }}
       >
-        <SheetHeader className="sticky top-0 z-10 border-b border-border/90 bg-background/96 px-6 py-4 backdrop-blur-xl">
+        <SheetHeader className="sticky top-0 z-10 border-b border-border/90 bg-background px-6 py-4">
           <SheetTitle className="text-base font-semibold tracking-tight">
             {title}
           </SheetTitle>
@@ -472,7 +458,7 @@ export function SettingsDetailPanel({
             </SheetDescription>
           ) : null}
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-5 sm:pt-5">{children}</div>
+        <div className="flex-1 overflow-y-auto bg-background px-4 pb-8 pt-4 sm:px-5 sm:pt-5">{children}</div>
       </SheetContent>
     </Sheet>
   );
