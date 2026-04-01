@@ -154,4 +154,52 @@ describe("/api/kai/[...path] proxy", () => {
     const headers = options?.headers as Headers;
     expect(headers.get("Authorization")).toBeNull();
   });
+
+  it("passes through binary /voice/tts responses and preserves voice headers", async () => {
+    const audioBytes = new Uint8Array([1, 2, 3, 4]);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(audioBytes, {
+        status: 200,
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "X-Kai-TTS-Model": "gpt-4o-mini-tts",
+          "X-Kai-TTS-Voice": "alloy",
+          "X-Kai-TTS-Format": "mp3",
+          "X-Kai-TTS-Audio-Bytes": "4",
+        },
+      })
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/voice/tts", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        Accept: "audio/mpeg",
+        "Content-Type": "application/json",
+        "X-Voice-Turn-Id": "vturn_proxy_tts_1",
+      },
+      body: JSON.stringify({ user_id: "user_123", text: "hello" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["voice", "tts"] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("audio/mpeg");
+    expect(res.headers.get("X-Kai-TTS-Model")).toBe("gpt-4o-mini-tts");
+    expect(res.headers.get("X-Kai-TTS-Voice")).toBe("alloy");
+    expect(res.headers.get("X-Kai-TTS-Format")).toBe("mp3");
+    expect(res.headers.get("X-Kai-TTS-Audio-Bytes")).toBe("4");
+
+    const body = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(body)).toEqual([1, 2, 3, 4]);
+
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/voice/tts");
+    const headers = options?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
+    expect(headers.get("Accept")).toBe("audio/mpeg");
+    expect(headers.get("X-Voice-Turn-Id")).toBe("vturn_proxy_tts_1");
+  });
 });

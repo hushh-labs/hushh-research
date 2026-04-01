@@ -54,6 +54,9 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 SECRET_ALERTS_JSON="$TMPDIR/secret-alerts.json"
 DEPENDABOT_ALERTS_JSON="$TMPDIR/dependabot-alerts.json"
+FILTERED_SECRET_ALERTS_JSON="$TMPDIR/filtered-secret-alerts.json"
+FILTERED_DEPENDABOT_ALERTS_JSON="$TMPDIR/filtered-dependabot-alerts.json"
+PR_EVENT_CUTOFF=""
 
 if ! gh api -H 'Accept: application/vnd.github+json' \
   "/repos/${REPO}/secret-scanning/alerts?state=open&per_page=100" >"$SECRET_ALERTS_JSON" 2>"$TMPDIR/secret-errors.log"; then
@@ -81,7 +84,74 @@ if ! gh api -H 'Accept: application/vnd.github+json' \
   exit 0
 fi
 
-python3 - <<'PY' "$SECRET_ALERTS_JSON" "$DEPENDABOT_ALERTS_JSON"
+if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "${GITHUB_EVENT_PATH:-}" ]; then
+  PR_EVENT_CUTOFF="$(python3 - <<'PY' "${GITHUB_EVENT_PATH}"
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+pull_request = payload.get("pull_request") or {}
+created_at = (pull_request.get("created_at") or "").strip()
+print(created_at)
+PY
+)"
+fi
+
+python3 - <<'PY' \
+  "$SECRET_ALERTS_JSON" \
+  "$DEPENDABOT_ALERTS_JSON" \
+  "$FILTERED_SECRET_ALERTS_JSON" \
+  "$FILTERED_DEPENDABOT_ALERTS_JSON" \
+  "$PR_EVENT_CUTOFF"
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def parse_iso8601(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    return datetime.fromisoformat(normalized).astimezone(timezone.utc)
+
+
+def filter_alerts(alerts: list[dict], cutoff: datetime | None) -> list[dict]:
+    if cutoff is None:
+        return alerts
+    filtered: list[dict] = []
+    for alert in alerts:
+        created_at = parse_iso8601(alert.get("created_at"))
+        if created_at is None or created_at >= cutoff:
+            filtered.append(alert)
+    return filtered
+
+
+secret_alerts = json.loads(Path(sys.argv[1]).read_text())
+dependabot_alerts = json.loads(Path(sys.argv[2]).read_text())
+filtered_secret_path = Path(sys.argv[3])
+filtered_dependabot_path = Path(sys.argv[4])
+cutoff = parse_iso8601(sys.argv[5])
+
+filtered_secret_alerts = filter_alerts(secret_alerts, cutoff)
+filtered_dependabot_alerts = filter_alerts(dependabot_alerts, cutoff)
+
+filtered_secret_path.write_text(json.dumps(filtered_secret_alerts), encoding="utf-8")
+filtered_dependabot_path.write_text(json.dumps(filtered_dependabot_alerts), encoding="utf-8")
+PY
+
+if [ -n "$PR_EVENT_CUTOFF" ]; then
+  echo "GitHub security alert parity mode: pull_request incremental (created_at >= ${PR_EVENT_CUTOFF})"
+else
+  echo "GitHub security alert parity mode: strict repository-wide"
+fi
+
+python3 - <<'PY' "$FILTERED_SECRET_ALERTS_JSON" "$FILTERED_DEPENDABOT_ALERTS_JSON"
 import json
 import sys
 from pathlib import Path
@@ -116,13 +186,13 @@ if len(dependabot_alerts) > 8:
 PY
 
 if [ "${REQUIRE_GITHUB_ALERTS_CLEAN:-0}" = "1" ]; then
-  SECRET_COUNT="$(python3 - <<'PY' "$SECRET_ALERTS_JSON"
+  SECRET_COUNT="$(python3 - <<'PY' "$FILTERED_SECRET_ALERTS_JSON"
 import json, sys
 from pathlib import Path
 print(len(json.loads(Path(sys.argv[1]).read_text())))
 PY
 )"
-  DEPENDABOT_COUNT="$(python3 - <<'PY' "$DEPENDABOT_ALERTS_JSON"
+  DEPENDABOT_COUNT="$(python3 - <<'PY' "$FILTERED_DEPENDABOT_ALERTS_JSON"
 import json, sys
 from pathlib import Path
 print(len(json.loads(Path(sys.argv[1]).read_text())))

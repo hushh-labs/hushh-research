@@ -282,7 +282,9 @@ export function Providers({ children }: ProvidersProps) {
                           }
                         </VaultContext.Consumer>
                         <PostAuthOnboardingSyncBridge />
-                        <KaiCommandBarGlobal />
+                        <Suspense fallback={null}>
+                          <KaiCommandBarGlobal />
+                        </Suspense>
                         <div
                           data-app-scroll-root="true"
                           data-app-scroll-mode={
@@ -367,7 +369,9 @@ export function Providers({ children }: ProvidersProps) {
                           }
                         </VaultContext.Consumer>
                         <PostAuthOnboardingSyncBridge />
-                        <KaiCommandBarGlobal />
+                        <Suspense fallback={null}>
+                          <KaiCommandBarGlobal />
+                        </Suspense>
                         {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
                         <div
                           data-app-scroll-root="true"

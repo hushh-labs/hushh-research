@@ -11,10 +11,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
+const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
 const hotGet = createHotGetJsonCache({
   freshTtlMs: 30 * 1000,
   staleTtlMs: 5 * 60 * 1000,
@@ -49,7 +51,7 @@ async function proxyVaultStatus(params: {
       "Content-Type": "application/json",
       Authorization: params.firebaseAuthHeader,
     },
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     body: JSON.stringify({
       userId: params.userId,
       consentToken: params.consentToken,

@@ -3,6 +3,7 @@ import { HushhVault, HushhAuth, HushhConsent } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   createVaultWithPassphrase as webCreateVault,
   unlockVaultWithPassphrase as webUnlockVault,
@@ -17,6 +18,7 @@ import {
   removeSessionItem,
   setSessionItem,
 } from "@/lib/utils/session-storage";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 import type {
   GeneratedVaultProvisionResult,
   GeneratedVaultSupport,
@@ -119,6 +121,29 @@ export class VaultService {
       );
     } catch {
       // Ignore session persistence failures.
+    }
+  }
+
+  private static readBootstrapVaultCheck(userId: string): boolean | null {
+    const cached = CacheService.getInstance().get<{ hasVault?: unknown }>(
+      CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId)
+    );
+    if (!cached) return null;
+    return typeof cached.hasVault === "boolean" ? cached.hasVault : null;
+  }
+
+  private static async resolveVaultCheckFallback(userId: string): Promise<boolean | null> {
+    const cached = this.readBootstrapVaultCheck(userId);
+    if (cached !== null) {
+      return cached;
+    }
+
+    try {
+      const state = await PreVaultUserStateService.bootstrapState(userId);
+      return state.hasVault;
+    } catch (error) {
+      console.warn("[VaultService] bootstrap-state fallback failed:", error);
+      return null;
     }
   }
 
@@ -742,6 +767,12 @@ export class VaultService {
       cache.set(cacheKey, sessionCached);
       return sessionCached;
     }
+    const bootstrapCached = this.readBootstrapVaultCheck(userId);
+    if (bootstrapCached !== null) {
+      cache.set(cacheKey, bootstrapCached);
+      this.writeSessionVaultCheck(userId, bootstrapCached);
+      return bootstrapCached;
+    }
     const inflight = this.vaultCheckInflight.get(userId);
     if (inflight) {
       return inflight;
@@ -778,16 +809,27 @@ export class VaultService {
           headers["Authorization"] = `Bearer ${authToken}`;
         }
 
-        const response = await fetch(url, {
-          headers,
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!response.ok) {
-          console.error("❌ [VaultService] checkVault failed:", response.status);
-          throw new Error("Vault check failed");
+        try {
+          const response = await fetch(url, {
+            headers,
+            signal: AbortSignal.timeout(resolveSlowRequestTimeoutMs(20_000)),
+          });
+          if (!response.ok) {
+            throw new Error(`Vault check failed: ${response.status}`);
+          }
+          const data = await response.json();
+          hasVault = data.hasVault;
+        } catch (error) {
+          const fallbackHasVault = await this.resolveVaultCheckFallback(userId);
+          if (fallbackHasVault === null) {
+            console.error("❌ [VaultService] checkVault failed:", error);
+            throw error;
+          }
+          console.warn(
+            "⚠️ [VaultService] checkVault served via bootstrap-state fallback"
+          );
+          hasVault = fallbackHasVault;
         }
-        const data = await response.json();
-        hasVault = data.hasVault;
       }
 
       CacheSyncService.onVaultStateChanged(userId, { hasVault });

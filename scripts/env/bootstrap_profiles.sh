@@ -651,6 +651,9 @@ hydrate_backend_local_uatdb() {
   runtime_db_port="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" 'DB_PORT' "$cache_file")"
   runtime_socket="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" 'DB_UNIX_SOCKET' "$cache_file")"
   instance_name="$(cloudsql_instance_for_backend "$project" || true)"
+  if [ -z "$instance_name" ]; then
+    instance_name="$(read_env_value "$cache_file" "CLOUDSQL_INSTANCE_CONNECTION_NAME")"
+  fi
   if [ -z "$instance_name" ] && [ "$project" = "$UAT_PROJECT_ID" ]; then
     instance_name="$DEFAULT_LOCAL_CLOUDSQL_INSTANCE"
   fi

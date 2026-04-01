@@ -26,13 +26,44 @@
           "/analyze/run/active",
           "/analyze/run/{run_id}/stream",
           "/analyze/run/{run_id}/cancel",
+          "/voice/stt",
+          "/voice/realtime/session",
+          "/voice/understand",
+          "/voice/plan",
+          "/voice/tts",
           "/portfolio/import",
           "/portfolio/import/stream",
+          "/portfolio/import/run/start",
+          "/portfolio/import/run/active",
+          "/portfolio/import/run/{run_id}/stream",
+          "/portfolio/import/run/{run_id}/cancel",
           "/portfolio/summary/{user_id}",
+          "/plaid/status/{user_id}",
+          "/plaid/link-token",
+          "/plaid/link-token/update",
+          "/plaid/oauth/resume",
+          "/plaid/exchange-public-token",
+          "/plaid/refresh",
+          "/plaid/refresh/{run_id}",
+          "/plaid/refresh/{run_id}/cancel",
+          "/plaid/source",
+          "/plaid/webhook",
+          "/gmail/connect/start",
+          "/gmail/connect/complete",
+          "/gmail/status/{user_id}",
+          "/gmail/disconnect",
+          "/gmail/sync",
+          "/gmail/reconcile",
+          "/gmail/sync/{run_id}",
+          "/gmail/receipts/{user_id}",
+          "/gmail/webhook",
+          "/support/message",
+          "/dashboard/profile-picks/{user_id}",
           "/portfolio/analyze-losers",
           "/portfolio/analyze-losers/stream",
           "/market/insights/baseline/{user_id}",
-          "/market/insights/{user_id}"
+          "/market/insights/{user_id}",
+          "/stock-preview/{user_id}"
         ]
       },
       "native": {
@@ -682,12 +713,16 @@
       "id": "profilePage",
       "pageFile": "hushh-webapp/app/profile/page.tsx",
       "serviceFiles": [
+        "hushh-webapp/lib/profile/gmail-connector-store.ts",
+        "hushh-webapp/lib/profile/mail-flow.ts",
         "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
         "hushh-webapp/lib/services/account-service.ts",
+        "hushh-webapp/lib/services/gmail-receipts-service.ts",
         "hushh-webapp/lib/services/vault-service.ts",
         "hushh-webapp/lib/services/ria-service.ts"
       ],
       "apiContractIds": [
+        "kaiProxy",
         "worldModelProxy",
         "vaultWebProxy",
         "vaultOwnerToken",
@@ -699,6 +734,30 @@
         "vaultWebProxy",
         "vaultOwnerToken",
         "accountDelete"
+      ]
+    },
+    {
+      "id": "profileGmailOAuthReturnPage",
+      "pageFile": "hushh-webapp/app/profile/gmail/oauth/return/page.tsx",
+      "serviceFiles": [
+        "hushh-webapp/lib/profile/gmail-connector-store.ts",
+        "hushh-webapp/lib/profile/mail-flow.ts",
+        "hushh-webapp/lib/services/gmail-receipts-service.ts"
+      ],
+      "apiContractIds": [
+        "kaiProxy"
+      ]
+    },
+    {
+      "id": "profileReceiptsPage",
+      "pageFile": "hushh-webapp/app/profile/receipts/page.tsx",
+      "serviceFiles": [
+        "hushh-webapp/lib/profile/gmail-connector-store.ts",
+        "hushh-webapp/lib/profile/gmail-receipts-cache.ts",
+        "hushh-webapp/lib/services/gmail-receipts-service.ts"
+      ],
+      "apiContractIds": [
+        "kaiProxy"
       ]
     },
     {
