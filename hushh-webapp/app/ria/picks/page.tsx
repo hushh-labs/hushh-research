@@ -319,24 +319,6 @@ function packageFingerprint(value: RiaPickPackage | DraftPickPackage | null | un
   return JSON.stringify(draftToPayload(createDraftPackage(value as RiaPickPackage)));
 }
 
-function csvEscape(value: string | number | null | undefined) {
-  const text = String(value ?? "");
-  if (!/[",\n]/.test(text)) return text;
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
-function buildPicksCsv(rows: RiaPickRow[]) {
-  const header = ["ticker", "company_name", "sector", "tier", "investment_thesis"];
-  return [
-    header.join(","),
-    ...rows.map((row) =>
-      [row.ticker, row.company_name, row.sector, row.tier, row.investment_thesis]
-        .map(csvEscape)
-        .join(",")
-    ),
-  ].join("\n");
-}
-
 function TierBadge({ tier }: { tier?: string | null }) {
   const normalizedTier = String(tier || "").toUpperCase();
   const config = TIER_CONFIG[normalizedTier];

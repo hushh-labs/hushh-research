@@ -452,7 +452,7 @@ async def test_list_investor_pick_sources_requires_active_relationship_share(mon
                     "ria_profile_id": "ria_profile_1",
                     "ria_user_id": "ria_user_1",
                     "label": "Advisor Alpha",
-                    "upload_id": "upload_1",
+                    "artifact_id": "artifact_1",
                     "share_status": "active",
                     "share_granted_at": "2026-03-24T00:00:00Z",
                     "share_metadata": {"share_origin": "relationship_implicit"},
@@ -478,7 +478,7 @@ async def test_list_investor_pick_sources_requires_active_relationship_share(mon
     assert len(items) == 1
     assert items[0]["id"] == "ria:ria_profile_1"
     assert items[0]["state"] == "ready"
-    assert items[0]["upload_id"] == "upload_1"
+    assert items[0]["artifact_id"] == "artifact_1"
     assert items[0]["share_status"] == "active"
     assert items[0]["share_origin"] == "relationship_implicit"
 
