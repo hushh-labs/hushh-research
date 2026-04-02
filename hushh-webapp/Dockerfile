@@ -84,16 +84,33 @@ ENV HOSTNAME="0.0.0.0"
 # In monorepo local builds, it may be at .next/standalone/hushh-webapp/server.js
 COPY --from=builder /app/.next/standalone ./
 
-# Copy public assets (server.js expects these relative to its own directory)
+# Copy public assets and static files for the root standalone layout.
 COPY --from=builder /app/public ./public
 
 # Copy static assets
 COPY --from=builder /app/.next/static ./.next/static
+
+# Normalize both standalone layouts so Cloud Run always has one canonical
+# entrypoint and the nested monorepo-aware path still resolves its assets.
+RUN set -eux; \
+    mkdir -p /app/hushh-webapp/.next; \
+    if [ -f /app/server.js ]; then \
+      ln -sfn /app/server.js /app/hushh-webapp/server.js; \
+    elif [ -f /app/hushh-webapp/server.js ]; then \
+      ln -sfn /app/hushh-webapp/server.js /app/server.js; \
+    else \
+      echo "No standalone server.js found after copy" >&2; \
+      find /app -maxdepth 4 -name server.js -print >&2; \
+      exit 1; \
+    fi; \
+    rm -rf /app/hushh-webapp/public /app/hushh-webapp/.next/static; \
+    ln -sfn ../public /app/hushh-webapp/public; \
+    ln -sfn ../../.next/static /app/hushh-webapp/.next/static
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-# Start the standalone server — try root first (Docker), then monorepo subdir (local)
-CMD ["sh", "-c", "node server.js 2>/dev/null || node hushh-webapp/server.js"]
+# Start the canonical normalized standalone server.
+CMD ["node", "server.js"]
