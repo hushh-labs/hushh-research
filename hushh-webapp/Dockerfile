@@ -80,21 +80,20 @@ ENV PORT=8080
 ENV HOSTNAME="0.0.0.0"
 
 # Copy the standalone output.
-# Because outputFileTracingRoot=".." in next.config.ts, the standalone
-# output nests files under hushh-webapp/. We copy the entire standalone
-# tree first, then place public + static where server.js expects them.
+# In Docker (build context = hushh-webapp/), server.js is at .next/standalone/server.js
+# In monorepo local builds, it may be at .next/standalone/hushh-webapp/server.js
 COPY --from=builder /app/.next/standalone ./
 
-# Copy public assets into the monorepo subdirectory (where server.js lives)
-COPY --from=builder /app/public ./hushh-webapp/public
+# Copy public assets (server.js expects these relative to its own directory)
+COPY --from=builder /app/public ./public
 
-# Copy static assets into the monorepo subdirectory (where server.js expects .next/static)
-COPY --from=builder /app/.next/static ./hushh-webapp/.next/static
+# Copy static assets
+COPY --from=builder /app/.next/static ./.next/static
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-# Start the standalone server from the monorepo subdirectory
-CMD ["node", "hushh-webapp/server.js"]
+# Start the standalone server — try root first (Docker), then monorepo subdir (local)
+CMD ["sh", "-c", "node server.js 2>/dev/null || node hushh-webapp/server.js"]
