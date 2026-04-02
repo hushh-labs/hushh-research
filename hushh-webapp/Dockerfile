@@ -80,8 +80,10 @@ ENV PORT=8080
 ENV HOSTNAME="0.0.0.0"
 
 # Copy the standalone output.
-# In Docker (build context = hushh-webapp/), server.js is at .next/standalone/server.js
-# In monorepo local builds, it may be at .next/standalone/hushh-webapp/server.js
+# Depending on the build context, Next's standalone server can land at:
+# - /app/server.js
+# - /app/app/server.js
+# - /app/hushh-webapp/server.js
 COPY --from=builder /app/.next/standalone ./
 
 # Copy public assets and static files for the root standalone layout.
@@ -90,22 +92,29 @@ COPY --from=builder /app/public ./public
 # Copy static assets
 COPY --from=builder /app/.next/static ./.next/static
 
-# Normalize both standalone layouts so Cloud Run always has one canonical
-# entrypoint and the nested monorepo-aware path still resolves its assets.
+# Normalize the supported standalone layouts so Cloud Run always has one
+# canonical entrypoint and any nested standalone path still resolves assets.
 RUN set -eux; \
-    mkdir -p /app/hushh-webapp/.next; \
+    mkdir -p /app/app/.next /app/hushh-webapp/.next; \
     if [ -f /app/server.js ]; then \
-      ln -sfn /app/server.js /app/hushh-webapp/server.js; \
+      SERVER_PATH=/app/server.js; \
+    elif [ -f /app/app/server.js ]; then \
+      SERVER_PATH=/app/app/server.js; \
+      ln -sfn /app/app/server.js /app/server.js; \
     elif [ -f /app/hushh-webapp/server.js ]; then \
+      SERVER_PATH=/app/hushh-webapp/server.js; \
       ln -sfn /app/hushh-webapp/server.js /app/server.js; \
     else \
       echo "No standalone server.js found after copy" >&2; \
       find /app -maxdepth 4 -name server.js -print >&2; \
       exit 1; \
     fi; \
-    rm -rf /app/hushh-webapp/public /app/hushh-webapp/.next/static; \
-    ln -sfn ../public /app/hushh-webapp/public; \
-    ln -sfn ../../.next/static /app/hushh-webapp/.next/static
+    for nested in /app/app /app/hushh-webapp; do \
+      rm -rf "$nested/public" "$nested/.next/static"; \
+      ln -sfn ../public "$nested/public"; \
+      ln -sfn ../../.next/static "$nested/.next/static"; \
+    done; \
+    test -f "$SERVER_PATH"
 
 EXPOSE 8080
 
