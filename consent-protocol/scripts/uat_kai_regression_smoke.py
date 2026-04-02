@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live UAT regression smoke for the Kai test user.
+"""Live regression smoke for the Kai test user.
 
 Runs against the hosted UAT backend using the real Firebase/Kai auth path and
 verifies the recent consent/PKM/RIA integration lanes together:
@@ -10,13 +10,15 @@ verifies the recent consent/PKM/RIA integration lanes together:
 - consent export refresh queue + refresh upload
 - RIA implicit picks-share relationship gating
 
-This script is intentionally UAT-only and mutates Kai test-user state.
-Do not point it at production.
+The full and connection_portfolio scenarios mutate Kai test-user state and should
+stay on local/UAT test users. The MCP transport scenario is safe for any
+environment that has a valid developer token.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import copy
 import json
@@ -36,6 +38,8 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from dotenv import dotenv_values
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 DEFAULT_BACKEND_URL = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
 DEFAULT_PROTOCOL_ENV = os.path.expanduser("~/Documents/GitHub/hushh-research/consent-protocol/.env")
@@ -187,7 +191,11 @@ class UatKaiSmoke:
         self.timeout = timeout
         self.user_id = _require(self.config, "KAI_TEST_USER_ID")
         self.passphrase = _require(self.config, "KAI_TEST_PASSPHRASE")
-        self.developer_token = str(self.config.get("MCP_DEVELOPER_TOKEN") or "").strip() or None
+        self.developer_token = (
+            str(self.config.get("HUSHH_DEVELOPER_TOKEN") or "").strip()
+            or str(self.config.get("MCP_DEVELOPER_TOKEN") or "").strip()
+            or None
+        )
         self.firebase_auth_service_account = json.loads(
             _require(self.config, "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON")
         )
@@ -200,6 +208,174 @@ class UatKaiSmoke:
 
     def log(self, message: str) -> None:
         print(f"[uat-smoke] {message}")
+
+    def remote_mcp_url(self) -> str:
+        if not self.developer_token:
+            raise RuntimeError("Developer token is required for remote MCP smoke.")
+        return f"{self.backend_url.rstrip('/')}/mcp/?token={quote_plus(self.developer_token)}"
+
+    def _parse_mcp_json(self, result: Any) -> dict[str, Any]:
+        content = getattr(result, "content", None)
+        if not isinstance(content, list) or not content:
+            raise RuntimeError(f"Unexpected MCP tool response shape: {result!r}")
+        for item in content:
+            text = getattr(item, "text", None)
+            if not text:
+                continue
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"MCP tool returned non-JSON text: {text}") from exc
+            if isinstance(parsed, dict):
+                return parsed
+            raise RuntimeError(f"MCP tool returned non-object JSON: {parsed!r}")
+        raise RuntimeError(f"MCP tool returned no text payload: {result!r}")
+
+    async def _run_remote_mcp_transport_async(self) -> tuple[set[str], set[str]]:
+        async with streamablehttp_client(
+            self.remote_mcp_url(),
+            timeout=self.timeout,
+            sse_read_timeout=max(self.timeout, 60),
+        ) as (read_stream, write_stream, _get_session_id):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                tools_result = await session.list_tools()
+                resources_result = await session.list_resources()
+        tool_names = {tool.name for tool in getattr(tools_result, "tools", [])}
+        resource_uris = {str(resource.uri) for resource in getattr(resources_result, "resources", [])}
+        return tool_names, resource_uris
+
+    async def _run_remote_mcp_consent_async(self, *, scope: str) -> None:
+        async with streamablehttp_client(
+            self.remote_mcp_url(),
+            timeout=self.timeout,
+            sse_read_timeout=max(self.timeout, 60),
+        ) as (read_stream, write_stream, _get_session_id):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                tools_result = await session.list_tools()
+                tool_names = {tool.name for tool in getattr(tools_result, "tools", [])}
+                required_tools = {
+                    "discover_user_domains",
+                    "request_consent",
+                    "check_consent_status",
+                    "get_encrypted_scoped_export",
+                    "validate_token",
+                    "list_scopes",
+                }
+                missing_tools = sorted(required_tools - tool_names)
+                if missing_tools:
+                    raise RuntimeError(f"Remote MCP missing expected tools: {missing_tools}")
+
+                resources_result = await session.list_resources()
+                resource_uris = {
+                    str(resource.uri) for resource in getattr(resources_result, "resources", [])
+                }
+                expected_resources = {
+                    "hushh://info/server",
+                    "hushh://info/protocol",
+                    "hushh://info/connector",
+                }
+                missing_resources = sorted(expected_resources - resource_uris)
+                if missing_resources:
+                    raise RuntimeError(f"Remote MCP missing expected resources: {missing_resources}")
+
+                discovered = self._parse_mcp_json(
+                    await session.call_tool("discover_user_domains", {"user_id": self.user_id})
+                )
+                scopes = {
+                    str(item.get("name") or item.get("scope") or "").strip()
+                    for item in (discovered.get("scopes") or [])
+                    if isinstance(item, dict)
+                }
+                if scope not in scopes:
+                    raise RuntimeError(
+                        f"discover_user_domains did not expose {scope}: {discovered}"
+                    )
+
+                requested = self._parse_mcp_json(
+                    await session.call_tool(
+                        "request_consent",
+                        {
+                            "user_id": self.user_id,
+                            "scope": scope,
+                            "reason": "Kai MCP streamable regression smoke",
+                            "expiry_hours": 24,
+                            "approval_timeout_minutes": 60,
+                            "connector_public_key": self.connector.public_key_b64,
+                            "connector_key_id": self.connector.key_id,
+                            "connector_wrapping_alg": "X25519-AES256-GCM",
+                        },
+                    )
+                )
+                request_status = str(requested.get("status") or "").strip().lower()
+                request_id = str(requested.get("request_id") or "").strip()
+                consent_token = str(requested.get("consent_token") or "").strip()
+                if request_status == "pending":
+                    if not request_id:
+                        raise RuntimeError(f"MCP request_consent returned no request_id: {requested}")
+                    self.approve_pending_request(
+                        request_id=request_id,
+                        scope=scope,
+                        duration_hours=24,
+                    )
+                    status_payload = self._parse_mcp_json(
+                        await session.call_tool(
+                            "check_consent_status",
+                            {
+                                "user_id": self.user_id,
+                                "scope": scope,
+                                "request_id": request_id,
+                            },
+                        )
+                    )
+                    if str(status_payload.get("status") or "").strip().lower() != "granted":
+                        raise RuntimeError(
+                            f"MCP check_consent_status did not reach granted: {status_payload}"
+                        )
+                    consent_token = str(status_payload.get("consent_token") or "").strip()
+                elif request_status not in {"granted", "already_granted"}:
+                    raise RuntimeError(f"Unexpected MCP request_consent status: {requested}")
+
+                if not consent_token:
+                    raise RuntimeError("MCP consent flow did not return a consent token.")
+
+                validated = self._parse_mcp_json(
+                    await session.call_tool(
+                        "validate_token",
+                        {"token": consent_token, "expected_scope": scope},
+                    )
+                )
+                if not validated.get("valid"):
+                    raise RuntimeError(f"MCP validate_token failed: {validated}")
+
+                encrypted_export = self._parse_mcp_json(
+                    await session.call_tool(
+                        "get_encrypted_scoped_export",
+                        {
+                            "user_id": self.user_id,
+                            "consent_token": consent_token,
+                            "expected_scope": scope,
+                        },
+                    )
+                )
+                if str(encrypted_export.get("status") or "").strip().lower() != "success":
+                    raise RuntimeError(
+                        f"MCP get_encrypted_scoped_export failed: {encrypted_export}"
+                    )
+
+                decrypted_export = self._decrypt_scoped_export(encrypted_export)
+                narrowed_export = narrow_decrypted_export(decrypted_export, scope)
+                quality_metrics = (
+                    narrowed_export.get("financial", {})
+                    .get("analytics", {})
+                    .get("quality_metrics", {})
+                )
+                if not isinstance(quality_metrics, dict) or not quality_metrics:
+                    raise RuntimeError(
+                        "MCP encrypted scoped export decrypted successfully but did not materialize financial analytics."
+                    )
 
     def _request(
         self,
@@ -1407,6 +1583,42 @@ class UatKaiSmoke:
         self.log("Connection-led Kai portfolio access bundle expansion passed.")
         self.log("Connection portfolio UAT smoke passed.")
 
+    def run_mcp_transport(self) -> None:
+        if not self.developer_token:
+            self.authenticate()
+        tool_names, resource_uris = asyncio.run(self._run_remote_mcp_transport_async())
+        required_tools = {
+            "discover_user_domains",
+            "request_consent",
+            "check_consent_status",
+            "get_encrypted_scoped_export",
+            "validate_token",
+            "list_scopes",
+        }
+        missing_tools = sorted(required_tools - tool_names)
+        if missing_tools:
+            raise RuntimeError(f"Remote MCP missing expected tools: {missing_tools}")
+        expected_resources = {
+            "hushh://info/server",
+            "hushh://info/protocol",
+            "hushh://info/connector",
+        }
+        missing_resources = sorted(expected_resources - resource_uris)
+        if missing_resources:
+            raise RuntimeError(f"Remote MCP missing expected resources: {missing_resources}")
+        self.log(
+            "Remote MCP transport passed with tools="
+            f"{sorted(tool_names)} resources={sorted(resource_uris)}."
+        )
+
+    def run_mcp_consent(self) -> None:
+        self.authenticate()
+        self.derive_vault_key()
+        scope = "attr.financial.analytics.quality_metrics"
+        self.reset_smoke_scope_state(scope=scope)
+        asyncio.run(self._run_remote_mcp_consent_async(scope=scope))
+        self.log("Remote MCP consent/export flow passed.")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Kai UAT regression smoke.")
@@ -1416,7 +1628,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     parser.add_argument(
         "--scenario",
-        choices=["full", "connection_portfolio"],
+        choices=["full", "connection_portfolio", "mcp_transport", "mcp_consent"],
         default="full",
     )
     return parser.parse_args()
@@ -1432,6 +1644,10 @@ def main() -> int:
     )
     if args.scenario == "connection_portfolio":
         runner.run_connection_portfolio()
+    elif args.scenario == "mcp_transport":
+        runner.run_mcp_transport()
+    elif args.scenario == "mcp_consent":
+        runner.run_mcp_consent()
     else:
         runner.run()
     return 0

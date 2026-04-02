@@ -18,6 +18,9 @@
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
     "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18.18"
   }
