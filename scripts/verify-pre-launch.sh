@@ -62,42 +62,49 @@ cd "$REPO_ROOT"
 echo ""
 
 # 6. Native Parity Verification
-echo "▶ [6/12] Native Parity Verification..."
+echo "▶ [6/13] Tri-Flow Parity Verification..."
+cd hushh-webapp
+npm run verify:tri-flow || { FAIL=1; echo "❌ Tri-flow parity verification failed"; }
+cd "$REPO_ROOT"
+echo ""
+
+# 7. Native Parity Verification
+echo "▶ [7/13] Native Parity Verification..."
 cd hushh-webapp
 npm run verify:parity || { FAIL=1; echo "❌ Native parity verification failed"; }
 cd "$REPO_ROOT"
 echo ""
 
-# 7. Capacitor Route Verification
-echo "▶ [7/12] Capacitor Route Verification..."
+# 8. Capacitor Route Verification
+echo "▶ [8/13] Capacitor Route Verification..."
 cd hushh-webapp
 npm run verify:capacitor:routes || { FAIL=1; echo "❌ Capacitor route verification failed"; }
 cd "$REPO_ROOT"
 echo ""
 
-# 8. Cache Coherence Verification
-echo "▶ [8/12] Cache Coherence Verification..."
+# 9. Cache Coherence Verification
+echo "▶ [9/13] Cache Coherence Verification..."
 cd hushh-webapp
 npm run verify:cache || { FAIL=1; echo "❌ Cache coherence verification failed"; }
 cd "$REPO_ROOT"
 echo ""
 
-# 9. Browser API Native Compatibility Verification
-echo "▶ [9/12] Browser API Native Compatibility Verification..."
+# 10. Browser API Native Compatibility Verification
+echo "▶ [10/13] Browser API Native Compatibility Verification..."
 cd hushh-webapp
 npm run verify:native:browser-compat || { FAIL=1; echo "❌ Browser API native compatibility verification failed"; }
 cd "$REPO_ROOT"
 echo ""
 
-# 10. Docs Runtime Parity Verification
-echo "▶ [10/12] Docs Runtime Parity Verification..."
+# 11. Docs Runtime Parity Verification
+echo "▶ [11/13] Docs Runtime Parity Verification..."
 cd hushh-webapp
 npm run verify:docs || { FAIL=1; echo "❌ Docs/runtime parity verification failed"; }
 cd "$REPO_ROOT"
 echo ""
 
-# 11. Env/Secrets/Deploy parity (strict blocking)
-echo "▶ [11/12] Env/Secrets/Deploy Parity..."
+# 12. Env/Secrets/Deploy parity (strict blocking)
+echo "▶ [12/13] Env/Secrets/Deploy Parity..."
 if command -v gcloud >/dev/null 2>&1; then
   python3 scripts/ops/verify-env-secrets-parity.py \
     --project "${GCP_PROJECT_ID:-hushh-pda}" \
@@ -114,8 +121,8 @@ else
 fi
 echo ""
 
-# 12. Git Status (strict blocking)
-echo "▶ [12/12] Git Status (Strict)..."
+# 13. Git Status (strict blocking)
+echo "▶ [13/13] Git Status (Strict)..."
 MODIFIED=$(git status --porcelain | grep "^ M" | wc -l | tr -d ' ')
 UNTRACKED=$(git status --porcelain | grep "^??" | wc -l | tr -d ' ')
 STAGED=$(git status --porcelain | grep "^[AMDRC]" | wc -l | tr -d ' ')

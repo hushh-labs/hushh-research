@@ -189,6 +189,130 @@ def test_marketplace_schema_not_ready_returns_503(monkeypatch):
     assert payload["code"] == "IAM_SCHEMA_NOT_READY"
 
 
+def test_ria_picks_returns_only_active_package(monkeypatch):
+    async def _mock_get(self, user_id: str):
+        assert user_id == "user_test_123"
+        return {
+            "package": {
+                "top_picks": [{"ticker": "NVDA", "tier": "ACE"}],
+                "avoid_rows": [],
+                "screening_sections": [
+                    {"section": "investable_requirements", "rows": []},
+                    {"section": "automatic_avoid_triggers", "rows": []},
+                    {"section": "the_math", "rows": []},
+                ],
+                "package_note": None,
+            },
+            "metadata": {
+                "has_package": True,
+                "storage_source": "legacy",
+                "package_revision": 0,
+                "top_pick_count": 1,
+                "avoid_count": 0,
+                "screening_row_count": 0,
+                "active_share_count": 1,
+            },
+        }
+
+    monkeypatch.setattr(RIAIAMService, "get_active_ria_pick_package", _mock_get)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/ria/picks")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert list(payload.keys()) == ["package", "metadata"]
+    assert payload["package"]["top_picks"][0]["ticker"] == "NVDA"
+    assert payload["metadata"]["storage_source"] == "legacy"
+
+
+def test_ria_picks_post_syncs_share_artifacts(monkeypatch):
+    async def _mock_sync(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs["source_data_version"] == 7
+        return {
+            "status": "synced",
+            "share_artifacts_updated": 2,
+            "retired_legacy": True,
+            "package": {
+                "top_picks": [{"ticker": "NVDA", "tier": "ACE"}],
+                "avoid_rows": [],
+                "screening_sections": [],
+                "package_note": None,
+            },
+        }
+
+    monkeypatch.setattr(RIAIAMService, "sync_ria_pick_share_artifacts", _mock_sync)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/picks",
+        json={
+            "top_picks": [{"ticker": "NVDA", "tier": "ACE"}],
+            "avoid_rows": [],
+            "screening_sections": [],
+            "source_data_version": 7,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "synced"
+
+
+def test_ria_picks_parse_requires_csv(monkeypatch):
+    async def _mock_parse(self, **kwargs):  # noqa: ANN003
+        raise AssertionError("parse_ria_pick_csv should not be called when csv_content is missing")
+
+    monkeypatch.setattr(RIAIAMService, "parse_ria_pick_csv", _mock_parse)
+
+    client = TestClient(_build_app())
+    response = client.post("/api/ria/picks/parse", json={})
+
+    assert response.status_code == 422
+
+
+def test_ria_client_picks_share_toggle(monkeypatch):
+    async def _mock_toggle(self, user_id: str, *, investor_user_id: str, enabled: bool):
+        assert user_id == "user_test_123"
+        assert investor_user_id == "investor_1"
+        assert enabled is False
+        return {"enabled": False, "status": "revoked", "grant_key": "ria_active_picks_feed_v1"}
+
+    monkeypatch.setattr(RIAIAMService, "set_ria_pick_share_state", _mock_toggle)
+
+    client = TestClient(_build_app())
+    response = client.post("/api/ria/clients/investor_1/picks-share", json={"enabled": False})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "revoked"
+
+
+def test_ria_home_omits_pick_history_fields(monkeypatch):
+    async def _mock_home(self, user_id: str):
+        assert user_id == "user_test_123"
+        return {
+            "onboarding": {"exists": True, "verification_status": "verified"},
+            "verification_status": "verified",
+            "primary_action": {
+                "label": "Open clients",
+                "href": "/ria/clients",
+                "description": "Relationships and requests are ready to manage.",
+            },
+            "counts": {"active_clients": 1, "needs_attention": 0, "invites": 0},
+            "needs_attention": [],
+            "active_picks": {"status": "ready", "active_rows": 12},
+        }
+
+    monkeypatch.setattr(RIAIAMService, "get_ria_home", _mock_home)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/ria/home")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_picks"] == {"status": "ready", "active_rows": 12}
+
+
 def test_ria_invites_create(monkeypatch):
     async def _mock_create(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"

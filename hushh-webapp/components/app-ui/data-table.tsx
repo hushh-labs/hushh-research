@@ -87,6 +87,8 @@ interface DataTableProps<TData, TValue> {
   enableSearch?: boolean;
   tableContainerClassName?: string;
   tableClassName?: string;
+  density?: "default" | "compact";
+  stickyHeader?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -105,6 +107,8 @@ export function DataTable<TData, TValue>({
   enableSearch = true,
   tableContainerClassName,
   tableClassName,
+  density = "default",
+  stickyHeader = false,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -228,6 +232,7 @@ export function DataTable<TData, TValue>({
     [hasMultiplePages, table]
   );
 
+  const compact = density === "compact";
   return (
     <div
       className="space-y-[var(--data-table-controls-gap)]"
@@ -288,14 +293,16 @@ export function DataTable<TData, TValue>({
       {/* Table */}
       <div className={cn("overflow-x-auto overflow-y-hidden rounded border", tableContainerClassName)}>
         <Table className={tableClassName}>
-          <TableHeader>
+          <TableHeader className={stickyHeader ? "sticky top-0 z-10 bg-[var(--app-card-surface-default)]/96 backdrop-blur supports-[backdrop-filter]:bg-[var(--app-card-surface-default)]/88" : undefined}>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
                     className={cn(
-                      "px-[var(--data-table-cell-px)] py-[calc(var(--data-table-cell-py)-1px)]",
+                      compact
+                        ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground"
+                        : "px-[var(--data-table-cell-px)] py-[calc(var(--data-table-cell-py)-1px)]",
                       header.column.getCanSort() ? "cursor-pointer" : ""
                     )}
                     onClick={header.column.getToggleSortingHandler()}
@@ -332,7 +339,11 @@ export function DataTable<TData, TValue>({
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}
-                      className="px-[var(--data-table-cell-px)] py-[var(--data-table-cell-py)]"
+                      className={cn(
+                        compact
+                          ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2.5 align-top"
+                          : "px-[var(--data-table-cell-px)] py-[var(--data-table-cell-py)]"
+                      )}
                     >
                       {flexRender(
                         cell.column.columnDef.cell,

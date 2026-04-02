@@ -10,4 +10,5 @@ __tests__/services/pkm-upgrade-registry.test.ts
 __tests__/services/pkm-upgrade-orchestrator.test.ts
 __tests__/services/pkm-prepared-blob-store.test.ts
 __tests__/components/settings-ui.test.tsx
+__tests__/app/ria/picks-page.test.tsx
 __tests__/streaming/sse-parser.test.ts

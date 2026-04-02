@@ -41,6 +41,7 @@ from hushh_mcp.operons.kai.llm import (
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
+from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
 logger = logging.getLogger(__name__)
@@ -243,6 +244,128 @@ def _build_short_recommendation(
         suffix = f" Fallback used: {', '.join(sorted(set(degraded_agents)))}."
     text = f"{decision.upper()} ({confidence_pct}% confidence). {first_sentence}.{suffix}".strip()
     return text[:320]
+
+
+def _normalize_advisor_screening_criteria(
+    sections: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(sections, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        section_key = str(section.get("section") or "").strip()
+        rows = section.get("rows")
+        if not section_key or not isinstance(rows, list):
+            continue
+        normalized.append(
+            {
+                "section": section_key,
+                "rows": [
+                    {
+                        "title": str(row.get("title") or "").strip(),
+                        "detail": str(row.get("detail") or "").strip(),
+                        "value_text": str(row.get("value_text") or "").strip() or None,
+                    }
+                    for row in rows
+                    if isinstance(row, dict)
+                ],
+            }
+        )
+    return normalized
+
+
+def _recommendation_bias_from_advisor_tier(tier: str | None) -> str | None:
+    normalized = str(tier or "").strip().upper()
+    if normalized == "ACE":
+        return "STRONG_BUY"
+    if normalized == "KING":
+        return "BUY"
+    if normalized == "QUEEN":
+        return "HOLD_TO_BUY"
+    if normalized == "JACK":
+        return "HOLD"
+    return None
+
+
+async def _merge_ria_pick_package_context(
+    *,
+    user_id: str,
+    ticker: str,
+    pick_source: str | None,
+    renaissance_context: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_source = str(pick_source or "").strip()
+    if not normalized_source.startswith("ria:"):
+        return renaissance_context
+    try:
+        package = await RIAIAMService().get_pick_package_for_source(user_id, normalized_source)
+    except Exception as exc:
+        logger.warning(
+            "[Kai Stream] advisor pick package unavailable for %s source %s: %s",
+            user_id,
+            normalized_source,
+            exc,
+        )
+        return renaissance_context
+
+    normalized_ticker = str(ticker or "").strip().upper()
+    top_rows = package.get("top_picks") if isinstance(package, dict) else []
+    avoid_rows = package.get("avoid_rows") if isinstance(package, dict) else []
+    screening_sections = package.get("screening_sections") if isinstance(package, dict) else []
+    advisor_top_row = next(
+        (
+            row
+            for row in top_rows
+            if isinstance(row, dict)
+            and str(row.get("ticker") or "").strip().upper() == normalized_ticker
+        ),
+        None,
+    )
+    advisor_avoid_row = next(
+        (
+            row
+            for row in avoid_rows
+            if isinstance(row, dict)
+            and str(row.get("ticker") or "").strip().upper() == normalized_ticker
+        ),
+        None,
+    )
+    merged_context = dict(renaissance_context)
+    if advisor_top_row:
+        merged_context["tier"] = advisor_top_row.get("tier") or merged_context.get("tier")
+        merged_context["conviction_weight"] = (
+            advisor_top_row.get("conviction_weight")
+            if advisor_top_row.get("conviction_weight") is not None
+            else merged_context.get("conviction_weight")
+        )
+        merged_context["investment_thesis"] = advisor_top_row.get(
+            "investment_thesis"
+        ) or merged_context.get("investment_thesis")
+        merged_context["sector"] = advisor_top_row.get("sector") or merged_context.get("sector")
+        merged_context["recommendation_bias"] = (
+            advisor_top_row.get("recommendation_bias")
+            or _recommendation_bias_from_advisor_tier(advisor_top_row.get("tier"))
+            or merged_context.get("recommendation_bias")
+        )
+        merged_context["is_investable"] = True
+    if advisor_avoid_row:
+        merged_context["is_avoid"] = True
+        merged_context["avoid_reason"] = advisor_avoid_row.get(
+            "why_avoid"
+        ) or advisor_avoid_row.get("reason")
+    normalized_screening = _normalize_advisor_screening_criteria(screening_sections)
+    if normalized_screening:
+        merged_context["screening_criteria"] = normalized_screening
+    merged_context["advisor_pick_package"] = {
+        "source": normalized_source,
+        "top_picks_count": len(top_rows) if isinstance(top_rows, list) else 0,
+        "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
+        "screening_section_count": len(normalized_screening),
+        "package_note": package.get("package_note") if isinstance(package, dict) else None,
+    }
+    return merged_context
 
 
 def _extract_summary_count(summary: dict[str, Any] | None) -> int:
@@ -968,6 +1091,15 @@ async def analyze_stream_generator(
             wm_index = None
         else:
             wm_index = wm_result
+
+        request_pick_source = str(request_context.get("pick_source") or "").strip() or None
+        if request_pick_source:
+            renaissance_context = await _merge_ria_pick_package_context(
+                user_id=user_id,
+                ticker=ticker,
+                pick_source=request_pick_source,
+                renaissance_context=renaissance_context,
+            )
 
         full_user_context: Dict[str, Any] = {
             "risk_profile": risk_profile,

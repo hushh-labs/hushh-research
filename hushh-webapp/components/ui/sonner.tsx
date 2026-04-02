@@ -18,6 +18,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
+      position="top-center"
       duration={3600}
       expand={false}
       visibleToasts={2}
@@ -32,13 +33,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "max-w-[min(92vw,22rem)] rounded-[20px] border border-border/70 px-4 py-3 shadow-lg shadow-black/5",
-          title: "text-[13px] font-medium leading-5 tracking-[-0.01em]",
+            "mx-auto w-[min(92vw,22rem)] rounded-[20px] border border-border/70 px-4 py-3 text-center shadow-lg shadow-black/5 sm:text-left",
+          title: "text-[13px] font-medium leading-5 tracking-[-0.01em] text-center sm:text-left",
           description:
-            "line-clamp-2 text-[12px] leading-5 text-muted-foreground",
-          content: "gap-1.5",
+            "line-clamp-2 text-[12px] leading-5 text-muted-foreground text-center sm:text-left",
+          content: "flex-1 gap-1.5 text-center sm:text-left",
           closeButton:
-            "border-border/70 bg-background/90 text-muted-foreground hover:bg-muted hover:text-foreground",
+            "left-auto right-3 top-3 border-border/70 bg-background/90 text-muted-foreground hover:bg-muted hover:text-foreground",
         },
       }}
       style={
@@ -47,6 +48,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          "--offset": "1rem",
         } as CSSProperties
       }
       {...props}

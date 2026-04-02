@@ -7,7 +7,6 @@ ACE,MSFT,Microsoft Corp,Technology,74.1,"Cloud + AI dominance, recurring revenue
 ACE,GOOGL,Alphabet Inc,Technology,72,"Search monopoly, YouTube, Cloud growth"
 ACE,NVDA,NVIDIA Corp,Semiconductors,60.9,"AI chip monopoly, 125% FCF growth"
 ACE,META,Meta Platforms,Technology,54.1,"Social monopoly, AI investments"
-ACE,2222.SR,Saudi Aramco,Energy,85.3,Lowest cost producer globally
 ACE,AMZN,Amazon.com,Technology,36.8,AWS + e-commerce dominance
 ACE,BRK.B,Berkshire Hathaway,Financials,32,"Permanent capital, Buffett"
 ACE,XOM,Exxon Mobil,Energy,36.1,"Integrated oil major, discipline"
@@ -102,7 +101,6 @@ QUEEN,WDAY,Workday Inc,Software,1.8,HCM/Finance SaaS
 QUEEN,PANW,Palo Alto Networks,Software,2.5,Cybersecurity leader
 QUEEN,SNPS,Synopsys Inc,Software,1.8,EDA software leader
 QUEEN,CDNS,Cadence Design,Software,1.5,EDA software leader
-QUEEN,ANSS,ANSYS Inc,Software,0.8,Simulation software
 QUEEN,ADSK,Autodesk Inc,Software,1.5,CAD software leader
 QUEEN,MRVL,Marvell Technology,Semiconductors,1.2,Data center chips
 QUEEN,MU,Micron Technology,Semiconductors,3.5,Memory leader
@@ -145,7 +143,7 @@ JACK,GWW,W.W. Grainger,Industrials,1.5,MRO distribution
 JACK,WST,West Pharma Services,Healthcare,0.8,Drug delivery
 JACK,IDXX,IDEXX Laboratories,Healthcare,0.6,Veterinary diagnostics
 JACK,BIO,Bio-Rad Labs,Healthcare,0.4,Life sciences research
-JACK,PKI,PerkinElmer,Healthcare,0.5,Diagnostics/life sciences
+JACK,RVTY,Revvity Inc,Healthcare,0.5,Diagnostics/life sciences
 JACK,TYL,Tyler Technologies,Software,0.4,Government software
 JACK,PAYC,Paycom Software,Software,0.3,HCM software
 JACK,PAYX,Paychex Inc,Software,1.5,Payroll services
@@ -153,4 +151,3 @@ JACK,ADP,Automatic Data,Software,3.5,HR/payroll leader
 JACK,FI,Fiserv Inc,Fintech,4.5,Payment processing
 JACK,FIS,Fidelity National,Fintech,3.8,Banking technology
 JACK,GPN,Global Payments,Fintech,2.5,Payment processing
-

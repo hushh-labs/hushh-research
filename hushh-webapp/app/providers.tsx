@@ -314,16 +314,6 @@ export function Providers({ children }: ProvidersProps) {
                           </div>
                         </div>
                       </div>
-                      <Toaster
-                        position="top-center"
-                        closeButton
-                        offset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                        mobileOffset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                      />
                     </>
                   }
                 >
@@ -404,16 +394,6 @@ export function Providers({ children }: ProvidersProps) {
                           </div>
                         </div>
                       </div>
-                      <Toaster
-                        position="top-center"
-                        closeButton
-                        offset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                        mobileOffset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                      />
                     </ConsentSheetProvider>
                   </ConsentNotificationProvider>
                 </Suspense>
@@ -421,6 +401,16 @@ export function Providers({ children }: ProvidersProps) {
             </PersonaProvider>
           </CacheProvider>
         </AuthProvider>
+        <Toaster
+          position="top-center"
+          closeButton
+          offset={{
+            top: "calc(var(--top-inset, 0px) + 12px)",
+          }}
+          mobileOffset={{
+            top: "calc(var(--top-inset, 0px) + 12px)",
+          }}
+        />
       </StepProgressProvider>
     </ThemeProvider>
   );

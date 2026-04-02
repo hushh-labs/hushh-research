@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from hushh_mcp.services.consent_center_service import ConsentCenterService
@@ -452,7 +454,9 @@ async def test_list_investor_pick_sources_requires_active_relationship_share(mon
                     "ria_profile_id": "ria_profile_1",
                     "ria_user_id": "ria_user_1",
                     "label": "Advisor Alpha",
-                    "upload_id": "upload_1",
+                    "artifact_id": "artifact_1",
+                    "artifact_updated_at": "2026-04-02T12:34:56Z",
+                    "source_data_version": 7,
                     "share_status": "active",
                     "share_granted_at": "2026-03-24T00:00:00Z",
                     "share_metadata": {"share_origin": "relationship_implicit"},
@@ -478,7 +482,9 @@ async def test_list_investor_pick_sources_requires_active_relationship_share(mon
     assert len(items) == 1
     assert items[0]["id"] == "ria:ria_profile_1"
     assert items[0]["state"] == "ready"
-    assert items[0]["upload_id"] == "upload_1"
+    assert items[0]["artifact_id"] == "artifact_1"
+    assert items[0]["artifact_updated_at"] == "2026-04-02T12:34:56Z"
+    assert items[0]["source_data_version"] == 7
     assert items[0]["share_status"] == "active"
     assert items[0]["share_origin"] == "relationship_implicit"
 
@@ -512,6 +518,57 @@ async def test_get_pick_rows_for_source_returns_empty_without_active_relationshi
     rows = await service.get_pick_rows_for_source("investor_1", "ria:ria_profile_1")
 
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_get_pick_rows_for_source_prefers_active_share_artifact(monkeypatch):
+    class _FakeConn:
+        async def fetchrow(self, query: str, *_args):
+            if "relationship_share_grants share" in query and "SELECT 1" in query:
+                return {"exists": 1}
+            if "JOIN ria_pick_share_artifacts artifact" in query:
+                return {
+                    "artifact_projection": json.dumps(
+                        {
+                            "top_picks": [
+                                {
+                                    "ticker": "AAPL",
+                                    "company_name": "Apple Inc.",
+                                    "sector": "Technology",
+                                    "tier": "CORE",
+                                    "tier_rank": 1,
+                                    "sort_order": 1,
+                                    "conviction_weight": 1.0,
+                                    "investment_thesis": "Installed base moat",
+                                }
+                            ],
+                            "avoid_rows": [],
+                            "screening_sections": [],
+                            "package_note": "Smoke package",
+                        }
+                    )
+                }
+            raise AssertionError(f"Unexpected fetchrow query: {query}")
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_build_pick_package_projection", lambda package: package)
+
+    rows = await service.get_pick_rows_for_source("investor_1", "ria:ria_profile_1")
+
+    assert len(rows) == 1
+    assert rows[0]["ticker"] == "AAPL"
 
 
 @pytest.mark.asyncio

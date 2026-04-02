@@ -370,8 +370,8 @@ html body[data-scroll-locked] {
 /* Mobile: reduce card shadow spread — device edge is the frame */
 @media (max-width: 639px) {
   :root {
-    --app-card-shadow-standard: 0 1px 3px 0 rgba(120, 120, 128, 0.1);
-    --shadow-md: 0 4px 16px 0 rgba(120, 120, 128, 0.12);
+    --app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);
+    --shadow-md: 0 8px 22px 0 rgba(120, 120, 128, 0.16);
   }
   .dark {
     --app-card-shadow-standard: 0 1px 3px 0 rgba(0, 0, 0, 0.35);
@@ -678,6 +678,20 @@ html.native-ios {
   --app-card-border-strong: transparent;
   --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
   --app-card-shadow-feature: 0 11px 34px 0 rgba(0, 0, 0, 0.75);
+}
+
+@media (max-width: 639px) {
+  html.light,
+  .light {
+    --app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);
+    --shadow-md: 0 8px 22px 0 rgba(120, 120, 128, 0.16);
+  }
+
+  html.dark,
+  .dark {
+    --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
+    --shadow-md: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
+  }
 }
 
 /* Hero card specific glass effect - automatically switches between light/dark modes */
