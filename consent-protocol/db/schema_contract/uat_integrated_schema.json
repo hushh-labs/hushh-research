@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 40,
+  "expected_migration_version": 43,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -208,6 +208,36 @@
       "receiver_user_id",
       "metadata",
       "created_at"
+    ],
+    "ria_pick_uploads": [
+      "id",
+      "ria_profile_id",
+      "uploaded_by_user_id",
+      "label",
+      "status",
+      "row_count",
+      "template_version",
+      "activated_at",
+      "package_metadata",
+      "created_at",
+      "updated_at"
+    ],
+    "ria_pick_share_artifacts": [
+      "id",
+      "relationship_id",
+      "ria_profile_id",
+      "provider_user_id",
+      "receiver_user_id",
+      "grant_key",
+      "status",
+      "source_domain",
+      "source_path",
+      "source_data_version",
+      "source_manifest_revision",
+      "artifact_projection",
+      "artifact_metadata",
+      "created_at",
+      "updated_at"
     ]
   }
 }
