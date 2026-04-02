@@ -806,14 +806,29 @@ class UatKaiSmoke:
                 "MSFT,Microsoft Corp,Technology,core,Cloud and productivity compounding engine,2,0.9",
             ]
         )
+        parsed = self._request(
+            "POST",
+            "/api/ria/picks/parse",
+            headers={**self._firebase_auth_headers(), "Content-Type": "application/json"},
+            json_body={
+                "csv_content": csv_content,
+                "source_filename": "kai-smoke-picks.csv",
+                "package_note": "Kai UAT smoke picks",
+            },
+        ).json()
+        package = parsed.get("package") or {}
         response = self._request(
             "POST",
             "/api/ria/picks",
             headers={**self._firebase_auth_headers(), "Content-Type": "application/json"},
             json_body={
-                "csv_content": csv_content,
-                "source_filename": "kai-smoke-picks.csv",
                 "label": "Kai UAT smoke picks",
+                "package_note": "Kai UAT smoke picks",
+                "top_picks": package.get("top_picks") or [],
+                "avoid_rows": package.get("avoid_rows") or [],
+                "screening_sections": package.get("screening_sections") or [],
+                "source_data_version": package.get("source_data_version"),
+                "source_manifest_revision": package.get("source_manifest_revision"),
             },
         )
         return response.json()
@@ -1113,7 +1128,7 @@ class UatKaiSmoke:
             f"RIA profile ready with verification_status={ria_status.get('verification_status')}."
         )
         picks_upload = self.upload_ria_picks()
-        if not picks_upload.get("upload_id"):
+        if str(picks_upload.get("status") or "").lower() != "synced":
             raise RuntimeError(f"RIA pick upload failed: {picks_upload}")
         ria_request = self.request_ria_consent()
         if str(ria_request.get("status") or "").lower() != "requested":
@@ -1182,8 +1197,10 @@ class UatKaiSmoke:
         granted_scopes = [
             str(item.get("scope") or "") for item in (workspace.get("granted_scopes") or [])
         ]
-        if "attr.financial.*" not in granted_scopes:
-            raise RuntimeError(f"Expected attr.financial.* grant in workspace payload: {workspace}")
+        if "attr.financial.*" not in granted_scopes and "pkm.read" not in granted_scopes:
+            raise RuntimeError(
+                f"Expected attr.financial.* or pkm.read grant in workspace payload: {workspace}"
+            )
         self.log("Connection-led Kai portfolio overview workspace path passed.")
 
         full_portfolio_bundle = self.request_ria_consent_bundle(
@@ -1276,7 +1293,7 @@ class UatKaiSmoke:
             f"RIA profile ready with verification_status={ria_status.get('verification_status')}."
         )
         picks_upload = self.upload_ria_picks()
-        if not picks_upload.get("upload_id"):
+        if str(picks_upload.get("status") or "").lower() != "synced":
             raise RuntimeError(f"RIA pick upload failed: {picks_upload}")
 
         ria_request = self.request_ria_consent()
@@ -1333,9 +1350,10 @@ class UatKaiSmoke:
             str(item.get("scope") or "")
             for item in (overview_workspace.get("granted_scopes") or [])
         ]
-        if "attr.financial.*" not in overview_scopes:
+        if "attr.financial.*" not in overview_scopes and "pkm.read" not in overview_scopes:
             raise RuntimeError(
-                f"Expected attr.financial.* to be granted in the workspace payload: {overview_workspace}"
+                "Expected attr.financial.* or pkm.read in the workspace payload: "
+                f"{overview_workspace}"
             )
         self.log("Connection approval -> Kai portfolio overview workspace path passed.")
 

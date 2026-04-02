@@ -5,25 +5,32 @@ import pytest
 from api.routes.kai import market_insights
 
 
-def test_pick_source_roster_signature_tracks_source_identity_and_upload():
+def test_pick_source_roster_signature_tracks_source_identity_and_artifact_freshness():
     signature = market_insights._pick_source_roster_signature(
         [
             {
                 "id": "ria:profile_1",
                 "state": "ready",
                 "share_status": "active",
-                "upload_id": "upload_1",
+                "artifact_id": "artifact_1",
+                "source_data_version": 7,
+                "artifact_updated_at": "2026-04-02T12:34:56Z",
             },
             {
                 "id": "ria:profile_2",
                 "state": "pending",
                 "share_status": "active",
                 "upload_id": None,
+                "source_data_version": None,
+                "artifact_updated_at": None,
             },
         ]
     )
 
-    assert signature == ("ria:profile_1:ready:active:upload_1|ria:profile_2:pending:active:")
+    assert signature == (
+        "ria:profile_1:ready:active:artifact_1:7:2026-04-02T12:34:56Z|"
+        "ria:profile_2:pending:active:::"
+    )
 
 
 def test_pick_row_value_supports_dict_and_object_rows():

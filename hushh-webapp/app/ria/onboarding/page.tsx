@@ -12,6 +12,7 @@ import {
   ShieldQuestion,
 } from "lucide-react";
 
+import { PopupTextEditorField } from "@/components/app-ui/command-fields";
 import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader, SurfaceInset } from "@/components/app-ui/surfaces";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Progress } from "@/components/ui/progress";
@@ -187,32 +188,6 @@ function TextField({
         onChange={(event) => onChange(event.target.value)}
         inputMode={inputMode}
         className="min-h-12 w-full rounded-[22px] border border-border/70 bg-background/90 px-4 text-sm outline-none transition-[border-color,box-shadow] focus:border-foreground/30 focus:shadow-[0_0_0_4px_rgba(15,23,42,0.06)]"
-        placeholder={placeholder}
-      />
-    </label>
-  );
-}
-
-function TextAreaField({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="space-y-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-        {label}
-      </span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-28 w-full resize-none rounded-[22px] border border-border/70 bg-background/90 px-4 py-3 text-sm leading-6 outline-none transition-[border-color,box-shadow] focus:border-foreground/30 focus:shadow-[0_0_0_4px_rgba(15,23,42,0.06)]"
         placeholder={placeholder}
       />
     </label>
@@ -623,12 +598,20 @@ export default function RiaOnboardingPage() {
               value={draft.headline}
               onChange={(value) => updateDraft({ headline: value })}
             />
-            <TextAreaField
-              label="Short strategy summary"
-              placeholder="Describe the style and specialization investors should understand in one calm, credible paragraph."
-              value={draft.strategySummary}
-              onChange={(value) => updateDraft({ strategySummary: value })}
-            />
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                Short strategy summary
+              </span>
+              <PopupTextEditorField
+                title="Short strategy summary"
+                description="Describe the style and specialization investors should understand in one calm, credible paragraph."
+                value={draft.strategySummary}
+                placeholder="Describe the style and specialization investors should understand in one calm, credible paragraph."
+                previewPlaceholder="Add the short strategy summary"
+                onSave={(value) => updateDraft({ strategySummary: value })}
+                triggerClassName="min-h-[112px] rounded-[22px]"
+              />
+            </label>
           </div>
         );
       case "review":

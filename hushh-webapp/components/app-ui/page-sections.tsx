@@ -64,7 +64,7 @@ function HeaderLeading({
   iconSize: "md" | "lg";
 }) {
   if (leading) {
-    return <div className="shrink-0 self-center">{leading}</div>;
+    return <div className="shrink-0 self-start">{leading}</div>;
   }
 
   if (!icon) {
@@ -72,7 +72,7 @@ function HeaderLeading({
   }
 
   return (
-    <div className={iconClassName}>
+    <div className={cn("self-stretch", iconClassName)}>
       <Icon icon={icon} size={iconSize} />
     </div>
   );
@@ -111,34 +111,49 @@ export function PageHeader({
             leading={leading}
             iconSize="lg"
             iconClassName={cn(
-              "flex w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] sm:w-12",
+              "flex w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] px-2 py-3 sm:w-12 sm:px-3",
               styles.icon
             )}
           />
         ) : null}
-        <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
-          {eyebrow ? (
-            <p
-              className={cn(
-                "text-xs font-semibold uppercase tracking-[0.24em]",
-                styles.eyebrow
-              )}
-            >
-              {eyebrow}
-            </p>
-          ) : null}
-          <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
-            {title}
-          </h1>
-          {description ? (
-            <div className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              {description}
+        <div className="min-w-0 flex-1">
+          <div
+            className="flex flex-col gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between"
+            data-slot="page-header-row"
+          >
+            <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
+              {eyebrow ? (
+                <p
+                  className={cn(
+                    "text-xs font-semibold uppercase tracking-[0.24em]",
+                    styles.eyebrow
+                  )}
+                >
+                  {eyebrow}
+                </p>
+              ) : null}
+              <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
+                {title}
+              </h1>
+              {description ? (
+                <div
+                  className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
+                  data-slot="page-header-description"
+                >
+                  {description}
+                </div>
+              ) : null}
             </div>
-          ) : null}
+            {actions ? (
+              <div
+                className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
+                data-slot="page-header-actions"
+              >
+                {actions}
+              </div>
+            ) : null}
+          </div>
         </div>
-        {actions ? (
-          <div className="flex shrink-0 items-center gap-2">{actions}</div>
-        ) : null}
       </div>
       <div className={cn("h-px w-full", styles.divider)} />
     </header>
@@ -174,27 +189,44 @@ export function SectionHeader({
             leading={leading}
             iconSize="md"
             iconClassName={cn(
-              "flex w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] sm:w-10",
+              "flex w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] px-2 py-2.5 sm:w-10 sm:px-2.5",
               styles.icon
             )}
           />
         ) : null}
-        <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
-          {eyebrow ? (
-            <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
-              {eyebrow}
-            </p>
-          ) : null}
-          <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
-            {title}
-          </h2>
-          {description ? (
-            <div className="text-sm leading-6 text-muted-foreground">{description}</div>
-          ) : null}
+        <div className="min-w-0 flex-1">
+          <div
+            className="flex flex-col gap-[var(--section-header-stack-gap)] sm:flex-row sm:items-center sm:justify-between"
+            data-slot="section-header-row"
+          >
+            <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
+              {eyebrow ? (
+                <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
+                  {eyebrow}
+                </p>
+              ) : null}
+              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+                {title}
+              </h2>
+              {description ? (
+                <div
+                  className="line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
+                  data-slot="section-header-description"
+                >
+                  {description}
+                </div>
+              ) : null}
+            </div>
+            {actions ? (
+              <div
+                className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
+                data-slot="section-header-actions"
+              >
+                {actions}
+              </div>
+            ) : null}
+          </div>
         </div>
-        {actions ? (
-          <div className="flex shrink-0 items-center gap-2">{actions}</div>
-        ) : null}
       </div>
       <div className={cn("h-px w-full", styles.divider)} />
     </div>

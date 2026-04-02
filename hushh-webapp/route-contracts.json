@@ -672,6 +672,11 @@
         "hushh-webapp/lib/kai/brokerage/plaid-link-loader.ts",
         "hushh-webapp/lib/kai/brokerage/plaid-portfolio-service.ts",
         "hushh-webapp/lib/services/vault-service.ts"
+      ],
+      "apiContractIds": [
+        "kaiProxy",
+        "vaultWebProxy",
+        "vaultOwnerToken"
       ]
     },
     {
