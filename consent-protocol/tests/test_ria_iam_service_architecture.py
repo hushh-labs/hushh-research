@@ -514,7 +514,6 @@ async def test_get_pick_rows_for_source_returns_empty_without_active_relationshi
 
     monkeypatch.setattr(service, "_conn", _fake_conn)
     monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
-    monkeypatch.setattr(service, "_build_pick_package_projection", lambda package: package)
 
     rows = await service.get_pick_rows_for_source("investor_1", "ria:ria_profile_1")
 
@@ -564,6 +563,7 @@ async def test_get_pick_rows_for_source_prefers_active_share_artifact(monkeypatc
 
     monkeypatch.setattr(service, "_conn", _fake_conn)
     monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_build_pick_package_projection", lambda package: package)
 
     rows = await service.get_pick_rows_for_source("investor_1", "ria:ria_profile_1")
 
