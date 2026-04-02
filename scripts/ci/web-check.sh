@@ -26,6 +26,7 @@ rm -rf node_modules
 npm ci
 
 npm run typecheck
+npm run verify:tri-flow
 npm run lint -- --max-warnings="${WEB_LINT_WARNING_BUDGET}"
 
 if [ "$CI_NATIVE_PARITY_REQUIRED" = "1" ]; then

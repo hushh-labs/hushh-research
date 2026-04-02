@@ -89,7 +89,7 @@ export const TOP_SHELL_ICON_BUTTON_CLASSNAME =
   "relative grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95";
 
 const TOP_SHELL_TITLE_PILL_CLASSNAME =
-  "group relative inline-flex min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 overflow-hidden rounded-full border-0 bg-card/70 px-2.5 py-1.5 text-[14px] font-semibold tracking-tight text-foreground shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)] transition-colors hover:bg-card/90 sm:gap-2 sm:px-4 sm:text-base";
+  "group relative inline-flex min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 overflow-hidden rounded-full border-0 bg-card/78 px-3 py-1.5 text-[14px] font-semibold tracking-tight text-foreground shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)] transition-colors hover:bg-card/92 sm:gap-2 sm:px-4 sm:text-base";
 
 /* ── Stubs (kept for import stability) ─────────────────────────────── */
 export function TopBarBackground() { return null; }
@@ -301,12 +301,12 @@ export function TopAppBar({ className }: TopAppBarProps) {
                             className={TOP_SHELL_TITLE_PILL_CLASSNAME}
                             aria-label="Switch role"
                           >
-                            <span className="relative z-10 inline-flex min-w-0 max-w-full items-center gap-2">
+                            <span className="relative z-10 inline-flex min-w-0 max-w-full items-center gap-1.5 sm:gap-2">
                               <Icon
                                 icon={switchingPersona ? Loader2 : centerTitle.icon!}
                                 size="sm"
                                 className={cn(
-                                  "hidden shrink-0 text-current sm:inline-flex",
+                                  "shrink-0 text-current",
                                   switchingPersona ? "animate-spin" : ""
                                 )}
                               />
@@ -318,7 +318,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               {!switchingPersona && (
                                 <span
                                   className={cn(
-                                    "hidden h-1.5 w-1.5 shrink-0 rounded-full sm:inline-block",
+                                    "h-1.5 w-1.5 shrink-0 rounded-full",
                                     activePersona === "ria"
                                       ? "bg-amber-500"
                                       : "bg-emerald-500"
@@ -326,7 +326,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                   aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
                                 />
                               )}
-                              <ChevronDown className="hidden h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current sm:inline-block" />
+                              <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
                             </span>
                             <MaterialRipple variant="none" effect="fade" className="z-0" />
                           </button>

@@ -29,6 +29,12 @@ else
   echo "⚠ WARNING: verify-route-contracts.cjs not found, skipping"
 fi
 
+if [ -f scripts/verify-tri-flow-parity.cjs ]; then
+  npm run verify:tri-flow
+else
+  echo "⚠ WARNING: verify-tri-flow-parity.cjs not found, skipping"
+fi
+
 if [ "$CI_NATIVE_PARITY_REQUIRED" = "1" ]; then
   if [ -f scripts/verify-native-parity.cjs ]; then
     npm run verify:parity

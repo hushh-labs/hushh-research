@@ -1,6 +1,8 @@
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
 export type Persona = "investor" | "ria";
 
@@ -244,9 +246,7 @@ export interface RiaHomeResponse {
   }>;
   active_picks: {
     status: string;
-    active_upload_label?: string | null;
     active_rows: number;
-    history_count: number;
   };
 }
 
@@ -309,12 +309,13 @@ export interface RiaInviteRecord {
   delivery_message_id?: string | null;
 }
 
-export interface RiaPickUploadRecord {
+export interface RiaPickPackageRecord {
   upload_id: string;
   label: string;
   status: string;
   source_filename?: string | null;
   row_count: number;
+  package_note?: string | null;
   activated_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -330,6 +331,52 @@ export interface RiaPickRow {
   recommendation_bias?: string | null;
   investment_thesis?: string | null;
   fcf_billions?: number | null;
+}
+
+export interface RiaAvoidRow {
+  ticker: string;
+  company_name?: string | null;
+  sector?: string | null;
+  category?: string | null;
+  why_avoid?: string | null;
+  note?: string | null;
+}
+
+export interface RiaScreeningRow {
+  section?: string | null;
+  rule_index?: number | null;
+  title: string;
+  detail: string;
+  value_text?: string | null;
+}
+
+export interface RiaScreeningSection {
+  section: string;
+  rows: RiaScreeningRow[];
+}
+
+export interface RiaPickPackage {
+  top_picks: RiaPickRow[];
+  avoid_rows: RiaAvoidRow[];
+  screening_sections: RiaScreeningSection[];
+  package_note?: string | null;
+}
+
+export interface RiaPicksRevisionMetadata {
+  has_package: boolean;
+  storage_source: "pkm" | "legacy" | "empty";
+  package_revision: number;
+  top_pick_count: number;
+  avoid_count: number;
+  screening_row_count: number;
+  last_updated?: string | null;
+  active_share_count: number;
+  path?: string | null;
+}
+
+export interface RiaPicksResponse {
+  package: RiaPickPackage;
+  metadata?: RiaPicksRevisionMetadata;
 }
 
 export interface RiaInviteResolution {
@@ -366,6 +413,174 @@ interface ErrorPayload {
   error?: string;
   code?: string;
   hint?: string;
+}
+
+const RIA_PICKS_DOMAIN = "ria";
+const RIA_PICKS_PATH = "advisor_package";
+const RIA_PICKS_DOMAIN_SCHEMA_VERSION = 1;
+
+function emptyRiaPickPackage(): RiaPickPackage {
+  return {
+    top_picks: [],
+    avoid_rows: [],
+    screening_sections: [
+      { section: "investable_requirements", rows: [] },
+      { section: "automatic_avoid_triggers", rows: [] },
+      { section: "the_math", rows: [] },
+    ],
+    package_note: null,
+  };
+}
+
+function countScreeningRows(sections: RiaScreeningSection[] | null | undefined): number {
+  if (!Array.isArray(sections)) return 0;
+  return sections.reduce((total, section) => {
+    if (!section || !Array.isArray(section.rows)) return total;
+    return total + section.rows.length;
+  }, 0);
+}
+
+function normalizePickPackage(input: Partial<RiaPickPackage> | null | undefined): RiaPickPackage {
+  const empty = emptyRiaPickPackage();
+  const packageValue = input && typeof input === "object" ? input : {};
+  const screeningSections = Array.isArray(packageValue.screening_sections)
+    ? packageValue.screening_sections
+        .filter((section): section is RiaScreeningSection => Boolean(section) && typeof section === "object")
+        .map((section) => ({
+          section: String(section.section || "").trim(),
+          rows: Array.isArray(section.rows)
+            ? section.rows
+                .filter((row): row is RiaScreeningRow => Boolean(row) && typeof row === "object")
+                .map((row) => ({
+                  section: String(row.section || section.section || "").trim() || undefined,
+                  rule_index:
+                    typeof row.rule_index === "number" && Number.isFinite(row.rule_index)
+                      ? row.rule_index
+                      : undefined,
+                  title: String(row.title || "").trim(),
+                  detail: String(row.detail || "").trim(),
+                  value_text: String(row.value_text || "").trim() || null,
+                }))
+            : [],
+        }))
+    : empty.screening_sections;
+
+  return {
+    top_picks: Array.isArray(packageValue.top_picks)
+      ? packageValue.top_picks
+          .filter((row): row is RiaPickRow => Boolean(row) && typeof row === "object")
+          .map((row) => ({
+            ticker: String(row.ticker || "").trim().toUpperCase(),
+            company_name: String(row.company_name || "").trim() || null,
+            sector: String(row.sector || "").trim() || null,
+            tier: String(row.tier || "").trim().toUpperCase() || null,
+            tier_rank:
+              typeof row.tier_rank === "number" && Number.isFinite(row.tier_rank)
+                ? row.tier_rank
+                : null,
+            conviction_weight:
+              typeof row.conviction_weight === "number" && Number.isFinite(row.conviction_weight)
+                ? row.conviction_weight
+                : null,
+            recommendation_bias: String(row.recommendation_bias || "").trim() || null,
+            investment_thesis: String(row.investment_thesis || "").trim() || null,
+            fcf_billions:
+              typeof row.fcf_billions === "number" && Number.isFinite(row.fcf_billions)
+                ? row.fcf_billions
+                : null,
+          }))
+      : [],
+    avoid_rows: Array.isArray(packageValue.avoid_rows)
+      ? packageValue.avoid_rows
+          .filter((row): row is RiaAvoidRow => Boolean(row) && typeof row === "object")
+          .map((row) => ({
+            ticker: String(row.ticker || "").trim().toUpperCase(),
+            company_name: String(row.company_name || "").trim() || null,
+            sector: String(row.sector || "").trim() || null,
+            category: String(row.category || "").trim() || null,
+            why_avoid: String(row.why_avoid || "").trim() || null,
+            note: String(row.note || "").trim() || null,
+          }))
+      : [],
+    screening_sections:
+      screeningSections.length > 0 ? screeningSections : empty.screening_sections,
+    package_note: String(packageValue.package_note || "").trim() || null,
+  };
+}
+
+function buildRiaPickSummary(
+  pkg: RiaPickPackage,
+  metadata?: Partial<RiaPicksRevisionMetadata> | null
+): RiaPicksRevisionMetadata {
+  return {
+    has_package:
+      metadata?.has_package ??
+      Boolean(pkg.top_picks.length || pkg.avoid_rows.length || countScreeningRows(pkg.screening_sections)),
+    storage_source: metadata?.storage_source || "pkm",
+    package_revision: Number(metadata?.package_revision || 0),
+    top_pick_count:
+      typeof metadata?.top_pick_count === "number" ? metadata.top_pick_count : pkg.top_picks.length,
+    avoid_count:
+      typeof metadata?.avoid_count === "number" ? metadata.avoid_count : pkg.avoid_rows.length,
+    screening_row_count:
+      typeof metadata?.screening_row_count === "number"
+        ? metadata.screening_row_count
+        : countScreeningRows(pkg.screening_sections),
+    last_updated: metadata?.last_updated || null,
+    active_share_count: Number(metadata?.active_share_count || 0),
+    path: metadata?.path || RIA_PICKS_PATH,
+  };
+}
+
+function parseRiaPicksDomain(domainData: Record<string, unknown> | null | undefined): {
+  package: RiaPickPackage;
+  revision: number;
+  updatedAt: string | null;
+} | null {
+  if (!domainData || typeof domainData !== "object" || Array.isArray(domainData)) {
+    return null;
+  }
+  const raw = domainData[RIA_PICKS_PATH];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const payload = raw as Record<string, unknown>;
+  const packageValue = normalizePickPackage({
+    top_picks: Array.isArray(payload.top_picks) ? (payload.top_picks as RiaPickRow[]) : [],
+    avoid_rows: Array.isArray(payload.avoid_rows) ? (payload.avoid_rows as RiaAvoidRow[]) : [],
+    screening_sections: Array.isArray(payload.screening_sections)
+      ? (payload.screening_sections as RiaScreeningSection[])
+      : [],
+    package_note: typeof payload.package_note === "string" ? payload.package_note : null,
+  });
+  return {
+    package: packageValue,
+    revision: Number(payload.revision || 0),
+    updatedAt: typeof payload.updated_at === "string" ? payload.updated_at : null,
+  };
+}
+
+function buildRiaPicksDomainData(params: {
+  pkg: RiaPickPackage;
+  revision: number;
+  updatedAt: string;
+}): Record<string, unknown> {
+  return {
+    schema_version: RIA_PICKS_DOMAIN_SCHEMA_VERSION,
+    domain_intent: {
+      primary: RIA_PICKS_DOMAIN,
+      secondary: RIA_PICKS_PATH,
+      source: "ria_picks_editor",
+      contract_version: 1,
+      updated_at: params.updatedAt,
+    },
+    [RIA_PICKS_PATH]: {
+      ...normalizePickPackage(params.pkg),
+      revision: params.revision,
+      updated_at: params.updatedAt,
+    },
+    updated_at: params.updatedAt,
+  };
 }
 
 export class RiaApiError extends Error {
@@ -414,8 +629,34 @@ export function isIAMSchemaNotReadyError(error: unknown): error is RiaApiError {
 async function toJsonOrThrow<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as T & ErrorPayload;
   if (!response.ok) {
+    const detailMessage = (() => {
+      if (typeof payload.detail === "string" && payload.detail) {
+        return payload.detail;
+      }
+      if (Array.isArray(payload.detail)) {
+        const messages = payload.detail
+          .map((item) => {
+            if (typeof item === "string") return item.trim();
+            if (item && typeof item === "object") {
+              const message =
+                typeof (item as { msg?: unknown }).msg === "string"
+                  ? (item as { msg: string }).msg
+                  : null;
+              const loc = Array.isArray((item as { loc?: unknown }).loc)
+                ? (item as { loc: unknown[] }).loc.join(" > ")
+                : null;
+              if (message && loc) return `${loc}: ${message}`;
+              return message;
+            }
+            return null;
+          })
+          .filter((message): message is string => Boolean(message && message.trim()));
+        return messages[0] || null;
+      }
+      return null;
+    })();
     const message =
-      (typeof payload.detail === "string" && payload.detail) ||
+      detailMessage ||
       (typeof payload.error === "string" && payload.error) ||
       `Request failed: ${response.status}`;
     const code = typeof payload.code === "string" ? payload.code : undefined;
@@ -1145,43 +1386,240 @@ export class RiaService {
     return cacheKey ? this.writeCached(cacheKey, payload, CACHE_TTL.SHORT) : payload;
   }
 
-  static async listPicks(
-    idToken: string,
-    options?: CachedReadOptions
-  ): Promise<{
-    items: RiaPickUploadRecord[];
-    active_rows: RiaPickRow[];
-  }> {
-    const cacheKey = options?.userId ? CACHE_KEYS.RIA_PICKS(options.userId) : null;
-    if (cacheKey) {
-      const cached = this.readCached<{ items: RiaPickUploadRecord[]; active_rows: RiaPickRow[] }>(
-        cacheKey,
-        options?.force
-      );
-      if (cached) return cached;
-    }
-    const response = await authFetch("/api/ria/picks", {
+  static async listPicks(params: {
+    idToken: string;
+    userId: string;
+    vaultKey?: string | null;
+    vaultOwnerToken?: string | null;
+    force?: boolean;
+  }): Promise<RiaPicksResponse> {
+    const cacheKey = CACHE_KEYS.RIA_PICKS(params.userId);
+    const cached = this.readCached<RiaPicksResponse>(cacheKey, params.force);
+    if (cached) return cached;
+
+    const bootstrapResponse = await authFetch("/api/ria/picks", {
       method: "GET",
-      idToken,
+      idToken: params.idToken,
     });
-    const payload = await toJsonOrThrow<{ items: RiaPickUploadRecord[]; active_rows: RiaPickRow[] }>(response);
-    return cacheKey ? this.writeCached(cacheKey, payload, CACHE_TTL.SHORT) : payload;
+    const bootstrap = await toJsonOrThrow<RiaPicksResponse>(bootstrapResponse);
+    const bootstrapPackage = normalizePickPackage(bootstrap.package);
+    const bootstrapMetadata = buildRiaPickSummary(bootstrapPackage, bootstrap.metadata);
+
+    if (!params.vaultKey || !params.vaultOwnerToken) {
+      const lockedPayload: RiaPicksResponse = {
+        package:
+          bootstrapMetadata.storage_source === "legacy"
+            ? bootstrapPackage
+            : emptyRiaPickPackage(),
+        metadata: bootstrapMetadata,
+      };
+      return this.writeCached(cacheKey, lockedPayload, CACHE_TTL.SHORT);
+    }
+
+    try {
+      const domainData = await PersonalKnowledgeModelService.loadDomainData({
+        userId: params.userId,
+        domain: RIA_PICKS_DOMAIN,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      const parsed = parseRiaPicksDomain(
+        domainData && typeof domainData === "object" && !Array.isArray(domainData)
+          ? (domainData as Record<string, unknown>)
+          : null
+      );
+      if (parsed) {
+        const payload: RiaPicksResponse = {
+          package: parsed.package,
+          metadata: buildRiaPickSummary(parsed.package, {
+            ...bootstrapMetadata,
+            storage_source: "pkm",
+            package_revision: parsed.revision,
+            last_updated: parsed.updatedAt || bootstrapMetadata.last_updated,
+          }),
+        };
+        return this.writeCached(cacheKey, payload, CACHE_TTL.SHORT);
+      }
+    } catch {
+      // Fall through to bootstrap/legacy seed.
+    }
+
+    return this.writeCached(
+      cacheKey,
+      {
+        package: bootstrapPackage,
+        metadata: bootstrapMetadata,
+      },
+      CACHE_TTL.SHORT
+    );
   }
 
-  static async uploadPicks(
-    idToken: string,
-    payload: {
-      csv_content: string;
-      source_filename?: string;
-      label?: string;
+  static async savePickPackage(params: {
+    idToken: string;
+    userId: string;
+    vaultKey?: string | null;
+    vaultOwnerToken?: string | null;
+    label?: string;
+    package_note?: string;
+    top_picks?: RiaPickRow[];
+    avoid_rows?: RiaAvoidRow[];
+    screening_sections?: RiaScreeningSection[];
+  }): Promise<RiaPicksResponse> {
+    if (!params.vaultKey || !params.vaultOwnerToken) {
+      throw new Error("Unlock the vault before saving advisor picks.");
     }
-  ): Promise<RiaPickUploadRecord> {
-    const response = await authFetch("/api/ria/picks", {
-      method: "POST",
-      idToken,
-      body: payload,
+
+    const nextPackage = normalizePickPackage({
+      top_picks: params.top_picks || [],
+      avoid_rows: params.avoid_rows || [],
+      screening_sections: params.screening_sections || [],
+      package_note: params.package_note || null,
     });
-    return toJsonOrThrow(response);
+    const nextUpdatedAt = new Date().toISOString();
+    const currentDomain = await PersonalKnowledgeModelService.loadDomainData({
+      userId: params.userId,
+      domain: RIA_PICKS_DOMAIN,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch(() => null);
+    const currentParsed = parseRiaPicksDomain(
+      currentDomain && typeof currentDomain === "object" && !Array.isArray(currentDomain)
+        ? (currentDomain as Record<string, unknown>)
+        : null
+    );
+    const nextRevision = Math.max(1, Number(currentParsed?.revision || 0) + 1);
+    const result = await PkmWriteCoordinator.saveMergedDomain({
+      userId: params.userId,
+      domain: RIA_PICKS_DOMAIN,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      build: () => ({
+        domainData: buildRiaPicksDomainData({
+          pkg: nextPackage,
+          revision: nextRevision,
+          updatedAt: nextUpdatedAt,
+        }),
+        summary: {
+          domain_contract_version: 1,
+          package_revision: nextRevision,
+          top_pick_count: nextPackage.top_picks.length,
+          avoid_count: nextPackage.avoid_rows.length,
+          screening_row_count: countScreeningRows(nextPackage.screening_sections),
+          last_updated: nextUpdatedAt,
+        },
+      }),
+    });
+    if (!result.success) {
+      throw new Error(result.message || "Failed to store RIA picks package.");
+    }
+
+    const shareSyncResponse = await authFetch("/api/ria/picks", {
+      method: "POST",
+      idToken: params.idToken,
+      body: {
+        label: params.label,
+        package_note: nextPackage.package_note || undefined,
+        top_picks: nextPackage.top_picks,
+        avoid_rows: nextPackage.avoid_rows,
+        screening_sections: nextPackage.screening_sections,
+        source_data_version: result.dataVersion,
+        source_manifest_revision: undefined,
+        retire_legacy: true,
+      },
+    });
+    const synced = await toJsonOrThrow<RiaPicksResponse>(shareSyncResponse);
+    const payload: RiaPicksResponse = {
+      package: nextPackage,
+      metadata: buildRiaPickSummary(nextPackage, {
+        ...(synced.metadata || {}),
+        storage_source: "pkm",
+        package_revision: result.dataVersion || nextRevision,
+        last_updated: result.updatedAt || nextUpdatedAt,
+      }),
+    };
+    return this.writeCached(CACHE_KEYS.RIA_PICKS(params.userId), payload, CACHE_TTL.SHORT);
+  }
+
+  static async importPickCsv(params: {
+    idToken: string;
+    userId: string;
+    vaultKey?: string | null;
+    vaultOwnerToken?: string | null;
+    csv_content: string;
+    source_filename?: string;
+    label?: string;
+    package_note?: string;
+    avoid_rows?: RiaAvoidRow[];
+    screening_sections?: RiaScreeningSection[];
+  }): Promise<RiaPicksResponse> {
+    if (!params.csv_content.trim()) {
+      throw new Error("csv_content is required");
+    }
+
+    const parsedResponse = await authFetch("/api/ria/picks/parse", {
+      method: "POST",
+      idToken: params.idToken,
+      body: {
+        csv_content: params.csv_content,
+        source_filename: params.source_filename,
+        package_note: params.package_note || undefined,
+        avoid_rows: params.avoid_rows || [],
+        screening_sections: params.screening_sections || [],
+      },
+    });
+    const parsed = await toJsonOrThrow<RiaPicksResponse>(parsedResponse);
+    const parsedPackage = normalizePickPackage(parsed.package);
+    return this.savePickPackage({
+      idToken: params.idToken,
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      label: params.label,
+      package_note: parsedPackage.package_note || params.package_note,
+      top_picks: parsedPackage.top_picks,
+      avoid_rows: parsedPackage.avoid_rows,
+      screening_sections: parsedPackage.screening_sections,
+    });
+  }
+
+  static async uploadPicks(params: {
+    idToken: string;
+    userId: string;
+    vaultKey?: string | null;
+    vaultOwnerToken?: string | null;
+    csv_content?: string;
+    source_filename?: string;
+    label?: string;
+    package_note?: string;
+    top_picks?: RiaPickRow[];
+    avoid_rows?: RiaAvoidRow[];
+    screening_sections?: RiaScreeningSection[];
+  }): Promise<RiaPicksResponse> {
+    if (params.csv_content && params.csv_content.trim()) {
+      return this.importPickCsv({
+        idToken: params.idToken,
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+        csv_content: params.csv_content,
+        source_filename: params.source_filename,
+        label: params.label,
+        package_note: params.package_note,
+        avoid_rows: params.avoid_rows,
+        screening_sections: params.screening_sections,
+      });
+    }
+    return this.savePickPackage({
+      idToken: params.idToken,
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      label: params.label,
+      package_note: params.package_note,
+      top_picks: params.top_picks,
+      avoid_rows: params.avoid_rows,
+      screening_sections: params.screening_sections,
+    });
   }
 
   static async getRenaissanceUniverse(
