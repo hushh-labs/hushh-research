@@ -3944,15 +3944,14 @@ class RIAIAMService:
         else:
             prior_artifact_payload = None
         if prior_artifact_payload and isinstance(
-            prior_artifact_payload.get("artifact_projection"), dict
+            self._parse_metadata(prior_artifact_payload.get("artifact_projection")), dict
         ):
-            package_projection = self._build_pick_package_projection(
-                prior_artifact_payload["artifact_projection"]
+            artifact_projection = self._parse_metadata(
+                prior_artifact_payload.get("artifact_projection")
             )
-            artifact_metadata = (
-                prior_artifact_payload["artifact_metadata"]
-                if isinstance(prior_artifact_payload["artifact_metadata"], dict)
-                else {}
+            package_projection = self._build_pick_package_projection(artifact_projection)
+            artifact_metadata = self._parse_metadata(
+                prior_artifact_payload.get("artifact_metadata")
             )
             await self._upsert_pick_share_artifact(
                 conn,
@@ -4052,7 +4051,7 @@ class RIAIAMService:
         top_picks = [dict(row) for row in rows]
         return self._normalize_pick_package_response(
             top_picks,
-            upload["package_metadata"] if isinstance(upload["package_metadata"], dict) else {},
+            self._parse_metadata(upload.get("package_metadata")),
         )
 
     async def get_ria_pick_bootstrap(self, user_id: str) -> dict[str, Any]:
@@ -4438,6 +4437,8 @@ class RIAIAMService:
                   rp.user_id AS ria_user_id,
                   COALESCE(mp.display_name, rp.display_name) AS label,
                   artifact.id AS artifact_id,
+                  artifact.updated_at AS artifact_updated_at,
+                  artifact.source_data_version AS source_data_version,
                   picks_share.status AS share_status,
                   picks_share.granted_at AS share_granted_at,
                   picks_share.metadata AS share_metadata
@@ -4471,6 +4472,14 @@ class RIAIAMService:
                     "ria_user_id": row["ria_user_id"],
                     "ria_profile_id": str(row["ria_profile_id"]),
                     "artifact_id": str(row.get("artifact_id")) if row.get("artifact_id") else None,
+                    "artifact_updated_at": self._serialize_datetime_value(
+                        row.get("artifact_updated_at")
+                    ),
+                    "source_data_version": (
+                        int(row["source_data_version"])
+                        if row.get("source_data_version") is not None
+                        else None
+                    ),
                     "share_status": row["share_status"],
                     "share_origin": self._relationship_share_origin(row["share_metadata"]),
                     "share_granted_at": self._serialize_datetime_value(row["share_granted_at"]),
@@ -4522,19 +4531,22 @@ class RIAIAMService:
                 return self._empty_pick_package_response()
             artifact = await conn.fetchrow(
                 """
-                SELECT artifact_projection
-                FROM ria_pick_share_artifacts
-                WHERE relationship_id = (
-                  SELECT rel.id
-                  FROM advisor_investor_relationships rel
-                  WHERE rel.investor_user_id = $1
-                    AND rel.ria_profile_id = $2::uuid
-                    AND rel.status = 'approved'
-                  LIMIT 1
-                )
-                  AND grant_key = $3
-                  AND status = 'active'
-                ORDER BY updated_at DESC
+                SELECT artifact.artifact_projection
+                FROM advisor_investor_relationships rel
+                JOIN relationship_share_grants share
+                  ON share.relationship_id = rel.id
+                  AND share.grant_key = $3
+                  AND share.status = 'active'
+                JOIN ria_pick_share_artifacts artifact
+                  ON artifact.relationship_id = rel.id
+                  AND artifact.grant_key = $3
+                  AND artifact.status = 'active'
+                WHERE rel.investor_user_id = $1
+                  AND rel.ria_profile_id = $2::uuid
+                  AND rel.status = 'approved'
+                ORDER BY
+                  COALESCE(artifact.updated_at, share.granted_at, rel.updated_at, rel.created_at)
+                  DESC
                 LIMIT 1
                 """,
                 investor_user_id,
@@ -4543,10 +4555,11 @@ class RIAIAMService:
             )
             if artifact is not None:
                 artifact_payload = dict(artifact)
-                if isinstance(artifact_payload.get("artifact_projection"), dict):
-                    return self._build_pick_package_projection(
-                        artifact_payload["artifact_projection"]
-                    )
+                artifact_projection = self._parse_metadata(
+                    artifact_payload.get("artifact_projection")
+                )
+                if artifact_projection:
+                    return self._build_pick_package_projection(artifact_projection)
 
             legacy_package = await self._get_pick_package_for_source_legacy(
                 conn,

@@ -212,13 +212,18 @@ def _pick_source_roster_signature(ria_sources: list[dict[str, Any]]) -> str:
 
     parts: list[str] = []
     for item in ria_sources:
+        artifact_identity = (
+            str(item.get("artifact_id") or "").strip() or str(item.get("upload_id") or "").strip()
+        )
         parts.append(
             ":".join(
                 [
                     str(item.get("id") or "").strip(),
                     str(item.get("state") or "").strip(),
                     str(item.get("share_status") or "").strip(),
-                    str(item.get("upload_id") or "").strip(),
+                    artifact_identity,
+                    str(item.get("source_data_version") or "").strip(),
+                    str(item.get("artifact_updated_at") or "").strip(),
                 ]
             )
         )
