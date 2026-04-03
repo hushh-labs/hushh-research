@@ -348,10 +348,7 @@ class UatKaiSmoke:
                     raise RuntimeError("MCP consent flow did not return a consent token.")
 
                 validated = self._parse_mcp_json(
-                    await session.call_tool(
-                        "validate_token",
-                        {"token": consent_token, "expected_scope": scope},
-                    )
+                    await session.call_tool("validate_token", {"token": consent_token})
                 )
                 if not validated.get("valid"):
                     raise RuntimeError(f"MCP validate_token failed: {validated}")
@@ -1621,7 +1618,13 @@ class UatKaiSmoke:
         self.authenticate()
         self.derive_vault_key()
         scope = "attr.financial.analytics.quality_metrics"
-        self.reset_smoke_scope_state(scope=scope)
+        for reset_scope in (
+            scope,
+            "attr.financial.analytics.*",
+            "attr.financial.*",
+            "pkm.read",
+        ):
+            self.reset_smoke_scope_state(scope=reset_scope)
         asyncio.run(self._run_remote_mcp_consent_async(scope=scope))
         self.log("Remote MCP consent/export flow passed.")
 
