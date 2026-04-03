@@ -3,6 +3,7 @@
 import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import {
   sanitizePortfolioSharePayload,
   type PortfolioSharePayload,
@@ -154,6 +155,12 @@ function buildPerformanceChartData(performance: PortfolioSharePerformancePoint[]
 function EmptySnapshot() {
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
+      <NativeTestBeacon
+        routeId="/portfolio/shared"
+        marker="native-route-portfolio-shared"
+        authState="public"
+        dataState="empty-valid"
+      />
       <div className="mx-auto max-w-2xl space-y-4 rounded-3xl border border-slate-800 bg-slate-900/80 p-8 text-center">
         <h1 className="text-2xl font-semibold">This share link is not available</h1>
         <p className="text-sm text-slate-300">
@@ -171,6 +178,12 @@ function SnapshotView({ payload }: { payload: PortfolioSharePayload }) {
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:py-10">
+      <NativeTestBeacon
+        routeId="/portfolio/shared"
+        marker="native-route-portfolio-shared"
+        authState="public"
+        dataState="loaded"
+      />
       <div className="mx-auto max-w-3xl space-y-5">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/85 p-6 shadow-[0_20px_45px_rgba(2,6,23,0.6)]">
           <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Portfolio Snapshot</p>

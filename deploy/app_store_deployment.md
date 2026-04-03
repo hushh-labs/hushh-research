@@ -13,7 +13,7 @@
 ### iOS Configuration
 - [x] Bundle ID updated to `com.hushh.app` in capacitor.config.ts
 - [x] App name changed to "Hushh" in capacitor.config.ts and Info.plist
-- [x] Version updated to 1.0.0 in package.json
+- [x] Version updated to 1.0.0 in `hushh-webapp/package.json`
 - [x] App icons generated for all required iOS sizes
 - [x] Project synced with Capacitor
 
@@ -96,7 +96,7 @@ Recommended team path:
 1. Bootstrap local signing assets first:
    ```bash
    cd <repo-root>
-   npm run bootstrap
+   ./bin/hushh bootstrap
    ```
 2. Open Xcode after bootstrap so the active `.env.local.d/ios/` sidecar and installed profiles are already present.
 
@@ -264,7 +264,7 @@ In **Organizer** (opens automatically):
 #### Step 1: Bootstrap Local Signing State
 ```bash
 cd <repo-root>
-npm run bootstrap
+./bin/hushh bootstrap
 ```
 
 Android release signing now comes from the active runtime profile and generated sidecar under `hushh-webapp/.env.local.d/android/`. Do not create ad hoc `key.properties` files in the repo.
@@ -343,7 +343,7 @@ cd android
 
 ### Version Bump
 ```bash
-# Update version in package.json
+# Update version in hushh-webapp/package.json
 # Update versionCode and versionName in android/app/build.gradle
 # Update version and build in Xcode
 ```
@@ -351,7 +351,8 @@ cd android
 ### iOS Update
 ```bash
 cd <repo-root>/hushh-webapp
-npm run cap:ios:sync -- --profile prod-remote
+npm run cap:build
+npm run cap:sync:ios
 open ios/App/App.xcodeproj
 # Archive → Validate → Upload
 ```
@@ -359,7 +360,8 @@ open ios/App/App.xcodeproj
 ### Android Update
 ```bash
 cd <repo-root>/hushh-webapp
-npm run cap:android:sync -- --profile prod-remote
+npm run cap:build
+npm run cap:sync:android
 cd android
 ./gradlew bundleRelease
 # Upload AAB to Play Console
@@ -385,7 +387,7 @@ cd android
 
 ### Shared
 - **Capacitor Config**: `capacitor.config.ts`
-- **Package**: `package.json`
+- **Package**: `hushh-webapp/package.json`
 - **Assets**: `assets/` (source icons)
 
 ---

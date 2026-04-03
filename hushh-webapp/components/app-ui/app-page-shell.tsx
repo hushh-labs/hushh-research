@@ -2,6 +2,11 @@
 
 import type { ComponentPropsWithoutRef, ElementType } from "react";
 
+import {
+  NativeTestBeacon,
+  type NativeTestAuthState,
+  type NativeTestDataState,
+} from "@/components/app-ui/native-test-beacon";
 import { cn } from "@/lib/utils";
 
 export type AppPageShellWidth = "narrow" | "content" | "wide" | "profile";
@@ -18,6 +23,14 @@ type AppPageShellProps<T extends ElementType> = {
   as?: T;
   width?: AppPageShellWidth;
   density?: AppPageDensity;
+  nativeTest?: {
+    routeId: string;
+    marker: string;
+    authState: NativeTestAuthState;
+    dataState: NativeTestDataState;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  };
 } & Omit<ComponentPropsWithoutRef<T>, "as">;
 
 type AppPageRegionProps<T extends ElementType> = {
@@ -28,7 +41,9 @@ export function AppPageShell<T extends ElementType = "main">({
   as,
   width = "content",
   density = "compact",
+  nativeTest,
   className,
+  children,
   ...props
 }: AppPageShellProps<T>) {
   const Component = as ?? "main";
@@ -43,7 +58,10 @@ export function AppPageShell<T extends ElementType = "main">({
       data-app-density={density}
       data-top-content-anchor="true"
       {...props}
-    />
+    >
+      {nativeTest ? <NativeTestBeacon {...nativeTest} /> : null}
+      {children}
+    </Component>
   );
 }
 

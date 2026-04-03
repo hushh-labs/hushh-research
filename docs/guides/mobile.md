@@ -45,12 +45,13 @@ flowchart TB
 
 The Hushh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
 
-Program parity is enforced against the **entire visible route tree**, not only Kai core pages. The source of truth is:
+Program parity is enforced against the **entire visible route tree**, not only Kai core pages. The current source of truth is:
 
-- `hushh-webapp/route-contracts.json`
-- `hushh-webapp/mobile-parity-registry.json`
+- `hushh-webapp/lib/navigation/routes.ts`
+- `docs/reference/architecture/route-contracts.md`
+- `docs/reference/mobile/capacitor-parity-audit.md`
 
-Every visible page route must be classified as native-supported or explicitly exempt, and browser-sensitive behavior must either run through shared wrappers or be documented as an accepted exception.
+Every visible page route must be documented as either native-supported or explicitly web-only, and browser-sensitive behavior must either run through shared wrappers or be documented as an accepted exception.
 
 ### Dev mode (hot reload) vs plugin parity
 
@@ -60,10 +61,10 @@ Every visible page route must be classified as native-supported or explicitly ex
 
 Recommended commands:
 
-- Terminal A (repo root): `npm run backend`
+- Terminal A (repo root): `./bin/hushh backend`
 - Terminal B (repo root):
-  - Android: `npm run native:android -- --mode local --fresh`
-  - iOS: `npm run native:ios -- --mode local --fresh`
+  - Android: `./bin/hushh native android --mode local --fresh`
+  - iOS: `./bin/hushh native ios --mode local --fresh`
 
 Required env:
 
@@ -124,7 +125,7 @@ That release gate includes:
 Accepted parity exceptions currently documented in the registry:
 
 - None. Full parity requires the registry and runtime to stay exception-free for visible route behavior.
-- Registry-backed direct usage that remains intentional must still be documented in `mobile-parity-registry.json`, especially for route recovery/navigation mutation and IndexedDB-backed cache services.
+- Accepted direct browser-API usage that remains intentional must stay documented in this guide and the parity audit docs, especially for route recovery/navigation mutation and IndexedDB-backed cache services.
 
 ### Firebase artifact safety (no secret leak in git)
 
@@ -180,7 +181,7 @@ All 10 plugins exist on both platforms with matching methods:
 
 ## Route Coverage
 
-Visible page routes are governed through `pageContracts[]` in `hushh-webapp/route-contracts.json`. That coverage includes:
+Visible page routes are governed through `hushh-webapp/lib/navigation/routes.ts` together with the architecture/mobile parity docs. That coverage includes:
 
 - product routes (`/kai`, `/consents`, `/profile`, `/marketplace`, `/ria`)
 - `/developers`
@@ -190,8 +191,8 @@ Visible page routes are governed through `pageContracts[]` in `hushh-webapp/rout
 
 Do not add a visible route without:
 
-1. adding it to `pageContracts[]`
-2. classifying it in `mobile-parity-registry.json`
+1. adding it to `hushh-webapp/lib/navigation/routes.ts` when it is part of the app navigation contract
+2. updating `docs/reference/architecture/route-contracts.md` when route governance changes
 3. ensuring its route-facing browser APIs are wrapped or explicitly exempted
 
 ---

@@ -601,7 +601,25 @@ export default function PortfolioHealthPage() {
     ].join("\n");
 
   return (
-    <AppPageShell as="div" width="wide" className="pb-6 sm:pb-8">
+    <AppPageShell
+      as="div"
+      width="wide"
+      className="pb-6 sm:pb-8"
+      nativeTest={{
+        routeId: "/kai/optimize",
+        marker: "native-route-kai-optimize",
+        authState: user ? "authenticated" : "pending",
+        dataState: loading
+          ? "loading"
+          : error
+            ? "unavailable-valid"
+            : result
+              ? "loaded"
+              : "empty-valid",
+        errorCode: errorCode || null,
+        errorMessage: error,
+      }}
+    >
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="Kai Optimize"

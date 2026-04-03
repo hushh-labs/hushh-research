@@ -74,6 +74,16 @@ export function buildRiaWorkspaceRoute(clientId?: string | null) {
   return withQuery(ROUTES.RIA_WORKSPACE, { clientId });
 }
 
+export function buildKaiAnalysisPreviewRoute(entries?: {
+  ticker?: string | null;
+  pickSource?: string | null;
+}) {
+  return withQuery(ROUTES.KAI_ANALYSIS, {
+    ticker: entries?.ticker,
+    pick_source: entries?.pickSource,
+  });
+}
+
 export function isKaiOnboardingRoute(pathname: string): boolean {
   return (
     pathname === ROUTES.KAI_ONBOARDING ||

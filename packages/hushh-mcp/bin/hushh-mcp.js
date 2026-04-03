@@ -43,7 +43,7 @@ function printConfig() {
         mcpServers: {
           "hushh-consent": {
             command: "npx",
-            args: ["-y", "@hushh/mcp@beta"],
+            args: ["-y", "@hushh/mcp"],
             env: {
               CONSENT_API_URL: "https://<consent-api-origin>",
               HUSHH_DEVELOPER_TOKEN: "<developer-token>",
@@ -60,7 +60,7 @@ function printConfig() {
 function printCodexToml() {
   console.log('[mcp_servers.hushh_consent]');
   console.log('command = "npx"');
-  console.log('args = ["-y", "@hushh/mcp@beta"]');
+  console.log('args = ["-y", "@hushh/mcp"]');
   console.log("enabled = true");
   console.log('[mcp_servers.hushh_consent.env]');
   console.log('CONSENT_API_URL = "https://<consent-api-origin>"');

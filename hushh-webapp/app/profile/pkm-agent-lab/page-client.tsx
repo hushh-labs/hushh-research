@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PkmExplorerPanel } from "@/components/profile/pkm-explorer-panel";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
@@ -809,6 +810,12 @@ export default function PkmAgentLabPageClient() {
 
   return (
     <>
+      <NativeTestBeacon
+        routeId="/profile/pkm"
+        marker="native-route-profile-pkm"
+        authState={user ? "authenticated" : "pending"}
+        dataState={loading || bootstrapLoading || accessLoading ? "loading" : "loaded"}
+      />
       <PkmSettingsShell
         eyebrow="Profile / Privacy"
         title="Your data"

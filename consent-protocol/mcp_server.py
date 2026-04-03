@@ -13,7 +13,8 @@ Compliant with:
 - HushhMCP Protocol (consent tokens, TrustLinks, scoped access)
 
 Run with: python mcp_server.py
-Configure Claude Desktop: See docs/mcp-setup.md
+Public install/setup: See https://www.npmjs.com/package/@hushh/mcp
+Technical companion: See docs/mcp-setup.md
 
 Modular architecture:
 - mcp/config.py: Server configuration

@@ -113,15 +113,17 @@ References:
 ## Local Development
 
 ```bash
-npm install
-make local
+cd ..
+./bin/hushh bootstrap
+./bin/hushh web --mode uat
 ```
 
-Frontend-only against deployed backends:
+Package-local commands still exist when you are already inside `hushh-webapp/` and intentionally working at the package layer:
 
 ```bash
-make uat-web
-make prod-web
+cd hushh-webapp
+npm install
+npm run dev
 ```
 
 ## Verification Commands
@@ -131,9 +133,7 @@ cd hushh-webapp
 npm run typecheck
 npm test
 npm run build
-npm run verify:routes
-npm run verify:parity
-npm run verify:design-system
+npm run ios:test
 ```
 
 Backend tests (monorepo sibling):

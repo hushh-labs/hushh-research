@@ -58,6 +58,7 @@ import { resolveAppEnvironment } from "@/lib/app-env";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveGmailConnectionPresentation } from "@/lib/profile/mail-flow";
@@ -711,7 +712,7 @@ function ProfilePageContent() {
       if (!payload.configured || !payload.authorize_url) {
         throw new Error("Gmail OAuth is not configured for this environment.");
       }
-      window.location.assign(payload.authorize_url);
+      assignWindowLocation(payload.authorize_url);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start Gmail OAuth.";
       toast.error(message);
@@ -1017,9 +1018,16 @@ function ProfilePageContent() {
 
   return (
     <AppPageShell
+      data-testid="profile-primary"
       as="div"
       width="profile"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      nativeTest={{
+        routeId: "/profile",
+        marker: "native-route-profile",
+        authState: user ? "authenticated" : "pending",
+        dataState: authLoading ? "loading" : "loaded",
+      }}
     >
       <AppPageHeaderRegion>
         <header className="flex flex-col items-center gap-3 text-center" data-slot="page-header" data-page-primary="true">

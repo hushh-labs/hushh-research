@@ -7,6 +7,7 @@ import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { Card as MorphyCard, CardContent as MorphyCardContent } from "@/lib/morphy-ux/card";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 
 type SpotlightDecision = "BUY" | "HOLD" | "WATCH" | "REDUCE";
@@ -56,7 +57,7 @@ export function SpotlightCard(props: {
         onClick={() => {
           if (!primaryHref) return;
           if (isExternal) {
-            window.open(primaryHref, "_blank", "noopener,noreferrer");
+            openExternalUrl(primaryHref);
             return;
           }
           router.push(primaryHref);

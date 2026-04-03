@@ -342,6 +342,20 @@ function RiaWorkspacePageContent() {
         detail?.investor_headline ||
         "Consent-gated access stays grounded here: relationship state first, readable data second."
       }
+      nativeTest={{
+        routeId: "/ria/workspace",
+        marker: "native-route-ria-workspace",
+        authState: user ? "authenticated" : "pending",
+        dataState: loading
+          ? "loading"
+          : iamUnavailable
+            ? "unavailable-valid"
+            : workspace || detail
+              ? "loaded"
+              : "empty-valid",
+        errorCode: detailError ? "ria_workspace" : null,
+        errorMessage: detailError,
+      }}
       actions={
         <Button asChild variant="none" effect="fade">
           <Link href={ROUTES.RIA_CLIENTS}>Back to clients</Link>

@@ -63,6 +63,9 @@ const config: CapacitorConfig = {
       skipNativeAuth: false,
       providers: ["google.com"],
     },
+    FirebaseMessaging: {
+      presentationOptions: ["alert", "badge", "sound"],
+    },
     HushhVault: {
       backendUrl: NORMALIZED_BACKEND_URL,
     },

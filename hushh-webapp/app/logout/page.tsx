@@ -11,6 +11,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
+import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { auth } from "@/lib/firebase/config";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -109,6 +111,19 @@ export default function LogoutPage() {
     handleLogout();
   }, [router, completeStep]);
 
-  // Return null - progress bar shows at top
-  return null;
+  return (
+    <AppPageShell
+      as="div"
+      width="content"
+      className="flex min-h-72 items-center justify-center"
+      nativeTest={{
+        routeId: "/logout",
+        marker: "native-route-logout",
+        authState: "redirecting",
+        dataState: "redirect-valid",
+      }}
+    >
+      <HushhLoader variant="inline" label="Signing out..." />
+    </AppPageShell>
+  );
 }

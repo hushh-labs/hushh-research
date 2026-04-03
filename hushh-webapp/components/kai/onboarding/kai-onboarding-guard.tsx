@@ -22,6 +22,7 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
+import { useNativeTestConfig } from "@/lib/testing/native-test";
 
 const KAI_ONBOARDING_COMPLETION_SESSION_PREFIX = "kai_onboarding_complete";
 
@@ -45,6 +46,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const nativeTestConfig = useNativeTestConfig();
 
   const [checking, setChecking] = useState(true);
   const [guardError, setGuardError] = useState<string | null>(null);
@@ -54,6 +56,9 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
     let cancelled = false;
     const chromeState = getKaiChromeState(pathname);
     const onOnboardingRoute = chromeState.isOnboardingRoute;
+    const preserveOnboardingAuditRoute =
+      nativeTestConfig.enabled &&
+      nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING;
 
     async function run() {
       if (authLoading) return;
@@ -127,8 +132,10 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           }
 
           if (!onboardingIncomplete && onOnboardingRoute) {
-            router.replace(ROUTES.KAI_HOME);
-            return;
+            if (!preserveOnboardingAuditRoute) {
+              router.replace(ROUTES.KAI_HOME);
+              return;
+            }
           }
 
           setChecking(false);
@@ -161,8 +168,10 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
             return;
           }
           if (onboardingResolved && onOnboardingRoute) {
-            router.replace(ROUTES.KAI_HOME);
-            return;
+            if (!preserveOnboardingAuditRoute) {
+              router.replace(ROUTES.KAI_HOME);
+              return;
+            }
           }
           setChecking(false);
           return;
@@ -234,8 +243,10 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
         }
 
         if (!onboardingIncomplete && onOnboardingRoute) {
-          router.replace(ROUTES.KAI_HOME);
-          return;
+          if (!preserveOnboardingAuditRoute) {
+            router.replace(ROUTES.KAI_HOME);
+            return;
+          }
         }
       } catch (error) {
         console.warn("[KaiOnboardingGuard] Failed to check onboarding state:", error);
@@ -260,6 +271,8 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
     vaultKey,
     vaultOwnerToken,
     pathname,
+    nativeTestConfig.enabled,
+    nativeTestConfig.expectedRoute,
     router,
     retryNonce,
   ]);

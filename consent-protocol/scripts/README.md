@@ -5,7 +5,7 @@ This directory is maintainer-only. It is not part of the normal contributor boot
 If you are new to the repo, start at the monorepo root with:
 
 ```bash
-npm run bootstrap
+./bin/hushh bootstrap
 ```
 
 Use the scripts here only when you are working on backend verification, migrations, or operator maintenance.

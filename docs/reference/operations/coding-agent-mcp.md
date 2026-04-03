@@ -1,11 +1,11 @@
-# Coding-Agent MCP Setup
+# MCP Host Operations
 
 
 ## Visual Context
 
 Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-This guide covers the MCP servers we expect coding agents to have available when working in this repo.
+This guide covers the MCP servers we expect local engineering hosts and coding agents to have available when working in this repo.
 
 Use safe config patterns only:
 
@@ -27,14 +27,6 @@ Recommended usage:
 1. Add or inspect stock UI primitives before modifying `components/ui/*`.
 2. Use it for `Switch`, `Sheet`, `Drawer`, `Dialog`, `Badge`, and other shadcn components.
 3. Treat `components/ui/*` as registry-owned and overwrite-safe.
-
-Codex remote setup:
-
-```bash
-codex mcp add hushh_consent --url "https://<consent-api-origin>/mcp/?token=<developer-token>"
-```
-
-Because the current remote beta contract is query-token based, treat the resulting Codex config as machine-local secret material and never commit it.
 
 Codex stdio config:
 
@@ -86,11 +78,16 @@ Do not inline these values in committed config.
 Purpose:
 
 1. Access Hushh consent/data tools and internal self-documentation.
-2. Support agent-side exploration of scopes, developer API contracts, and consent flows.
+2. Verify the same dynamic scope discovery, consent, and encrypted scoped export contract shipped through `@hushh/mcp`.
 
-Primary setup guide:
+Public onboarding source:
+
+- npm package page: `https://www.npmjs.com/package/@hushh/mcp`
+
+Repo references:
 
 - `consent-protocol/docs/mcp-setup.md`
+- `consent-protocol/docs/reference/developer-api.md`
 
 Codex remote setup:
 
@@ -127,7 +124,7 @@ FRONTEND_URL = "http://localhost:3000"
 ## Where to configure MCP servers
 
 For Codex-style local configuration, use your machine-local Codex config file. Example locations vary by setup, but the common pattern is a user-local `config.toml`.
-`mcp.json` / `mcpServers` examples are for hosts such as Cursor or VS Code, not for Codex.
+`mcp.json` / `mcpServers` examples are for hosts such as Cursor, VS Code, or Claude Desktop, not for Codex.
 
 Rules:
 
@@ -155,9 +152,10 @@ Rules:
 npx -y @hushh/mcp --help
 ```
 
-2. Confirm the agent can discover Hushh tools/resources after attaching it.
-3. For remote UAT beta, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
-4. If the npm package is not published yet, use the repo-local fallback:
+2. Confirm the host can discover Hushh tools/resources after attaching it.
+3. For hosted UAT, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
+4. `@hushh/mcp` is the default stdio install surface.
+5. If you are working contributor-local instead, use the repo-local fallback:
 
 ```bash
 cd consent-protocol

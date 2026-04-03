@@ -31,14 +31,13 @@ import { AnalysisView } from "./views/analysis-view";
 import { useVault } from "@/lib/vault/vault-context";
 import { toast } from "sonner";
 import { ApiService } from "@/lib/services/api-service";
-import { getStockContext } from "@/lib/services/kai-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS } from "@/lib/services/kai-import-stream-config";
 import { fetchDemoPortfolioTemplateAsset } from "@/lib/services/demo-mode-template-service";
@@ -2995,45 +2994,19 @@ export function KaiFlow({
     void handlePreloadSchema();
   }, [resumePreloadAfterVault, vaultKey, effectiveVaultOwnerToken, handlePreloadSchema]);
 
-  // Handle analyze stock - starts streaming analysis
-  const handleAnalyzeStock = useCallback((symbol: string, options?: AnalysisLaunchOptions) => {
-    console.log("[KaiFlow] handleAnalyzeStock called with:", symbol);
-    console.log("[KaiFlow] vaultOwnerToken present:", !!effectiveVaultOwnerToken);
-    
+  // Route new analysis starts through the comparison preview first.
+  const handleAnalyzeStock = useCallback((symbol: string, _options?: AnalysisLaunchOptions) => {
     if (!symbol || !effectiveVaultOwnerToken) {
       toast.error("Please unlock your Vault first.");
       return;
     }
-    
-    // Get context for confirmation dialog
-    getStockContext(symbol, effectiveVaultOwnerToken)
-      .then((context) => {
-        console.log("[KaiFlow] Context received:", context?.ticker || "no ticker");
-        
-        // Store analysis params in Zustand store for the analysis page
-        const params = {
-          ticker: symbol.toUpperCase(),
-          userId,
-          riskProfile: context.user_risk_profile || "balanced",
-          userContext: context,
-          portfolioSource: options?.portfolioSource,
-          portfolioContext: options?.portfolioContext ?? null,
-        };
-        console.log("[KaiFlow] Params to store:", JSON.stringify(params));
-        
-        useKaiSession.getState().setAnalysisParams(params);
-        
-        // Navigate to analysis view (DebateStreamView will read from Zustand store)
-        console.log("[KaiFlow] Navigating to /kai/analysis");
-        router.push(ROUTES.KAI_ANALYSIS);
+    useKaiSession.getState().setAnalysisParams(null);
+    router.push(
+      buildKaiAnalysisPreviewRoute({
+        ticker: symbol.toUpperCase(),
       })
-      .catch((error) => {
-        console.error("[KaiFlow] Error getting context:", error);
-        toast.error("Could not start analysis", {
-          description: error instanceof Error ? error.message : "Please try again.",
-        });
-      });
-  }, [effectiveVaultOwnerToken, userId, router]);
+    );
+  }, [effectiveVaultOwnerToken, router]);
 
   // Handle back to dashboard from analysis
   const handleBackToDashboard = useCallback(() => {

@@ -141,7 +141,21 @@ export default function RiaClientsPage() {
 
   if (personaLoading) return null;
   if (riaCapability === "setup") {
-    return <RiaCompatibilityState title="Complete RIA onboarding" description="Finish onboarding to access the client roster." />;
+    return (
+      <>
+        <AppPageShell
+          as="main"
+          width="profile"
+          nativeTest={{
+            routeId: "/ria/clients",
+            marker: "native-route-ria-clients",
+            authState: user ? "authenticated" : "pending",
+            dataState: "unavailable-valid",
+          }}
+        />
+        <RiaCompatibilityState title="Complete RIA onboarding" description="Finish onboarding to access the client roster." />
+      </>
+    );
   }
 
   const financial = asRecord(asRecord(workspace?.domain_summaries).financial);
@@ -150,7 +164,21 @@ export default function RiaClientsPage() {
   const templates = detail?.requestable_scope_templates || [];
 
   return (
-    <AppPageShell as="main" width="profile" className="pb-28">
+    <AppPageShell
+      as="main"
+      width="profile"
+      className="pb-28"
+      nativeTest={{
+        routeId: "/ria/clients",
+        marker: "native-route-ria-clients",
+        authState: user ? "authenticated" : "pending",
+        dataState: clientsResource.loading
+          ? "loading"
+          : connectedClients.length > 0
+            ? "loaded"
+            : "empty-valid",
+      }}
+    >
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="Clients"

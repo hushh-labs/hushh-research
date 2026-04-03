@@ -1,0 +1,311 @@
+{
+  "generated_at": "2026-04-02",
+  "total_routes": 33,
+  "native_required_routes": 29,
+  "excluded_routes": 3,
+  "routes": [
+    {
+      "route": "/",
+      "classification": "native-required-functional",
+      "initialRoute": "/",
+      "expectedMarker": "native-route-home",
+      "expectedRoute": "/",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/login",
+      "classification": "native-required-functional",
+      "initialRoute": "/login",
+      "expectedMarker": "native-route-login",
+      "expectedRoute": "/login",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/logout",
+      "classification": "native-required-functional",
+      "initialRoute": "/logout",
+      "expectedMarker": "native-route-home",
+      "expectedRoute": "/",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/kai",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/analysis",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Fanalysis%3Fticker%3DAAPL",
+      "expectedMarker": "native-route-kai-analysis",
+      "expectedRoute": "/kai/analysis?ticker=AAPL",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/dashboard",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
+      "expectedMarker": "native-route-kai-portfolio",
+      "expectedRoute": "/kai/dashboard",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/dashboard/analysis",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
+      "expectedMarker": "native-route-kai-analysis",
+      "expectedRoute": "/kai/dashboard/analysis?ticker=AAPL",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/import",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Fimport",
+      "expectedMarker": "native-route-kai-import",
+      "expectedRoute": "/kai/import",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/investments",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Finvestments",
+      "expectedMarker": "native-route-kai-investments",
+      "expectedRoute": "/kai/investments",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/onboarding",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Fonboarding",
+      "expectedMarker": "native-route-kai-onboarding",
+      "expectedRoute": "/kai/onboarding",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/optimize",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Foptimize",
+      "expectedMarker": "native-route-kai-optimize",
+      "expectedRoute": "/kai/optimize",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/kai/plaid/oauth/return",
+      "classification": "native-required-callback",
+      "initialRoute": "/login?redirect=%2Fkai%2Fplaid%2Foauth%2Freturn",
+      "expectedMarker": "native-route-kai-plaid-return",
+      "expectedRoute": "/kai/plaid/oauth/return",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["redirect-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/kai/portfolio",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",
+      "expectedMarker": "native-route-kai-portfolio",
+      "expectedRoute": "/kai/portfolio",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/portfolio/shared",
+      "classification": "native-required-functional",
+      "initialRoute": "/portfolio/shared",
+      "expectedMarker": "native-route-portfolio-shared",
+      "expectedRoute": "/portfolio/shared",
+      "autoReviewerLogin": false,
+      "expectedAuth": "public",
+      "allowedDataStates": ["loaded", "empty-valid"]
+    },
+    {
+      "route": "/consents",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fconsents",
+      "expectedMarker": "native-route-consents",
+      "expectedRoute": "/consents",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/profile",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/profile/pkm",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
+      "expectedMarker": "native-route-profile-pkm",
+      "expectedRoutePrefix": "/profile/pkm",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "redirect-valid"]
+    },
+    {
+      "route": "/profile/receipts",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Freceipts",
+      "expectedMarker": "native-route-profile-receipts",
+      "expectedRoute": "/profile/receipts",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/profile/gmail/oauth/return",
+      "classification": "native-required-callback",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Foauth%2Freturn",
+      "expectedMarker": "native-route-profile-gmail-return",
+      "expectedRoute": "/profile/gmail/oauth/return",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["redirect-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/ria",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria",
+      "expectedMarker": "native-route-ria-home",
+      "expectedRoute": "/ria",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "unavailable-valid"]
+    },
+    {
+      "route": "/ria/clients",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fclients",
+      "expectedMarker": "native-route-ria-clients",
+      "expectedRoute": "/ria/clients",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/ria/onboarding",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fonboarding",
+      "expectedMarker": "native-route-ria-onboarding",
+      "expectedRoute": "/ria/onboarding",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "unavailable-valid"]
+    },
+    {
+      "route": "/ria/picks",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fpicks",
+      "expectedMarker": "native-route-ria-picks",
+      "expectedRoute": "/ria/picks",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "unavailable-valid"]
+    },
+    {
+      "route": "/ria/requests",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Frequests",
+      "expectedMarker": "native-route-consents",
+      "expectedRoute": "/ria/requests",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/ria/settings",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fsettings",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/ria/settings",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/ria/workspace",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fworkspace",
+      "expectedMarker": "native-route-ria-workspace",
+      "expectedRoute": "/ria/workspace",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/marketplace",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fmarketplace",
+      "expectedMarker": "native-route-marketplace",
+      "expectedRoute": "/marketplace",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/marketplace/connections",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections",
+      "expectedMarker": "native-route-marketplace-connections",
+      "expectedRoute": "/marketplace/connections",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid"]
+    },
+    {
+      "route": "/marketplace/connections/portfolio",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections%2Fportfolio",
+      "expectedMarker": "native-route-marketplace-connections-portfolio",
+      "expectedRoute": "/marketplace/connections/portfolio",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
+      "route": "/marketplace/ria",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fmarketplace%2Fria%3FriaId%3Dmissing-demo-ria",
+      "expectedMarker": "native-route-marketplace-ria",
+      "expectedRoute": "/marketplace/ria?riaId=missing-demo-ria",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid"]
+    },
+    { "route": "/developers", "classification": "excluded-web-only" },
+    { "route": "/labs/profile-appearance", "classification": "excluded-web-only" },
+    { "route": "/profile/pkm-agent-lab", "classification": "excluded-web-only" }
+  ]
+}
