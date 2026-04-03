@@ -12,6 +12,7 @@ import {
   Waves,
 } from "lucide-react";
 
+import { PopupTextEditorField } from "@/components/app-ui/command-fields";
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import {
@@ -22,7 +23,6 @@ import {
 } from "@/components/ria/ria-page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { buildRiaConsentManagerHref } from "@/lib/consent/consent-sheet-route";
@@ -342,6 +342,20 @@ function RiaWorkspacePageContent() {
         detail?.investor_headline ||
         "Consent-gated access stays grounded here: relationship state first, readable data second."
       }
+      nativeTest={{
+        routeId: "/ria/workspace",
+        marker: "native-route-ria-workspace",
+        authState: user ? "authenticated" : "pending",
+        dataState: loading
+          ? "loading"
+          : iamUnavailable
+            ? "unavailable-valid"
+            : workspace || detail
+              ? "loaded"
+              : "empty-valid",
+        errorCode: detailError ? "ria_workspace" : null,
+        errorMessage: detailError,
+      }}
       actions={
         <Button asChild variant="none" effect="fade">
           <Link href={ROUTES.RIA_CLIENTS}>Back to clients</Link>
@@ -592,10 +606,14 @@ function RiaWorkspacePageContent() {
                       </div>
                     )}
 
-                    <Textarea
+                    <PopupTextEditorField
+                      title="Request bundle context"
+                      description="Add optional context the investor should see alongside the requested scopes."
                       value={requestReason}
-                      onChange={(event) => setRequestReason(event.target.value)}
                       placeholder="Optional context for the investor"
+                      previewPlaceholder="Add optional context for the investor"
+                      onSave={setRequestReason}
+                      triggerClassName="min-h-[96px]"
                     />
 
                     <div className="flex flex-wrap gap-2">

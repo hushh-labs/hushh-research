@@ -8,7 +8,7 @@ Canonical visual owner: [Guides Index](README.md). Use that map for the top-down
 
 ## What You Are Booting
 
-Hussh is a monorepo for a consent-and-scope platform:
+Hushh is a monorepo for a consent-and-scope platform:
 
 - `hushh-webapp/`: Next.js + Capacitor client
 - `consent-protocol/`: FastAPI backend, consent protocol, PKM, and agents
@@ -41,11 +41,11 @@ Optional, depending on the work:
 ```bash
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
-npm run bootstrap
-npm run web -- --mode=uat
+./bin/hushh bootstrap
+./bin/hushh web --mode uat
 ```
 
-`npm run bootstrap` is the only supported onboarding entrypoint. It:
+`./bin/hushh bootstrap` is the only supported onboarding entrypoint. It:
 
 - installs frontend and backend dependencies
 - hydrates the three canonical runtime profiles when cloud access is available
@@ -64,18 +64,18 @@ If you are not doing backend work, stop there. Do not start the local backend or
 ## Canonical Commands
 
 ```bash
-npm run bootstrap
-npm run doctor -- --mode=local
-npm run doctor -- --mode=uat
-npm run doctor -- --mode=prod
+./bin/hushh bootstrap
+./bin/hushh doctor --mode local
+./bin/hushh doctor --mode uat
+./bin/hushh doctor --mode prod
 
-npm run web -- --mode=uat
-npm run web -- --mode=prod
-npm run native:ios -- --mode=uat
-npm run native:android -- --mode=uat
+./bin/hushh web --mode uat
+./bin/hushh web --mode prod
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
 ```
 
-Public docs should not teach legacy make-first bootstrap paths or ad hoc env assembly as the normal first-run path.
+Public docs should not teach legacy root task surfaces or ad hoc env assembly as the normal first-run path.
 
 ## Runtime Profiles
 
@@ -94,7 +94,7 @@ The default contributor path does not require it.
 When you do need the full local stack:
 
 ```bash
-npm run backend
+./bin/hushh backend
 ```
 
 That remains a maintainer/deeper-development path, not the primary onboarding contract.

@@ -432,6 +432,18 @@ export default function ProfileReceiptsPage() {
       as="div"
       width="profile"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      nativeTest={{
+        routeId: "/profile/receipts",
+        marker: "native-route-profile-receipts",
+        authState: user ? "authenticated" : "pending",
+        dataState: loadingReceipts
+          ? "loading"
+          : !isConnected
+            ? "unavailable-valid"
+            : receipts.length > 0
+              ? "loaded"
+              : "empty-valid",
+      }}
     >
       <AppPageHeaderRegion>
         <PageHeader

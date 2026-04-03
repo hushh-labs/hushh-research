@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
-  searchParams: new URLSearchParams("code=code-123&state=state-123"),
   useAuth: vi.fn(),
   gmailReceiptsService: {
     completeConnect: vi.fn(),
@@ -14,7 +13,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.routerReplace }),
-  useSearchParams: () => mocks.searchParams,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -57,7 +55,6 @@ import ProfileGmailOAuthReturnPage from "@/app/profile/gmail/oauth/return/page";
 describe("ProfileGmailOAuthReturnPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.searchParams = new URLSearchParams("code=code-123&state=state-123");
     mocks.useAuth.mockReturnValue({
       user: {
         uid: "user-123",
@@ -90,7 +87,11 @@ describe("ProfileGmailOAuthReturnPage", () => {
       new Error("OAuth state expired")
     );
 
-    render(<ProfileGmailOAuthReturnPage />);
+    render(
+      <ProfileGmailOAuthReturnPage
+        searchParams={{ code: "code-123", state: "state-123" }}
+      />
+    );
 
     await waitFor(() => {
       expect(mocks.gmailReceiptsService.getStatus).toHaveBeenCalledWith({

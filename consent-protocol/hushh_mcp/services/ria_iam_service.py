@@ -15,7 +15,10 @@ import asyncpg
 from db.connection import get_pool
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.consent_request_links import build_consent_request_url
+from hushh_mcp.services.consent_request_links import (
+    build_connection_request_url,
+    build_consent_request_url,
+)
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
@@ -26,6 +29,7 @@ from hushh_mcp.services.support_email_service import (
     SupportEmailNotConfiguredError,
     SupportEmailSendError,
 )
+from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +59,15 @@ _TABLE_EXISTS_CACHE: dict[str, bool] = {}
 _IAM_SCHEMA_READY_CACHE = False
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
 _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
+_RIA_PICKS_PKM_DOMAIN = "ria"
+_RIA_PICKS_PKM_PATH = "advisor_package"
 _PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
 _PERSONA_STATE_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
+_RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
+    "investable_requirements",
+    "automatic_avoid_triggers",
+    "the_math",
+)
 
 
 class RIAIAMPolicyError(Exception):
@@ -111,6 +122,28 @@ class RIAIAMService:
         self._verification_gateway = VerificationGateway(FinraVerificationAdapter())
 
     @staticmethod
+    def _runtime_environment() -> str:
+        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
+            value = str(os.getenv(name, "")).strip().lower()
+            if value:
+                return value
+        return "development"
+
+    @classmethod
+    def _is_production_runtime(cls) -> bool:
+        return cls._runtime_environment() in {"prod", "production"}
+
+    @staticmethod
+    def _search_matches(query: str | None, *values: str | None) -> bool:
+        normalized_query = str(query or "").strip().lower()
+        if not normalized_query:
+            return True
+        haystack = " ".join(
+            str(value or "").strip().lower() for value in values if str(value or "").strip()
+        )
+        return normalized_query in haystack
+
+    @staticmethod
     def _read_cached_persona_state(user_id: str) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
@@ -144,13 +177,6 @@ class RIAIAMService:
     def _env_truthy(name: str, fallback: str = "false") -> bool:
         raw = str(os.getenv(name, fallback)).strip().lower()
         return raw in {"1", "true", "yes", "on"}
-
-    def _runtime_environment(self) -> str:
-        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
-            value = str(os.getenv(name, "")).strip().lower()
-            if value:
-                return value
-        return ""
 
     def _is_ria_dev_bypass_enabled(self) -> bool:
         if not self._env_truthy("RIA_DEV_BYPASS_ENABLED"):
@@ -348,6 +374,13 @@ class RIAIAMService:
             "active",
             "bypassed",
         }
+
+    @staticmethod
+    def _verification_provider_label(result: VerificationResult) -> str:
+        provider = str((result.metadata or {}).get("provider") or "").strip().lower()
+        if provider in {"ria_intelligence", "iapd", "dev_allowlist", "advisory_bypass"}:
+            return provider
+        return "regulatory_verification"
 
     @staticmethod
     def _prepare_professional_onboarding_inputs(
@@ -829,10 +862,27 @@ class RIAIAMService:
             requester_actor_type=self._normalize_actor(str(row["requester_actor_type"])),
             subject_actor_type=self._normalize_actor(str(row["subject_actor_type"])),
             template_name=str(row["template_name"]),
-            allowed_scopes=list(row["allowed_scopes"] or []),
+            allowed_scopes=self._canonicalize_scope_aliases(list(row["allowed_scopes"] or [])),
             default_duration_hours=int(row["default_duration_hours"]),
             max_duration_hours=int(row["max_duration_hours"]),
         )
+
+    @staticmethod
+    def _canonicalize_scope_alias(scope: str | None) -> str:
+        normalized = str(scope or "").strip()
+        if normalized == "world_model.read":
+            return "pkm.read"
+        if normalized == "world_model.write":
+            return "pkm.write"
+        return normalized
+
+    @classmethod
+    def _canonicalize_scope_aliases(cls, scopes: list[str] | tuple[str, ...] | None) -> list[str]:
+        return [
+            canonical
+            for canonical in (cls._canonicalize_scope_alias(scope) for scope in list(scopes or []))
+            if canonical
+        ]
 
     @staticmethod
     def _parse_metadata(value: Any) -> dict[str, Any]:
@@ -1112,6 +1162,13 @@ class RIAIAMService:
                 metadata=merged_metadata,
                 created_at=row["granted_at"],
             )
+            if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
+                await self._bootstrap_pick_share_artifact(
+                    conn,
+                    relationship_id=str(row["relationship_id"]),
+                    provider_user_id=provider_user_id,
+                    receiver_user_id=receiver_user_id,
+                )
             return dict(row)
 
         existing_status = str(existing["status"] or "").strip().lower()
@@ -1146,6 +1203,13 @@ class RIAIAMService:
                 receiver_user_id=receiver_user_id,
                 metadata=merged_metadata,
                 created_at=activate_at or row["updated_at"],
+            )
+        if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
+            await self._bootstrap_pick_share_artifact(
+                conn,
+                relationship_id=str(row["relationship_id"]),
+                provider_user_id=provider_user_id,
+                receiver_user_id=receiver_user_id,
             )
         return dict(row)
 
@@ -1191,6 +1255,20 @@ class RIAIAMService:
             status,
             json.dumps(next_metadata),
         )
+        if grant_key == _RELATIONSHIP_SHARE_ACTIVE_PICKS:
+            await conn.execute(
+                """
+                UPDATE ria_pick_share_artifacts
+                SET
+                  status = $2,
+                  updated_at = NOW()
+                WHERE relationship_id = $1::uuid
+                  AND grant_key = $3
+                """,
+                relationship_id,
+                status,
+                grant_key,
+            )
         event_type = "EXPIRED" if status == "expired" else "REVOKED"
         await self._insert_relationship_share_event(
             conn,
@@ -1289,7 +1367,7 @@ class RIAIAMService:
         try:
             await self._ensure_iam_schema_ready(conn)
             ria = await self._get_ria_profile_by_user(conn, user_id)
-            if ria["verification_status"] not in {"finra_verified", "active"}:
+            if not self._is_verified_ria_status(ria["verification_status"]):
                 raise RIAIAMPolicyError(
                     "RIA verification incomplete; cannot request investor scopes",
                     status_code=403,
@@ -1312,7 +1390,7 @@ class RIAIAMService:
             )
             items: list[dict[str, Any]] = []
             for row in rows:
-                allowed_scopes = [str(scope) for scope in list(row["allowed_scopes"] or [])]
+                allowed_scopes = self._canonicalize_scope_aliases(list(row["allowed_scopes"] or []))
                 items.append(
                     {
                         "template_id": str(row["template_id"]),
@@ -1541,18 +1619,14 @@ class RIAIAMService:
                 await self._ensure_actor_profile_row(conn, subject_user_id)
 
                 ria = await self._get_ria_profile_by_user(conn, user_id)
-                if ria["verification_status"] not in {"finra_verified", "active"}:
+                if not self._is_verified_ria_status(ria["verification_status"]):
                     raise RIAIAMPolicyError(
                         "RIA verification incomplete; cannot create consent requests",
                         status_code=403,
                     )
 
                 template = await self._load_scope_template(conn, scope_template_id)
-                normalized_scopes = [
-                    str(scope or "").strip()
-                    for scope in selected_scopes
-                    if str(scope or "").strip()
-                ]
+                normalized_scopes = self._canonicalize_scope_aliases(selected_scopes)
                 deduped_scopes = list(dict.fromkeys(normalized_scopes))
                 if not deduped_scopes:
                     deduped_scopes = list(template.allowed_scopes[:1])
@@ -1642,6 +1716,7 @@ class RIAIAMService:
         disclosures_url: str | None = None,
         primary_firm_name: str | None = None,
         primary_firm_role: str | None = None,
+        force_live_verification: bool = False,
     ) -> dict[str, Any]:
         if not display_name.strip():
             raise RIAIAMPolicyError("display_name is required", status_code=400)
@@ -1813,7 +1888,9 @@ class RIAIAMService:
                     legal_name=effective_legal_name,
                     finra_crd=effective_finra_crd,
                     sec_iard=effective_sec_iard,
+                    force_live=force_live_verification,
                 )
+                verification_provider = self._verification_provider_label(verification_result)
 
                 next_status = "submitted"
                 if verification_result.outcome == "bypassed":
@@ -1828,14 +1905,30 @@ class RIAIAMService:
                     UPDATE ria_profiles
                     SET
                       verification_status = $2,
-                      verification_provider = 'finra',
-                      verification_expires_at = $3,
+                      verification_provider = $3,
+                      verification_expires_at = $4,
                       updated_at = NOW()
                     WHERE id = $1
                     """,
                     ria["id"],
                     next_status,
+                    verification_provider,
                     verification_result.expires_at,
+                )
+
+                await conn.execute(
+                    """
+                    UPDATE marketplace_public_profiles
+                    SET
+                      verification_badge = CASE
+                        WHEN $2 IN ('finra_verified', 'active', 'bypassed') THEN 'verified'
+                        ELSE 'pending'
+                      END,
+                      updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                    next_status,
                 )
 
                 await conn.execute(
@@ -1848,9 +1941,10 @@ class RIAIAMService:
                       expires_at,
                       reference_metadata
                     )
-                    VALUES ($1, 'finra', $2, NOW(), $3, $4::jsonb)
+                    VALUES ($1, $2, $3, NOW(), $4, $5::jsonb)
                     """,
                     ria["id"],
+                    verification_provider,
                     verification_result.outcome,
                     verification_result.expires_at,
                     json.dumps(verification_result.metadata),
@@ -1874,7 +1968,7 @@ class RIAIAMService:
                       $2,
                       COALESCE(NULLIF($3, ''), NULLIF($4, ''), 'Registered Investment Advisor'),
                       NULLIF($4, ''),
-                      CASE WHEN $5 IN ('finra_verified', 'active', 'bypassed') THEN 'finra_verified' ELSE 'pending' END,
+                      CASE WHEN $5 IN ('finra_verified', 'active', 'bypassed') THEN 'verified' ELSE 'pending' END,
                       TRUE,
                       NOW()
                     )
@@ -1916,6 +2010,7 @@ class RIAIAMService:
                     "user_id": str(ria["user_id"]),
                     "display_name": str(ria["display_name"]),
                     "verification_status": next_status,
+                    "verification_provider": verification_provider,
                     "advisory_status": advisory_status,
                     "brokerage_status": brokerage_status,
                     "requested_capabilities": normalized_requested_capabilities,
@@ -2383,15 +2478,14 @@ class RIAIAMService:
         onboarding = await self.get_ria_onboarding_status(user_id)
         clients_payload = await self.list_ria_clients(user_id, page=1, limit=100)
         clients = list(clients_payload.get("items") or [])
-        uploads = await self.list_ria_pick_uploads(user_id)
-        active_rows = await self.get_active_ria_pick_rows(user_id)
+        pick_bootstrap = await self.get_ria_pick_bootstrap(user_id)
+        pick_metadata = pick_bootstrap.get("metadata") if isinstance(pick_bootstrap, dict) else {}
+        active_rows = int(
+            (pick_metadata.get("top_pick_count") if isinstance(pick_metadata, dict) else 0) or 0
+        )
 
         verification_status = str(
             onboarding.get("advisory_status") or onboarding.get("verification_status") or "draft"
-        )
-        active_upload = next(
-            (item for item in uploads if str(item.get("status") or "") == "active"),
-            uploads[0] if uploads else None,
         )
 
         if verification_status in {"active", "verified", "bypassed"}:
@@ -2449,10 +2543,8 @@ class RIAIAMService:
             },
             "needs_attention": needs_attention[:5],
             "active_picks": {
-                "status": "ready" if active_upload else "empty",
-                "active_upload_label": active_upload.get("label") if active_upload else None,
-                "active_rows": len(active_rows),
-                "history_count": len(uploads),
+                "status": "ready" if active_rows else "empty",
+                "active_rows": active_rows,
             },
         }
 
@@ -2534,10 +2626,11 @@ class RIAIAMService:
                     "  AND picks_share.grant_key = $2",
                     "LEFT JOIN LATERAL (",
                     "  SELECT id",
-                    "  FROM ria_pick_uploads",
-                    "  WHERE ria_profile_id = rp.id",
+                    "  FROM ria_pick_share_artifacts",
+                    "  WHERE relationship_id = rel.id",
+                    "    AND grant_key = $2",
                     "    AND status = 'active'",
-                    "  ORDER BY activated_at DESC NULLS LAST, created_at DESC",
+                    "  ORDER BY updated_at DESC",
                     "  LIMIT 1",
                     ") active_upload ON TRUE",
                     "WHERE rp.user_id = $1",
@@ -2571,11 +2664,11 @@ class RIAIAMService:
                   ON rel.ria_profile_id = rp.id
                   AND rel.investor_user_id = COALESCE(i.accepted_by_user_id, i.target_investor_user_id)
                 LEFT JOIN LATERAL (
-                  SELECT id
-                  FROM ria_pick_uploads
-                  WHERE ria_profile_id = rp.id
-                    AND status = 'active'
-                  ORDER BY activated_at DESC NULLS LAST, created_at DESC
+                  SELECT 1 AS id
+                  FROM pkm_blobs
+                  WHERE user_id = rp.user_id
+                    AND domain = $2
+                    AND segment_id = 'root'
                   LIMIT 1
                 ) active_upload ON TRUE
                 WHERE rp.user_id = $1
@@ -2585,6 +2678,7 @@ class RIAIAMService:
                 ORDER BY i.created_at DESC
                 """,
                 user_id,
+                _RIA_PICKS_PKM_DOMAIN,
             )
 
             items: list[dict[str, Any]] = []
@@ -2752,10 +2846,11 @@ class RIAIAMService:
                     "  AND picks_share.grant_key = $3",
                     "LEFT JOIN LATERAL (",
                     "  SELECT id",
-                    "  FROM ria_pick_uploads",
-                    "  WHERE ria_profile_id = rel.ria_profile_id",
+                    "  FROM ria_pick_share_artifacts",
+                    "  WHERE relationship_id = rel.id",
+                    "    AND grant_key = $3",
                     "    AND status = 'active'",
-                    "  ORDER BY activated_at DESC NULLS LAST, created_at DESC",
+                    "  ORDER BY updated_at DESC",
                     "  LIMIT 1",
                     ") active_upload ON TRUE",
                     "WHERE rel.investor_user_id = $1",
@@ -3276,82 +3371,935 @@ class RIAIAMService:
                 status_code=400,
             )
 
+        symbol_master = get_symbol_master_service()
         rows: list[dict[str, Any]] = []
-        for index, row in enumerate(reader, start=1):
-            ticker = str(row.get("ticker") or "").strip().upper()
-            if not ticker:
+        row_errors: list[str] = []
+        seen_tickers: set[str] = set()
+        for csv_row_number, row in enumerate(reader, start=2):
+            normalized_row = {key: str(value or "").strip() for key, value in row.items()}
+            if not any(normalized_row.values()):
                 continue
+
+            ticker = symbol_master.normalize(normalized_row.get("ticker"))
+            if not ticker:
+                row_errors.append(f"Row {csv_row_number}: ticker is required")
+                continue
+
+            if ticker in seen_tickers:
+                row_errors.append(f"Row {csv_row_number}: duplicate ticker {ticker}")
+                continue
+
+            metadata = symbol_master.get_ticker_metadata(ticker)
+            if not metadata:
+                row_errors.append(
+                    f"Row {csv_row_number}: ticker {ticker} is not in the SEC-backed ticker list"
+                )
+                continue
+
+            if metadata.get("tradable") is False:
+                row_errors.append(
+                    f"Row {csv_row_number}: ticker {ticker} is not an active tradable symbol"
+                )
+                continue
+
+            company_name = (
+                normalized_row.get("company_name")
+                or str(metadata.get("title") or "").strip()
+                or None
+            )
+            sector = (
+                normalized_row.get("sector")
+                or str(metadata.get("sector_primary") or metadata.get("sector") or "").strip()
+                or None
+            )
+            tier = (normalized_row.get("tier") or "").upper() or None
+            investment_thesis = normalized_row.get("investment_thesis") or None
+
+            missing_values = [
+                field
+                for field, value in (
+                    ("company_name", company_name),
+                    ("sector", sector),
+                    ("tier", tier),
+                    ("investment_thesis", investment_thesis),
+                )
+                if not value
+            ]
+            if missing_values:
+                row_errors.append(
+                    f"Row {csv_row_number}: missing required values for {', '.join(missing_values)}"
+                )
+                continue
+
             rows.append(
                 {
-                    "sort_order": index,
+                    "sort_order": len(rows) + 1,
                     "ticker": ticker,
-                    "company_name": str(row.get("company_name") or "").strip() or None,
-                    "sector": str(row.get("sector") or "").strip() or None,
-                    "tier": str(row.get("tier") or "").strip() or None,
-                    "tier_rank": int(row["tier_rank"])
-                    if str(row.get("tier_rank") or "").strip().isdigit()
+                    "company_name": company_name,
+                    "sector": sector,
+                    "tier": tier,
+                    "tier_rank": int(normalized_row["tier_rank"])
+                    if normalized_row.get("tier_rank", "").isdigit()
                     else None,
-                    "conviction_weight": float(row["conviction_weight"])
-                    if str(row.get("conviction_weight") or "").strip()
+                    "conviction_weight": float(normalized_row["conviction_weight"])
+                    if normalized_row.get("conviction_weight")
                     else None,
-                    "recommendation_bias": str(row.get("recommendation_bias") or "").strip()
-                    or None,
-                    "investment_thesis": str(row.get("investment_thesis") or "").strip() or None,
-                    "fcf_billions": float(row["fcf_billions"])
-                    if str(row.get("fcf_billions") or "").strip()
+                    "recommendation_bias": normalized_row.get("recommendation_bias") or None,
+                    "investment_thesis": investment_thesis,
+                    "fcf_billions": float(normalized_row["fcf_billions"])
+                    if normalized_row.get("fcf_billions")
                     else None,
                 }
             )
+            seen_tickers.add(ticker)
 
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
         if not rows:
             raise RIAIAMPolicyError("Uploaded CSV did not contain any valid rows", status_code=400)
         return rows
 
-    async def upload_ria_pick_list(
+    @staticmethod
+    def _coerce_package_rows(rows: Any) -> list[dict[str, Any]]:
+        if not isinstance(rows, list):
+            return []
+        return [dict(row) for row in rows if isinstance(row, dict)]
+
+    def _normalize_top_pick_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        symbol_master = get_symbol_master_service()
+        normalized_rows: list[dict[str, Any]] = []
+        row_errors: list[str] = []
+        seen_tickers: set[str] = set()
+        for index, row in enumerate(rows, start=1):
+            ticker = symbol_master.normalize(row.get("ticker"))
+            if not ticker:
+                row_errors.append(f"Top picks row {index}: ticker is required")
+                continue
+            if ticker in seen_tickers:
+                row_errors.append(f"Top picks row {index}: duplicate ticker {ticker}")
+                continue
+            metadata = symbol_master.get_ticker_metadata(ticker)
+            if not metadata or metadata.get("tradable") is False:
+                row_errors.append(
+                    f"Top picks row {index}: ticker {ticker} must be an SEC-backed tradable symbol"
+                )
+                continue
+            tier = str(row.get("tier") or "").strip().upper()
+            thesis = str(row.get("investment_thesis") or "").strip()
+            if not tier:
+                row_errors.append(f"Top picks row {index}: tier is required")
+                continue
+            if not thesis:
+                row_errors.append(f"Top picks row {index}: investment_thesis is required")
+                continue
+            normalized_rows.append(
+                {
+                    "sort_order": len(normalized_rows) + 1,
+                    "ticker": ticker,
+                    "company_name": str(metadata.get("title") or "").strip() or None,
+                    "sector": str(
+                        metadata.get("sector_primary") or metadata.get("sector") or ""
+                    ).strip()
+                    or None,
+                    "tier": tier,
+                    "tier_rank": row.get("tier_rank"),
+                    "conviction_weight": row.get("conviction_weight"),
+                    "recommendation_bias": row.get("recommendation_bias"),
+                    "investment_thesis": thesis,
+                    "fcf_billions": row.get("fcf_billions"),
+                }
+            )
+            seen_tickers.add(ticker)
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
+        return normalized_rows
+
+    def _normalize_avoid_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        top_pick_tickers: set[str],
+    ) -> list[dict[str, Any]]:
+        symbol_master = get_symbol_master_service()
+        normalized_rows: list[dict[str, Any]] = []
+        row_errors: list[str] = []
+        seen_tickers: set[str] = set()
+        for index, row in enumerate(rows, start=1):
+            ticker = symbol_master.normalize(row.get("ticker"))
+            if not ticker:
+                row_errors.append(f"Avoid row {index}: ticker is required")
+                continue
+            if ticker in seen_tickers:
+                row_errors.append(f"Avoid row {index}: duplicate ticker {ticker}")
+                continue
+            if ticker in top_pick_tickers:
+                row_errors.append(
+                    f"Avoid row {index}: ticker {ticker} cannot appear in both Top picks and Avoid"
+                )
+                continue
+            metadata = symbol_master.get_ticker_metadata(ticker)
+            if not metadata or metadata.get("tradable") is False:
+                row_errors.append(
+                    f"Avoid row {index}: ticker {ticker} must be an SEC-backed tradable symbol"
+                )
+                continue
+            reason = str(
+                row.get("why_avoid") or row.get("reason") or row.get("detail") or ""
+            ).strip()
+            if not reason:
+                row_errors.append(f"Avoid row {index}: reason is required")
+                continue
+            normalized_rows.append(
+                {
+                    "sort_order": len(normalized_rows) + 1,
+                    "ticker": ticker,
+                    "company_name": str(metadata.get("title") or "").strip() or None,
+                    "sector": str(
+                        metadata.get("sector_primary") or metadata.get("sector") or ""
+                    ).strip()
+                    or None,
+                    "category": str(row.get("category") or "").strip() or None,
+                    "why_avoid": reason,
+                    "note": str(row.get("note") or "").strip() or None,
+                }
+            )
+            seen_tickers.add(ticker)
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
+        return normalized_rows
+
+    def _normalize_screening_sections(self, sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        raw_by_key = {
+            str(section.get("section") or section.get("key") or "").strip(): section
+            for section in sections
+            if isinstance(section, dict)
+        }
+        normalized_sections: list[dict[str, Any]] = []
+        row_errors: list[str] = []
+        for section_key in _RIA_SCREENING_SECTION_ORDER:
+            raw_section = raw_by_key.get(section_key) or {}
+            raw_rows = raw_section.get("rows")
+            if not isinstance(raw_rows, list):
+                raw_rows = []
+            seen_math_signatures: set[str] = set()
+            normalized_rows: list[dict[str, Any]] = []
+            for index, row in enumerate(raw_rows, start=1):
+                if not isinstance(row, dict):
+                    continue
+                title = str(row.get("title") or "").strip()
+                detail = str(row.get("detail") or "").strip()
+                value_text = str(row.get("value_text") or "").strip() or None
+                if not title or not detail:
+                    row_errors.append(
+                        f"Screening row {section_key}:{index}: title and detail are required"
+                    )
+                    continue
+                signature = f"{section_key}|{title.lower()}|{detail.lower()}|{str(value_text or '').lower()}"
+                if section_key == "the_math":
+                    if signature in seen_math_signatures:
+                        continue
+                    seen_math_signatures.add(signature)
+                normalized_rows.append(
+                    {
+                        "rule_index": len(normalized_rows) + 1,
+                        "title": title,
+                        "detail": detail,
+                        "value_text": value_text,
+                    }
+                )
+            normalized_sections.append({"section": section_key, "rows": normalized_rows})
+        if row_errors:
+            raise RIAIAMPolicyError("; ".join(row_errors[:8]), status_code=400)
+        return normalized_sections
+
+    def _build_pick_package_metadata(
+        self,
+        *,
+        avoid_rows: list[dict[str, Any]],
+        screening_sections: list[dict[str, Any]],
+        package_note: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "package_version": 1,
+            "package_note": str(package_note or "").strip() or None,
+            "avoid_rows": avoid_rows,
+            "screening_sections": screening_sections,
+        }
+
+    @staticmethod
+    def _empty_pick_package_response() -> dict[str, Any]:
+        return {
+            "top_picks": [],
+            "avoid_rows": [],
+            "screening_sections": [
+                {"section": section_key, "rows": []} for section_key in _RIA_SCREENING_SECTION_ORDER
+            ],
+            "package_note": None,
+        }
+
+    def _normalize_pick_package(
+        self,
+        *,
+        top_picks: list[dict[str, Any]],
+        avoid_rows: list[dict[str, Any]],
+        screening_sections: list[dict[str, Any]],
+        package_note: str | None,
+    ) -> dict[str, Any]:
+        normalized_top_picks = self._normalize_top_pick_rows(top_picks)
+        normalized_avoid_rows = self._normalize_avoid_rows(
+            avoid_rows,
+            top_pick_tickers={row["ticker"] for row in normalized_top_picks},
+        )
+        normalized_screening_sections = self._normalize_screening_sections(screening_sections)
+        return {
+            "top_picks": normalized_top_picks,
+            "avoid_rows": normalized_avoid_rows,
+            "screening_sections": normalized_screening_sections,
+            "package_metadata": self._build_pick_package_metadata(
+                avoid_rows=normalized_avoid_rows,
+                screening_sections=normalized_screening_sections,
+                package_note=package_note,
+            ),
+        }
+
+    @staticmethod
+    def _normalize_pick_package_response(
+        top_picks: list[dict[str, Any]],
+        package_metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        metadata = package_metadata if isinstance(package_metadata, dict) else {}
+        raw_avoid_rows = metadata.get("avoid_rows")
+        raw_screening_sections = metadata.get("screening_sections")
+        avoid_rows = raw_avoid_rows if isinstance(raw_avoid_rows, list) else []
+        screening_sections = (
+            raw_screening_sections if isinstance(raw_screening_sections, list) else []
+        )
+        package_note = str(metadata.get("package_note") or "").strip() or None
+        normalized_sections = [
+            {
+                "section": str(section.get("section") or section.get("key") or "").strip(),
+                "rows": [
+                    dict(row)
+                    for row in (section.get("rows") if isinstance(section, dict) else [])
+                    if isinstance(row, dict)
+                ],
+            }
+            for section in screening_sections
+            if isinstance(section, dict)
+        ]
+        if not normalized_sections:
+            normalized_sections = [
+                {"section": section_key, "rows": []} for section_key in _RIA_SCREENING_SECTION_ORDER
+            ]
+        return {
+            "top_picks": top_picks,
+            "avoid_rows": [dict(row) for row in avoid_rows if isinstance(row, dict)],
+            "screening_sections": normalized_sections,
+            "package_note": package_note,
+        }
+
+    @staticmethod
+    def _count_screening_rows(screening_sections: list[dict[str, Any]] | None) -> int:
+        if not isinstance(screening_sections, list):
+            return 0
+        total = 0
+        for section in screening_sections:
+            if not isinstance(section, dict):
+                continue
+            rows = section.get("rows")
+            if isinstance(rows, list):
+                total += len(rows)
+        return total
+
+    def _pick_package_has_material_content(self, package: dict[str, Any] | None) -> bool:
+        if not isinstance(package, dict):
+            return False
+        top_picks = package.get("top_picks")
+        avoid_rows = package.get("avoid_rows")
+        screening_sections = package.get("screening_sections")
+        package_note = str(package.get("package_note") or "").strip()
+        return bool(
+            (isinstance(top_picks, list) and len(top_picks) > 0)
+            or (isinstance(avoid_rows, list) and len(avoid_rows) > 0)
+            or self._count_screening_rows(screening_sections) > 0
+            or package_note
+        )
+
+    def _build_pick_package_projection(self, package: dict[str, Any]) -> dict[str, Any]:
+        normalized = self._normalize_pick_package(
+            top_picks=self._coerce_package_rows(package.get("top_picks")),
+            avoid_rows=self._coerce_package_rows(package.get("avoid_rows")),
+            screening_sections=self._coerce_package_rows(package.get("screening_sections")),
+            package_note=str(package.get("package_note") or "").strip() or None,
+        )
+        return self._normalize_pick_package_response(
+            normalized["top_picks"],
+            normalized["package_metadata"],
+        )
+
+    def _build_pick_package_summary(
+        self,
+        *,
+        package: dict[str, Any],
+        storage_source: str,
+        revision: int | None,
+        updated_at: str | None,
+        active_share_count: int = 0,
+        has_package: bool = True,
+    ) -> dict[str, Any]:
+        top_picks = package.get("top_picks") if isinstance(package, dict) else []
+        avoid_rows = package.get("avoid_rows") if isinstance(package, dict) else []
+        screening_sections = package.get("screening_sections") if isinstance(package, dict) else []
+        return {
+            "has_package": bool(has_package),
+            "storage_source": storage_source,
+            "package_revision": int(revision or 0),
+            "top_pick_count": len(top_picks) if isinstance(top_picks, list) else 0,
+            "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
+            "screening_row_count": self._count_screening_rows(screening_sections),
+            "last_updated": updated_at,
+            "active_share_count": max(0, int(active_share_count or 0)),
+            "path": _RIA_PICKS_PKM_PATH,
+        }
+
+    async def _count_active_pick_shares(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ria_profile_id: str,
+    ) -> int:
+        count = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM advisor_investor_relationships rel
+            JOIN relationship_share_grants share
+              ON share.relationship_id = rel.id
+             AND share.grant_key = $2
+             AND share.status = 'active'
+            WHERE rel.ria_profile_id = $1::uuid
+              AND rel.status = 'approved'
+            """,
+            ria_profile_id,
+            _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+        )
+        return int(count or 0)
+
+    async def _get_ria_pick_pkm_state(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        row = await conn.fetchrow(
+            """
+            SELECT
+              blob.content_revision,
+              blob.manifest_revision,
+              blob.updated_at,
+              idx.domain_summaries -> $2 AS domain_summary
+            FROM pkm_blobs blob
+            LEFT JOIN pkm_index idx
+              ON idx.user_id = blob.user_id
+            WHERE blob.user_id = $1
+              AND blob.domain = $2
+              AND blob.segment_id = 'root'
+            ORDER BY blob.updated_at DESC
+            LIMIT 1
+            """,
+            user_id,
+            _RIA_PICKS_PKM_DOMAIN,
+        )
+        if row is None:
+            return None
+        payload = dict(row)
+        payload["updated_at"] = self._serialize_datetime_value(payload.get("updated_at"))
+        return payload
+
+    async def _upsert_pick_share_artifact(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        relationship_id: str,
+        ria_profile_id: str,
+        provider_user_id: str,
+        receiver_user_id: str,
+        package_projection: dict[str, Any],
+        source_data_version: int | None,
+        source_manifest_revision: int | None,
+        label: str | None,
+        package_note: str | None,
+    ) -> dict[str, Any]:
+        artifact_metadata = {
+            "label": str(label or "").strip() or "Active advisor package",
+            "package_note": str(package_note or "").strip() or None,
+            "top_pick_count": len(package_projection.get("top_picks") or []),
+            "avoid_count": len(package_projection.get("avoid_rows") or []),
+            "screening_row_count": self._count_screening_rows(
+                package_projection.get("screening_sections")
+            ),
+            "source_data_version": int(source_data_version or 0) or None,
+            "source_manifest_revision": int(source_manifest_revision or 0) or None,
+            "source_domain": _RIA_PICKS_PKM_DOMAIN,
+            "source_path": _RIA_PICKS_PKM_PATH,
+        }
+        return dict(
+            await conn.fetchrow(
+                """
+                INSERT INTO ria_pick_share_artifacts (
+                  relationship_id,
+                  ria_profile_id,
+                  provider_user_id,
+                  receiver_user_id,
+                  grant_key,
+                  status,
+                  source_domain,
+                  source_path,
+                  source_data_version,
+                  source_manifest_revision,
+                  artifact_projection,
+                  artifact_metadata,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1::uuid,
+                  $2::uuid,
+                  $3,
+                  $4,
+                  $5,
+                  'active',
+                  $6,
+                  $7,
+                  $8,
+                  $9,
+                  $10::jsonb,
+                  $11::jsonb,
+                  NOW(),
+                  NOW()
+                )
+                ON CONFLICT (relationship_id, grant_key) DO UPDATE
+                SET
+                  ria_profile_id = EXCLUDED.ria_profile_id,
+                  provider_user_id = EXCLUDED.provider_user_id,
+                  receiver_user_id = EXCLUDED.receiver_user_id,
+                  status = 'active',
+                  source_domain = EXCLUDED.source_domain,
+                  source_path = EXCLUDED.source_path,
+                  source_data_version = EXCLUDED.source_data_version,
+                  source_manifest_revision = EXCLUDED.source_manifest_revision,
+                  artifact_projection = EXCLUDED.artifact_projection,
+                  artifact_metadata = EXCLUDED.artifact_metadata,
+                  updated_at = NOW()
+                RETURNING *
+                """,
+                relationship_id,
+                ria_profile_id,
+                provider_user_id,
+                receiver_user_id,
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                _RIA_PICKS_PKM_DOMAIN,
+                _RIA_PICKS_PKM_PATH,
+                source_data_version,
+                source_manifest_revision,
+                json.dumps(package_projection),
+                json.dumps(artifact_metadata),
+            )
+        )
+
+    async def _bootstrap_pick_share_artifact(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        relationship_id: str,
+        provider_user_id: str,
+        receiver_user_id: str,
+    ) -> None:
+        relationship = await conn.fetchrow(
+            """
+            SELECT rel.ria_profile_id
+            FROM advisor_investor_relationships rel
+            WHERE rel.id = $1::uuid
+            LIMIT 1
+            """,
+            relationship_id,
+        )
+        if relationship is None:
+            return
+        ria_profile_id = str(relationship["ria_profile_id"])
+        prior_artifact = await conn.fetchrow(
+            """
+            SELECT artifact_projection, artifact_metadata, source_data_version, source_manifest_revision
+            FROM ria_pick_share_artifacts
+            WHERE ria_profile_id = $1::uuid
+              AND grant_key = $2
+              AND status = 'active'
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            ria_profile_id,
+            _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+        )
+        if prior_artifact:
+            prior_artifact_payload = dict(prior_artifact)
+        else:
+            prior_artifact_payload = None
+        if prior_artifact_payload and isinstance(
+            self._parse_metadata(prior_artifact_payload.get("artifact_projection")), dict
+        ):
+            artifact_projection = self._parse_metadata(
+                prior_artifact_payload.get("artifact_projection")
+            )
+            package_projection = self._build_pick_package_projection(artifact_projection)
+            artifact_metadata = self._parse_metadata(
+                prior_artifact_payload.get("artifact_metadata")
+            )
+            await self._upsert_pick_share_artifact(
+                conn,
+                relationship_id=relationship_id,
+                ria_profile_id=ria_profile_id,
+                provider_user_id=provider_user_id,
+                receiver_user_id=receiver_user_id,
+                package_projection=package_projection,
+                source_data_version=prior_artifact_payload.get("source_data_version"),
+                source_manifest_revision=prior_artifact_payload.get("source_manifest_revision"),
+                label=str(artifact_metadata.get("label") or "").strip() or None,
+                package_note=str(artifact_metadata.get("package_note") or "").strip() or None,
+            )
+            return
+
+        legacy_package = await self._get_pick_package_for_source_legacy(
+            conn,
+            ria_profile_id=ria_profile_id,
+        )
+        if not self._pick_package_has_material_content(legacy_package):
+            return
+        await self._upsert_pick_share_artifact(
+            conn,
+            relationship_id=relationship_id,
+            ria_profile_id=ria_profile_id,
+            provider_user_id=provider_user_id,
+            receiver_user_id=receiver_user_id,
+            package_projection=legacy_package,
+            source_data_version=None,
+            source_manifest_revision=None,
+            label="Active advisor package",
+            package_note=str(legacy_package.get("package_note") or "").strip() or None,
+        )
+
+    async def _retire_legacy_pick_uploads(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ria_profile_id: str,
+    ) -> None:
+        await conn.execute(
+            """
+            DELETE FROM ria_pick_upload_rows
+            WHERE upload_id IN (
+              SELECT id
+              FROM ria_pick_uploads
+              WHERE ria_profile_id = $1::uuid
+            )
+            """,
+            ria_profile_id,
+        )
+        await conn.execute(
+            """
+            DELETE FROM ria_pick_uploads
+            WHERE ria_profile_id = $1::uuid
+            """,
+            ria_profile_id,
+        )
+
+    async def _get_pick_package_for_source_legacy(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ria_profile_id: str,
+    ) -> dict[str, Any]:
+        upload = await conn.fetchrow(
+            """
+            SELECT id, package_metadata
+            FROM ria_pick_uploads
+            WHERE ria_profile_id = $1::uuid
+              AND status = 'active'
+            ORDER BY activated_at DESC NULLS LAST, created_at DESC
+            LIMIT 1
+            """,
+            ria_profile_id,
+        )
+        if upload is None:
+            return self._empty_pick_package_response()
+        rows = await conn.fetch(
+            """
+            SELECT
+              r.ticker,
+              r.company_name,
+              r.sector,
+              r.tier,
+              r.tier_rank,
+              r.conviction_weight,
+              r.recommendation_bias,
+              r.investment_thesis,
+              r.fcf_billions
+            FROM ria_pick_upload_rows r
+            WHERE r.upload_id = $1
+            ORDER BY r.sort_order ASC
+            """,
+            upload["id"],
+        )
+        top_picks = [dict(row) for row in rows]
+        return self._normalize_pick_package_response(
+            top_picks,
+            self._parse_metadata(upload.get("package_metadata")),
+        )
+
+    async def get_ria_pick_bootstrap(self, user_id: str) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            pkm_state = await self._get_ria_pick_pkm_state(conn, user_id=user_id)
+            active_share_count = await self._count_active_pick_shares(
+                conn,
+                ria_profile_id=str(ria["id"]),
+            )
+            if pkm_state is not None:
+                summary = (
+                    pkm_state.get("domain_summary")
+                    if isinstance(pkm_state.get("domain_summary"), dict)
+                    else {}
+                )
+                empty_package = self._empty_pick_package_response()
+                metadata = self._build_pick_package_summary(
+                    package=empty_package,
+                    storage_source="pkm",
+                    revision=int(pkm_state.get("content_revision") or 0),
+                    updated_at=self._serialize_datetime_value(pkm_state.get("updated_at")),
+                    active_share_count=active_share_count,
+                    has_package=True,
+                )
+                if isinstance(summary, dict):
+                    metadata["top_pick_count"] = int(summary.get("top_pick_count") or 0)
+                    metadata["avoid_count"] = int(summary.get("avoid_count") or 0)
+                    metadata["screening_row_count"] = int(summary.get("screening_row_count") or 0)
+                    metadata["last_updated"] = (
+                        str(summary.get("last_updated") or "").strip() or metadata["last_updated"]
+                    )
+                return {"package": empty_package, "metadata": metadata}
+
+            legacy_package = await self._get_pick_package_for_source_legacy(
+                conn,
+                ria_profile_id=str(ria["id"]),
+            )
+            has_legacy_package = self._pick_package_has_material_content(legacy_package)
+            metadata = self._build_pick_package_summary(
+                package=legacy_package,
+                storage_source="legacy" if has_legacy_package else "empty",
+                revision=0,
+                updated_at=None,
+                active_share_count=active_share_count,
+                has_package=has_legacy_package,
+            )
+            return {"package": legacy_package, "metadata": metadata}
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def sync_ria_pick_share_artifacts(
         self,
         user_id: str,
         *,
-        csv_content: str,
-        source_filename: str | None,
         label: str | None,
+        package_note: str | None,
+        top_picks: list[dict[str, Any]] | None,
+        avoid_rows: list[dict[str, Any]] | None,
+        screening_sections: list[dict[str, Any]] | None,
+        source_data_version: int | None = None,
+        source_manifest_revision: int | None = None,
+        retire_legacy: bool = True,
     ) -> dict[str, Any]:
-        rows = self._parse_pick_csv(csv_content)
+        package_projection = self._build_pick_package_projection(
+            {
+                "top_picks": self._coerce_package_rows(top_picks),
+                "avoid_rows": self._coerce_package_rows(avoid_rows),
+                "screening_sections": self._coerce_package_rows(screening_sections),
+                "package_note": package_note,
+            }
+        )
         conn = await self._conn()
         try:
             async with conn.transaction():
                 await self._ensure_iam_schema_ready(conn)
                 ria = await self._get_ria_profile_by_user(conn, user_id)
-                await conn.execute(
+                relationships = await conn.fetch(
                     """
-                    UPDATE ria_pick_uploads
-                    SET status = 'archived', updated_at = NOW()
-                    WHERE ria_profile_id = $1
-                      AND status = 'active'
+                    SELECT rel.id, rel.investor_user_id
+                    FROM advisor_investor_relationships rel
+                    JOIN relationship_share_grants share
+                      ON share.relationship_id = rel.id
+                     AND share.grant_key = $2
+                     AND share.status = 'active'
+                    WHERE rel.ria_profile_id = $1
+                      AND rel.status = 'approved'
                     """,
                     ria["id"],
+                    _RELATIONSHIP_SHARE_ACTIVE_PICKS,
                 )
-                upload = await conn.fetchrow(
-                    """
-                    INSERT INTO ria_pick_uploads (
-                      ria_profile_id,
-                      uploaded_by_user_id,
-                      label,
-                      status,
-                      source_filename,
-                      row_count,
-                      template_version,
-                      activated_at,
-                      updated_at
+                updated_relationship_ids: list[str] = []
+                for relationship in relationships:
+                    artifact = await self._upsert_pick_share_artifact(
+                        conn,
+                        relationship_id=str(relationship["id"]),
+                        ria_profile_id=str(ria["id"]),
+                        provider_user_id=user_id,
+                        receiver_user_id=str(relationship["investor_user_id"]),
+                        package_projection=package_projection,
+                        source_data_version=source_data_version,
+                        source_manifest_revision=source_manifest_revision,
+                        label=label,
+                        package_note=package_note,
                     )
-                    VALUES ($1, $2, $3, 'active', $4, $5, 1, NOW(), NOW())
-                    RETURNING id, created_at, activated_at
+                    updated_relationship_ids.append(str(artifact["relationship_id"]))
+
+                if retire_legacy:
+                    await self._retire_legacy_pick_uploads(
+                        conn,
+                        ria_profile_id=str(ria["id"]),
+                    )
+
+                metadata = self._build_pick_package_summary(
+                    package=package_projection,
+                    storage_source="pkm",
+                    revision=source_data_version,
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                    active_share_count=len(updated_relationship_ids),
+                    has_package=True,
+                )
+                return {
+                    "status": "synced",
+                    "share_artifacts_updated": len(updated_relationship_ids),
+                    "retired_legacy": bool(retire_legacy),
+                    "package": package_projection,
+                    "metadata": metadata,
+                    "relationship_ids": updated_relationship_ids,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def upload_ria_pick_list(
+        self,
+        user_id: str,
+        *,
+        csv_content: str | None,
+        source_filename: str | None,
+        label: str | None,
+        package_note: str | None = None,
+        top_picks: list[dict[str, Any]] | None = None,
+        avoid_rows: list[dict[str, Any]] | None = None,
+        screening_sections: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if csv_content and str(csv_content).strip():
+            package = self._normalize_pick_package(
+                top_picks=self._parse_pick_csv(csv_content),
+                avoid_rows=self._coerce_package_rows(avoid_rows),
+                screening_sections=self._coerce_package_rows(screening_sections),
+                package_note=package_note,
+            )
+        else:
+            package = self._normalize_pick_package(
+                top_picks=self._coerce_package_rows(top_picks),
+                avoid_rows=self._coerce_package_rows(avoid_rows),
+                screening_sections=self._coerce_package_rows(screening_sections),
+                package_note=package_note,
+            )
+        rows = package["top_picks"]
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                existing_upload = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM ria_pick_uploads
+                    WHERE ria_profile_id = $1
+                    ORDER BY
+                      CASE WHEN status = 'active' THEN 0 ELSE 1 END ASC,
+                      COALESCE(activated_at, updated_at, created_at) DESC,
+                      created_at DESC
+                    LIMIT 1
                     """,
                     ria["id"],
-                    user_id,
-                    (label or "").strip() or "Active picks",
-                    (source_filename or "").strip() or None,
-                    len(rows),
                 )
+                if existing_upload is None:
+                    upload = await conn.fetchrow(
+                        """
+                        INSERT INTO ria_pick_uploads (
+                          ria_profile_id,
+                          uploaded_by_user_id,
+                          label,
+                          status,
+                          source_filename,
+                          row_count,
+                          template_version,
+                          package_metadata,
+                          activated_at,
+                          updated_at
+                        )
+                        VALUES ($1, $2, $3, 'active', $4, $5, 1, $6::jsonb, NOW(), NOW())
+                        RETURNING id, created_at, activated_at
+                        """,
+                        ria["id"],
+                        user_id,
+                        (label or "").strip() or "Active advisor package",
+                        (source_filename or "").strip() or None,
+                        len(rows),
+                        json.dumps(package["package_metadata"]),
+                    )
+                else:
+                    upload = await conn.fetchrow(
+                        """
+                        UPDATE ria_pick_uploads
+                        SET
+                          uploaded_by_user_id = $2,
+                          label = $3,
+                          status = 'active',
+                          source_filename = $4,
+                          row_count = $5,
+                          template_version = 1,
+                          package_metadata = $6::jsonb,
+                          activated_at = NOW(),
+                          updated_at = NOW()
+                        WHERE id = $1
+                        RETURNING id, created_at, activated_at
+                        """,
+                        existing_upload["id"],
+                        user_id,
+                        (label or "").strip() or "Active advisor package",
+                        (source_filename or "").strip() or None,
+                        len(rows),
+                        json.dumps(package["package_metadata"]),
+                    )
+                    await conn.execute(
+                        """
+                        DELETE FROM ria_pick_upload_rows
+                        WHERE upload_id = $1
+                        """,
+                        existing_upload["id"],
+                    )
+                    await conn.execute(
+                        """
+                        DELETE FROM ria_pick_uploads
+                        WHERE ria_profile_id = $1
+                          AND id <> $2
+                        """,
+                        ria["id"],
+                        existing_upload["id"],
+                    )
                 if upload is None:
                     raise RIAIAMPolicyError("Failed to create RIA picks upload", status_code=500)
 
@@ -3388,16 +4336,39 @@ class RIAIAMService:
 
                 return {
                     "upload_id": str(upload["id"]),
-                    "label": (label or "").strip() or "Active picks",
+                    "label": (label or "").strip() or "Active advisor package",
                     "row_count": len(rows),
                     "status": "active",
                     "created_at": upload["created_at"],
                     "activated_at": upload["activated_at"],
+                    "package": self._normalize_pick_package_response(
+                        rows,
+                        package["package_metadata"],
+                    ),
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
+
+    async def parse_ria_pick_csv(
+        self,
+        *,
+        csv_content: str,
+        package_note: str | None = None,
+        avoid_rows: list[dict[str, Any]] | None = None,
+        screening_sections: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        package = self._normalize_pick_package(
+            top_picks=self._parse_pick_csv(csv_content),
+            avoid_rows=self._coerce_package_rows(avoid_rows),
+            screening_sections=self._coerce_package_rows(screening_sections),
+            package_note=package_note,
+        )
+        return self._normalize_pick_package_response(
+            package["top_picks"],
+            package["package_metadata"],
+        )
 
     async def list_ria_pick_uploads(self, user_id: str) -> list[dict[str, Any]]:
         conn = await self._conn()
@@ -3412,12 +4383,15 @@ class RIAIAMService:
                   status,
                   source_filename,
                   row_count,
+                  package_metadata,
                   activated_at,
                   created_at,
                   updated_at
                 FROM ria_pick_uploads
                 WHERE ria_profile_id = $1
-                ORDER BY created_at DESC
+                  AND status = 'active'
+                ORDER BY COALESCE(activated_at, updated_at, created_at) DESC
+                LIMIT 1
                 """,
                 ria["id"],
             )
@@ -3428,6 +4402,11 @@ class RIAIAMService:
                     "status": row["status"],
                     "source_filename": row["source_filename"],
                     "row_count": int(row["row_count"] or 0),
+                    "package_note": (
+                        row["package_metadata"].get("package_note")
+                        if isinstance(row["package_metadata"], dict)
+                        else None
+                    ),
                     "activated_at": row["activated_at"],
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
@@ -3440,35 +4419,12 @@ class RIAIAMService:
             await conn.close()
 
     async def get_active_ria_pick_rows(self, user_id: str) -> list[dict[str, Any]]:
-        conn = await self._conn()
-        try:
-            await self._ensure_iam_schema_ready(conn)
-            ria = await self._get_ria_profile_by_user(conn, user_id)
-            rows = await conn.fetch(
-                """
-                SELECT
-                  r.ticker,
-                  r.company_name,
-                  r.sector,
-                  r.tier,
-                  r.tier_rank,
-                  r.conviction_weight,
-                  r.recommendation_bias,
-                  r.investment_thesis,
-                  r.fcf_billions
-                FROM ria_pick_uploads u
-                JOIN ria_pick_upload_rows r ON r.upload_id = u.id
-                WHERE u.ria_profile_id = $1
-                  AND u.status = 'active'
-                ORDER BY r.sort_order ASC
-                """,
-                ria["id"],
-            )
-            return [dict(row) for row in rows]
-        except asyncpg.exceptions.UndefinedTableError as exc:
-            raise IAMSchemaNotReadyError() from exc
-        finally:
-            await conn.close()
+        bootstrap = await self.get_active_ria_pick_package(user_id)
+        package = bootstrap.get("package") if isinstance(bootstrap, dict) else {}
+        return list(package.get("top_picks") or [])
+
+    async def get_active_ria_pick_package(self, user_id: str) -> dict[str, Any]:
+        return await self.get_ria_pick_bootstrap(user_id)
 
     async def list_investor_pick_sources(self, investor_user_id: str) -> list[dict[str, Any]]:
         conn = await self._conn()
@@ -3480,7 +4436,9 @@ class RIAIAMService:
                   rel.ria_profile_id,
                   rp.user_id AS ria_user_id,
                   COALESCE(mp.display_name, rp.display_name) AS label,
-                  u.id AS upload_id,
+                  artifact.id AS artifact_id,
+                  artifact.updated_at AS artifact_updated_at,
+                  artifact.source_data_version AS source_data_version,
                   picks_share.status AS share_status,
                   picks_share.granted_at AS share_granted_at,
                   picks_share.metadata AS share_metadata
@@ -3489,13 +4447,14 @@ class RIAIAMService:
                 LEFT JOIN marketplace_public_profiles mp
                   ON mp.user_id = rp.user_id
                   AND mp.profile_type = 'ria'
-                LEFT JOIN ria_pick_uploads u
-                  ON u.ria_profile_id = rel.ria_profile_id
-                  AND u.status = 'active'
                 JOIN relationship_share_grants picks_share
                   ON picks_share.relationship_id = rel.id
                   AND picks_share.grant_key = $2
                   AND picks_share.status = 'active'
+                LEFT JOIN ria_pick_share_artifacts artifact
+                  ON artifact.relationship_id = rel.id
+                 AND artifact.grant_key = $2
+                 AND artifact.status = 'active'
                 WHERE rel.investor_user_id = $1
                   AND rel.status = 'approved'
                 ORDER BY COALESCE(mp.display_name, rp.display_name) ASC
@@ -3508,11 +4467,19 @@ class RIAIAMService:
                     "id": f"ria:{row['ria_profile_id']}",
                     "label": row["label"] or "Linked RIA picks",
                     "kind": "ria",
-                    "state": "ready" if row["upload_id"] else "pending",
+                    "state": "ready" if row.get("artifact_id") else "pending",
                     "is_default": False,
                     "ria_user_id": row["ria_user_id"],
                     "ria_profile_id": str(row["ria_profile_id"]),
-                    "upload_id": str(row["upload_id"]) if row["upload_id"] else None,
+                    "artifact_id": str(row.get("artifact_id")) if row.get("artifact_id") else None,
+                    "artifact_updated_at": self._serialize_datetime_value(
+                        row.get("artifact_updated_at")
+                    ),
+                    "source_data_version": (
+                        int(row["source_data_version"])
+                        if row.get("source_data_version") is not None
+                        else None
+                    ),
                     "share_status": row["share_status"],
                     "share_origin": self._relationship_share_origin(row["share_metadata"]),
                     "share_granted_at": self._serialize_datetime_value(row["share_granted_at"]),
@@ -3529,9 +4496,17 @@ class RIAIAMService:
         investor_user_id: str,
         source_id: str,
     ) -> list[dict[str, Any]]:
+        package = await self.get_pick_package_for_source(investor_user_id, source_id)
+        return list(package.get("top_picks") or [])
+
+    async def get_pick_package_for_source(
+        self,
+        investor_user_id: str,
+        source_id: str,
+    ) -> dict[str, Any]:
         normalized_source = str(source_id or "").strip()
         if not normalized_source.startswith("ria:"):
-            return []
+            return self._empty_pick_package_response()
         ria_profile_id = normalized_source.split(":", 1)[1]
         conn = await self._conn()
         try:
@@ -3553,28 +4528,44 @@ class RIAIAMService:
                 _RELATIONSHIP_SHARE_ACTIVE_PICKS,
             )
             if relationship is None:
-                return []
-            rows = await conn.fetch(
+                return self._empty_pick_package_response()
+            artifact = await conn.fetchrow(
                 """
-                SELECT
-                  r.ticker,
-                  r.company_name,
-                  r.sector,
-                  r.tier,
-                  r.tier_rank,
-                  r.conviction_weight,
-                  r.recommendation_bias,
-                  r.investment_thesis,
-                  r.fcf_billions
-                FROM ria_pick_uploads u
-                JOIN ria_pick_upload_rows r ON r.upload_id = u.id
-                WHERE u.ria_profile_id = $1::uuid
-                  AND u.status = 'active'
-                ORDER BY r.sort_order ASC
+                SELECT artifact.artifact_projection
+                FROM advisor_investor_relationships rel
+                JOIN relationship_share_grants share
+                  ON share.relationship_id = rel.id
+                  AND share.grant_key = $3
+                  AND share.status = 'active'
+                JOIN ria_pick_share_artifacts artifact
+                  ON artifact.relationship_id = rel.id
+                  AND artifact.grant_key = $3
+                  AND artifact.status = 'active'
+                WHERE rel.investor_user_id = $1
+                  AND rel.ria_profile_id = $2::uuid
+                  AND rel.status = 'approved'
+                ORDER BY
+                  COALESCE(artifact.updated_at, share.granted_at, rel.updated_at, rel.created_at)
+                  DESC
+                LIMIT 1
                 """,
+                investor_user_id,
                 ria_profile_id,
+                _RELATIONSHIP_SHARE_ACTIVE_PICKS,
             )
-            return [dict(row) for row in rows]
+            if artifact is not None:
+                artifact_payload = dict(artifact)
+                artifact_projection = self._parse_metadata(
+                    artifact_payload.get("artifact_projection")
+                )
+                if artifact_projection:
+                    return self._build_pick_package_projection(artifact_projection)
+
+            legacy_package = await self._get_pick_package_for_source_legacy(
+                conn,
+                ria_profile_id=ria_profile_id,
+            )
+            return legacy_package
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
@@ -3604,7 +4595,7 @@ class RIAIAMService:
                 await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
 
                 ria = await self._get_ria_profile_by_user(conn, user_id)
-                if ria["verification_status"] not in {"finra_verified", "active"}:
+                if not self._is_verified_ria_status(ria["verification_status"]):
                     raise RIAIAMPolicyError(
                         "RIA verification incomplete; cannot send invites",
                         status_code=403,
@@ -3910,6 +4901,12 @@ class RIAIAMService:
                 )
                 if ria is None:
                     raise RIAIAMPolicyError("RIA profile not found", status_code=404)
+                verification_status = str(ria["verification_status"] or "")
+                if enabled and not self._is_verified_ria_status(verification_status):
+                    raise RIAIAMPolicyError(
+                        "RIA verification must be complete before the profile can become discoverable.",
+                        status_code=403,
+                    )
 
                 await conn.execute(
                     """
@@ -3949,14 +4946,14 @@ class RIAIAMService:
                     ria["display_name"],
                     (headline or "").strip(),
                     (strategy_summary or str(ria["strategy"] or "")).strip(),
-                    str(ria["verification_status"] or ""),
+                    "verified" if self._is_verified_ria_status(verification_status) else "pending",
                     bool(enabled),
                 )
 
                 return {
                     "user_id": user_id,
                     "is_discoverable": bool(enabled),
-                    "verification_status": str(ria["verification_status"] or ""),
+                    "verification_status": verification_status,
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
@@ -4204,8 +5201,10 @@ class RIAIAMService:
     ) -> dict[str, Any]:
         requester = self._normalize_actor(requester_actor_type)
         subject = self._normalize_actor(subject_actor_type)
-        if requester != "ria" or subject != "investor":
-            raise RIAIAMPolicyError("Only ria -> investor requests are allowed in this phase")
+        if (requester, subject) not in {("ria", "investor"), ("investor", "ria")}:
+            raise RIAIAMPolicyError(
+                "Only investor <-> ria connection requests are allowed in this phase"
+            )
 
         conn = await self._conn()
         try:
@@ -4213,13 +5212,47 @@ class RIAIAMService:
                 await self._ensure_vault_user_row(conn, user_id)
                 await self._ensure_vault_user_row(conn, subject_user_id)
                 await self._ensure_iam_schema_ready(conn)
-                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
-                await self._ensure_actor_profile_row(conn, subject_user_id)
+                if requester == "ria":
+                    await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                    await self._ensure_actor_profile_row(conn, subject_user_id)
+                    ria = await self._get_ria_profile_by_user(conn, user_id)
+                    investor_user_id = subject_user_id
+                    request_subject_user_id = subject_user_id
+                    request_agent_id = f"ria:{ria['id']}"
+                    request_origin_value = request_origin or "direct_ria_request"
+                    requester_label = (
+                        str(ria["display_name"] or ria["legal_name"] or "").strip()
+                        or f"RIA {str(ria['id'])[:8]}"
+                    )
+                    additional_access_summary = self._relationship_share_summary(
+                        _RELATIONSHIP_SHARE_ACTIVE_PICKS
+                    )
+                    included_relationship_shares = [
+                        {
+                            **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
+                            "share_origin": _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT,
+                            "status": "included_on_approval",
+                        }
+                    ]
+                else:
+                    await self._ensure_actor_profile_row(conn, user_id)
+                    await self._ensure_actor_profile_row(
+                        conn, subject_user_id, include_ria_persona=True
+                    )
+                    ria = await self._get_ria_profile_by_user(conn, subject_user_id)
+                    investor_user_id = user_id
+                    request_subject_user_id = subject_user_id
+                    request_agent_id = f"investor:{user_id}"
+                    request_origin_value = request_origin or "marketplace_investor_connect"
+                    requester_label = user_id
+                    additional_access_summary = (
+                        "Connection request to view the advisor's disclosure and strategy surface."
+                    )
+                    included_relationship_shares = []
 
-                ria = await self._get_ria_profile_by_user(conn, user_id)
-                if ria["verification_status"] not in {"finra_verified", "active"}:
+                if not self._is_verified_ria_status(ria["verification_status"]):
                     raise RIAIAMPolicyError(
-                        "RIA verification incomplete; cannot create consent requests",
+                        "RIA verification incomplete; cannot create connection requests",
                         status_code=403,
                     )
 
@@ -4256,21 +5289,171 @@ class RIAIAMService:
                     )
                     if membership is None:
                         raise RIAIAMPolicyError("Firm membership is not active", status_code=403)
-                created = await self._create_ria_consent_request_record(
-                    conn,
-                    ria=ria,
-                    subject_user_id=subject_user_id,
-                    template=template,
-                    chosen_scope=chosen_scope,
-                    firm_id=firm_id,
-                    reason=reason,
-                    invite_id=invite_id,
-                    invite_token=invite_token,
-                    request_origin=request_origin or "direct_ria_request",
-                    bundle_id=None,
-                    bundle_label=None,
-                    bundle_scope_count=1,
+
+                request_id = uuid.uuid4().hex
+                now_ms = self._now_ms()
+                expires_at_ms = now_ms + (template.default_duration_hours * 60 * 60 * 1000)
+                connection_selected = str(ria["user_id"] if requester == "ria" else user_id)
+                request_url = build_connection_request_url(
+                    selected=connection_selected,
+                    tab="pending",
                 )
+                requester_website_url = (
+                    str(ria["disclosures_url"] or "").strip() or None
+                    if requester == "ria"
+                    else None
+                )
+                metadata = {
+                    "requester_actor_type": requester,
+                    "subject_actor_type": subject,
+                    "requester_entity_id": str(ria["id"]) if requester == "ria" else user_id,
+                    "subject_entity_id": str(ria["id"]) if subject == "ria" else None,
+                    "requester_label": requester_label,
+                    "requester_image_url": None,
+                    "requester_website_url": requester_website_url,
+                    "firm_id": firm_id,
+                    "scope_template_id": template.template_id,
+                    "duration_mode": "investor_decides",
+                    "duration_hours": None,
+                    "request_timeout_hours": template.default_duration_hours,
+                    "approval_timeout_minutes": template.default_duration_hours * 60,
+                    "approval_timeout_at": expires_at_ms,
+                    "reason": (reason or "").strip() or None,
+                    "request_origin": request_origin_value,
+                    "invite_id": invite_id,
+                    "invite_token": invite_token,
+                    "bundle_id": None,
+                    "bundle_label": None,
+                    "bundle_scope_count": 1,
+                    "request_url": request_url,
+                    "additional_access_summary": additional_access_summary,
+                    "included_relationship_shares": included_relationship_shares,
+                }
+
+                await conn.execute(
+                    """
+                    INSERT INTO consent_audit (
+                      token_id,
+                      user_id,
+                      agent_id,
+                      scope,
+                      action,
+                      issued_at,
+                      expires_at,
+                      poll_timeout_at,
+                      request_id,
+                      scope_description,
+                      metadata
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      $3,
+                      $4,
+                      'REQUESTED',
+                      $5,
+                      $6,
+                      $7,
+                      $8,
+                      $9,
+                      $10::jsonb
+                    )
+                    """,
+                    f"req_{request_id}",
+                    request_subject_user_id,
+                    request_agent_id,
+                    chosen_scope,
+                    now_ms,
+                    expires_at_ms,
+                    expires_at_ms,
+                    request_id,
+                    template.template_name,
+                    json.dumps(metadata),
+                )
+
+                relationship = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM advisor_investor_relationships
+                    WHERE investor_user_id = $1
+                      AND ria_profile_id = $2
+                      AND (
+                        (firm_id IS NULL AND $3::uuid IS NULL)
+                        OR firm_id = $3::uuid
+                      )
+                    LIMIT 1
+                    """,
+                    investor_user_id,
+                    ria["id"],
+                    firm_id,
+                )
+                relationship_id: str | None = None
+                if relationship is None:
+                    relationship_row = await conn.fetchrow(
+                        """
+                        INSERT INTO advisor_investor_relationships (
+                          investor_user_id,
+                          ria_profile_id,
+                          firm_id,
+                          status,
+                          last_request_id,
+                          granted_scope,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3::uuid,
+                          'request_pending',
+                          $4,
+                          $5,
+                          NOW(),
+                          NOW()
+                        )
+                        RETURNING id
+                        """,
+                        investor_user_id,
+                        ria["id"],
+                        firm_id,
+                        request_id,
+                        chosen_scope,
+                    )
+                    relationship_id = (
+                        str(relationship_row["id"])
+                        if relationship_row and relationship_row["id"] is not None
+                        else None
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE advisor_investor_relationships
+                        SET
+                          status = 'request_pending',
+                          last_request_id = $2,
+                          granted_scope = COALESCE(granted_scope, $3),
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        relationship["id"],
+                        request_id,
+                        chosen_scope,
+                    )
+                    relationship_id = str(relationship["id"])
+
+                created = {
+                    "request_id": request_id,
+                    "subject_user_id": request_subject_user_id,
+                    "scope": chosen_scope,
+                    "duration_hours": template.default_duration_hours,
+                    "duration_mode": "investor_decides",
+                    "expires_at": expires_at_ms,
+                    "scope_template_id": template.template_id,
+                    "requester_entity_id": str(ria["id"]) if requester == "ria" else user_id,
+                    "relationship_id": relationship_id,
+                    "status": "REQUESTED",
+                    "metadata": metadata,
+                }
                 if duration_mode or duration_hours:
                     created["requested_duration_mode"] = (duration_mode or "").strip() or "preset"
                     created["requested_duration_hours"] = duration_hours
@@ -4315,10 +5498,11 @@ class RIAIAMService:
                     "  AND picks_share.grant_key = $3",
                     "LEFT JOIN LATERAL (",
                     "  SELECT id",
-                    "  FROM ria_pick_uploads",
-                    "  WHERE ria_profile_id = rel.ria_profile_id",
+                    "  FROM ria_pick_share_artifacts",
+                    "  WHERE relationship_id = rel.id",
+                    "    AND grant_key = $3",
                     "    AND status = 'active'",
-                    "  ORDER BY activated_at DESC NULLS LAST, created_at DESC",
+                    "  ORDER BY updated_at DESC",
                     "  LIMIT 1",
                     ") active_upload ON TRUE",
                     "WHERE rel.investor_user_id = $1",
@@ -4485,6 +5669,71 @@ class RIAIAMService:
         finally:
             await conn.close()
 
+    async def set_ria_pick_share_state(
+        self,
+        user_id: str,
+        *,
+        investor_user_id: str,
+        enabled: bool,
+    ) -> dict[str, Any]:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                relationship = await conn.fetchrow(
+                    """
+                    SELECT id, status
+                    FROM advisor_investor_relationships
+                    WHERE ria_profile_id = $1
+                      AND investor_user_id = $2
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    ria["id"],
+                    investor_user_id,
+                )
+                if relationship is None:
+                    raise RIAIAMPolicyError("Relationship not found", status_code=404)
+                if str(relationship["status"] or "").strip().lower() != "approved":
+                    raise RIAIAMPolicyError(
+                        "Only approved relationships can manage the picks share",
+                        status_code=409,
+                    )
+                if enabled:
+                    row = await self._materialize_relationship_share_grant(
+                        conn,
+                        relationship_id=str(relationship["id"]),
+                        provider_user_id=user_id,
+                        receiver_user_id=investor_user_id,
+                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        metadata=self._implicit_picks_relationship_share_metadata(
+                            source="ria_pick_share_toggle",
+                            metadata={"enabled": True},
+                        ),
+                    )
+                    return {
+                        "enabled": True,
+                        "status": str(row["status"] or "active"),
+                        "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                    }
+                await self._revoke_relationship_share_grant(
+                    conn,
+                    relationship_id=str(relationship["id"]),
+                    grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                    status="revoked",
+                    reason="ria_pick_share_toggle:disabled",
+                )
+                return {
+                    "enabled": False,
+                    "status": "revoked",
+                    "grant_key": _RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
     async def sync_relationship_from_consent_action(
         self,
         *,
@@ -4536,12 +5785,29 @@ class RIAIAMService:
                     return
 
                 metadata = self._parse_metadata(row["metadata"])
-                if metadata.get("requester_actor_type") != "ria":
+                requester_actor_type = self._normalize_actor(
+                    str(metadata.get("requester_actor_type") or "ria")
+                )
+                subject_actor_type = self._normalize_actor(
+                    str(metadata.get("subject_actor_type") or "investor")
+                )
+                if (requester_actor_type, subject_actor_type) not in {
+                    ("ria", "investor"),
+                    ("investor", "ria"),
+                }:
                     return
 
-                requester_entity_id = metadata.get("requester_entity_id")
-                if not requester_entity_id:
-                    return
+                if requester_actor_type == "ria":
+                    investor_user_id = str(row["user_id"] or "").strip()
+                    requester_entity_id = metadata.get("requester_entity_id")
+                    if not requester_entity_id:
+                        return
+                    ria_profile_id = str(requester_entity_id).strip()
+                else:
+                    investor_user_id = str(metadata.get("requester_entity_id") or "").strip()
+                    ria_profile_id = str(metadata.get("subject_entity_id") or "").strip()
+                    if not investor_user_id or not ria_profile_id:
+                        return
 
                 relationship = await conn.fetchrow(
                     """
@@ -4557,8 +5823,8 @@ class RIAIAMService:
                     ORDER BY rel.updated_at DESC
                     LIMIT 1
                     """,
-                    user_id,
-                    requester_entity_id,
+                    investor_user_id,
+                    ria_profile_id,
                     row["request_id"],
                     row["scope"],
                 )
@@ -4584,7 +5850,7 @@ class RIAIAMService:
                     latest_by_scope[scope_key] = audit_row
 
                 active_tokens = await ConsentDBService().get_active_tokens(
-                    user_id,
+                    str(row["user_id"] or user_id),
                     agent_id=row["agent_id"],
                 )
                 has_active_grant = bool(active_tokens)
@@ -4626,12 +5892,12 @@ class RIAIAMService:
 
                 relationship_id = str(relationship["id"])
                 provider_user_id = str(relationship["ria_user_id"])
-                if action == "CONSENT_GRANTED":
+                if action == "CONSENT_GRANTED" and requester_actor_type == "ria":
                     await self._materialize_relationship_share_grant(
                         conn,
                         relationship_id=relationship_id,
                         provider_user_id=provider_user_id,
-                        receiver_user_id=user_id,
+                        receiver_user_id=investor_user_id,
                         grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
                         metadata=self._implicit_picks_relationship_share_metadata(
                             source="relationship_sync",
@@ -4641,7 +5907,10 @@ class RIAIAMService:
                             },
                         ),
                     )
-                elif action in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}:
+                elif (
+                    action in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}
+                    and requester_actor_type == "ria"
+                ):
                     await self._revoke_relationship_share_grant(
                         conn,
                         relationship_id=relationship_id,
@@ -4649,7 +5918,7 @@ class RIAIAMService:
                         status="revoked",
                         reason=f"consent_action:{action.lower()}",
                     )
-                elif action == "TIMEOUT":
+                elif action == "TIMEOUT" and requester_actor_type == "ria":
                     await self._revoke_relationship_share_grant(
                         conn,
                         relationship_id=relationship_id,
@@ -4684,6 +5953,11 @@ class RIAIAMService:
                   mp.headline,
                   mp.strategy_summary,
                   rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
                   COALESCE(
                     json_agg(
                       DISTINCT jsonb_build_object(
@@ -4708,6 +5982,7 @@ class RIAIAMService:
                 WHERE
                   ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
                   AND ($2::text IS NULL OR rp.verification_status = $2)
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
                   AND (
                     $3::text IS NULL
                     OR EXISTS (
@@ -4719,7 +5994,14 @@ class RIAIAMService:
                         AND f2.legal_name ILIKE ('%' || $3 || '%')
                     )
                   )
-                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status
+                GROUP BY
+                  rp.id,
+                  rp.user_id,
+                  mp.display_name,
+                  mp.headline,
+                  mp.strategy_summary,
+                  mp.metadata,
+                  rp.verification_status
                 ORDER BY
                   CASE WHEN rp.verification_status IN ('active', 'finra_verified') THEN 0 ELSE 1 END,
                   mp.display_name ASC
@@ -4749,6 +6031,11 @@ class RIAIAMService:
                   mp.headline,
                   mp.strategy_summary,
                   rp.verification_status,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile,
                   rp.bio,
                   rp.strategy,
                   rp.disclosures_url,
@@ -4774,7 +6061,8 @@ class RIAIAMService:
                 LEFT JOIN ria_firms f
                   ON f.id = m.firm_id
                 WHERE rp.id = $1::uuid
-                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
+                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url, is_test_profile
                 """,
                 ria_id,
             )
@@ -4801,7 +6089,12 @@ class RIAIAMService:
                   mp.display_name,
                   mp.headline,
                   mp.location_hint,
-                  mp.strategy_summary
+                  mp.strategy_summary,
+                  CASE
+                    WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                    THEN (mp.metadata ->> 'is_test_profile')::boolean
+                    ELSE FALSE
+                  END AS is_test_profile
                 FROM actor_profiles ap
                 JOIN marketplace_public_profiles mp
                   ON mp.user_id = ap.user_id
@@ -4810,6 +6103,7 @@ class RIAIAMService:
                 WHERE
                   ap.investor_marketplace_opt_in = TRUE
                   AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
+                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
                 ORDER BY mp.display_name ASC
                 LIMIT $2
                 """,

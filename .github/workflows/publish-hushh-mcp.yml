@@ -1,0 +1,59 @@
+name: Publish @hushh/mcp
+
+on:
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: "npm dist-tag to publish"
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - latest
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE_DIR: packages/hushh-mcp
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Dry-run tarball
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm pack --dry-run
+
+      - name: Check public docs are in sync
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm run docs:check
+      - name: Guard against duplicate npm version
+        working-directory: ${{ env.PACKAGE_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "Version ${PACKAGE_NAME}@${PACKAGE_VERSION} is already published."
+            exit 1
+          fi
+
+      - name: Publish package
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm publish --tag "${{ github.event.inputs.dist_tag }}"
+
+      - name: Verify npx install surface
+        run: npx -y "@hushh/mcp@${{ github.event.inputs.dist_tag }}" --help

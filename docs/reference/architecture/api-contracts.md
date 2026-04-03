@@ -2,26 +2,6 @@
 
 > Complete endpoint reference, authentication model, and developer integration guide.
 
-
-## Visual Map
-
-```mermaid
-sequenceDiagram
-  participant Client
-  participant Boundary as Web Proxy / Native Plugin
-  participant API as FastAPI Route
-  participant Service as Consent + Service Layer
-  participant Store as PKM / DB / Provider
-  Client->>Boundary: runtime request
-  Boundary->>API: canonical /api/* call
-  API->>Service: auth + consent + scope checks
-  Service->>Store: read/write
-  Store-->>Service: data or ciphertext
-  Service-->>API: contract response
-  API-->>Boundary: token-gated payload
-  Boundary-->>Client: runtime data
-```
-
 ---
 
 ## Token Hierarchy
@@ -48,6 +28,18 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | VAULT_OWNER Token     | Consent + identity for all data  | 24 hours | `Bearer <vault-owner-token>`   |
 | Agent Scoped Token    | Delegated MCP agent access       | 7 days   | `Bearer <consent-token>`       |
 | Developer Token       | External API and remote MCP access | N/A    | `?token=<developer-token>`     |
+
+---
+
+## Visual Map
+
+```text
+Client surfaces
+  -> Next.js API proxies / native plugins
+    -> FastAPI route families
+      -> consent, PKM, IAM, Kai, RIA, marketplace, notifications
+        -> encrypted storage, scoped sharing, and public lookup contracts
+```
 
 ---
 
@@ -120,23 +112,6 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | POST | `/api/consent/revoke` | Revoke active consent |
 | GET | `/api/consent/history` | Paginated consent audit history |
 | GET | `/api/consent/active` | Active (non-expired) tokens |
-| GET | `/api/consent/center` | Compatibility read model for older consent-center callers |
-| GET | `/api/consent/center/summary` | Canonical header counts for `/consents` (`pending`, `active`, `previous`) |
-| GET | `/api/consent/center/list` | Canonical consent-manager list for one actor/surface (`page`, `limit`, `total`, `has_more`, `items[]`); supports full-manager `page + limit` and preview `top` |
-
-Consent-manager note:
-
-- `/consents` is powered by `summary + list`, not the monolithic `center` payload
-- `center/list` is actor-aware and surface-aware:
-  - investor `pending`: incoming requests
-  - investor `active`: active grants
-  - investor `previous`: resolved history
-  - RIA `pending`: outgoing requests + open invites
-  - RIA `active`: approved relationship / active grant roster
-  - RIA `previous`: resolved outgoing requests + closed invite history
-- full managers use backend-backed `page + limit` (`limit=20` current default)
-- the first-party top-shell consent inbox reuses the cached `pending page 1` manager payload and renders the first `5` rows from that list instead of owning a second preview cache lane
-- dedicated preview callers can still use `top=n` when they explicitly do not need the full manager page contract
 
 #### RIA And Relationship Sharing
 
@@ -171,15 +146,6 @@ RIA relationship bundle note:
 | POST | `/api/pkm/upgrade/runs/{run_id}/fail` | Mark a PKM upgrade run failed |
 | GET | `/api/pkm/scopes/{user_id}` | Get available PKM scope handles for the user |
 | POST | `/api/pkm/get-context` | Get user context for analysis |
-
-Legacy compatibility note:
-
-- `/api/world-model/*` remains available only as a compatibility surface mapped onto PKM
-- these responses emit deprecation headers:
-  - `Deprecation: true`
-  - `Sunset: 2026-06-30T00:00:00Z`
-  - `X-Migrate-To: /api/pkm/...`
-- no new first-party callers should be added to `/api/world-model/*`
 
 #### Kai Chat
 
@@ -516,8 +482,8 @@ Plugins requiring camelCase transformation: PersonalKnowledgeModel, Kai.
 5. Create Next.js proxy: `hushh-webapp/app/api/{path}/route.ts`
 6. Create Capacitor plugin: iOS Swift + Android Kotlin
 7. Add service method: `hushh-webapp/lib/services/{name}-service.ts`
-8. Add route contract: `hushh-webapp/route-contracts.json`
-9. Verify: `npm run verify:routes`
+8. Update app navigation truth when needed: `hushh-webapp/lib/navigation/routes.ts`
+9. Verify route/docs alignment: `bash scripts/ci/docs-parity-check.sh`
 
 See [Architecture: Tri-Flow](./architecture.md#tri-flow-architecture) for the full pattern.
 

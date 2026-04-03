@@ -115,6 +115,13 @@ class CancelConsentRequest(BaseModel):
     requestId: str
 
 
+class PendingConsentOpenedRequest(BaseModel):
+    userId: str
+    requestId: str | None = None
+    bundleId: str | None = None
+    openedVia: str | None = None
+
+
 class GenericConsentRequestCreate(BaseModel):
     subject_user_id: str
     requester_actor_type: str = "ria"
@@ -173,6 +180,26 @@ async def get_pending_consents(
     pending_from_db = await _hydrate_pending_requester_labels(pending_from_db)
     logger.info("consent.pending_fetched count=%s", len(pending_from_db))
     return {"pending": pending_from_db}
+
+
+@router.post("/pending/opened")
+async def mark_pending_consent_opened(
+    body: PendingConsentOpenedRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data["user_id"] != body.userId:
+        raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
+
+    service = ConsentDBService()
+    opened = await service.mark_pending_request_opened(
+        user_id=body.userId,
+        request_id=body.requestId,
+        bundle_id=body.bundleId,
+        opened_via=body.openedVia,
+    )
+    if opened is None:
+        return {"ok": True, "acknowledged": False}
+    return {"ok": True, "acknowledged": True, **opened}
 
 
 @router.post("/pending/approve")
@@ -561,16 +588,18 @@ async def get_consent_center(firebase_uid: str = Depends(require_firebase_auth))
 @router.get("/center/summary")
 async def get_consent_center_summary(
     actor: str = Query(default="investor"),
+    mode: str = Query(default="consents"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
-    return await service.get_center_summary(firebase_uid, actor=actor)
+    return await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
 
 
 @router.get("/center/list")
 async def get_consent_center_list(
     actor: str = Query(default="investor"),
     surface: str = Query(default="pending"),
+    mode: str = Query(default="consents"),
     q: str | None = Query(default=None),
     top: int | None = Query(default=None, ge=1, le=10),
     page: int = Query(default=1, ge=1),
@@ -582,6 +611,7 @@ async def get_consent_center_list(
         firebase_uid,
         actor=actor,
         surface=surface,
+        mode=mode,
         query=q,
         top=top,
         page=page,

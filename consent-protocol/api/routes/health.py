@@ -63,12 +63,16 @@ async def issue_app_review_mode_session(request: Request):
             headers=NO_STORE_HEADERS,
         )
 
-    reviewer_uid = str(os.getenv("REVIEWER_UID", "")).strip()
+    reviewer_uid = (
+        str(os.getenv("REVIEWER_UID", "")).strip() or str(os.getenv("KAI_TEST_USER_ID", "")).strip()
+    )
+    failure_reason = "missing_reviewer_uid"
+
     if not reviewer_uid:
-        logger.error("app_review_mode.session_failed reason=missing_reviewer_uid")
+        logger.error("app_review_mode.session_failed reason=%s", failure_reason)
         raise HTTPException(
             status_code=503,
-            detail="Reviewer identity not configured",
+            detail="Review session identity not configured",
             headers=NO_STORE_HEADERS,
         )
 
@@ -101,8 +105,9 @@ async def issue_app_review_mode_session(request: Request):
 
     client_ip = request.client.host if request.client else "unknown"
     logger.info(
-        "app_review_mode.session_issued reviewer_uid=%s project_id=%s client_ip=%s",
+        "app_review_mode.session_issued reviewer_uid=%s subject=%s project_id=%s client_ip=%s",
         reviewer_uid,
+        "reviewer",
         project_id or "unknown",
         client_ip,
     )

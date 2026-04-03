@@ -68,7 +68,7 @@ fi
 
 if [ "$(runtime_profile_backend_mode "$PROFILE")" != "local" ]; then
   echo "Runtime mode $PROFILE does not start a local backend." >&2
-  echo "Use a remote mode with 'npm run web -- --mode=$PROFILE'." >&2
+  echo "Use a remote mode with './bin/hushh web --mode $PROFILE'." >&2
   exit 1
 fi
 
@@ -85,7 +85,7 @@ fi
 BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
 if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
   echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
-  echo "Run 'make bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
+  echo "Run './bin/hushh bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
   exit 1
 fi
 
@@ -302,7 +302,7 @@ if [ -z "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhos
   if ! port_is_listening 127.0.0.1 "$DB_PORT"; then
     echo "Backend env points at local DB ${DB_HOST}:${DB_PORT}, but CLOUDSQL_INSTANCE_CONNECTION_NAME is unset." >&2
     echo "The launcher cannot start the Cloud SQL proxy without that value." >&2
-    echo "Run 'npm run bootstrap' to hydrate consent-protocol/.env, or set a reachable non-local DB_HOST override." >&2
+    echo "Run './bin/hushh bootstrap' to hydrate consent-protocol/.env, or set a reachable non-local DB_HOST override." >&2
     exit 1
   fi
 fi

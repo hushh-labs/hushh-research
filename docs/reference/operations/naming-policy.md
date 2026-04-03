@@ -1,20 +1,20 @@
 # Naming Policy
 
-This repo is moving its public language from **Hushh** to **Hussh**.
+Public docs and product prose in this repo use **Hushh**.
 
 ## Visual Context
 
 Canonical visual owner: [Operations Index](README.md). Use that map for the top-down operations view; this page defines one policy inside it.
 
-The public framing also shifts from “shh” secrecy language to an **SSH-style trust model**:
+Where useful, the trust model may be described with an SSH-style mnemonic:
 
 - **Secure**
 - **Scoped**
 - **Handled by the user**
 
-## Rename Now
+## Public Usage
 
-Use **Hussh** in:
+Use **Hushh** in:
 
 - public docs
 - onboarding copy
@@ -23,7 +23,7 @@ Use **Hussh** in:
 
 ## Compatibility Only
 
-Legacy `Hushh` identifiers may remain temporarily in:
+Legacy and infrastructure-bound identifiers may remain temporarily in:
 
 - repo slug
 - package names
@@ -38,7 +38,7 @@ Those are compatibility boundaries, not the public product language.
 
 Do not introduce new public-facing:
 
-- `Hushh` branding in prose
+- alternate public spellings that replace the Hushh name in prose
 - emoji-led secrecy branding
 - “privacy by vibe” language that hides the actual trust model
 

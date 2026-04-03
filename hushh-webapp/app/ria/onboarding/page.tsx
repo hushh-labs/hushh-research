@@ -12,6 +12,7 @@ import {
   ShieldQuestion,
 } from "lucide-react";
 
+import { PopupTextEditorField } from "@/components/app-ui/command-fields";
 import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader, SurfaceInset } from "@/components/app-ui/surfaces";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Progress } from "@/components/ui/progress";
@@ -193,32 +194,6 @@ function TextField({
   );
 }
 
-function TextAreaField({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="space-y-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-        {label}
-      </span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-28 w-full resize-none rounded-[22px] border border-border/70 bg-background/90 px-4 py-3 text-sm leading-6 outline-none transition-[border-color,box-shadow] focus:border-foreground/30 focus:shadow-[0_0_0_4px_rgba(15,23,42,0.06)]"
-        placeholder={placeholder}
-      />
-    </label>
-  );
-}
-
 function ReviewField({
   label,
   value,
@@ -391,7 +366,7 @@ export default function RiaOnboardingPage() {
       const payload = buildSubmitPayload(draft);
       const result =
         mode === "submit"
-          ? await RiaService.submitOnboarding(idToken, payload)
+          ? await RiaService.submitOnboarding(idToken, { ...payload, force_live_verification: true })
           : await RiaService.activateDevRia(idToken, payload);
 
       setStatus((current) => ({
@@ -410,17 +385,25 @@ export default function RiaOnboardingPage() {
         dev_ria_bypass_allowed: mode === "dev_activate" ? true : current?.dev_ria_bypass_allowed,
       }));
 
+      const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
+      const verificationOutcome = (result.verification_outcome || "").toLowerCase();
+      const canActivateDiscoverability =
+        mode === "dev_activate" ||
+        advisoryOutcome === "verified" ||
+        advisoryOutcome === "active" ||
+        advisoryOutcome === "bypassed";
+
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
-        enabled: true,
+        enabled: canActivateDiscoverability,
         headline: draft.headline.trim() || undefined,
         strategy_summary: draft.strategySummary.trim() || undefined,
       }).catch(() => null);
       await refreshPersonaState({ force: true });
-      await RiaOnboardingDraftLocalService.clear(user.uid);
-      setShouldPersistDraft(false);
+      if (canActivateDiscoverability) {
+        await RiaOnboardingDraftLocalService.clear(user.uid);
+        setShouldPersistDraft(false);
+      }
 
-      const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
-      const verificationOutcome = (result.verification_outcome || "").toLowerCase();
       if (mode === "dev_activate") {
         toast.success("Developer activation completed", {
           description: "The RIA workspace is ready in this environment.",
@@ -454,14 +437,14 @@ export default function RiaOnboardingPage() {
             "Verification bypass is active in this environment. Your RIA workspace is ready for flow testing."
         );
       } else if (verificationOutcome === "provider_unavailable") {
-        toast.warning("Verification service unavailable", {
+        toast.error("Verification service unavailable", {
           description:
             result.verification_message ||
-            "This environment is missing CRD/IAPD verification provider configuration.",
+            "This environment is missing regulatory verification provider configuration.",
         });
         setNotice(
           result.verification_message ||
-            "Verification providers are unavailable in this environment. Configure IAPD/RIA intelligence providers."
+            "Regulatory verification is unavailable in this environment. Onboarding stays blocked until the verification provider is healthy."
         );
       } else {
         toast.info("Verification submitted", {
@@ -547,7 +530,7 @@ export default function RiaOnboardingPage() {
               onChange={(value) => updateDraft({ displayName: value })}
             />
             <p className="text-sm leading-6 text-muted-foreground">
-              Investors should recognize this name immediately on discovery cards, relationship
+              Investors should recognize this name immediately on discovery cards, connection
               requests, and consent prompts.
             </p>
           </div>
@@ -615,12 +598,20 @@ export default function RiaOnboardingPage() {
               value={draft.headline}
               onChange={(value) => updateDraft({ headline: value })}
             />
-            <TextAreaField
-              label="Short strategy summary"
-              placeholder="Describe the style and specialization investors should understand in one calm, credible paragraph."
-              value={draft.strategySummary}
-              onChange={(value) => updateDraft({ strategySummary: value })}
-            />
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                Short strategy summary
+              </span>
+              <PopupTextEditorField
+                title="Short strategy summary"
+                description="Describe the style and specialization investors should understand in one calm, credible paragraph."
+                value={draft.strategySummary}
+                placeholder="Describe the style and specialization investors should understand in one calm, credible paragraph."
+                previewPlaceholder="Add the short strategy summary"
+                onSave={(value) => updateDraft({ strategySummary: value })}
+                triggerClassName="min-h-[112px] rounded-[22px]"
+              />
+            </label>
           </div>
         );
       case "review":
@@ -695,7 +686,7 @@ export default function RiaOnboardingPage() {
                   <div className="space-y-2">
                     <p className="text-sm font-semibold">Verification passed. Your RIA workspace is ready.</p>
                     <p className="text-sm text-background/78">
-                      The trust surface is active, and you can move into relationship building and consent flows.
+                      The trust surface is active, and you can move into investor connections and consent flows.
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Link
@@ -727,6 +718,18 @@ export default function RiaOnboardingPage() {
       eyebrow="Professional Onboarding"
       title="Build the advisor trust surface before Kai unlocks the workflow"
       description="A calmer onboarding interview for trust-critical identity, verification records, and the short public profile investors see first."
+      nativeTest={{
+        routeId: "/ria/onboarding",
+        marker: "native-route-ria-onboarding",
+        authState: user ? "authenticated" : "pending",
+        dataState: loading
+          ? "loading"
+          : iamUnavailable
+            ? "unavailable-valid"
+            : "loaded",
+        errorCode: error ? "ria_onboarding" : null,
+        errorMessage: error,
+      }}
     >
       {iamUnavailable ? (
         <RiaCompatibilityState

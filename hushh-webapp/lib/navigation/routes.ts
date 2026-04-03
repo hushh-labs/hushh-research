@@ -16,6 +16,7 @@ export const ROUTES = {
   PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
   CONSENTS: "/consents",
   MARKETPLACE: "/marketplace",
+  MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
@@ -53,8 +54,34 @@ export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
 }
 
+export function buildMarketplaceConnectionsRoute(entries?: {
+  tab?: "pending" | "active" | "previous" | null;
+  selected?: string | null;
+}) {
+  return withQuery(ROUTES.MARKETPLACE_CONNECTIONS, {
+    tab: entries?.tab,
+    selected: entries?.selected,
+  });
+}
+
+export function buildMarketplaceConnectionPortfolioRoute(connectionId?: string | null) {
+  const normalized = String(connectionId ?? "").trim();
+  if (!normalized) return ROUTES.MARKETPLACE_CONNECTIONS;
+  return withQuery(`${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`, { connectionId: normalized });
+}
+
 export function buildRiaWorkspaceRoute(clientId?: string | null) {
   return withQuery(ROUTES.RIA_WORKSPACE, { clientId });
+}
+
+export function buildKaiAnalysisPreviewRoute(entries?: {
+  ticker?: string | null;
+  pickSource?: string | null;
+}) {
+  return withQuery(ROUTES.KAI_ANALYSIS, {
+    ticker: entries?.ticker,
+    pick_source: entries?.pickSource,
+  });
 }
 
 export function isKaiOnboardingRoute(pathname: string): boolean {

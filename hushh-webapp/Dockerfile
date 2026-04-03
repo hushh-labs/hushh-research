@@ -1,5 +1,9 @@
 # Multi-stage build for Next.js Standalone
 # Optimized for Google Cloud Run (Node.js)
+#
+# Next.js docs: https://nextjs.org/docs/app/api-reference/config/next-config-js/output
+# Monorepo note: outputFileTracingRoot is set to ".." in next.config.ts,
+# so standalone output nests under hushh-webapp/ in .next/standalone/.
 
 # Stage 1: Build Next.js application
 FROM node:20-alpine AS builder
@@ -63,7 +67,7 @@ ENV NEXT_PUBLIC_GTM_ID_PRODUCTION=$NEXT_PUBLIC_GTM_ID_PRODUCTION
 ENV CAPACITOR_BUILD=false
 ENV NODE_ENV=production
 
-# Build Next.js (produces .next/standalone)
+# Build Next.js (produces .next/standalone with monorepo-aware paths)
 RUN npm run build
 
 # Stage 2: Production runner
@@ -73,23 +77,49 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8080
-# HOSTname required for proper listening in container
 ENV HOSTNAME="0.0.0.0"
 
-# Copy public assets
+# Copy the standalone output.
+# Depending on the build context, Next's standalone server can land at:
+# - /app/server.js
+# - /app/app/server.js
+# - /app/hushh-webapp/server.js
+COPY --from=builder /app/.next/standalone ./
+
+# Copy public assets and static files for the root standalone layout.
 COPY --from=builder /app/public ./public
 
-# Copy standalone build
-# This includes necessary node_modules and server.js
-COPY --from=builder /app/.next/standalone ./
+# Copy static assets
 COPY --from=builder /app/.next/static ./.next/static
 
-# Expose port
+# Normalize the supported standalone layouts so Cloud Run always has one
+# canonical entrypoint and any nested standalone path still resolves assets.
+RUN set -eux; \
+    mkdir -p /app/app/.next /app/hushh-webapp/.next; \
+    if [ -f /app/server.js ]; then \
+      SERVER_PATH=/app/server.js; \
+    elif [ -f /app/app/server.js ]; then \
+      SERVER_PATH=/app/app/server.js; \
+      ln -sfn /app/app/server.js /app/server.js; \
+    elif [ -f /app/hushh-webapp/server.js ]; then \
+      SERVER_PATH=/app/hushh-webapp/server.js; \
+      ln -sfn /app/hushh-webapp/server.js /app/server.js; \
+    else \
+      echo "No standalone server.js found after copy" >&2; \
+      find /app -maxdepth 4 -name server.js -print >&2; \
+      exit 1; \
+    fi; \
+    for nested in /app/app /app/hushh-webapp; do \
+      rm -rf "$nested/public" "$nested/.next/static"; \
+      ln -sfn ../public "$nested/public"; \
+      ln -sfn ../../.next/static "$nested/.next/static"; \
+    done; \
+    test -f "$SERVER_PATH"
+
 EXPOSE 8080
 
-# Health check (Next.js doesn't have default /health, but / should work)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-# Start Node.js server
+# Start the canonical normalized standalone server.
 CMD ["node", "server.js"]

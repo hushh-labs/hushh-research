@@ -34,6 +34,7 @@ class RIAOnboardingSubmitRequest(BaseModel):
     disclosures_url: str | None = None
     primary_firm_name: str | None = None
     primary_firm_role: str | None = None
+    force_live_verification: bool = False
 
 
 class RIAConsentRequestCreate(BaseModel):
@@ -56,10 +57,23 @@ class RIAConsentBundleCreate(BaseModel):
     reason: str | None = None
 
 
-class RIAPicksUploadRequest(BaseModel):
+class RIAPicksParseRequest(BaseModel):
     csv_content: str = Field(..., min_length=1)
     source_filename: str | None = None
+    package_note: str | None = None
+    avoid_rows: list[dict] = Field(default_factory=list)
+    screening_sections: list[dict] = Field(default_factory=list)
+
+
+class RIAPicksSyncRequest(BaseModel):
     label: str | None = None
+    package_note: str | None = None
+    top_picks: list[dict] = Field(default_factory=list)
+    avoid_rows: list[dict] = Field(default_factory=list)
+    screening_sections: list[dict] = Field(default_factory=list)
+    source_data_version: int | None = None
+    source_manifest_revision: int | None = None
+    retire_legacy: bool = True
 
 
 class RIAInviteTarget(BaseModel):
@@ -84,6 +98,10 @@ class RIAMarketplaceDiscoverabilityRequest(BaseModel):
     enabled: bool
     headline: str | None = None
     strategy_summary: str | None = None
+
+
+class RIAPicksShareStateRequest(BaseModel):
+    enabled: bool
 
 
 class RIAClientDetailResponse(BaseModel):
@@ -151,6 +169,7 @@ async def submit_onboarding(
             strategy=payload.strategy,
             disclosures_url=payload.disclosures_url,
             primary_firm_role=payload.primary_firm_role,
+            force_live_verification=payload.force_live_verification,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
@@ -376,13 +395,99 @@ async def create_ria_request_bundle(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.get("/universe")
+async def renaissance_universe(
+    tier: str | None = Query(None),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Return the Renaissance investable universe (default Kai stock list)."""
+    from hushh_mcp.services.renaissance_service import get_renaissance_service
+    from hushh_mcp.services.symbol_master_service import get_symbol_master_service
+
+    service = get_renaissance_service()
+    symbol_master = get_symbol_master_service()
+    if tier:
+        stocks = await service.get_by_tier(tier.upper())
+    else:
+        stocks = await service.get_all_investable()
+    filtered_stocks = [stock for stock in stocks if symbol_master.classify(stock.ticker).tradable]
+    return {
+        "items": [
+            {
+                "ticker": s.ticker,
+                "company_name": s.company_name,
+                "sector": s.sector,
+                "tier": s.tier,
+                "tier_rank": s.tier_rank,
+                "fcf_billions": s.fcf_billions,
+                "investment_thesis": s.investment_thesis,
+            }
+            for s in filtered_stocks
+        ],
+        "total": len(filtered_stocks),
+    }
+
+
+@router.get("/universe/avoid")
+async def renaissance_avoid_list(firebase_uid: str = Depends(require_firebase_auth)):
+    """Return the Renaissance avoid list."""
+    from hushh_mcp.services.renaissance_service import get_renaissance_service
+
+    service = get_renaissance_service()
+    members = await service.list_members("renaissance_avoid")
+    return {
+        "items": [
+            {
+                "ticker": m.ticker,
+                "company_name": m.company_name,
+                "sector": m.sector,
+                "category": m.metadata.get("category") if m.metadata else None,
+                "why_avoid": m.metadata.get("why_avoid") if m.metadata else None,
+            }
+            for m in members
+        ],
+    }
+
+
+@router.get("/universe/screening")
+async def renaissance_screening(firebase_uid: str = Depends(require_firebase_auth)):
+    """Return the Renaissance screening criteria rubric."""
+    from hushh_mcp.services.renaissance_service import get_renaissance_service
+
+    service = get_renaissance_service()
+    criteria = await service.get_screening_criteria()
+    return {"items": criteria}
+
+
 @router.get("/picks")
 async def ria_pick_uploads(firebase_uid: str = Depends(require_firebase_auth)):
     service = RIAIAMService()
     try:
-        uploads = await service.list_ria_pick_uploads(firebase_uid)
-        active_rows = await service.get_active_ria_pick_rows(firebase_uid)
-        return {"items": uploads, "active_rows": active_rows}
+        return await service.get_active_ria_pick_package(firebase_uid)
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/picks/parse")
+async def parse_ria_picks_csv(
+    payload: RIAPicksParseRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    _ = firebase_uid
+    service = RIAIAMService()
+    try:
+        if not payload.csv_content.strip():
+            raise HTTPException(status_code=400, detail="csv_content is required")
+        return {
+            "package": await service.parse_ria_pick_csv(
+                csv_content=payload.csv_content,
+                package_note=payload.package_note,
+                avoid_rows=payload.avoid_rows,
+                screening_sections=payload.screening_sections,
+            )
+        }
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
@@ -391,16 +496,21 @@ async def ria_pick_uploads(firebase_uid: str = Depends(require_firebase_auth)):
 
 @router.post("/picks")
 async def upload_ria_picks(
-    payload: RIAPicksUploadRequest,
+    payload: RIAPicksSyncRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = RIAIAMService()
     try:
-        return await service.upload_ria_pick_list(
+        return await service.sync_ria_pick_share_artifacts(
             firebase_uid,
-            csv_content=payload.csv_content,
-            source_filename=payload.source_filename,
             label=payload.label,
+            package_note=payload.package_note,
+            top_picks=payload.top_picks,
+            avoid_rows=payload.avoid_rows,
+            screening_sections=payload.screening_sections,
+            source_data_version=payload.source_data_version,
+            source_manifest_revision=payload.source_manifest_revision,
+            retire_legacy=payload.retire_legacy,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
@@ -416,6 +526,25 @@ async def ria_workspace(
     service = RIAIAMService()
     try:
         return await service.get_ria_workspace(firebase_uid, investor_user_id)
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/clients/{investor_user_id}/picks-share")
+async def set_ria_client_picks_share(
+    investor_user_id: str,
+    payload: RIAPicksShareStateRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        return await service.set_ria_pick_share_state(
+            firebase_uid,
+            investor_user_id=investor_user_id,
+            enabled=payload.enabled,
+        )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:

@@ -57,7 +57,6 @@ testcode.html
 /ios/App/.xcworkspace/
 /ios/App/Podfile.lock
 /ios/App/App/GoogleService-Info.plist
-!/ios/App/App/GoogleService-Info.plist
 /ios/App/App/build/
 /ios/build/
 /ios/DerivedData/

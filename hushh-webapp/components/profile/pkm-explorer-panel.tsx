@@ -299,10 +299,10 @@ export function PkmExplorerPanel() {
                   <button
                     key={domain.key}
                     type="button"
-                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                    className={`w-full rounded-[var(--radius-md)] border-0 px-4 py-3 text-left transition ${
                       isActive
-                        ? "border-sky-400 bg-sky-50/80"
-                        : "border-border bg-background hover:bg-muted/40"
+                        ? "bg-primary/8 text-foreground dark:bg-primary/12"
+                        : "bg-card shadow-[var(--app-card-shadow-standard)] hover:bg-muted/50"
                     }`}
                     onClick={() => setSelectedDomain(domain.key)}
                   >

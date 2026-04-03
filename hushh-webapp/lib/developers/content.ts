@@ -1,4 +1,5 @@
 import type { DeveloperRuntime } from "@/lib/developers/runtime";
+import mcpPublicDocs from "@/lib/developers/public-docs.json";
 
 export type DeveloperSection = {
   id: string;
@@ -37,6 +38,73 @@ export type DeveloperSamplePayload = {
   code: string;
 };
 
+export type McpHostExample = {
+  id: string;
+  title: string;
+  whenToUse: string;
+  secretNote: string;
+  code: string;
+  copyLabel: string;
+};
+
+type McpPublicDocs = typeof mcpPublicDocs;
+
+const MCP_PUBLIC_DOCS = mcpPublicDocs as McpPublicDocs;
+
+export const MCP_PUBLIC_LINKS = {
+  npmPackageUrl: `https://www.npmjs.com/package/${MCP_PUBLIC_DOCS.packageName}`,
+  technicalCompanionUrl:
+    "https://github.com/hushh-labs/hushh-research/blob/main/consent-protocol/docs/mcp-setup.md",
+  apiReferenceUrl:
+    "https://github.com/hushh-labs/hushh-research/blob/main/consent-protocol/docs/reference/developer-api.md",
+} as const;
+
+function renderMcpTemplate(
+  template: string,
+  replacements: {
+    remoteUrl: string;
+    packageName: string;
+    apiOrigin: string;
+    tokenEnvVar: string;
+    developerToken: string;
+  }
+) {
+  return template
+    .replaceAll("{{REMOTE_URL}}", replacements.remoteUrl)
+    .replaceAll("{{PACKAGE_NAME}}", replacements.packageName)
+    .replaceAll("{{API_ORIGIN}}", replacements.apiOrigin)
+    .replaceAll("{{TOKEN_ENV_VAR}}", replacements.tokenEnvVar)
+    .replaceAll("<developer-token>", replacements.developerToken);
+}
+
+function buildMcpHostExamples(developerToken = "<developer-token>"): McpHostExample[] {
+  const remoteUrl = MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate.replace(
+    "<developer-token>",
+    developerToken
+  );
+
+  return MCP_PUBLIC_DOCS.hostExamples.map((example) => ({
+    id: example.id,
+    title: example.title,
+    whenToUse: example.whenToUse,
+    secretNote: renderMcpTemplate(example.secretNote, {
+      remoteUrl,
+      packageName: MCP_PUBLIC_DOCS.packageName,
+      apiOrigin: MCP_PUBLIC_DOCS.promotedEnvironment.apiOrigin,
+      tokenEnvVar: MCP_PUBLIC_DOCS.tokenEnvVar,
+      developerToken,
+    }),
+    code: renderMcpTemplate(example.template, {
+      remoteUrl,
+      packageName: MCP_PUBLIC_DOCS.packageName,
+      apiOrigin: MCP_PUBLIC_DOCS.promotedEnvironment.apiOrigin,
+      tokenEnvVar: MCP_PUBLIC_DOCS.tokenEnvVar,
+      developerToken,
+    }),
+    copyLabel: example.title,
+  }));
+}
+
 export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "start",
@@ -66,7 +134,7 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "mcp",
     label: "MCP",
-    summary: "Remote MCP and npm launcher guidance for external agents.",
+    summary: "Host-agnostic MCP setup for remote and stdio-capable clients.",
   },
   {
     id: "api",
@@ -85,14 +153,13 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   },
 ];
 
-export const PUBLIC_TOOL_NAMES = [
-  "discover_user_domains",
-  "request_consent",
-  "check_consent_status",
-  "get_encrypted_scoped_export",
-  "validate_token",
-  "list_scopes",
-] as const;
+export const PUBLIC_TOOL_NAMES = [...MCP_PUBLIC_DOCS.publicTools] as const;
+export const PUBLIC_RESOURCE_URIS = [...MCP_PUBLIC_DOCS.publicResources] as const;
+export const PUBLIC_MCP_ENVIRONMENT = {
+  label: MCP_PUBLIC_DOCS.promotedEnvironment.label,
+  apiOrigin: MCP_PUBLIC_DOCS.promotedEnvironment.apiOrigin,
+  remoteUrlTemplate: MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate,
+} as const;
 
 export const PUBLIC_SCOPE_PATTERNS = [
   "pkm.read",
@@ -142,7 +209,7 @@ export const REST_ENDPOINTS: RestEndpoint[] = [
     method: "GET",
     path: "/api/v1/tool-catalog",
     auth: "Optional ?token=...",
-    purpose: "Current tool visibility for public beta or a specific developer app.",
+    purpose: "Current tool visibility for the public developer lane or a specific developer app.",
   },
   {
     method: "GET",
@@ -347,7 +414,7 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
       id: "remote-mcp",
       title: "Remote MCP",
       summary:
-        "Point remote-capable hosts at the MCP endpoint and append ?token=<developer-token> to the URL.",
+        `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the exact /mcp/?token=... URL shape.`,
     },
     {
       id: "rest",
@@ -359,7 +426,7 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
       id: "npm",
       title: "npm Bridge",
       summary:
-        "Use the npm launcher when the host still expects a local stdio MCP process instead of HTTP MCP.",
+        `Use ${MCP_PUBLIC_DOCS.packageName} when the host still expects a local stdio MCP process instead of HTTP MCP.`,
     },
   ];
 }
@@ -395,27 +462,28 @@ export function buildRestSnippets(runtime: DeveloperRuntime, developerToken = "<
   };
 }
 
-export function buildMcpSnippets(runtime: DeveloperRuntime, developerToken = "<developer-token>") {
+export function buildMcpSnippets(_runtime: DeveloperRuntime, developerToken = "<developer-token>") {
+  const remoteUrl = MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate.replace(
+    "<developer-token>",
+    developerToken
+  );
+  const examples = buildMcpHostExamples(developerToken);
+  const byId = new Map(examples.map((example) => [example.id, example]));
+
   return {
-    remote: `{
-  "mcpServers": {
-    "hushh-consent-remote": {
-      "url": "${runtime.mcpUrl}?token=${developerToken}"
-    }
-  }
-}`,
-    npm: `{
-  "mcpServers": {
-    "hushh-consent": {
-      "command": "npx",
-      "args": ["-y", "${runtime.npmPackage}"],
-      "env": {
-        "CONSENT_API_URL": "${runtime.apiOrigin}",
-        "HUSHH_DEVELOPER_TOKEN": "${developerToken}"
-      }
-    }
-  }
-}`,
+    rawUrl: remoteUrl,
+    remote: byId.get("generic-remote")?.code || "",
+    cursor: byId.get("cursor-vscode")?.code || "",
+    npm: byId.get("npm-bridge")?.code || "",
+    codexRemote: byId.get("codex-remote")?.code || "",
+    codexStdio: byId.get("codex-stdio")?.code || "",
+    claudeDesktop: byId.get("claude-desktop")?.code || "",
+    primaryExamples: examples.filter(
+      (example) => example.id === "generic-remote" || example.id === "npm-bridge"
+    ),
+    hostExamples: examples.filter(
+      (example) => example.id !== "generic-remote" && example.id !== "npm-bridge"
+    ),
   };
 }
 

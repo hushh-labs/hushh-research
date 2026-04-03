@@ -18,7 +18,7 @@ Use this matrix before merge/release to identify blast radius and compatibility 
 | Cache coherence | `hushh-webapp/lib/cache/cache-sync-service.ts`, `hushh-webapp/lib/services/cache-service.ts` | deterministic write-through/invalidation for CRUD | stale dashboard/home after mutation, repeated re-fetches | restore sync hooks in mutation paths and run `npm run verify:cache` |
 | Token reliability | `hushh-webapp/lib/services/kai-token-guard.ts`, protected Kai pages | strict VAULT_OWNER with one refresh retry path | 401/403 loops on long-running streams | use token guard everywhere and retry once on auth failure |
 | Ticker metadata enrichment | `consent-protocol/db/migrate.py`, `consent-protocol/hushh_mcp/services/ticker_db.py`, `consent-protocol/hushh_mcp/services/ticker_cache.py` | enriched ticker fields (`sector_primary`, `sector_tags`, `tradable`, etc.) | runtime DB column errors pre-migration | maintain legacy-schema fallback until migration is applied |
-| Mobile parity | `hushh-webapp/scripts/verify-native-parity.cjs`, `hushh-webapp/scripts/verify-capacitor-routes.cjs` | canonical routes + plugin registrations | mobile routes missing, plugin method drift | fail release gate and sync route/plugin registrations |
+| Mobile parity | `docs/reference/mobile/capacitor-parity-audit.md`, `bash scripts/ci/docs-parity-check.sh` | canonical routes + documented native expectations | mobile routes missing, plugin method drift | fail release gate and sync route/plugin registrations |
 
 ## Contract Delta Checklist (Per PR)
 

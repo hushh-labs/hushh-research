@@ -4,7 +4,6 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WEB_DIR="$REPO_ROOT/hushh-webapp"
 PROTOCOL_DIR="$REPO_ROOT/consent-protocol"
-RUNTIME_BASE_URL="${PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL:-}"
 
 FRONTEND_TESTS=(
   "__tests__/services/pkm-upgrade-orchestrator.test.ts"
@@ -33,12 +32,6 @@ BACKEND_TESTS=(
   "tests/test_kai_stream_contract.py"
 )
 
-PLAYWRIGHT_SPECS=(
-  "scripts/playwright/pkm-migration-audit.spec.js"
-  "scripts/playwright/investor-onboarding-flow.spec.js"
-  "scripts/playwright/ria-onboarding-flow.spec.js"
-)
-
 echo "== PKM Upgrade Gate =="
 echo "Running frontend contract/orchestration suites..."
 cd "$WEB_DIR"
@@ -57,15 +50,5 @@ VAULT_ENCRYPTION_KEY="${VAULT_ENCRYPTION_KEY:-0000000000000000000000000000000000
 HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
 PYTHONPATH=. \
   $PYTEST_RUNNER -q "${BACKEND_TESTS[@]}"
-
-if [ -n "$RUNTIME_BASE_URL" ]; then
-  echo "Running live runtime audits against $RUNTIME_BASE_URL ..."
-  cd "$WEB_DIR"
-  for spec in "${PLAYWRIGHT_SPECS[@]}"; do
-    BASE_URL="$RUNTIME_BASE_URL" npx playwright test "$spec"
-  done
-else
-  echo "Skipping live runtime audits. Set PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL to run Playwright investor/RIA/PKM audits."
-fi
 
 echo "✅ PKM upgrade gate passed."

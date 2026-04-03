@@ -43,6 +43,8 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
+import { NativeTestRouter } from "@/components/app-ui/native-test-router";
+import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -238,6 +240,8 @@ export function Providers({ children }: ProvidersProps) {
           <CacheProvider>
             <PersonaProvider>
               <VaultProvider>
+                <NativeTestRouter />
+                <NativeTestBootstrap />
                 <PersonaBootstrapRedirect />
                 <Suspense
                   fallback={
@@ -255,8 +259,8 @@ export function Providers({ children }: ProvidersProps) {
                           <TopAppBar />
                         </Suspense>
                         <VaultContext.Consumer>
-                          {(vault) =>
-                            showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
+                          {() =>
+                            showSharedBottomChromeGlass ? (
                               <div
                                 aria-hidden
                                 className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
@@ -269,11 +273,11 @@ export function Providers({ children }: ProvidersProps) {
                                       transform:
                                         "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
                                       "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
-                                      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
-                                      "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
+                                      "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
+                                      "--app-bar-glass-bg-dark": "rgba(29, 29, 31, 0.72)",
                                       "--app-bar-glass-blur": "2px",
                                       "--app-bar-shadow": "none",
-                                      "--app-bar-mask-overscan": "30px",
+                                      "--app-bar-mask-overscan": "14px",
                                     } as CSSProperties
                                   }
                                 />
@@ -314,16 +318,6 @@ export function Providers({ children }: ProvidersProps) {
                           </div>
                         </div>
                       </div>
-                      <Toaster
-                        position="top-center"
-                        closeButton
-                        offset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                        mobileOffset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                      />
                     </>
                   }
                 >
@@ -342,8 +336,8 @@ export function Providers({ children }: ProvidersProps) {
                           <TopAppBar />
                         </Suspense>
                         <VaultContext.Consumer>
-                          {(vault) =>
-                            showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
+                          {() =>
+                            showSharedBottomChromeGlass ? (
                               <div
                                 aria-hidden
                                 className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
@@ -356,11 +350,11 @@ export function Providers({ children }: ProvidersProps) {
                                       transform:
                                         "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
                                       "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
-                                      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.56)",
-                                      "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.68)",
+                                      "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
+                                      "--app-bar-glass-bg-dark": "rgba(29, 29, 31, 0.72)",
                                       "--app-bar-glass-blur": "2px",
                                       "--app-bar-shadow": "none",
-                                      "--app-bar-mask-overscan": "30px",
+                                      "--app-bar-mask-overscan": "14px",
                                     } as CSSProperties
                                   }
                                 />
@@ -404,16 +398,6 @@ export function Providers({ children }: ProvidersProps) {
                           </div>
                         </div>
                       </div>
-                      <Toaster
-                        position="top-center"
-                        closeButton
-                        offset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                        mobileOffset={{
-                          top: "calc(var(--top-inset, 0px) + 12px)",
-                        }}
-                      />
                     </ConsentSheetProvider>
                   </ConsentNotificationProvider>
                 </Suspense>
@@ -421,6 +405,16 @@ export function Providers({ children }: ProvidersProps) {
             </PersonaProvider>
           </CacheProvider>
         </AuthProvider>
+        <Toaster
+          position="top-center"
+          closeButton
+          offset={{
+            top: "calc(var(--top-inset, 0px) + 12px)",
+          }}
+          mobileOffset={{
+            top: "calc(var(--top-inset, 0px) + 12px)",
+          }}
+        />
       </StepProgressProvider>
     </ThemeProvider>
   );

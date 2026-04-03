@@ -79,14 +79,14 @@ trees_match_upstream() {
 run_sync_gate() {
   if ! git remote | grep -q "^${UPSTREAM_REMOTE}$"; then
     printf "\033[33m[pre-push]\033[0m WARNING: %s remote not configured.\n" "$UPSTREAM_REMOTE"
-    printf "         Run \033[36mmake setup\033[0m to configure monorepo sync.\n\n"
+    printf "         Run \033[36m./bin/hushh protocol setup\033[0m to configure monorepo sync.\n\n"
     [ "$STRICT_MODE" -eq 1 ] && return 1
     return 0
   fi
 
   if ! git fetch "$UPSTREAM_REMOTE" "$UPSTREAM_BRANCH" --quiet 2>/dev/null; then
     printf "\033[33m[pre-push]\033[0m WARNING: Could not fetch %s/%s.\n" "$UPSTREAM_REMOTE" "$UPSTREAM_BRANCH"
-    printf "         Run \033[36mmake sync-protocol\033[0m manually after push.\n\n"
+    printf "         Run \033[36m./bin/hushh protocol sync\033[0m manually after push.\n\n"
     [ "$STRICT_MODE" -eq 1 ] && return 1
     return 0
   fi
@@ -110,7 +110,7 @@ run_sync_gate() {
       printf "         Local split:     %s\n" "$(echo "$LOCAL_SPLIT" | cut -c1-8)"
       printf "         Current upstream:%s\n\n" " $(echo "$CURRENT_UPSTREAM" | cut -c1-8)"
       printf "  Run:\n"
-      printf "    \033[36mmake sync-protocol\033[0m    # pull upstream + refresh bookmark\n"
+      printf "    \033[36m./bin/hushh protocol sync\033[0m    # pull upstream + refresh bookmark\n"
       printf "    \033[36mgit push\033[0m              # try again\n\n"
       return 1
     elif trees_match_upstream; then
@@ -124,7 +124,7 @@ run_sync_gate() {
       printf "         Local split:     %s\n" "$(echo "$LOCAL_SPLIT" | cut -c1-8)"
       printf "         Current upstream:%s\n\n" " $(echo "$CURRENT_UPSTREAM" | cut -c1-8)"
       printf "  Run:\n"
-      printf "    \033[36mmake sync-protocol\033[0m    # reconcile subtree history\n"
+      printf "    \033[36m./bin/hushh protocol sync\033[0m    # reconcile subtree history\n"
       printf "    \033[36m# resolve conflicts if any\033[0m\n"
       printf "    \033[36mgit push\033[0m              # try again\n\n"
       return 1
@@ -150,7 +150,7 @@ run_sync_gate() {
     printf "\033[31m[pre-push]\033[0m No valid subtree sync baseline found.\n"
     printf "         Bookmark ref: %s\n" "${BOOKMARK_SYNC:-<missing>}"
     printf "         History split: %s\n" "${HISTORY_SYNC:-<missing>}"
-    printf "         Run: \033[36mmake sync-protocol\033[0m\n\n"
+    printf "         Run: \033[36m./bin/hushh protocol sync\033[0m\n\n"
     [ "$STRICT_MODE" -eq 1 ] && return 1
     return 0
   fi
@@ -170,7 +170,7 @@ run_sync_gate() {
     printf "         Sync baseline:   %s\n" "$(echo "$EFFECTIVE_SYNC" | cut -c1-8)"
     printf "         Current upstream:%s\n\n" " $(echo "$CURRENT_UPSTREAM" | cut -c1-8)"
     printf "  Run:\n"
-    printf "    \033[36mmake sync-protocol\033[0m    # pull upstream + refresh bookmark\n"
+    printf "    \033[36m./bin/hushh protocol sync\033[0m    # pull upstream + refresh bookmark\n"
     printf "    \033[36m# resolve conflicts if any\033[0m\n"
     printf "    \033[36mgit push\033[0m              # try again\n\n"
     return 1
@@ -187,7 +187,7 @@ run_sync_gate() {
     fi
   fi
 
-  printf "         Remember to run \033[36mmake push-protocol\033[0m after PR merge.\n\n"
+  printf "         Remember to run \033[36m./bin/hushh protocol push\033[0m after PR merge.\n\n"
   return 0
 }
 
@@ -268,7 +268,7 @@ if [ -n "$CP_FILES" ]; then
       "$LINT_PYTHON" -m ruff format --check .
     ) || {
       echo ""
-      echo "[pre-push] Lint failed. Run: cd ${SUBTREE_PREFIX} && make fix"
+      echo "[pre-push] Lint failed. Run: ./bin/hushh protocol fix"
       exit 1
     }
   else

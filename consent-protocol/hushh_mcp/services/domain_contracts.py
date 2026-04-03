@@ -86,6 +86,14 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
         status="active_core",
     ),
     DomainContractEntry(
+        domain_key="ria",
+        display_name="RIA",
+        icon_name="briefcase",
+        color_hex="#2F7D5C",
+        description="Advisor-owned picks packages, screening rules, and relationship-share metadata",
+        status="active_core",
+    ),
+    DomainContractEntry(
         domain_key="entertainment",
         display_name="Entertainment",
         icon_name="tv",

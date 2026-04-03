@@ -37,7 +37,6 @@ import {
   type ConsentCenterPageSummary,
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
-import { cn } from "@/lib/utils";
 
 function entrySummary(entry: ConsentCenterEntry) {
   if (entry.additional_access_summary) return entry.additional_access_summary;
@@ -192,10 +191,7 @@ export function ConsentInboxDropdown({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={cn(
-            triggerClassName,
-            "inline-flex h-10 w-10 items-center justify-center"
-          )}
+          className={triggerClassName}
           aria-label="Open consent inbox"
         >
           <Shield className="h-5 w-5" />

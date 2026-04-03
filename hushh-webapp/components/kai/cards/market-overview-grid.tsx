@@ -11,6 +11,8 @@ export interface MarketOverviewMetric {
   label: string;
   value: string;
   delta: string;
+  detail?: string;
+  detailLines?: string[];
   tone: "positive" | "negative" | "neutral" | "warning";
   icon: LucideIcon;
 }
@@ -48,7 +50,7 @@ export function MarketOverviewGrid({ metrics = [] }: { metrics?: MarketOverviewM
                   : "sky"
           }
         >
-          <SurfaceCardContent className="flex min-h-[84px] flex-col justify-between p-3.5 sm:min-h-[90px] sm:p-4">
+          <SurfaceCardContent className="flex min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
             <div className="flex items-start gap-3">
               <span
                 className={cn(
@@ -82,6 +84,19 @@ export function MarketOverviewGrid({ metrics = [] }: { metrics?: MarketOverviewM
               >
                 {metric.delta}
               </p>
+              {Array.isArray(metric.detailLines) && metric.detailLines.length ? (
+                <div className="space-y-1 pt-0.5">
+                  {metric.detailLines.slice(0, 2).map((line) => (
+                    <p key={line} className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              ) : metric.detail ? (
+                <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                  {metric.detail}
+                </p>
+              ) : null}
             </div>
           </SurfaceCardContent>
         </SurfaceCard>

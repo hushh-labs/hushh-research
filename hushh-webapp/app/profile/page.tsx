@@ -36,7 +36,6 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -59,6 +58,7 @@ import { resolveAppEnvironment } from "@/lib/app-env";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveGmailConnectionPresentation } from "@/lib/profile/mail-flow";
@@ -712,7 +712,7 @@ function ProfilePageContent() {
       if (!payload.configured || !payload.authorize_url) {
         throw new Error("Gmail OAuth is not configured for this environment.");
       }
-      window.location.assign(payload.authorize_url);
+      assignWindowLocation(payload.authorize_url);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start Gmail OAuth.";
       toast.error(message);
@@ -1018,46 +1018,52 @@ function ProfilePageContent() {
 
   return (
     <AppPageShell
+      data-testid="profile-primary"
       as="div"
       width="profile"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      nativeTest={{
+        routeId: "/profile",
+        marker: "native-route-profile",
+        authState: user ? "authenticated" : "pending",
+        dataState: authLoading ? "loading" : "loaded",
+      }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="Profile settings"
-          title={user.displayName || "User"}
-          leading={
-            <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/18 sm:h-24 sm:w-24">
-              <AvatarImage
-                src={user.photoURL || undefined}
-                alt={user.displayName || "Profile"}
-              />
-              <AvatarFallback className="bg-muted text-lg font-semibold text-muted-foreground sm:text-2xl">
-                {user.displayName ? (
-                  user.displayName
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()
-                ) : (
-                  <Icon icon={User} size={48} />
-                )}
-              </AvatarFallback>
-            </Avatar>
-          }
-          description={
+        <header className="flex flex-col items-center gap-3 text-center" data-slot="page-header" data-page-primary="true">
+          <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/18 sm:h-20 sm:w-20">
+            <AvatarImage
+              src={user.photoURL || undefined}
+              alt={user.displayName || "Profile"}
+            />
+            <AvatarFallback className="bg-muted text-lg font-semibold text-muted-foreground sm:text-xl">
+              {user.displayName ? (
+                user.displayName
+                  .split(" ")
+                  .map((part) => part[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()
+              ) : (
+                <Icon icon={User} size={48} />
+              )}
+            </AvatarFallback>
+          </Avatar>
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+              {user.displayName || "User"}
+            </h1>
             <div
-              className="inline-flex w-full max-w-full items-start gap-2 rounded-2xl border border-border/80 bg-background/75 px-3 py-2 text-sm text-muted-foreground min-[430px]:w-auto min-[430px]:items-center min-[430px]:rounded-full min-[430px]:py-1.5"
+              className="inline-flex items-center gap-2 text-sm text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
-              <span className="min-w-0 text-left [overflow-wrap:anywhere]">
+              <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>
             </div>
-          }
-        />
+          </div>
+        </header>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>

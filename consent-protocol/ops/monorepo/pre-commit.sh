@@ -6,7 +6,7 @@ SUBTREE_PREFIX="${CONSENT_SUBTREE_PREFIX:-consent-protocol}"
 
 if git diff --cached --name-only | grep -q "^${SUBTREE_PREFIX}/"; then
   printf "\n\033[33m[subtree]\033[0m ${SUBTREE_PREFIX}/ files staged.\n"
-  printf "         After merge, run: \033[36mmake push-protocol\033[0m to sync upstream.\n\n"
+  printf "         After merge, run: \033[36m./bin/hushh protocol push\033[0m to sync upstream.\n\n"
 
   echo "[pre-commit] Running quick lint on ${SUBTREE_PREFIX}..."
 
@@ -27,7 +27,7 @@ if git diff --cached --name-only | grep -q "^${SUBTREE_PREFIX}/"; then
     "$LINT_PYTHON" -m ruff format --check .
   ) || {
     echo ""
-    echo "[pre-commit] Lint failed. Run: cd ${SUBTREE_PREFIX} && make fix"
+    echo "[pre-commit] Lint failed. Run: ./bin/hushh protocol fix"
     exit 1
   }
 fi

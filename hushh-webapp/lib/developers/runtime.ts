@@ -29,7 +29,11 @@ function resolveEnvironment(origin: string | null): DeveloperEnvironment {
   }
 
   const hostname = new URL(origin).hostname.toLowerCase();
-  if (hostname === "uat.kai.hushh.ai" || hostname === "api.uat.kai.hushh.ai") {
+  if (
+    hostname === "uat.kai.hushh.ai" ||
+    hostname === "api.uat.kai.hushh.ai" ||
+    hostname === "api.uat.hushh.ai"
+  ) {
     return "uat";
   }
   if (hostname === "kai.hushh.ai" || hostname === "api.kai.hushh.ai") {
@@ -51,16 +55,16 @@ function defaultRuntimeForEnvironment(
       appUrl,
       apiOrigin: "http://127.0.0.1:8000",
       mcpUrl: "http://127.0.0.1:8000/mcp",
-      npmPackage: "@hushh/mcp@beta",
+      npmPackage: "@hushh/mcp",
     };
   }
 
   if (environment === "uat") {
     return {
       appUrl: "https://uat.kai.hushh.ai",
-      apiOrigin: "https://api.uat.kai.hushh.ai",
-      mcpUrl: "https://api.uat.kai.hushh.ai/mcp",
-      npmPackage: "@hushh/mcp@beta",
+      apiOrigin: "https://api.uat.hushh.ai",
+      mcpUrl: "https://api.uat.hushh.ai/mcp",
+      npmPackage: "@hushh/mcp",
     };
   }
 

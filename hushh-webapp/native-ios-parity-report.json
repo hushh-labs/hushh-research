@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-04-03T06:27:49.728Z",
+  "destination": "platform=iOS Simulator,name=iPhone 14 Plus",
+  "audited_routes": 1,
+  "passed_routes": 1,
+  "failed_routes": 0,
+  "results": [
+    {
+      "route": "/kai/onboarding",
+      "ok": true,
+      "expected": {
+        "route": "/kai/onboarding",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Fonboarding",
+        "expectedMarker": "native-route-kai-onboarding",
+        "expectedRoute": "/kai/onboarding",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "observed": {
+        "route": "/kai/onboarding/",
+        "ready": "1",
+        "marker": "native-route-kai-onboarding",
+        "auth": "authenticated",
+        "data": "loaded",
+        "doc": "complete",
+        "found": "1",
+        "routeok": "1",
+        "test": "1",
+        "auto": "1",
+        "bridge": "1",
+        "trigger": "1",
+        "domtest": "",
+        "domauto": "",
+        "reviewer": "0",
+        "bootstrap": "vault_unlocked",
+        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_error": "",
+        "jserr": "",
+        "jsrej": "{\"code\":\"UNIMPLEMENTED\"}",
+        "body": "Light\n\nDark\n\nSystem\nGet started\n\nStep 1 of 3\n100%\nThere are no right or wrong answers.\nHelp us tailor your investment plan.\n\nHow long do you expect to keep this",
+        "error": ""
+      },
+      "raw": "route=/kai/onboarding/;ready=1;marker=native-route-kai-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej={\"code\":\"UNIMPLEMENTED\"};body=Light\n\nDark\n\nSystem\nGet started\n\nStep 1 of 3\n100%\nThere are no right or wrong answers.\nHelp us tailor your investment plan.\n\nHow long do you expect to keep this;error="
+    }
+  ]
+}

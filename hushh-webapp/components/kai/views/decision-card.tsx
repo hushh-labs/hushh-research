@@ -171,6 +171,7 @@ export interface DecisionResult {
     };
     market_snapshot?: {
       last_price?: number | null;
+      change_pct?: number | null;
       observed_at?: string | null;
       source?: string;
     };
@@ -305,14 +306,40 @@ function SourceLink({ source }: { source: string | StructuredSource }) {
   );
 }
 
-function renderCompactTooltip(title: string, label: string, value: string) {
+function renderCompactTooltip(label: string, value: string, context?: string) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </span>
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm font-semibold">{value}</span>
+    <div className="flex min-w-[9rem] flex-col gap-1">
+      <span className="text-[11px] font-semibold text-foreground">{label}</span>
+      <span className="text-sm font-semibold tracking-tight text-foreground">{value}</span>
+      {context ? (
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          {context}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function ChartPanel({
+  title,
+  icon,
+  accentClassName,
+  children,
+}: {
+  title: string;
+  icon: typeof TrendingUp;
+  accentClassName?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[1.35rem] border border-border/50 bg-linear-to-br from-background via-sky-500/[0.025] to-primary/[0.05] p-4 shadow-sm shadow-sky-500/5 md:p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <Icon icon={icon} size="xs" className={cn("text-sky-600 dark:text-sky-300", accentClassName)} />
+        <span className={cn("text-[11px] font-bold uppercase tracking-[0.22em] text-sky-700 dark:text-sky-300", accentClassName)}>
+          {title}
+        </span>
+      </div>
+      {children}
     </div>
   );
 }
@@ -349,11 +376,11 @@ function normalizeSentimentPercent(raw: unknown): number | null {
 // ============================================================================
 
 const RESULT_CHART_COLORS = {
-  primary: "var(--chart-1)",
-  positive: "var(--chart-2)",
-  neutral: "var(--chart-4)",
-  accent: "var(--chart-3)",
-  negative: "var(--chart-5)",
+  primary: "rgb(14 165 233)",
+  positive: "rgb(16 185 129)",
+  neutral: "rgb(245 158 11)",
+  accent: "rgb(56 189 248)",
+  negative: "rgb(239 68 68)",
 } as const;
 
 const voteChartConfig = {
@@ -393,17 +420,35 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
     };
   });
 
+  const renderVoteTooltip = ({
+    active,
+    payload,
+  }: {
+    active?: boolean;
+    payload?: Array<{ payload?: { agent?: string; vote?: string; bullish?: number; neutral?: number; bearish?: number } }>;
+  }) => {
+    if (!active || !payload?.length) return null;
+    const activeItem =
+      payload.find((entry) => {
+        const row = entry?.payload;
+        return Boolean(row && ((row.bullish || 0) > 0 || (row.neutral || 0) > 0 || (row.bearish || 0) > 0));
+      })?.payload || payload[0]?.payload;
+    if (!activeItem) return null;
+    return (
+      <div className="rounded-lg border border-border/60 bg-background/95 px-3 py-2 shadow-xl backdrop-blur-sm">
+        {renderCompactTooltip(activeItem.agent || "Agent", activeItem.vote || "View", "Vote")}
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-        Agent Votes
-      </p>
-      <ChartContainer config={voteChartConfig} className="h-[210px] w-full">
+    <ChartPanel title="Agent votes" icon={Scale} accentClassName="text-sky-700 dark:text-sky-300">
+      <ChartContainer config={voteChartConfig} className="h-[240px] w-full">
         <BarChart
           accessibilityLayer
           data={data}
           layout="vertical"
-          margin={{ top: 4, right: 10, left: 6, bottom: 6 }}
+          margin={{ top: 8, right: 16, left: 10, bottom: 8 }}
         >
           <CartesianGrid horizontal={false} strokeDasharray="3 3" strokeOpacity={0.55} />
           <XAxis
@@ -421,29 +466,14 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
             tickLine={false}
             tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
           />
-          <ChartTooltip
-            cursor={false}
-            content={
-              <ChartTooltipContent
-                hideLabel
-                formatter={(value, _name, item) => {
-                  const payload = item?.payload as { agent?: string; vote?: string } | undefined;
-                  return renderCompactTooltip(
-                    "Agent Votes",
-                    payload?.agent || "Agent",
-                    payload?.vote || String(value)
-                  );
-                }}
-              />
-            }
-          />
+          <ChartTooltip cursor={false} content={renderVoteTooltip} />
           <ChartLegend content={<ChartLegendContent />} />
           <Bar dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
           <Bar dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
           <Bar dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
         </BarChart>
       </ChartContainer>
-    </div>
+    </ChartPanel>
   );
 }
 
@@ -470,34 +500,53 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
     { name: "Agree", value: agreeCount, fill: consensusChartConfig.agree.color },
     { name: "Dissent", value: dissentCount, fill: consensusChartConfig.dissent.color },
   ].filter((d) => d.value > 0);
+  const totalVotes = Math.max(1, votes.length);
+  const agreePct = Math.round((agreeCount / totalVotes) * 100);
 
   return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
-        Consensus
-      </p>
-      <ChartContainer config={consensusChartConfig} className="h-[120px] w-full">
-        <PieChart accessibilityLayer>
-          <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
-          <Pie data={data} cx="50%" cy="50%" innerRadius={30} outerRadius={48} dataKey="value" strokeWidth={0}>
-            {data.map((entry) => (
-              <Cell key={entry.name} fill={entry.fill} />
-            ))}
-          </Pie>
-        </PieChart>
-      </ChartContainer>
-      <div className="flex justify-center gap-3">
-        {data.map((d) => (
-          <div key={d.name} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: d.name === "Agree" ? consensusChartConfig.agree.color : consensusChartConfig.dissent.color }}
-            />
-            {d.name} ({d.value})
+    <ChartPanel title="Consensus" icon={Target} accentClassName="text-amber-700 dark:text-amber-300">
+      <div className="space-y-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-2xl font-black tracking-tight text-foreground">{agreePct}%</p>
+            <p className="text-xs text-muted-foreground">Agents align with the final call</p>
           </div>
-        ))}
+          <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.08] px-3 py-2 text-right">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
+              Split
+            </p>
+            <p className="text-sm font-semibold text-foreground">
+              {agreeCount} agree / {dissentCount} dissent
+            </p>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-full border border-border/50 bg-muted/40">
+          <div className="flex h-3 w-full">
+            <div
+              className="h-full bg-emerald-500/85"
+              style={{ width: `${(agreeCount / totalVotes) * 100}%` }}
+            />
+            <div
+              className="h-full bg-rose-500/75"
+              style={{ width: `${(dissentCount / totalVotes) * 100}%` }}
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
+          {data.map((d) => (
+            <div key={d.name} className="flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: d.name === "Agree" ? consensusChartConfig.agree.color : consensusChartConfig.dissent.color }}
+              />
+              <span>
+                {d.name} ({d.value})
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    </ChartPanel>
   );
 }
 
@@ -541,17 +590,13 @@ function QuantMetricsBarChart({ metrics }: { metrics: Record<string, unknown> })
   if (data.length === 0) return null;
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-        <Icon icon={BarChart3} size="xs" />
-        Valuation & Fundamentals
-      </p>
-      <ChartContainer config={barChartConfig} className="w-full h-[160px]">
+    <ChartPanel title="Valuation & fundamentals" icon={BarChart3}>
+      <ChartContainer config={barChartConfig} className="h-[210px] w-full">
         <BarChart
           accessibilityLayer
           data={data}
           layout="vertical"
-          margin={{ left: 8, right: 32, top: 0, bottom: 0 }}
+          margin={{ left: 12, right: 36, top: 8, bottom: 8 }}
         >
           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.45} />
           <XAxis type="number" hide />
@@ -572,9 +617,9 @@ function QuantMetricsBarChart({ metrics }: { metrics: Record<string, unknown> })
                 formatter={(value, _name, item) => {
                   const payload = item?.payload as { name?: string } | undefined;
                   return renderCompactTooltip(
-                    "Valuation & Fundamentals",
                     payload?.name || "Metric",
-                    Number(value).toLocaleString()
+                    Number(value).toLocaleString(),
+                    "Metric"
                   );
                 }}
               />
@@ -593,7 +638,7 @@ function QuantMetricsBarChart({ metrics }: { metrics: Record<string, unknown> })
           </Bar>
         </BarChart>
       </ChartContainer>
-    </div>
+    </ChartPanel>
   );
 }
 
@@ -609,13 +654,9 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
   if (data.length < 2) return null;
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-        <Icon icon={TrendingUp} size="xs" />
-        Price Scenarios
-      </p>
-      <ChartContainer config={barChartConfig} className="w-full h-[190px]">
-        <BarChart accessibilityLayer data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+    <ChartPanel title="Price scenarios" icon={TrendingUp} accentClassName="text-emerald-700 dark:text-emerald-300">
+      <ChartContainer config={barChartConfig} className="h-[225px] w-full">
+        <BarChart accessibilityLayer data={data} margin={{ top: 12, right: 12, left: 10, bottom: 12 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.55} />
           <XAxis
             dataKey="scenario"
@@ -639,9 +680,9 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
                 formatter={(value, _name, item) => {
                   const payload = item?.payload as { scenario?: string } | undefined;
                   return renderCompactTooltip(
-                    "Price Scenarios",
                     payload?.scenario || "Scenario",
-                    `$${Number(value).toFixed(2)}`
+                    `$${Number(value).toFixed(2)}`,
+                    "Target"
                   );
                 }}
               />
@@ -658,7 +699,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
           </Bar>
         </BarChart>
       </ChartContainer>
-    </div>
+    </ChartPanel>
   );
 }
 
@@ -927,7 +968,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
         ) : null}
 
         {/* DATA VISUALIZATION GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
           <AgentVoteBar result={result} />
           {rawCard?.price_targets && Object.keys(rawCard.price_targets).length > 1 ? (
                <PriceTargetsChart targets={rawCard.price_targets} />
@@ -983,7 +1024,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             
             {/* Sentiment Gauge Card */}
             {rawCard?.key_metrics?.sentiment?.sentiment_score !== undefined && (
-            <div className="p-4 bg-card/40 border border-border/50 rounded-2xl flex flex-col justify-center">
+            <div className="rounded-2xl border border-sky-500/10 bg-linear-to-br from-background via-sky-500/[0.03] to-background p-4">
                 {(() => {
                   const sentimentPct = normalizeSentimentPercent(
                     rawCard.key_metrics?.sentiment?.sentiment_score
@@ -994,8 +1035,8 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
                     <>
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                        <Icon icon={BarChart3} size="xs" style={{ color: RESULT_CHART_COLORS.accent }} />
-                        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: RESULT_CHART_COLORS.accent }}>Sentiment</span>
+                        <Icon icon={BarChart3} size="xs" className="text-sky-600 dark:text-sky-300" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-sky-700 dark:text-sky-300">Sentiment</span>
                     </div>
                     <Badge variant="outline" className="text-[10px] font-mono bg-muted/30 border-border/40">
                         {sentimentPct >= 0 ? "+" : ""}

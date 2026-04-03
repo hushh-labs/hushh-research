@@ -176,22 +176,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const init = async () => {
       // App State Listener (Background clear)
       if (typeof window !== "undefined" && IS_NATIVE) {
-        const { App } = await import("@capacitor/app");
+        try {
+          const { App } = await import("@capacitor/app");
 
-        App.addListener("appStateChange", ({ isActive }) => {
-          if (!isActive) {
-            console.log(
-              "🔒 [AuthProvider] App backgrounded - clearing sensitive data"
-            );
-            // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
-            // Vault key should be managed by VaultContext (memory-only)
-            removeLocalItem("vault_key");
-            removeSessionItem("vault_key");
+          await App.addListener("appStateChange", ({ isActive }) => {
+            if (!isActive) {
+              console.log(
+                "🔒 [AuthProvider] App backgrounded - clearing sensitive data"
+              );
+              // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
+              // Vault key should be managed by VaultContext (memory-only)
+              removeLocalItem("vault_key");
+              removeSessionItem("vault_key");
 
-            // Reactive state will handle UI updates (e.g. VaultLockGuard will see locked vault)
-            // No need to force reload, which causes loops on some Android devices
-          }
-        });
+              // Reactive state will handle UI updates (e.g. VaultLockGuard will see locked vault)
+              // No need to force reload, which causes loops on some Android devices
+            }
+          });
+        } catch (error) {
+          console.warn("⚠️ [AuthProvider] Failed to install native app-state listener", error);
+        }
       }
 
       await checkAuth();

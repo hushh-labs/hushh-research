@@ -21,7 +21,7 @@ const THEME_OPTIONS: Array<{
 ];
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -33,6 +33,7 @@ export function ThemeToggle({ className }: { className?: string }) {
     normalizedTheme === "light" || normalizedTheme === "dark" || normalizedTheme === "system"
       ? (normalizedTheme as ThemeOption)
       : "system";
+  const isDark = resolvedTheme === "dark";
 
   if (!mounted) return null;
 
@@ -42,7 +43,10 @@ export function ThemeToggle({ className }: { className?: string }) {
       role="radiogroup"
       aria-label="Theme selector"
       className={cn(
-        "relative grid w-full min-w-0 grid-cols-3 items-center rounded-[20px] border border-border/80 bg-muted/60 p-1 shadow-sm backdrop-blur-xl sm:w-[216px]",
+        "relative grid w-full min-w-0 grid-cols-3 items-center rounded-full p-1 backdrop-blur-xl sm:w-[216px]",
+        isDark
+          ? "border border-white/6 bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_18px_34px_rgba(0,0,0,0.36)]"
+          : "border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_18px_34px_rgba(15,23,42,0.08)]",
         className
       )}
     >
@@ -59,14 +63,18 @@ export function ThemeToggle({ className }: { className?: string }) {
               setTheme(option.value);
             }}
             className={cn(
-              "relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-2xl border px-2 py-2 text-center transition-[background-color,border-color,color,box-shadow] duration-200",
-              isActive
-                ? "border-border/80 bg-background text-foreground shadow-[0_8px_18px_rgba(15,23,42,0.08)] dark:bg-background/96"
-                : "border-transparent bg-transparent text-foreground/72 hover:bg-background/55 hover:text-foreground dark:hover:bg-background/18"
+              "relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2 py-2 text-center transition-[background-color,border-color,color,box-shadow,transform] duration-200",
+              isDark
+                ? isActive
+                  ? "border-white/8 bg-neutral-900 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_24px_rgba(0,0,0,0.24)]"
+                  : "border-transparent bg-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100"
+                : isActive
+                  ? "border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(248,250,252,0.98))] text-slate-950 shadow-[0_14px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.98),0_0_0_1px_rgba(255,255,255,0.65)]"
+                  : "border-transparent bg-transparent text-slate-500 hover:bg-white/72 hover:text-slate-900"
             )}
           >
             <span className="relative z-10 inline-flex items-center gap-1.5">
-              <Icon icon={option.icon} size="sm" className={cn(isActive && "scale-105")} />
+              <Icon icon={option.icon} size="sm" />
               <span className="text-[11px] font-medium leading-none sm:text-xs">
                 {option.label}
               </span>

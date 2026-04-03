@@ -20,7 +20,6 @@ import { Button } from "@/lib/morphy-ux/button";
 import {
   TOP_SHELL_DROPDOWN_BODY_CLASSNAME,
   TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME,
-  TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME,
   TOP_SHELL_DROPDOWN_HEADER_CLASSNAME,
 } from "@/components/app-ui/top-shell-dropdown";
 import {
@@ -143,7 +142,7 @@ interface DebateTaskCenterProps {
 }
 
 const DEFAULT_TRIGGER_CLASSNAME =
-  "relative grid h-10 w-10 place-items-center rounded-full border border-border/60 bg-background/70 shadow-sm backdrop-blur-sm transition-colors hover:bg-muted/50 active:bg-muted/80";
+  "relative grid h-10 w-10 place-items-center rounded-full";
 const IMPORT_BACKGROUND_SNAPSHOT_KEY = "kai_portfolio_import_background_v1";
 
 interface ImportBackgroundSnapshot {
@@ -419,9 +418,9 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
           aria-label="Notifications"
         >
           {activeCount > 0 ? (
-            <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" />
+            <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
           ) : (
-            <Icon icon={Bell} size="sm" />
+            <Bell className="h-5 w-5" />
           )}
           {badgeCount > 0 ? (
             <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
@@ -569,18 +568,6 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
             </div>
           )}
         </div>
-
-        {debateTasks.length > 0 ? (
-          <div className={TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME}>
-            <button
-              type="button"
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => openAnalysis(latestActiveTask?.runId)}
-            >
-              Open analysis workspace
-            </button>
-          </div>
-        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

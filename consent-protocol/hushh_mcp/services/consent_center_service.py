@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.ria_iam_service import (
@@ -16,6 +17,12 @@ class ConsentCenterService:
 
     _PENDING_STATUSES = {"pending", "request_pending", "sent"}
     _ACTIVE_STATUSES = {"active"}
+    _CONNECTION_TEMPLATE_IDS = {
+        "ria_financial_summary_v1",
+        "investor_advisor_disclosure_v1",
+    }
+    _PORTFOLIO_SCOPE_PREFIXES = ("attr.financial.", "pkm.read")
+    _RIA_DISCLOSURE_SCOPE_PREFIX = "attr.ria."
 
     def __init__(self) -> None:
         self._consent_db = ConsentDBService()
@@ -36,6 +43,13 @@ class ConsentCenterService:
             if not counterpart_id and normalized_agent.startswith("ria:"):
                 counterpart_id = normalized_agent.split(":", 1)[1] or None
             return "ria", counterpart_id
+        if metadata.get("requester_actor_type") == "investor" or normalized_agent.startswith(
+            "investor:"
+        ):
+            counterpart_id = metadata.get("requester_entity_id")
+            if not counterpart_id and normalized_agent.startswith("investor:"):
+                counterpart_id = normalized_agent.split(":", 1)[1] or None
+            return "investor", counterpart_id
         if normalized_agent in {"self", ""}:
             return "self", None
         return "developer", normalized_agent or None
@@ -51,6 +65,12 @@ class ConsentCenterService:
             ).strip()
             if ria_label:
                 return ria_label
+        if metadata.get("requester_actor_type") == "investor":
+            investor_label = str(
+                metadata.get("requester_label") or metadata.get("requester_entity_id") or ""
+            ).strip()
+            if investor_label:
+                return investor_label
         return str(agent_id or "").strip()
 
     @staticmethod
@@ -254,6 +274,302 @@ class ConsentCenterService:
                 return 0
 
         return sorted(entries, key=_timestamp, reverse=True)
+
+    @staticmethod
+    def _is_connection_entry(entry: dict[str, Any], *, actor: str) -> bool:
+        counterpart_type = str(entry.get("counterpart_type") or "").strip().lower()
+        if actor == "ria" and counterpart_type != "investor":
+            return False
+        if actor == "investor" and counterpart_type != "ria":
+            return False
+
+        metadata = ConsentCenterService._metadata(entry.get("metadata"))
+        request_origin = str(metadata.get("request_origin") or "").strip().lower()
+        bundle_id = str(metadata.get("bundle_id") or "").strip()
+        scope_template_id = str(
+            metadata.get("scope_template_id") or entry.get("scope") or ""
+        ).strip()
+        relationship_state = str(entry.get("relationship_state") or "").strip().lower()
+
+        if bundle_id or request_origin == "direct_ria_request_bundle":
+            return False
+        if scope_template_id in ConsentCenterService._CONNECTION_TEMPLATE_IDS:
+            return True
+        if request_origin in {"direct_ria_request", "marketplace_investor_connect"}:
+            return True
+        if entry.get("kind") == "invite":
+            return True
+        return relationship_state in {
+            "approved",
+            "request_pending",
+            "invited",
+            "revoked",
+            "expired",
+            "discovered",
+            "disconnected",
+        }
+
+    @classmethod
+    def _filter_mode_entries(
+        cls,
+        entries: list[dict[str, Any]],
+        *,
+        actor: str,
+        mode: str,
+    ) -> list[dict[str, Any]]:
+        if mode == "connections":
+            return [entry for entry in entries if cls._is_connection_entry(entry, actor=actor)]
+        return [entry for entry in entries if not cls._is_connection_entry(entry, actor=actor)]
+
+    @classmethod
+    def _connection_direction(cls, *, actor: str, scope: str | None) -> str:
+        normalized_scope = str(scope or "").strip().lower()
+        if actor == "ria":
+            if normalized_scope.startswith(cls._RIA_DISCLOSURE_SCOPE_PREFIX):
+                return "incoming"
+            return "outgoing"
+        if normalized_scope.startswith(cls._RIA_DISCLOSURE_SCOPE_PREFIX):
+            return "outgoing"
+        return "incoming"
+
+    @classmethod
+    def _connection_surface_for_status(cls, status: str) -> str:
+        normalized = str(status or "").strip().lower()
+        if normalized in {"request_pending", "invited"}:
+            return "pending"
+        if normalized == "approved":
+            return "active"
+        return "previous"
+
+    @classmethod
+    def _connection_scope_description(cls, scope: str | None) -> str | None:
+        normalized = str(scope or "").strip()
+        if not normalized:
+            return None
+        return get_scope_description(normalized)
+
+    @staticmethod
+    def _scope_display_metadata(scope: str | None) -> dict[str, Any]:
+        normalized = str(scope or "").strip()
+        if not normalized:
+            return {"scope_icon_name": None, "scope_color_hex": None}
+        from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
+
+        meta = get_scope_display_metadata(normalized)
+        return {
+            "scope_icon_name": meta.get("icon_name"),
+            "scope_color_hex": meta.get("color_hex"),
+        }
+
+    @classmethod
+    def _connection_summary(cls, *, actor: str, scope: str | None, status: str) -> str | None:
+        direction = cls._connection_direction(actor=actor, scope=scope)
+        normalized_status = str(status or "").strip().lower()
+        scope_label = cls._connection_scope_description(scope)
+        if normalized_status == "approved":
+            if direction == "incoming":
+                return f"Granted access: {scope_label or 'Shared access'}"
+            return f"Connected with {scope_label or 'shared access'}"
+        if normalized_status == "request_pending":
+            if direction == "incoming":
+                return f"Waiting on your review for {scope_label or 'shared access'}"
+            return f"Waiting for their review of {scope_label or 'shared access'}"
+        if normalized_status == "invited":
+            return "Invite is waiting for acceptance"
+        if normalized_status in {"revoked", "disconnected"}:
+            return "Connection has ended"
+        if normalized_status == "expired":
+            return "Connection request expired"
+        return scope_label
+
+    @classmethod
+    def _connection_allowed_next_action(cls, *, actor: str, scope: str | None, status: str) -> str:
+        normalized_status = str(status or "").strip().lower()
+        direction = cls._connection_direction(actor=actor, scope=scope)
+        if normalized_status == "request_pending":
+            return "review_request" if direction == "incoming" else "await_decision"
+        if normalized_status == "approved":
+            return "open_workspace" if direction == "outgoing" else "connected"
+        if normalized_status == "invited":
+            return "await_acceptance"
+        if normalized_status in {"revoked", "expired", "disconnected"}:
+            return "reconnect"
+        return "none"
+
+    @classmethod
+    def _connection_kind(cls, *, actor: str, scope: str | None, status: str) -> str:
+        normalized_status = str(status or "").strip().lower()
+        if normalized_status == "approved":
+            return "active_grant"
+        if normalized_status == "invited":
+            return "invite"
+        if normalized_status == "request_pending":
+            direction = cls._connection_direction(actor=actor, scope=scope)
+            return "incoming_request" if direction == "incoming" else "outgoing_request"
+        return "history"
+
+    def _normalize_relationship_connection(
+        self,
+        item: dict[str, Any],
+        *,
+        actor: str,
+    ) -> dict[str, Any]:
+        relationship_status = str(
+            item.get("relationship_status") or item.get("status") or "request_pending"
+        ).strip()
+        normalized_status = relationship_status.lower()
+        scope = str(item.get("granted_scope") or "").strip() or None
+        counterpart_type = "investor" if actor == "ria" else "ria"
+        counterpart_id = (
+            item.get("investor_user_id")
+            if actor == "ria"
+            else item.get("ria_user_id") or item.get("user_id")
+        )
+        counterpart_label = (
+            item.get("investor_display_name")
+            if actor == "ria"
+            else item.get("ria_display_name") or item.get("display_name")
+        )
+        counterpart_secondary_label = (
+            item.get("investor_headline") or item.get("investor_secondary_label")
+            if actor == "ria"
+            else item.get("ria_headline") or item.get("strategy_summary")
+        )
+        counterpart_email = item.get("investor_email") if actor == "ria" else item.get("ria_email")
+        metadata = {
+            "connection_surface": True,
+            "scope_template_id": item.get("scope_template_id"),
+            "request_origin": item.get("request_origin"),
+            "ria_profile_id": item.get("ria_profile_id"),
+            "ria_user_id": item.get("ria_user_id"),
+            "investor_user_id": item.get("investor_user_id"),
+            "portfolio_explorer_ready": bool(
+                actor == "ria"
+                and normalized_status == "approved"
+                and any(
+                    str(scope_item.get("scope") or "").startswith("attr.financial.")
+                    or str(scope_item.get("scope") or "") == "pkm.read"
+                    for scope_item in list(item.get("granted_scopes") or [])
+                )
+            ),
+        }
+        if actor == "ria":
+            metadata.update(
+                {
+                    "relationship_shares": item.get("relationship_shares") or [],
+                    "picks_feed_status": item.get("picks_feed_status"),
+                }
+            )
+
+        return {
+            "id": str(item.get("id") or item.get("invite_id") or counterpart_id or ""),
+            "kind": self._connection_kind(actor=actor, scope=scope, status=normalized_status),
+            "status": "active" if normalized_status == "approved" else normalized_status,
+            "action": "CONSENT_GRANTED"
+            if normalized_status == "approved"
+            else "REQUESTED"
+            if normalized_status in {"request_pending", "invited"}
+            else normalized_status.upper(),
+            "scope": scope,
+            "scope_description": self._connection_scope_description(scope),
+            **self._scope_display_metadata(scope),
+            "counterpart_type": counterpart_type,
+            "counterpart_id": counterpart_id,
+            "counterpart_label": counterpart_label or counterpart_id or "Connection",
+            "counterpart_image_url": None,
+            "counterpart_website_url": item.get("disclosures_url") if actor == "investor" else None,
+            "request_id": item.get("last_request_id"),
+            "invite_id": item.get("invite_id"),
+            "relationship_state": relationship_status,
+            "allowed_next_action": self._connection_allowed_next_action(
+                actor=actor,
+                scope=scope,
+                status=normalized_status,
+            ),
+            "issued_at": item.get("created_at")
+            or item.get("updated_at")
+            or item.get("consent_granted_at")
+            or item.get("invite_expires_at"),
+            "expires_at": item.get("consent_expires_at") or item.get("invite_expires_at"),
+            "request_url": item.get("request_url"),
+            "reason": self._connection_summary(actor=actor, scope=scope, status=normalized_status),
+            "counterpart_email": counterpart_email,
+            "counterpart_secondary_label": counterpart_secondary_label,
+            "technical_identity": {"user_id": counterpart_id} if counterpart_id else None,
+            "additional_access_summary": self._connection_summary(
+                actor=actor,
+                scope=scope,
+                status=normalized_status,
+            ),
+            "metadata": metadata,
+        }
+
+    async def _load_investor_connection_entries(self, user_id: str) -> list[dict[str, Any]]:
+        conn = await self._ria._conn()
+        try:
+            await self._ria._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  rel.id,
+                  rel.investor_user_id,
+                  rel.ria_profile_id,
+                  rel.status,
+                  rel.granted_scope,
+                  rel.last_request_id,
+                  rel.consent_granted_at,
+                  rel.revoked_at,
+                  rel.created_at,
+                  rel.updated_at,
+                  rp.user_id AS ria_user_id,
+                  COALESCE(mp.display_name, rp.display_name, rp.legal_name) AS ria_display_name,
+                  mp.headline AS ria_headline,
+                  mp.strategy_summary,
+                  rp.disclosures_url,
+                  consent.expires_at AS consent_expires_at
+                FROM advisor_investor_relationships rel
+                JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                LEFT JOIN marketplace_public_profiles mp
+                  ON mp.user_id = rp.user_id
+                  AND mp.profile_type = 'ria'
+                LEFT JOIN LATERAL (
+                  SELECT expires_at
+                  FROM consent_audit
+                  WHERE request_id = rel.last_request_id
+                  ORDER BY issued_at DESC
+                  LIMIT 1
+                ) consent ON TRUE
+                WHERE rel.investor_user_id = $1
+                ORDER BY rel.updated_at DESC
+                """,
+                user_id,
+            )
+            return [
+                self._normalize_relationship_connection(dict(row), actor="investor") for row in rows
+            ]
+        except IAMSchemaNotReadyError:
+            return []
+        except Exception:
+            return []
+        finally:
+            await conn.close()
+
+    async def _load_ria_connection_entries(self, user_id: str) -> list[dict[str, Any]]:
+        try:
+            payload = await self._ria.list_ria_clients(user_id, page=1, limit=200)
+        except (IAMSchemaNotReadyError, RIAIAMPolicyError):
+            return []
+        return [
+            self._normalize_relationship_connection(item, actor="ria")
+            for item in list(payload.get("items") or [])
+        ]
+
+    async def _load_connection_entries_for_actor(
+        self, user_id: str, *, actor: str
+    ) -> list[dict[str, Any]]:
+        if actor == "ria":
+            return await self._load_ria_connection_entries(user_id)
+        return await self._load_investor_connection_entries(user_id)
 
     @staticmethod
     def _paginate_entries(
@@ -649,18 +965,65 @@ class ConsentCenterService:
             ],
         }
 
-    async def _get_surface_count(self, user_id: str, *, actor: str, surface: str) -> int:
+    async def _get_surface_count(
+        self,
+        user_id: str,
+        *,
+        actor: str,
+        surface: str,
+        mode: str = "consents",
+    ) -> int:
         normalized_actor = "ria" if actor == "ria" else "investor"
+        normalized_mode = "connections" if mode == "connections" else "consents"
+        if normalized_mode == "connections":
+            connection_entries = await self._load_connection_entries_for_actor(
+                user_id,
+                actor=normalized_actor,
+            )
+            return len(
+                [
+                    entry
+                    for entry in connection_entries
+                    if self._connection_surface_for_status(
+                        str(entry.get("relationship_state") or entry.get("status") or "")
+                    )
+                    == surface
+                ]
+            )
         if normalized_actor == "investor":
             if surface == "pending":
-                return len(await self._load_investor_pending_entries(user_id))
+                return len(
+                    self._filter_mode_entries(
+                        await self._load_investor_pending_entries(user_id),
+                        actor=normalized_actor,
+                        mode=normalized_mode,
+                    )
+                )
             if surface == "active":
-                return len(await self._load_investor_active_entries(user_id))
-            return len(await self._load_investor_previous_entries(user_id))
+                return len(
+                    self._filter_mode_entries(
+                        await self._load_investor_active_entries(user_id),
+                        actor=normalized_actor,
+                        mode=normalized_mode,
+                    )
+                )
+            return len(
+                self._filter_mode_entries(
+                    await self._load_investor_previous_entries(user_id),
+                    actor=normalized_actor,
+                    mode=normalized_mode,
+                )
+            )
 
         if surface == "active":
             payload = await self._load_ria_active_entries(user_id, page=1, limit=1)
-            return int(payload.get("total") or 0)
+            return len(
+                self._filter_mode_entries(
+                    list(payload.get("items") or []),
+                    actor=normalized_actor,
+                    mode=normalized_mode,
+                )
+            )
 
         outgoing_entries = await self._load_ria_outgoing_entries(user_id)
         invite_entries = await self._load_ria_invite_entries(user_id)
@@ -672,7 +1035,7 @@ class ConsentCenterService:
             actor="ria",
             surface=surface,
         )
-        return len(items)
+        return len(self._filter_mode_entries(items, actor=normalized_actor, mode=normalized_mode))
 
     async def list_outgoing_requests(self, user_id: str) -> list[dict[str, Any]]:
         try:
@@ -828,26 +1191,33 @@ class ConsentCenterService:
             "self_activity_summary": self_activity_summary,
         }
 
-    async def get_center_summary(self, user_id: str, *, actor: str) -> dict[str, Any]:
+    async def get_center_summary(
+        self, user_id: str, *, actor: str, mode: str = "consents"
+    ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
+        normalized_mode = "connections" if mode == "connections" else "consents"
         return {
             "user_id": user_id,
             "actor": normalized_actor,
+            "mode": normalized_mode,
             "counts": {
                 "pending": await self._get_surface_count(
                     user_id,
                     actor=normalized_actor,
                     surface="pending",
+                    mode=normalized_mode,
                 ),
                 "active": await self._get_surface_count(
                     user_id,
                     actor=normalized_actor,
                     surface="active",
+                    mode=normalized_mode,
                 ),
                 "previous": await self._get_surface_count(
                     user_id,
                     actor=normalized_actor,
                     surface="previous",
+                    mode=normalized_mode,
                 ),
             },
         }
@@ -858,6 +1228,7 @@ class ConsentCenterService:
         *,
         actor: str,
         surface: str,
+        mode: str = "consents",
         query: str | None = None,
         top: int | None = None,
         page: int = 1,
@@ -865,9 +1236,42 @@ class ConsentCenterService:
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_surface = surface if surface in {"pending", "active", "previous"} else "pending"
+        normalized_mode = "connections" if mode == "connections" else "consents"
         safe_top = max(1, min(int(top), 10)) if top is not None else None
         safe_limit = safe_top or max(1, min(limit, 100))
         safe_page = 1 if safe_top is not None else max(1, page)
+
+        if normalized_mode == "connections":
+            entries = await self._load_connection_entries_for_actor(
+                user_id,
+                actor=normalized_actor,
+            )
+            filtered_entries = [
+                entry
+                for entry in entries
+                if self._connection_surface_for_status(
+                    str(entry.get("relationship_state") or entry.get("status") or "")
+                )
+                == normalized_surface
+            ]
+            paged = self._paginate_entries(
+                filtered_entries,
+                page=safe_page,
+                limit=safe_limit,
+                query=query,
+            )
+            return {
+                "user_id": user_id,
+                "actor": normalized_actor,
+                "surface": normalized_surface,
+                "mode": normalized_mode,
+                "query": query or "",
+                "page": paged["page"],
+                "limit": paged["limit"],
+                "total": paged["total"],
+                "has_more": paged["has_more"],
+                "items": paged["items"],
+            }
 
         if normalized_actor == "investor":
             if normalized_surface == "pending":
@@ -876,6 +1280,11 @@ class ConsentCenterService:
                 entries = await self._load_investor_active_entries(user_id)
             else:
                 entries = await self._load_investor_previous_entries(user_id)
+            entries = self._filter_mode_entries(
+                entries,
+                actor=normalized_actor,
+                mode=normalized_mode,
+            )
             paged = self._paginate_entries(
                 entries,
                 page=safe_page,
@@ -889,6 +1298,18 @@ class ConsentCenterService:
                 page=safe_page,
                 limit=safe_limit,
             )
+            items = self._filter_mode_entries(
+                list(paged.get("items") or []),
+                actor=normalized_actor,
+                mode=normalized_mode,
+            )
+            paged = {
+                "page": paged["page"],
+                "limit": paged["limit"],
+                "total": len(items),
+                "has_more": False,
+                "items": items,
+            }
         else:
             outgoing_entries = await self._load_ria_outgoing_entries(user_id)
             invite_entries = await self._load_ria_invite_entries(user_id)
@@ -899,6 +1320,11 @@ class ConsentCenterService:
                 },
                 actor="ria",
                 surface=normalized_surface,
+            )
+            entries = self._filter_mode_entries(
+                entries,
+                actor=normalized_actor,
+                mode=normalized_mode,
             )
             paged = self._paginate_entries(
                 entries,
@@ -911,6 +1337,7 @@ class ConsentCenterService:
             "user_id": user_id,
             "actor": normalized_actor,
             "surface": normalized_surface,
+            "mode": normalized_mode,
             "query": query or "",
             "page": paged["page"],
             "limit": paged["limit"],

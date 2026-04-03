@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 from hushh_mcp.services.universe_list_service import SecurityListDescriptor, SecurityListMember
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,11 @@ class RenaissanceService:
 
     def __init__(self):
         self._db = None
+
+    @staticmethod
+    def _is_supported_symbol(ticker: str) -> bool:
+        metadata = get_symbol_master_service().get_ticker_metadata(ticker)
+        return bool(metadata) and metadata.get("tradable") is not False
 
     @property
     def db(self):
@@ -180,6 +186,8 @@ class RenaissanceService:
 
             if response.data and len(response.data) > 0:
                 row = response.data[0]
+                if not self._is_supported_symbol(row["ticker"]):
+                    return False, None
                 stock = RenaissanceStock(
                     ticker=row["ticker"],
                     company_name=row["company_name"],
@@ -227,6 +235,7 @@ class RenaissanceService:
                     tier_rank=row.get("tier_rank", 0),
                 )
                 for row in response.data
+                if self._is_supported_symbol(row["ticker"])
             ]
 
         except Exception as e:
@@ -255,6 +264,7 @@ class RenaissanceService:
                     tier_rank=row.get("tier_rank", 0),
                 )
                 for row in response.data
+                if self._is_supported_symbol(row["ticker"])
             ]
 
         except Exception as e:
@@ -283,6 +293,7 @@ class RenaissanceService:
                     tier_rank=row.get("tier_rank", 0),
                 )
                 for row in response.data
+                if self._is_supported_symbol(row["ticker"])
             ]
 
         except Exception as e:

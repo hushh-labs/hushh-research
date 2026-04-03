@@ -330,10 +330,15 @@ class IapdVerificationAdapter:
         individual_crd: str,
         advisory_firm_legal_name: str,
         advisory_firm_iapd_number: str,
+        force_live: bool = False,
     ) -> VerificationResult:
-        if not _is_production() and (
-            _env_truthy("ADVISORY_VERIFICATION_BYPASS_ENABLED")
-            or _env_truthy("RIA_DEV_BYPASS_ENABLED")
+        if (
+            not force_live
+            and not _is_production()
+            and (
+                _env_truthy("ADVISORY_VERIFICATION_BYPASS_ENABLED")
+                or _env_truthy("RIA_DEV_BYPASS_ENABLED")
+            )
         ):
             return VerificationResult(
                 verified=True,
@@ -349,7 +354,7 @@ class IapdVerificationAdapter:
                 verified=False,
                 rejected=False,
                 outcome="provider_unavailable",
-                message="IAPD verification provider not configured",
+                message="IAPD verification provider not configured. Set IAPD_VERIFY_BASE_URL and IAPD_VERIFY_API_KEY.",
                 metadata={"provider": "iapd", "reason": "not_configured"},
             )
 
@@ -603,12 +608,14 @@ class FinraVerificationAdapter:
         legal_name: str,
         finra_crd: str | None,
         sec_iard: str | None,
+        force_live: bool = False,
     ) -> VerificationResult:
         advisory_result = await self._advisory_provider.verify(
             individual_legal_name=legal_name,
             individual_crd=(finra_crd or "").strip(),
             advisory_firm_legal_name=legal_name,
             advisory_firm_iapd_number=(sec_iard or "").strip(),
+            force_live=force_live,
         )
         if advisory_result.verified or advisory_result.rejected:
             return advisory_result
@@ -690,9 +697,11 @@ class VerificationGateway:
         legal_name: str,
         finra_crd: str | None,
         sec_iard: str | None,
+        force_live: bool = False,
     ) -> VerificationResult:
         return await self._provider.verify(
             legal_name=legal_name,
             finra_crd=finra_crd,
             sec_iard=sec_iard,
+            force_live=force_live,
         )

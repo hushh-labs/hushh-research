@@ -149,28 +149,29 @@ export class AuthService {
    */
   private static async nativeGoogleSignIn(): Promise<AuthResult> {
     this.debugLog(
-      "🍎 [AuthService] Starting native Google Sign-In via HushhAuth Plugin"
+      "🍎 [AuthService] Starting native Google Sign-In via FirebaseAuthentication"
     );
     const toastId = toast.loading("Signing in with Google...");
 
     try {
-      // Step 1: Native sign-in using Custom HushhAuth plugin
-      this.debugLog("🍎 [AuthService] Calling HushhAuth.signIn()...");
+      this.debugLog("🍎 [AuthService] Calling FirebaseAuthentication.signInWithGoogle()...");
 
-      const result = await HushhAuth.signIn();
+      const result = await FirebaseAuthentication.signInWithGoogle();
 
       this.debugLog("✅ [AuthService] Native sign-in returned result");
 
-      if (!result.user || !result.idToken) {
+      if (!result.user) {
         this.debugError("❌ [AuthService] Invalid response from native sign-in");
         toast.error("Invalid native auth response", { id: toastId });
         throw new Error("Invalid response from native sign-in");
       }
 
-      // Result from HushhAuth.signIn() matches:
-      // { idToken: string, accessToken: string, user: AuthUser }
-      const idToken = result.idToken;
-      const accessToken = result.accessToken;
+      const nativeIdTokenResult = await FirebaseAuthentication.getIdToken();
+      const idToken =
+        nativeIdTokenResult.token ||
+        result.credential?.idToken ||
+        "";
+      const accessToken = result.credential?.accessToken;
       const nativeAuthUser = result.user; // AuthUser type
 
       this.debugLog("✅ [AuthService] Got native ID token");
@@ -185,6 +186,10 @@ export class AuthService {
 
         // We need a credential to sign in the JS SDK.
         // We have the Google ID Token and Access Token from the native result.
+        if (!idToken || !accessToken) {
+          throw new Error("Missing Google credential tokens for JS SDK sync");
+        }
+
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
 
         try {
@@ -432,7 +437,7 @@ export class AuthService {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      this.debugError("❌ [AuthService] nativeAppleSignIn error");
+      this.debugError("❌ [AuthService] nativeAppleSignIn error", error);
 
       // Check for user cancellation
       if (errorMessage.includes("USER_CANCELLED") || errorMessage.includes("cancelled") || errorMessage.includes("canceled")) {

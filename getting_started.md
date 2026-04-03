@@ -11,6 +11,6 @@ Use:
 Canonical first-run:
 
 ```bash
-npm run bootstrap
-npm run web -- --profile=uat-remote
+./bin/hushh bootstrap
+./bin/hushh web --mode uat
 ```
