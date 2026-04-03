@@ -9,6 +9,8 @@ struct NativeTestConfiguration {
     let expectedMarker: String?
     let expectedRoute: String?
     let autoReviewerLogin: Bool
+    let vaultPassphrase: String?
+    let expectedUserId: String?
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         enabled = arguments.contains("-UITestMode")
@@ -18,6 +20,8 @@ struct NativeTestConfiguration {
             NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
             ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
         autoReviewerLogin = NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
+        vaultPassphrase = NativeTestConfiguration.value(for: "-UITestVaultPassphrase", in: arguments)
+        expectedUserId = NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments)
     }
 
     var injectedScript: String {
@@ -27,6 +31,8 @@ struct NativeTestConfiguration {
             "expectedMarker": expectedMarker ?? "",
             "expectedRoute": expectedRoute ?? "",
             "autoReviewerLogin": autoReviewerLogin,
+            "vaultPassphrase": vaultPassphrase ?? "",
+            "expectedUserId": expectedUserId ?? "",
         ]
 
         guard
@@ -40,21 +46,14 @@ struct NativeTestConfiguration {
         (function() {
           var config = \(json);
           var bridge = window.__HUSHH_NATIVE_TEST__ || {};
-          try {
-            if (document && document.documentElement) {
-              document.documentElement.setAttribute("data-hushh-native-test-enabled", config.enabled === true ? "true" : "false");
-              document.documentElement.setAttribute("data-hushh-native-test-auto-reviewer-login", config.autoReviewerLogin === true ? "true" : "false");
-              document.documentElement.setAttribute("data-hushh-native-test-expected-marker", config.expectedMarker || "");
-              document.documentElement.setAttribute("data-hushh-native-test-initial-route", config.initialRoute || "");
-              document.documentElement.setAttribute("data-hushh-native-test-expected-route", config.expectedRoute || "");
-            }
-          } catch (_) {}
           var initialRouteKey = "__hushh_native_test_initial_route_applied__";
           bridge.enabled = config.enabled === true;
           bridge.initialRoute = config.initialRoute || null;
           bridge.expectedMarker = config.expectedMarker || null;
           bridge.expectedRoute = config.expectedRoute || null;
           bridge.autoReviewerLogin = config.autoReviewerLogin === true;
+          bridge.vaultPassphrase = config.vaultPassphrase || "";
+          bridge.expectedUserId = config.expectedUserId || "";
           bridge.lastJsError = "";
           bridge.lastUnhandledRejection = "";
           try {
@@ -124,17 +123,16 @@ struct NativeTestConfiguration {
               autoReviewerLogin: bridge.autoReviewerLogin === true,
               bridgeBeaconPresent: !!bridge.beacon,
               triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
-              domTestEnabled: document && document.documentElement
-                ? document.documentElement.getAttribute("data-hushh-native-test-enabled") || ""
-                : "",
-              domAutoReviewerLogin: document && document.documentElement
-                ? document.documentElement.getAttribute("data-hushh-native-test-auto-reviewer-login") || ""
-                : "",
+              domTestEnabled: "",
+              domAutoReviewerLogin: "",
               reviewerButtonFound: reviewerButtonFound,
               jsError: bridge.lastJsError || "",
               jsRejection: bridge.lastUnhandledRejection || "",
               bodySnippet: bodySnippet,
               markerFound: markerFound,
+              bootstrapState: bridge.bootstrapState || "",
+              bootstrapUserId: bridge.bootstrapUserId || "",
+              bootstrapError: bridge.bootstrapError || "",
               title: document.title || "",
               routeId: beacon ? (beacon.routeId || "") : "",
               authState: beacon ? (beacon.authState || "") : "",
@@ -146,7 +144,7 @@ struct NativeTestConfiguration {
           bridge.start = function() {
             if (!bridge.enabled) return;
 
-            if (bridge.autoReviewerLogin && !bridge._reviewerTimer) {
+            if (bridge.autoReviewerLogin && !bridge.expectedUserId && !bridge._reviewerTimer) {
               bridge._reviewerTimer = window.setInterval(function() {
                 try {
                   if (!window.location.pathname || window.location.pathname !== "/login") {
@@ -170,6 +168,38 @@ struct NativeTestConfiguration {
                   }
                 } catch (_) {}
               }, 400);
+            }
+
+            if (bridge.vaultPassphrase && !bridge.expectedUserId && !bridge._vaultTimer) {
+              bridge._vaultTimer = window.setInterval(function() {
+                try {
+                  if (typeof bridge.triggerVaultUnlock === "function") {
+                    bridge.triggerVaultUnlock();
+                    return;
+                  }
+                  var passphraseInput = document.querySelector('#unlock-passphrase');
+                  if (!passphraseInput) {
+                    return;
+                  }
+                  var prototype = window.HTMLInputElement && window.HTMLInputElement.prototype;
+                  var descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, "value") : null;
+                  if (descriptor && typeof descriptor.set === "function") {
+                    descriptor.set.call(passphraseInput, bridge.vaultPassphrase);
+                  } else {
+                    passphraseInput.value = bridge.vaultPassphrase;
+                  }
+                  passphraseInput.dispatchEvent(new Event("input", { bubbles: true }));
+                  passphraseInput.dispatchEvent(new Event("change", { bubbles: true }));
+                  var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
+                  var unlockButton = buttons.find(function(button) {
+                    var text = (button.textContent || "").trim().toLowerCase();
+                    return text === "unlock with passphrase";
+                  });
+                  if (unlockButton && !unlockButton.disabled) {
+                    unlockButton.click();
+                  }
+                } catch (_) {}
+              }, 500);
             }
 
             if (bridge._timer) return;
@@ -232,13 +262,12 @@ struct NativeTestConfiguration {
             autoReviewerLogin: bridge.autoReviewerLogin === true,
             bridgeBeaconPresent: !!bridge.beacon,
             triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
-            domTestEnabled: document && document.documentElement
-              ? document.documentElement.getAttribute("data-hushh-native-test-enabled") || ""
-              : "",
-            domAutoReviewerLogin: document && document.documentElement
-              ? document.documentElement.getAttribute("data-hushh-native-test-auto-reviewer-login") || ""
-              : "",
+            domTestEnabled: "",
+            domAutoReviewerLogin: "",
             reviewerButtonFound: false,
+            bootstrapState: bridge.bootstrapState || "",
+            bootstrapUserId: bridge.bootstrapUserId || "",
+            bootstrapError: bridge.bootstrapError || "",
             jsError: bridge.lastJsError || "",
             jsRejection: bridge.lastUnhandledRejection || "",
             bodySnippet: "",

@@ -7,18 +7,24 @@ declare global {
     __HUSHH_NATIVE_TEST__?: {
       enabled?: boolean;
       autoReviewerLogin?: boolean;
+      vaultPassphrase?: string;
+      expectedUserId?: string;
       expectedMarker?: string;
       initialRoute?: string;
       expectedRoute?: string;
-    beacon?: {
-      routeId: string;
-      marker: string;
-      authState: string;
-      dataState: string;
-      errorCode: string;
-      errorMessage: string;
-    };
+      beacon?: {
+        routeId: string;
+        marker: string;
+        authState: string;
+        dataState: string;
+        errorCode: string;
+        errorMessage: string;
+      };
       triggerReviewerLogin?: (() => void) | null;
+      triggerVaultUnlock?: (() => void) | null;
+      bootstrapState?: string;
+      bootstrapUserId?: string;
+      bootstrapError?: string;
     };
   }
 }
@@ -26,6 +32,8 @@ declare global {
 export type NativeTestConfig = {
   enabled: boolean;
   autoReviewerLogin: boolean;
+  vaultPassphrase: string | null;
+  expectedUserId: string | null;
   expectedMarker: string | null;
   initialRoute: string | null;
   expectedRoute: string | null;
@@ -36,6 +44,8 @@ export function getNativeTestConfig(): NativeTestConfig {
     return {
       enabled: false,
       autoReviewerLogin: false,
+      vaultPassphrase: null,
+      expectedUserId: null,
       expectedMarker: null,
       initialRoute: null,
       expectedRoute: null,
@@ -58,6 +68,14 @@ export function getNativeTestConfig(): NativeTestConfig {
     enabled: raw.enabled === true || enabledFromDataset,
     autoReviewerLogin:
       raw.autoReviewerLogin === true || autoReviewerLoginFromDataset,
+    vaultPassphrase:
+      typeof raw.vaultPassphrase === "string" && raw.vaultPassphrase.trim().length > 0
+        ? raw.vaultPassphrase
+        : null,
+    expectedUserId:
+      typeof raw.expectedUserId === "string" && raw.expectedUserId.trim().length > 0
+        ? raw.expectedUserId.trim()
+        : null,
     expectedMarker:
       typeof raw.expectedMarker === "string" && raw.expectedMarker.trim().length > 0
         ? raw.expectedMarker.trim()
@@ -130,6 +148,16 @@ type NativeTestBeaconPayload = {
 };
 
 export function useNativeTestBeacon(payload: NativeTestBeaconPayload) {
+  const {
+    attachToBridge,
+    authState,
+    dataState,
+    errorCode,
+    errorMessage,
+    marker,
+    routeId,
+  } = payload;
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -140,31 +168,31 @@ export function useNativeTestBeacon(payload: NativeTestBeaconPayload) {
       return;
     }
 
-    if (payload.attachToBridge) {
-      payload.attachToBridge(bridge);
+    if (attachToBridge) {
+      attachToBridge(bridge);
     }
 
     bridge.beacon = {
-      routeId: payload.routeId,
-      marker: payload.marker,
-      authState: payload.authState,
-      dataState: payload.dataState,
-      errorCode: payload.errorCode ?? "",
-      errorMessage: payload.errorMessage ?? "",
+      routeId,
+      marker,
+      authState,
+      dataState,
+      errorCode: errorCode ?? "",
+      errorMessage: errorMessage ?? "",
     };
 
     return () => {
-      if (window.__HUSHH_NATIVE_TEST__?.beacon?.marker === payload.marker) {
+      if (window.__HUSHH_NATIVE_TEST__?.beacon?.marker === marker) {
         delete window.__HUSHH_NATIVE_TEST__.beacon;
       }
     };
   }, [
-    payload.authState,
-    payload.dataState,
-    payload.errorCode,
-    payload.errorMessage,
-    payload.marker,
-    payload.routeId,
-    payload.attachToBridge,
+    attachToBridge,
+    authState,
+    dataState,
+    errorCode,
+    errorMessage,
+    marker,
+    routeId,
   ]);
 }

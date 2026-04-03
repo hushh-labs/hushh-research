@@ -155,6 +155,12 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     }
 
     private func updateNativeTestStatus(from payload: [String: Any]) {
+        func normalizeRoute(_ value: String) -> String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != "/" else { return trimmed.isEmpty ? "/" : trimmed }
+            return trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+        }
+
         let route = (payload["route"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let marker = (payload["expectedMarker"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let expectedRoute = (payload["expectedRoute"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -169,15 +175,18 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let domTestEnabled = (payload["domTestEnabled"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let domAutoReviewerLogin = (payload["domAutoReviewerLogin"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let reviewerButtonFound = (payload["reviewerButtonFound"] as? Bool ?? false) ? "1" : "0"
+        let bootstrapState = (payload["bootstrapState"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let bootstrapUserId = (payload["bootstrapUserId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let bootstrapError = (payload["bootstrapError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let jsError = (payload["jsError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let jsRejection = (payload["jsRejection"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let bodySnippet = (payload["bodySnippet"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let routeReady = expectedRoute.isEmpty ? true : route == expectedRoute
+        let routeReady = expectedRoute.isEmpty ? true : normalizeRoute(route) == normalizeRoute(expectedRoute)
         let documentReady = readyState == "interactive" || readyState == "complete"
         let markerFound = payload["markerFound"] as? Bool ?? false
         let ready = routeReady && documentReady && markerFound
 
-        let status = "route=\(route);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);trigger=\(triggerReviewerLoginPresent);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);jserr=\(jsError);jsrej=\(jsRejection);body=\(bodySnippet);error=\(errorCode)"
+        let status = "route=\(route);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);trigger=\(triggerReviewerLoginPresent);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid=\(bootstrapUserId);bootstrap_error=\(bootstrapError);jserr=\(jsError);jsrej=\(jsRejection);body=\(bodySnippet);error=\(errorCode)"
         nativeTestStatusLabel?.update(status: status)
         NativeTestStatusStore.write(status)
     }

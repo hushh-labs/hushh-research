@@ -54,6 +54,15 @@ export function AuthStep({
   const [reviewModeConfig, setReviewModeConfig] = useState<{ enabled: boolean }>(
     { enabled: false }
   );
+  const shouldUseNativeTestBootstrap =
+    nativeTestConfig.enabled &&
+    nativeTestConfig.autoReviewerLogin &&
+    Boolean(nativeTestConfig.expectedUserId) &&
+    Boolean(nativeTestConfig.vaultPassphrase);
+  const preserveOnboardingAuditRoute =
+    nativeTestConfig.enabled &&
+    nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING &&
+    redirectPath === ROUTES.KAI_ONBOARDING;
   const [activeLegalDoc, setActiveLegalDoc] = useState<KaiLegalDocumentType | null>(
     null
   );
@@ -71,6 +80,12 @@ export function AuthStep({
       lastNavigationKeyRef.current = navigationKey;
 
       try {
+        if (preserveOnboardingAuditRoute) {
+          setOnboardingRequiredCookie(false);
+          setOnboardingFlowActiveCookie(false);
+          router.push(ROUTES.KAI_ONBOARDING);
+          return;
+        }
         const resolvedIdToken =
           idToken || (user ? await user.getIdToken().catch(() => undefined) : undefined);
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
@@ -98,7 +113,7 @@ export function AuthStep({
         router.push(safeFallbackPath);
       }
     },
-    [redirectPath, router, user]
+    [preserveOnboardingAuditRoute, redirectPath, router, user]
   );
 
   const debugLog = (...args: unknown[]) => {
@@ -177,7 +192,7 @@ export function AuthStep({
         throw new Error("Reviewer mode is not enabled");
       }
 
-      const { token } = await ApiService.createAppReviewModeSession();
+      const { token } = await ApiService.createAppReviewModeSession("reviewer");
       const authResult = await AuthService.signInWithCustomToken(token);
       const authenticatedUser = authResult.user;
 
@@ -219,6 +234,9 @@ export function AuthStep({
   ]);
 
   useEffect(() => {
+    if (shouldUseNativeTestBootstrap) {
+      return;
+    }
     if (authLoading || user || autoReviewerLoginStartedRef.current) {
       return;
     }
@@ -256,7 +274,9 @@ export function AuthStep({
     };
   }, [
     authLoading,
+    handleReviewerLogin,
     reviewModeConfig.enabled,
+    shouldUseNativeTestBootstrap,
     user,
   ]);
 

@@ -344,6 +344,7 @@ export function ConsentNotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const isNativePlatform = Capacitor.isNativePlatform();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -404,6 +405,9 @@ export function ConsentNotificationProvider({
   // Show interactive toast for a consent request
   const showConsentToast = useCallback(
     (consent: PendingConsent) => {
+      if (isNativePlatform) {
+        return;
+      }
       const toastKey = consent.bundleId || consent.id;
       const reviewedKeys = reviewedConsentKeys(consent.id, consent.bundleId);
       if (isDurablyAcknowledged(consent)) {
@@ -482,7 +486,14 @@ export function ConsentNotificationProvider({
         }
       );
     },
-    [acknowledgePendingConsent, handleDeny, pathname, router, searchParams]
+    [
+      acknowledgePendingConsent,
+      handleDeny,
+      isNativePlatform,
+      pathname,
+      router,
+      searchParams,
+    ]
   );
 
   // Initialize FCM when user logs in (stable dependency: user?.uid).

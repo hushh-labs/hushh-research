@@ -81,8 +81,8 @@ The `consent-protocol` subtree relationship still exists, but it is maintainer-o
 ```bash
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
-npm run bootstrap
-npm run web -- --mode=uat
+./bin/hushh bootstrap
+./bin/hushh web --mode uat
 ```
 
 That is the canonical first-run path:
@@ -94,14 +94,14 @@ That is the canonical first-run path:
 ## Canonical Contributor Commands
 
 ```bash
-npm run bootstrap
-npm run doctor -- --mode=uat
-npm run web -- --mode=uat
-npm run native:ios -- --mode=uat
-npm run native:android -- --mode=uat
+./bin/hushh bootstrap
+./bin/hushh doctor --mode uat
+./bin/hushh web --mode uat
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
 ```
 
-`make` still exists for maintainer workflows and compatibility paths, but the public contributor surface is **npm-first**.
+The only supported repo-level command surface is `./bin/hushh`.
 
 ## Documentation
 
@@ -109,6 +109,7 @@ npm run native:android -- --mode=uat
 - [Environment Model](./docs/guides/environment-model.md)
 - [Contributing](./contributing.md)
 - [Docs Index](./docs/README.md)
+- [CLI Reference](./docs/reference/operations/cli.md)
 - [Architecture](./docs/reference/architecture/architecture.md)
 - [Branch Governance](./docs/reference/operations/branch-governance.md)
 - [Vision](./docs/vision/README.md)

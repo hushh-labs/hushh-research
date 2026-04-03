@@ -55,7 +55,6 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
     command,
     params,
     router,
-    userId,
     hasPortfolioData,
     reviewDirty,
     busyOperations,

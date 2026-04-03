@@ -41,7 +41,7 @@ from dotenv import dotenv_values
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-DEFAULT_BACKEND_URL = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
+DEFAULT_BACKEND_URL = "https://api.uat.hushh.ai"
 DEFAULT_PROTOCOL_ENV = os.path.expanduser("~/Documents/GitHub/hushh-research/consent-protocol/.env")
 DEFAULT_WEBAPP_ENV = os.path.expanduser(
     "~/Documents/GitHub/hushh-research/hushh-webapp/.env.uat.local"

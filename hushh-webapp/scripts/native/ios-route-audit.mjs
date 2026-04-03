@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, execSync } from "node:child_process";
+import dotenv from "dotenv";
 
 const repoRoot = process.cwd();
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
@@ -19,6 +20,104 @@ const timeoutMs = Number(process.env.IOS_ROUTE_AUDIT_TIMEOUT_MS || "60000");
 const routeFilter = (process.env.IOS_ROUTE_FILTER || "").trim();
 const xcodeProject = "ios/App/App.xcodeproj";
 const xcodeScheme = "App";
+
+function sanitizeConfiguredValue(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  const lower = normalized.toLowerCase();
+  if (
+    lower.includes("replace_with") ||
+    lower.includes("your_") ||
+    lower === "placeholder"
+  ) {
+    return "";
+  }
+  return normalized;
+}
+
+function readRawEnvValue(filePath, key) {
+  if (!fs.existsSync(filePath)) {
+    return "";
+  }
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.startsWith(`${key}=`)) {
+      continue;
+    }
+    return line.slice(key.length + 1).trim();
+  }
+  return "";
+}
+
+function resolveKaiTestPassphrase() {
+  const direct = sanitizeConfiguredValue(
+    process.env.KAI_TEST_PASSPHRASE || process.env.NEXT_PUBLIC_KAI_TEST_PASSPHRASE || ""
+  );
+  if (direct) {
+    return direct;
+  }
+
+  const envCandidates = [
+    path.join(repoRoot, ".env.local.local"),
+    path.join(repoRoot, "..", "consent-protocol", ".env"),
+    path.join(repoRoot, ".env.local"),
+    path.join(repoRoot, ".env"),
+  ];
+
+  for (const candidate of envCandidates) {
+    if (!fs.existsSync(candidate)) continue;
+    const parsed = dotenv.parse(fs.readFileSync(candidate, "utf8"));
+    const value = sanitizeConfiguredValue(
+      readRawEnvValue(candidate, "KAI_TEST_PASSPHRASE") ||
+        parsed.KAI_TEST_PASSPHRASE ||
+        parsed.NEXT_PUBLIC_KAI_TEST_PASSPHRASE ||
+        ""
+    );
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+const kaiTestPassphrase = resolveKaiTestPassphrase();
+
+function resolveReviewerUserId() {
+  const direct = sanitizeConfiguredValue(
+    process.env.REVIEWER_UID ||
+    process.env.KAI_TEST_USER_ID ||
+    process.env.NEXT_PUBLIC_KAI_TEST_USER_ID ||
+    ""
+  );
+  if (direct) {
+    return direct;
+  }
+
+  const envCandidates = [
+    path.join(repoRoot, ".env.local.local"),
+    path.join(repoRoot, "..", "consent-protocol", ".env"),
+    path.join(repoRoot, ".env.local"),
+    path.join(repoRoot, ".env"),
+  ];
+
+  for (const candidate of envCandidates) {
+    if (!fs.existsSync(candidate)) continue;
+    const parsed = dotenv.parse(fs.readFileSync(candidate, "utf8"));
+    const value = sanitizeConfiguredValue(
+      parsed.REVIEWER_UID || parsed.KAI_TEST_USER_ID || parsed.NEXT_PUBLIC_KAI_TEST_USER_ID || ""
+    );
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+const kaiTestUserId = resolveReviewerUserId();
 
 function run(cmd, args, options = {}) {
   return execFileSync(cmd, args, {
@@ -50,24 +149,58 @@ function parseStatus(raw) {
   );
 }
 
+function normalizeRoute(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || trimmed === "/") {
+    return trimmed || "/";
+  }
+  try {
+    const url = new URL(trimmed, "https://native-audit.local");
+    let pathname = url.pathname || "/";
+    if (pathname.length > 1 && pathname.endsWith("/")) {
+      pathname = pathname.slice(0, -1);
+    }
+    return `${pathname}${url.search}`;
+  } catch {
+    return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
+  }
+}
+
 function matchesRoute(parsedRoute, route) {
   if (route.expectedRoute) {
-    return parsedRoute === route.expectedRoute;
+    return normalizeRoute(parsedRoute) === normalizeRoute(route.expectedRoute);
   }
   if (route.expectedRoutePrefix) {
-    return parsedRoute.startsWith(route.expectedRoutePrefix);
+    return normalizeRoute(parsedRoute).startsWith(
+      normalizeRoute(route.expectedRoutePrefix)
+    );
   }
   return true;
 }
 
 function launchRoute(route) {
   tryRun("xcrun", ["simctl", "terminate", "booted", bundleId]);
+  try {
+    const container = run("xcrun", ["simctl", "get_app_container", "booted", bundleId, "data"]);
+    const statusPath = path.join(container, "Documents", "native-test-status.txt");
+    if (fs.existsSync(statusPath)) {
+      fs.unlinkSync(statusPath);
+    }
+  } catch {
+    // Best effort cleanup.
+  }
   const args = ["simctl", "launch", "booted", bundleId, "-UITestMode", "-UITestInitialRoute", route.initialRoute];
   args.push("-UITestExpectedMarker", route.expectedMarker);
   if (route.expectedRoute) {
     args.push("-UITestExpectedRoute", route.expectedRoute);
   }
   args.push("-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false");
+  if (kaiTestPassphrase) {
+    args.push("-UITestVaultPassphrase", kaiTestPassphrase);
+  }
+  if (kaiTestUserId) {
+    args.push("-UITestExpectedUserId", kaiTestUserId);
+  }
   run("xcrun", args);
 }
 

@@ -114,8 +114,8 @@ References:
 
 ```bash
 cd ..
-npm run bootstrap
-npm run web -- --mode=uat
+./bin/hushh bootstrap
+./bin/hushh web --mode uat
 ```
 
 Package-local commands still exist when you are already inside `hushh-webapp/` and intentionally working at the package layer:

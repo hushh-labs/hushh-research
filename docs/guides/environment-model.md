@@ -46,15 +46,15 @@ bash scripts/env/use_profile.sh local
 or use the public command surface:
 
 ```bash
-npm run web -- --mode=uat
-npm run native:ios -- --mode=uat
-npm run native:android -- --mode=uat
+./bin/hushh web --mode uat
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
 ```
 
 The local backend path still exists for deeper development work, but it is not the first-run path:
 
 ```bash
-npm run backend
+./bin/hushh backend
 ```
 
 ## Identity Keys
@@ -65,7 +65,7 @@ Every profile must keep these keys aligned:
 - frontend: `NEXT_PUBLIC_APP_ENV=development|uat|production`
 - both: `APP_RUNTIME_PROFILE=<profile>`
 
-`npm run doctor -- --mode=<mode>` is the quickest way to verify that alignment.
+`./bin/hushh doctor --mode <mode>` is the quickest way to verify that alignment.
 
 ## Runtime Resolution Rules
 
@@ -86,10 +86,10 @@ Every profile must keep these keys aligned:
 ## Related Commands
 
 ```bash
-npm run bootstrap
-npm run doctor -- --mode=local
-npm run doctor -- --mode=uat
-npm run doctor -- --mode=prod
+./bin/hushh bootstrap
+./bin/hushh doctor --mode local
+./bin/hushh doctor --mode uat
+./bin/hushh doctor --mode prod
 python3 scripts/ops/verify-runtime-profile-env-shape.py --include-runtime
 ```
 

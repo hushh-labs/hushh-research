@@ -37,6 +37,7 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { trackEvent } from "@/lib/observability/client";
 import { Card } from "@/lib/morphy-ux/card";
+import { useNativeTestConfig } from "@/lib/testing/native-test";
 
 type Stage = "loading" | "entry" | "wizard" | "persona";
 type OnboardingSource = "pre_vault" | "vault";
@@ -72,6 +73,7 @@ function computePersona(answers: WizardAnswers, explicit?: RiskProfile | null): 
 function KaiOnboardingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nativeTestConfig = useNativeTestConfig();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { activePersona, loading: personaLoading, riaCapability, switchPersona } = usePersonaState();
@@ -85,6 +87,9 @@ function KaiOnboardingPageContent() {
   const [retryNonce, setRetryNonce] = useState(0);
   const onboardingStartedRef = useRef(false);
   const inviteToken = searchParams.get("invite");
+  const preserveOnboardingAuditRoute =
+    nativeTestConfig.enabled &&
+    nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING;
 
   useEffect(() => {
     let cancelled = false;
@@ -117,8 +122,10 @@ function KaiOnboardingPageContent() {
           if (PreVaultUserStateService.isOnboardingResolved(remoteState)) {
             setOnboardingRequiredCookie(false);
             setOnboardingFlowActiveCookie(false);
-            router.replace("/kai");
-            return;
+            if (!preserveOnboardingAuditRoute) {
+              router.replace("/kai");
+              return;
+            }
           }
 
           setOnboardingRequiredCookie(true);
@@ -165,8 +172,10 @@ function KaiOnboardingPageContent() {
           });
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
-          router.replace("/kai");
-          return;
+          if (!preserveOnboardingAuditRoute) {
+            router.replace("/kai");
+            return;
+          }
         }
 
         setOnboardingRequiredCookie(true);
@@ -199,6 +208,7 @@ function KaiOnboardingPageContent() {
     vaultOwnerToken,
     router,
     retryNonce,
+    preserveOnboardingAuditRoute,
   ]);
 
   const wizardAnswers: WizardAnswers = useMemo(() => {

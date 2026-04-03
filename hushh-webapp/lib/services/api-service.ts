@@ -1341,14 +1341,14 @@ export class ApiService {
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side.
    */
-  static async createAppReviewModeSession(): Promise<{ token: string }> {
+  static async createAppReviewModeSession(subject: "reviewer" = "reviewer"): Promise<{ token: string }> {
     const response = await apiFetch("/api/app-config/review-mode/session", {
       method: "POST",
       cache: "no-store",
       headers: {
         "Content-Type": "application/json",
       },
-      body: "{}",
+      body: JSON.stringify({ subject }),
     });
 
     const payload = (await response.json().catch(() => ({}))) as Record<

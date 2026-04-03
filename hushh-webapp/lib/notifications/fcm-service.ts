@@ -670,83 +670,83 @@ function setupNativeListeners(): void {
   if (nativeListenersConfigured) return;
   nativeListenersConfigured = true;
 
-  import("@capacitor-firebase/messaging").then(({ FirebaseMessaging }) => {
-    // Foreground message handler
-    FirebaseMessaging.addListener("notificationReceived", (notification) => {
-      console.log("[FCM] Foreground message received:", notification);
+  void (async () => {
+    try {
+      const { FirebaseMessaging } = await import("@capacitor-firebase/messaging");
 
-      // Dispatch custom event (same as web)
-      window.dispatchEvent(
-        new CustomEvent(FCM_MESSAGE_EVENT, {
-          detail: notification,
-        })
-      );
-    });
+      await FirebaseMessaging.addListener("notificationReceived", (notification) => {
+        console.log("[FCM] Foreground message received:", notification);
 
-    // Notification tap handler
-    FirebaseMessaging.addListener(
-      "notificationActionPerformed",
-      (action) => {
-        console.log("[FCM] Notification tapped:", action);
+        window.dispatchEvent(
+          new CustomEvent(FCM_MESSAGE_EVENT, {
+            detail: notification,
+          })
+        );
+      });
 
-        const data = action.notification.data as
-          | Record<string, unknown>
-          | undefined;
+      await FirebaseMessaging.addListener(
+        "notificationActionPerformed",
+        (action) => {
+          console.log("[FCM] Notification tapped:", action);
 
-        // Navigate based on notification type
-        if (
-          data &&
-          typeof data.type === "string" &&
-          data.type === "consent_request"
-        ) {
-          const target = resolveConsentNavigationTarget(
-            (typeof data.request_url === "string" && data.request_url) ||
-              (typeof data.deep_link === "string" && data.deep_link) ||
-              null,
-            "pending"
-          );
-          if (target.kind === "internal") {
-            requestInternalAppNavigation({
-              href: target.href,
-              scroll: false,
-            });
+          const data = action.notification.data as
+            | Record<string, unknown>
+            | undefined;
+
+          if (
+            data &&
+            typeof data.type === "string" &&
+            data.type === "consent_request"
+          ) {
+            const target = resolveConsentNavigationTarget(
+              (typeof data.request_url === "string" && data.request_url) ||
+                (typeof data.deep_link === "string" && data.deep_link) ||
+                null,
+              "pending"
+            );
+            if (target.kind === "internal") {
+              requestInternalAppNavigation({
+                href: target.href,
+                scroll: false,
+              });
+            } else {
+              assignWindowLocation(target.href || buildConsentTargetPath(data));
+            }
+          } else if (
+            data &&
+            typeof data.type === "string" &&
+            data.type === "kai_analysis_complete"
+          ) {
+            assignWindowLocation(ROUTES.KAI_DASHBOARD);
           } else {
-            assignWindowLocation(target.href || buildConsentTargetPath(data));
+            assignWindowLocation(ROUTES.HOME);
           }
-        } else if (
-          data &&
-          typeof data.type === "string" &&
-          data.type === "kai_analysis_complete"
-        ) {
-          assignWindowLocation(ROUTES.KAI_DASHBOARD);
-        } else {
-          assignWindowLocation(ROUTES.HOME);
         }
-      }
-    );
+      );
 
-    // Token refresh handler -- re-register with backend when FCM rotates the token
-    FirebaseMessaging.addListener("tokenReceived", async (event) => {
-      console.log("[FCM] Token refreshed:", event.token.substring(0, 20) + "...");
-      const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
-      // Re-register silently; if it fails the next app launch will fix it
-      try {
-        if (lastKnownSession) {
-          await ApiService.registerPushToken(
-            lastKnownSession.userId,
-            event.token,
-            platform,
-            lastKnownSession.idToken
-          );
-          console.log("[FCM] Refreshed token re-registered with backend");
+      await FirebaseMessaging.addListener("tokenReceived", async (event) => {
+        console.log("[FCM] Token refreshed:", event.token.substring(0, 20) + "...");
+        const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
+        try {
+          if (lastKnownSession) {
+            await ApiService.registerPushToken(
+              lastKnownSession.userId,
+              event.token,
+              platform,
+              lastKnownSession.idToken
+            );
+            console.log("[FCM] Refreshed token re-registered with backend");
+          }
+        } catch (err) {
+          console.warn("[FCM] Token refresh re-registration failed:", err);
         }
-      } catch (err) {
-        console.warn("[FCM] Token refresh re-registration failed:", err);
-      }
-    });
+      });
 
-    console.log("[FCM] Native listeners configured");
-  });
+      console.log("[FCM] Native listeners configured");
+    } catch (error) {
+      console.warn("[FCM] Native listener setup skipped:", error);
+    }
+  })();
 }
 
 function buildConsentTargetPath(

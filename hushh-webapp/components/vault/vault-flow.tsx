@@ -45,6 +45,7 @@ import {
   toInvestorMessage,
   toInvestorVaultUnlockError,
 } from "@/lib/copy/investor-language";
+import { getNativeTestConfig } from "@/lib/testing/native-test";
 
 type VaultStep =
   | "checking"
@@ -261,7 +262,7 @@ export function VaultFlow({
     }
   };
 
-  const handleUnlockPassphrase = useCallback(async () => {
+  const handleUnlockPassphraseWith = useCallback(async (passphraseValue: string) => {
     setIsUnlocking(true);
     try {
       setError(null);
@@ -269,7 +270,7 @@ export function VaultFlow({
       const decryptedKey = await VaultService.unlockWithMethod({
         state: vaultData,
         method: "passphrase",
-        secretMaterial: passphrase,
+        secretMaterial: passphraseValue,
       });
 
       if (decryptedKey) {
@@ -305,7 +306,49 @@ export function VaultFlow({
     } finally {
       setIsUnlocking(false);
     }
-  }, [currentRpId, enableGeneratedDefault, finalizeUnlock, passphrase, user.uid]);
+  }, [currentRpId, enableGeneratedDefault, finalizeUnlock, user.uid]);
+
+  const handleUnlockPassphrase = useCallback(async () => {
+    const passphraseToUse = passphrase;
+    return handleUnlockPassphraseWith(passphraseToUse);
+  }, [handleUnlockPassphraseWith, passphrase]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!bridge?.enabled) {
+      return;
+    }
+
+    const liveConfig = getNativeTestConfig();
+    const testPassphrase = liveConfig.vaultPassphrase?.trim();
+    const bootstrapManaged =
+      liveConfig.enabled &&
+      liveConfig.autoReviewerLogin &&
+      Boolean(liveConfig.expectedUserId) &&
+      Boolean(testPassphrase);
+    if (!testPassphrase || step !== "unlock" || bootstrapManaged) {
+      return;
+    }
+
+    bridge.triggerVaultUnlock = () => {
+      if (isUnlocking) {
+        return;
+      }
+      setUnlockWithPassphraseFallback(true);
+      setPassphrase(testPassphrase);
+      void handleUnlockPassphraseWith(testPassphrase);
+    };
+
+    return () => {
+      if (window.__HUSHH_NATIVE_TEST__) {
+        window.__HUSHH_NATIVE_TEST__.triggerVaultUnlock = null;
+      }
+    };
+  }, [handleUnlockPassphraseWith, isUnlocking, step]);
 
   const handleUnlockGeneratedDefault = useCallback(async () => {
     setIsUnlocking(true);

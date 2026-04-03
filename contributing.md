@@ -7,8 +7,8 @@ The public contributor model is intentionally small:
 ```bash
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
-npm run bootstrap
-npm run web -- --mode=uat
+./bin/hushh bootstrap
+./bin/hushh web --mode uat
 ```
 
 If you can run that flow and understand the trust model below, you have enough context to contribute.
@@ -34,14 +34,14 @@ Hushh is built around four invariants:
 Use these first:
 
 ```bash
-npm run bootstrap
-npm run doctor -- --mode=uat
-npm run web -- --mode=uat
-npm run native:ios -- --mode=uat
-npm run native:android -- --mode=uat
+./bin/hushh bootstrap
+./bin/hushh doctor --mode uat
+./bin/hushh web --mode uat
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
 ```
 
-`make` still exists for maintainer workflows and compatibility paths, but it is not the default onboarding surface.
+Repo-level workflows should go through `./bin/hushh`. Do not teach alternate root task surfaces in contributor docs.
 
 ## Branch and Release Model
 

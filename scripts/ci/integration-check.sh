@@ -21,5 +21,5 @@ bash "$REPO_ROOT/scripts/ci/pkm-upgrade-gate.sh"
 
 cd "$WEB_DIR"
 npm run typecheck
-npm test
+npm run test:ci
 npm run build

@@ -122,7 +122,6 @@
 				423141872FACCBA5C6BB6BE5 /* AppUITests.swift */,
 				14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */,
 			);
-			name = AppUITests;
 			path = AppUITests;
 			sourceTree = "<group>";
 		};
@@ -182,7 +181,6 @@
 			children = (
 				844A95957616D891DBC4D212 /* NativeSupportTests.swift */,
 			);
-			name = AppTests;
 			path = AppTests;
 			sourceTree = "<group>";
 		};

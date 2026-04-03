@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { getNativeTestConfig } from "@/lib/testing/native-test";
 
-const INITIAL_ROUTE_KEY = "__hushh_native_test_initial_route_applied__";
+let initialRouteApplied = false;
 
 export function NativeTestRouter() {
   const router = useRouter();
@@ -26,15 +26,15 @@ export function NativeTestRouter() {
 
       const currentRoute = `${pathname}${window.location.search || ""}`;
       if (currentRoute === config.initialRoute) {
-        sessionStorage.setItem(INITIAL_ROUTE_KEY, "1");
+        initialRouteApplied = true;
         return true;
       }
 
-      if (sessionStorage.getItem(INITIAL_ROUTE_KEY) === "1") {
+      if (initialRouteApplied) {
         return true;
       }
 
-      sessionStorage.setItem(INITIAL_ROUTE_KEY, "1");
+      initialRouteApplied = true;
       router.replace(config.initialRoute);
       return true;
     };

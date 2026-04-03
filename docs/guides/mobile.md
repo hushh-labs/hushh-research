@@ -61,10 +61,10 @@ Every visible page route must be documented as either native-supported or explic
 
 Recommended commands:
 
-- Terminal A (repo root): `npm run backend`
+- Terminal A (repo root): `./bin/hushh backend`
 - Terminal B (repo root):
-  - Android: `npm run native:android -- --mode local --fresh`
-  - iOS: `npm run native:ios -- --mode local --fresh`
+  - Android: `./bin/hushh native android --mode local --fresh`
+  - iOS: `./bin/hushh native ios --mode local --fresh`
 
 Required env:
 

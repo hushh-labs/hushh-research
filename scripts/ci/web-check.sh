@@ -20,7 +20,8 @@ rm -rf node_modules
 npm ci
 
 npm run typecheck
-npm test
+npm run lint
+npm run test:ci
 
 NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-https://api.example.com}" \
 NEXT_PUBLIC_DEVELOPER_API_URL="${NEXT_PUBLIC_DEVELOPER_API_URL:-https://api.example.com}" \

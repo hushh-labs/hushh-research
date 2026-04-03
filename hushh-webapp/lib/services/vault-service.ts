@@ -677,16 +677,20 @@ export class VaultService {
 
     // Phase B: deterministic token acquisition (native-first + fallback + single retry)
     const tryGetFirebaseIdToken = async (): Promise<string | undefined> => {
-      // 1) Native-first: HushhAuth plugin
-      const hushh = await HushhAuth.getIdToken().catch(() => ({ idToken: null }));
-      if (hushh?.idToken) return hushh.idToken;
+      // 1) Prefer the active Firebase JS SDK session first.
+      // This is authoritative for review/custom-token bootstrap flows.
+      const jsToken = await this.getFirebaseToken();
+      if (jsToken) return jsToken;
 
       // 2) Fallback: AuthService (may use @capacitor-firebase/authentication)
       const fallback = await AuthService.getIdToken().catch(() => null);
       if (fallback) return fallback;
 
-      // 3) Web fallback (should not happen on native, but safe)
-      return await this.getFirebaseToken();
+      // 3) Native plugin fallback
+      const hushh = await HushhAuth.getIdToken().catch(() => ({ idToken: null }));
+      if (hushh?.idToken) return hushh.idToken;
+
+      return undefined;
     };
 
     let firebaseIdToken = await tryGetFirebaseIdToken();
