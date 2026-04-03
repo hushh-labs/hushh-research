@@ -1,5 +1,5 @@
 import type { DeveloperRuntime } from "@/lib/developers/runtime";
-import mcpPublicDocs from "../../../packages/hushh-mcp/public-docs.json";
+import mcpPublicDocs from "@/lib/developers/public-docs.json";
 
 export type DeveloperSection = {
   id: string;
