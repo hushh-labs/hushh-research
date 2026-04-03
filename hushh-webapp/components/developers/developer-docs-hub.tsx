@@ -1487,21 +1487,21 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
               <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
                 <div className="min-w-0 space-y-4">
                   <SnippetCard
-                    title="Remote MCP"
-                    description="Direct HTTP MCP for compatible hosts."
+                    title="Generic remote MCP"
+                    description="Use this JSON shape for hosts that support HTTP MCP directly."
                     code={mcpSnippets.remote}
                     copyLabel="Remote MCP config"
                   />
                   <SnippetCard
                     title="npm bridge"
-                    description="Local stdio launcher for hosts that still need a process-based bridge."
+                    description="Use the npm launcher for hosts that still expect a local stdio process."
                     code={mcpSnippets.npm}
                     copyLabel="npm bridge config"
                   />
                 </div>
                 <SurfaceCard className="min-w-0">
                   <SurfaceCardHeader>
-                    <SurfaceCardTitle>Public beta MCP tools</SurfaceCardTitle>
+                    <SurfaceCardTitle>Public MCP tools</SurfaceCardTitle>
                     <SurfaceCardDescription>
                       These are the only tools shown by default for community developer access.
                     </SurfaceCardDescription>
@@ -1528,6 +1528,38 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                     ) : null}
                   </SurfaceCardContent>
                 </SurfaceCard>
+              </div>
+              <div className="grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                <SnippetCard
+                  title="Codex remote"
+                  description="Machine-local Codex config for the hosted UAT MCP endpoint."
+                  code={mcpSnippets.codexRemote}
+                  copyLabel="Codex remote config"
+                />
+                <SnippetCard
+                  title="Codex stdio"
+                  description="Use npm inside Codex when you want a local stdio bridge instead of remote MCP."
+                  code={mcpSnippets.codexStdio}
+                  copyLabel="Codex stdio config"
+                />
+                <SnippetCard
+                  title="Claude Desktop"
+                  description="Claude Desktop config for the npm bridge."
+                  code={mcpSnippets.claudeDesktop}
+                  copyLabel="Claude Desktop config"
+                />
+                <SnippetCard
+                  title="Cursor / VS Code"
+                  description="Generic mcpServers JSON for editors that use remote MCP directly."
+                  code={mcpSnippets.cursor}
+                  copyLabel="Cursor VS Code config"
+                />
+                <SnippetCard
+                  title="Remote MCP URL"
+                  description="The exact slash-safe UAT endpoint shape for any host that only needs the URL."
+                  code={mcpSnippets.rawUrl}
+                  copyLabel="Remote MCP URL"
+                />
               </div>
             </DeveloperSectionShell>
 

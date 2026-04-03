@@ -115,6 +115,13 @@ class CancelConsentRequest(BaseModel):
     requestId: str
 
 
+class PendingConsentOpenedRequest(BaseModel):
+    userId: str
+    requestId: str | None = None
+    bundleId: str | None = None
+    openedVia: str | None = None
+
+
 class GenericConsentRequestCreate(BaseModel):
     subject_user_id: str
     requester_actor_type: str = "ria"
@@ -173,6 +180,26 @@ async def get_pending_consents(
     pending_from_db = await _hydrate_pending_requester_labels(pending_from_db)
     logger.info("consent.pending_fetched count=%s", len(pending_from_db))
     return {"pending": pending_from_db}
+
+
+@router.post("/pending/opened")
+async def mark_pending_consent_opened(
+    body: PendingConsentOpenedRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data["user_id"] != body.userId:
+        raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
+
+    service = ConsentDBService()
+    opened = await service.mark_pending_request_opened(
+        user_id=body.userId,
+        request_id=body.requestId,
+        bundle_id=body.bundleId,
+        opened_via=body.openedVia,
+    )
+    if opened is None:
+        return {"ok": True, "acknowledged": False}
+    return {"ok": True, "acknowledged": True, **opened}
 
 
 @router.post("/pending/approve")

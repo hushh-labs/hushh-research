@@ -4,6 +4,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
@@ -93,22 +95,50 @@ function HomeContent() {
   }
 
   if (step === "intro") {
-    return <IntroStep onNext={() => setStep("preview")} />;
+    return (
+      <>
+        <NativeTestBeacon
+          routeId="/"
+          marker="native-route-home"
+          authState={user ? "authenticated" : "anonymous"}
+          dataState="loaded"
+        />
+        <IntroStep onNext={() => setStep("preview")} />
+      </>
+    );
   }
 
   if (step === "preview") {
     const loginUrl = redirectPath
       ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
       : ROUTES.LOGIN;
-    return <PreviewCarouselStep onContinue={() => router.push(loginUrl)} />;
+    return (
+      <>
+        <NativeTestBeacon
+          routeId="/"
+          marker="native-route-home"
+          authState={user ? "authenticated" : "anonymous"}
+          dataState="loaded"
+        />
+        <PreviewCarouselStep onContinue={() => router.push(loginUrl)} />
+      </>
+    );
   }
   return null;
 }
 
 export default function Home() {
   return (
-    <Suspense fallback={<HushhLoader label="Loading..." variant="fullscreen" />}>
-      <HomeContent />
-    </Suspense>
+    <>
+      <NativeRouteMarker
+        routeId="/"
+        marker="native-route-home"
+        authState="anonymous"
+        dataState="loaded"
+      />
+      <Suspense fallback={<HushhLoader label="Loading..." variant="fullscreen" />}>
+        <HomeContent />
+      </Suspense>
+    </>
   );
 }

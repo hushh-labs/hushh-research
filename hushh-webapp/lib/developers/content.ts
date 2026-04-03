@@ -66,7 +66,7 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "mcp",
     label: "MCP",
-    summary: "Remote MCP and npm launcher guidance for external agents.",
+    summary: "Host-agnostic MCP setup for remote and stdio-capable clients.",
   },
   {
     id: "api",
@@ -142,7 +142,7 @@ export const REST_ENDPOINTS: RestEndpoint[] = [
     method: "GET",
     path: "/api/v1/tool-catalog",
     auth: "Optional ?token=...",
-    purpose: "Current tool visibility for public beta or a specific developer app.",
+    purpose: "Current tool visibility for the public developer lane or a specific developer app.",
   },
   {
     method: "GET",
@@ -396,15 +396,45 @@ export function buildRestSnippets(runtime: DeveloperRuntime, developerToken = "<
 }
 
 export function buildMcpSnippets(runtime: DeveloperRuntime, developerToken = "<developer-token>") {
+  const remoteUrl = `${runtime.mcpUrl}?token=${developerToken}`;
   return {
+    rawUrl: remoteUrl,
     remote: `{
   "mcpServers": {
     "hushh-consent-remote": {
-      "url": "${runtime.mcpUrl}?token=${developerToken}"
+      "url": "${remoteUrl}"
+    }
+  }
+}`,
+    cursor: `{
+  "mcpServers": {
+    "hushh-consent": {
+      "url": "${remoteUrl}"
     }
   }
 }`,
     npm: `{
+  "mcpServers": {
+    "hushh-consent": {
+      "command": "npx",
+      "args": ["-y", "${runtime.npmPackage}"],
+      "env": {
+        "CONSENT_API_URL": "${runtime.apiOrigin}",
+        "HUSHH_DEVELOPER_TOKEN": "${developerToken}"
+      }
+    }
+  }
+}`,
+    codexRemote: `codex mcp add hushh_consent_uat --url "${remoteUrl}"`,
+    codexStdio: `[mcp_servers.hushh_consent]
+command = "npx"
+args = ["-y", "${runtime.npmPackage}"]
+enabled = true
+
+[mcp_servers.hushh_consent.env]
+CONSENT_API_URL = "${runtime.apiOrigin}"
+HUSHH_DEVELOPER_TOKEN = "${developerToken}"`,
+    claudeDesktop: `{
   "mcpServers": {
     "hushh-consent": {
       "command": "npx",

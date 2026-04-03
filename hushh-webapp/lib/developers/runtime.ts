@@ -51,7 +51,7 @@ function defaultRuntimeForEnvironment(
       appUrl,
       apiOrigin: "http://127.0.0.1:8000",
       mcpUrl: "http://127.0.0.1:8000/mcp",
-      npmPackage: "@hushh/mcp@beta",
+      npmPackage: "@hushh/mcp",
     };
   }
 
@@ -60,7 +60,7 @@ function defaultRuntimeForEnvironment(
       appUrl: "https://uat.kai.hushh.ai",
       apiOrigin: "https://api.uat.kai.hushh.ai",
       mcpUrl: "https://api.uat.kai.hushh.ai/mcp",
-      npmPackage: "@hushh/mcp@beta",
+      npmPackage: "@hushh/mcp",
     };
   }
 

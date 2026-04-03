@@ -300,7 +300,7 @@ If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON l
 
 ## Developer MCP Surface
 
-The public beta machine flow is:
+The public developer MCP flow is:
 
 1. `discover_user_domains(user_id)`
 2. `request_consent(user_id, discovered_scope)`

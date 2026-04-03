@@ -627,7 +627,23 @@ export default function MarketplacePage() {
   const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
 
   return (
-    <AppPageShell as="main" width="content" className="pb-36">
+    <AppPageShell
+      as="main"
+      width="content"
+      className="pb-36"
+      nativeTest={{
+        routeId: "/marketplace",
+        marker: "native-route-marketplace",
+        authState: user ? "authenticated" : "pending",
+        dataState: loading
+          ? "loading"
+          : rias.length > 0 || investors.length > 0
+            ? "loaded"
+            : iamUnavailable
+              ? "unavailable-valid"
+              : "empty-valid",
+      }}
+    >
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="Connect"

@@ -256,16 +256,15 @@ Blocking backend manifest:
 
 ---
 
-## Integration Check (Route Contracts)
+## Integration Check (Route and Docs Contract)
 
 **Runs when:** Frontend or backend paths change (or manual run with scope that includes either).
 
 | Step | Command / behavior | Fails CI? |
 |------|--------------------|-----------|
-| Install | `npm ci` in `hushh-webapp/` | Yes |
-| Verify | `npm run verify:routes` (script: `hushh-webapp/scripts/verify-route-contracts.cjs`) | Yes |
+| Verify | `bash scripts/ci/docs-parity-check.sh` | Yes |
 
-Route contracts must stay in sync between frontend expectations and backend (or proxy) routes. See [API Contracts](../architecture/api-contracts.md). If you add or change API routes, update the contract and run `npm run verify:routes` (or full local CI).
+Route contracts must stay in sync between frontend expectations, backend (or proxy) routes, and the route/mobile docs. See [API Contracts](../architecture/api-contracts.md). If you add or change routes, update the contract and run the docs parity lane (or full local CI).
 
 ---
 
@@ -327,7 +326,7 @@ Secret-scan note:
 |------|----------------------------|
 | Frontend | `cd hushh-webapp && npm ci && npm run typecheck && npm run lint -- --max-warnings=0 && npm run build && npm run test:ci` |
 | Backend | `cd consent-protocol && pip install -r requirements.txt -r requirements-dev.txt && ruff check . && mypy --config-file pyproject.toml --ignore-missing-imports && bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
-| Integration | `cd hushh-webapp && npm ci && npm run verify:routes` |
+| Integration | `bash scripts/ci/docs-parity-check.sh` |
 | All | `scripts/test-ci-local.sh` |
 
 ---
@@ -337,7 +336,7 @@ Secret-scan note:
 Before creating a release tag/public rollout, run strict gate commands from repo root:
 
 ```bash
-cd hushh-webapp && npm run verify:routes
+bash scripts/ci/docs-parity-check.sh
 cd hushh-webapp && npm run verify:parity
 cd hushh-webapp && npm run verify:capacitor:routes
 cd hushh-webapp && npm run verify:cache

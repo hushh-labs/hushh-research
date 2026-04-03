@@ -36,7 +36,7 @@ One-time rollout notes belong in PRs, issues, or git history, not in the active 
 - [docs-governance.md](./docs-governance.md): documentation placement and quality gates.
 - [env-and-secrets.md](./env-and-secrets.md): environment and secret contract.
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.
-- [naming-policy.md](./naming-policy.md): Hussh public naming rules and compatibility boundaries.
+- [naming-policy.md](./naming-policy.md): Hushh public naming rules and compatibility boundaries.
 - [developer-access-matrix.md](./developer-access-matrix.md): org-level developer IAM baseline, runtime identities, and DB access path.
 - [observability-google-first.md](./observability-google-first.md): observability operating model.
 - [production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md): production DB recovery guide.

@@ -16,7 +16,17 @@ function LegacyKaiDashboardAnalysisRedirectContent() {
   }, [router, searchParams]);
 
   return (
-    <AppPageShell as="div" width="content" className="flex min-h-72 items-center justify-center">
+    <AppPageShell
+      as="div"
+      width="content"
+      className="flex min-h-72 items-center justify-center"
+      nativeTest={{
+        routeId: "/kai/dashboard/analysis",
+        marker: "native-route-kai-dashboard-analysis",
+        authState: "authenticated",
+        dataState: "redirect-valid",
+      }}
+    >
       <HushhLoader variant="inline" label="Redirecting to analysis…" />
     </AppPageShell>
   );

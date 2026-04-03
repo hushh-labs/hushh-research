@@ -72,7 +72,7 @@ If you are working inside the `hushh-research` monorepo, use the repo-root boots
 
 ```bash
 cd ..
-make bootstrap
+npm run bootstrap
 npm run backend
 ```
 

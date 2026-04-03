@@ -1,4 +1,4 @@
-# Hussh Documentation
+# Hushh Documentation
 
 > Canonical entry point for durable repo knowledge.
 
@@ -24,7 +24,7 @@ flowchart TB
 
 ## The Story in One Screen
 
-Hussh is a consent-and-scope platform built on a strict trust model:
+Hushh is a consent-and-scope platform built on a strict trust model:
 
 - **identity** decides who is acting
 - **vault** holds encrypted user data

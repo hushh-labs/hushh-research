@@ -44,6 +44,12 @@ export default function KaiPortfolioPage() {
       as="div"
       width="wide"
       className="relative pb-32"
+      nativeTest={{
+        routeId: "/kai/portfolio",
+        marker: "native-route-kai-portfolio",
+        authState: "authenticated",
+        dataState: flowState === "checking" ? "loading" : "loaded",
+      }}
     >
       <AppPageContentRegion>
         <KaiFlow

@@ -505,6 +505,8 @@ def _next_pending_notification(
     max_sequence = 0
     delivery_reasons: set[str] = set()
     for event in events:
+        if str(event.get("action") or "").strip().upper() == "NOTIFICATION_OPENED":
+            return None
         metadata = _object_map(event.get("metadata"))
         raw_sequence = _coerce_optional_int(metadata.get("notification_sequence"))
         if raw_sequence is None:
@@ -564,7 +566,7 @@ async def _notification_job_loop():
                     for item in pending_requests
                     if str(item.get("request_id") or "").strip()
                 ],
-                actions=["NOTIFICATION_SENT", "REMINDER_SENT"],
+                actions=["NOTIFICATION_SENT", "REMINDER_SENT", "NOTIFICATION_OPENED"],
             )
             events_by_request: Dict[str, list[Dict[str, Any]]] = {}
             for event in notification_events:

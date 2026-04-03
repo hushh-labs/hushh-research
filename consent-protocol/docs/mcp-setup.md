@@ -5,7 +5,11 @@
 
 Canonical visual owner: [consent-protocol](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-This guide explains how to connect the Hushh Consent MCP Server to Claude Desktop or other MCP hosts. The server uses the `mcp` Python SDK with stdio transport (JSON-RPC 2.0 over stdin/stdout).
+This guide explains how to connect the Hushh Consent MCP Server to any MCP-capable host. The public transport model is simple:
+
+- use hosted remote MCP when the host supports HTTP MCP directly
+- use the npm bridge when the host still expects a local stdio process
+- use the repo-local Python fallback only for contributor workflows
 
 For repo-wide coding-agent setup guidance, including `shadcn` and `plaid` MCP examples for Codex-style agents, see:
 
@@ -15,7 +19,7 @@ For repo-wide coding-agent setup guidance, including `shadcn` and `plaid` MCP ex
 
 - Node.js 18.18+ for the npm wrapper
 - Python 3.13+ for the underlying MCP runtime
-- Claude Desktop app installed (or another MCP host such as Cursor)
+- An MCP-capable host such as Codex, Claude Desktop, Cursor, or VS Code
 - Hushh runtime configuration available through environment variables or a `consent-protocol`-style `.env` file
 
 ## Quick Start
@@ -26,7 +30,7 @@ Use the npm launcher when preparing external developer docs, Product Hunt assets
 
 ```bash
 export HUSHH_MCP_ENV_FILE=/absolute/path/to/consent-protocol/.env
-npx -y @hushh/mcp@beta --help
+npx -y @hushh/mcp --help
 ```
 
 That command validates that the launcher can find Python and bootstrap the packaged runtime. The first full run installs the bundled Python dependencies into a local cache directory.
@@ -38,7 +42,24 @@ Manual host configuration for generic JSON hosts (`mcpServers`):
   "mcpServers": {
     "hushh-consent": {
       "command": "npx",
-      "args": ["-y", "@hushh/mcp@beta"],
+      "args": ["-y", "@hushh/mcp"],
+      "env": {
+        "CONSENT_API_URL": "https://<consent-api-origin>",
+        "HUSHH_DEVELOPER_TOKEN": "<developer-token>"
+      }
+    }
+  }
+}
+```
+
+Claude Desktop stdio configuration uses the same shape:
+
+```json
+{
+  "mcpServers": {
+    "hushh-consent": {
+      "command": "npx",
+      "args": ["-y", "@hushh/mcp"],
       "env": {
         "CONSENT_API_URL": "https://<consent-api-origin>",
         "HUSHH_DEVELOPER_TOKEN": "<developer-token>"
@@ -52,9 +73,9 @@ Notes:
 
 1. `HUSHH_MCP_ENV_FILE` is the simplest way to reuse an existing `consent-protocol/.env`.
 2. You can also export the required env vars directly instead of using an env file.
-3. If `@hushh/mcp` has not been published yet, treat that as a launch blocker for the public developer lane and use the repo-local fallback below until publish is complete.
+3. `@hushh/mcp` is published and is the preferred public install surface.
 
-### Option A2: Hosted Remote MCP (UAT beta)
+### Option A2: Hosted Remote MCP (UAT)
 
 For hosts that support direct remote MCP over HTTP, point them at the backend MCP endpoint and append the self-serve developer token to the URL:
 
@@ -75,7 +96,7 @@ url = "https://<consent-api-origin>/mcp/?token=<developer-token>"
 enabled = true
 ```
 
-Because the current remote beta contract is query-token based, treat the resulting Codex config as machine-local secret material and never commit it.
+Because the current remote contract is query-token based, treat the resulting Codex config as machine-local secret material and never commit it.
 
 Cursor / VS Code / generic JSON host config remains:
 
@@ -87,6 +108,12 @@ Cursor / VS Code / generic JSON host config remains:
     }
   }
 }
+```
+
+Raw remote URL for hosts that only ask for the endpoint:
+
+```text
+https://<consent-api-origin>/mcp/?token=<developer-token>
 ```
 
 For public developer setup, do not add `FRONTEND_URL` to the MCP host config. The backend already owns the app/approval surface for its environment.

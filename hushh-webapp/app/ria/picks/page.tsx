@@ -2046,7 +2046,23 @@ export default function RiaPicksPage() {
   }
 
   return (
-    <AppPageShell as="main" width="wide" className="pb-16 sm:pb-24">
+    <AppPageShell
+      as="main"
+      width="wide"
+      className="pb-16 sm:pb-24"
+      nativeTest={{
+        routeId: "/ria/picks",
+        marker: "native-route-ria-picks",
+        authState: user ? "authenticated" : "pending",
+        dataState: picksResource.loading
+          ? "loading"
+          : iamUnavailable
+            ? "unavailable-valid"
+            : "loaded",
+        errorCode: picksResource.error ? "ria_picks" : null,
+        errorMessage: picksResource.error,
+      }}
+    >
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="Picks"

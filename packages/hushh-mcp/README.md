@@ -6,6 +6,12 @@ This package does not replace the Python MCP implementation. It bootstraps the e
 
 ## Preferred Host Config
 
+This package is for any MCP-capable host. The contract is the same everywhere:
+
+- use remote MCP when the host supports HTTP MCP directly
+- use the npm bridge when the host still expects a local stdio process
+- keep `HUSHH_DEVELOPER_TOKEN` machine-local
+
 Generic JSON host config (`mcpServers`) is appropriate for hosts such as Cursor and VS Code.
 Codex uses `codex mcp add ...` or `~/.codex/config.toml` instead of `mcp.json`.
 
@@ -14,7 +20,7 @@ Codex uses `codex mcp add ...` or `~/.codex/config.toml` instead of `mcp.json`.
   "mcpServers": {
     "hushh-consent": {
       "command": "npx",
-      "args": ["-y", "@hushh/mcp@beta"],
+      "args": ["-y", "@hushh/mcp"],
       "env": {
         "CONSENT_API_URL": "https://<consent-api-origin>",
         "HUSHH_DEVELOPER_TOKEN": "<developer-token>"
@@ -30,14 +36,14 @@ Codex remote setup:
 codex mcp add hushh_consent --url "https://<consent-api-origin>/mcp/?token=<developer-token>"
 ```
 
-This stores the current beta query-token URL in machine-local Codex config. Do not commit or share that file.
+This stores the current query-token URL in machine-local Codex config. Do not commit or share that file.
 
 Codex stdio config:
 
 ```toml
 [mcp_servers.hushh_consent]
 command = "npx"
-args = ["-y", "@hushh/mcp@beta"]
+args = ["-y", "@hushh/mcp"]
 enabled = true
 
 [mcp_servers.hushh_consent.env]
@@ -45,7 +51,7 @@ CONSENT_API_URL = "https://<consent-api-origin>"
 HUSHH_DEVELOPER_TOKEN = "<developer-token>"
 ```
 
-Remote MCP hosts that support direct HTTP transport can point at the UAT beta endpoint:
+Remote MCP hosts that support direct HTTP transport can point at the UAT endpoint:
 
 ```json
 {
@@ -55,6 +61,29 @@ Remote MCP hosts that support direct HTTP transport can point at the UAT beta en
     }
   }
 }
+```
+
+Claude Desktop stdio example:
+
+```json
+{
+  "mcpServers": {
+    "hushh-consent": {
+      "command": "npx",
+      "args": ["-y", "@hushh/mcp"],
+      "env": {
+        "CONSENT_API_URL": "https://<consent-api-origin>",
+        "HUSHH_DEVELOPER_TOKEN": "<developer-token>"
+      }
+    }
+  }
+}
+```
+
+Raw remote URL for any host that only needs the endpoint:
+
+```text
+https://<consent-api-origin>/mcp/?token=<developer-token>
 ```
 
 The public UAT contract is the scalable consent core only:
@@ -92,7 +121,7 @@ Example:
 
 ```bash
 export HUSHH_MCP_ENV_FILE=/absolute/path/to/consent-protocol/.env
-npx -y @hushh/mcp@beta
+npx -y @hushh/mcp
 ```
 
 ## Useful Environment Variables
@@ -116,4 +145,4 @@ See `consent-protocol/docs/mcp-setup.md` for the npm-first guide and direct-Pyth
 
 ## Launch Note
 
-Product Hunt and developer-facing launch materials should treat the npm package as the preferred public install surface. UAT/public beta materials should reference `@hushh/mcp@beta`, the exact backend MCP URL shown in `/developers`, and the self-serve `/developers` workspace until production developer access is explicitly promoted.
+Product Hunt and developer-facing launch materials should treat the npm package as the preferred public install surface. UAT materials should reference `@hushh/mcp`, the exact backend MCP URL shown in `/developers`, and the self-serve `/developers` workspace until production developer access is explicitly promoted.

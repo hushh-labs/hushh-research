@@ -12,5 +12,5 @@ Canonical first-run:
 
 ```bash
 npm run bootstrap
-npm run web -- --profile=uat-remote
+npm run web -- --mode=uat
 ```

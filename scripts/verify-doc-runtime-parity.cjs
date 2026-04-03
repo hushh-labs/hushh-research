@@ -196,8 +196,7 @@ const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
   { pattern: /\bmake local-web\b/g, message: "make local-web is not part of the public contributor contract" },
   { pattern: /\bmake local-backend\b/g, message: "make local-backend is not part of the public contributor contract" },
   { pattern: /\/Users\//g, message: "personal absolute paths are not allowed in canonical public docs" },
-  { pattern: /\bHushh Research\b/g, message: "legacy Hushh public branding should be removed from canonical public docs" },
-  { pattern: /\bWhat is Hushh\b/gi, message: "legacy Hushh branding should be removed from canonical public docs" },
+  { pattern: /\bHussh\b/g, message: "Hussh public branding is not allowed in canonical public docs" },
 ];
 
 const REQUIRED_DENSITY_MARKERS = [
@@ -557,7 +556,7 @@ function verifyPublicDocContract() {
   if (offenders.length) {
     fail(`Public documentation contract violations found:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
   } else {
-    ok("Canonical public docs match the Hussh/npm-first contract");
+    ok("Canonical public docs match the Hushh/npm-first contract");
   }
 }
 

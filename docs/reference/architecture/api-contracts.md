@@ -31,6 +31,18 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 ---
 
+## Visual Map
+
+```text
+Client surfaces
+  -> Next.js API proxies / native plugins
+    -> FastAPI route families
+      -> consent, PKM, IAM, Kai, RIA, marketplace, notifications
+        -> encrypted storage, scoped sharing, and public lookup contracts
+```
+
+---
+
 ## Route Categories
 
 ### Public (No Auth)
@@ -470,8 +482,8 @@ Plugins requiring camelCase transformation: PersonalKnowledgeModel, Kai.
 5. Create Next.js proxy: `hushh-webapp/app/api/{path}/route.ts`
 6. Create Capacitor plugin: iOS Swift + Android Kotlin
 7. Add service method: `hushh-webapp/lib/services/{name}-service.ts`
-8. Add route contract: `hushh-webapp/route-contracts.json`
-9. Verify: `npm run verify:routes`
+8. Update app navigation truth when needed: `hushh-webapp/lib/navigation/routes.ts`
+9. Verify route/docs alignment: `bash scripts/ci/docs-parity-check.sh`
 
 See [Architecture: Tri-Flow](./architecture.md#tri-flow-architecture) for the full pattern.
 

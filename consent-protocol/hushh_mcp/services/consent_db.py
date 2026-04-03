@@ -77,7 +77,7 @@ class ConsentDBService:
 
         if normalized_action == "OPERATION_PERFORMED":
             return True
-        if normalized_action in {"NOTIFICATION_SENT", "REMINDER_SENT"}:
+        if normalized_action in {"NOTIFICATION_SENT", "REMINDER_SENT", "NOTIFICATION_OPENED"}:
             return True
         if normalized_agent in {"self", "agent_kai", "kai"}:
             return True
@@ -251,7 +251,12 @@ class ConsentDBService:
         return values
 
     @classmethod
-    def _pending_row_to_payload(cls, row: Dict[str, Any]) -> Dict[str, Any]:
+    def _pending_row_to_payload(
+        cls,
+        row: Dict[str, Any],
+        *,
+        notification_opened_at: int | None = None,
+    ) -> Dict[str, Any]:
         metadata = cls._parse_metadata(row.get("metadata"))
         poll_timeout_at = cls._effective_pending_timeout_at(row)
         existing_granted_scopes = cls._metadata_scope_list(metadata, "existing_granted_scopes")
@@ -285,6 +290,8 @@ class ConsentDBService:
             "isScopeUpgrade": is_scope_upgrade,
             "existingGrantedScopes": existing_granted_scopes,
             "additionalAccessSummary": additional_access_summary,
+            "notificationOpenedAt": notification_opened_at,
+            "notificationAcknowledged": notification_opened_at is not None,
         }
 
     @staticmethod
@@ -412,13 +419,35 @@ class ConsentDBService:
                 if new_issued > current_issued:
                     latest_per_request[request_id] = row
 
+        notification_opened_events = await self.list_internal_request_events(
+            list(latest_per_request.keys()),
+            actions=["NOTIFICATION_OPENED"],
+        )
+        opened_at_by_request: Dict[str, int] = {}
+        for event in notification_opened_events:
+            request_id = str(event.get("request_id") or "").strip()
+            if not request_id:
+                continue
+            issued_at = event.get("issued_at")
+            if not isinstance(issued_at, int):
+                continue
+            opened_at_by_request[request_id] = max(
+                opened_at_by_request.get(request_id, 0), issued_at
+            )
+
         # Filter to only REQUESTED actions that haven't timed out
         results = []
-        for row in latest_per_request.values():
+        for request_id, row in latest_per_request.items():
             if row.get("action") == "REQUESTED":
                 poll_timeout_at = self._effective_pending_timeout_at(row)
                 if poll_timeout_at is None or poll_timeout_at > now_ms:
-                    results.append(self._pending_row_to_payload(row))
+                    notification_opened_at = opened_at_by_request.get(request_id) or None
+                    results.append(
+                        self._pending_row_to_payload(
+                            row,
+                            notification_opened_at=notification_opened_at,
+                        )
+                    )
 
         # Sort by issued_at descending
         results.sort(key=lambda x: x.get("requestedAt", 0), reverse=True)
@@ -444,7 +473,19 @@ class ConsentDBService:
             if not self._is_external_audit_row(row):
                 return None
             if row.get("action") == "REQUESTED":
-                pending = self._pending_row_to_payload(row)
+                notification_events = await self.list_internal_request_events(
+                    [request_id],
+                    actions=["NOTIFICATION_OPENED"],
+                )
+                notification_opened_at: int | None = None
+                for event in notification_events:
+                    issued_at = event.get("issued_at")
+                    if isinstance(issued_at, int):
+                        notification_opened_at = max(notification_opened_at or 0, issued_at)
+                pending = self._pending_row_to_payload(
+                    row,
+                    notification_opened_at=notification_opened_at,
+                )
                 return {
                     "request_id": pending.get("id"),
                     "developer": pending.get("developer"),
@@ -467,6 +508,75 @@ class ConsentDBService:
                     "additional_access_summary": pending.get("additionalAccessSummary"),
                 }
         return None
+
+    async def mark_pending_request_opened(
+        self,
+        *,
+        user_id: str,
+        request_id: str | None = None,
+        bundle_id: str | None = None,
+        opened_via: str | None = None,
+    ) -> Dict[str, Any] | None:
+        normalized_request_id = str(request_id or "").strip()
+        normalized_bundle_id = str(bundle_id or "").strip()
+        if not normalized_request_id and not normalized_bundle_id:
+            return None
+
+        supabase = self._get_supabase()
+        response = (
+            supabase.table("consent_audit")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("issued_at", desc=True)
+            .execute()
+        )
+
+        now_ms = int(datetime.now().timestamp() * 1000)
+        matched_row: Dict[str, Any] | None = None
+        for row in response.data or []:
+            if not self._is_external_audit_row(row):
+                continue
+            candidate_request_id = str(row.get("request_id") or "").strip()
+            if normalized_request_id and candidate_request_id != normalized_request_id:
+                continue
+            metadata = self._parse_metadata(row.get("metadata"))
+            candidate_bundle_id = str(metadata.get("bundle_id") or "").strip()
+            if (
+                normalized_bundle_id
+                and not normalized_request_id
+                and candidate_bundle_id != normalized_bundle_id
+            ):
+                continue
+            if row.get("action") != "REQUESTED":
+                return None
+            poll_timeout_at = self._effective_pending_timeout_at(row)
+            if poll_timeout_at is not None and poll_timeout_at <= now_ms:
+                return None
+            matched_row = row
+            break
+
+        if matched_row is None:
+            return None
+
+        resolved_request_id = str(matched_row.get("request_id") or "").strip()
+        resolved_metadata = self._parse_metadata(matched_row.get("metadata"))
+        resolved_bundle_id = str(resolved_metadata.get("bundle_id") or "").strip() or None
+        await self.insert_event(
+            user_id=user_id,
+            agent_id="self",
+            scope=str(matched_row.get("scope") or ""),
+            action="NOTIFICATION_OPENED",
+            request_id=resolved_request_id or None,
+            scope_description=matched_row.get("scope_description"),
+            metadata={
+                "bundle_id": resolved_bundle_id,
+                "opened_via": str(opened_via or "review").strip() or "review",
+            },
+        )
+        return {
+            "request_id": resolved_request_id or None,
+            "bundle_id": resolved_bundle_id,
+        }
 
     async def get_pending_request_for_scope(
         self,

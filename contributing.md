@@ -1,4 +1,4 @@
-# Contributing to Hussh Research
+# Contributing to Hushh Research
 
 Thanks for building with us.
 
@@ -8,14 +8,14 @@ The public contributor model is intentionally small:
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 npm run bootstrap
-npm run web -- --profile=uat-remote
+npm run web -- --mode=uat
 ```
 
 If you can run that flow and understand the trust model below, you have enough context to contribute.
 
 ## The Product Contract
 
-Hussh is built around four invariants:
+Hushh is built around four invariants:
 
 1. **Consent + scoped access**
    - sensitive access is never implicit
@@ -35,10 +35,10 @@ Use these first:
 
 ```bash
 npm run bootstrap
-npm run doctor -- --profile=uat-remote
-npm run web -- --profile=uat-remote
-npm run native:ios -- --profile=uat-remote
-npm run native:android -- --profile=uat-remote
+npm run doctor -- --mode=uat
+npm run web -- --mode=uat
+npm run native:ios -- --mode=uat
+npm run native:android -- --mode=uat
 ```
 
 `make` still exists for maintainer workflows and compatibility paths, but it is not the default onboarding surface.
@@ -88,7 +88,9 @@ cd hushh-webapp && npm run verify:docs
 
 ## Naming Policy
 
-Public product/docs language should use **Hussh** and the **SSH-framed trust model**.
+Public product/docs language should use **Hushh**.
+
+Selective Secure / Scoped / Handled-by-the-user framing is fine when it clarifies the trust boundary, but it should stay explanatory rather than replacing the product name.
 
 Legacy `Hushh` identifiers may still exist in:
 

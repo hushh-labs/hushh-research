@@ -12,6 +12,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-ui/surfaces";
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -46,6 +47,8 @@ import {
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
 import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
+import { getStockContext } from "@/lib/services/kai-service";
+import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
 type WorkspaceTab = "debate" | "summary" | "detailed";
@@ -143,6 +146,7 @@ function KaiAnalysisPageContent() {
   const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
   const [stockPreviewError, setStockPreviewError] = useState<string | null>(null);
   const [previewPickSource, setPreviewPickSource] = useState("default");
+  const [startingPreviewDebate, setStartingPreviewDebate] = useState(false);
 
   const hasFreshAnalysisIntent =
     Boolean(analysisParams) &&
@@ -319,22 +323,25 @@ function KaiAnalysisPageContent() {
 
   const handleSelectTicker = useCallback(
     (ticker: string) => {
-      if (!userId) return;
+      const normalizedTicker = String(ticker || "").trim().toUpperCase();
+      if (!normalizedTicker) return;
       setResolvedEntry(null);
       setLiveEntry(null);
       setFocusedRunId(null);
       setFocusedRunTask(null);
-      setAnalysisParams({
-        ticker,
-        userId,
-        riskProfile: "balanced",
-      });
+      setAnalysisParams(null);
       setHistoryFallbackEntry(null);
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
+      router.push(
+        buildKaiAnalysisPreviewRoute({
+          ticker: normalizedTicker,
+          pickSource: previewPickSource,
+        })
+      );
     },
-    [setAnalysisParams, setDebateIdParam, userId]
+    [previewPickSource, router, setAnalysisParams, setDebateIdParam]
   );
 
   const handleViewHistory = useCallback(
@@ -379,22 +386,25 @@ function KaiAnalysisPageContent() {
 
   const handleReanalyze = useCallback(
     (ticker: string) => {
-      if (!userId) return;
+      const normalizedTicker = String(ticker || "").trim().toUpperCase();
+      if (!normalizedTicker) return;
       setResolvedEntry(null);
       setLiveEntry(null);
       setFocusedRunId(null);
       setFocusedRunTask(null);
-      setAnalysisParams({
-        ticker,
-        userId,
-        riskProfile: "balanced",
-      });
+      setAnalysisParams(null);
       setHistoryFallbackEntry(null);
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
+      router.push(
+        buildKaiAnalysisPreviewRoute({
+          ticker: normalizedTicker,
+          pickSource: previewPickSource,
+        })
+      );
     },
-    [setAnalysisParams, setDebateIdParam, userId]
+    [previewPickSource, router, setAnalysisParams, setDebateIdParam]
   );
 
   const handleWorkspaceTabChange = useCallback((value: string) => {
@@ -440,8 +450,25 @@ function KaiAnalysisPageContent() {
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
   const activeEntry = liveEntry || resolvedEntry;
+  const previewTickerRaw = useMemo(
+    () => String(searchParams.get("ticker") || "").trim().toUpperCase(),
+    [searchParams]
+  );
+  const previewPickSourceFromQuery = useMemo(
+    () => String(searchParams.get("pick_source") || "").trim(),
+    [searchParams]
+  );
+  const shouldShowPreview =
+    Boolean(previewTickerRaw) &&
+    !showHistoryWhileActive &&
+    !debateId &&
+    !hasFocusedRun &&
+    !liveEntry &&
+    !resolvedEntry;
   const showWorkspace =
-    !showHistoryWhileActive && Boolean(liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
+    !showHistoryWhileActive &&
+    !shouldShowPreview &&
+    Boolean(liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
   const activeTicker = useMemo(() => {
     if (focusedRunTask?.ticker) {
       return String(focusedRunTask.ticker).trim().toUpperCase();
@@ -454,15 +481,17 @@ function KaiAnalysisPageContent() {
     }
     return activeEntry?.ticker ? String(activeEntry.ticker).trim().toUpperCase() : "";
   }, [activeEntry?.ticker, activeRunTask?.ticker, analysisParams?.ticker, focusedRunTask?.ticker, liveIntentReady]);
-  const previewTickerFromQuery = useMemo(() => {
-    const rawTicker = String(searchParams.get("ticker") || "").trim().toUpperCase();
-    if (!rawTicker) return "";
-    if (showWorkspace) return "";
-    return rawTicker;
-  }, [searchParams, showWorkspace]);
+  const previewTickerFromQuery = shouldShowPreview ? previewTickerRaw : "";
   const handleStartDebateFromPreview = useCallback(() => {
-    const currentPreviewTicker = String(searchParams.get("ticker") || "").trim().toUpperCase();
-    if (!currentPreviewTicker || !userId || showWorkspace) return;
+    const currentPreviewTicker = previewTickerRaw;
+    if (!currentPreviewTicker || !userId || showWorkspace || !vaultOwnerToken) return;
+    if (activeRunTask?.runId) {
+      toast.info("A debate is already running.", {
+        description: "Open the active debate before starting a new one.",
+      });
+      router.replace(`${ROUTES.KAI_ANALYSIS}?focus=active`);
+      return;
+    }
     const previewSource =
       stockPreview?.pick_sources.find((source) => source.id === previewPickSource) ?? null;
     const resolvedPickSourceLabel =
@@ -472,20 +501,45 @@ function KaiAnalysisPageContent() {
         : previewPickSource.startsWith("ria:")
           ? "Connected advisor list"
           : previewPickSource);
-    setResolvedEntry(null);
-    setLiveEntry(null);
-    setFocusedRunId(null);
-    setFocusedRunTask(null);
-    setAnalysisParams({
-      ticker: currentPreviewTicker,
-      userId,
-      riskProfile: "balanced",
-      pickSource: previewPickSource,
-      pickSourceLabel: resolvedPickSourceLabel,
-    });
-    setShowHistoryWhileActive(false);
-    setWorkspaceTab("debate");
-  }, [previewPickSource, searchParams, setAnalysisParams, showWorkspace, stockPreview?.pick_sources, userId]);
+
+    setStartingPreviewDebate(true);
+    void getStockContext(currentPreviewTicker, vaultOwnerToken)
+      .then((context) => {
+        setResolvedEntry(null);
+        setLiveEntry(null);
+        setFocusedRunId(null);
+        setFocusedRunTask(null);
+        setAnalysisParams({
+          ticker: currentPreviewTicker,
+          userId,
+          riskProfile: context.user_risk_profile || "balanced",
+          userContext: context,
+          pickSource: previewPickSource,
+          pickSourceLabel: resolvedPickSourceLabel,
+        });
+        setShowHistoryWhileActive(false);
+        setWorkspaceTab("debate");
+        router.replace(ROUTES.KAI_ANALYSIS);
+      })
+      .catch((error) => {
+        toast.error("Could not start debate.", {
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      })
+      .finally(() => {
+        setStartingPreviewDebate(false);
+      });
+  }, [
+    previewPickSource,
+    previewTickerRaw,
+    activeRunTask?.runId,
+    router,
+    setAnalysisParams,
+    showWorkspace,
+    stockPreview?.pick_sources,
+    userId,
+    vaultOwnerToken,
+  ]);
   const headerPriceLabel =
     headerSnapshotLoading && (headerSnapshot?.last_price ?? null) === null
       ? "Loading price..."
@@ -543,8 +597,13 @@ function KaiAnalysisPageContent() {
       setPreviewPickSource("default");
       return;
     }
+    const querySource = previewPickSourceFromQuery;
+    if (querySource) {
+      setPreviewPickSource(querySource);
+      return;
+    }
     setPreviewPickSource(getKaiActivePickSource(userId));
-  }, [userId]);
+  }, [previewPickSourceFromQuery, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -620,6 +679,12 @@ function KaiAnalysisPageContent() {
   if (!user || !userId) {
     return (
       <AppPageShell as="div" width="content" className="flex min-h-96 items-center justify-center">
+        <NativeTestBeacon
+          routeId="/kai/analysis"
+          marker="native-route-kai-analysis"
+          authState={user ? "authenticated" : "pending"}
+          dataState="loading"
+        />
         <HushhLoader variant="inline" label={toInvestorLoading("ANALYSIS")} />
       </AppPageShell>
     );
@@ -628,6 +693,14 @@ function KaiAnalysisPageContent() {
   if (!vaultKey) {
     return (
       <AppPageShell as="div" width="narrow">
+        <NativeTestBeacon
+          routeId="/kai/analysis"
+          marker="native-route-kai-analysis"
+          authState={user ? "authenticated" : "pending"}
+          dataState="unavailable-valid"
+          errorCode="vault_locked"
+          errorMessage="Vault locked"
+        />
         <SurfaceCard>
           <SurfaceCardContent className="p-5 text-center">
           <h2 className="text-lg font-semibold">Unlock your Vault to continue</h2>
@@ -656,7 +729,13 @@ function KaiAnalysisPageContent() {
   return (
     <>
       {showWorkspace ? (
-        <AppPageShell as="div" width="wide">
+        <AppPageShell as="div" width="wide" data-testid="kai-analysis-primary">
+          <NativeTestBeacon
+            routeId="/kai/analysis"
+            marker="native-route-kai-analysis"
+            authState={user ? "authenticated" : "pending"}
+            dataState="loaded"
+          />
           <AppPageHeaderRegion>
             <PageHeader
               eyebrow="Kai"
@@ -853,7 +932,15 @@ function KaiAnalysisPageContent() {
           </AppPageContentRegion>
         </AppPageShell>
       ) : !resolvingEntry ? (
-        <AppPageShell as="div" width="wide">
+        <AppPageShell as="div" width="wide" data-testid="kai-analysis-primary">
+          <NativeTestBeacon
+            routeId="/kai/analysis"
+            marker="native-route-kai-analysis"
+            authState={user ? "authenticated" : "pending"}
+            dataState={stockPreviewLoading ? "loading" : "loaded"}
+            errorCode={stockPreviewError ? "stock_preview" : null}
+            errorMessage={stockPreviewError}
+          />
           <AppPageHeaderRegion>
             <PageHeader
               eyebrow="Kai"
@@ -881,6 +968,7 @@ function KaiAnalysisPageContent() {
               activePickSource={previewPickSource}
               onPickSourceChange={setPreviewPickSource}
               compact
+              starting={startingPreviewDebate}
             />
           ) : null}
           {activeRunTask ? (

@@ -75,7 +75,7 @@ final class HushhProxyClient {
         return ""
     }
 
-    private static func normalizeBackendUrl(_ raw: String) -> String {
+    static func normalizeBackendUrl(_ raw: String) -> String {
         var url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         while url.hasSuffix("/") { url.removeLast() }
         guard var components = URLComponents(string: url) else {

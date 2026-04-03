@@ -86,7 +86,7 @@ Do not inline these values in committed config.
 Purpose:
 
 1. Access Hushh consent/data tools and internal self-documentation.
-2. Support agent-side exploration of scopes, developer API contracts, and consent flows.
+2. Support any MCP-capable host that needs dynamic scope discovery, consent, and encrypted scoped export access.
 
 Primary setup guide:
 
@@ -108,6 +108,35 @@ enabled = true
 
 [mcp_servers.hushh_consent.env]
 HUSHH_MCP_ENV_FILE = "/absolute/path/to/consent-protocol/.env"
+```
+
+Generic JSON host config for Cursor / VS Code / other remote-capable clients:
+
+```json
+{
+  "mcpServers": {
+    "hushh-consent": {
+      "url": "https://<consent-api-origin>/mcp/?token=<developer-token>"
+    }
+  }
+}
+```
+
+Claude Desktop stdio config:
+
+```json
+{
+  "mcpServers": {
+    "hushh-consent": {
+      "command": "npx",
+      "args": ["-y", "@hushh/mcp"],
+      "env": {
+        "CONSENT_API_URL": "https://<consent-api-origin>",
+        "HUSHH_DEVELOPER_TOKEN": "<developer-token>"
+      }
+    }
+  }
+}
 ```
 
 Repo-local fallback:
@@ -156,8 +185,9 @@ npx -y @hushh/mcp --help
 ```
 
 2. Confirm the agent can discover Hushh tools/resources after attaching it.
-3. For remote UAT beta, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
-4. If the npm package is not published yet, use the repo-local fallback:
+3. For hosted UAT, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
+4. `@hushh/mcp` is published and should be the default stdio install surface.
+5. If you are working contributor-local instead, use the repo-local fallback:
 
 ```bash
 cd consent-protocol

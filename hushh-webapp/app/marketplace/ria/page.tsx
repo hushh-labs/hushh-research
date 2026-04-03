@@ -60,6 +60,14 @@ function MarketplaceRiaProfilePageContent() {
         profile?.headline ||
         "Verified public profile metadata only. Private advisory access stays behind the consent boundary."
       }
+      nativeTest={{
+        routeId: "/marketplace/ria",
+        marker: "native-route-marketplace-ria",
+        authState: "authenticated",
+        dataState: loading ? "loading" : profile ? "loaded" : "empty-valid",
+        errorCode: error ? "marketplace_ria" : null,
+        errorMessage: error,
+      }}
       actions={
         <Link
           href={ROUTES.MARKETPLACE}

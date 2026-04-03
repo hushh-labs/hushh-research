@@ -107,12 +107,16 @@ const pendingConsentRequestByUser = new Map<string, Promise<PendingConsent[]>>()
 
 async function loadPendingConsentsOnce(
   userId: string,
-  vaultOwnerToken: string
+  vaultOwnerToken: string,
+  options?: { forceRefresh?: boolean }
 ): Promise<PendingConsent[]> {
+  const forceRefresh = Boolean(options?.forceRefresh);
   const cache = CacheService.getInstance();
   const cacheKey = CACHE_KEYS.PENDING_CONSENTS(userId);
-  const cached = cache.get<PendingConsent[]>(cacheKey);
-  if (Array.isArray(cached)) return cached;
+  if (!forceRefresh) {
+    const cached = cache.get<PendingConsent[]>(cacheKey);
+    if (Array.isArray(cached)) return cached;
+  }
 
   const existing = pendingConsentRequestByUser.get(userId);
   if (existing) return existing;
@@ -284,16 +288,30 @@ function writeReviewedPendingConsentKeys(userId: string, keys: Set<string>) {
   }
 }
 
+function reviewedConsentKeys(requestId?: string, bundleId?: string): string[] {
+  const requestKey = String(requestId || "").trim();
+  const bundleKey = String(bundleId || "").trim();
+  if (requestKey && bundleKey) {
+    return [requestKey, `${bundleKey}::${requestKey}`];
+  }
+  if (requestKey) {
+    return [requestKey];
+  }
+  if (bundleKey) {
+    return [`bundle::${bundleKey}`];
+  }
+  return [];
+}
+
 function markPendingConsentReviewed(
   userId: string,
   requestId?: string,
   bundleId?: string
 ): Set<string> {
   const next = readReviewedPendingConsentKeys(userId);
-  const requestKey = String(requestId || "").trim();
-  const bundleKey = String(bundleId || "").trim();
-  if (requestKey) next.add(requestKey);
-  if (bundleKey) next.add(bundleKey);
+  for (const key of reviewedConsentKeys(requestId, bundleId)) {
+    next.add(key);
+  }
   writeReviewedPendingConsentKeys(userId, next);
   return next;
 }
@@ -304,6 +322,10 @@ function clearReviewedPendingConsents(userId: string) {
   } catch {
     // Ignore session storage cleanup failures.
   }
+}
+
+function isDurablyAcknowledged(consent: PendingConsent): boolean {
+  return Boolean(consent.notificationAcknowledged || consent.notificationOpenedAt);
 }
 
 function shouldPrioritizeConsentHydration(pathname: string): boolean {
@@ -373,14 +395,40 @@ export function ConsentNotificationProvider({
     },
   });
 
+  const acknowledgePendingConsent = useCallback(
+    async (
+      consent: Pick<PendingConsent, "id" | "bundleId">,
+      openedVia: "review_button" | "consent_route" | "deep_link"
+    ) => {
+      if (!user?.uid) return;
+      const next = markPendingConsentReviewed(user.uid, consent.id, consent.bundleId);
+      reviewedIdsRef.current = next;
+      const vaultOwnerToken = getVaultOwnerToken();
+      if (!vaultOwnerToken) return;
+      try {
+        await ApiService.markPendingConsentOpened({
+          userId: user.uid,
+          vaultOwnerToken,
+          requestId: consent.id,
+          bundleId: consent.bundleId,
+          openedVia,
+        });
+      } catch (error) {
+        console.warn("[NotificationProvider] Failed to acknowledge pending consent:", error);
+      }
+    },
+    [getVaultOwnerToken, user?.uid]
+  );
+
   // Show interactive toast for a consent request
   const showConsentToast = useCallback(
     (consent: PendingConsent) => {
       const toastKey = consent.bundleId || consent.id;
-      if (
-        reviewedIdsRef.current.has(toastKey) ||
-        reviewedIdsRef.current.has(consent.id)
-      ) {
+      const reviewedKeys = reviewedConsentKeys(consent.id, consent.bundleId);
+      if (isDurablyAcknowledged(consent)) {
+        return;
+      }
+      if (reviewedKeys.some((key) => reviewedIdsRef.current.has(key))) {
         return;
       }
       // De-duplicate: don't show the same toast twice in one session
@@ -416,6 +464,7 @@ export function ConsentNotificationProvider({
           <div className="flex gap-2 justify-center">
             <button
               onClick={() => {
+                void acknowledgePendingConsent(consent, "review_button");
                 toast.dismiss(toastKey);
                 if (reviewTarget.kind === "internal") {
                   if (
@@ -452,7 +501,7 @@ export function ConsentNotificationProvider({
         }
       );
     },
-    [handleDeny, pathname, router, searchParams]
+    [acknowledgePendingConsent, handleDeny, pathname, router, searchParams]
   );
 
   // Initialize FCM when user logs in (stable dependency: user?.uid).
@@ -680,6 +729,21 @@ export function ConsentNotificationProvider({
   }, [fcmInitStatus, pathname, user]);
 
   useEffect(() => {
+    if (!user || !isVaultUnlocked) return;
+    if (pathname !== ROUTES.CONSENTS) return;
+    const requestId = String(searchParams.get("requestId") || "").trim();
+    const bundleId = String(searchParams.get("bundleId") || "").trim();
+    if (!requestId && !bundleId) return;
+    void acknowledgePendingConsent(
+      {
+        id: requestId,
+        bundleId: bundleId || undefined,
+      },
+      "consent_route"
+    );
+  }, [acknowledgePendingConsent, isVaultUnlocked, pathname, searchParams, user]);
+
+  useEffect(() => {
     if (!user || isVaultUnlocked) return;
     setPendingCount(readQueuedPendingConsents(user.uid).length);
   }, [isVaultUnlocked, user]);
@@ -806,17 +870,15 @@ export function ConsentNotificationProvider({
     if (!cancelled && Array.isArray(cachedPending?.data)) {
       setPendingCount(cachedPending.data.length);
       dispatchConsentStateChanged({ source: "cached_pending" });
-      cachedPending.data.forEach((consent) => showConsentToast(consent));
-      if (cachedPending.isFresh) {
-        return;
-      }
     }
 
     const runFetch = async () => {
       try {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) return;
-        const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
+        const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken, {
+          forceRefresh: true,
+        });
         if (cancelled) return;
         setPendingCount(pending.length);
         dispatchConsentStateChanged({ source: "hydrated_pending" });

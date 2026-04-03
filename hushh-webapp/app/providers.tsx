@@ -43,6 +43,7 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
+import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -238,6 +239,7 @@ export function Providers({ children }: ProvidersProps) {
           <CacheProvider>
             <PersonaProvider>
               <VaultProvider>
+                <NativeTestRouter />
                 <PersonaBootstrapRedirect />
                 <Suspense
                   fallback={

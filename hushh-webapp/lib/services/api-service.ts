@@ -823,12 +823,28 @@ export interface KaiStockPreviewListMatch {
   fcf_billions?: number | null;
 }
 
+export interface KaiStockPreviewAdvisorSummary {
+  source_id: string;
+  source_label: string;
+  kind: "default" | "ria";
+  state: "ready" | "pending" | "unavailable";
+  package_note?: string | null;
+  top_pick_count: number;
+  avoid_count: number;
+  screening_section_count: number;
+  screening_row_count: number;
+  ticker_status: "included" | "excluded" | "screened" | "not_listed" | "pending" | "unavailable";
+  avoid_reason?: string | null;
+  resolved_with_fallback: boolean;
+}
+
 export interface KaiStockPreviewResponse {
   symbol: string;
   active_pick_source: string;
   pick_sources: KaiHomePickSource[];
   quote: KaiStockPreviewQuote;
   list_match: KaiStockPreviewListMatch;
+  advisor_summary?: KaiStockPreviewAdvisorSummary | null;
 }
 
 export interface KaiHomeMover {
@@ -1767,6 +1783,33 @@ export class ApiService {
       result: toResultFromStatus(response.status),
     });
     return response;
+  }
+
+  static async markPendingConsentOpened(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    requestId?: string;
+    bundleId?: string;
+    openedVia?: string;
+  }): Promise<Response> {
+    if (!data.vaultOwnerToken) {
+      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
+        status: 401,
+      });
+    }
+
+    return apiFetch("/api/consent/pending/opened", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        userId: data.userId,
+        requestId: data.requestId,
+        bundleId: data.bundleId,
+        openedVia: data.openedVia,
+      }),
+    });
   }
 
   /**

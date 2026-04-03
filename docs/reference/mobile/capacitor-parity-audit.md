@@ -17,25 +17,23 @@ This is the release-gate contract for calling iOS/Android parity complete.
 
 ## Source Of Truth
 
-- Route/runtime manifest: `hushh-webapp/route-contracts.json`
-- Mobile parity registry: `hushh-webapp/mobile-parity-registry.json`
-- Route verifier: `hushh-webapp/scripts/verify-route-contracts.cjs`
-- Capacitor route verifier: `hushh-webapp/scripts/verify-capacitor-routes.cjs`
-- Browser/native compatibility verifier: `hushh-webapp/scripts/verify-native-browser-compat.cjs`
-- Full audit lane: `hushh-webapp/scripts/verify-capacitor-audit.cjs`
+- Canonical app routes: `hushh-webapp/lib/navigation/routes.ts`
+- Route governance reference: `docs/reference/architecture/route-contracts.md`
+- Mobile parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
+- Docs/runtime verification: `bash scripts/ci/docs-parity-check.sh`
+- Full CI lane: `bash scripts/ci/orchestrate.sh all`
 
 ## Required Local Command
 
 ```bash
-cd hushh-webapp
-npm run verify:capacitor:audit
+bash scripts/ci/orchestrate.sh all
 ```
 
 The audit must pass as one lane, not as a hand-waved collection of partial checks.
 
 ## Route Classification Policy
 
-Every visible page in `pageContracts[]` must be classified in `mobile-parity-registry.json` as one of:
+Every visible page in the canonical app route contract must be classified in the parity docs as one of:
 
 - native-supported and required
 - intentionally web-only and explicitly exempt
@@ -62,7 +60,7 @@ Direct usage is allowed only in:
 
 - the wrapper files above
 - explicitly exempt web-only plugin implementations
-- documented accepted exceptions in `mobile-parity-registry.json`
+- documented accepted exceptions in the mobile docs
 
 ## Accepted Exceptions
 
@@ -70,7 +68,7 @@ Current accepted parity exceptions are:
 
 - None.
 
-Cloud-backed vault preference flows are the canonical cross-platform behavior, and Android passkey PRF is part of the parity contract rather than an exception. If a new exception is ever needed, document it in `mobile-parity-registry.json` and `docs/guides/mobile.md` in the same change.
+Cloud-backed vault preference flows are the canonical cross-platform behavior, and Android passkey PRF is part of the parity contract rather than an exception. If a new exception is ever needed, document it in the mobile docs in the same change.
 
 ## Native Project Sanity
 

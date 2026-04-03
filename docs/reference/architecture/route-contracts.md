@@ -20,22 +20,21 @@ flowchart TD
   hidden --> parity
 ```
 
-Hushh uses a contract manifest to keep the declared runtime surface aligned across:
+Hushh uses a code-owned route contract plus docs/runtime checks to keep the declared runtime surface aligned across:
 
 - Next.js API route handlers under `hushh-webapp/app/api/**/route.ts`
 - backend router prefixes and path families
 - Capacitor TypeScript, iOS, and Android plugin surfaces
-- mobile parity classification for the full visible page tree
+- mobile parity guidance for the visible page tree
 
 ## Files
 
-- Manifest: `hushh-webapp/route-contracts.json`
-- Mobile parity registry: `hushh-webapp/mobile-parity-registry.json`
-- Verifier: `hushh-webapp/scripts/verify-route-contracts.cjs`
-- Run locally:
-  - `cd hushh-webapp && npm run verify:routes`
-  - `cd hushh-webapp && npm run verify:capacitor:routes`
-  - `cd hushh-webapp && npm run verify:capacitor:audit`
+- Canonical app route source: `hushh-webapp/lib/navigation/routes.ts`
+- Route governance reference: `docs/reference/architecture/route-contracts.md`
+- Mobile parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
+- Docs/runtime verification:
+  - `bash scripts/ci/docs-parity-check.sh`
+  - `node scripts/verify-doc-runtime-parity.cjs`
 
 ## Canonical App Routes
 
@@ -74,17 +73,16 @@ Legacy navigation surfaces and aliases must not be reintroduced without updating
 
 ## Visible Route Coverage
 
-`pageContracts[]` is the declared inventory for the live visible page tree. The Capacitor parity registry must classify every `pageContracts[]` entry as:
+`hushh-webapp/lib/navigation/routes.ts` is the declared inventory for the canonical app navigation surface. The mobile parity docs must classify visible routes as:
 
 - native-supported
-- explicitly web-only exempt
+- intentionally web-only
 
-If a page exists on disk and is not declared in `pageContracts[]`, `npm run verify:routes` fails.
-If a declared page contract is not classified for Capacitor parity, `npm run verify:capacitor:routes` fails.
+If a route is added to the navigation contract, the corresponding architecture/mobile docs must be updated in the same change.
 
-## When To Update `route-contracts.json`
+## When To Update Route Governance
 
-Update the manifest whenever you:
+Update the route contract docs whenever you:
 
 - add a new Next.js API route under `hushh-webapp/app/api/`
 - change a backend router prefix or supported backend path family
@@ -93,32 +91,14 @@ Update the manifest whenever you:
 
 ## Contract Shape
 
-Each `contracts[]` entry typically includes:
+The practical contract is split across:
 
-- `id`: stable identifier used in verification errors
-- `webRouteFile` or `webRouteFiles`: repo-relative Next.js `route.ts` files
-- `backend`:
-  - `file`: FastAPI router module path
-  - `routerPrefix`: declared `APIRouter(prefix="...")`
-  - `paths`: supported path family list relative to the prefix
-- `native`:
-  - `tsPluginFile`: TypeScript plugin export
-  - `iosPluginFile`: Swift plugin
-  - `androidPluginFile`: Kotlin plugin
-  - `requiredMethodNames`: TS methods that must exist
-
-## Allowlisting
-
-`allowlistedWebRouteFiles` is reserved for intentional exceptions such as web-only utilities.
-
-Default stance:
-
-- tri-flow features should use a real contract entry
-- removed legacy routes should be deleted, not allowlisted
-- wildcard proxies should be constrained to supported backend paths
+- `hushh-webapp/lib/navigation/routes.ts` for app-visible routes
+- backend route modules and Next.js proxy handlers for API surfaces
+- mobile parity docs for platform-specific expectations and exceptions
 
 ## Relationship To Other Docs
 
 - [api-contracts.md](./api-contracts.md) describes the API surface itself.
-- `route-contracts.json` is a guardrail that prevents undeclared route drift.
+- `hushh-webapp/lib/navigation/routes.ts` is the code-owned navigation source of truth.
 - [../mobile/capacitor-parity-audit.md](../mobile/capacitor-parity-audit.md) defines the stricter mobile release gate layered on top of route contracts.

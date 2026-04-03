@@ -1,4 +1,4 @@
-# Hussh Research - Cloud Build Deployment
+# Hushh Research - Cloud Build Deployment
 
 > CI/CD deployment using Google Cloud Build. Contributor setup lives in `npm run bootstrap` plus the docs under `docs/guides/`.
 
@@ -47,7 +47,7 @@ Contributor onboarding should start with:
 
 ```bash
 npm run bootstrap
-npm run doctor -- --profile=local-uatdb
+npm run doctor -- --mode=uat
 ```
 
 Detailed profile behavior now lives in:
@@ -61,15 +61,12 @@ Low-level profile activation still works when you need it:
 - Backend active file: `consent-protocol/.env`
 - Frontend active file: `hushh-webapp/.env.local`
 
-Runtime profile sources (local only, not committed):
-
-- `consent-protocol/.env.local-uatdb.local`, `.env.uat-remote.local`, `.env.prod-remote.local`
-- `hushh-webapp/.env.local-uatdb.local`, `.env.uat-remote.local`, `.env.prod-remote.local`
+Runtime profile source templates and activation behavior are documented in the guides and managed through the bootstrap/profile tooling. Do not document local unpublished profile filenames here as contributor-facing contract.
 
 `local-uatdb` backend note:
 
 - Start the backend with `bash scripts/runtime/run_backend_local.sh local-uatdb`
-  when you need the UAT-backed local backend path.
+  only when you explicitly need the legacy UAT-backed local backend path.
 - Do not start local UAT DB access with bare `python`/`uvicorn` unless the
   proxy is already running.
 - The launcher starts `cloud-sql-proxy` automatically for the UAT Cloud SQL

@@ -10,6 +10,7 @@ import UserNotifications
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
+    private let nativeTestConfig = NativeTestConfiguration()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Ensure Firebase is initialized once for native plugins and auth flows.
@@ -23,6 +24,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         } else {
             print("ℹ️ [AppDelegate] Firebase already initialized")
         }
+
+        NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
 
         // Configure the delegate so notification presentation and tap handling work
         // after the app explicitly requests permission from the notification init flow.

@@ -66,7 +66,8 @@ Required baseline:
    - local contributor bootstrap
    - PR/change expectations
 5. Public docs must teach the npm-first contributor surface, not maintainer-only compatibility paths.
-6. Public docs must use Hussh branding and the SSH-framed trust model unless a compatibility identifier is being referenced explicitly.
+6. Public docs must use Hushh branding unless a compatibility identifier is being referenced explicitly.
+7. Secure / Scoped / Handled-by-the-user framing is allowed when it clarifies trust boundaries, but it should remain explanatory and must not replace the Hushh product name.
 
 Allowed in root docs:
 

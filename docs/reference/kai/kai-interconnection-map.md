@@ -155,8 +155,8 @@ Notes:
 
 ## Mobile/Plugin Parity Touchpoints
 
-- Route parity guard: `hushh-webapp/scripts/verify-capacitor-routes.cjs`
-- Plugin parity guard: `hushh-webapp/scripts/verify-native-parity.cjs`
+- Route parity guard: `bash scripts/ci/docs-parity-check.sh`
+- Plugin/native parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
 - Canonical app routes: `hushh-webapp/lib/navigation/routes.ts`
 - Runtime audit entrypoint: `scripts/verify-pre-launch.sh`
 
