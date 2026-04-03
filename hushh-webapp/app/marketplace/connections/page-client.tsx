@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowUpRight, BriefcaseBusiness, Building2, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
@@ -58,6 +58,8 @@ import {
 } from "@/lib/services/ria-service";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
+import { useVault } from "@/lib/vault/vault-context";
+import { ApiService } from "@/lib/services/api-service";
 
 type RiaConnectionWorkspace = Awaited<ReturnType<typeof RiaService.getWorkspace>>;
 
@@ -321,6 +323,7 @@ export default function MarketplaceConnectionsPageClient({
     [initialSearchParams]
   );
   const { user } = useAuth();
+  const { getVaultOwnerToken, isVaultUnlocked } = useVault();
   const { activePersona } = usePersonaState();
   const actor: ConsentCenterActor = activePersona === "ria" ? "ria" : "investor";
   const tab = normalizeTab(searchParams.get("tab"));
@@ -350,6 +353,7 @@ export default function MarketplaceConnectionsPageClient({
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false);
   const [confirmDeclineOpen, setConfirmDeclineOpen] = useState(false);
+  const acknowledgedRequestKeysRef = useRef(new Set<string>());
 
   const selectedEntry = useMemo(() => {
     if (listState.items.length === 0 || !selectedId) return null;
@@ -391,6 +395,37 @@ export default function MarketplaceConnectionsPageClient({
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleMutation);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !isVaultUnlocked || tab !== "pending" || !selectedEntry) return;
+    if (!canReviewPending(actor, selectedEntry)) return;
+
+    const requestId = String(selectedEntry.request_id || selectedEntry.id || "").trim();
+    if (!requestId) return;
+
+    const metadata =
+      selectedEntry.metadata && typeof selectedEntry.metadata === "object"
+        ? (selectedEntry.metadata as Record<string, unknown>)
+        : {};
+    const bundleId = String(metadata.bundle_id || "").trim() || undefined;
+    const ackKey = `${bundleId || "request"}:${requestId}`;
+    if (acknowledgedRequestKeysRef.current.has(ackKey)) return;
+
+    const vaultOwnerToken = getVaultOwnerToken();
+    if (!vaultOwnerToken) return;
+
+    acknowledgedRequestKeysRef.current.add(ackKey);
+    void ApiService.markPendingConsentOpened({
+      userId: user.uid,
+      vaultOwnerToken,
+      requestId,
+      bundleId,
+      openedVia: "connection_route",
+    }).catch((error) => {
+      acknowledgedRequestKeysRef.current.delete(ackKey);
+      console.warn("[MarketplaceConnections] Failed to acknowledge pending request:", error);
+    });
+  }, [actor, getVaultOwnerToken, isVaultUnlocked, selectedEntry, tab, user]);
 
   useEffect(() => {
     let cancelled = false;

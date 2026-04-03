@@ -428,9 +428,16 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
             title = "Consent updated"
             body = f"Request {request_id}: {action}"
 
+        message_type = "consent_resolved"
+        normalized_action = action.upper()
+        if normalized_action == "REQUESTED":
+            message_type = "consent_request"
+        elif normalized_action == "NOTIFICATION_OPENED":
+            message_type = "consent_opened"
+
         message_data = _as_string_map(
             {
-                "type": "consent_request" if action.upper() == "REQUESTED" else "consent_resolved",
+                "type": message_type,
                 "request_id": request_id,
                 "action": action,
                 "user_id": user_id,
