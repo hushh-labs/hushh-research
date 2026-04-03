@@ -10,6 +10,7 @@ import UserNotifications
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
+    private let nativeTestConfig = NativeTestConfiguration()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Ensure Firebase is initialized once for native plugins and auth flows.
@@ -24,9 +25,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("ℹ️ [AppDelegate] Firebase already initialized")
         }
 
+        NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
+
         // Configure the delegate so notification presentation and tap handling work
         // after the app explicitly requests permission from the notification init flow.
         UNUserNotificationCenter.current().delegate = self
+        Messaging.messaging().delegate = self
 
         return true
     }
@@ -39,6 +43,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("⚠️ [AppDelegate] APNs token received before Firebase initialization")
             return
         }
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
         // Pass APNs token to Firebase Messaging
         Messaging.messaging().apnsToken = deviceToken
         print("✅ [AppDelegate] APNs token registered with Firebase Messaging")
@@ -46,7 +51,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
         print("❌ [AppDelegate] Failed to register for remote notifications: \(error)")
+    }
+
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable : Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        NotificationCenter.default.post(
+            name: Notification.Name("didReceiveRemoteNotification"),
+            object: completionHandler,
+            userInfo: userInfo
+        )
+        completionHandler(.newData)
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
@@ -97,9 +114,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        print("📬 [AppDelegate] Foreground notification received")
-        // Show banner and play sound even when app is in foreground
-        completionHandler([[.banner, .sound, .badge]])
+        let userInfo = notification.request.content.userInfo
+        print("📬 [AppDelegate] Foreground notification received: \(userInfo)")
+        // Present as a real system notification even while the app is active.
+        completionHandler([.banner, .list, .sound, .badge])
     }
     
     // Handle notification taps
@@ -115,5 +133,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // via the notificationActionPerformed listener
         
         completionHandler()
+    }
+}
+
+// MARK: - MessagingDelegate
+extension AppDelegate: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        if let fcmToken, !fcmToken.isEmpty {
+            print("✅ [AppDelegate] Firebase Messaging registration token refreshed: \(fcmToken.prefix(24))...")
+        } else {
+            print("⚠️ [AppDelegate] Firebase Messaging registration token missing")
+        }
     }
 }

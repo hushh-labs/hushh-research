@@ -1,5 +1,5 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { KaiCommandAction, KaiCommandParams } from "@/lib/kai/kai-command-types";
 import {
@@ -55,7 +55,6 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
     command,
     params,
     router,
-    userId,
     hasPortfolioData,
     reviewDirty,
     busyOperations,
@@ -116,12 +115,12 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
       return { status: "blocked", reason: "stock_analysis_active" };
     }
 
-    setAnalysisParams({
-      ticker: symbol,
-      userId,
-      riskProfile: "balanced",
-    });
-    router.push(ROUTES.KAI_ANALYSIS);
+    setAnalysisParams(null);
+    router.push(
+      buildKaiAnalysisPreviewRoute({
+        ticker: symbol,
+      })
+    );
     return { status: "executed" };
   }
 

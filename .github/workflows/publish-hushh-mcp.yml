@@ -36,6 +36,9 @@ jobs:
         working-directory: ${{ env.PACKAGE_DIR }}
         run: npm pack --dry-run
 
+      - name: Check public docs are in sync
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm run docs:check
       - name: Guard against duplicate npm version
         working-directory: ${{ env.PACKAGE_DIR }}
         shell: bash

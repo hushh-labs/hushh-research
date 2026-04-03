@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -499,7 +499,7 @@ export default function MarketplacePage() {
       copy[swapIndex] = currentItem;
     }
     return copy;
-  }, [activeCards, passedIds.join("|")]);
+  }, [activeCards, passedIds]);
   const swipeCards = shuffledSwipeCards;
   const swipeCard = swipeCards[0] || null;
   const selectedInvestor =
@@ -519,35 +519,6 @@ export default function MarketplacePage() {
     : "";
   const swipeRotation = Math.max(-14, Math.min(14, dragOffset.x / 18));
   const swipeOpacity = Math.max(0.72, 1 - Math.abs(dragOffset.x) / 520);
-
-  useEffect(() => {
-    function handlePointerMove(event: PointerEvent) {
-      if (!dragStartRef.current) return;
-      setDragOffset({
-        x: event.clientX - dragStartRef.current.x,
-        y: Math.max(-24, Math.min(24, (event.clientY - dragStartRef.current.y) * 0.2)),
-      });
-    }
-
-    function handlePointerUp() {
-      if (!dragStartRef.current) return;
-      const shouldPass = Math.abs(dragOffset.x) > 110;
-      dragStartRef.current = null;
-      setDragOffset({ x: 0, y: 0 });
-      if (shouldPass) {
-        passCurrentCard();
-      }
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
-    };
-  }, [dragOffset.x]);
 
   async function createConnectionToInvestor(investor: MarketplaceInvestor) {
     if (!user) return;
@@ -605,7 +576,7 @@ export default function MarketplacePage() {
     }
   }
 
-  function passCurrentCard() {
+  const passCurrentCard = useCallback(() => {
     if (!swipeCard) return;
     if (directoryKind === "rias") {
       setPassedRiaIds((current) => (current.includes(swipeCard.id) ? current : [...current, swipeCard.id]));
@@ -614,7 +585,36 @@ export default function MarketplacePage() {
     setPassedInvestorIds((current) =>
       current.includes(swipeCard.id) ? current : [...current, swipeCard.id]
     );
-  }
+  }, [directoryKind, swipeCard]);
+
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      if (!dragStartRef.current) return;
+      setDragOffset({
+        x: event.clientX - dragStartRef.current.x,
+        y: Math.max(-24, Math.min(24, (event.clientY - dragStartRef.current.y) * 0.2)),
+      });
+    }
+
+    function handlePointerUp() {
+      if (!dragStartRef.current) return;
+      const shouldPass = Math.abs(dragOffset.x) > 110;
+      dragStartRef.current = null;
+      setDragOffset({ x: 0, y: 0 });
+      if (shouldPass) {
+        passCurrentCard();
+      }
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [dragOffset.x, passCurrentCard]);
 
   function resetSwipeDeck() {
     if (directoryKind === "rias") {
@@ -627,7 +627,23 @@ export default function MarketplacePage() {
   const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
 
   return (
-    <AppPageShell as="main" width="content" className="pb-36">
+    <AppPageShell
+      as="main"
+      width="content"
+      className="pb-36"
+      nativeTest={{
+        routeId: "/marketplace",
+        marker: "native-route-marketplace",
+        authState: user ? "authenticated" : "pending",
+        dataState: loading
+          ? "loading"
+          : rias.length > 0 || investors.length > 0
+            ? "loaded"
+            : iamUnavailable
+              ? "unavailable-valid"
+              : "empty-valid",
+      }}
+    >
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="Connect"

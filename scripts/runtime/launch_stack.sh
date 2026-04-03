@@ -101,7 +101,7 @@ stop_existing_repo_frontend
 echo "Cleaning stale .next build artifacts before starting the frontend..."
 rm -rf .next
 if [ "${#NEXT_ARGS[@]}" -gt 0 ]; then
-  npm run dev:next -- "${NEXT_ARGS[@]}"
+  npm run dev -- "${NEXT_ARGS[@]}"
 else
-  npm run dev:next
+  npm run dev
 fi

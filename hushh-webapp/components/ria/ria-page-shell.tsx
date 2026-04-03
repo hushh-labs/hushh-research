@@ -34,6 +34,7 @@ export function RiaPageShell({
   headerClassName,
   contentClassName,
   stackClassName,
+  nativeTest,
 }: {
   eyebrow?: string;
   title: string;
@@ -46,9 +47,29 @@ export function RiaPageShell({
   headerClassName?: string;
   contentClassName?: string;
   stackClassName?: string;
+  nativeTest?: {
+    routeId: string;
+    marker: string;
+    authState: "authenticated" | "public" | "anonymous" | "redirecting" | "pending";
+    dataState:
+      | "booting"
+      | "loading"
+      | "loaded"
+      | "empty-valid"
+      | "unavailable-valid"
+      | "redirect-valid"
+      | "error";
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  };
 }) {
   return (
-    <AppPageShell as="main" width="content" className={cn("pb-28", className)}>
+    <AppPageShell
+      as="main"
+      width="content"
+      className={cn("pb-28", className)}
+      nativeTest={nativeTest}
+    >
       <AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>
         <PageHeader
           eyebrow={eyebrow}

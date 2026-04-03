@@ -14,7 +14,7 @@ Use this after [Getting Started](./getting-started.md). This is the operational 
 Use:
 
 ```bash
-npm run backend
+./bin/hushh backend
 ```
 
 Do not replace that with raw `uvicorn` unless you already know the proxy and IAM prerequisites are satisfied.
@@ -56,13 +56,13 @@ The blocking CI surface stays intentionally small:
 Canonical local parity run:
 
 ```bash
-./scripts/test-ci-local.sh
+./bin/hushh ci
 ```
 
 Advisory checks remain opt-in:
 
 ```bash
-INCLUDE_ADVISORY_CHECKS=1 ./scripts/test-ci-local.sh
+./bin/hushh ci --include-advisory
 ```
 
 ## Deploy

@@ -43,6 +43,8 @@ export interface PendingConsent {
   existingGrantedScopes?: string[];
   additionalAccessSummary?: string;
   metadata?: Record<string, unknown> | null;
+  notificationOpenedAt?: number;
+  notificationAcknowledged?: boolean;
 }
 
 type RequestStatus = "pending" | "handling" | "handled";

@@ -1,6 +1,6 @@
-# Hussh Research - Cloud Build Deployment
+# Hushh Research - Cloud Build Deployment
 
-> CI/CD deployment using Google Cloud Build. Contributor setup lives in `npm run bootstrap` plus the docs under `docs/guides/`.
+> CI/CD deployment using Google Cloud Build. Contributor setup lives in `./bin/hushh bootstrap` plus the docs under `docs/guides/`.
 
 ---
 
@@ -46,8 +46,8 @@ gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
 Contributor onboarding should start with:
 
 ```bash
-npm run bootstrap
-npm run doctor -- --profile=local-uatdb
+./bin/hushh bootstrap
+./bin/hushh doctor --mode uat
 ```
 
 Detailed profile behavior now lives in:
@@ -61,15 +61,12 @@ Low-level profile activation still works when you need it:
 - Backend active file: `consent-protocol/.env`
 - Frontend active file: `hushh-webapp/.env.local`
 
-Runtime profile sources (local only, not committed):
-
-- `consent-protocol/.env.local-uatdb.local`, `.env.uat-remote.local`, `.env.prod-remote.local`
-- `hushh-webapp/.env.local-uatdb.local`, `.env.uat-remote.local`, `.env.prod-remote.local`
+Runtime profile source templates and activation behavior are documented in the guides and managed through the bootstrap/profile tooling. Do not document local unpublished profile filenames here as contributor-facing contract.
 
 `local-uatdb` backend note:
 
 - Start the backend with `bash scripts/runtime/run_backend_local.sh local-uatdb`
-  when you need the UAT-backed local backend path.
+  only when you explicitly need the legacy UAT-backed local backend path.
 - Do not start local UAT DB access with bare `python`/`uvicorn` unless the
   proxy is already running.
 - The launcher starts `cloud-sql-proxy` automatically for the UAT Cloud SQL
@@ -101,7 +98,7 @@ Optional/advisory by default:
 Local full run with advisory checks:
 
 ```bash
-INCLUDE_ADVISORY_CHECKS=1 ./scripts/test-ci-local.sh
+./bin/hushh ci --include-advisory
 ```
 
 ### UAT analytics divergence note
@@ -365,7 +362,7 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
   - `ANDROID_RELEASE_KEY_ALIAS`
   - `ANDROID_RELEASE_KEY_PASSWORD`
 - Developers should treat the frontend runtime profile env files as the local source of truth.
-- `npm run bootstrap` hydrates those native values into the local profile env files and materializes the active native sidecar under `hushh-webapp/.env.local.d/`.
+- `./bin/hushh bootstrap` hydrates those native values into the local profile env files and materializes the active native sidecar under `hushh-webapp/.env.local.d/`.
 - Use `cd hushh-webapp && npm run sync:mobile-firebase` to refresh the active profile env with the latest Firebase app artifacts when needed.
 - Or fetch latest artifacts directly from Firebase into the local cache:
   ```bash
@@ -382,7 +379,7 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
 - Do not pass around `.p12`, `.mobileprovision`, or App Store Connect API keys manually.
 - Store Apple signing assets in Secret Manager and hydrate them through the active frontend runtime profile:
   ```bash
-  npm run bootstrap
+  ./bin/hushh bootstrap
   ```
 - The active sidecar lives under `hushh-webapp/.env.local.d/ios/` and local iOS runs install signing material into the keychain/profile store on demand.
 - Android release signing follows the same model via `hushh-webapp/.env.local.d/android/`.

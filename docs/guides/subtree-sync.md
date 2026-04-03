@@ -19,8 +19,8 @@ flowchart LR
 Normal contributors should use the monorepo-first flow:
 
 ```bash
-npm run bootstrap
-npm run web -- --mode=uat
+./bin/hushh bootstrap
+./bin/hushh web --mode uat
 ```
 
 If you are coordinating the `consent-protocol` upstream relationship, use:

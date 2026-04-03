@@ -184,6 +184,7 @@ const PUBLIC_DOC_CONTRACT_TARGETS = [
   "docs/guides/environment-model.md",
   "docs/vision/README.md",
   "docs/reference/architecture/architecture.md",
+  "docs/reference/operations/cli.md",
   "docs/reference/operations/branch-governance.md",
   "docs/reference/operations/naming-policy.md",
 ];
@@ -195,9 +196,14 @@ const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
   { pattern: /\bmake local\b/g, message: "make local is not part of the public contributor contract" },
   { pattern: /\bmake local-web\b/g, message: "make local-web is not part of the public contributor contract" },
   { pattern: /\bmake local-backend\b/g, message: "make local-backend is not part of the public contributor contract" },
+  { pattern: /\bnpm run bootstrap\b/g, message: "root npm bootstrap is not part of the public contributor contract" },
+  { pattern: /\bnpm run doctor\b/g, message: "root npm doctor is not part of the public contributor contract" },
+  { pattern: /\bnpm run web\b/g, message: "root npm web is not part of the public contributor contract" },
+  { pattern: /\bnpm run backend\b/g, message: "root npm backend is not part of the public contributor contract" },
+  { pattern: /\bnpm run native:ios\b/g, message: "root npm native:ios is not part of the public contributor contract" },
+  { pattern: /\bnpm run native:android\b/g, message: "root npm native:android is not part of the public contributor contract" },
   { pattern: /\/Users\//g, message: "personal absolute paths are not allowed in canonical public docs" },
-  { pattern: /\bHushh Research\b/g, message: "legacy Hushh public branding should be removed from canonical public docs" },
-  { pattern: /\bWhat is Hushh\b/gi, message: "legacy Hushh branding should be removed from canonical public docs" },
+  { pattern: /\bHussh\b/g, message: "Hussh public branding is not allowed in canonical public docs" },
 ];
 
 const REQUIRED_DENSITY_MARKERS = [
@@ -549,15 +555,15 @@ function verifyPublicDocContract() {
   const requiredBootstrapDocs = ["README.md", "docs/guides/getting-started.md", "contributing.md"];
   for (const file of requiredBootstrapDocs) {
     const content = read(file);
-    if (!content.includes("npm run bootstrap")) {
-      offenders.push(`${file}: must include npm run bootstrap in the canonical contributor surface`);
+    if (!content.includes("./bin/hushh bootstrap")) {
+      offenders.push(`${file}: must include ./bin/hushh bootstrap in the canonical contributor surface`);
     }
   }
 
   if (offenders.length) {
     fail(`Public documentation contract violations found:\n${offenders.map((x) => `- ${x}`).join("\n")}`);
   } else {
-    ok("Canonical public docs match the Hussh/npm-first contract");
+    ok("Canonical public docs match the Hushh/root-CLI contract");
   }
 }
 

@@ -29,11 +29,10 @@ Briefly explain what you changed and why.
   - [ ] Listed below:
 
 - Verification commands executed:
-  - [ ] `cd hushh-webapp && npm run verify:routes`
-  - [ ] `cd hushh-webapp && npm run verify:parity`
-  - [ ] `cd hushh-webapp && npm run verify:capacitor:routes`
-  - [ ] `cd hushh-webapp && npm run verify:cache`
-  - [ ] `cd hushh-webapp && npm run verify:docs`
+  - [ ] `cd hushh-webapp && npm run typecheck`
+  - [ ] `cd hushh-webapp && npm test`
+  - [ ] `cd hushh-webapp && npm run build`
+  - [ ] `cd hushh-webapp && npm run ios:test`
   - [ ] `python scripts/ops/kai-system-audit.py --api-base http://localhost:8000 --web-base http://localhost:3000`
 
 ## 🛑 Tri-Flow Architecture Check

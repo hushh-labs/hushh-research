@@ -81,11 +81,12 @@ describe("SettingsRow", () => {
 });
 
 describe("SettingsSegmentedTabs", () => {
-  it("gives the active tab a visibly raised state in light and dark mode contracts", () => {
+  it("keeps the active tab selected and switches tabs through user interaction", () => {
+    const handleValueChange = vi.fn();
     render(
       <SettingsSegmentedTabs
         value="my"
-        onValueChange={() => {}}
+        onValueChange={handleValueChange}
         options={[
           { value: "kai", label: "Kai list" },
           { value: "my", label: "My list" },
@@ -95,14 +96,16 @@ describe("SettingsSegmentedTabs", () => {
 
     const active = screen.getByRole("button", { name: "My list" });
     const inactive = screen.getByRole("button", { name: "Kai list" });
-    const track = active.parentElement;
 
-    expect(track?.className).toContain("bg-[linear-gradient(180deg,rgba(10,10,12,0.085),rgba(10,10,12,0.045))]");
-    expect(track?.className).toContain("dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.08))]");
-    expect(active.className).toContain("-translate-y-px");
-    expect(active.className).toContain("ring-1");
-    expect(active.className).toContain("shadow-[0_16px_34px_rgba(15,23,42,0.16)");
-    expect(active.className).toContain("dark:shadow-[0_16px_34px_rgba(0,0,0,0.42)");
-    expect(inactive.className).toContain("hover:bg-white/75");
+    expect(active.getAttribute("data-state")).toBe("active");
+    expect(active.getAttribute("aria-pressed")).toBe("true");
+    expect(inactive.getAttribute("data-state")).toBe("inactive");
+    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(active);
+    expect(handleValueChange).not.toHaveBeenCalled();
+
+    fireEvent.click(inactive);
+    expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
 });

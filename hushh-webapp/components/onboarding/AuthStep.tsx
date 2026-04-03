@@ -9,6 +9,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { auth } from "@/lib/firebase/config";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid } from "@/lib/capacitor/platform";
 import { BrandMark, Icon } from "@/lib/morphy-ux/ui";
@@ -24,6 +25,7 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
 import { trackEvent } from "@/lib/observability/client";
+import { getNativeTestConfig, useNativeTestConfig } from "@/lib/testing/native-test";
 
 export function AuthStep({
   redirectPath,
@@ -32,14 +34,35 @@ export function AuthStep({
   redirectPath: string;
   compact?: boolean;
 }) {
+  const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const { user, loading: authLoading, setNativeUser } = useAuth();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
+  const autoReviewerLoginStartedRef = useRef(false);
+  const [nativeReviewerVisible, setNativeReviewerVisible] = useState(
+    nativeTestConfig.autoReviewerLogin
+  );
+  const [nativeAuthState, setNativeAuthState] = useState<
+    "anonymous" | "pending" | "authenticated"
+  >(nativeTestConfig.autoReviewerLogin ? "pending" : "anonymous");
+  const [nativeDataState, setNativeDataState] = useState<
+    "loading" | "loaded" | "error"
+  >(nativeTestConfig.autoReviewerLogin ? "loading" : "loaded");
+  const [nativeErrorCode, setNativeErrorCode] = useState<string | null>(null);
 
   const [reviewModeConfig, setReviewModeConfig] = useState<{ enabled: boolean }>(
     { enabled: false }
   );
+  const shouldUseNativeTestBootstrap =
+    nativeTestConfig.enabled &&
+    nativeTestConfig.autoReviewerLogin &&
+    Boolean(nativeTestConfig.expectedUserId) &&
+    Boolean(nativeTestConfig.vaultPassphrase);
+  const preserveOnboardingAuditRoute =
+    nativeTestConfig.enabled &&
+    nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING &&
+    redirectPath === ROUTES.KAI_ONBOARDING;
   const [activeLegalDoc, setActiveLegalDoc] = useState<KaiLegalDocumentType | null>(
     null
   );
@@ -57,6 +80,12 @@ export function AuthStep({
       lastNavigationKeyRef.current = navigationKey;
 
       try {
+        if (preserveOnboardingAuditRoute) {
+          setOnboardingRequiredCookie(false);
+          setOnboardingFlowActiveCookie(false);
+          router.push(ROUTES.KAI_ONBOARDING);
+          return;
+        }
         const resolvedIdToken =
           idToken || (user ? await user.getIdToken().catch(() => undefined) : undefined);
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
@@ -84,7 +113,7 @@ export function AuthStep({
         router.push(safeFallbackPath);
       }
     },
-    [redirectPath, router, user]
+    [preserveOnboardingAuditRoute, redirectPath, router, user]
   );
 
   const debugLog = (...args: unknown[]) => {
@@ -153,6 +182,103 @@ export function AuthStep({
       cancelled = true;
     };
   }, []);
+
+  const handleReviewerLogin = useCallback(async () => {
+    trackEvent("auth_started", {
+      action: "reviewer",
+    });
+    try {
+      if (!reviewModeConfig.enabled && !nativeTestConfig.autoReviewerLogin) {
+        throw new Error("Reviewer mode is not enabled");
+      }
+
+      const { token } = await ApiService.createAppReviewModeSession("reviewer");
+      const authResult = await AuthService.signInWithCustomToken(token);
+      const authenticatedUser = authResult.user;
+
+      if (authenticatedUser) {
+        setNativeAuthState("authenticated");
+        setNativeDataState("loaded");
+        setNativeErrorCode(null);
+        trackEvent("auth_succeeded", {
+          action: "reviewer",
+          result: "success",
+        });
+        setNativeUser(authenticatedUser);
+        await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
+      } else {
+        trackEvent("auth_failed", {
+          action: "reviewer",
+          result: "error",
+          error_class: "missing_user",
+        });
+        morphyToast.error("Reviewer login failed: no user session returned.");
+      }
+    } catch (err: any) {
+      setNativeAuthState("anonymous");
+      setNativeDataState("error");
+      setNativeErrorCode("reviewer_login_failed");
+      debugError("[AuthStep] Reviewer login failed", err);
+      trackEvent("auth_failed", {
+        action: "reviewer",
+        result: "error",
+        error_class: "auth_failed",
+      });
+      morphyToast.error(err.message || "Failed to sign in as reviewer");
+    }
+  }, [
+    nativeTestConfig.autoReviewerLogin,
+    resolveAndNavigate,
+    reviewModeConfig.enabled,
+    setNativeUser,
+  ]);
+
+  useEffect(() => {
+    if (shouldUseNativeTestBootstrap) {
+      return;
+    }
+    if (authLoading || user || autoReviewerLoginStartedRef.current) {
+      return;
+    }
+
+    let attempts = 0;
+    const tryAutoReviewerLogin = () => {
+      const liveConfig = getNativeTestConfig();
+      const requested = liveConfig.enabled && liveConfig.autoReviewerLogin;
+      setNativeReviewerVisible(requested);
+      if (!requested) {
+        attempts += 1;
+        return attempts >= 40;
+      }
+
+      autoReviewerLoginStartedRef.current = true;
+      setNativeAuthState("pending");
+      setNativeDataState("loading");
+      setNativeErrorCode(null);
+      void handleReviewerLogin();
+      return true;
+    };
+
+    if (tryAutoReviewerLogin()) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      if (tryAutoReviewerLogin()) {
+        window.clearInterval(timer);
+      }
+    }, 250);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [
+    authLoading,
+    handleReviewerLogin,
+    reviewModeConfig.enabled,
+    shouldUseNativeTestBootstrap,
+    user,
+  ]);
 
   if (authLoading || user) {
     return <HushhLoader label="Checking session..." variant="fullscreen" />;
@@ -234,45 +360,6 @@ export function AuthStep({
     }
   };
 
-  const handleReviewerLogin = async () => {
-    trackEvent("auth_started", {
-      action: "reviewer",
-    });
-    try {
-      if (!reviewModeConfig.enabled) {
-        throw new Error("Reviewer mode is not enabled");
-      }
-
-      const { token } = await ApiService.createAppReviewModeSession();
-      const authResult = await AuthService.signInWithCustomToken(token);
-      const authenticatedUser = authResult.user;
-
-      if (authenticatedUser) {
-        trackEvent("auth_succeeded", {
-          action: "reviewer",
-          result: "success",
-        });
-        setNativeUser(authenticatedUser);
-        await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
-      } else {
-        trackEvent("auth_failed", {
-          action: "reviewer",
-          result: "error",
-          error_class: "missing_user",
-        });
-        morphyToast.error("Reviewer login failed: no user session returned.");
-      }
-    } catch (err: any) {
-      debugError("[AuthStep] Reviewer login failed", err);
-      trackEvent("auth_failed", {
-        action: "reviewer",
-        result: "error",
-        error_class: "auth_failed",
-      });
-      morphyToast.error(err.message || "Failed to sign in as reviewer");
-    }
-  };
-
   const authOptions = isAndroid()
     ? [
         {
@@ -304,7 +391,30 @@ export function AuthStep({
       ];
 
   return (
-    <main className="min-h-[100dvh] w-full bg-transparent">
+    <main className="min-h-[100dvh] w-full bg-transparent" data-testid="auth-step-primary">
+      <NativeTestBeacon
+        routeId="/login"
+        marker="native-route-login"
+        authState={nativeAuthState}
+        dataState={nativeDataState}
+        attachToBridge={(bridge) => {
+          bridge.triggerReviewerLogin = () => {
+            if (autoReviewerLoginStartedRef.current) {
+              return;
+            }
+            autoReviewerLoginStartedRef.current = true;
+            setNativeReviewerVisible(true);
+            setNativeAuthState("pending");
+            setNativeDataState("loading");
+            setNativeErrorCode(null);
+            void handleReviewerLogin();
+          };
+        }}
+        errorCode={
+          nativeErrorCode ??
+          `cfg_${nativeTestConfig.enabled ? "1" : "0"}_${nativeTestConfig.autoReviewerLogin ? "1" : "0"}`
+        }
+      />
       <div
         className={
           compact
@@ -360,7 +470,7 @@ export function AuthStep({
               Phone sign-in is coming soon.
             </p>
 
-            {reviewModeConfig.enabled && (
+            {(reviewModeConfig.enabled || nativeReviewerVisible) && (
               <AuthProviderButton
                 label="Continue as Reviewer"
                 icon={<Icon icon={Shield} size="md" />}

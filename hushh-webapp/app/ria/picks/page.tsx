@@ -1384,7 +1384,7 @@ export default function RiaPicksPage() {
   );
   const picksMetadata = picksResource.data?.metadata;
   const myTopPicks = activePackage.top_picks || [];
-  const myAvoidRows = activePackage.avoid_rows || [];
+  const myAvoidRows = useMemo(() => activePackage.avoid_rows || [], [activePackage.avoid_rows]);
   const myScreeningSections = activePackage.screening_sections || [];
   const showMyListEmptyState =
     source === "my" &&
@@ -2046,7 +2046,23 @@ export default function RiaPicksPage() {
   }
 
   return (
-    <AppPageShell as="main" width="wide" className="pb-16 sm:pb-24">
+    <AppPageShell
+      as="main"
+      width="wide"
+      className="pb-16 sm:pb-24"
+      nativeTest={{
+        routeId: "/ria/picks",
+        marker: "native-route-ria-picks",
+        authState: user ? "authenticated" : "pending",
+        dataState: picksResource.loading
+          ? "loading"
+          : iamUnavailable
+            ? "unavailable-valid"
+            : "loaded",
+        errorCode: picksResource.error ? "ria_picks" : null,
+        errorMessage: picksResource.error,
+      }}
+    >
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="Picks"

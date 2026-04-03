@@ -45,12 +45,12 @@ consent-protocol/
 │   ├── services/              # Database access layer
 │   ├── consent/               # Token validation, scope helpers
 │   └── config.py              # Environment config loader
-├── mcp_modules/               # MCP server tools for Claude Desktop
+├── mcp_modules/               # MCP server tools and resources
 ├── db/migrations/             # SQL migration files
 └── docs/                      # Backend-specific documentation
     ├── README.md              # This file (entry point)
     ├── manifesto.md           # Hushh philosophy (timeless)
-    ├── mcp-setup.md           # MCP server setup for Claude Desktop
+    ├── mcp-setup.md           # MCP technical companion
     └── reference/
         ├── agent-development.md   # DNA model, operons, contribution guide
         ├── developer-api.md       # Published developer API contract
@@ -94,7 +94,7 @@ Health check: `curl http://localhost:8000/health`
 | Learn the 3-agent debate system | [reference/kai-agents.md](./reference/kai-agents.md) |
 | Understand the consent token model | [reference/consent-protocol.md](./reference/consent-protocol.md) |
 | FCM push notification architecture | [reference/fcm-notifications.md](./reference/fcm-notifications.md) |
-| Set up the MCP server | [mcp-setup.md](./mcp-setup.md) |
+| Understand MCP runtime and contributor-local setup | [mcp-setup.md](./mcp-setup.md) |
 | Integrate into a host monorepo (subtree) | [monorepo-integration.md](./monorepo-integration.md) |
 | Read the Hushh philosophy | [manifesto.md](./manifesto.md) |
 

@@ -39,7 +39,7 @@ flowchart TB
 This document describes the **Tri-Flow CI** workflow and how to stay aligned with it so code changes do not fail CI. Run local checks before every commit.
 
 **Workflow file:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)  
-**Local mirror:** [scripts/test-ci-local.sh](../../../scripts/test-ci-local.sh)  
+**Local mirror:** [`./bin/hushh ci`](./cli.md)  
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
 
 ---
@@ -183,7 +183,7 @@ See [Branch Governance](./branch-governance.md).
 
 | Tool | CI Version | Local requirement |
 |------|------------|-------------------|
-| Node.js | 20 | 20+ (see [test-ci-local.sh](../../../scripts/test-ci-local.sh)) |
+| Node.js | 20 | 20+ (run `./bin/hushh ci`) |
 | Python | 3.13 | 3.13 (CI asserts exactly 3.13) |
 | npm | latest | Use latest (script upgrades before run) |
 | pip | latest | Use latest (script upgrades before run) |
@@ -233,8 +233,8 @@ Blocking backend manifest:
 
 1. `consent-protocol/scripts/test-ci.manifest.txt`
 2. Keep this manifest small and stable.
-3. Full historical suites remain available through `make test`.
-4. Kai accuracy/compliance remains manual through `make accuracy`.
+3. Full local repo checks are available through `./bin/hushh test`.
+4. Kai accuracy/compliance remains manual through `./bin/hushh protocol accuracy`.
 
 **Test env (CI):**  
 `TESTING=true`, `SECRET_KEY`, and `VAULT_ENCRYPTION_KEY` are set in the workflow (see [ci.yml](../../../.github/workflows/ci.yml)).
@@ -256,16 +256,15 @@ Blocking backend manifest:
 
 ---
 
-## Integration Check (Route Contracts)
+## Integration Check (Route and Docs Contract)
 
 **Runs when:** Frontend or backend paths change (or manual run with scope that includes either).
 
 | Step | Command / behavior | Fails CI? |
 |------|--------------------|-----------|
-| Install | `npm ci` in `hushh-webapp/` | Yes |
-| Verify | `npm run verify:routes` (script: `hushh-webapp/scripts/verify-route-contracts.cjs`) | Yes |
+| Verify | `bash scripts/ci/docs-parity-check.sh` | Yes |
 
-Route contracts must stay in sync between frontend expectations and backend (or proxy) routes. See [API Contracts](../architecture/api-contracts.md). If you add or change API routes, update the contract and run `npm run verify:routes` (or full local CI).
+Route contracts must stay in sync between frontend expectations, backend (or proxy) routes, and the route/mobile docs. See [API Contracts](../architecture/api-contracts.md). If you add or change routes, update the contract and run the docs parity lane (or full local CI).
 
 ---
 
@@ -289,7 +288,7 @@ Minimum checks for streaming changes:
 **Recommended:** Run the script that mirrors CI. It uses the same versions and steps as GitHub Actions.
 
 ```bash
-./scripts/test-ci-local.sh
+./bin/hushh ci
 ```
 
 This script:
@@ -303,7 +302,7 @@ This script:
 To include advisory checks locally:
 
 ```bash
-INCLUDE_ADVISORY_CHECKS=1 ./scripts/test-ci-local.sh
+./bin/hushh ci --include-advisory
 ```
 
 To verify the live GitHub branch gate matches the documented minimum contract:
@@ -327,8 +326,8 @@ Secret-scan note:
 |------|----------------------------|
 | Frontend | `cd hushh-webapp && npm ci && npm run typecheck && npm run lint -- --max-warnings=0 && npm run build && npm run test:ci` |
 | Backend | `cd consent-protocol && pip install -r requirements.txt -r requirements-dev.txt && ruff check . && mypy --config-file pyproject.toml --ignore-missing-imports && bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
-| Integration | `cd hushh-webapp && npm ci && npm run verify:routes` |
-| All | `scripts/test-ci-local.sh` |
+| Integration | `bash scripts/ci/docs-parity-check.sh` |
+| All | `./bin/hushh ci` |
 
 ---
 
@@ -337,7 +336,7 @@ Secret-scan note:
 Before creating a release tag/public rollout, run strict gate commands from repo root:
 
 ```bash
-cd hushh-webapp && npm run verify:routes
+bash scripts/ci/docs-parity-check.sh
 cd hushh-webapp && npm run verify:parity
 cd hushh-webapp && npm run verify:capacitor:routes
 cd hushh-webapp && npm run verify:cache

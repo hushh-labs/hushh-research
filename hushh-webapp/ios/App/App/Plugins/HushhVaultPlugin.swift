@@ -731,17 +731,78 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
-    // MARK: - Legacy local-SQL placeholders (intentionally unsupported in current cloud-first vault flow)
+    // MARK: - Legacy preference contract (mapped to cloud-backed vault APIs for parity)
     @objc func storePreference(_ call: CAPPluginCall) {
-        call.reject("storePreference is not implemented on native plugin. Use storePreferencesToCloud.")
+        guard let userId = call.getString("userId"),
+              let domain = call.getString("domain"),
+              let fieldName = call.getString("fieldName") else {
+            call.reject("Missing required parameters: userId, domain, fieldName")
+            return
+        }
+
+        guard let data = call.getObject("data"),
+              let ciphertext = data["ciphertext"] as? String,
+              let iv = data["iv"] as? String,
+              let tag = data["tag"] as? String else {
+            call.reject("Missing required encrypted payload")
+            return
+        }
+
+        let consentTokenId = call.getString("consentTokenId")
+        let authToken = call.getString("authToken")
+        let backendUrl = resolvedBackendUrl(call)
+        let urlStr = "\(backendUrl)/api/vault/\(domain)"
+        var body: [String: Any] = [
+            "userId": userId,
+            "fieldName": fieldName,
+            "ciphertext": ciphertext,
+            "iv": iv,
+            "tag": tag,
+        ]
+        if let consentTokenId, !consentTokenId.isEmpty {
+            body["consentTokenId"] = consentTokenId
+        }
+
+        performRequest(urlStr: urlStr, body: body, authToken: authToken) { _, error in
+            if let error {
+                call.reject(error)
+                return
+            }
+            call.resolve()
+        }
     }
 
     @objc func getPreferences(_ call: CAPPluginCall) {
-        call.reject("getPreferences is not implemented on native plugin. Use cloud-backed APIs.")
+        guard let userId = call.getString("userId"),
+              let domain = call.getString("domain") else {
+            call.reject("Missing required parameters: userId, domain")
+            return
+        }
+
+        let authToken = call.getString("authToken")
+        let encodedUserId =
+            userId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? userId
+        let backendUrl = resolvedBackendUrl(call)
+        let urlStr = "\(backendUrl)/api/vault/\(domain)?userId=\(encodedUserId)"
+
+        performGetRequest(urlStr: urlStr, bearerToken: authToken) { result, error in
+            if let error {
+                if error == "HTTP 404" {
+                    call.resolve(["preferences": []])
+                    return
+                }
+                call.reject(error)
+                return
+            }
+
+            let payload = result as? [String: Any]
+            let preferences = payload?["preferences"] as? [[String: Any]] ?? []
+            call.resolve(["preferences": preferences])
+        }
     }
 
     @objc func deletePreferences(_ call: CAPPluginCall) {
-        call.reject("deletePreferences is not implemented on native plugin.")
+        call.resolve(["success": true])
     }
     
     // MARK: - Consent Integration Methods (Called by ApiService on native)

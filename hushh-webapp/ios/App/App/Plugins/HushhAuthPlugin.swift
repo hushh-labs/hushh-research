@@ -416,7 +416,11 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
     
     public func authorizationController(controller: ASAuthorizationController,
                                         didCompleteWithError error: Error) {
-        print("❌ [\(TAG)] Apple Sign-In failed: \(error.localizedDescription)")
+        if let authError = error as? ASAuthorizationError {
+            print("❌ [\(TAG)] Apple Sign-In failed: code=\(authError.code.rawValue) description=\(error.localizedDescription)")
+        } else {
+            print("❌ [\(TAG)] Apple Sign-In failed: \(error.localizedDescription)")
+        }
         
         // Check for user cancellation
         if let authError = error as? ASAuthorizationError {

@@ -718,6 +718,18 @@ export default function RiaOnboardingPage() {
       eyebrow="Professional Onboarding"
       title="Build the advisor trust surface before Kai unlocks the workflow"
       description="A calmer onboarding interview for trust-critical identity, verification records, and the short public profile investors see first."
+      nativeTest={{
+        routeId: "/ria/onboarding",
+        marker: "native-route-ria-onboarding",
+        authState: user ? "authenticated" : "pending",
+        dataState: loading
+          ? "loading"
+          : iamUnavailable
+            ? "unavailable-valid"
+            : "loaded",
+        errorCode: error ? "ria_onboarding" : null,
+        errorMessage: error,
+      }}
     >
       {iamUnavailable ? (
         <RiaCompatibilityState

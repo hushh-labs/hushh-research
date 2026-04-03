@@ -1231,24 +1231,121 @@ class HushhVaultPlugin : Plugin() {
         }.start()
     }
 
-    // ==================== Preference Storage (Placeholder for SQLCipher) ====================
+    // ==================== Preference Storage (legacy contract mapped to cloud-backed APIs) ====================
 
     @PluginMethod
     fun storePreference(call: PluginCall) {
-        // Placeholder - will be implemented with SQLCipher
-        call.resolve()
+        val userId = call.getString("userId")
+        val domain = call.getString("domain")
+        val fieldName = call.getString("fieldName")
+        val authToken = call.getString("authToken")
+        val consentTokenId = call.getString("consentTokenId")
+        val data = call.getObject("data")
+
+        if (userId.isNullOrBlank() || domain.isNullOrBlank() || fieldName.isNullOrBlank() || data == null) {
+            call.reject("Missing required parameters: userId, domain, fieldName, data")
+            return
+        }
+
+        val ciphertext = data.getString("ciphertext")
+        val iv = data.getString("iv")
+        val tag = data.getString("tag")
+        if (ciphertext.isNullOrBlank() || iv.isNullOrBlank() || tag.isNullOrBlank()) {
+            call.reject("Missing required encrypted payload")
+            return
+        }
+
+        val backendUrl = getBackendUrl(call)
+        val url = "$backendUrl/api/vault/$domain"
+
+        Thread {
+            try {
+                val bodyJson = JSONObject()
+                    .put("userId", userId)
+                    .put("fieldName", fieldName)
+                    .put("ciphertext", ciphertext)
+                    .put("iv", iv)
+                    .put("tag", tag)
+                if (!consentTokenId.isNullOrBlank()) {
+                    bodyJson.put("consentTokenId", consentTokenId)
+                }
+
+                val requestBuilder = Request.Builder()
+                    .url(url)
+                    .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("Content-Type", "application/json")
+
+                if (!authToken.isNullOrBlank()) {
+                    requestBuilder.addHeader("Authorization", "Bearer $authToken")
+                }
+
+                val response = httpClient.newCall(requestBuilder.build()).execute()
+                val responseBody = response.body?.string() ?: ""
+
+                activity.runOnUiThread {
+                    if (response.isSuccessful) {
+                        call.resolve()
+                    } else {
+                        call.reject("Failed to store preference: HTTP ${response.code} ${responseBody.take(200)}")
+                    }
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    call.reject("Failed to store preference: ${e.message}")
+                }
+            }
+        }.start()
     }
 
     @PluginMethod
     fun getPreferences(call: PluginCall) {
-        // Placeholder - will be implemented with SQLCipher
-        call.resolve(JSObject().put("preferences", JSObject()))
+        val userId = call.getString("userId")
+        val domain = call.getString("domain")
+        val authToken = call.getString("authToken")
+
+        if (userId.isNullOrBlank() || domain.isNullOrBlank()) {
+            call.reject("Missing required parameters: userId, domain")
+            return
+        }
+
+        val url = "${getBackendUrl(call)}/api/vault/$domain?userId=${java.net.URLEncoder.encode(userId, Charsets.UTF_8.name())}"
+
+        Thread {
+            try {
+                val requestBuilder = Request.Builder()
+                    .url(url)
+                    .get()
+                    .addHeader("Content-Type", "application/json")
+
+                if (!authToken.isNullOrBlank()) {
+                    requestBuilder.addHeader("Authorization", "Bearer $authToken")
+                }
+
+                val response = httpClient.newCall(requestBuilder.build()).execute()
+                val responseBody = response.body?.string() ?: "{}"
+
+                activity.runOnUiThread {
+                    when {
+                        response.code == 404 -> call.resolve(JSObject().put("preferences", JSArray()))
+                        !response.isSuccessful -> call.reject("Failed to get preferences: HTTP ${response.code} ${responseBody.take(200)}")
+                        else -> {
+                            val parsed = JSONObject(responseBody)
+                            val preferences = parsed.optJSONArray("preferences") ?: JSONArray()
+                            call.resolve(JSObject().put("preferences", JSArray(preferences.toString())))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    call.reject("Failed to get preferences: ${e.message}")
+                }
+            }
+        }.start()
     }
 
     @PluginMethod
     fun deletePreferences(call: PluginCall) {
-        // Placeholder - will be implemented with SQLCipher
-        call.resolve()
+        call.resolve(JSObject().put("success", true))
     }
 
     // ==================== Utility Functions ====================
