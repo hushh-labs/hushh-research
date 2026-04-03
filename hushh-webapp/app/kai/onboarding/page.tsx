@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiPersonaScreen } from "@/components/kai/onboarding/KaiPersonaScreen";
 import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
 import { KaiInviteHandshake } from "@/components/kai/onboarding/kai-invite-handshake";
@@ -36,6 +37,7 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { trackEvent } from "@/lib/observability/client";
 import { Card } from "@/lib/morphy-ux/card";
+import { useNativeTestConfig } from "@/lib/testing/native-test";
 
 type Stage = "loading" | "entry" | "wizard" | "persona";
 type OnboardingSource = "pre_vault" | "vault";
@@ -71,6 +73,7 @@ function computePersona(answers: WizardAnswers, explicit?: RiskProfile | null): 
 function KaiOnboardingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nativeTestConfig = useNativeTestConfig();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { activePersona, loading: personaLoading, riaCapability, switchPersona } = usePersonaState();
@@ -84,6 +87,9 @@ function KaiOnboardingPageContent() {
   const [retryNonce, setRetryNonce] = useState(0);
   const onboardingStartedRef = useRef(false);
   const inviteToken = searchParams.get("invite");
+  const preserveOnboardingAuditRoute =
+    nativeTestConfig.enabled &&
+    nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING;
 
   useEffect(() => {
     let cancelled = false;
@@ -116,8 +122,10 @@ function KaiOnboardingPageContent() {
           if (PreVaultUserStateService.isOnboardingResolved(remoteState)) {
             setOnboardingRequiredCookie(false);
             setOnboardingFlowActiveCookie(false);
-            router.replace("/kai");
-            return;
+            if (!preserveOnboardingAuditRoute) {
+              router.replace("/kai");
+              return;
+            }
           }
 
           setOnboardingRequiredCookie(true);
@@ -164,8 +172,10 @@ function KaiOnboardingPageContent() {
           });
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
-          router.replace("/kai");
-          return;
+          if (!preserveOnboardingAuditRoute) {
+            router.replace("/kai");
+            return;
+          }
         }
 
         setOnboardingRequiredCookie(true);
@@ -198,6 +208,7 @@ function KaiOnboardingPageContent() {
     vaultOwnerToken,
     router,
     retryNonce,
+    preserveOnboardingAuditRoute,
   ]);
 
   const wizardAnswers: WizardAnswers = useMemo(() => {
@@ -229,12 +240,30 @@ function KaiOnboardingPageContent() {
   }
 
   if (inviteToken) {
-    return <KaiInviteHandshake inviteToken={inviteToken} />;
+    return (
+      <>
+        <NativeTestBeacon
+          routeId="/kai/onboarding"
+          marker="native-route-kai-onboarding"
+          authState={user ? "authenticated" : "pending"}
+          dataState="loaded"
+        />
+        <KaiInviteHandshake inviteToken={inviteToken} />
+      </>
+    );
   }
 
   if (loadError) {
     return (
       <div className="mx-auto flex min-h-[70vh] w-full max-w-md items-center px-5">
+        <NativeTestBeacon
+          routeId="/kai/onboarding"
+          marker="native-route-kai-onboarding"
+          authState={user ? "authenticated" : "pending"}
+          dataState="unavailable-valid"
+          errorCode="kai_onboarding"
+          errorMessage={loadError}
+        />
         <div className="w-full rounded-2xl border border-border bg-card/80 p-5 text-center">
           <p className="text-sm text-muted-foreground">{loadError}</p>
           <button
@@ -259,6 +288,12 @@ function KaiOnboardingPageContent() {
         data-top-content-anchor="true"
         className="mx-auto flex min-h-[calc(100dvh-var(--app-fullscreen-flow-content-offset,0px))] w-full max-w-4xl items-start px-5 pb-8 pt-[var(--app-fullscreen-flow-content-offset)]"
       >
+        <NativeTestBeacon
+          routeId="/kai/onboarding"
+          marker="native-route-kai-onboarding"
+          authState={user ? "authenticated" : "pending"}
+          dataState="loaded"
+        />
         <div className="w-full space-y-6">
           <div className="text-center space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
@@ -382,10 +417,17 @@ function KaiOnboardingPageContent() {
 
   if (stage === "persona") {
     return (
-      <KaiPersonaScreen
-        riskProfile={persona}
-        onEditAnswers={() => setStage("wizard")}
-        onLaunchDashboard={async () => {
+      <>
+        <NativeTestBeacon
+          routeId="/kai/onboarding"
+          marker="native-route-kai-onboarding"
+          authState={user ? "authenticated" : "pending"}
+          dataState="loaded"
+        />
+        <KaiPersonaScreen
+          riskProfile={persona}
+          onEditAnswers={() => setStage("wizard")}
+          onLaunchDashboard={async () => {
           if (saving) return;
 
           try {
@@ -456,19 +498,27 @@ function KaiOnboardingPageContent() {
           } finally {
             setSaving(false);
           }
-        }}
-      />
+          }}
+        />
+      </>
     );
   }
 
   return (
-    <KaiPreferencesWizard
-      mode="onboarding"
-      layout="page"
-      initialStep={0}
-      initialAnswers={wizardAnswers}
-      onBack={() => router.replace("/kai")}
-      onAnswersChange={(nextAnswers) => {
+    <>
+      <NativeTestBeacon
+        routeId="/kai/onboarding"
+        marker="native-route-kai-onboarding"
+        authState={user ? "authenticated" : "pending"}
+        dataState="loaded"
+      />
+      <KaiPreferencesWizard
+        mode="onboarding"
+        layout="page"
+        initialStep={0}
+        initialAnswers={wizardAnswers}
+        onBack={() => router.replace("/kai")}
+        onAnswersChange={(nextAnswers) => {
         if (source !== "pre_vault") return;
         const score = computeRiskScore(nextAnswers as PreVaultOnboardingAnswers);
         void PreVaultOnboardingService.saveDraft(user.uid, {
@@ -596,8 +646,9 @@ function KaiOnboardingPageContent() {
         } finally {
           setSaving(false);
         }
-      }}
-    />
+        }}
+      />
+    </>
   );
 }
 

@@ -1,6 +1,6 @@
 # Architecture
 
-> Current runtime architecture for the Hussh monorepo.
+> Current runtime architecture for the Hushh monorepo.
 
 ## Visual Map
 

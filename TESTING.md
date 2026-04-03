@@ -31,9 +31,9 @@ High-signal rules that should remain true regardless of test inventory changes:
 ## Common Local Commands
 
 ```bash
-./scripts/test-ci-local.sh
-make test
-make verify-docs
+./bin/hushh ci
+./bin/hushh test
+./bin/hushh docs verify
 cd hushh-webapp && npm run verify:routes
 cd hushh-webapp && npm run typecheck
 cd consent-protocol && pytest tests/ -v
@@ -46,6 +46,6 @@ Package-specific test setup lives with the package documentation:
 
 ## Practical Guidance
 
-- Use `./scripts/test-ci-local.sh` before opening a PR when a change spans multiple surfaces.
+- Use `./bin/hushh ci` before opening a PR when a change spans multiple surfaces.
 - If you touch API routes or plugin contracts, run `cd hushh-webapp && npm run verify:routes`.
 - If you touch encryption, consent, or PKM behavior, prefer adding or updating backend tests under `consent-protocol/tests/` and relevant frontend service tests under `hushh-webapp/__tests__/services/`.

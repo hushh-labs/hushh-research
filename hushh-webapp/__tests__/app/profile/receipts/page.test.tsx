@@ -70,6 +70,10 @@ vi.mock("@/components/ui/badge", () => ({
   Badge: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: () => null,
+}));
+
 vi.mock("@/lib/morphy-ux/button", () => ({
   Button: ({
     children,
@@ -88,12 +92,56 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 
 vi.mock("lucide-react", () => ({
   Loader2: () => <span />,
+  Lock: () => <span />,
   Mail: () => <span />,
   RefreshCw: () => <span />,
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: { PROFILE: "/profile", PROFILE_RECEIPTS: "/profile/receipts" },
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    vaultKey: null,
+    vaultOwnerToken: null,
+    isVaultUnlocked: false,
+  }),
+}));
+
+vi.mock("@/lib/services/vault-service", () => ({
+  VaultService: {
+    checkVault: vi.fn().mockResolvedValue(false),
+  },
+}));
+
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
+  PkmDomainResourceService: {
+    refreshDomain: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/services/pkm-write-coordinator", () => ({
+  PkmWriteCoordinator: {
+    writePreparedDomain: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/services/gmail-receipt-memory-service", () => ({
+  GmailReceiptMemoryService: {
+    buildArtifact: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
+  PersonalKnowledgeModelService: {
+    getPreparedDomain: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/profile/gmail-receipt-memory-pkm", () => ({
+  buildShoppingReceiptMemoryPreparedDomain: vi.fn(),
+  hasMatchingReceiptMemoryProvenance: vi.fn().mockReturnValue(false),
 }));
 
 import ProfileReceiptsPage from "@/app/profile/receipts/page";

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cable,
@@ -33,7 +34,10 @@ import {
   DEVELOPER_SECTIONS,
   DEVELOPER_SCOPE_NOTES,
   FAQ_ITEMS,
+  MCP_PUBLIC_LINKS,
   PUBLIC_SCOPE_PATTERNS,
+  PUBLIC_MCP_ENVIRONMENT,
+  PUBLIC_RESOURCE_URIS,
   PUBLIC_TOOL_NAMES,
   REST_ENDPOINTS,
 } from "@/lib/developers/content";
@@ -282,11 +286,13 @@ function RuntimeValueRow({
 function SnippetCard({
   title,
   description,
+  note,
   code,
   copyLabel,
 }: {
   title: string;
   description: string;
+  note?: string;
   code: string;
   copyLabel: string;
 }) {
@@ -296,6 +302,11 @@ function SnippetCard({
         <div className="space-y-1">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
           <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+          {note ? (
+            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
+              {note}
+            </p>
+          ) : null}
         </div>
         <MorphyButton
           variant="none"
@@ -1486,31 +1497,76 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
             >
               <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
                 <div className="min-w-0 space-y-4">
-                  <SnippetCard
-                    title="Remote MCP"
-                    description="Direct HTTP MCP for compatible hosts."
-                    code={mcpSnippets.remote}
-                    copyLabel="Remote MCP config"
-                  />
-                  <SnippetCard
-                    title="npm bridge"
-                    description="Local stdio launcher for hosts that still need a process-based bridge."
-                    code={mcpSnippets.npm}
-                    copyLabel="npm bridge config"
-                  />
+                  {mcpSnippets.primaryExamples.map((example) => (
+                    <SnippetCard
+                      key={example.id}
+                      title={example.title}
+                      description={example.whenToUse}
+                      note={example.secretNote}
+                      code={example.code}
+                      copyLabel={example.copyLabel}
+                    />
+                  ))}
                 </div>
                 <SurfaceCard className="min-w-0">
                   <SurfaceCardHeader>
-                    <SurfaceCardTitle>Public beta MCP tools</SurfaceCardTitle>
+                    <SurfaceCardTitle>Public MCP tools</SurfaceCardTitle>
                     <SurfaceCardDescription>
-                      These are the only tools shown by default for community developer access.
+                      Public onboarding is UAT-first. The npm package, token env var, and slash-safe
+                      MCP URL below are the same contract shown on npm.
                     </SurfaceCardDescription>
                   </SurfaceCardHeader>
                   <SurfaceCardContent className="space-y-4">
                     <div className="flex flex-wrap gap-2">
+                      <MorphyButton asChild variant="none" effect="glass" size="sm">
+                        <Link href={MCP_PUBLIC_LINKS.npmPackageUrl} target="_blank" rel="noreferrer">
+                          npm package
+                        </Link>
+                      </MorphyButton>
+                      <MorphyButton asChild variant="none" effect="glass" size="sm">
+                        <Link
+                          href={MCP_PUBLIC_LINKS.apiReferenceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          API reference
+                        </Link>
+                      </MorphyButton>
+                      <MorphyButton asChild variant="none" effect="glass" size="sm">
+                        <Link
+                          href={MCP_PUBLIC_LINKS.technicalCompanionUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Technical companion
+                        </Link>
+                      </MorphyButton>
+                    </div>
+                    <SurfaceInset className="space-y-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">
+                          Promoted environment: {PUBLIC_MCP_ENVIRONMENT.label}
+                        </p>
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          Use the exact trailing-slash endpoint shape and keep the developer token
+                          machine-local.
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-slate-950/95 px-4 py-4 font-mono text-xs leading-6 text-slate-100">
+                        {PUBLIC_MCP_ENVIRONMENT.remoteUrlTemplate}
+                      </div>
+                    </SurfaceInset>
+                    <div className="flex flex-wrap gap-2">
                       {PUBLIC_TOOL_NAMES.map((toolName) => (
                         <Badge key={toolName} variant="outline">
                           {toolName}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {PUBLIC_RESOURCE_URIS.map((resourceUri) => (
+                        <Badge key={resourceUri} variant="secondary">
+                          {resourceUri}
                         </Badge>
                       ))}
                     </div>
@@ -1528,6 +1584,18 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                     ) : null}
                   </SurfaceCardContent>
                 </SurfaceCard>
+              </div>
+              <div className="grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                {mcpSnippets.hostExamples.map((example) => (
+                  <SnippetCard
+                    key={example.id}
+                    title={example.title}
+                    description={example.whenToUse}
+                    note={example.secretNote}
+                    code={example.code}
+                    copyLabel={example.copyLabel}
+                  />
+                ))}
               </div>
             </DeveloperSectionShell>
 

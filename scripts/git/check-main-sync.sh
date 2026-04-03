@@ -135,7 +135,7 @@ if ! warn_or_block \
   "Local:  $(echo "$LOCAL_SHA" | cut -c1-8)" \
   "Remote: $(echo "$REMOTE_SHA" | cut -c1-8)" \
   "Run one of:" \
-  "  make sync-main" \
+  "  ./bin/hushh sync main" \
   "  git fetch $REMOTE $BRANCH && git merge $REMOTE/$BRANCH" \
   "  git fetch $REMOTE $BRANCH && git rebase $REMOTE/$BRANCH"; then
   :

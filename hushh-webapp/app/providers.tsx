@@ -43,6 +43,8 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
+import { NativeTestRouter } from "@/components/app-ui/native-test-router";
+import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -238,6 +240,8 @@ export function Providers({ children }: ProvidersProps) {
           <CacheProvider>
             <PersonaProvider>
               <VaultProvider>
+                <NativeTestRouter />
+                <NativeTestBootstrap />
                 <PersonaBootstrapRedirect />
                 <Suspense
                   fallback={
@@ -255,8 +259,8 @@ export function Providers({ children }: ProvidersProps) {
                           <TopAppBar />
                         </Suspense>
                         <VaultContext.Consumer>
-                          {(vault) =>
-                            showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
+                          {() =>
+                            showSharedBottomChromeGlass ? (
                               <div
                                 aria-hidden
                                 className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
@@ -332,8 +336,8 @@ export function Providers({ children }: ProvidersProps) {
                           <TopAppBar />
                         </Suspense>
                         <VaultContext.Consumer>
-                          {(vault) =>
-                            showSharedBottomChromeGlass && vault?.isVaultUnlocked ? (
+                          {() =>
+                            showSharedBottomChromeGlass ? (
                               <div
                                 aria-hidden
                                 className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"

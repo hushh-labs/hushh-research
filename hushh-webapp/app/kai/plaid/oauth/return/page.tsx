@@ -166,7 +166,19 @@ export default function KaiPlaidOauthReturnPage() {
 
   if (stage !== "error") {
     return (
-      <AppPageShell as="div" width="narrow" className="flex min-h-[60vh] items-center justify-center">
+      <AppPageShell
+        as="div"
+        width="narrow"
+        className="flex min-h-[60vh] items-center justify-center"
+        nativeTest={{
+          routeId: "/kai/plaid/oauth/return",
+          marker: "native-route-kai-plaid-return",
+          authState: user?.uid ? "authenticated" : "pending",
+          dataState: stage === "redirecting" ? "redirect-valid" : "unavailable-valid",
+          errorCode: error ? "plaid_resume" : null,
+          errorMessage: error,
+        }}
+      >
         <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
           <HushhLoader
             label={
@@ -181,7 +193,19 @@ export default function KaiPlaidOauthReturnPage() {
   }
 
   return (
-    <AppPageShell as="div" width="narrow" className="flex min-h-[60vh] items-center justify-center">
+    <AppPageShell
+      as="div"
+      width="narrow"
+      className="flex min-h-[60vh] items-center justify-center"
+      nativeTest={{
+        routeId: "/kai/plaid/oauth/return",
+        marker: "native-route-kai-plaid-return",
+        authState: user?.uid ? "authenticated" : "pending",
+        dataState: "unavailable-valid",
+        errorCode: "plaid_resume",
+        errorMessage: error,
+      }}
+    >
       <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
         <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
           <h1 className="text-lg font-semibold text-foreground">Plaid connection needs attention</h1>

@@ -57,7 +57,7 @@ import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
-import { openExternalUrl } from "@/lib/utils/browser-navigation";
+import { assignWindowLocation, openExternalUrl } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -455,7 +455,7 @@ function SpotlightFeatureTile({
           openExternalUrl(primaryHref);
           return;
         }
-        window.location.assign(primaryHref);
+        assignWindowLocation(primaryHref);
       }}
       className="group relative flex h-full min-h-[200px] flex-col justify-between overflow-hidden rounded-[var(--radius-md)] border-0 bg-card p-4 text-left shadow-[var(--app-card-shadow-standard)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-px hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 sm:p-5"
     >

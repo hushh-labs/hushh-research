@@ -49,8 +49,7 @@ import {
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
-import { getStockContext } from "@/lib/services/kai-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
 import { Button } from "@/lib/morphy-ux/button";
@@ -252,25 +251,14 @@ export function InvestmentsMasterView({
         toast.error("Please unlock your Vault first.");
         return;
       }
-      void getStockContext(symbol, vaultOwnerToken)
-        .then((context) => {
-          setAnalysisParams({
-            ticker: symbol.toUpperCase(),
-            userId,
-            riskProfile: context.user_risk_profile || "balanced",
-            userContext: context,
-            portfolioSource: activeSource,
-            portfolioContext: workflowPortfolioContext,
-          });
-          router.push(ROUTES.KAI_ANALYSIS);
+      setAnalysisParams(null);
+      router.push(
+        buildKaiAnalysisPreviewRoute({
+          ticker: symbol.toUpperCase(),
         })
-        .catch((loadError) => {
-          toast.error("Could not start analysis.", {
-            description: loadError instanceof Error ? loadError.message : "Please try again.",
-          });
-        });
+      );
     },
-    [activeSource, router, setAnalysisParams, userId, vaultOwnerToken, workflowPortfolioContext]
+    [router, setAnalysisParams, vaultOwnerToken]
   );
 
   const openPlaidLinkFlow = useCallback(

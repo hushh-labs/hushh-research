@@ -73,7 +73,7 @@ else
       echo "[setup-hooks] Sync bookmark initialized ($(echo "$TARGET_SHA" | cut -c1-8)). ✓"
     fi
   else
-    echo "[setup-hooks] Could not fetch upstream -- bookmark will be set on first 'make sync-protocol'."
+    echo "[setup-hooks] Could not fetch upstream -- bookmark will be set on first './bin/hushh protocol sync'."
   fi
 fi
 

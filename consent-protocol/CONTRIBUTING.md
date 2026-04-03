@@ -36,17 +36,17 @@ Follow the architecture and coding standards below.
 Every PR must pass these before merge:
 
 ```bash
-make ci-local  # Runs all checks (lint, format, typecheck, test, security)
+./bin/consent-protocol ci  # Runs all checks (lint, format, typecheck, test, security)
 ```
 
 Or run individually:
 
 ```bash
-make lint          # Lint
-make format-check  # Format check
-make typecheck     # Type check
-make test          # Tests
-make security      # Security scan
+./bin/consent-protocol lint          # Lint
+./bin/consent-protocol format-check  # Format check
+./bin/consent-protocol typecheck     # Type check
+./bin/consent-protocol test          # Tests
+./bin/consent-protocol security      # Security scan
 ```
 
 ### 5. Open a Pull Request
@@ -177,7 +177,7 @@ Reference docs:
 
 Before submitting, verify:
 
-- [ ] `make ci-local` passes (or run checks individually)
+- [ ] `./bin/consent-protocol ci` passes (or run checks individually)
 - [ ] Consent validation is present at agent entry AND tool invocation
 - [ ] Tests cover the new code
 - [ ] Documentation is updated

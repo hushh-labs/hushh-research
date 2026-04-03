@@ -9,14 +9,20 @@
   "files": [
     "README.md",
     "bin/",
+    "public-docs.json",
     "scripts/",
     "vendor/"
   ],
   "scripts": {
+    "docs:render": "node ./scripts/render-readme.mjs",
+    "docs:check": "node ./scripts/render-readme.mjs --check",
     "prepack": "node ./scripts/stage-runtime.mjs",
     "print-config": "node ./bin/hushh-mcp.js --print-config",
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
     "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=18.18"

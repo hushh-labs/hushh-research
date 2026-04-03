@@ -12,5 +12,9 @@
 	<array>
 		<string>webcredentials:hushh-webapp-1006304528804.us-central1.run.app</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
+	</array>
 </dict>
 </plist>

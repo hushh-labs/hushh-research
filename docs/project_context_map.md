@@ -174,7 +174,7 @@ Minimum definition of done:
 - Consent token validated at entry points
 - BYOK preserved (no plaintext-at-rest; if custom key is skipped, generate a secure default key)
 - API documented (`docs/reference/architecture/api-contracts.md`)
-- Route contracts updated (`hushh-webapp/route-contracts.json` + `cd hushh-webapp && npm run verify:routes`)
+- Route governance updated (`hushh-webapp/lib/navigation/routes.ts` + `docs/reference/architecture/route-contracts.md`)
 - PR impact map included (`docs/reference/quality/pr-impact-checklist.md`)
 - Tests updated (`TESTING.md`)
 

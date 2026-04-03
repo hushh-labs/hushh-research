@@ -14,7 +14,7 @@ Subtree sync state is easy to lose across branch switches because local bookmark
 1. Local bookmark ref (`refs/subtree-sync/consent-protocol`)
 2. Latest subtree split SHA from commit metadata (`git-subtree-split`)
 
-This allows branch merges that already contain newer subtree sync commits to pass without requiring a redundant `make sync-protocol`.
+This allows branch merges that already contain newer subtree sync commits to pass without requiring a redundant `./bin/hushh protocol sync`.
 
 ## Files provided
 
@@ -45,15 +45,15 @@ exec sh consent-protocol/ops/monorepo/pre-push.sh "$@"
 4. Run setup once:
 
 ```bash
-make setup
+./bin/hushh protocol setup
 ```
 
 ## Daily workflow
 
 ```bash
-make sync-protocol      # pull upstream consent-protocol into monorepo
-# ... make backend changes under consent-protocol/ ...
-make push-protocol      # push subtree changes back to upstream
+./bin/hushh protocol sync      # pull upstream consent-protocol into monorepo
+# ... edit backend code under consent-protocol/ ...
+./bin/hushh protocol push      # push subtree changes back to upstream
 ```
 
 ## Branch behavior notes
@@ -63,5 +63,5 @@ If branch A syncs subtree and branch B does not, merging A into B can still leav
 If upstream is truly ahead, push is blocked and you must run:
 
 ```bash
-make sync-protocol
+./bin/hushh protocol sync
 ```

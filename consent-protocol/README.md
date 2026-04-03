@@ -72,8 +72,8 @@ If you are working inside the `hushh-research` monorepo, use the repo-root boots
 
 ```bash
 cd ..
-make bootstrap
-npm run backend
+./bin/hushh bootstrap
+./bin/hushh backend
 ```
 
 Standalone subtree/backend-only setup:
@@ -96,12 +96,12 @@ cp .env.example .env
 # Edit .env with your Supabase, Gemini, and Firebase credentials
 
 # Run server
-make local-backend
+./bin/hushh backend
 ```
 
 Health check: `curl http://localhost:8000/health`
 
-**Available commands:** Run `make help` to see all available targets (local, uat, prod, lint, test, ci-local).
+**Available commands:** Run `./bin/consent-protocol --help` to see the supported backend commands.
 
 ## Using This In a Host Monorepo
 
@@ -183,14 +183,14 @@ consent-protocol/
 │   ├── consent/                   # Token crypto, scope helpers
 │   └── config.py                  # Environment config
 │
-├── mcp_modules/                   # MCP server tools for Claude Desktop
+├── mcp_modules/                   # MCP server tools and resources
 ├── db/migrations/                 # SQL migration files
 ├── tests/                         # pytest test suite
 │
 └── docs/                          # Documentation
     ├── README.md                  # Docs entry point
     ├── manifesto.md               # Hushh philosophy
-    ├── mcp-setup.md               # MCP server setup
+    ├── mcp-setup.md               # MCP technical companion
     └── reference/
         ├── agent-development.md   # DNA model, operons, contribution guide
         ├── personal-knowledge-model.md  # PKM architecture, BYOK
@@ -211,7 +211,7 @@ consent-protocol/
 | [docs/reference/kai-agents.md](docs/reference/kai-agents.md) | Multi-agent financial analysis |
 | [docs/reference/consent-protocol.md](docs/reference/consent-protocol.md) | Consent token lifecycle |
 | [docs/reference/fcm-notifications.md](docs/reference/fcm-notifications.md) | FCM push notifications |
-| [docs/mcp-setup.md](docs/mcp-setup.md) | MCP server for Claude Desktop |
+| [docs/mcp-setup.md](docs/mcp-setup.md) | MCP runtime and contributor-local technical companion |
 | [docs/monorepo-integration.md](docs/monorepo-integration.md) | Host monorepo subtree + hook setup |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide |
 
@@ -220,12 +220,12 @@ consent-protocol/
 ## Linting and Testing
 
 ```bash
-make lint           # Lint with ruff
-make format         # Format code
-make typecheck      # Type check with mypy
-make test           # Run tests with pytest
-make security       # Security scan with bandit
-make ci-local       # Run all checks (same as CI)
+./bin/consent-protocol lint         # Lint with ruff
+./bin/consent-protocol format       # Format code
+./bin/consent-protocol typecheck    # Type check with mypy
+./bin/consent-protocol test         # Run tests with pytest
+./bin/consent-protocol security     # Security scan with bandit
+./bin/consent-protocol ci           # Run all checks (same as CI)
 ```
 
 All checks run automatically in CI on every PR to `main`.

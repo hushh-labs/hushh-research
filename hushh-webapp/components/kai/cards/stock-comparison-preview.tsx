@@ -43,6 +43,28 @@ function formatFcf(value: number | null | undefined): string | null {
   return `$${value.toFixed(value >= 10 ? 0 : 1)}B FCF`;
 }
 
+function describeAdvisorState(
+  state: "ready" | "pending" | "unavailable",
+  tickerStatus: "included" | "excluded" | "screened" | "not_listed" | "pending" | "unavailable"
+): string {
+  if (state === "pending") {
+    return "Your advisor connection is active, but the shared package is not published yet.";
+  }
+  if (state === "unavailable") {
+    return "Kai is falling back to the default list because the advisor package is unavailable right now.";
+  }
+  if (tickerStatus === "included") {
+    return "This stock is included in the advisor package and will shape the debate context directly.";
+  }
+  if (tickerStatus === "excluded") {
+    return "This stock is on the advisor avoid list and will enter the debate with that caution attached.";
+  }
+  if (tickerStatus === "screened") {
+    return "This stock is not explicitly listed, but the advisor screening rubric will still shape the debate.";
+  }
+  return "This stock is not explicitly listed in the advisor package.";
+}
+
 export function StockComparisonPreview({
   preview,
   loading = false,
@@ -51,6 +73,7 @@ export function StockComparisonPreview({
   activePickSource,
   onPickSourceChange,
   compact = false,
+  starting = false,
 }: {
   preview: KaiStockPreviewResponse | null;
   loading?: boolean;
@@ -59,12 +82,14 @@ export function StockComparisonPreview({
   activePickSource?: string;
   onPickSourceChange?: (sourceId: string) => void;
   compact?: boolean;
+  starting?: boolean;
 }) {
   const displaySources = preview?.pick_sources || [];
   const selectedSource =
     displaySources.find((source) => source.id === (activePickSource || preview?.active_pick_source)) ||
     displaySources[0] ||
     null;
+  const advisorSummary = preview?.advisor_summary ?? null;
 
   return (
     <section>
@@ -194,6 +219,36 @@ export function StockComparisonPreview({
             </SurfaceInset>
           </div>
 
+          {advisorSummary ? (
+            <SurfaceInset className="p-4">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    Your advisor shared
+                  </p>
+                  <h3 className="text-base font-semibold text-foreground">{advisorSummary.source_label}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {describeAdvisorState(advisorSummary.state, advisorSummary.ticker_status)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={advisorSummary.state === "ready" ? "secondary" : "outline"}>
+                    {advisorSummary.state}
+                  </Badge>
+                  <Badge variant="outline">{advisorSummary.top_pick_count} top picks</Badge>
+                  <Badge variant="outline">{advisorSummary.avoid_count} avoid</Badge>
+                  <Badge variant="outline">{advisorSummary.screening_section_count} screening sections</Badge>
+                </div>
+                {advisorSummary.package_note ? (
+                  <p className="text-sm text-foreground">{advisorSummary.package_note}</p>
+                ) : null}
+                {advisorSummary.avoid_reason ? (
+                  <p className="text-xs text-muted-foreground">Avoid reason: {advisorSummary.avoid_reason}</p>
+                ) : null}
+              </div>
+            </SurfaceInset>
+          ) : null}
+
           <SurfaceInset className="p-4">
             <div className="flex items-start gap-3">
               <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-sky-500/15 bg-sky-500/10 text-sky-700 dark:text-sky-300">
@@ -212,8 +267,13 @@ export function StockComparisonPreview({
           </SurfaceInset>
 
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="blue-gradient" effect="fill" onClick={onStartDebate}>
-              Start debate
+            <Button
+              variant="blue-gradient"
+              effect="fill"
+              onClick={onStartDebate}
+              disabled={loading || starting}
+            >
+              {starting ? "Preparing debate..." : "Start debate"}
             </Button>
           </div>
         </div>

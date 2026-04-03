@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROTOCOL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROTOCOL_ROOT"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./bin/consent-protocol <command>
+
+Commands:
+  dev
+  lint
+  format
+  format-check
+  fix
+  typecheck
+  test
+  test-ci
+  security
+  accuracy
+  ci
+  clean
+EOF
+}
+
+python_bin() {
+  if [ -x .venv/bin/python ]; then
+    printf '%s\n' ".venv/bin/python"
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  command -v python
+}
+
+PYTHON_BIN="$(python_bin)"
+
+run_test_env() {
+  env \
+    TESTING=true \
+    SECRET_KEY="test_secret_key_for_ci_only_32chars_min" \
+    VAULT_ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
+    HUSHH_DEVELOPER_TOKEN="test_hushh_developer_token_for_ci" \
+    PYTHONPATH=. \
+    "$@"
+}
+
+COMMAND="${1:-}"
+if [ -z "$COMMAND" ]; then
+  usage
+  exit 1
+fi
+shift || true
+
+case "$COMMAND" in
+  -h|--help|help)
+    usage
+    ;;
+  dev)
+    exec "$PYTHON_BIN" -m uvicorn server:app --reload --port 8000 "$@"
+    ;;
+  lint)
+    exec "$PYTHON_BIN" -m ruff check . "$@"
+    ;;
+  format)
+    exec "$PYTHON_BIN" -m ruff format . "$@"
+    ;;
+  format-check)
+    exec "$PYTHON_BIN" -m ruff format --check . "$@"
+    ;;
+  fix)
+    "$PYTHON_BIN" -m ruff format . "$@"
+    exec "$PYTHON_BIN" -m ruff check . --fix "$@"
+    ;;
+  typecheck)
+    exec "$PYTHON_BIN" -m mypy --config-file pyproject.toml --ignore-missing-imports "$@"
+    ;;
+  test)
+    run_test_env "$PYTHON_BIN" -m pytest tests/ -v --tb=short "$@"
+    ;;
+  test-ci)
+    run_test_env bash scripts/run-test-ci.sh "$@"
+    ;;
+  security)
+    exec "$PYTHON_BIN" -m bandit -r hushh_mcp/ api/ -c pyproject.toml -ll "$@"
+    ;;
+  accuracy)
+    exec "$PYTHON_BIN" scripts/run_kai_accuracy_suite.py "$@"
+    ;;
+  ci)
+    "$0" lint
+    "$0" format-check
+    "$0" typecheck
+    "$0" test-ci
+    "$0" security
+    echo ""
+    echo "All CI checks passed."
+    ;;
+  clean)
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+    find . -type d -name .mypy_cache -exec rm -rf {} + 2>/dev/null || true
+    find . -type f -name "*.pyc" -delete
+    rm -rf .coverage htmlcov/ .ruff_cache/
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

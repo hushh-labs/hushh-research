@@ -173,6 +173,18 @@ export default function RiaHomePage() {
       title="Trusted advisor ops"
       description="See readiness, what needs attention, and where to go next without scanning a settings wall."
       icon={BriefcaseBusiness}
+      nativeTest={{
+        routeId: "/ria",
+        marker: "native-route-ria-home",
+        authState: user ? "authenticated" : "pending",
+        dataState: homeResource.loading && !homeResource.data
+          ? "loading"
+          : iamUnavailable
+            ? "unavailable-valid"
+            : "loaded",
+        errorCode: homeResource.error ? "ria_home" : null,
+        errorMessage: homeResource.error,
+      }}
       statusPanel={
         iamUnavailable ? null : (
           <RiaSurface

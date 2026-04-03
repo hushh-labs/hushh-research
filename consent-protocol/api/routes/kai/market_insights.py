@@ -328,6 +328,19 @@ def _pick_row_value(row: Any, key: str, default: Any = None) -> Any:
     return default if value is None else value
 
 
+def _count_screening_rows(screening_sections: list[dict[str, Any]] | None) -> int:
+    if not isinstance(screening_sections, list):
+        return 0
+    total = 0
+    for section in screening_sections:
+        if not isinstance(section, dict):
+            continue
+        rows = section.get("rows")
+        if isinstance(rows, list):
+            total += len(rows)
+    return total
+
+
 def _is_recommendation_gap_text(detail: str | None) -> bool:
     text = str(detail or "").strip().lower()
     if not text:
@@ -2542,9 +2555,18 @@ async def get_stock_preview(
     classification = get_symbol_master_service().classify(repaired_symbol)
     normalized_symbol = classification.symbol
     active_pick_source = _normalize_pick_source(pick_source)
+    selected_pick_source = active_pick_source
     pick_rows_source, pick_sources, resolved_pick_source = await _resolve_pick_source_rows(
         user_id,
         active_pick_source,
+    )
+    selected_source_meta = next(
+        (
+            source
+            for source in pick_sources
+            if str(source.get("id") or "").strip() == selected_pick_source
+        ),
+        None,
     )
 
     quote_payload: dict[str, Any]
@@ -2579,6 +2601,62 @@ async def get_stock_preview(
             "fcf_billions": getattr(row, "fcf_billions", None),
         }
         break
+
+    advisor_summary: dict[str, Any] | None = None
+    if selected_pick_source.startswith("ria:"):
+        ria_package = await RIAIAMService().get_pick_package_for_source(
+            user_id, selected_pick_source
+        )
+        top_picks = ria_package.get("top_picks") if isinstance(ria_package, dict) else []
+        avoid_rows = ria_package.get("avoid_rows") if isinstance(ria_package, dict) else []
+        screening_sections = (
+            ria_package.get("screening_sections") if isinstance(ria_package, dict) else []
+        )
+        matched_avoid_row = (
+            next(
+                (
+                    row
+                    for row in avoid_rows
+                    if _repair_quote_symbol(_pick_row_value(row, "ticker", ""))[0]
+                    == normalized_symbol
+                ),
+                None,
+            )
+            if isinstance(avoid_rows, list)
+            else None
+        )
+        has_screening_rows = _count_screening_rows(screening_sections) > 0
+        selected_state = (
+            str((selected_source_meta or {}).get("state") or "unavailable").strip() or "unavailable"
+        )
+        ticker_status = "not_listed"
+        if selected_state == "pending":
+            ticker_status = "pending"
+        elif selected_state == "unavailable":
+            ticker_status = "unavailable"
+        elif matched_row:
+            ticker_status = "included"
+        elif matched_avoid_row:
+            ticker_status = "excluded"
+        elif has_screening_rows:
+            ticker_status = "screened"
+        advisor_summary = {
+            "source_id": selected_pick_source,
+            "source_label": str((selected_source_meta or {}).get("label") or "Advisor list"),
+            "kind": "ria",
+            "state": selected_state,
+            "package_note": str(ria_package.get("package_note") or "").strip() or None,
+            "top_pick_count": len(top_picks) if isinstance(top_picks, list) else 0,
+            "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
+            "screening_section_count": len(screening_sections)
+            if isinstance(screening_sections, list)
+            else 0,
+            "screening_row_count": _count_screening_rows(screening_sections),
+            "ticker_status": ticker_status,
+            "avoid_reason": str(_pick_row_value(matched_avoid_row, "reason", "") or "").strip()
+            or None,
+            "resolved_with_fallback": resolved_pick_source != selected_pick_source,
+        }
 
     quote_price = _safe_float(quote_payload.get("price"))
     quote_change_pct = _safe_float(quote_payload.get("change_percent"))
@@ -2616,4 +2694,5 @@ async def get_stock_preview(
             "investment_thesis": matched_row.get("investment_thesis") if matched_row else None,
             "fcf_billions": matched_row.get("fcf_billions") if matched_row else None,
         },
+        "advisor_summary": advisor_summary,
     }

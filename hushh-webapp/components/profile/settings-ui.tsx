@@ -103,7 +103,7 @@ export function SettingsSegmentedTabs({
   return (
     <div
       className={cn(
-        "relative grid w-full rounded-[var(--radius-sm)] border border-black/[0.10] bg-[linear-gradient(180deg,rgba(10,10,12,0.085),rgba(10,10,12,0.045))] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_14px_34px_rgba(15,23,42,0.08)] dark:border-white/14 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.08))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_34px_rgba(0,0,0,0.28)] [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid w-full rounded-full border border-black/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(241,245,249,0.76))] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/12 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_16px_34px_rgba(0,0,0,0.28)] [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
         className
       )}
       style={
@@ -126,10 +126,10 @@ export function SettingsSegmentedTabs({
               onValueChange(option.value);
             }}
             className={cn(
-              "relative isolate min-h-9 overflow-hidden rounded-[calc(var(--radius-sm)-4px)] border px-3 py-1.5 text-center transition-all duration-200 sm:min-h-10 sm:px-3.5",
+              "relative isolate min-h-9 overflow-hidden rounded-full border px-4 py-2 text-center transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
               isActive
-                ? "z-10 -translate-y-px border-black/[0.14] bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(241,245,250,0.98))] text-foreground font-semibold ring-1 ring-black/[0.05] shadow-[0_16px_34px_rgba(15,23,42,0.16),inset_0_1px_0_rgba(255,255,255,0.96),0_0_0_1px_rgba(255,255,255,0.55)] dark:border-white/18 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.18),rgba(255,255,255,0.09))] dark:ring-white/[0.04] dark:shadow-[0_16px_34px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.16),0_0_0_1px_rgba(255,255,255,0.04)]"
-                : "border-transparent bg-transparent text-muted-foreground hover:border-black/[0.08] hover:bg-white/75 hover:text-foreground dark:hover:border-white/10 dark:hover:bg-white/[0.10]"
+                ? "z-10 -translate-y-px border-black/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(247,249,252,0.98))] text-foreground font-semibold ring-1 ring-black/[0.06] shadow-[0_12px_26px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.96),0_0_0_1px_rgba(255,255,255,0.55)] dark:border-white/14 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0.1))] dark:ring-white/[0.06] dark:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.14),0_0_0_1px_rgba(255,255,255,0.04)]"
+                : "border-transparent bg-transparent text-foreground/58 hover:bg-white/72 hover:text-foreground dark:text-muted-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground"
             )}
           >
             <span className="relative z-0 block truncate text-xs font-medium tracking-tight sm:text-sm">
