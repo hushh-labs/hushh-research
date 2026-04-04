@@ -53,6 +53,15 @@ jobs:
     environment: production-owner-bypass
 
     steps:
+      - name: Assert manual dispatch originates from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing production deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v6
         with:
