@@ -16,26 +16,6 @@ import * as path from "path";
 
 const DEFAULT_SERVICE_ACCOUNT_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON";
 
-type ServiceAccountLike = {
-  project_id?: string;
-  [key: string]: unknown;
-};
-
-function parseServiceAccountFromEnv(
-  envVarName: string
-): ServiceAccountLike | null {
-  const raw = process.env[envVarName];
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw) as ServiceAccountLike;
-  } catch (error) {
-    console.warn(`Failed to parse ${envVarName}:`, error);
-    return null;
-  }
-}
-
 // Initialize Firebase Admin (only once)
 function initializeFirebaseAdmin() {
   if (admin.apps.length > 0) {
