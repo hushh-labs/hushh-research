@@ -12,6 +12,11 @@
  * - FCM push arrives → extract consent data from payload → show toast
  * - One-time fetch on vault unlock to catch requests that arrived while offline
  * - NO interval-based polling anywhere
+ *
+ * Product rule:
+ * - Web Sonner toasts are for live realtime events only.
+ * - Hydration/offline catch-up updates badge/inbox state but does not replay toasts.
+ * - Native uses Capacitor/FCM notification delivery instead of in-app Sonner toasts.
  */
 
 import {
@@ -537,7 +542,9 @@ export function ConsentNotificationProvider({
           setDeliveryDetail(persisted.detail);
           setDeliveryMode(deliveryModeFromInitStatus(persisted.status));
           console.info("[NotificationProvider] Restored delivery state:", persisted);
-          return;
+          console.info(
+            "[NotificationProvider] Revalidating FCM delivery state after restore..."
+          );
         }
       }
 
@@ -908,11 +915,9 @@ export function ConsentNotificationProvider({
         clearQueuedPendingConsents(uid);
         setPendingCount(pending.length);
         dispatchConsentStateChanged({ source: "hydrated_pending" });
-        pending.forEach((consent) => showConsentToast(consent));
       } catch (err) {
         console.error("[NotificationProvider] Initial fetch error:", err);
         if (!cancelled && queuedPending.length > 0) {
-          queuedPending.forEach((consent) => showConsentToast(consent));
           clearQueuedPendingConsents(uid);
         }
       }

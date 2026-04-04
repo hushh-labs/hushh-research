@@ -197,7 +197,7 @@ class UatKaiSmoke:
             or None
         )
         self.firebase_auth_service_account = json.loads(
-            _require(self.config, "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON")
+            _require(self.config, "FIREBASE_SERVICE_ACCOUNT_JSON")
         )
         self.firebase_api_key = _require(self.config, "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY")
         self.session = requests.Session()
