@@ -409,6 +409,21 @@ def test_allowed_passkey_rp_ids_derive_from_frontend_and_cors(monkeypatch):
     assert "hushh-webapp-rpphvsc3tq-uc.a.run.app" in allowed
 
 
+def test_allowed_passkey_rp_ids_prefer_explicit_allowlist(monkeypatch):
+    monkeypatch.setenv(
+        "PASSKEY_ALLOWED_RP_IDS",
+        "localhost,127.0.0.1,kai.hushh.ai,uat.kai.hushh.ai",
+    )
+    monkeypatch.setenv("FRONTEND_URL", "https://uat.kai.hushh.ai")
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.kai.hushh.ai")
+
+    allowed = VaultKeysService._get_allowed_passkey_rp_ids()
+
+    assert "localhost" in allowed
+    assert "kai.hushh.ai" in allowed
+    assert "uat.kai.hushh.ai" in allowed
+
+
 @pytest.mark.asyncio
 async def test_setup_vault_state_rejects_duplicate_method_wrapper_pairs():
     fake = _FakeSupabase()

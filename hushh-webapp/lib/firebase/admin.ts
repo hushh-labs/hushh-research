@@ -14,54 +14,10 @@ import * as admin from "firebase-admin";
 import * as fs from "fs";
 import * as path from "path";
 
-const AUTH_APP_NAME = "hushh-auth";
-const AUTH_SERVICE_ACCOUNT_ENV = "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON";
 const DEFAULT_SERVICE_ACCOUNT_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON";
-
-type ServiceAccountLike = {
-  project_id?: string;
-  [key: string]: unknown;
-};
-
-function getExistingAppByName(name: string) {
-  return admin.apps.find((candidate) => candidate?.name === name) ?? null;
-}
-
-function parseServiceAccountFromEnv(
-  envVarName: string
-): ServiceAccountLike | null {
-  const raw = process.env[envVarName];
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw) as ServiceAccountLike;
-  } catch (error) {
-    console.warn(`Failed to parse ${envVarName}:`, error);
-    return null;
-  }
-}
 
 // Initialize Firebase Admin (only once)
 function initializeFirebaseAdmin() {
-  // Auth-only split: prefer dedicated auth app credential when provided.
-  const authServiceAccount = parseServiceAccountFromEnv(
-    AUTH_SERVICE_ACCOUNT_ENV
-  );
-  if (authServiceAccount) {
-    const existingAuthApp = getExistingAppByName(AUTH_APP_NAME);
-    if (existingAuthApp) {
-      return existingAuthApp;
-    }
-    console.log("✅ Firebase Admin auth app initialized from auth env variable");
-    return admin.initializeApp(
-      {
-        credential: admin.credential.cert(authServiceAccount as admin.ServiceAccount),
-      },
-      AUTH_APP_NAME
-    );
-  }
-
   if (admin.apps.length > 0) {
     return admin.apps[0]!;
   }

@@ -10,7 +10,7 @@
 	</array>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>webcredentials:hushh-webapp-1006304528804.us-central1.run.app</string>
+		<string>webcredentials:kai.hushh.ai</string>
 	</array>
 	<key>keychain-access-groups</key>
 	<array>

@@ -5,6 +5,7 @@ import type { CSSProperties, ReactElement, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronRight } from "lucide-react";
 import { Slot } from "radix-ui";
+import { useTheme } from "next-themes";
 
 import {
   Drawer,
@@ -97,13 +98,18 @@ export function SettingsSegmentedTabs({
   mobileColumns?: number;
   className?: string;
 }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const resolvedDesktopColumns = Math.max(options.length, 1);
   const resolvedMobileColumns = Math.max(mobileColumns ?? resolvedDesktopColumns, 1);
 
   return (
     <div
       className={cn(
-        "relative grid w-full rounded-full border border-black/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(241,245,249,0.76))] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/12 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_16px_34px_rgba(0,0,0,0.28)] [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid w-full rounded-full p-1 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        isDark
+          ? "border border-white/6 bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_18px_34px_rgba(0,0,0,0.36)]"
+          : "border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_18px_34px_rgba(15,23,42,0.08)]",
         className
       )}
       style={
@@ -127,9 +133,13 @@ export function SettingsSegmentedTabs({
             }}
             className={cn(
               "relative isolate min-h-9 overflow-hidden rounded-full border px-4 py-2 text-center transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
-              isActive
-                ? "z-10 -translate-y-px border-black/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(247,249,252,0.98))] text-foreground font-semibold ring-1 ring-black/[0.06] shadow-[0_12px_26px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.96),0_0_0_1px_rgba(255,255,255,0.55)] dark:border-white/14 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0.1))] dark:ring-white/[0.06] dark:shadow-[0_14px_28px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.14),0_0_0_1px_rgba(255,255,255,0.04)]"
-                : "border-transparent bg-transparent text-foreground/58 hover:bg-white/72 hover:text-foreground dark:text-muted-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground"
+              isDark
+                ? isActive
+                  ? "z-10 border-white/8 bg-neutral-900 text-white font-semibold ring-1 ring-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_24px_rgba(0,0,0,0.24)]"
+                  : "border-transparent bg-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100"
+                : isActive
+                  ? "z-10 border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(248,250,252,0.98))] text-slate-950 font-semibold ring-1 ring-slate-300/70 shadow-[0_14px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.98),0_0_0_1px_rgba(255,255,255,0.65)]"
+                  : "border-transparent bg-transparent text-slate-500 hover:bg-white/72 hover:text-slate-900"
             )}
           >
             <span className="relative z-0 block truncate text-xs font-medium tracking-tight sm:text-sm">

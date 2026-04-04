@@ -15,12 +15,12 @@
     "cap:sync:android": "npx cross-env CAPACITOR_PLATFORM=android npx cap sync android",
     "cap:sync:ios": "npx cross-env CAPACITOR_PLATFORM=ios npx cap sync ios",
     "ios:run": "npm run cap:build && npm run cap:sync:ios && npx cap run ios",
+    "ios:verify-archive-symbols": "./scripts/native/verify-ios-archive-symbols.sh",
     "android:run": "npm run cap:build && npm run cap:sync:android && npx cap run android",
     "ios:test": "npm run cap:build && npm run cap:sync:ios && ./scripts/native/ios-test.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
-    "@capacitor-firebase/analytics": "^8.0.1",
     "@capacitor-firebase/authentication": "^8.0.1",
     "@capacitor-firebase/messaging": "^8.0.1",
     "@capacitor/android": "^8.2.0",
