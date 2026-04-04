@@ -45,7 +45,8 @@ steps:
         set -euo pipefail
         env_vars="ENVIRONMENT=${_ENVIRONMENT},GOOGLE_GENAI_USE_VERTEXAI=True,DB_HOST=${_DB_HOST},DB_PORT=${_DB_PORT},DB_NAME=${_DB_NAME},CONSENT_SSE_ENABLED=${_CONSENT_SSE_ENABLED},SYNC_REMOTE_ENABLED=${_SYNC_REMOTE_ENABLED},DEVELOPER_API_ENABLED=${_DEVELOPER_API_ENABLED},REMOTE_MCP_ENABLED=${_REMOTE_MCP_ENABLED},CORS_ALLOWED_ORIGINS=${_CORS_ALLOWED_ORIGINS},OBS_DATA_STALE_RATIO_THRESHOLD=${_OBS_DATA_STALE_RATIO_THRESHOLD}"
         if [[ -n "${_PASSKEY_ALLOWED_RP_IDS}" ]]; then
-          env_vars="${env_vars},PASSKEY_ALLOWED_RP_IDS=${_PASSKEY_ALLOWED_RP_IDS}"
+          escaped_passkey_rp_ids="${_PASSKEY_ALLOWED_RP_IDS//,/\\,}"
+          env_vars="${env_vars},PASSKEY_ALLOWED_RP_IDS=${escaped_passkey_rp_ids}"
         fi
         if [[ -n "${_DB_UNIX_SOCKET}" ]]; then
           env_vars="${env_vars},DB_UNIX_SOCKET=${_DB_UNIX_SOCKET}"
