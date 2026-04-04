@@ -1,9 +1,9 @@
-"use client";
-
 type ResolvePasskeyRpIdOptions = {
   isNative: boolean;
   hostname?: string | null;
 };
+
+export const CANONICAL_NATIVE_PASSKEY_RP_ID = "kai.hushh.ai";
 
 function extractHost(input: string | null | undefined): string | null {
   if (!input) return null;
@@ -41,12 +41,7 @@ export function resolvePasskeyRpId(options: ResolvePasskeyRpIdOptions): string {
   }
 
   if (options.isNative) {
-    const nativeConfiguredHost = normalizeRpHost(
-      process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_FRONTEND_URL
-    );
-    if (nativeConfiguredHost) {
-      return nativeConfiguredHost;
-    }
+    return CANONICAL_NATIVE_PASSKEY_RP_ID;
   }
 
   const runtimeHost = normalizeRpHost(options.hostname);
