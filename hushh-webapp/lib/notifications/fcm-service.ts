@@ -448,6 +448,7 @@ async function initializeWebFCM(
       "firebase/messaging"
     );
     const { app } = await import("@/lib/firebase/config");
+    console.log("[FCM] Firebase messaging modules loaded.");
 
     // Check for required Firebase config values before initializing messaging
     // The Firebase Web SDK requires appId for the Installations service (used by getToken)
@@ -469,6 +470,7 @@ async function initializeWebFCM(
     const registration = await navigator.serviceWorker.register(
       "/firebase-messaging-sw.js"
     );
+    console.log("[FCM] Service worker registered:", registration.scope);
     await navigator.serviceWorker.ready;
     console.log(
       "[FCM] Service worker ready:",
@@ -493,6 +495,7 @@ async function initializeWebFCM(
     let recoveredStalePushState = false;
 
     try {
+      console.log("[FCM] Attempting token with configured VAPID key.");
       token = await resolveWebToken(true);
     } catch (primaryError) {
       const primaryErrorCode =
@@ -523,6 +526,7 @@ async function initializeWebFCM(
             retryCustomError
           );
           await clearFirebaseWebPushState(registration);
+          console.log("[FCM] Attempting token with default project web push configuration.");
           token = await resolveWebToken(false);
           usedDefaultVapidFallback = true;
           console.log(
@@ -536,6 +540,7 @@ async function initializeWebFCM(
         );
 
         try {
+          console.log("[FCM] Attempting manual registration with configured VAPID key.");
           token = await registerWebPushTokenManually(
             app,
             registration,
@@ -552,6 +557,7 @@ async function initializeWebFCM(
             manualCustomError
           );
           try {
+            console.log("[FCM] Attempting manual registration with default project web push configuration.");
             token = await registerWebPushTokenManually(
               app,
               registration,
@@ -589,6 +595,7 @@ async function initializeWebFCM(
     console.log("[FCM] Got token:", token.substring(0, 20) + "...");
 
     // Register token with backend
+    console.log("[FCM] Registering token with backend...");
     const response = await ApiService.registerPushToken(
       userId,
       token,

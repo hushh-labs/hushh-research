@@ -33,7 +33,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "mx-auto w-[min(92vw,22rem)] rounded-[20px] border border-border/70 px-4 py-3 text-center shadow-lg shadow-black/5 sm:text-left",
+            "w-full rounded-[20px] border border-border/70 px-4 py-3 text-center shadow-lg shadow-black/5 sm:max-w-[22rem] sm:text-left",
           title: "text-[13px] font-medium leading-5 tracking-[-0.01em] text-center sm:text-left",
           description:
             "line-clamp-2 text-[12px] leading-5 text-muted-foreground text-center sm:text-left",
@@ -49,6 +49,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
           "--offset": "1rem",
+          "--mobile-offset-left": "1rem",
+          "--mobile-offset-right": "1rem",
+          "--mobile-offset-top": "calc(var(--top-inset, 0px) + 12px)",
+          "--width": "22rem",
         } as CSSProperties
       }
       {...props}

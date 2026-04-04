@@ -1654,3 +1654,18 @@ md-ripple.morphy-md-ripple {
     filter: none;
   }
 }
+
+@media (max-width: 600px) {
+  .toaster[data-x-position="center"] {
+    left: 1rem !important;
+    right: 1rem !important;
+    width: auto !important;
+    transform: none !important;
+  }
+
+  .toaster[data-x-position="center"] [data-sonner-toast] {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+  }
+}
