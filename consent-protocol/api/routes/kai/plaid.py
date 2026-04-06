@@ -74,6 +74,12 @@ class PlaidFundingDefaultAccountRequest(BaseModel):
     account_id: str = Field(min_length=1)
 
 
+class PlaidFundingBrokerageAccountRequest(BaseModel):
+    user_id: str
+    alpaca_account_id: str | None = Field(default=None, min_length=1)
+    set_default: bool = True
+
+
 class PlaidTransferCreateRequest(BaseModel):
     user_id: str
     funding_item_id: str = Field(min_length=1)
@@ -339,6 +345,26 @@ async def set_plaid_funding_default_account(
     except Exception as exc:
         _raise_logged_http_exception(
             "kai.plaid.funding_default_account_failed",
+            request.user_id,
+            exc,
+        )
+
+
+@router.post("/plaid/funding/brokerage-account")
+async def set_plaid_funding_brokerage_account(
+    request: PlaidFundingBrokerageAccountRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_broker_funding_service().set_brokerage_account(
+            user_id=request.user_id,
+            alpaca_account_id=request.alpaca_account_id,
+            set_default=request.set_default,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception(
+            "kai.plaid.funding_brokerage_account_failed",
             request.user_id,
             exc,
         )

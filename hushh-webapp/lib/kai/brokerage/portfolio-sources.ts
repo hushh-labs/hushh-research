@@ -126,12 +126,19 @@ export interface PlaidFundingTransferRef {
   funding_account_id?: string | null;
   brokerage_item_id?: string | null;
   brokerage_account_id?: string | null;
+  alpaca_account_id?: string | null;
   idempotency_key?: string | null;
   created_at?: string | null;
   requested_at?: string | null;
   completed_at?: string | null;
   failure_reason_code?: string | null;
   failure_reason_message?: string | null;
+}
+
+export interface PlaidFundingBrokerageAccountSummary {
+  alpaca_account_id?: string | null;
+  status?: string | null;
+  is_default?: boolean;
 }
 
 export interface PlaidFundingAccountSummary extends PlaidAccountSummary {
@@ -170,6 +177,7 @@ export interface PlaidFundingStatusResponse {
   webhook_url?: string | null;
   user_id: string;
   items: PlaidFundingItemSummary[];
+  brokerage_accounts?: PlaidFundingBrokerageAccountSummary[];
   latest_transfers: PlaidFundingTransferRef[];
   aggregate: {
     item_count: number;

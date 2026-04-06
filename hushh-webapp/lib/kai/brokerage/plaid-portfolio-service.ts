@@ -468,6 +468,39 @@ export class PlaidPortfolioService {
     return (await response.json()) as PlaidFundingStatusResponse;
   }
 
+  static async setFundingBrokerageAccount(params: {
+    userId: string;
+    alpacaAccountId?: string | null;
+    vaultOwnerToken: string;
+    setDefault?: boolean;
+  }): Promise<PlaidFundingStatusResponse> {
+    const payload: Record<string, unknown> = {
+      user_id: params.userId,
+      set_default: params.setDefault !== false,
+    };
+    const cleanedAccountId = String(params.alpacaAccountId || "").trim();
+    if (cleanedAccountId) {
+      payload.alpaca_account_id = cleanedAccountId;
+    }
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/brokerage-account", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "The Alpaca brokerage account could not be linked right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
   static async getFundingStatus(params: {
     userId: string;
     vaultOwnerToken: string;

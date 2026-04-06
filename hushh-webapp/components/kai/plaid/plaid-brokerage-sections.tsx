@@ -22,6 +22,7 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import type {
   PlaidAccountSummary,
+  PlaidFundingBrokerageAccountSummary,
   PlaidFundingStatusResponse,
   PlaidFundingTransferRef,
   PlaidItemSummary,
@@ -49,6 +50,13 @@ function formatRelativeTimestamp(value: string | null | undefined): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function compactAccountId(value: string | null | undefined): string {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "Unknown account";
+  if (normalized.length <= 12) return normalized;
+  return `${normalized.slice(0, 6)}…${normalized.slice(-4)}`;
 }
 
 function accountSubtypeLabel(account: PlaidAccountSummary): string {
@@ -391,7 +399,6 @@ export function PlaidInvestmentAccountsSection({
 
 interface PlaidFundingTransfersSectionProps {
   fundingStatus: PlaidFundingStatusResponse | null;
-  brokerageItems: PlaidItemSummary[];
   onManageBrokerage?: () => Promise<void> | void;
   onConnectFunding?: (itemId?: string) => Promise<void> | void;
   onSetDefaultFundingAccount?: (payload: { itemId: string; accountId: string }) => Promise<void> | void;
@@ -462,7 +469,6 @@ function readRecordText(row: Record<string, unknown>, key: string): string {
 
 export function PlaidFundingTransfersSection({
   fundingStatus,
-  brokerageItems,
   onManageBrokerage,
   onConnectFunding,
   onSetDefaultFundingAccount,
@@ -484,29 +490,34 @@ export function PlaidFundingTransfersSection({
     fundingAccounts.find((account) => account.is_selected_funding_account)?.account_id ||
     fundingAccounts[0]?.account_id ||
     "";
-  const brokerageItemOptions = useMemo(
-    () =>
-      brokerageItems.map((item) => ({
-        itemId: item.item_id,
-        label: item.institution_name || item.institution_id || item.item_id,
-      })),
-    [brokerageItems]
-  );
+  const mappedBrokerageAccounts = (fundingStatus?.brokerage_accounts ||
+    []) as PlaidFundingBrokerageAccountSummary[];
   const brokerageAccountOptions = useMemo(
     () =>
-      brokerageItems.flatMap((item) =>
-        (item.accounts || []).map((account) => ({
-          itemId: item.item_id,
-          accountId: account.account_id,
-          label: `${item.institution_name || "Brokerage"} · ${account.name || account.official_name || account.account_id}`,
-        }))
-      ),
-    [brokerageItems]
+      mappedBrokerageAccounts
+        .map((account) => {
+          const accountId = String(account.alpaca_account_id || "").trim();
+          if (!accountId) return null;
+          const status = String(account.status || "active").trim().toLowerCase() || "active";
+          const defaultLabel = account.is_default ? "default" : null;
+          const statusLabel = status && status !== "active" ? status : null;
+          return {
+            accountId,
+            label: [
+              `Alpaca · ${compactAccountId(accountId)}`,
+              defaultLabel,
+              statusLabel,
+            ]
+              .filter(Boolean)
+              .join(" • "),
+          };
+        })
+        .filter(
+          (option): option is { accountId: string; label: string } => option !== null
+        ),
+    [mappedBrokerageAccounts]
   );
   const [selectedFundingAccountId, setSelectedFundingAccountId] = useState<string>(selectedFundingDefault);
-  const [selectedBrokerageItemId, setSelectedBrokerageItemId] = useState<string>(
-    brokerageItemOptions[0]?.itemId || ""
-  );
   const [selectedBrokerageAccountId, setSelectedBrokerageAccountId] = useState<string>(
     brokerageAccountOptions[0]?.accountId || ""
   );
@@ -527,9 +538,6 @@ export function PlaidFundingTransfersSection({
   const [isEscalatingSupport, setIsEscalatingSupport] = useState<boolean>(false);
 
   const latestTransfers = (fundingStatus?.latest_transfers || fundingItem?.transfers || []) as PlaidFundingTransferRef[];
-  const selectedBrokerage = brokerageAccountOptions.find(
-    (option) => option.accountId === selectedBrokerageAccountId
-  );
   const selectedFundingRelationship =
     (fundingItem?.relationships || []).find(
       (relationship) =>
@@ -554,13 +562,6 @@ export function PlaidFundingTransfersSection({
       setSelectedFundingAccountId(selectedFundingDefault);
     }
   }, [selectedFundingAccountId, selectedFundingDefault]);
-
-  useEffect(() => {
-    const firstBrokerageItemId = brokerageItemOptions[0]?.itemId || "";
-    if (!selectedBrokerageItemId && firstBrokerageItemId) {
-      setSelectedBrokerageItemId(firstBrokerageItemId);
-    }
-  }, [brokerageItemOptions, selectedBrokerageItemId]);
 
   useEffect(() => {
     const firstBrokerageAccountId = brokerageAccountOptions[0]?.accountId || "";
@@ -724,29 +725,14 @@ export function PlaidFundingTransfersSection({
 
             {brokerageAccountOptions.length > 0 ? (
               <label className="space-y-1 text-xs text-muted-foreground">
-                Brokerage destination
+                Alpaca brokerage destination
                 <select
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                   value={selectedBrokerageAccountId}
                   onChange={(event) => setSelectedBrokerageAccountId(event.target.value)}
                 >
                   {brokerageAccountOptions.map((option) => (
-                    <option key={`${option.itemId}:${option.accountId}`} value={option.accountId}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : brokerageItemOptions.length > 0 ? (
-              <label className="space-y-1 text-xs text-muted-foreground">
-                Destination broker
-                <select
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                  value={selectedBrokerageItemId}
-                  onChange={(event) => setSelectedBrokerageItemId(event.target.value)}
-                >
-                  {brokerageItemOptions.map((option) => (
-                    <option key={option.itemId} value={option.itemId}>
+                    <option key={option.accountId} value={option.accountId}>
                       {option.label}
                     </option>
                   ))}
@@ -754,10 +740,10 @@ export function PlaidFundingTransfersSection({
               </label>
             ) : (
               <div className="space-y-1 rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                Brokerage destination
+                Alpaca brokerage destination
                 <p className="text-[11px] leading-5">
-                  No brokerage account is linked yet. You can still create a funding transfer and
-                  add destination mapping later.
+                  No mapped Alpaca account was found. Add or configure at least one Alpaca account
+                  before creating transfers.
                 </p>
                 {onManageBrokerage ? (
                   <Button
@@ -863,7 +849,6 @@ export function PlaidFundingTransfersSection({
                 if (!Number.isFinite(amount) || amount <= 0) return;
                 if (!selectedFundingAccountId || !legalNameInput.trim()) return;
                 if (brokerageAccountOptions.length > 0 && !selectedBrokerageAccountId) return;
-                if (brokerageAccountOptions.length === 0 && brokerageItemOptions.length > 0 && !selectedBrokerageItemId) return;
                 const nonce =
                   typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
                     ? crypto.randomUUID()
@@ -871,9 +856,7 @@ export function PlaidFundingTransfersSection({
                 void onCreateTransfer({
                   fundingItemId: fundingItem.item_id,
                   fundingAccountId: selectedFundingAccountId,
-                  brokerageItemId:
-                    selectedBrokerage?.itemId ||
-                    (brokerageAccountOptions.length === 0 ? selectedBrokerageItemId || null : null),
+                  brokerageItemId: null,
                   brokerageAccountId: selectedBrokerageAccountId || null,
                   amount,
                   userLegalName: legalNameInput.trim(),
@@ -908,7 +891,9 @@ export function PlaidFundingTransfersSection({
                 description={[
                   transfer.amount ? `$${transfer.amount}` : null,
                   transfer.direction || null,
-                  transfer.brokerage_account_id ? `Destination ${transfer.brokerage_account_id}` : null,
+                  transfer.brokerage_account_id || transfer.alpaca_account_id
+                    ? `Destination ${transfer.brokerage_account_id || transfer.alpaca_account_id}`
+                    : null,
                   transfer.completed_at
                     ? `Completed ${formatRelativeTimestamp(transfer.completed_at)}`
                     : transfer.requested_at

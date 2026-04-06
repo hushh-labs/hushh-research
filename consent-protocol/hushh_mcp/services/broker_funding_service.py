@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -40,6 +41,10 @@ _NOTIFIABLE_TRANSFER_USER_STATUSES = {"completed", "failed", "returned", "cancel
 _RELATIONSHIP_APPROVED_STATUSES = {"APPROVED"}
 _RELATIONSHIP_PENDING_STATUSES = {"QUEUED", "PENDING", "SUBMITTED"}
 _RELATIONSHIP_TERMINAL_FAILURE_STATUSES = {"REJECTED", "CANCELED", "DISABLED", "ERROR"}
+
+_ALPACA_ACCOUNT_ID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 class FundingOrchestrationError(RuntimeError):
@@ -175,6 +180,13 @@ def _direction_to_alpaca(direction: str) -> str:
     if normalized in {"from_brokerage", "outgoing", "withdraw", "withdrawal"}:
         return _FUNDS_DIRECTION_OUTGOING
     return _FUNDS_DIRECTION_INCOMING
+
+
+def _looks_like_alpaca_account_id(value: str | None) -> bool:
+    candidate = _clean_text(value)
+    if not candidate:
+        return False
+    return bool(_ALPACA_ACCOUNT_ID_PATTERN.match(candidate))
 
 
 def _user_facing_transfer_status(status_value: str | None) -> str:
@@ -335,6 +347,43 @@ class BrokerFundingService:
         )
         return result.data[0] if result.data else None
 
+    def _fetch_latest_relationship_alpaca_account(self, *, user_id: str) -> str | None:
+        result = self.db.execute_raw(
+            """
+            SELECT alpaca_account_id
+            FROM kai_funding_ach_relationships
+            WHERE user_id = :user_id
+              AND alpaca_account_id IS NOT NULL
+            ORDER BY updated_at DESC, created_at DESC
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        if not result.data:
+            return None
+        return _clean_text(result.data[0].get("alpaca_account_id")) or None
+
+    def _find_brokerage_account(
+        self,
+        *,
+        user_id: str,
+        alpaca_account_id: str,
+    ) -> dict[str, Any] | None:
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_brokerage_accounts
+            WHERE user_id = :user_id
+              AND alpaca_account_id = :alpaca_account_id
+            LIMIT 1
+            """,
+            {
+                "user_id": user_id,
+                "alpaca_account_id": alpaca_account_id,
+            },
+        )
+        return result.data[0] if result.data else None
+
     def _upsert_brokerage_account(
         self,
         *,
@@ -399,22 +448,55 @@ class BrokerFundingService:
         user_id: str,
         requested_account_id: str | None,
     ) -> str:
+        default_row = self._fetch_default_brokerage_account(user_id=user_id)
+        default_account_id = (
+            _clean_text(default_row.get("alpaca_account_id")) if default_row else ""
+        )
+        latest_relationship_account_id = (
+            self._fetch_latest_relationship_alpaca_account(user_id=user_id) or ""
+        )
+        configured_default = _clean_text(self.alpaca_config.default_account_id)
+
         cleaned_requested = _clean_text(requested_account_id)
         if cleaned_requested:
-            return cleaned_requested
+            if self._find_brokerage_account(
+                user_id=user_id,
+                alpaca_account_id=cleaned_requested,
+            ):
+                return cleaned_requested
+            if _looks_like_alpaca_account_id(cleaned_requested):
+                return cleaned_requested
 
-        default_row = self._fetch_default_brokerage_account(user_id=user_id)
-        if default_row:
-            account_id = _clean_text(default_row.get("alpaca_account_id"))
-            if account_id:
-                return account_id
+            fallback_account_id = (
+                default_account_id or latest_relationship_account_id or configured_default
+            )
+            if fallback_account_id:
+                logger.warning(
+                    "funding.requested_brokerage_account_not_alpaca user_id=%s requested=%s fallback=%s",
+                    user_id,
+                    cleaned_requested,
+                    fallback_account_id,
+                )
+                return fallback_account_id
 
-        configured_default = _clean_text(self.alpaca_config.default_account_id)
+            raise FundingOrchestrationError(
+                "Requested brokerage destination is not a valid Alpaca account ID.",
+                code="ALPACA_ACCOUNT_NOT_MAPPED",
+                status_code=422,
+                details={
+                    "requested_account_id": cleaned_requested,
+                },
+            )
+
+        if default_account_id:
+            return default_account_id
+        if latest_relationship_account_id:
+            return latest_relationship_account_id
         if configured_default:
             return configured_default
 
         raise FundingOrchestrationError(
-            "No Alpaca brokerage account is configured for this user.",
+            "No Alpaca brokerage account is configured for this user. Complete Alpaca brokerage onboarding and map the account before funding transfers.",
             code="ALPACA_ACCOUNT_REQUIRED",
             status_code=422,
         )
@@ -656,6 +738,20 @@ class BrokerFundingService:
                 "item_id": item_id,
             },
         )
+
+        # A partial unique index enforces only one default account per user.
+        # Reset any prior defaults before inserting the refreshed account set.
+        if _clean_text(default_account_id):
+            self.db.execute_raw(
+                """
+                UPDATE kai_funding_plaid_accounts
+                SET is_default = FALSE,
+                    updated_at = NOW()
+                WHERE user_id = :user_id
+                  AND is_default = TRUE
+                """,
+                {"user_id": user_id},
+            )
 
         for account in accounts:
             account_id = _clean_text(account.get("account_id"))
@@ -1974,6 +2070,8 @@ class BrokerFundingService:
                 "transfer_id": _clean_text(transfer.get("transfer_id")) or None,
                 "relationship_id": _clean_text(transfer.get("relationship_id")) or None,
                 "alpaca_account_id": _clean_text(transfer.get("alpaca_account_id")) or None,
+                "brokerage_account_id": _clean_text(transfer.get("alpaca_account_id")) or None,
+                "funding_account_id": _clean_text(transfer.get("account_id")) or None,
                 "direction": _clean_text(transfer.get("direction")) or None,
                 "amount": _clean_text(str(transfer.get("amount")))
                 if transfer.get("amount") is not None
@@ -2116,6 +2214,56 @@ class BrokerFundingService:
             user_id=user_id,
             item_id=item_id,
             account_id=account_id,
+        )
+        return await self.get_funding_status(user_id=user_id)
+
+    async def set_brokerage_account(
+        self,
+        *,
+        user_id: str,
+        alpaca_account_id: str | None = None,
+        set_default: bool = True,
+    ) -> dict[str, Any]:
+        cleaned_account_id = _clean_text(alpaca_account_id)
+        if cleaned_account_id and not _looks_like_alpaca_account_id(cleaned_account_id):
+            raise FundingOrchestrationError(
+                "Alpaca account ID must be a valid UUID.",
+                code="ALPACA_ACCOUNT_INVALID_FORMAT",
+                status_code=422,
+                details={"alpaca_account_id": cleaned_account_id},
+            )
+        if not cleaned_account_id:
+            cleaned_account_id = self._resolve_alpaca_account_id(
+                user_id=user_id,
+                requested_account_id=None,
+            )
+        if not self.alpaca_config.configured:
+            raise FundingOrchestrationError(
+                "Alpaca is not configured for funding.",
+                code="ALPACA_NOT_CONFIGURED",
+                status_code=503,
+            )
+
+        try:
+            await self._alpaca_get(f"/v1/accounts/{cleaned_account_id}")
+        except AlpacaApiError as exc:
+            if exc.status_code == 404:
+                raise FundingOrchestrationError(
+                    "Alpaca account not found for this partner environment.",
+                    code="ALPACA_ACCOUNT_NOT_FOUND",
+                    status_code=422,
+                    details={"alpaca_account_id": cleaned_account_id},
+                ) from exc
+            raise
+
+        self._upsert_brokerage_account(
+            user_id=user_id,
+            alpaca_account_id=cleaned_account_id,
+            set_as_default=set_default,
+            metadata={
+                "linked_via": "manual_account_id",
+                "linked_at": _utcnow_iso(),
+            },
         )
         return await self.get_funding_status(user_id=user_id)
 

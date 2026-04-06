@@ -465,6 +465,27 @@ export function InvestmentsMasterView({
     [reload, userId, vaultOwnerToken]
   );
 
+  const handleConnectFundingBrokerage = useCallback(async () => {
+    if (!vaultOwnerToken) {
+      toast.error("Please unlock your Vault and try again.");
+      return;
+    }
+
+    try {
+      await PlaidPortfolioService.setFundingBrokerageAccount({
+        userId,
+        vaultOwnerToken,
+        setDefault: true,
+      });
+      await reload();
+      toast.success("Brokerage funding destination is ready.");
+    } catch (error) {
+      toast.error("Could not prepare brokerage funding destination.", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  }, [reload, userId, vaultOwnerToken]);
+
   const handleCreateFundingTransfer = useCallback(
     async (payload: {
       fundingItemId: string;
@@ -884,8 +905,7 @@ export function InvestmentsMasterView({
 
         <PlaidFundingTransfersSection
           fundingStatus={plaidFundingStatus}
-          brokerageItems={plaidStatus?.items || []}
-          onManageBrokerage={() => void openPlaidLinkFlow()}
+          onManageBrokerage={() => void handleConnectFundingBrokerage()}
           onConnectFunding={(itemId) => void openPlaidFundingLinkFlow(itemId)}
           onSetDefaultFundingAccount={(payload) => void handleSetDefaultFundingAccount(payload)}
           onRunReconciliation={() => void handleRunFundingReconciliation()}
