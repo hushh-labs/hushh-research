@@ -134,6 +134,10 @@ export function Providers({ children }: ProvidersProps) {
     () => (pathname.startsWith("/kai") ? "/kai-stable-shell" : pathname),
     [pathname]
   );
+  const shouldObservePageMutations = useMemo(
+    () => !(pathname.startsWith("/kai/analysis") || pathname.startsWith("/kai/dashboard/analysis")),
+    [pathname]
+  );
 
   // One-time GSAP init (non-blocking).
   useEffect(() => {
@@ -151,7 +155,11 @@ export function Providers({ children }: ProvidersProps) {
   }, []);
 
   // App-wide page enter fade.
-  usePageEnterAnimation(pageRef, { enabled: true, key: pageAnimationKey });
+  usePageEnterAnimation(pageRef, {
+    enabled: true,
+    key: pageAnimationKey,
+    observeMutations: shouldObservePageMutations,
+  });
   useScrollReset(pathname, { enabled: true, behavior: "auto" });
 
   useEffect(() => {
@@ -274,7 +282,7 @@ export function Providers({ children }: ProvidersProps) {
                                         "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
                                       "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
                                       "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
-                                      "--app-bar-glass-bg-dark": "rgba(29, 29, 31, 0.72)",
+                                      "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.72)",
                                       "--app-bar-glass-blur": "2px",
                                       "--app-bar-shadow": "none",
                                       "--app-bar-mask-overscan": "14px",
@@ -351,7 +359,7 @@ export function Providers({ children }: ProvidersProps) {
                                         "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
                                       "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
                                       "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
-                                      "--app-bar-glass-bg-dark": "rgba(29, 29, 31, 0.72)",
+                                      "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.72)",
                                       "--app-bar-glass-blur": "2px",
                                       "--app-bar-shadow": "none",
                                       "--app-bar-mask-overscan": "14px",

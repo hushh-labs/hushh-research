@@ -11,8 +11,14 @@
 
 "use client";
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/lib/morphy-ux/card";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import {
+  SurfaceCard,
+  SurfaceCardContent,
+  SurfaceCardDescription,
+  SurfaceCardHeader,
+  SurfaceCardTitle,
+} from "@/components/app-ui/surfaces";
 
 import {
   TrendingUp,
@@ -91,8 +97,8 @@ export function PortfolioOverviewView({
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Holdings Count */}
-        <Card variant="none" effect="glass" showRipple={false}>
-          <CardContent className="p-6">
+        <SurfaceCard>
+          <SurfaceCardContent className="p-6">
             <div className="flex items-center justify-between mb-2">
               <Icon icon={PieChart} size="md" className="text-primary" />
               <span className="text-xs text-muted-foreground">Holdings</span>
@@ -101,12 +107,12 @@ export function PortfolioOverviewView({
             <p className="text-xs text-muted-foreground mt-1">
               Tracked positions
             </p>
-          </CardContent>
-        </Card>
+          </SurfaceCardContent>
+        </SurfaceCard>
 
         {/* Portfolio Value */}
-        <Card variant="none" effect="glass" showRipple={false}>
-          <CardContent className="p-6">
+        <SurfaceCard>
+          <SurfaceCardContent className="p-6">
             <div className="flex items-center justify-between mb-2">
               <Icon icon={DollarSign} size="md" className="text-primary" />
               <span className="text-xs text-muted-foreground">Value Range</span>
@@ -119,12 +125,12 @@ export function PortfolioOverviewView({
             <p className="text-xs text-muted-foreground mt-1">
               Estimated range
             </p>
-          </CardContent>
-        </Card>
+          </SurfaceCardContent>
+        </SurfaceCard>
 
         {/* Performance */}
-        <Card variant="none" effect="glass" showRipple={false}>
-          <CardContent className="p-6">
+        <SurfaceCard>
+          <SurfaceCardContent className="p-6">
             <div className="flex items-center justify-between mb-2">
               <Icon icon={Activity} size="md" className="text-primary" />
               <span className="text-xs text-muted-foreground">Performance</span>
@@ -146,12 +152,12 @@ export function PortfolioOverviewView({
             <p className="text-xs text-muted-foreground mt-1">
               Total gain/loss
             </p>
-          </CardContent>
-        </Card>
+          </SurfaceCardContent>
+        </SurfaceCard>
 
         {/* Risk Profile */}
-        <Card variant="none" effect="glass" showRipple={false}>
-          <CardContent className="p-6">
+        <SurfaceCard>
+          <SurfaceCardContent className="p-6">
             <div className="flex items-center justify-between mb-2">
               <Icon icon={BarChart3} size="md" className="text-primary" />
               <span className="text-xs text-muted-foreground">Risk Profile</span>
@@ -162,14 +168,14 @@ export function PortfolioOverviewView({
             <p className="text-xs text-muted-foreground mt-1">
               Investment style
             </p>
-          </CardContent>
-        </Card>
+          </SurfaceCardContent>
+        </SurfaceCard>
       </div>
 
       {/* Winners/Losers Card */}
       {(winnersCount > 0 || losersCount > 0) && (
-        <Card variant="none" effect="glass" showRipple={false}>
-          <CardContent className="p-6">
+        <SurfaceCard>
+          <SurfaceCardContent className="p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <Icon icon={TrendingUp} size="md" className="text-emerald-500" />
@@ -187,26 +193,26 @@ export function PortfolioOverviewView({
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </SurfaceCardContent>
+        </SurfaceCard>
       )}
 
       {/* Quick Actions */}
-      <Card variant="none" effect="glass" showRipple={false}>
-        <CardHeader>
-          <CardTitle className="text-lg">Quick Actions</CardTitle>
-          <CardDescription>
+      <SurfaceCard>
+        <SurfaceCardHeader>
+          <SurfaceCardTitle className="text-lg">Quick Actions</SurfaceCardTitle>
+          <SurfaceCardDescription>
             Common tasks for managing your portfolio
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+          </SurfaceCardDescription>
+        </SurfaceCardHeader>
+        <SurfaceCardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Review Losers */}
             {losersCount > 0 && onReviewLosers && (
               <MorphyButton
                 variant="none"
-                effect="glass"
-                className="h-auto p-6 flex flex-col items-start gap-3"
+                effect="fade"
+                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
                 onClick={onReviewLosers}
                 icon={{
                   icon: AlertTriangle,
@@ -225,8 +231,8 @@ export function PortfolioOverviewView({
             {onAnalyzeStock && (
               <MorphyButton
                 variant="none"
-                effect="glass"
-                className="h-auto p-6 flex flex-col items-start gap-3"
+                effect="fade"
+                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
                 onClick={() => onAnalyzeStock()}
                 icon={{
                   icon: BarChart3,
@@ -245,8 +251,8 @@ export function PortfolioOverviewView({
             {onImportNew && (
               <MorphyButton
                 variant="none"
-                effect="glass"
-                className="h-auto p-6 flex flex-col items-start gap-3"
+                effect="fade"
+                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
                 onClick={onImportNew}
                 icon={{
                   icon: Upload,
@@ -265,8 +271,8 @@ export function PortfolioOverviewView({
             {onSettings && (
               <MorphyButton
                 variant="none"
-                effect="glass"
-                className="h-auto p-6 flex flex-col items-start gap-3"
+                effect="fade"
+                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
                 onClick={onSettings}
                 icon={{
                   icon: Settings,
@@ -283,12 +289,12 @@ export function PortfolioOverviewView({
             )}
 
           </div>
-        </CardContent>
-      </Card>
+        </SurfaceCardContent>
+      </SurfaceCard>
 
       {/* Info Card */}
-      <Card variant="muted" effect="glass" showRipple={false}>
-        <CardContent className="p-6">
+      <SurfaceCard tone="feature">
+        <SurfaceCardContent className="p-6">
           <div className="flex items-start gap-3">
             <Icon icon={Activity} size="md" className="text-primary mt-0.5 shrink-0" />
             <div>
@@ -300,8 +306,8 @@ export function PortfolioOverviewView({
               </p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </SurfaceCardContent>
+      </SurfaceCard>
     </div>
   );
 }

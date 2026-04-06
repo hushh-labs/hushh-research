@@ -46,10 +46,10 @@ import { ProfileBasedPicksList } from "@/components/kai/cards/profile-based-pick
 import { useCache, type PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { Icon } from "@/lib/morphy-ux/ui";
+import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { KAI_EXPERIENCE_CONTRACT } from "@/lib/kai/experience-contract";
 import { DataTable } from "@/components/app-ui/data-table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1969,7 +1969,7 @@ export function DashboardMasterView({
           title="Portfolio"
           description="Switch between statement and Plaid sources, connect brokerages, and keep your investable context ready for debate."
           icon={Building2}
-          accent="sky"
+          accent="default"
         />
         <PortfolioSourceSwitcher
           activeSource={activeSource}
@@ -2019,7 +2019,7 @@ export function DashboardMasterView({
         title="Portfolio"
         description="Your active source, holdings context, and brokerage connections stay in sync here before you move into investments, debate, or optimization."
         icon={Building2}
-        accent="sky"
+        accent="default"
         actions={
           <MorphyButton
             variant="none"
@@ -2027,7 +2027,7 @@ export function DashboardMasterView({
             size="sm"
             onClick={() => void handleSharePortfolioPdf()}
             disabled={!hasShareablePortfolioData || isSharingPortfolioPdf}
-            className="h-10 w-10 rounded-full border border-border/70 bg-background/85 p-0 text-foreground shadow-sm"
+            className="h-10 w-10 rounded-full border border-transparent bg-[var(--app-card-surface-compact)] p-0 text-foreground shadow-[var(--shadow-xs)] hover:bg-[var(--app-card-surface-default)]"
             aria-label="Share portfolio PDF"
             title={hasShareablePortfolioData ? "Share portfolio PDF" : "No shareable portfolio data yet"}
           >
@@ -2068,17 +2068,17 @@ export function DashboardMasterView({
               {sourceDisplayLabel} portfolio value
             </p>
             <div className="flex flex-wrap justify-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-background px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
                 Source: {sourceDisplayLabel}
               </span>
-              <span className="inline-flex items-center rounded-full bg-background px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
                 Risk: {model.hero.portfolioConcentrationLabel.replace(" Concentration", "")}
               </span>
-              <span className="inline-flex items-center rounded-full bg-background px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
                 Holdings: {model.hero.investableHoldingsCount}
               </span>
               {model.hero.cashPositionsCount > 0 ? (
-                <span className="inline-flex items-center rounded-full bg-background px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
                   Cash Positions: {model.hero.cashPositionsCount}
                 </span>
               ) : null}
@@ -2173,17 +2173,19 @@ export function DashboardMasterView({
         }}
         className="space-y-4"
       >
-        <TabsList className="grid h-9 w-full grid-cols-3 rounded-lg bg-background/80 p-0.5">
-          <TabsTrigger value="overview" className="text-xs">
-            Overview
-          </TabsTrigger>
-          <TabsTrigger value="holdings" className="text-xs">
-            Holdings
-          </TabsTrigger>
-          <TabsTrigger value="deep-dive" className="text-xs">
-            Deep Dive
-          </TabsTrigger>
-        </TabsList>
+        <SegmentedTabs
+          value={dashboardMainTab}
+          onValueChange={(value) => {
+            if (!isDashboardMainTab(value)) return;
+            setDashboardMainTab(value);
+          }}
+          options={[
+            { value: "overview", label: "Overview" },
+            { value: "holdings", label: "Holdings" },
+            { value: "deep-dive", label: "Deep Dive" },
+          ]}
+          className="w-full"
+        />
 
         <TabsContent value="overview" className="mt-0 space-y-4">
           <PlaidBrokerageSummarySection
@@ -2337,33 +2339,33 @@ export function DashboardMasterView({
                 {canEditStatement ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-foreground">Change Summary</span>
-                    <span className="rounded-full bg-background px-2 py-0.5">Added: {holdingsChangeSummary.added}</span>
-                    <span className="rounded-full bg-background px-2 py-0.5">Edited: {holdingsChangeSummary.edited}</span>
-                    <span className="rounded-full bg-background px-2 py-0.5">Deleted: {holdingsChangeSummary.deleted}</span>
+                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Added: {holdingsChangeSummary.added}</span>
+                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Edited: {holdingsChangeSummary.edited}</span>
+                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Deleted: {holdingsChangeSummary.deleted}</span>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-foreground">Plaid Snapshot</span>
-                    <span className="rounded-full bg-background px-2 py-0.5">
+                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                       Sync: {freshness?.syncStatus || "idle"}
                     </span>
-                    <span className="rounded-full bg-background px-2 py-0.5">
+                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                       Items: {freshness?.itemCount || 0}
                     </span>
-                    <span className="rounded-full bg-background px-2 py-0.5">
+                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                       Accounts: {freshness?.accountCount || 0}
                     </span>
                   </div>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Bifurcation</span>
-                  <span className="rounded-full bg-background px-2 py-0.5">
+                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                     Equities: {holdingsBifurcation.analyzeEligible}
                   </span>
-                  <span className="rounded-full bg-background px-2 py-0.5">
+                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                     Other Assets: {holdingsBifurcation.nonAnalyzable}
                   </span>
-                  <span className="rounded-full bg-background px-2 py-0.5">
+                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                     Cash: {holdingsBifurcation.cashSweep}
                   </span>
                 </div>
@@ -2382,7 +2384,6 @@ export function DashboardMasterView({
                 searchPlaceholder="Search holdings by ticker or company"
                 initialPageSize={8}
                 pageSizeOptions={[8, 16, 24]}
-                tableContainerClassName="border-border/60 bg-background/75"
                 rowClassName={(holding) =>
                   cn(
                     "transition-colors",

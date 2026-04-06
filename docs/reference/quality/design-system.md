@@ -6,7 +6,7 @@
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
 ## Purpose
-This contract makes shadcn primitives the canonical base and treats Morphy UX as the standalone design-system root above that vendor layer.
+This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the standalone design-system root, and makes app-ui the semantic composition layer above it.
 
 ## Component Layering Contract
 | Layer | Location | Ownership | Rules |
@@ -21,7 +21,7 @@ This contract makes shadcn primitives the canonical base and treats Morphy UX as
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
 4. Do not place app-specific components inside `components/ui`.
-5. Keep tabs stock-first: `@/components/ui/tabs` is the canonical primitive base.
+5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition.
 6. Morphy button, card, and surface primitives must compose stock primitives.
 7. The liquid-glass lab is experimental and not part of the Kai production design contract.
 
@@ -31,7 +31,7 @@ This contract makes shadcn primitives the canonical base and treats Morphy UX as
 3. Ripple, motion hooks, icon wrappers, and toast helpers.
 
 ## Import Rules
-Use stock shadcn by default:
+Use stock shadcn by default for baseline primitives:
 
 ```tsx
 import {
@@ -40,15 +40,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 ```
 
-Use Morphy only for explicit extension cases:
+Use Morphy for reusable shared UI behavior and app-wide segmented controls:
 
 ```tsx
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Card as MorphyCard } from "@/lib/morphy-ux/card";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 ```
 
 Forbidden:
@@ -99,7 +99,6 @@ After regeneration:
 Project-local UI skills live in `.codex/skills/`:
 
 1. `design-system`
-2. `ui-migration`
 3. `frontend-architecture`
 4. `frontend-surface-governance`
 

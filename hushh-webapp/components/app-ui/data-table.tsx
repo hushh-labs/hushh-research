@@ -234,6 +234,7 @@ export function DataTable<TData, TValue>({
   );
 
   const compact = density === "compact";
+  const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
   return (
     <div
       className="space-y-[var(--data-table-controls-gap)]"
@@ -292,9 +293,18 @@ export function DataTable<TData, TValue>({
       )}
 
       {/* Table */}
-      <div className={cn(surfaceDataTableShellClassName, tableContainerClassName)}>
+      <div
+        className={cn(surfaceDataTableShellClassName, resolvedTableShellClassName)}
+        data-slot="surface-data-table-shell"
+      >
         <Table className={tableClassName}>
-          <TableHeader className={stickyHeader ? "sticky top-0 z-10 bg-[var(--app-card-surface-data)]/96 backdrop-blur supports-[backdrop-filter]:bg-[var(--app-card-surface-data)]/90" : undefined}>
+          <TableHeader
+            className={
+              stickyHeader
+                ? "sticky top-0 z-10 bg-[color:var(--app-card-surface-sticky-header-solid)] backdrop-blur"
+                : undefined
+            }
+          >
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
@@ -323,7 +333,7 @@ export function DataTable<TData, TValue>({
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
+          <TableBody data-no-auto-fade="true">
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
@@ -331,8 +341,8 @@ export function DataTable<TData, TValue>({
                   data-state={row.getIsSelected() && "selected"}
                   className={cn(
                     onRowClick
-                      ? "cursor-pointer hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
-                      : "hover:bg-foreground/[0.032]",
+                      ? "cursor-pointer transition-[background-color,transform] duration-200 ease-out hover:-translate-y-px hover:bg-foreground/[0.045] active:translate-y-0 active:bg-foreground/[0.065]"
+                      : "transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.032]",
                     rowClassName?.(row.original)
                   )}
                   onClick={onRowClick ? () => onRowClick(row.original) : undefined}

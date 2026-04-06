@@ -39,27 +39,27 @@ const CARD_PRESET_SHELL_CLASSES: Record<
 > = {
   compact: {
     shell:
-      "!rounded-[var(--app-card-radius-compact)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-compact)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[var(--app-card-radius-compact)] !border-transparent !bg-[color:var(--app-card-surface-compact)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "p-0",
   },
   default: {
     shell:
-      "!rounded-[var(--app-card-radius-standard)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[var(--app-card-radius-standard)] !border-transparent !bg-[color:var(--app-card-surface-default-solid)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "p-4 sm:p-6",
   },
   hero: {
     shell:
-      "!rounded-[var(--app-card-radius-feature)] !border !border-[color:var(--app-card-border-strong)] !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
+      "!rounded-[var(--app-card-radius-feature)] !border-transparent !bg-[color:var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
     spacing: "p-0",
   },
   surface: {
     shell:
-      "!rounded-[var(--app-card-radius-feature)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-surface)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[var(--app-card-radius-feature)] !border-transparent !bg-[color:var(--app-card-surface-surface)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "min-w-0 p-0",
   },
   "surface-feature": {
     shell:
-      "!rounded-[var(--app-card-radius-feature)] !border !border-[color:var(--app-card-border-strong)] !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
+      "!rounded-[var(--app-card-radius-feature)] !border-transparent !bg-[color:var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
     spacing: "min-w-0 p-0",
   },
 };
@@ -109,7 +109,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       if (isGradient) {
         return "text-white dark:text-black";
       }
-      return "text-[var(--morphy-primary-start)]";
+      return "text-muted-foreground";
     };
 
     const renderIconBlock = () => {
@@ -144,8 +144,8 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         className={cn(
           "relative !overflow-visible transition-[box-shadow,background-color] duration-200",
           isApple
-            ? "!rounded-[var(--app-card-radius-standard)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]"
-            : presetConfig.shell,
+            ? "!rounded-[var(--app-card-radius-standard)] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !shadow-[var(--app-card-shadow-standard)]"
+            : cn("border border-solid border-transparent", presetConfig.shell),
           "!text-card-foreground",
           isApple
             ? ""
@@ -155,7 +155,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
           isApple ? "min-w-0 p-0" : presetConfig.spacing,
           interactive ? "cursor-pointer" : "",
           fullHeight ? "h-full" : "",
-          selected ? "ring-1 ring-sky-500/25 dark:ring-sky-400/30" : "",
+          selected ? "ring-1 ring-foreground/10 dark:ring-white/10" : "",
           className
         )}
         {...props}

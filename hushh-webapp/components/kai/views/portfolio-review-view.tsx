@@ -31,13 +31,13 @@ import {
 } from "lucide-react";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/lib/morphy-ux/ui";
+import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
 import { DataTable } from "@/components/app-ui/data-table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 
 
 import {
@@ -2008,7 +2008,7 @@ export function PortfolioReviewView({
         {/* Left Column / Mobile Top: Summary & Info */}
         <div className="space-y-8 xl:col-span-5">
           {/* Summary Card - Redesigned for bigger numbers */}
-          <MorphyCard variant="none" className="overflow-hidden border-none shadow-xl">
+          <MorphyCard variant="none" preset="surface-feature" className="overflow-hidden">
             <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-primary/10 dark:from-primary/10 dark:to-primary/20" />
             <CardContent className="relative pt-8 px-6 pb-8 space-y-8">
 
@@ -2088,7 +2088,10 @@ export function PortfolioReviewView({
       {/* Account & Meta Accordions */}
       <Accordion type="multiple" defaultValue={["account", "income"]} className="w-full space-y-4">
 
-        <AccordionItem value="account" className="border-b-0 bg-card rounded-2xl border px-5">
+        <AccordionItem
+          value="account"
+          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
+        >
           <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
 
 
@@ -2165,7 +2168,10 @@ export function PortfolioReviewView({
 
         {/* Asset Allocation */}
         {hasAllocationValues(displayAssetAllocation) && (
-        <AccordionItem value="allocation" className="border-b-0 bg-card rounded-2xl border px-5">
+        <AccordionItem
+          value="allocation"
+          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
+        >
             <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
 
 
@@ -2251,7 +2257,10 @@ export function PortfolioReviewView({
 
         {/* Income Summary */}
         {incomeSummary.total_income !== undefined && (
-        <AccordionItem value="income" className="border-b-0 bg-card rounded-2xl border px-5">
+        <AccordionItem
+          value="income"
+          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
+        >
             <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
 
 
@@ -2293,8 +2302,8 @@ export function PortfolioReviewView({
 
         {/* Right Column / Mobile Bottom: Holdings */}
         <div className="mt-8 xl:col-span-7 xl:mt-0">
-          <MorphyCard variant="none" className="h-full border-none bg-card shadow-xl">
-            <CardHeader className="bg-muted/30 px-6 pb-4 pt-6">
+          <MorphyCard variant="none" preset="surface" className="h-full">
+            <CardHeader className="border-b border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-sticky-header)] px-6 pb-4 pt-6">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <CardTitle className="text-lg font-black uppercase tracking-widest text-foreground">
@@ -2319,16 +2328,16 @@ export function PortfolioReviewView({
             </CardHeader>
 
             <CardContent className="space-y-4 px-6 pb-6 pt-6">
-              <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2.5 text-xs text-muted-foreground">
+              <div className="rounded-[var(--app-card-radius-compact)] border border-transparent bg-[var(--app-card-surface-compact)] px-3 py-2.5 text-xs text-muted-foreground shadow-[var(--shadow-xs)]">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Current State</span>
-                  <span className="rounded-full bg-background px-2 py-0.5">
+                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                     Assets: {activeHoldings.length}
                   </span>
-                  <span className="rounded-full bg-background px-2 py-0.5">
+                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                     Marked remove: {pendingDeleteCount}
                   </span>
-                  <span className="rounded-full bg-background px-2 py-0.5">
+                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
                     Cash positions: {holdingTables.cashSweep.length}
                   </span>
                 </div>
@@ -2341,42 +2350,20 @@ export function PortfolioReviewView({
                 }
                 className="space-y-3"
               >
-                <div className="pb-1">
-                  <TabsList className="grid h-auto min-h-10 w-full grid-cols-4 gap-0.5 rounded-lg bg-background/80 p-0.5">
-                    <TabsTrigger
-                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
-                      value="all"
-                      title={`All holdings (${holdingTables.all.length})`}
-                    >
-                      <span className="block">All</span>
-                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.all.length})</span>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
-                      value="analyze"
-                      title={`Equities (${holdingTables.analyzeEligible.length})`}
-                    >
-                      <span className="block">Equity</span>
-                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.analyzeEligible.length})</span>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
-                      value="non-analyze"
-                      title={`Other assets (${holdingTables.nonAnalyzable.length})`}
-                    >
-                      <span className="block">Other</span>
-                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.nonAnalyzable.length})</span>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      className="h-auto min-w-0 px-1 py-1 text-[10px] leading-tight whitespace-normal sm:text-xs"
-                      value="cash"
-                      title={`Cash holdings (${holdingTables.cashSweep.length})`}
-                    >
-                      <span className="block">Cash</span>
-                      <span className="block text-[9px] sm:text-[11px]">({holdingTables.cashSweep.length})</span>
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
+                <SegmentedTabs
+                  value={holdingsTab}
+                  onValueChange={(value) =>
+                    setHoldingsTab(value as "all" | "analyze" | "non-analyze" | "cash")
+                  }
+                  options={[
+                    { value: "all", label: `All (${holdingTables.all.length})` },
+                    { value: "analyze", label: `Equity (${holdingTables.analyzeEligible.length})` },
+                    { value: "non-analyze", label: `Other (${holdingTables.nonAnalyzable.length})` },
+                    { value: "cash", label: `Cash (${holdingTables.cashSweep.length})` },
+                  ]}
+                  className="w-full"
+                  mobileColumns={2}
+                />
 
                 <TabsContent value="all">
                   <DataTable
@@ -2521,7 +2508,7 @@ export function PortfolioReviewView({
 
       {isSaving && (
         <div className="fixed inset-0 z-[560] flex items-center justify-center bg-background/75 backdrop-blur-md">
-          <div className="mx-4 w-full max-w-sm rounded-2xl border border-border/70 bg-background/95 p-5 shadow-2xl">
+          <div className="mx-4 w-full max-w-sm rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] p-5 shadow-[var(--app-card-shadow-feature)]">
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
               <p className="text-sm font-semibold">Securing and saving to Vault</p>

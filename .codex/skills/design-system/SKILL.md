@@ -19,14 +19,14 @@ Read these first:
 ## Layer rules
 
 1. `components/ui/*` is stock shadcn only.
-2. `lib/morphy-ux/*` is the standalone design-system root for ripple, motion, tokens, and reusable surface primitives.
+2. `lib/morphy-ux/*` is the standalone design-system root for ripple, motion, tokens, reusable surface primitives, and shared segmented controls.
 3. `components/app-ui/*` owns Hushh semantic surfaces such as shell chrome, settings rows, and shared app-level compositions built from Morphy primitives.
 4. `app/labs/*`, `components/labs/*`, and `lib/labs/*` are experimental and do not define production Kai UI.
 
 ## Decision rules
 
 1. Default to stock primitives.
-2. Use Morphy when the change belongs to reusable design-system behavior or surface primitives.
+2. Use Morphy when the change belongs to reusable design-system behavior, surface primitives, or the shared segmented-control contract.
 3. Create or extend app-ui when the surface is semantic and shared across routes.
 4. Do not invent feature-local primitives when a shared app-ui surface should exist.
 
