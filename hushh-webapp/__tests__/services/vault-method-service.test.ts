@@ -119,6 +119,6 @@ describe("VaultMethodService.changePassphrase", () => {
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         newPassphrase: "new-passphrase-123",
       })
-    ).rejects.toThrow(/device\/domain/i);
+    ).rejects.toThrow(/older domain/i);
   });
 });

@@ -33,7 +33,7 @@ export function ThemeFocusList({ themes = [] }: { themes?: ThemeFocusItem[] }) {
           className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-4"
         >
           <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl border border-violet-500/18 bg-violet-500/10 text-violet-700 shadow-sm dark:text-violet-300">
+            <div className="grid h-10 w-10 place-items-center rounded-2xl border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]">
               <Icon icon={theme.icon || FALLBACK_ICON[idx % FALLBACK_ICON.length] || Cpu} size="md" />
             </div>
             <div className="min-w-0">

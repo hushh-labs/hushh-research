@@ -30,32 +30,55 @@ import { Button } from "@/lib/morphy-ux/button";
 </Button>
 ```
 
-## Pattern: Morphy Surface Extension
-Use when a screen needs a premium interactive surface.
+## Pattern: Morphy Surface Primitive
+Use when defining or extending the shared card system itself.
 
 ```tsx
-import { Card, CardContent } from "@/lib/morphy-ux/card";
+import { SurfaceCard, SurfaceInset } from "@/lib/morphy-ux/surfaces";
 
-<Card variant="none" effect="glass" showRipple={false}>
-  <CardContent className="p-4">...</CardContent>
-</Card>
+<SurfaceCard>
+  ...
+</SurfaceCard>
 ```
 
-## Pattern: Tabs Base + Optional Morphy Wrapper
-Use stock tabs for default behavior. Use Morphy tabs only when ripple/state-layer upgrades are intentional.
+Rules:
+1. Primitive surface tokens and shell classes live in `lib/morphy-ux/*`.
+2. The analysis-datatable surface treatment is the baseline for shared card chrome.
+3. Do not recreate a parallel shared card primitive in `components/app-ui/*` or feature folders.
+
+## Pattern: App Semantic Surface
+Use when a route needs a shared semantic wrapper built on Morphy primitives.
 
 ```tsx
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { SurfaceCard, SurfaceInset } from "@/components/app-ui/surfaces";
 ```
 
+Rules:
+1. `components/app-ui/surfaces.tsx` is the semantic bridge, not a second primitive system.
+2. Feature folders consume these surfaces; they do not fork them.
+
+## Pattern: Shared Segmented Tabs
+Use the shared segmented control for app-facing rounded tab groups.
+
 ```tsx
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/lib/morphy-ux/ui/tabs";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 ```
+
+Rules:
+1. `@/components/ui/tabs` remains the low-level Radix/shadcn semantic primitive.
+2. `@/lib/morphy-ux/ui/segmented-tabs` is the canonical app-facing segmented visual system.
+3. Route files should not fork their own segmented shell styling.
+
+## Pattern: App Shell Action Surface
+Use the shared shell surface for top-bar actions so ripple, contrast, badges, and focus treatment stay consistent.
+
+```tsx
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+```
+
+Rules:
+1. Back, bell, shield, and persona pill interactions all use the same shell surface contract.
+2. Dropdown triggers should accept a wrapper or render-trigger path, not just a class string, when ripple ownership is required.
 
 ## Pattern: Stock Chart Primitives
 Use stock chart infrastructure for all chart surfaces.

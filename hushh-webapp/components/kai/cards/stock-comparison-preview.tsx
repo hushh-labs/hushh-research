@@ -104,7 +104,7 @@ export function StockComparisonPreview({
                 : "Kai is preparing a live quote and list comparison."
             }
             icon={GitCompareArrows}
-            accent="sky"
+            accent="default"
           />
 
           {loading ? (
@@ -135,7 +135,7 @@ export function StockComparisonPreview({
                       onPickSourceChange(nextValue);
                     }}
                   >
-                    <SelectTrigger className="h-10 w-full rounded-full border-border/80 bg-background/80 text-left shadow-sm">
+                    <SelectTrigger className="h-10 w-full rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]">
                       <SelectValue placeholder="Default list" />
                     </SelectTrigger>
                     <SelectContent
@@ -204,7 +204,7 @@ export function StockComparisonPreview({
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {preview.list_match.tier ? (
-                  <Badge className="bg-sky-500/10 text-sky-700 dark:text-sky-300">
+                  <Badge className="bg-[color:var(--app-card-surface-compact)] text-muted-foreground">
                     Tier {preview.list_match.tier}
                   </Badge>
                 ) : null}
@@ -251,7 +251,7 @@ export function StockComparisonPreview({
 
           <SurfaceInset className="p-4">
             <div className="flex items-start gap-3">
-              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-sky-500/15 bg-sky-500/10 text-sky-700 dark:text-sky-300">
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground">
                 {preview.list_match.in_list ? <SearchCheck className="h-4 w-4" /> : <BarChart3 className="h-4 w-4" />}
               </span>
               <div className="min-w-0 space-y-2">

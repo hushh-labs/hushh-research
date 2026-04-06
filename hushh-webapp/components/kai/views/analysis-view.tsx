@@ -16,9 +16,14 @@
 import { useState } from "react";
 import { ArrowLeft, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  SurfaceCard,
+  SurfaceCardContent,
+  SurfaceCardHeader,
+  SurfaceCardTitle,
+} from "@/components/app-ui/surfaces";
 
 import { Badge } from "@/components/ui/badge";
 
@@ -137,8 +142,8 @@ export function AnalysisView({
       <div className="px-4 pb-36 max-w-2xl mx-auto w-full space-y-6">
 
       {/* Decision Card */}
-      <Card variant="none" effect="glass" showRipple={false}>
-        <CardContent className="p-6">
+      <SurfaceCard>
+        <SurfaceCardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div
@@ -184,15 +189,15 @@ export function AnalysisView({
           </div>
 
           <p className="text-muted-foreground">{result.summary}</p>
-        </CardContent>
-      </Card>
+        </SurfaceCardContent>
+      </SurfaceCard>
 
       {/* Agent Insights Tabs */}
-      <Card variant="none" effect="glass" showRipple={false}>
-        <CardHeader className="pb-0">
-          <CardTitle className="text-base">Agent Insights</CardTitle>
-        </CardHeader>
-        <CardContent className="p-4">
+      <SurfaceCard>
+        <SurfaceCardHeader className="pb-0">
+          <SurfaceCardTitle className="text-base">Agent Insights</SurfaceCardTitle>
+        </SurfaceCardHeader>
+        <SurfaceCardContent className="p-4">
           {/* Tab Buttons */}
           <div className="flex gap-2 mb-4">
             {[
@@ -231,12 +236,12 @@ export function AnalysisView({
               </p>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </SurfaceCardContent>
+      </SurfaceCard>
 
       {/* Disclaimer */}
-      <Card variant="muted" effect="glass" showRipple={false}>
-        <CardContent className="p-4">
+      <SurfaceCard tone="warning">
+        <SurfaceCardContent className="p-4">
           <div className="flex items-start gap-3">
             <Icon
               icon={AlertTriangle}
@@ -253,13 +258,13 @@ export function AnalysisView({
               </p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </SurfaceCardContent>
+      </SurfaceCard>
 
       {/* Analyze Another Stock */}
       {onAnalyzeAnother && (
-        <Card variant="none" effect="glass" showRipple={false}>
-          <CardContent className="p-4">
+        <SurfaceCard>
+          <SurfaceCardContent className="p-4">
             <p className="text-sm font-medium mb-3">Analyze Another Stock</p>
             <form onSubmit={handleSearch} className="flex gap-2">
               <div className="flex-1 relative">
@@ -288,8 +293,8 @@ export function AnalysisView({
             </form>
 
 
-          </CardContent>
-        </Card>
+          </SurfaceCardContent>
+        </SurfaceCard>
       )}
 
       {/* Back Button */}

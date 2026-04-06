@@ -52,7 +52,7 @@ export function toInvestorMessage(
     case "VAULT_UNLOCK_FAILED":
       return "We could not unlock your Vault. Please confirm your details and try again.";
     case "VAULT_PASSKEY_ENROLL_REQUIRED":
-      return "Use your passphrase once on this device, then enable passkey for faster sign-in.";
+      return "This passkey was enrolled under an older domain. Use your passphrase once, then enable passkey again for kai.hushh.ai.";
     case "MARKET_DATA_UNAVAILABLE":
       return "Live market data is temporarily unavailable. Showing the latest available view.";
     case "ANALYSIS_UNAVAILABLE":

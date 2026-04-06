@@ -171,7 +171,7 @@ export const getColumns = ({
       } else if (decisionPresentation.label === "HOLD") {
         colorClass = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30";
       } else if (decisionPresentation.label === "WATCH") {
-        colorClass = "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30";
+        colorClass = "bg-[var(--app-card-surface-compact)] text-muted-foreground border-[color:var(--app-card-border-standard)]";
       }
 
       return (
@@ -189,9 +189,9 @@ export const getColumns = ({
       const percent = val >= 1 ? val : Math.round(val * 100);
       return (
         <div className="flex items-center gap-2">
-           <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden">
+           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-foreground/[0.08]">
              <div 
-               className="h-full bg-primary" 
+               className="h-full rounded-full bg-foreground/70" 
                style={{ width: `${percent}%` }}
              />
            </div>

@@ -1,11 +1,10 @@
 "use client";
 
 import { Children, cloneElement, isValidElement } from "react";
-import type { CSSProperties, ReactElement, ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronRight } from "lucide-react";
 import { Slot } from "radix-ui";
-import { useTheme } from "next-themes";
 
 import {
   Drawer,
@@ -23,7 +22,7 @@ import {
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
-import { Icon } from "@/lib/morphy-ux/ui";
+import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
 const INTERACTIVE_HTML_TAGS = new Set([
@@ -85,73 +84,7 @@ function containsInteractiveNode(node: ReactNode): boolean {
   });
 }
 
-export function SettingsSegmentedTabs({
-  value,
-  onValueChange,
-  options,
-  mobileColumns,
-  className,
-}: {
-  value: string;
-  onValueChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-  mobileColumns?: number;
-  className?: string;
-}) {
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
-  const resolvedDesktopColumns = Math.max(options.length, 1);
-  const resolvedMobileColumns = Math.max(mobileColumns ?? resolvedDesktopColumns, 1);
-
-  return (
-    <div
-      className={cn(
-        "relative grid w-full rounded-full p-1 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
-        isDark
-          ? "border border-white/6 bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_18px_34px_rgba(0,0,0,0.36)]"
-          : "border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_18px_34px_rgba(15,23,42,0.08)]",
-        className
-      )}
-      style={
-        {
-          "--segmented-mobile-cols": String(resolvedMobileColumns),
-          "--segmented-desktop-cols": String(resolvedDesktopColumns),
-        } as CSSProperties
-      }
-    >
-      {options.map((option) => {
-        const isActive = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={isActive}
-            data-state={isActive ? "active" : "inactive"}
-            onClick={() => {
-              if (isActive) return;
-              onValueChange(option.value);
-            }}
-            className={cn(
-              "relative isolate min-h-9 overflow-hidden rounded-full border px-4 py-2 text-center transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
-              isDark
-                ? isActive
-                  ? "z-10 border-white/8 bg-neutral-900 text-white font-semibold ring-1 ring-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_24px_rgba(0,0,0,0.24)]"
-                  : "border-transparent bg-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100"
-                : isActive
-                  ? "z-10 border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(248,250,252,0.98))] text-slate-950 font-semibold ring-1 ring-slate-300/70 shadow-[0_14px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.98),0_0_0_1px_rgba(255,255,255,0.65)]"
-                  : "border-transparent bg-transparent text-slate-500 hover:bg-white/72 hover:text-slate-900"
-            )}
-          >
-            <span className="relative z-0 block truncate text-xs font-medium tracking-tight sm:text-sm">
-              {option.label}
-            </span>
-            <MaterialRipple variant="none" effect="fade" className="z-10" />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+export const SettingsSegmentedTabs = SegmentedTabs;
 
 export function SettingsGroup({
   eyebrow,
@@ -177,8 +110,8 @@ export function SettingsGroup({
   const shell = (
     <div
       className={cn(
-        "relative isolate p-px [--settings-group-radius:20px] rounded-[var(--radius-md)] border-0 bg-card shadow-[var(--app-card-shadow-standard)]",
-        !embedded && "sm:rounded-[22px]"
+        "relative isolate p-px [--settings-group-radius:24px] rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
+        !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
       )}
     >
       {clipShell}
@@ -432,8 +365,8 @@ export function SettingsDetailPanel({
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-background">
-          <DrawerHeader className="sticky top-0 z-10 border-b border-border/90 bg-background px-4 py-3 text-left sm:px-5 sm:py-4">
+        <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]">
+          <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left sm:px-5 sm:py-4">
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
@@ -443,7 +376,7 @@ export function SettingsDetailPanel({
               </DrawerDescription>
             ) : null}
           </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-3 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-3 sm:px-4 sm:pt-4">
+          <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-3 sm:px-4 sm:pt-4">
             {children}
           </div>
         </DrawerContent>
@@ -455,10 +388,9 @@ export function SettingsDetailPanel({
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent
         side="right"
-        className="w-full border-l border-border/90 !bg-background p-0 sm:max-w-[480px]"
-        style={{ backgroundColor: "var(--background)" }}
+        className="w-full border-l border-[color:var(--app-card-border-standard)] !bg-[color:var(--app-card-surface-default-solid)] p-0 sm:max-w-[480px] sm:rounded-l-[var(--app-card-radius-feature)]"
       >
-        <SheetHeader className="sticky top-0 z-10 border-b border-border/90 bg-background px-6 py-4">
+        <SheetHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4">
           <SheetTitle className="text-base font-semibold tracking-tight">
             {title}
           </SheetTitle>
@@ -468,7 +400,9 @@ export function SettingsDetailPanel({
             </SheetDescription>
           ) : null}
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto bg-background px-4 pb-8 pt-4 sm:px-5 sm:pt-5">{children}</div>
+        <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
+          {children}
+        </div>
       </SheetContent>
     </Sheet>
   );

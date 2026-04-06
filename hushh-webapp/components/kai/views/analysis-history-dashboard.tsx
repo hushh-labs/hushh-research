@@ -141,15 +141,15 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
   return {
     bg:
       presentation.label === "WATCH"
-        ? "bg-blue-500/10"
+        ? "bg-[var(--app-card-surface-compact)]"
         : "bg-amber-500/10",
     text:
       presentation.label === "WATCH"
-        ? "text-blue-600 dark:text-blue-400"
+        ? "text-muted-foreground"
         : "text-amber-600 dark:text-amber-400",
     border:
       presentation.label === "WATCH"
-        ? "border-blue-500/30"
+        ? "border-[color:var(--app-card-border-standard)]"
         : "border-amber-500/30",
     icon: <Icon icon={Minus} size={12} />,
     label: presentation.label,
@@ -622,7 +622,11 @@ function DebateInputsCard({
                   {Math.round(snapshot?.readinessScore || 0)} / 100
                 </span>
               </div>
-              <Progress value={snapshot?.readinessScore || 0} className="mt-2 h-2" />
+              <Progress
+                value={snapshot?.readinessScore || 0}
+                className="mt-2 h-2 bg-foreground/[0.08]"
+                indicatorClassName="bg-foreground/70"
+              />
             </SurfaceInset>
 
             <DebateReadinessChart
@@ -995,9 +999,11 @@ export function AnalysisHistoryDashboard({
   if (loading) {
     return (
       <div className="w-full pb-safe">
-        <div className="flex min-h-52 items-center justify-center rounded-2xl border border-border/40 bg-card/60">
-          <HushhLoader variant="inline" label="Loading analysis history…" />
-        </div>
+        <SurfaceCard className="overflow-hidden">
+          <SurfaceCardContent className="flex min-h-52 items-center justify-center p-6">
+            <HushhLoader variant="inline" label="Loading analysis history…" />
+          </SurfaceCardContent>
+        </SurfaceCard>
       </div>
     );
   }
@@ -1036,8 +1042,12 @@ export function AnalysisHistoryDashboard({
           { label: "Hold / Watch", value: "hold" },
           { label: "Reduce", value: "reduce" },
         ]}
-        tableContainerClassName="rounded-[22px] border-border/60 bg-background/60"
-        tableClassName="min-w-[640px]"
+        initialPageSize={10}
+        pageSizeOptions={[10, 20, 30]}
+        density="compact"
+        stickyHeader
+        tableContainerClassName="w-full"
+        tableClassName="w-full min-w-[640px]"
       />
 
       {showDebateInputs ? (
