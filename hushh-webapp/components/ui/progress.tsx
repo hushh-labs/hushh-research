@@ -7,9 +7,12 @@ import { cn } from "@/lib/utils"
 
 function Progress({
   className,
+  indicatorClassName,
   value,
   ...props
-}: React.ComponentProps<typeof ProgressPrimitive.Root>) {
+}: React.ComponentProps<typeof ProgressPrimitive.Root> & {
+  indicatorClassName?: string
+}) {
   const safeValue =
     typeof value === "number" && Number.isFinite(value)
       ? Math.max(0, Math.min(100, value))
@@ -27,7 +30,7 @@ function Progress({
     >
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        className="bg-primary h-full transition-all"
+        className={cn("bg-primary h-full transition-all", indicatorClassName)}
         style={{ width: `${safeValue ?? 0}%` }}
       />
     </ProgressPrimitive.Root>

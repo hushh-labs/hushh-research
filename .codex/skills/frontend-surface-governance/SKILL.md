@@ -20,7 +20,7 @@ Use this skill for frontend structure and placement decisions before adding or m
 1. Put reusable design-system primitives in `lib/morphy-ux/*`.
 2. Put semantic app-level compositions in `components/app-ui/*`.
 3. Put route-specific or domain-specific composition in feature folders.
-4. Do not create a second shared card or surface system outside Morphy UX.
+4. Do not create a second shared card, surface, or segmented-tab system outside Morphy UX.
 
 ## Decision rubric
 
@@ -29,6 +29,7 @@ Choose `lib/morphy-ux/*` when the change owns:
 2. primitive surface shells
 3. motion helpers
 4. reusable interaction/state layers
+5. shared segmented controls
 
 Choose `components/app-ui/*` when the change owns:
 1. app shell chrome

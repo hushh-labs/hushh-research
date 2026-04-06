@@ -845,7 +845,7 @@ function TopPicksEditor({
         </div>
         <div className="hidden max-h-[62vh] overflow-auto md:block">
           <Table className="min-w-[880px]">
-            <TableHeader className="sticky top-0 z-10 bg-[var(--app-card-surface-default)]/96 backdrop-blur">
+            <TableHeader className="sticky top-0 z-10 bg-[color:var(--app-card-surface-default-solid)] backdrop-blur">
               <TableRow className="border-border/50">
                 <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Ticker</TableHead>
                 <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Company</TableHead>
@@ -1089,7 +1089,7 @@ function AvoidEditor({
         </div>
         <div className="hidden max-h-[62vh] overflow-auto md:block">
           <Table className="min-w-[920px]">
-            <TableHeader className="sticky top-0 z-10 bg-[var(--app-card-surface-default)]/96 backdrop-blur">
+            <TableHeader className="sticky top-0 z-10 bg-[color:var(--app-card-surface-default-solid)] backdrop-blur">
               <TableRow className="border-border/50">
                 <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Ticker</TableHead>
                 <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Company</TableHead>
@@ -2291,7 +2291,7 @@ export default function RiaPicksPage() {
                     pageSizeOptions={[10, 20, 30]}
                     density="compact"
                     stickyHeader
-                    tableContainerClassName="rounded-[22px] border-border/40 bg-[var(--app-card-surface-default)]/96 shadow-[var(--app-card-shadow-standard)]"
+                    tableContainerClassName="w-full"
                     tableClassName="w-full min-w-[640px]"
                   />
                 </div>
@@ -2360,7 +2360,7 @@ export default function RiaPicksPage() {
                     pageSizeOptions={[10, 20, 30]}
                     density="compact"
                     stickyHeader
-                    tableContainerClassName="rounded-[22px] border-border/40 bg-[var(--app-card-surface-default)]/96 shadow-[var(--app-card-shadow-standard)]"
+                    tableContainerClassName="w-full"
                     tableClassName="w-full min-w-[700px]"
                   />
                 </div>

@@ -26,9 +26,9 @@ const ACCENT_STYLES: Record<SectionAccent, {
     divider: "bg-border/50",
   },
   sky: {
-    eyebrow: "text-sky-700 dark:text-sky-300",
-    icon: "bg-sky-500/10 text-sky-700 dark:bg-sky-400/10 dark:text-sky-200",
-    divider: "bg-sky-300/82 dark:bg-sky-400/42",
+    eyebrow: "text-muted-foreground",
+    icon: "bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]",
+    divider: "bg-border/50",
   },
   emerald: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
@@ -46,9 +46,9 @@ const ACCENT_STYLES: Record<SectionAccent, {
     divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   violet: {
-    eyebrow: "text-violet-700 dark:text-violet-300",
-    icon: "bg-violet-500/10 text-violet-700 dark:bg-violet-400/10 dark:text-violet-200",
-    divider: "bg-violet-300/50 dark:bg-violet-400/30",
+    eyebrow: "text-muted-foreground",
+    icon: "bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]",
+    divider: "bg-border/50",
   },
 };
 
@@ -111,7 +111,7 @@ export function PageHeader({
             leading={leading}
             iconSize="lg"
             iconClassName={cn(
-              "flex w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] px-2 py-3 sm:w-12 sm:px-3",
+              "flex w-10 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-3 sm:w-12 sm:px-3",
               styles.icon
             )}
           />
@@ -189,7 +189,7 @@ export function SectionHeader({
             leading={leading}
             iconSize="md"
             iconClassName={cn(
-              "flex w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] px-2 py-2.5 sm:w-10 sm:px-2.5",
+              "flex w-9 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-2.5 sm:w-10 sm:px-2.5",
               styles.icon
             )}
           />

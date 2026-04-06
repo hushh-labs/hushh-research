@@ -55,7 +55,6 @@ A lab pattern graduates into production only after it has:
 Project skills live under `.codex/skills/`:
 
 1. `design-system`
-2. `ui-migration`
 3. `frontend-architecture`
 4. `frontend-surface-governance`
 

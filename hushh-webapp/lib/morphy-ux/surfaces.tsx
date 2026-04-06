@@ -29,30 +29,29 @@ const SURFACE_TONE_CLASSNAMES: Record<SurfaceTone, string> = {
 
 const SURFACE_ACCENT_CLASSNAMES: Record<SurfaceAccent, string> = {
   none: "",
-  sky: "ring-1 ring-sky-500/10 dark:ring-sky-400/12",
-  emerald: "ring-1 ring-emerald-500/10 dark:ring-emerald-400/12",
-  amber: "ring-1 ring-amber-500/10 dark:ring-amber-400/12",
-  violet: "ring-1 ring-violet-500/10 dark:ring-violet-400/12",
-  rose: "ring-1 ring-rose-500/10 dark:ring-rose-400/12",
+  sky: "",
+  emerald: "",
+  amber: "",
+  violet: "",
+  rose: "",
 };
 
 export const surfaceDataTableShellClassName = cn(
   "overflow-x-auto overflow-y-hidden rounded-[var(--app-card-radius-standard)] border",
-  "border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-data)]",
+  "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
   "shadow-[var(--app-card-shadow-standard)]"
 );
 
 export const surfaceInteractiveShellClassName = cn(
-  "rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)]",
-  "bg-[var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)]",
+  "rounded-[var(--app-card-radius-feature)] border border-transparent",
+  "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
   "transition-[background-color,border-color,box-shadow] duration-200 ease-out",
-  "hover:border-[color:var(--app-card-border-strong)] hover:shadow-[var(--app-card-shadow-feature)]"
+  "hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[var(--app-card-shadow-feature)]"
 );
 
 export const surfaceInsetClassName = cn(
-  "rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)]",
-  "bg-[var(--app-card-surface-compact)] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]",
-  "dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+  "rounded-[var(--app-card-radius-compact)] border border-transparent",
+  "bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]"
 );
 
 type SurfaceCardProps = Omit<CardProps, "effect" | "preset" | "showRipple" | "variant"> & {

@@ -22,8 +22,8 @@ import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { Icon } from "@/lib/morphy-ux/ui";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -800,17 +800,16 @@ function KaiAnalysisPageContent() {
               className="w-full"
             >
               <div className="flex justify-center">
-                <TabsList className="mx-auto grid h-auto w-full max-w-2xl grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
-                  <TabsTrigger value="debate" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
-                    Debate
-                  </TabsTrigger>
-                  <TabsTrigger value="summary" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
-                    Summary
-                  </TabsTrigger>
-                  <TabsTrigger value="detailed" className="min-h-11 min-w-0 px-2 py-2 text-center text-xs leading-tight whitespace-normal sm:px-3 sm:text-sm">
-                    Detailed View
-                  </TabsTrigger>
-                </TabsList>
+                <SegmentedTabs
+                  value={workspaceTab}
+                  onValueChange={handleWorkspaceTabChange}
+                  options={[
+                    { value: "debate", label: "Debate" },
+                    { value: "summary", label: "Summary" },
+                    { value: "detailed", label: "Detailed View" },
+                  ]}
+                  className="mx-auto w-full max-w-2xl"
+                />
               </div>
               <TabsContent value="debate" className="mt-4 data-[state=inactive]:hidden" forceMount>
                 {activeRunTask ? (
