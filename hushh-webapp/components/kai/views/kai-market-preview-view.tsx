@@ -28,6 +28,7 @@ import {
   SurfaceCardContent,
   SurfaceInset,
   SurfaceStack,
+  surfaceInteractiveShellClassName,
 } from "@/components/app-ui/surfaces";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
 import { MarketOverviewGrid, type MarketOverviewMetric } from "@/components/kai/cards/market-overview-grid";
@@ -390,7 +391,7 @@ function SignalGroupBlock({
   const top = symbols.slice(0, 5);
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] bg-background/50 px-3 py-2.5 dark:bg-white/5">
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5">
       <div className="min-w-0">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
         <p className="mt-1 text-sm font-semibold text-foreground">
@@ -457,7 +458,10 @@ function SpotlightFeatureTile({
         }
         assignWindowLocation(primaryHref);
       }}
-      className="group relative flex h-full min-h-[200px] flex-col justify-between overflow-hidden rounded-[var(--radius-md)] border-0 bg-card p-4 text-left shadow-[var(--app-card-shadow-standard)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-px hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 sm:p-5"
+      className={cn(
+        surfaceInteractiveShellClassName,
+        "group relative flex h-full min-h-[200px] flex-col justify-between overflow-hidden p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 sm:p-5"
+      )}
     >
       <div className="space-y-3">
         <div className="flex items-start justify-between gap-3">
@@ -1274,6 +1278,14 @@ export function KaiMarketPreviewView() {
     () => deriveSignalSupportingItems(scenarioSignal, pickRows),
     [pickRows, scenarioSignal]
   );
+  const primarySignalEvidence = useMemo(
+    () => signalEvidenceLines(scenarioSignal, effectivePayload, pickRows),
+    [effectivePayload, pickRows, scenarioSignal]
+  );
+  const primarySignalGroups = useMemo(
+    () => signalDetailGroups(scenarioSignal, effectivePayload, pickRows),
+    [effectivePayload, pickRows, scenarioSignal]
+  );
   const showConnectPortfolio = useMemo(() => {
     if (!hasPayload) return false;
     if (effectivePayload?.meta?.market_mode !== "personalized") return false;
@@ -1384,17 +1396,33 @@ export function KaiMarketPreviewView() {
             />
             {scenarioSignal ? (
               <SurfaceCard accent="violet">
-                <SurfaceCardContent className="space-y-3">
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(220px,0.85fr)]">
-                    <div className="space-y-1.5">
-                      <p className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-                        {scenarioSignal.title}
-                      </p>
-                      <p className="max-w-3xl text-sm leading-5 text-muted-foreground">
-                        {scenarioSignal.summary}
-                      </p>
-                    </div>
-                    <SurfaceInset className="space-y-2 p-3">
+                <SurfaceCardContent className="space-y-4 sm:space-y-5">
+                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.95fr)]">
+                    <SurfaceInset className="space-y-3">
+                      <div className="space-y-1.5">
+                        <p className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                          {scenarioSignal.title}
+                        </p>
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          {scenarioSignal.summary}
+                        </p>
+                      </div>
+                      {primarySignalEvidence.length ? (
+                        <div className="grid gap-2">
+                          {primarySignalEvidence.map((line) => (
+                            <p key={line} className="text-sm leading-6 text-foreground/85">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          Kai is summarizing the dominant tape posture from the active advisor lane.
+                        </p>
+                      )}
+                    </SurfaceInset>
+
+                    <SurfaceInset className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
                           className={cn(
@@ -1403,6 +1431,9 @@ export function KaiMarketPreviewView() {
                           )}
                         >
                           {signalConfidenceLabel(scenarioSignal)}
+                        </span>
+                        <span className="rounded-full border border-[color:var(--app-card-border-standard)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Primary signal
                         </span>
                       </div>
                       {visibleSignalSourceTags(scenarioSignal).length ? (
@@ -1418,22 +1449,30 @@ export function KaiMarketPreviewView() {
                           ))}
                         </div>
                       ) : null}
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-background/45 px-3 py-2.5 dark:bg-white/5">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                            Read
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">
+                            {signalHeadlineLabel(scenarioSignal)}
+                          </p>
+                        </div>
+                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-background/45 px-3 py-2.5 dark:bg-white/5">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                            Scope
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">
+                            {primarySignalGroups.length} focus blocks
+                          </p>
+                        </div>
+                      </div>
                     </SurfaceInset>
                   </div>
 
-                  {signalEvidenceLines(scenarioSignal, effectivePayload, pickRows).length ? (
-                    <SurfaceInset className="space-y-1.5 p-2.5">
-                      {signalEvidenceLines(scenarioSignal, effectivePayload, pickRows).map((line) => (
-                        <p key={line} className="text-xs leading-5 text-foreground/85">
-                          {line}
-                        </p>
-                      ))}
-                    </SurfaceInset>
-                  ) : null}
-
-                  {signalDetailGroups(scenarioSignal, effectivePayload, pickRows).length ? (
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {signalDetailGroups(scenarioSignal, effectivePayload, pickRows).map((group) => (
+                  {primarySignalGroups.length ? (
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {primarySignalGroups.map((group) => (
                         <SignalGroupBlock
                           key={`${scenarioSignal.id}:${group.label}`}
                           scopeId={scenarioSignal.id}
@@ -1445,11 +1484,11 @@ export function KaiMarketPreviewView() {
                   ) : null}
 
                   {scenarioSignals.length > 1 ? (
-                    <div className="grid gap-2 md:grid-cols-2">
+                    <div className="grid gap-3 xl:grid-cols-2">
                       {scenarioSignals.slice(1).map((signal) => (
                         <SurfaceInset
                           key={signal.id}
-                          className="space-y-2 p-2.5"
+                          className="space-y-3"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="space-y-1">
@@ -1457,9 +1496,9 @@ export function KaiMarketPreviewView() {
                                 {signalHeadlineLabel(signal)}
                               </p>
                               <p className="text-sm font-semibold tracking-tight text-foreground">
-                                {signal.title}
-                              </p>
-                            </div>
+                              {signal.title}
+                            </p>
+                          </div>
                             <span
                               className={cn(
                                 "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
@@ -1473,7 +1512,7 @@ export function KaiMarketPreviewView() {
                             {signal.summary}
                           </p>
                           {signalEvidenceLines(signal, effectivePayload, pickRows).length ? (
-                            <div className="space-y-1">
+                            <div className="space-y-1.5">
                               {signalEvidenceLines(signal, effectivePayload, pickRows).map((line) => (
                                 <p key={line} className="text-xs leading-5 text-foreground/85">
                                   {line}
@@ -1499,9 +1538,9 @@ export function KaiMarketPreviewView() {
                   ) : null}
                 </SurfaceCardContent>
               </SurfaceCard>
-            ) : (
-              <SurfaceCard tone="warning">
-                <SurfaceCardContent className="text-sm text-muted-foreground">
+              ) : (
+                <SurfaceCard tone="warning">
+                  <SurfaceCardContent className="text-sm text-muted-foreground">
                   Scenario insight is unavailable at the moment.
                 </SurfaceCardContent>
               </SurfaceCard>
@@ -1547,7 +1586,7 @@ export function KaiMarketPreviewView() {
                   </div>
                 </div>
               ) : (
-                <div className="flex min-h-[120px] items-center justify-center rounded-[var(--radius-md)] bg-card p-5 text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
+                <div className="flex min-h-[120px] items-center justify-center rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] p-5 text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
                   Spotlight names are loading right now.
                 </div>
               )}

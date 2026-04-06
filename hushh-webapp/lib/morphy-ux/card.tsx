@@ -39,27 +39,27 @@ const CARD_PRESET_SHELL_CLASSES: Record<
 > = {
   compact: {
     shell:
-      "!rounded-[20px] !border-transparent !bg-[var(--app-card-surface-compact)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[var(--app-card-radius-compact)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-compact)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "p-0",
   },
   default: {
     shell:
-      "!rounded-[22px] !border-transparent !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[var(--app-card-radius-standard)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "p-4 sm:p-6",
   },
   hero: {
     shell:
-      "!rounded-[28px] !border-transparent !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
+      "!rounded-[var(--app-card-radius-feature)] !border !border-[color:var(--app-card-border-strong)] !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
     spacing: "p-0",
   },
   surface: {
     shell:
-      "!rounded-[24px] !border-transparent !bg-[var(--app-card-surface-surface)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[var(--app-card-radius-feature)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-surface)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "min-w-0 p-0",
   },
   "surface-feature": {
     shell:
-      "!rounded-[24px] !border-transparent !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
+      "!rounded-[var(--app-card-radius-feature)] !border !border-[color:var(--app-card-border-strong)] !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
     spacing: "min-w-0 p-0",
   },
 };
@@ -139,13 +139,13 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
     };
 
     return (
-      <Comp
+        <Comp
         ref={ref}
         className={cn(
           "relative !overflow-visible transition-[box-shadow,background-color] duration-200",
           isApple
-            ? "!rounded-[var(--radius-md)] !border-0 !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]"
-            : cn("border border-solid border-transparent", presetConfig.shell),
+            ? "!rounded-[var(--app-card-radius-standard)] !border !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]"
+            : presetConfig.shell,
           "!text-card-foreground",
           isApple
             ? ""

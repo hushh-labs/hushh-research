@@ -51,6 +51,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { Search } from "lucide-react";
+import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
 
 const TABLE_SWIPE_THRESHOLD_PX = 44;
@@ -291,9 +292,9 @@ export function DataTable<TData, TValue>({
       )}
 
       {/* Table */}
-      <div className={cn("overflow-x-auto overflow-y-hidden rounded border", tableContainerClassName)}>
+      <div className={cn(surfaceDataTableShellClassName, tableContainerClassName)}>
         <Table className={tableClassName}>
-          <TableHeader className={stickyHeader ? "sticky top-0 z-10 bg-[var(--app-card-surface-default)]/96 backdrop-blur supports-[backdrop-filter]:bg-[var(--app-card-surface-default)]/88" : undefined}>
+          <TableHeader className={stickyHeader ? "sticky top-0 z-10 bg-[var(--app-card-surface-data)]/96 backdrop-blur supports-[backdrop-filter]:bg-[var(--app-card-surface-data)]/90" : undefined}>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (

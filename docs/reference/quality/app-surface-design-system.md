@@ -23,6 +23,8 @@ Profile remains the reference implementation for settings rows. This document ex
 8. Decorative glass fade is visual-only and must never add extra content spacing.
 9. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm.
 10. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks.
+11. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent.
+12. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior.
 
 ## Page Header Contract
 
@@ -94,24 +96,25 @@ Rules:
 Rules:
 
 1. Shared app cards must originate from the `surface` card preset, not page-level radius/shadow recipes.
-2. Prefer `SurfaceCard`, `ChartSurfaceCard`, `FallbackSurfaceCard`, and `SurfaceInset` from `components/app-ui/surfaces.tsx`.
-3. `Card` remains the low-level primitive. App pages should not re-specify:
+2. The primitive source of truth lives in `lib/morphy-ux/surfaces.tsx`.
+3. App pages should consume `SurfaceCard`, `ChartSurfaceCard`, `FallbackSurfaceCard`, and `SurfaceInset` through `components/app-ui/surfaces.tsx`.
+4. `Card` remains the low-level primitive. App pages should not re-specify:
    - outer radius
    - outer shadow
    - border opacity
    - glass background treatment
-4. Standard header/content spacing for app-facing cards must come from:
+5. Standard header/content spacing for app-facing cards must come from:
    - `SurfaceCardHeader`
    - `SurfaceCardContent`
    - `SurfaceCardTitle`
-5. Page files may control layout width and grid placement, but not reinvent card chrome.
-6. Nested content should use `SurfaceInset` or another semantic surface helper instead of raw `rounded-[..] border bg ...` blocks where possible.
-7. Feature/hero summary cards may use the `surface-feature` preset, but they must stay in the same visual family as default data surfaces.
-8. Standard Kai, RIA, and consent routes should use `SurfaceStack` to provide shared horizontal overscan and vertical spacing for card sections.
-9. `AppPageShell` owns route start and shared page gutter. Card breathing comes from `SurfaceStack`, not from per-page inline padding hacks.
-10. Outer app-facing surface shells must not rely on `overflow-hidden`; clipping is allowed only on inner media/chart/inset containers.
-11. Do not stack glass-inside-glass for list managers. Row-based managers should use one outer shell and flatter rows inside it.
-12. Compact density is the default for signed-in surface cards; if a route needs more space, opt into `comfortable` density explicitly instead of hardcoding larger padding at the page level.
+6. Page files may control layout width and grid placement, but not reinvent card chrome.
+7. Nested content should use `SurfaceInset` or another semantic surface helper instead of raw `rounded-[..] border bg ...` blocks where possible.
+8. Feature/hero summary cards may use the `surface-feature` preset, but they must stay in the same visual family as default data surfaces.
+9. Standard Kai, RIA, and consent routes should use `SurfaceStack` to provide shared horizontal overscan and vertical spacing for card sections.
+10. `AppPageShell` owns route start and shared page gutter. Card breathing comes from `SurfaceStack`, not from per-page inline padding hacks.
+11. Outer app-facing surface shells must not rely on `overflow-hidden`; clipping is allowed only on inner media/chart/inset containers.
+12. Do not stack glass-inside-glass for list managers. Row-based managers should use one outer shell and flatter rows inside it.
+13. Compact density is the default for signed-in surface cards; if a route needs more space, opt into `comfortable` density explicitly instead of hardcoding larger padding at the page level.
 
 ### Card Depth Model
 
@@ -122,6 +125,7 @@ Use the `Subtle Apple` depth model:
    - `--app-card-shadow-standard`
    - `--app-card-shadow-feature`
 3. Shared surface/background tokens come from:
+   - `--app-card-surface-data`
    - `--app-card-surface-compact`
    - `--app-card-surface-default`
    - `--app-card-surface-surface`
@@ -151,6 +155,13 @@ Use the `Subtle Apple` depth model:
    - actionable settings rows
    - actionable cards or list rows
 6. Do not add route-level ripple wrappers when a shared primitive already provides one.
+7. The top shell uses `components/app-ui/shell-action-surface.tsx` as its canonical interaction host.
+
+## Labs Boundary
+
+1. `app/labs`, `components/labs`, and `lib/labs` are experimental.
+2. Labs may inform production patterns, but they do not define the Kai shell baseline.
+3. A lab pattern must graduate through accessibility, mobile, token, and verification review before it moves into stock, Morphy, or app-ui ownership.
 
 ### Cache-First Vault UX
 
