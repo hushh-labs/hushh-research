@@ -6,28 +6,29 @@
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
 ## Purpose
-This contract makes shadcn primitives the canonical base and keeps Morphy as a compositional extension layer.
+This contract makes shadcn primitives the canonical base and treats Morphy UX as the standalone design-system root above that vendor layer.
 
 ## Component Layering Contract
 | Layer | Location | Ownership | Rules |
 |---|---|---|---|
 | Stock primitives | `hushh-webapp/components/ui/*` | shadcn registry | Registry-backed only. Treat as vendor code. |
-| Morphy extensions | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hushh | Must compose stock primitives; do not fork primitive internals. |
-| App reusable components | `hushh-webapp/components/app-ui/*` and feature folders | Hushh | App-specific behavior belongs here, never in `components/ui`. |
+| Morphy UX | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hushh | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
+| App reusable components | `hushh-webapp/components/app-ui/*` | Hushh | App-specific semantic composition belongs here, never in `components/ui`. |
+| Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Hushh | Compose Morphy and app-ui layers; do not create parallel primitives. |
 
 ## Canonical Policies
 1. Default to stock shadcn imports for baseline controls.
-2. Use Morphy extensions only when explicit upgrade value exists.
+2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
 4. Do not place app-specific components inside `components/ui`.
 5. Keep tabs stock-first: `@/components/ui/tabs` is the canonical primitive base.
-6. Morphy tabs, button, and card must compose stock primitives.
+6. Morphy button, card, and surface primitives must compose stock primitives.
+7. The liquid-glass lab is experimental and not part of the Kai production design contract.
 
 ## Morphy Extension Allowlist
 1. CTA-level behavior on top of stock button semantics.
-2. Premium surface treatment on top of stock card structure.
-3. Tabs interaction upgrades as a wrapper over stock tabs.
-4. Ripple, motion hooks, icon wrappers, and toast helpers.
+2. Shared card and surface treatment on top of stock card structure.
+3. Ripple, motion hooks, icon wrappers, and toast helpers.
 
 ## Import Rules
 Use stock shadcn by default:
@@ -48,7 +49,6 @@ Use Morphy only for explicit extension cases:
 ```tsx
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Card as MorphyCard } from "@/lib/morphy-ux/card";
-import { Tabs as MorphyTabs } from "@/lib/morphy-ux/ui/tabs";
 ```
 
 Forbidden:
@@ -93,6 +93,17 @@ After regeneration:
 1. Re-run all verification commands.
 2. Keep Morphy wrappers compositional and API-stable.
 3. Update docs only when rules actually change.
+
+## Repo-Owned Skills
+
+Project-local UI skills live in `.codex/skills/`:
+
+1. `design-system`
+2. `ui-migration`
+3. `frontend-architecture`
+4. `frontend-surface-governance`
+
+These skills must stay aligned with this document, `frontend-ui-architecture-map.md`, and the runtime verification commands.
 
 ## Settings Surfaces
 The Profile page is the canonical settings implementation for the app.
