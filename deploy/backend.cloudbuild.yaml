@@ -43,37 +43,41 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-        env_vars="ENVIRONMENT=${_ENVIRONMENT},GOOGLE_GENAI_USE_VERTEXAI=True,DB_HOST=${_DB_HOST},DB_PORT=${_DB_PORT},DB_NAME=${_DB_NAME},CONSENT_SSE_ENABLED=${_CONSENT_SSE_ENABLED},SYNC_REMOTE_ENABLED=${_SYNC_REMOTE_ENABLED},DEVELOPER_API_ENABLED=${_DEVELOPER_API_ENABLED},REMOTE_MCP_ENABLED=${_REMOTE_MCP_ENABLED},CORS_ALLOWED_ORIGINS=${_CORS_ALLOWED_ORIGINS},OBS_DATA_STALE_RATIO_THRESHOLD=${_OBS_DATA_STALE_RATIO_THRESHOLD}"
-        if [[ -n "${_PASSKEY_ALLOWED_RP_IDS}" ]]; then
-          env_vars="${env_vars},PASSKEY_ALLOWED_RP_IDS=${_PASSKEY_ALLOWED_RP_IDS}"
-        fi
-        if [[ -n "${_DB_UNIX_SOCKET}" ]]; then
-          env_vars="${env_vars},DB_UNIX_SOCKET=${_DB_UNIX_SOCKET}"
-        fi
-        if [[ -n "${_PLAID_ENV}" ]]; then
-          env_vars="${env_vars},PLAID_ENV=${_PLAID_ENV}"
-        fi
-        if [[ -n "${_PLAID_CLIENT_NAME}" ]]; then
-          env_vars="${env_vars},PLAID_CLIENT_NAME=${_PLAID_CLIENT_NAME}"
-        fi
-        if [[ -n "${_PLAID_COUNTRY_CODES}" ]]; then
-          env_vars="${env_vars},PLAID_COUNTRY_CODES=${_PLAID_COUNTRY_CODES}"
-        fi
-        if [[ -n "${_PLAID_WEBHOOK_URL}" ]]; then
-          env_vars="${env_vars},PLAID_WEBHOOK_URL=${_PLAID_WEBHOOK_URL}"
-        fi
-        if [[ -n "${_PLAID_REDIRECT_PATH}" ]]; then
-          env_vars="${env_vars},PLAID_REDIRECT_PATH=${_PLAID_REDIRECT_PATH}"
-        fi
-        if [[ -n "${_PLAID_REDIRECT_URI}" ]]; then
-          env_vars="${env_vars},PLAID_REDIRECT_URI=${_PLAID_REDIRECT_URI}"
-        fi
-        if [[ -n "${_PLAID_TX_HISTORY_DAYS}" ]]; then
-          env_vars="${env_vars},PLAID_TX_HISTORY_DAYS=${_PLAID_TX_HISTORY_DAYS}"
-        fi
-        if [[ -n "${_RIA_DEV_BYPASS_ENABLED}" ]]; then
-          env_vars="${env_vars},RIA_DEV_BYPASS_ENABLED=${_RIA_DEV_BYPASS_ENABLED}"
-        fi
+        env_file="$(mktemp)"
+        trap 'rm -f "${env_file}"' EXIT
+
+        append_env_var() {
+          local key="$1"
+          local value="${2-}"
+          if [[ -z "${value}" ]]; then
+            return
+          fi
+          python3 -c 'import json, sys; print(f"{sys.argv[1]}: {json.dumps(sys.argv[2])}")' \
+            "${key}" \
+            "${value}" >>"${env_file}"
+        }
+
+        append_env_var "ENVIRONMENT" "${_ENVIRONMENT}"
+        append_env_var "GOOGLE_GENAI_USE_VERTEXAI" "True"
+        append_env_var "DB_HOST" "${_DB_HOST}"
+        append_env_var "DB_PORT" "${_DB_PORT}"
+        append_env_var "DB_NAME" "${_DB_NAME}"
+        append_env_var "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
+        append_env_var "SYNC_REMOTE_ENABLED" "${_SYNC_REMOTE_ENABLED}"
+        append_env_var "DEVELOPER_API_ENABLED" "${_DEVELOPER_API_ENABLED}"
+        append_env_var "REMOTE_MCP_ENABLED" "${_REMOTE_MCP_ENABLED}"
+        append_env_var "CORS_ALLOWED_ORIGINS" "${_CORS_ALLOWED_ORIGINS}"
+        append_env_var "OBS_DATA_STALE_RATIO_THRESHOLD" "${_OBS_DATA_STALE_RATIO_THRESHOLD}"
+        append_env_var "PASSKEY_ALLOWED_RP_IDS" "${_PASSKEY_ALLOWED_RP_IDS}"
+        append_env_var "DB_UNIX_SOCKET" "${_DB_UNIX_SOCKET}"
+        append_env_var "PLAID_ENV" "${_PLAID_ENV}"
+        append_env_var "PLAID_CLIENT_NAME" "${_PLAID_CLIENT_NAME}"
+        append_env_var "PLAID_COUNTRY_CODES" "${_PLAID_COUNTRY_CODES}"
+        append_env_var "PLAID_WEBHOOK_URL" "${_PLAID_WEBHOOK_URL}"
+        append_env_var "PLAID_REDIRECT_PATH" "${_PLAID_REDIRECT_PATH}"
+        append_env_var "PLAID_REDIRECT_URI" "${_PLAID_REDIRECT_URI}"
+        append_env_var "PLAID_TX_HISTORY_DAYS" "${_PLAID_TX_HISTORY_DAYS}"
+        append_env_var "RIA_DEV_BYPASS_ENABLED" "${_RIA_DEV_BYPASS_ENABLED}"
 
         append_optional_secret() {
           local secret_name="$1"
@@ -114,7 +118,7 @@ steps:
           "--timeout=300"
           "--max-instances=10"
           "--min-instances=1"
-          "--set-env-vars=${env_vars}"
+          "--env-vars-file=${env_file}"
           "--set-secrets=${secrets}"
         )
 
