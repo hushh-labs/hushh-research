@@ -357,18 +357,21 @@ html body[data-scroll-locked] {
 
   /* ── Apple iCloud card contract ───────────────────────────────── */
   /* Shared app card contract */
-  --theme-color-boxShadow: var(--theme-color-fillSecondary);
+  --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
   --app-card-radius-compact: 20px;
   --app-card-radius-standard: 22px;
   --app-card-radius-feature: 24px;
   --app-card-surface-data: #f7f7fa;
-  --app-card-surface-compact: #fcfcfd;
-  --app-card-surface-default: var(--app-card-surface-data);
-  --app-card-surface-surface: var(--app-card-surface-data);
+  --app-card-surface-compact: #ffffff;
+  --app-card-surface-default: #ffffff;
+  --app-card-surface-default-solid: #ffffff;
+  --app-card-surface-surface: #ffffff;
   --app-card-surface-hero: #ffffff;
-  --app-card-border-standard: rgba(120, 120, 128, 0.16);
-  --app-card-border-strong: rgba(120, 120, 128, 0.26);
-  --app-card-shadow-standard: 0 11px 34px 0 var(--theme-color-fillSecondary);
+  --app-card-surface-sticky-header: #f7f7fa;
+  --app-card-surface-sticky-header-solid: #f7f7fa;
+  --app-card-border-standard: transparent;
+  --app-card-border-strong: transparent;
+  --app-card-shadow-standard: 0 11px 34px 0 rgba(120, 120, 128, 0.16);
   --app-card-shadow-feature: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
   --app-shell-surface-bg: rgba(255, 255, 255, 0.9);
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.98);
@@ -382,11 +385,13 @@ html body[data-scroll-locked] {
 /* Mobile: reduce card shadow spread — device edge is the frame */
 @media (max-width: 639px) {
   :root {
-    --app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);
-    --shadow-md: 0 8px 22px 0 var(--theme-color-fillSecondary);
+    --app-card-shadow-standard: 0 1px 3px 0 rgba(120, 120, 128, 0.1);
+    --app-card-shadow-feature: 0 10px 28px 0 rgba(120, 120, 128, 0.16);
+    --shadow-md: 0 4px 16px 0 rgba(120, 120, 128, 0.12);
   }
   .dark {
     --app-card-shadow-standard: 0 1px 3px 0 rgba(0, 0, 0, 0.35);
+    --app-card-shadow-feature: 0 6px 18px 0 rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 16px 0 rgba(0, 0, 0, 0.45);
   }
 }
@@ -686,12 +691,15 @@ html.native-ios {
   --app-card-radius-standard: 22px;
   --app-card-radius-feature: 24px;
   --app-card-surface-data: #2c2c2e;
-  --app-card-surface-compact: #303033;
-  --app-card-surface-default: var(--app-card-surface-data);
-  --app-card-surface-surface: var(--app-card-surface-data);
-  --app-card-surface-hero: #343437;
-  --app-card-border-standard: rgba(255, 255, 255, 0.08);
-  --app-card-border-strong: rgba(255, 255, 255, 0.14);
+  --app-card-surface-compact: #2c2c2e;
+  --app-card-surface-default: #2c2c2e;
+  --app-card-surface-default-solid: #2c2c2e;
+  --app-card-surface-surface: #2c2c2e;
+  --app-card-surface-hero: #3a3a3c;
+  --app-card-surface-sticky-header: #2f2f31;
+  --app-card-surface-sticky-header-solid: #2f2f31;
+  --app-card-border-standard: transparent;
+  --app-card-border-strong: transparent;
   --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
   --app-card-shadow-feature: 0 11px 34px 0 rgba(0, 0, 0, 0.75);
   --app-shell-surface-bg: rgba(38, 38, 41, 0.9);

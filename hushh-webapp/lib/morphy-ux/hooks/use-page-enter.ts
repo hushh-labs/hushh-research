@@ -43,10 +43,11 @@ function collectFadeTargets(root: HTMLElement): HTMLElement[] {
 
 export function usePageEnterAnimation(
   ref: RefObject<HTMLElement | null>,
-  opts?: { enabled?: boolean; key?: string }
+  opts?: { enabled?: boolean; key?: string; observeMutations?: boolean }
 ) {
   const enabled = opts?.enabled ?? true;
   const key = opts?.key;
+  const observeMutations = opts?.observeMutations ?? true;
 
   useIsoLayoutEffect(() => {
     if (!enabled) return;
@@ -114,36 +115,38 @@ export function usePageEnterAnimation(
         );
       }
 
-      observer = new MutationObserver((records) => {
-        const added: HTMLElement[] = [];
-        for (const record of records) {
-          for (const node of Array.from(record.addedNodes)) {
-            if (!(node instanceof HTMLElement)) continue;
-            if (node.closest("[data-no-auto-fade='true']")) continue;
-            for (const target of collectFadeTargets(node)) {
-              added.push(target);
+      if (observeMutations) {
+        observer = new MutationObserver((records) => {
+          const added: HTMLElement[] = [];
+          for (const record of records) {
+            for (const node of Array.from(record.addedNodes)) {
+              if (!(node instanceof HTMLElement)) continue;
+              if (node.closest("[data-no-auto-fade='true']")) continue;
+              for (const target of collectFadeTargets(node)) {
+                added.push(target);
+                if (added.length >= AUTO_FADE_MAX_TARGETS) break;
+              }
               if (added.length >= AUTO_FADE_MAX_TARGETS) break;
             }
             if (added.length >= AUTO_FADE_MAX_TARGETS) break;
           }
-          if (added.length >= AUTO_FADE_MAX_TARGETS) break;
-        }
-        if (added.length === 0) return;
-        gsap.fromTo(
-          added,
-          { opacity: 0, y: 6 },
-          {
-            opacity: 1,
-            y: 0,
-            duration: Math.max(0.18, pageEnterDurationMs / 1400),
-            stagger: 0.01,
-            ease: getMorphyEaseName("emphasized"),
-            overwrite: "auto",
-            clearProps: "opacity,transform",
-          }
-        );
-      });
-      observer.observe(el, { childList: true, subtree: true });
+          if (added.length === 0) return;
+          gsap.fromTo(
+            added,
+            { opacity: 0, y: 6 },
+            {
+              opacity: 1,
+              y: 0,
+              duration: Math.max(0.18, pageEnterDurationMs / 1400),
+              stagger: 0.01,
+              ease: getMorphyEaseName("emphasized"),
+              overwrite: "auto",
+              clearProps: "opacity,transform",
+            }
+          );
+        });
+        observer.observe(el, { childList: true, subtree: true });
+      }
     })();
 
     return () => {
@@ -153,5 +156,5 @@ export function usePageEnterAnimation(
       }
       revert?.();
     };
-  }, [enabled, ref, key]);
+  }, [enabled, observeMutations, ref, key]);
 }

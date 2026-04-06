@@ -89,9 +89,9 @@ function formatAsOf(value: string | null | undefined): string {
 function tierTone(tier: string | null | undefined): string {
   const normalized = String(tier || "").trim().toUpperCase();
   if (normalized === "ACE") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (normalized === "KING") return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+  if (normalized === "KING") return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
   if (normalized === "QUEEN") return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  if (normalized === "JACK") return "bg-violet-500/10 text-violet-700 dark:text-violet-300";
+  if (normalized === "JACK") return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
   return "bg-muted text-muted-foreground";
 }
 
@@ -310,7 +310,7 @@ export function RiaPicksList({
               >
                 <SelectTrigger
                   className={cn(
-                    "h-10 min-w-[176px] max-w-[240px] rounded-full border-border/80 bg-background/80 text-left",
+                    "h-10 min-w-[176px] max-w-[240px] rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
                     displaySource ? sourceStateTone(displaySource) : undefined
                   )}
                 >
@@ -334,11 +334,11 @@ export function RiaPicksList({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search symbol, company, sector, or thesis"
-                className="h-10 rounded-2xl border-border/80 bg-background/80 pl-9"
+                className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
               />
             </div>
             <Select value={tierFilter} onValueChange={setTierFilter}>
-              <SelectTrigger className="h-10 w-full rounded-2xl border-border/80 bg-background/80">
+              <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
                 <SelectValue placeholder="All tiers" />
               </SelectTrigger>
               <SelectContent>
@@ -350,7 +350,7 @@ export function RiaPicksList({
               </SelectContent>
             </Select>
             <Select value={sectorFilter} onValueChange={setSectorFilter}>
-              <SelectTrigger className="h-10 w-full rounded-2xl border-border/80 bg-background/80">
+              <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
                 <SelectValue placeholder="All sectors" />
               </SelectTrigger>
               <SelectContent>
@@ -378,7 +378,7 @@ export function RiaPicksList({
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="h-8 min-w-[112px] rounded-full border-border/70 bg-background/78 text-xs">
+                <SelectTrigger className="h-8 min-w-[112px] rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-xs shadow-[var(--shadow-xs)]">
                   <SelectValue placeholder={`${defaultPageSize} per page`} />
                 </SelectTrigger>
                 <SelectContent>
@@ -392,7 +392,7 @@ export function RiaPicksList({
               {tierFilter !== ALL_FILTER ? (
                 <Badge
                   variant="outline"
-                  className="border-border/70 bg-background/80 text-muted-foreground"
+                  className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
                 >
                   Tier {tierFilter}
                 </Badge>
@@ -400,7 +400,7 @@ export function RiaPicksList({
               {sectorFilter !== ALL_FILTER ? (
                 <Badge
                   variant="outline"
-                  className="border-border/70 bg-background/80 text-muted-foreground"
+                  className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
                 >
                   {sectorFilter}
                 </Badge>
@@ -465,7 +465,7 @@ export function RiaPicksList({
                       {row.alias_repaired ? (
                         <Badge
                           variant="outline"
-                          className="border-sky-500/16 bg-sky-500/8 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300"
+                          className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
                         >
                           Repaired
                         </Badge>
@@ -626,7 +626,7 @@ export function RiaPicksList({
                   {selectedRow.alias_repaired ? (
                     <Badge
                       variant="outline"
-                      className="border-sky-500/16 bg-sky-500/8 text-[10px] font-semibold text-sky-700 dark:text-sky-300"
+                      className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-[10px] font-semibold text-muted-foreground"
                     >
                       Symbol repaired
                     </Badge>
@@ -713,14 +713,14 @@ export function RiaPicksList({
               {selectedRow.recommendation_bias ? (
                 <Badge
                   variant="outline"
-                  className="border-sky-500/16 bg-sky-500/8 text-sky-700 dark:text-sky-300"
+                  className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
                 >
                   {formatBias(selectedRow.recommendation_bias)}
                 </Badge>
               ) : null}
               <Badge
                 variant="outline"
-                className="border-border bg-background text-muted-foreground"
+                className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
               >
                 {activeSource?.label || "Default list"}
               </Badge>

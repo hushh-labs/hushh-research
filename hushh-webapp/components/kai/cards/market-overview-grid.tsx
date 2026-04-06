@@ -40,15 +40,7 @@ export function MarketOverviewGrid({ metrics = [] }: { metrics?: MarketOverviewM
       {metrics.map((metric) => (
         <SurfaceCard
           key={metric.id || metric.label}
-          accent={
-            metric.tone === "positive"
-              ? "emerald"
-              : metric.tone === "negative"
-                ? "rose"
-                : metric.tone === "warning"
-                  ? "amber"
-                  : "sky"
-          }
+          accent="none"
         >
           <SurfaceCardContent className="flex min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
             <div className="flex items-start gap-3">
@@ -58,7 +50,7 @@ export function MarketOverviewGrid({ metrics = [] }: { metrics?: MarketOverviewM
                   metric.tone === "positive" && "border-emerald-500/18 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
                   metric.tone === "negative" && "border-rose-500/18 bg-rose-500/10 text-rose-700 dark:text-rose-300",
                   metric.tone === "warning" && "border-amber-500/18 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-                  metric.tone === "neutral" && "border-sky-500/18 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                  metric.tone === "neutral" && "border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
                 )}
               >
                 <Icon icon={metric.icon || FALLBACK_ICON[metric.tone]} size="sm" />

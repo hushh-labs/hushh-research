@@ -57,17 +57,17 @@ Rules:
 1. `components/app-ui/surfaces.tsx` is the semantic bridge, not a second primitive system.
 2. Feature folders consume these surfaces; they do not fork them.
 
-## Pattern: Tabs Base
-Use stock tabs for the canonical segmented-tab baseline.
+## Pattern: Shared Segmented Tabs
+Use the shared segmented control for app-facing rounded tab groups.
 
 ```tsx
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 ```
 
 Rules:
-1. `@/components/ui/tabs` is the canonical tabs primitive.
-2. Do not introduce a parallel Morphy tabs wrapper.
-3. Route-level tab theming should happen through shared stock variants or app-ui semantic wrappers, not feature-local forks.
+1. `@/components/ui/tabs` remains the low-level Radix/shadcn semantic primitive.
+2. `@/lib/morphy-ux/ui/segmented-tabs` is the canonical app-facing segmented visual system.
+3. Route files should not fork their own segmented shell styling.
 
 ## Pattern: App Shell Action Surface
 Use the shared shell surface for top-bar actions so ripple, contrast, badges, and focus treatment stay consistent.

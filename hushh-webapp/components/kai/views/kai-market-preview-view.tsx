@@ -176,10 +176,7 @@ function signalConfidenceTone(signal: {
   if (value >= 0.72) {
     return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   }
-  if (value >= 0.6) {
-    return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
-  }
-  return "bg-violet-500/10 text-violet-700 dark:text-violet-300";
+  return "bg-[var(--app-card-surface-compact)] text-muted-foreground";
 }
 
 function visibleSignalSourceTags(signal: KaiHomeSignal | undefined): string[] {
@@ -374,10 +371,10 @@ function signalHeadlineLabel(signal: KaiHomeSignal | undefined): string {
 
 function signalAccentClass(signal: KaiHomeSignal | undefined): string {
   const signalId = String(signal?.id || "").trim().toLowerCase();
-  if (signalId === "breadth") return "text-violet-700 dark:text-violet-300";
+  if (signalId === "breadth") return "text-muted-foreground";
   if (signalId === "volatility-regime") return "text-amber-700 dark:text-amber-300";
   if (signalId === "recommendation-consensus") return "text-emerald-700 dark:text-emerald-300";
-  return "text-sky-700 dark:text-sky-300";
+  return "text-muted-foreground";
 }
 
 function SignalGroupBlock({
@@ -446,7 +443,7 @@ function SpotlightFeatureTile({
       ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
       : decision === "REDUCE"
         ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
-        : "bg-sky-500/12 text-sky-700 dark:text-sky-300";
+        : "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
 
   return (
     <button
@@ -460,7 +457,7 @@ function SpotlightFeatureTile({
       }}
       className={cn(
         surfaceInteractiveShellClassName,
-        "group relative flex h-full min-h-[200px] flex-col justify-between overflow-hidden p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 sm:p-5"
+        "group relative flex h-full min-h-[200px] flex-col justify-between overflow-hidden rounded-[var(--app-card-radius-feature)] bg-[color:var(--app-card-surface-default-solid)] p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/10 focus-visible:ring-offset-2 sm:p-5"
       )}
     >
       <div className="space-y-3">
@@ -488,7 +485,7 @@ function SpotlightFeatureTile({
         <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">{summary}</p>
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/30 pt-3">
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] pt-3">
         <p className="line-clamp-1 min-w-0 text-xs text-muted-foreground">
           {String(row.headline || summary).trim()}
         </p>
@@ -512,7 +509,7 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   return (
     <SurfaceCard className="h-full overflow-hidden">
       <SurfaceCardContent className="flex h-full min-h-[240px] flex-col p-0">
-        <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
+        <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3">
           <div className="space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
               Latest coverage
@@ -521,7 +518,7 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
               Fast reads from the tape
             </h3>
           </div>
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/55 bg-background/85 text-muted-foreground">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]">
             <Newspaper className="h-4 w-4" />
           </span>
         </div>
@@ -538,7 +535,7 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant="outline"
-                      className="border-border/60 bg-background/80 px-2 py-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
+                      className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2 py-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
                     >
                       {row.symbol}
                     </Badge>
@@ -553,7 +550,7 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
                     {formatHeadlinePublished(row.published_at)}
                   </p>
                 </div>
-                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors duration-150 group-hover:border-border/60 group-hover:bg-background/80 group-hover:text-foreground">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors duration-150 group-hover:border-[color:var(--app-card-border-standard)] group-hover:bg-[var(--app-card-surface-compact)] group-hover:text-foreground">
                   <ExternalLink className="h-3.5 w-3.5" />
                 </span>
               </button>
@@ -1349,7 +1346,7 @@ export function KaiMarketPreviewView() {
               }
               description="A denser read of the current tape with stronger status cues and less filler."
               icon={ChartColumnIncreasing}
-              accent="sky"
+              accent="default"
               actions={
                 <Button
                   variant="none"
@@ -1392,10 +1389,10 @@ export function KaiMarketPreviewView() {
               title="Signals worth noting"
               description="A tighter read of what the current tape is implying before you move into deeper analysis."
               icon={Activity}
-              accent="violet"
+              accent="default"
             />
             {scenarioSignal ? (
-              <SurfaceCard accent="violet">
+              <SurfaceCard accent="none">
                 <SurfaceCardContent className="space-y-4 sm:space-y-5">
                   <div className="grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.95fr)]">
                     <SurfaceInset className="space-y-3">
@@ -1425,14 +1422,14 @@ export function KaiMarketPreviewView() {
                     <SurfaceInset className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
-                          className={cn(
-                            "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                            signalConfidenceTone(scenarioSignal)
-                          )}
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                              signalConfidenceTone(scenarioSignal)
+                            )}
                         >
                           {signalConfidenceLabel(scenarioSignal)}
                         </span>
-                        <span className="rounded-full border border-[color:var(--app-card-border-standard)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                           Primary signal
                         </span>
                       </div>
@@ -1442,7 +1439,7 @@ export function KaiMarketPreviewView() {
                             <Badge
                               key={tag}
                               variant="outline"
-                              className="border-border/70 bg-background/80 text-[10px] font-medium text-muted-foreground"
+                              className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-[10px] font-medium text-muted-foreground"
                             >
                               {tag}
                             </Badge>
@@ -1450,7 +1447,7 @@ export function KaiMarketPreviewView() {
                         </div>
                       ) : null}
                       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-background/45 px-3 py-2.5 dark:bg-white/5">
+                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5 shadow-[var(--shadow-xs)]">
                           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                             Read
                           </p>
@@ -1458,7 +1455,7 @@ export function KaiMarketPreviewView() {
                             {signalHeadlineLabel(scenarioSignal)}
                           </p>
                         </div>
-                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-background/45 px-3 py-2.5 dark:bg-white/5">
+                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5 shadow-[var(--shadow-xs)]">
                           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                             Scope
                           </p>
@@ -1554,7 +1551,7 @@ export function KaiMarketPreviewView() {
                 title="Themes in focus"
                 description="Compact narratives that can shape how the next debate or trade idea gets framed."
                 icon={Cpu}
-                accent="violet"
+                accent="default"
               />
               <ThemeFocusList themes={themeItems} />
             </section>
@@ -1566,7 +1563,7 @@ export function KaiMarketPreviewView() {
               title="What matters now"
               description="News and spotlight names grouped together so the freshest market context stays in one place."
               icon={Target}
-              accent="rose"
+              accent="default"
             />
             <div className="space-y-4">
               {spotlightRows.length > 0 ? (
@@ -1586,7 +1583,7 @@ export function KaiMarketPreviewView() {
                   </div>
                 </div>
               ) : (
-                <div className="flex min-h-[120px] items-center justify-center rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] p-5 text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
+                <div className="flex min-h-[120px] items-center justify-center rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
                   Spotlight names are loading right now.
                 </div>
               )}
