@@ -55,6 +55,9 @@ export * from "./gsap-init";
 // Motion presets (GSAP-based)
 export * from "./motion";
 
+// Surface primitives
+export * from "./surfaces";
+
 // Icon utilities
 export { useIconWeight } from "./icon-theme-context";
 export * from "./icon-utils";
