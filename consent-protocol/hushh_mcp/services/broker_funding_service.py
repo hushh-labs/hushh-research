@@ -526,8 +526,7 @@ class BrokerFundingService:
             os.getenv("ALPACA_CONNECT_REDIRECT_URI") or os.getenv("ALPACA_OAUTH_REDIRECT_URI")
         )
         authorize_url = _normalize_https_url(
-            os.getenv("ALPACA_CONNECT_AUTHORIZE_URL")
-            or _ALPACA_CONNECT_DEFAULT_AUTHORIZE_URL
+            os.getenv("ALPACA_CONNECT_AUTHORIZE_URL") or _ALPACA_CONNECT_DEFAULT_AUTHORIZE_URL
         )
         token_url = _normalize_https_url(
             os.getenv("ALPACA_CONNECT_TOKEN_URL") or _ALPACA_CONNECT_DEFAULT_TOKEN_URL
@@ -535,7 +534,9 @@ class BrokerFundingService:
         account_url = _normalize_https_url(
             os.getenv("ALPACA_CONNECT_ACCOUNT_URL") or _ALPACA_CONNECT_DEFAULT_ACCOUNT_URL
         )
-        raw_scopes = _clean_text(os.getenv("ALPACA_CONNECT_SCOPES"), default=_ALPACA_CONNECT_DEFAULT_SCOPES)
+        raw_scopes = _clean_text(
+            os.getenv("ALPACA_CONNECT_SCOPES"), default=_ALPACA_CONNECT_DEFAULT_SCOPES
+        )
         scopes = [scope for scope in raw_scopes.split(" ") if scope.strip()]
         if not scopes:
             scopes = _ALPACA_CONNECT_DEFAULT_SCOPES.split(" ")
@@ -2711,9 +2712,7 @@ class BrokerFundingService:
             )
             access_token = _clean_text(token_payload.get("access_token"))
             account_payload = await self._fetch_alpaca_connect_account(access_token=access_token)
-            account_id = _clean_text(
-                account_payload.get("id") or account_payload.get("account_id")
-            )
+            account_id = _clean_text(account_payload.get("id") or account_payload.get("account_id"))
             if not _looks_like_alpaca_account_id(account_id):
                 raise FundingOrchestrationError(
                     "Alpaca OAuth returned an unsupported account identifier.",
