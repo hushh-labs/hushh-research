@@ -41,6 +41,15 @@ export interface PlaidFundingAdminSearchResponse {
   items: Array<Record<string, unknown>>;
 }
 
+export interface AlpacaConnectStartResponse {
+  configured: boolean;
+  authorization_url: string;
+  state: string;
+  expires_at?: string | null;
+  redirect_uri?: string | null;
+  oauth_env?: string | null;
+}
+
 const PLAID_STATUS_CACHE_TTL_MS = 15_000;
 const DEFAULT_FUNDING_TERMS_VERSION =
   String(process.env.NEXT_PUBLIC_KAI_FUNDING_TERMS_VERSION || "").trim() || "v1";
@@ -494,6 +503,61 @@ export class PlaidPortfolioService {
       const detail = await extractPlaidError(
         response,
         "The Alpaca brokerage account could not be linked right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async startAlpacaConnect(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    redirectUri?: string | null;
+  }): Promise<AlpacaConnectStartResponse> {
+    const response = await ApiService.apiFetch("/api/kai/alpaca/connect/start", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        redirect_uri: params.redirectUri || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Alpaca login could not be started right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as AlpacaConnectStartResponse;
+  }
+
+  static async completeAlpacaConnect(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    state: string;
+    code: string;
+  }): Promise<PlaidFundingStatusResponse> {
+    const response = await ApiService.apiFetch("/api/kai/alpaca/connect/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        state: params.state,
+        code: params.code,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Alpaca login could not be completed right now."
       );
       throw new Error(detail);
     }

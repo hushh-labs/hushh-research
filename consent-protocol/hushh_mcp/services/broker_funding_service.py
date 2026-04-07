@@ -10,10 +10,12 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
+import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -45,6 +47,11 @@ _RELATIONSHIP_TERMINAL_FAILURE_STATUSES = {"REJECTED", "CANCELED", "DISABLED", "
 _ALPACA_ACCOUNT_ID_PATTERN = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
+_ALPACA_CONNECT_DEFAULT_AUTHORIZE_URL = "https://app.alpaca.markets/oauth/authorize"
+_ALPACA_CONNECT_DEFAULT_TOKEN_URL = "https://api.alpaca.markets/oauth/token"  # noqa: S105
+_ALPACA_CONNECT_DEFAULT_ACCOUNT_URL = "https://api.alpaca.markets/v2/account"
+_ALPACA_CONNECT_DEFAULT_SCOPES = "account:write trading"
+_ALPACA_CONNECT_SESSION_TTL_SECONDS_DEFAULT = 15 * 60
 
 
 class FundingOrchestrationError(RuntimeError):
@@ -187,6 +194,17 @@ def _looks_like_alpaca_account_id(value: str | None) -> bool:
     if not candidate:
         return False
     return bool(_ALPACA_ACCOUNT_ID_PATTERN.match(candidate))
+
+
+def _normalize_https_url(value: str | None) -> str | None:
+    raw = _clean_text(value)
+    if not raw:
+        return None
+    parsed = urlsplit(raw)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    path = parsed.path or "/"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def _user_facing_transfer_status(status_value: str | None) -> str:
@@ -499,6 +517,167 @@ class BrokerFundingService:
             "No Alpaca brokerage account is configured for this user. Complete Alpaca brokerage onboarding and map the account before funding transfers.",
             code="ALPACA_ACCOUNT_REQUIRED",
             status_code=422,
+        )
+
+    def _alpaca_connect_config(self) -> dict[str, Any]:
+        client_id = _clean_text(os.getenv("ALPACA_CONNECT_CLIENT_ID"))
+        client_secret = _clean_text(os.getenv("ALPACA_CONNECT_CLIENT_SECRET"))
+        redirect_uri = _normalize_https_url(
+            os.getenv("ALPACA_CONNECT_REDIRECT_URI") or os.getenv("ALPACA_OAUTH_REDIRECT_URI")
+        )
+        authorize_url = _normalize_https_url(
+            os.getenv("ALPACA_CONNECT_AUTHORIZE_URL")
+            or _ALPACA_CONNECT_DEFAULT_AUTHORIZE_URL
+        )
+        token_url = _normalize_https_url(
+            os.getenv("ALPACA_CONNECT_TOKEN_URL") or _ALPACA_CONNECT_DEFAULT_TOKEN_URL
+        )
+        account_url = _normalize_https_url(
+            os.getenv("ALPACA_CONNECT_ACCOUNT_URL") or _ALPACA_CONNECT_DEFAULT_ACCOUNT_URL
+        )
+        raw_scopes = _clean_text(os.getenv("ALPACA_CONNECT_SCOPES"), default=_ALPACA_CONNECT_DEFAULT_SCOPES)
+        scopes = [scope for scope in raw_scopes.split(" ") if scope.strip()]
+        if not scopes:
+            scopes = _ALPACA_CONNECT_DEFAULT_SCOPES.split(" ")
+        try:
+            ttl_seconds = int(
+                os.getenv(
+                    "ALPACA_CONNECT_STATE_TTL_SECONDS",
+                    str(_ALPACA_CONNECT_SESSION_TTL_SECONDS_DEFAULT),
+                )
+                or str(_ALPACA_CONNECT_SESSION_TTL_SECONDS_DEFAULT)
+            )
+        except Exception:
+            ttl_seconds = _ALPACA_CONNECT_SESSION_TTL_SECONDS_DEFAULT
+        ttl_seconds = max(120, min(ttl_seconds, 24 * 3600))
+        oauth_env = _clean_text(os.getenv("ALPACA_CONNECT_ENV")).lower()
+        if oauth_env not in {"paper", "live"}:
+            oauth_env = "live" if self.alpaca_config.environment == "production" else "paper"
+
+        return {
+            "configured": bool(
+                client_id and client_secret and redirect_uri and authorize_url and token_url
+            ),
+            "missing_required": [
+                *([] if client_id else ["ALPACA_CONNECT_CLIENT_ID"]),
+                *([] if client_secret else ["ALPACA_CONNECT_CLIENT_SECRET"]),
+                *(
+                    []
+                    if redirect_uri
+                    else ["ALPACA_CONNECT_REDIRECT_URI (or ALPACA_OAUTH_REDIRECT_URI)"]
+                ),
+            ],
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "authorize_url": authorize_url,
+            "token_url": token_url,
+            "account_url": account_url,
+            "scopes": scopes,
+            "ttl_seconds": ttl_seconds,
+            "oauth_env": oauth_env,
+        }
+
+    def _create_alpaca_connect_session(
+        self,
+        *,
+        user_id: str,
+        redirect_uri: str,
+        ttl_seconds: int,
+    ) -> dict[str, Any]:
+        session_id = f"alpaca_connect_{uuid.uuid4().hex}"
+        state = f"alpaca_state_{uuid.uuid4().hex}"
+        expires_at = (_utcnow() + timedelta(seconds=ttl_seconds)).isoformat().replace("+00:00", "Z")
+        self.db.execute_raw(
+            """
+            INSERT INTO kai_funding_alpaca_connect_sessions (
+                session_id,
+                user_id,
+                state,
+                redirect_uri,
+                status,
+                metadata_json,
+                expires_at,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :session_id,
+                :user_id,
+                :state,
+                :redirect_uri,
+                'pending',
+                CAST(:metadata_json AS JSONB),
+                CAST(:expires_at AS TIMESTAMPTZ),
+                NOW(),
+                NOW()
+            )
+            """,
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+                "state": state,
+                "redirect_uri": redirect_uri,
+                "metadata_json": json.dumps({}),
+                "expires_at": expires_at,
+            },
+        )
+        return {
+            "session_id": session_id,
+            "state": state,
+            "redirect_uri": redirect_uri,
+            "expires_at": expires_at,
+        }
+
+    def _get_alpaca_connect_session(
+        self,
+        *,
+        user_id: str,
+        state: str,
+    ) -> dict[str, Any] | None:
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_alpaca_connect_sessions
+            WHERE user_id = :user_id
+              AND state = :state
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {
+                "user_id": user_id,
+                "state": state,
+            },
+        )
+        return result.data[0] if result.data else None
+
+    def _mark_alpaca_connect_session(
+        self,
+        *,
+        session_id: str,
+        status: str,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.db.execute_raw(
+            """
+            UPDATE kai_funding_alpaca_connect_sessions
+            SET status = :status,
+                consumed_at = CASE WHEN :status IN ('completed', 'failed', 'expired', 'replayed') THEN NOW() ELSE consumed_at END,
+                error_code = :error_code,
+                error_message = :error_message,
+                metadata_json = CAST(:metadata_json AS JSONB),
+                updated_at = NOW()
+            WHERE session_id = :session_id
+            """,
+            {
+                "session_id": session_id,
+                "status": status,
+                "error_code": _clean_text(error_code) or None,
+                "error_message": _clean_text(error_message) or None,
+                "metadata_json": json.dumps(metadata or {}),
+            },
         )
 
     def _fetch_funding_item_row(self, *, user_id: str, item_id: str) -> dict[str, Any] | None:
@@ -1912,29 +2091,39 @@ class BrokerFundingService:
             metadata_payload.get("alpaca_account_id")
         )
         relationship_payload: dict[str, Any] | None = None
+        relationship_pending_reason: dict[str, Any] | None = None
 
         if self.alpaca_config.configured:
-            alpaca_account = self._resolve_alpaca_account_id(
-                user_id=user_id,
-                requested_account_id=resolved_alpaca_account_id,
-            )
-            self._upsert_brokerage_account(
-                user_id=user_id,
-                alpaca_account_id=alpaca_account,
-                set_as_default=True,
-            )
-            relationship = await self._create_or_refresh_relationship(
-                user_id=user_id,
-                alpaca_account_id=alpaca_account,
-                item_id=item_id,
-                account_id=default_account_id,
-                access_token=access_token,
-                auto_poll=True,
-            )
-            relationship_payload = {
-                "relationship_id": _clean_text(relationship.get("relationship_id")) or None,
-                "status": _clean_text(relationship.get("status")) or None,
-            }
+            try:
+                alpaca_account = self._resolve_alpaca_account_id(
+                    user_id=user_id,
+                    requested_account_id=resolved_alpaca_account_id,
+                )
+            except FundingOrchestrationError as exc:
+                if exc.code not in {"ALPACA_ACCOUNT_REQUIRED", "ALPACA_ACCOUNT_NOT_MAPPED"}:
+                    raise
+                relationship_pending_reason = {
+                    "code": exc.code,
+                    "message": str(exc),
+                }
+            else:
+                self._upsert_brokerage_account(
+                    user_id=user_id,
+                    alpaca_account_id=alpaca_account,
+                    set_as_default=True,
+                )
+                relationship = await self._create_or_refresh_relationship(
+                    user_id=user_id,
+                    alpaca_account_id=alpaca_account,
+                    item_id=item_id,
+                    account_id=default_account_id,
+                    access_token=access_token,
+                    auto_poll=True,
+                )
+                relationship_payload = {
+                    "relationship_id": _clean_text(relationship.get("relationship_id")) or None,
+                    "status": _clean_text(relationship.get("status")) or None,
+                }
 
         status_payload = await self.get_funding_status(user_id=user_id)
         status_payload["consent_record"] = {
@@ -1944,6 +2133,8 @@ class BrokerFundingService:
         }
         if relationship_payload:
             status_payload["ach_relationship"] = relationship_payload
+        if relationship_pending_reason:
+            status_payload["ach_relationship_pending_reason"] = relationship_pending_reason
         return status_payload
 
     async def get_funding_status(self, *, user_id: str) -> dict[str, Any]:
@@ -2266,6 +2457,315 @@ class BrokerFundingService:
             },
         )
         return await self.get_funding_status(user_id=user_id)
+
+    async def create_alpaca_connect_link(
+        self,
+        *,
+        user_id: str,
+        redirect_uri: str | None = None,
+    ) -> dict[str, Any]:
+        config = self._alpaca_connect_config()
+        if not config["configured"]:
+            missing = ", ".join(config.get("missing_required") or [])
+            hint = f" Missing: {missing}." if missing else ""
+            raise FundingOrchestrationError(
+                f"Alpaca Connect OAuth is not configured on this backend.{hint}",
+                code="ALPACA_CONNECT_NOT_CONFIGURED",
+                status_code=503,
+            )
+
+        requested_redirect_uri = _normalize_https_url(redirect_uri)
+        resolved_redirect_uri = requested_redirect_uri or config["redirect_uri"]
+        if not resolved_redirect_uri:
+            raise FundingOrchestrationError(
+                "Alpaca Connect redirect URI must use HTTPS.",
+                code="ALPACA_CONNECT_REDIRECT_URI_REQUIRED",
+                status_code=422,
+            )
+        if requested_redirect_uri and requested_redirect_uri != config["redirect_uri"]:
+            raise FundingOrchestrationError(
+                "Alpaca Connect redirect URI does not match the configured callback URL.",
+                code="ALPACA_CONNECT_REDIRECT_URI_MISMATCH",
+                status_code=422,
+                details={
+                    "configured_redirect_uri": config["redirect_uri"],
+                    "requested_redirect_uri": requested_redirect_uri,
+                },
+            )
+
+        session = self._create_alpaca_connect_session(
+            user_id=user_id,
+            redirect_uri=resolved_redirect_uri,
+            ttl_seconds=int(config["ttl_seconds"]),
+        )
+        params = {
+            "response_type": "code",
+            "client_id": str(config["client_id"]),
+            "redirect_uri": resolved_redirect_uri,
+            "scope": " ".join(config["scopes"]),
+            "state": session["state"],
+            "env": str(config["oauth_env"]),
+        }
+        authorize_url = f"{config['authorize_url']}?{urlencode(params)}"
+
+        return {
+            "configured": True,
+            "authorization_url": authorize_url,
+            "state": session["state"],
+            "expires_at": session["expires_at"],
+            "redirect_uri": resolved_redirect_uri,
+            "oauth_env": config["oauth_env"],
+        }
+
+    async def _exchange_alpaca_connect_code(
+        self,
+        *,
+        code: str,
+        redirect_uri: str,
+    ) -> dict[str, Any]:
+        config = self._alpaca_connect_config()
+        if not config["configured"]:
+            missing = ", ".join(config.get("missing_required") or [])
+            hint = f" Missing: {missing}." if missing else ""
+            raise FundingOrchestrationError(
+                f"Alpaca Connect OAuth is not configured on this backend.{hint}",
+                code="ALPACA_CONNECT_NOT_CONFIGURED",
+                status_code=503,
+            )
+
+        form_payload = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": config["client_id"],
+            "client_secret": config["client_secret"],
+        }
+        basic_auth = base64.b64encode(
+            f"{config['client_id']}:{config['client_secret']}".encode("utf-8")
+        ).decode("utf-8")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": f"Basic {basic_auth}",
+        }
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=6.0)) as client:
+            response = await client.post(config["token_url"], data=form_payload, headers=headers)
+            if response.status_code >= 400:
+                # Some deployments expect client credentials in the form body only.
+                fallback_headers = {
+                    "Accept": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                }
+                response = await client.post(
+                    config["token_url"],
+                    data=form_payload,
+                    headers=fallback_headers,
+                )
+
+        token_payload: dict[str, Any]
+        try:
+            parsed = response.json()
+            token_payload = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            token_payload = {}
+
+        if response.status_code >= 400:
+            raise FundingOrchestrationError(
+                _clean_text(token_payload.get("error_description"))
+                or _clean_text(token_payload.get("message"))
+                or "Alpaca OAuth code exchange failed.",
+                code="ALPACA_CONNECT_TOKEN_EXCHANGE_FAILED",
+                status_code=502,
+                details={
+                    "status_code": response.status_code,
+                    "error": _clean_text(token_payload.get("error")) or None,
+                },
+            )
+
+        access_token = _clean_text(token_payload.get("access_token"))
+        if not access_token:
+            raise FundingOrchestrationError(
+                "Alpaca OAuth response did not include access_token.",
+                code="ALPACA_CONNECT_ACCESS_TOKEN_MISSING",
+                status_code=502,
+            )
+        return token_payload
+
+    async def _fetch_alpaca_connect_account(
+        self,
+        *,
+        access_token: str,
+    ) -> dict[str, Any]:
+        config = self._alpaca_connect_config()
+        account_url = _clean_text(config.get("account_url"))
+        if not account_url:
+            raise FundingOrchestrationError(
+                "Alpaca OAuth account endpoint is not configured.",
+                code="ALPACA_CONNECT_ACCOUNT_ENDPOINT_MISSING",
+                status_code=500,
+            )
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=6.0)) as client:
+            response = await client.get(
+                account_url,
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {access_token}",
+                },
+            )
+
+        payload: dict[str, Any]
+        try:
+            parsed = response.json()
+            payload = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            payload = {}
+
+        if response.status_code >= 400:
+            raise FundingOrchestrationError(
+                _clean_text(payload.get("message")) or "Could not fetch Alpaca account profile.",
+                code="ALPACA_CONNECT_ACCOUNT_FETCH_FAILED",
+                status_code=502,
+                details={
+                    "status_code": response.status_code,
+                },
+            )
+        return payload
+
+    async def complete_alpaca_connect_link(
+        self,
+        *,
+        user_id: str,
+        state: str,
+        code: str,
+    ) -> dict[str, Any]:
+        cleaned_state = _clean_text(state)
+        cleaned_code = _clean_text(code)
+        if not cleaned_state or not cleaned_code:
+            raise FundingOrchestrationError(
+                "Alpaca OAuth callback requires both state and code.",
+                code="ALPACA_CONNECT_CALLBACK_INVALID",
+                status_code=422,
+            )
+
+        session = self._get_alpaca_connect_session(user_id=user_id, state=cleaned_state)
+        if session is None:
+            raise FundingOrchestrationError(
+                "No active Alpaca OAuth session was found.",
+                code="ALPACA_CONNECT_SESSION_NOT_FOUND",
+                status_code=404,
+            )
+
+        session_id = _clean_text(session.get("session_id"))
+        status_value = _clean_text(session.get("status")).lower()
+        if status_value in {"completed", "failed", "expired", "replayed"}:
+            if session_id:
+                self._mark_alpaca_connect_session(
+                    session_id=session_id,
+                    status="replayed",
+                    error_code="ALPACA_CONNECT_STATE_REPLAY",
+                    error_message="OAuth state has already been consumed.",
+                )
+            raise FundingOrchestrationError(
+                "Alpaca OAuth state has already been used.",
+                code="ALPACA_CONNECT_STATE_REPLAY",
+                status_code=409,
+            )
+
+        expires_at_text = _clean_text(session.get("expires_at"))
+        if expires_at_text:
+            try:
+                expires_at = datetime.fromisoformat(expires_at_text.replace("Z", "+00:00"))
+                if expires_at < _utcnow():
+                    if session_id:
+                        self._mark_alpaca_connect_session(
+                            session_id=session_id,
+                            status="expired",
+                            error_code="ALPACA_CONNECT_STATE_EXPIRED",
+                            error_message="OAuth state expired before callback completion.",
+                        )
+                    raise FundingOrchestrationError(
+                        "Alpaca OAuth session has expired. Start again.",
+                        code="ALPACA_CONNECT_STATE_EXPIRED",
+                        status_code=409,
+                    )
+            except FundingOrchestrationError:
+                raise
+            except Exception:
+                pass
+
+        redirect_uri = _clean_text(session.get("redirect_uri"))
+        if not _normalize_https_url(redirect_uri):
+            raise FundingOrchestrationError(
+                "Stored Alpaca OAuth redirect URI is invalid.",
+                code="ALPACA_CONNECT_REDIRECT_URI_INVALID",
+                status_code=500,
+            )
+
+        account_id = ""
+        try:
+            token_payload = await self._exchange_alpaca_connect_code(
+                code=cleaned_code,
+                redirect_uri=redirect_uri,
+            )
+            access_token = _clean_text(token_payload.get("access_token"))
+            account_payload = await self._fetch_alpaca_connect_account(access_token=access_token)
+            account_id = _clean_text(
+                account_payload.get("id") or account_payload.get("account_id")
+            )
+            if not _looks_like_alpaca_account_id(account_id):
+                raise FundingOrchestrationError(
+                    "Alpaca OAuth returned an unsupported account identifier.",
+                    code="ALPACA_CONNECT_ACCOUNT_ID_INVALID",
+                    status_code=422,
+                    details={"account_id": account_id or None},
+                )
+
+            self._upsert_brokerage_account(
+                user_id=user_id,
+                alpaca_account_id=account_id,
+                set_as_default=True,
+                metadata={
+                    "linked_via": "alpaca_oauth",
+                    "linked_at": _utcnow_iso(),
+                    "alpaca_oauth_env": self._alpaca_connect_config().get("oauth_env"),
+                    "account_status": _clean_text(account_payload.get("status")) or None,
+                    "account_currency": _clean_text(account_payload.get("currency")) or None,
+                    "account_number_last4": _clean_text(account_payload.get("account_number"))[-4:]
+                    or None,
+                },
+            )
+            if session_id:
+                self._mark_alpaca_connect_session(
+                    session_id=session_id,
+                    status="completed",
+                    metadata={
+                        "alpaca_account_id": account_id,
+                    },
+                )
+        except FundingOrchestrationError:
+            raise
+        except Exception as exc:
+            if session_id:
+                self._mark_alpaca_connect_session(
+                    session_id=session_id,
+                    status="failed",
+                    error_code="ALPACA_CONNECT_COMPLETE_FAILED",
+                    error_message=str(exc),
+                )
+            raise FundingOrchestrationError(
+                "Alpaca login could not be completed.",
+                code="ALPACA_CONNECT_COMPLETE_FAILED",
+                status_code=502,
+            ) from exc
+
+        status_payload = await self.get_funding_status(user_id=user_id)
+        status_payload["alpaca_connect"] = {
+            "linked": True,
+            "alpaca_account_id": account_id,
+        }
+        return status_payload
 
     async def create_transfer(
         self,

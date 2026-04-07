@@ -2,6 +2,7 @@ import pytest
 
 from api.routes.kai.plaid import PlaidFundingBrokerageAccountRequest, _to_http_exception
 from hushh_mcp.integrations.alpaca import AlpacaApiError, AlpacaBrokerRuntimeConfig
+from hushh_mcp.integrations.plaid import PlaidRuntimeConfig
 from hushh_mcp.services.broker_funding_service import (
     BrokerFundingService,
     FundingOrchestrationError,
@@ -169,3 +170,126 @@ def test_replace_funding_accounts_skips_default_reset_when_no_default():
         "UPDATE kai_funding_plaid_accounts" in sql and "SET is_default = FALSE" in sql
         for sql in sql_calls
     )
+
+
+@pytest.mark.asyncio
+async def test_exchange_funding_public_token_defers_relationship_when_alpaca_unmapped(monkeypatch):
+    service = BrokerFundingService()
+    service._plaid_runtime_config = PlaidRuntimeConfig(
+        environment="sandbox",
+        base_url="https://sandbox.plaid.com",
+        client_id="plaid_client",
+        secret="plaid_secret",  # noqa: S106 - test fixture value only
+        country_codes=["US"],
+        language="en",
+        client_name="Hushh Kai",
+        webhook_url=None,
+        frontend_url="https://kai.hushh.ai",
+        redirect_path="/kai/plaid/oauth/return",
+        redirect_uri="https://kai.hushh.ai/kai/plaid/oauth/return",
+        tx_history_days=730,
+        manual_entry_enabled=False,
+        crypto_wallet_enabled=False,
+    )
+    service._alpaca_runtime_config = AlpacaBrokerRuntimeConfig(
+        environment="sandbox",
+        base_url="https://broker-api.sandbox.alpaca.markets",
+        auth_header="Basic test",
+        default_account_id=None,
+    )
+
+    async def _fake_plaid_post(path: str, payload: dict):
+        if path == "/item/public_token/exchange":
+            return {"item_id": "item_123", "access_token": "access_123"}
+        if path == "/accounts/get":
+            return {
+                "accounts": [
+                    {
+                        "account_id": "acc_1",
+                        "type": "depository",
+                        "subtype": "checking",
+                        "name": "Checking",
+                        "official_name": "Checking",
+                        "mask": "0000",
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected Plaid path: {path}")
+
+    monkeypatch.setattr(service, "_plaid_post", _fake_plaid_post)
+    monkeypatch.setattr(service, "_store_funding_item", lambda **_: None)
+    monkeypatch.setattr(service, "_replace_funding_accounts", lambda **_: None)
+    monkeypatch.setattr(
+        service,
+        "_record_consent",
+        lambda **_: {
+            "consent_id": "consent_123",
+            "terms_version": "v1",
+            "consented_at": "2026-04-07T00:00:00Z",
+        },
+    )
+
+    def _raise_unmapped(*, user_id: str, requested_account_id: str | None):
+        raise FundingOrchestrationError(
+            "No Alpaca brokerage account is configured for this user.",
+            code="ALPACA_ACCOUNT_REQUIRED",
+            status_code=422,
+        )
+
+    monkeypatch.setattr(service, "_resolve_alpaca_account_id", _raise_unmapped)
+
+    async def _fake_status(*, user_id: str):
+        return {
+            "user_id": user_id,
+            "items": [],
+            "brokerage_accounts": [],
+            "latest_transfers": [],
+            "aggregate": {"item_count": 0, "account_count": 0, "institution_names": []},
+        }
+
+    monkeypatch.setattr(service, "get_funding_status", _fake_status)
+
+    payload = await service.exchange_funding_public_token(
+        user_id="user_123",
+        public_token="public_123",  # noqa: S106 - test fixture value only
+        metadata={},
+    )
+    assert payload["consent_record"]["consent_id"] == "consent_123"
+    assert payload["ach_relationship_pending_reason"]["code"] == "ALPACA_ACCOUNT_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_create_alpaca_connect_link_returns_authorization_url(monkeypatch):
+    service = BrokerFundingService()
+    monkeypatch.setattr(
+        service,
+        "_alpaca_connect_config",
+        lambda: {
+            "configured": True,
+            "client_id": "alpaca_client",
+            "client_secret": "alpaca_secret",
+            "redirect_uri": "https://kai.hushh.ai/kai/alpaca/oauth/return",
+            "authorize_url": "https://app.alpaca.markets/oauth/authorize",
+            "token_url": "https://api.alpaca.markets/oauth/token",
+            "account_url": "https://api.alpaca.markets/v2/account",
+            "scopes": ["account:write", "trading"],
+            "ttl_seconds": 900,
+            "oauth_env": "paper",
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_create_alpaca_connect_session",
+        lambda **_: {
+            "session_id": "alpaca_connect_123",
+            "state": "alpaca_state_123",
+            "redirect_uri": "https://kai.hushh.ai/kai/alpaca/oauth/return",
+            "expires_at": "2026-04-07T00:15:00Z",
+        },
+    )
+
+    payload = await service.create_alpaca_connect_link(user_id="user_123")
+    assert payload["configured"] is True
+    assert payload["state"] == "alpaca_state_123"
+    assert "https://app.alpaca.markets/oauth/authorize?" in payload["authorization_url"]
+    assert "client_id=alpaca_client" in payload["authorization_url"]

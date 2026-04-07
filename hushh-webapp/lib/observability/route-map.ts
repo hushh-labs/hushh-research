@@ -167,6 +167,14 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/plaid/funding/reconcile",
   },
   {
+    regex: /^\/api\/kai\/alpaca\/connect\/start(?:\?.*)?$/i,
+    template: "/api/kai/alpaca/connect/start",
+  },
+  {
+    regex: /^\/api\/kai\/alpaca\/connect\/complete(?:\?.*)?$/i,
+    template: "/api/kai/alpaca/connect/complete",
+  },
+  {
     regex: /^\/api\/kai\/plaid\/transfers\/create(?:\?.*)?$/i,
     template: "/api/kai/plaid/transfers/create",
   },

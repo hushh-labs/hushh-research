@@ -112,6 +112,17 @@ class PlaidFundingEscalationRequest(BaseModel):
     created_by: str | None = None
 
 
+class AlpacaConnectStartRequest(BaseModel):
+    user_id: str
+    redirect_uri: str | None = None
+
+
+class AlpacaConnectCompleteRequest(BaseModel):
+    user_id: str
+    state: str = Field(min_length=1)
+    code: str = Field(min_length=1)
+
+
 def _verify_user(token_data: dict[str, Any], requested_user_id: str) -> None:
     if token_data["user_id"] != requested_user_id:
         raise HTTPException(
@@ -368,6 +379,37 @@ async def set_plaid_funding_brokerage_account(
             request.user_id,
             exc,
         )
+
+
+@router.post("/alpaca/connect/start")
+async def start_alpaca_connect(
+    request: AlpacaConnectStartRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_broker_funding_service().create_alpaca_connect_link(
+            user_id=request.user_id,
+            redirect_uri=request.redirect_uri,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.alpaca.connect_start_failed", request.user_id, exc)
+
+
+@router.post("/alpaca/connect/complete")
+async def complete_alpaca_connect(
+    request: AlpacaConnectCompleteRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_broker_funding_service().complete_alpaca_connect_link(
+            user_id=request.user_id,
+            state=request.state,
+            code=request.code,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.alpaca.connect_complete_failed", request.user_id, exc)
 
 
 @router.post("/plaid/transfers/create")

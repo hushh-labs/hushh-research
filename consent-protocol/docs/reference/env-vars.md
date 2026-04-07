@@ -72,6 +72,15 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `ALPACA_BROKER_KEY_ID` / `APCA_API_KEY_ID` / `ALPACA_API_KEY` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Alpaca API key ID for Basic auth generation. |
 | `ALPACA_BROKER_SECRET` / `APCA_API_SECRET_KEY` / `ALPACA_API_SECRET` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Alpaca API secret for Basic auth generation. |
 | `ALPACA_DEFAULT_ACCOUNT_ID` | `hushh_mcp/integrations/alpaca/config.py` | Recommended | Default Alpaca account ID for funding when user-specific mapping is absent. |
+| `ALPACA_CONNECT_CLIENT_ID` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client ID for user login flow. |
+| `ALPACA_CONNECT_CLIENT_SECRET` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client secret. |
+| `ALPACA_CONNECT_REDIRECT_URI` / `ALPACA_OAUTH_REDIRECT_URI` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | HTTPS callback URI for Alpaca OAuth code exchange. |
+| `ALPACA_CONNECT_AUTHORIZE_URL` | `hushh_mcp/services/broker_funding_service.py` | No | Override OAuth authorize endpoint. Default `https://app.alpaca.markets/oauth/authorize`. |
+| `ALPACA_CONNECT_TOKEN_URL` | `hushh_mcp/services/broker_funding_service.py` | No | Override OAuth token endpoint. Default `https://api.alpaca.markets/oauth/token`. |
+| `ALPACA_CONNECT_ACCOUNT_URL` | `hushh_mcp/services/broker_funding_service.py` | No | OAuth Bearer account profile endpoint. Default `https://api.alpaca.markets/v2/account`. |
+| `ALPACA_CONNECT_SCOPES` | `hushh_mcp/services/broker_funding_service.py` | No | Space-delimited OAuth scopes for authorize URL. Default `account:write trading`. |
+| `ALPACA_CONNECT_ENV` | `hushh_mcp/services/broker_funding_service.py` | No | Authorize URL env hint (`paper` or `live`). Defaults by Alpaca runtime env. |
+| `ALPACA_CONNECT_STATE_TTL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | OAuth state/session TTL in seconds. Default `900`. |
 | `FUNDING_SECRET_ENCRYPTION_KEY` | `hushh_mcp/services/broker_funding_service.py` | Recommended | Encryption key for stored Plaid access tokens and processor tokens in funding tables. |
 | `FUNDING_ACH_RELATIONSHIP_POLL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Max seconds to poll Alpaca ACH relationship approval. Default `15`. |
 | `FUNDING_ACH_RELATIONSHIP_POLL_INTERVAL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Poll interval for ACH approval status. Default `2`. |

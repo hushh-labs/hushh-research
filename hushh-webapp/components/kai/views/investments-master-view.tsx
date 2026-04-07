@@ -47,6 +47,7 @@ import {
   clearPlaidOAuthResumeSession,
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
+import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
@@ -480,9 +481,40 @@ export function InvestmentsMasterView({
       await reload();
       toast.success("Brokerage funding destination is ready.");
     } catch (error) {
-      toast.error("Could not prepare brokerage funding destination.", {
-        description: error instanceof Error ? error.message : "Please try again.",
-      });
+      const message = error instanceof Error ? error.message : "Please try again.";
+      const shouldStartOAuth =
+        /No Alpaca brokerage account is configured/i.test(message) ||
+        /ALPACA_ACCOUNT_REQUIRED/i.test(message);
+
+      if (!shouldStartOAuth) {
+        toast.error("Could not prepare brokerage funding destination.", {
+          description: message,
+        });
+        return;
+      }
+
+      try {
+        const connect = await PlaidPortfolioService.startAlpacaConnect({
+          userId,
+          vaultOwnerToken,
+        });
+        if (!connect.authorization_url || !connect.state) {
+          throw new Error("Alpaca OAuth is not configured for this environment.");
+        }
+        saveAlpacaOAuthResumeSession({
+          version: 1,
+          userId,
+          state: connect.state,
+          returnPath: ROUTES.KAI_INVESTMENTS,
+          startedAt: new Date().toISOString(),
+        });
+        window.location.assign(connect.authorization_url);
+      } catch (oauthError) {
+        toast.error("Could not start Alpaca login.", {
+          description:
+            oauthError instanceof Error ? oauthError.message : "Please try again.",
+        });
+      }
     }
   }, [reload, userId, vaultOwnerToken]);
 
