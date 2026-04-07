@@ -490,8 +490,11 @@ export function PlaidFundingTransfersSection({
     fundingAccounts.find((account) => account.is_selected_funding_account)?.account_id ||
     fundingAccounts[0]?.account_id ||
     "";
-  const mappedBrokerageAccounts = (fundingStatus?.brokerage_accounts ||
-    []) as PlaidFundingBrokerageAccountSummary[];
+  const mappedBrokerageAccounts = useMemo(
+    () =>
+      ((fundingStatus?.brokerage_accounts || []) as PlaidFundingBrokerageAccountSummary[]),
+    [fundingStatus?.brokerage_accounts]
+  );
   const brokerageAccountOptions = useMemo(
     () =>
       mappedBrokerageAccounts
@@ -537,7 +540,11 @@ export function PlaidFundingTransfersSection({
   const [isSearchingSupport, setIsSearchingSupport] = useState<boolean>(false);
   const [isEscalatingSupport, setIsEscalatingSupport] = useState<boolean>(false);
 
-  const latestTransfers = (fundingStatus?.latest_transfers || fundingItem?.transfers || []) as PlaidFundingTransferRef[];
+  const latestTransfers = useMemo(
+    () =>
+      ((fundingStatus?.latest_transfers || fundingItem?.transfers || []) as PlaidFundingTransferRef[]),
+    [fundingItem?.transfers, fundingStatus?.latest_transfers]
+  );
   const selectedFundingRelationship =
     (fundingItem?.relationships || []).find(
       (relationship) =>
