@@ -47,6 +47,7 @@ import {
   clearPlaidOAuthResumeSession,
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
+import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
@@ -110,7 +111,7 @@ function describeTransferDecisionRationale(value: unknown): string {
     ) as string | undefined;
     if (message) return message.trim();
   }
-  return "Plaid returned a non-approved transfer decision.";
+  return "The funding provider returned a non-approved transfer decision.";
 }
 
 export function InvestmentsMasterView({
@@ -123,6 +124,7 @@ export function InvestmentsMasterView({
   const [isLinkingPlaid, setIsLinkingPlaid] = useState(false);
   const [isLinkingFunding, setIsLinkingFunding] = useState(false);
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
+  const [isReconcilingFunding, setIsReconcilingFunding] = useState(false);
   const setAnalysisParams = useKaiSession((s) => s.setAnalysisParams);
   const setLosersInput = useKaiSession((s) => s.setLosersInput);
   const {
@@ -411,6 +413,7 @@ export function InvestmentsMasterView({
                 vaultOwnerToken,
                 metadata,
                 resumeSessionId: linkToken.resume_session_id || null,
+                consentTimestamp: new Date().toISOString(),
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -463,6 +466,58 @@ export function InvestmentsMasterView({
     [reload, userId, vaultOwnerToken]
   );
 
+  const handleConnectFundingBrokerage = useCallback(async () => {
+    if (!vaultOwnerToken) {
+      toast.error("Please unlock your Vault and try again.");
+      return;
+    }
+
+    try {
+      await PlaidPortfolioService.setFundingBrokerageAccount({
+        userId,
+        vaultOwnerToken,
+        setDefault: true,
+      });
+      await reload();
+      toast.success("Brokerage funding destination is ready.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Please try again.";
+      const shouldStartOAuth =
+        /No Alpaca brokerage account is configured/i.test(message) ||
+        /ALPACA_ACCOUNT_REQUIRED/i.test(message);
+
+      if (!shouldStartOAuth) {
+        toast.error("Could not prepare brokerage funding destination.", {
+          description: message,
+        });
+        return;
+      }
+
+      try {
+        const connect = await PlaidPortfolioService.startAlpacaConnect({
+          userId,
+          vaultOwnerToken,
+        });
+        if (!connect.authorization_url || !connect.state) {
+          throw new Error("Alpaca OAuth is not configured for this environment.");
+        }
+        saveAlpacaOAuthResumeSession({
+          version: 1,
+          userId,
+          state: connect.state,
+          returnPath: ROUTES.KAI_INVESTMENTS,
+          startedAt: new Date().toISOString(),
+        });
+        window.location.assign(connect.authorization_url);
+      } catch (oauthError) {
+        toast.error("Could not start Alpaca login.", {
+          description:
+            oauthError instanceof Error ? oauthError.message : "Please try again.",
+        });
+      }
+    }
+  }, [reload, userId, vaultOwnerToken]);
+
   const handleCreateFundingTransfer = useCallback(
     async (payload: {
       fundingItemId: string;
@@ -471,6 +526,7 @@ export function InvestmentsMasterView({
       brokerageAccountId?: string | null;
       amount: number;
       userLegalName: string;
+      direction: "to_brokerage" | "from_brokerage";
       idempotencyKey: string;
     }) => {
       if (!vaultOwnerToken) {
@@ -487,6 +543,7 @@ export function InvestmentsMasterView({
           fundingAccountId: payload.fundingAccountId,
           amount: payload.amount,
           userLegalName: payload.userLegalName,
+          direction: payload.direction,
           idempotencyKey: payload.idempotencyKey,
           brokerageItemId: payload.brokerageItemId || null,
           brokerageAccountId: payload.brokerageAccountId || null,
@@ -516,6 +573,7 @@ export function InvestmentsMasterView({
                     vaultOwnerToken,
                     metadata,
                     resumeSessionId: actionLink.resume_session_id || null,
+                    consentTimestamp: new Date().toISOString(),
                   })
                     .then(() => resolve())
                     .catch((error) => reject(error))
@@ -537,7 +595,7 @@ export function InvestmentsMasterView({
           await reload();
           return;
         }
-        toast.success("Sandbox transfer created.");
+        toast.success("Transfer submitted.");
         await reload();
       } catch (error) {
         toast.error("Transfer could not be created.", {
@@ -554,7 +612,7 @@ export function InvestmentsMasterView({
     async (transferId: string) => {
       if (!vaultOwnerToken) return;
       try {
-        await PlaidPortfolioService.getTransfer({
+        await PlaidPortfolioService.refreshFundingTransferStatus({
           userId,
           transferId,
           vaultOwnerToken,
@@ -568,6 +626,46 @@ export function InvestmentsMasterView({
     },
     [reload, userId, vaultOwnerToken]
   );
+
+  const handleSetDefaultFundingAccount = useCallback(
+    async (payload: { itemId: string; accountId: string }) => {
+      if (!vaultOwnerToken) return;
+      try {
+        await PlaidPortfolioService.setDefaultFundingAccount({
+          userId,
+          itemId: payload.itemId,
+          accountId: payload.accountId,
+          vaultOwnerToken,
+        });
+        await reload();
+      } catch (error) {
+        toast.error("Could not update default funding account.", {
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      }
+    },
+    [reload, userId, vaultOwnerToken]
+  );
+
+  const handleRunFundingReconciliation = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    setIsReconcilingFunding(true);
+    try {
+      await PlaidPortfolioService.runFundingReconciliation({
+        userId,
+        vaultOwnerToken,
+        triggerSource: "investments_ui",
+      });
+      toast.success("Funding reconciliation completed.");
+      await reload();
+    } catch (error) {
+      toast.error("Funding reconciliation failed.", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsReconcilingFunding(false);
+    }
+  }, [reload, userId, vaultOwnerToken]);
 
   const handleCancelTransfer = useCallback(
     async (transferId: string) => {
@@ -587,6 +685,49 @@ export function InvestmentsMasterView({
       }
     },
     [reload, userId, vaultOwnerToken]
+  );
+
+  const handleSearchFundingRecords = useCallback(
+    async (payload: {
+      transferId?: string;
+      relationshipId?: string;
+      limit?: number;
+    }) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Please unlock your Vault and try again.");
+      }
+      return await PlaidPortfolioService.searchFundingRecords({
+        userId,
+        vaultOwnerToken,
+        transferId: payload.transferId || null,
+        relationshipId: payload.relationshipId || null,
+        limit: payload.limit,
+      });
+    },
+    [userId, vaultOwnerToken]
+  );
+
+  const handleCreateFundingEscalation = useCallback(
+    async (payload: {
+      transferId?: string;
+      relationshipId?: string;
+      severity: "low" | "normal" | "high" | "urgent";
+      notes: string;
+    }) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Please unlock your Vault and try again.");
+      }
+      await PlaidPortfolioService.createFundingEscalation({
+        userId,
+        vaultOwnerToken,
+        transferId: payload.transferId || null,
+        relationshipId: payload.relationshipId || null,
+        severity: payload.severity,
+        notes: payload.notes,
+      });
+      toast.success("Support escalation created.");
+    },
+    [userId, vaultOwnerToken]
   );
 
   const handleOptimize = useCallback(() => {
@@ -796,14 +937,18 @@ export function InvestmentsMasterView({
 
         <PlaidFundingTransfersSection
           fundingStatus={plaidFundingStatus}
-          brokerageItems={plaidStatus?.items || []}
-          onManageBrokerage={() => void openPlaidLinkFlow()}
+          onManageBrokerage={() => void handleConnectFundingBrokerage()}
           onConnectFunding={(itemId) => void openPlaidFundingLinkFlow(itemId)}
+          onSetDefaultFundingAccount={(payload) => void handleSetDefaultFundingAccount(payload)}
+          onRunReconciliation={() => void handleRunFundingReconciliation()}
           onCreateTransfer={(payload) => void handleCreateFundingTransfer(payload)}
           onRefreshTransfer={(transferId) => void handleRefreshTransfer(transferId)}
           onCancelTransfer={(transferId) => void handleCancelTransfer(transferId)}
+          onSearchFundingRecords={(payload) => handleSearchFundingRecords(payload)}
+          onCreateFundingEscalation={(payload) => handleCreateFundingEscalation(payload)}
           isConnectingFunding={isLinkingFunding}
           isSubmittingTransfer={isSubmittingTransfer}
+          isReconciling={isReconcilingFunding}
         />
 
         {activeSource === "plaid" ? (

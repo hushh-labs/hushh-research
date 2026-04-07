@@ -29,7 +29,9 @@ export default function KaiLayout({
   const onOnboardingRoute = pathname.startsWith("/kai/onboarding");
   const onImportRoute = pathname.startsWith("/kai/import");
   const onPlaidOauthReturnRoute = pathname === ROUTES.KAI_PLAID_OAUTH_RETURN;
-  const shouldEnableMethodPrompt = !onOnboardingRoute && !onImportRoute && !onPlaidOauthReturnRoute;
+  const onAlpacaOauthReturnRoute = pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN;
+  const onOauthReturnRoute = onPlaidOauthReturnRoute || onAlpacaOauthReturnRoute;
+  const shouldEnableMethodPrompt = !onOnboardingRoute && !onImportRoute && !onOauthReturnRoute;
 
   useEffect(() => {
     if (onOnboardingRoute || onImportRoute) return;
@@ -87,12 +89,12 @@ export default function KaiLayout({
           {children}
         </main>
         <VaultMethodPrompt enabled={shouldEnableMethodPrompt} />
-        {onPlaidOauthReturnRoute ? null : <KaiNavTour />}
+        {onOauthReturnRoute ? null : <KaiNavTour />}
       </div>
     </RouteErrorBoundary>
   );
 
-  if (onPlaidOauthReturnRoute) {
+  if (onOauthReturnRoute) {
     return shell;
   }
 

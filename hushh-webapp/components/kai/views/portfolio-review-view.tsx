@@ -415,6 +415,44 @@ function isAuthFailureMessage(message: string): boolean {
   );
 }
 
+function parsePositiveTimeoutMs(raw: string | undefined, fallbackMs: number): number {
+  if (typeof raw !== "string") return fallbackMs;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackMs;
+  return Math.round(parsed);
+}
+
+const SAVE_STEP_TIMEOUT_MS = parsePositiveTimeoutMs(
+  process.env.NEXT_PUBLIC_KAI_SAVE_STEP_TIMEOUT_MS,
+  90_000
+);
+
+async function runSaveStepWithTimeout<T>(
+  stepLabel: string,
+  task: Promise<T>,
+  timeoutMs: number = SAVE_STEP_TIMEOUT_MS
+): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+      reject(
+        new Error(
+          `${stepLabel} is taking longer than expected (${timeoutSeconds}s). Please retry.`
+        )
+      );
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([task, timeoutPromise]);
+  } finally {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 function normalizeHoldingForStorage(holding: Holding): Holding {
   const isCashEquivalent = isCashEquivalentHolding(holding);
   const identifierType = inferHoldingIdentifierType(holding);
@@ -1366,7 +1404,10 @@ export function PortfolioReviewView({
     let resolvedHasVault = hasVault;
     if (resolvedHasVault === null) {
       try {
-        resolvedHasVault = await VaultService.checkVault(userId);
+        resolvedHasVault = await runSaveStepWithTimeout(
+          "Vault availability check",
+          VaultService.checkVault(userId)
+        );
         setHasVault(resolvedHasVault);
       } catch (error) {
         console.warn(
@@ -1398,7 +1439,10 @@ export function PortfolioReviewView({
       let resolvedVaultOwnerToken = effectiveVaultOwnerToken;
       if (!resolvedVaultOwnerToken) {
         const tokenResolveStartedAt = nowMs();
-        resolvedVaultOwnerToken = await resolveVaultOwnerTokenForSave(false);
+        resolvedVaultOwnerToken = await runSaveStepWithTimeout(
+          "Vault access verification",
+          resolveVaultOwnerTokenForSave(false)
+        );
         logSavePhase("vault owner token resolve", tokenResolveStartedAt);
       }
 
@@ -1462,12 +1506,15 @@ export function PortfolioReviewView({
       const blobLoadStartedAt = nowMs();
       const {
         domainData: existingFinancialRaw,
-      } = await PkmDomainResourceService.prepareDomainWriteContext({
-        userId,
-        domain: "financial",
-        vaultKey: effectiveVaultKey,
-        vaultOwnerToken: resolvedVaultOwnerToken,
-      });
+      } = await runSaveStepWithTimeout(
+        "Vault portfolio load",
+        PkmDomainResourceService.prepareDomainWriteContext({
+          userId,
+          domain: "financial",
+          vaultKey: effectiveVaultKey,
+          vaultOwnerToken: resolvedVaultOwnerToken,
+        })
+      );
       const existingFinancial = existingFinancialRaw ?? {};
       logSavePhase("blob load", blobLoadStartedAt);
       const mergeBuildStartedAt = nowMs();
@@ -1834,7 +1881,10 @@ export function PortfolioReviewView({
 
       let financialResult;
       try {
-        financialResult = await storeMergedDomain(resolvedVaultOwnerToken);
+        financialResult = await runSaveStepWithTimeout(
+          "Vault portfolio save",
+          storeMergedDomain(resolvedVaultOwnerToken)
+        );
       } catch (storeError) {
         const storeMessage = extractSaveErrorMessage(
           storeError,
@@ -1846,7 +1896,10 @@ export function PortfolioReviewView({
             throw storeError;
           }
           resolvedVaultOwnerToken = refreshedToken;
-          financialResult = await storeMergedDomain(refreshedToken);
+          financialResult = await runSaveStepWithTimeout(
+            "Vault portfolio save",
+            storeMergedDomain(refreshedToken)
+          );
         } else {
           throw storeError;
         }
@@ -1917,9 +1970,13 @@ export function PortfolioReviewView({
       if (isMountedRef.current) {
         setHasUnsavedChanges(false);
       }
-      await Promise.resolve(onSaveComplete(savePayload)).catch((saveCompleteError) => {
-        console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
-      });
+      await runSaveStepWithTimeout(
+        "Finalizing save",
+        Promise.resolve(onSaveComplete(savePayload)).catch((saveCompleteError) => {
+          console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
+        }),
+        20_000
+      );
       logSavePhase("post-save sync", postSaveSyncStartedAt);
       logSavePhase("total", saveStartedAt);
     } catch (error) {

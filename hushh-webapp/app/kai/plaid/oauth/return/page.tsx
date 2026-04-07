@@ -109,6 +109,7 @@ export default function KaiPlaidOauthReturnPage() {
                       vaultOwnerToken: issued.token,
                       metadata,
                       resumeSessionId: session.resumeSessionId,
+                      consentTimestamp: new Date().toISOString(),
                     })
                   : PlaidPortfolioService.exchangePublicToken({
                       userId: user.uid,

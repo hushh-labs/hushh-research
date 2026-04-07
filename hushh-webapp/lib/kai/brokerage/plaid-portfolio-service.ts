@@ -36,7 +36,23 @@ export interface PlaidTransferCreateResponse {
   reference?: Record<string, unknown>;
 }
 
+export interface PlaidFundingAdminSearchResponse {
+  count: number;
+  items: Array<Record<string, unknown>>;
+}
+
+export interface AlpacaConnectStartResponse {
+  configured: boolean;
+  authorization_url: string;
+  state: string;
+  expires_at?: string | null;
+  redirect_uri?: string | null;
+  oauth_env?: string | null;
+}
+
 const PLAID_STATUS_CACHE_TTL_MS = 15_000;
+const DEFAULT_FUNDING_TERMS_VERSION =
+  String(process.env.NEXT_PUBLIC_KAI_FUNDING_TERMS_VERSION || "").trim() || "v1";
 
 async function extractPlaidError(response: Response, fallback: string): Promise<string> {
   const raw = await response.text().catch(() => "");
@@ -398,7 +414,13 @@ export class PlaidPortfolioService {
     vaultOwnerToken: string;
     metadata?: Record<string, unknown> | null;
     resumeSessionId?: string | null;
+    termsVersion?: string | null;
+    consentTimestamp?: string | null;
+    alpacaAccountId?: string | null;
   }): Promise<PlaidFundingStatusResponse> {
+    const termsVersion = String(params.termsVersion || "").trim() || DEFAULT_FUNDING_TERMS_VERSION;
+    const consentTimestamp =
+      String(params.consentTimestamp || "").trim() || new Date().toISOString();
     const response = await ApiService.apiFetch("/api/kai/plaid/funding/exchange-public-token", {
       method: "POST",
       headers: {
@@ -410,12 +432,132 @@ export class PlaidPortfolioService {
         public_token: params.publicToken,
         metadata: params.metadata || null,
         resume_session_id: params.resumeSessionId || null,
+        terms_version: termsVersion,
+        consent_timestamp: consentTimestamp,
+        alpaca_account_id: params.alpacaAccountId || null,
       }),
     });
     if (!response.ok) {
       const detail = await extractPlaidError(
         response,
         "Plaid could not finish connecting this funding account."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async setDefaultFundingAccount(params: {
+    userId: string;
+    itemId: string;
+    accountId: string;
+    vaultOwnerToken: string;
+  }): Promise<PlaidFundingStatusResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/default-account", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        item_id: params.itemId,
+        account_id: params.accountId,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "The default funding account could not be updated right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async setFundingBrokerageAccount(params: {
+    userId: string;
+    alpacaAccountId?: string | null;
+    vaultOwnerToken: string;
+    setDefault?: boolean;
+  }): Promise<PlaidFundingStatusResponse> {
+    const payload: Record<string, unknown> = {
+      user_id: params.userId,
+      set_default: params.setDefault !== false,
+    };
+    const cleanedAccountId = String(params.alpacaAccountId || "").trim();
+    if (cleanedAccountId) {
+      payload.alpaca_account_id = cleanedAccountId;
+    }
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/brokerage-account", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "The Alpaca brokerage account could not be linked right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundingStatusResponse;
+  }
+
+  static async startAlpacaConnect(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    redirectUri?: string | null;
+  }): Promise<AlpacaConnectStartResponse> {
+    const response = await ApiService.apiFetch("/api/kai/alpaca/connect/start", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        redirect_uri: params.redirectUri || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Alpaca login could not be started right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as AlpacaConnectStartResponse;
+  }
+
+  static async completeAlpacaConnect(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    state: string;
+    code: string;
+  }): Promise<PlaidFundingStatusResponse> {
+    const response = await ApiService.apiFetch("/api/kai/alpaca/connect/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        state: params.state,
+        code: params.code,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Alpaca login could not be completed right now."
       );
       throw new Error(detail);
     }
@@ -616,5 +758,133 @@ export class PlaidPortfolioService {
       reference?: Record<string, unknown>;
       canceled?: boolean;
     };
+  }
+
+  static async refreshFundingTransferStatus(params: {
+    userId: string;
+    transferId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    transfer: PlaidTransferPayload;
+    reference?: Record<string, unknown>;
+  }> {
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/funding/admin/transfers/${encodeURIComponent(params.transferId)}/refresh`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Transfer status could not be refreshed right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as {
+      transfer: PlaidTransferPayload;
+      reference?: Record<string, unknown>;
+    };
+  }
+
+  static async runFundingReconciliation(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    maxRows?: number;
+    triggerSource?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/reconcile", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        max_rows: params.maxRows ?? 200,
+        trigger_source: params.triggerSource || "manual_ui",
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding reconciliation could not be started right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  static async searchFundingRecords(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    transferId?: string | null;
+    relationshipId?: string | null;
+    limit?: number;
+  }): Promise<PlaidFundingAdminSearchResponse> {
+    const query = new URLSearchParams({
+      user_id: params.userId,
+      ...(params.transferId ? { transfer_id: params.transferId } : {}),
+      ...(params.relationshipId ? { relationship_id: params.relationshipId } : {}),
+      ...(typeof params.limit === "number" ? { limit: String(params.limit) } : {}),
+    }).toString();
+
+    const response = await ApiService.apiFetch(`/api/kai/plaid/funding/admin/search?${query}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding support records are not available right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as PlaidFundingAdminSearchResponse;
+  }
+
+  static async createFundingEscalation(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    transferId?: string | null;
+    relationshipId?: string | null;
+    notes: string;
+    severity?: "low" | "normal" | "high" | "urgent";
+    createdBy?: string | null;
+  }): Promise<Record<string, unknown>> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/funding/admin/escalations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        transfer_id: params.transferId || null,
+        relationship_id: params.relationshipId || null,
+        notes: params.notes,
+        severity: params.severity || "normal",
+        created_by: params.createdBy || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funding escalation could not be created right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as Record<string, unknown>;
   }
 }
