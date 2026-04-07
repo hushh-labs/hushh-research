@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, RefreshCw, Clock } from "lucide-react";
+import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -163,7 +164,7 @@ export function HistoryDetailView({
 
   if (embedded) {
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-4 px-0 pb-safe sm:px-1">
+      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
         {showHeader ? (
           <Card variant="none" effect="glass" preset="default">
             <CardContent className="p-4">
@@ -203,7 +204,7 @@ export function HistoryDetailView({
         <div className="absolute inset-0 backdrop-blur-md bg-background/40" />
 
         {/* Content */}
-        <div className="relative px-4 pt-3 pb-2 md:max-w-2xl md:mx-auto">
+        <div className="mx-auto w-full relative pt-3 pb-2" style={APP_MEASURE_STYLES.reading}>
            {/* Breadcrumb-ish / Top Row */}
            <div className="flex items-center justify-between mb-2">
             <Button
@@ -275,7 +276,7 @@ export function HistoryDetailView({
         </div>
       </div>
       
-      <div className="px-4 pb-safe max-w-2xl mx-auto w-full space-y-4">
+      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
 
 
       {/* Stored analysis badge */}

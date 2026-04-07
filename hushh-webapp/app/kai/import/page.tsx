@@ -40,7 +40,7 @@ function KaiImportPageContent() {
   return (
     <FullscreenFlowShell
       as="div"
-      width="wide"
+      width="expanded"
       className="relative"
     >
       <NativeTestBeacon

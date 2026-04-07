@@ -188,7 +188,7 @@ export default function RiaHomePage() {
       statusPanel={
         iamUnavailable ? null : (
           <RiaSurface
-            accent="sky"
+            accent="ria"
             className={cn("space-y-5 p-5 sm:p-6", heroToneClass(verification.tone))}
             data-testid="ria-home-primary"
           >

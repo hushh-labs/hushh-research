@@ -648,7 +648,7 @@ export function InvestmentsMasterView({
     return (
       <AppPageShell
         as="div"
-        width="wide"
+        width="expanded"
         className="flex items-center justify-center pb-10"
       >
         <SurfaceCard className="max-w-md">
@@ -664,7 +664,7 @@ export function InvestmentsMasterView({
   return (
     <AppPageShell
       as="div"
-      width="wide"
+      width="expanded"
       className="pb-10"
     >
       <AppPageHeaderRegion>

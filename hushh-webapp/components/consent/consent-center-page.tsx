@@ -591,13 +591,14 @@ export function ConsentCenterPage() {
   const searchPlaceholder = `Search ${tab} by name, email, scope, or reason`;
 
   return (
-    <AppPageShell as="main" width="profile" className="pb-28">
+    <AppPageShell as="main" width="reading" className="pb-28">
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow={pageEyebrow}
           title={pageTitle}
           description={pageDescription}
           icon={ShieldCheck}
+          accent="consent"
           actions={
             <Badge className={cn("border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300")}>
               {summaryData?.counts.pending ?? 0} pending

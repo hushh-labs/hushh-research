@@ -85,7 +85,7 @@ export function PortfolioOverviewView({
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6 p-6">
+    <div className="w-full space-y-6">
       {/* Header */}
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Portfolio Overview</h1>

@@ -16,6 +16,7 @@
 import { useState } from "react";
 import { ArrowLeft, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import {
@@ -120,7 +121,7 @@ export function AnalysisView({
         <div className="absolute inset-0 backdrop-blur-md bg-background/40" />
 
         {/* Content */}
-        <div className="relative px-4 pt-3 pb-2 md:max-w-2xl md:mx-auto">
+        <div className="mx-auto w-full relative pt-3 pb-2" style={APP_MEASURE_STYLES.reading}>
           <div className="flex items-center gap-4">
             <MorphyButton
               variant="muted"
@@ -139,7 +140,7 @@ export function AnalysisView({
         </div>
       </div>
 
-      <div className="px-4 pb-36 max-w-2xl mx-auto w-full space-y-6">
+      <div className="mx-auto w-full space-y-6 pb-36" style={APP_MEASURE_STYLES.reading}>
 
       {/* Decision Card */}
       <SurfaceCard>

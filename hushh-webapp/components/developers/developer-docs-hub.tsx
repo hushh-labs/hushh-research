@@ -1156,8 +1156,8 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   return (
     <TooltipProvider>
       <AppPageShell
-        width="wide"
-        className="max-w-[1440px] pb-[calc(6rem+var(--app-safe-area-bottom-effective))] md:pb-12 lg:pb-6"
+        width="standard"
+        className="pb-[calc(6rem+var(--app-safe-area-bottom-effective))] md:pb-12 lg:pb-6"
       >
         <AppPageContentRegion className="grid gap-6 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[272px_minmax(0,1fr)] 2xl:grid-cols-[288px_minmax(0,1fr)] 2xl:gap-8">
           <DesktopContentsRail onSelectSection={handleSectionSelect} />
@@ -1170,7 +1170,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   title="Build consent-aware Kai integrations with dynamic scopes"
                   description="Use MCP or the API to discover user-specific scopes from the Personal Knowledge Model, request consent inside Kai, and read only the approved slice through one scalable contract."
                   icon={Code2}
-                  accent="sky"
+                  accent="developers"
                   actions={
                     <>
                       <Badge variant="outline">{runtime.environmentLabel}</Badge>

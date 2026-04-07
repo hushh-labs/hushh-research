@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { APP_SHELL_FRAME_CLASSNAME, APP_SHELL_FRAME_STYLE } from "@/components/app-ui/app-page-shell";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import {
@@ -256,7 +257,13 @@ export function TopAppBar({ className }: TopAppBarProps) {
           <div className="h-full w-full bar-glass bar-glass-top" style={topGlassStyle} />
         </div>
 
-        <div className="pointer-events-none relative mx-auto flex h-full w-full max-w-4xl flex-col justify-end px-5 sm:px-7">
+        <div
+          className={cn(
+            APP_SHELL_FRAME_CLASSNAME,
+            "pointer-events-none relative flex h-full w-full flex-col justify-end"
+          )}
+          style={APP_SHELL_FRAME_STYLE}
+        >
           <div
             data-testid="top-app-bar-row"
             className="pointer-events-none relative h-[var(--top-bar-h)] w-full shrink-0"

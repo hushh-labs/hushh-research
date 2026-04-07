@@ -583,7 +583,7 @@ export default function MarketplaceConnectionsPageClient({
   return (
     <AppPageShell
       as="main"
-      width="profile"
+      width="reading"
       className="pb-28"
       nativeTest={{
         routeId: "/marketplace/connections",
@@ -602,6 +602,7 @@ export default function MarketplaceConnectionsPageClient({
           title={actor === "ria" ? "Investor connections" : "Advisor connections"}
           description="Manage pending requests, active connections, and past decisions here. Consent manager now stays focused on actual access requests."
           icon={BriefcaseBusiness}
+          accent="marketplace"
           actions={
             <div className="flex items-center gap-2">
               <Badge className="border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300">

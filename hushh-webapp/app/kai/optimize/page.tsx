@@ -603,7 +603,7 @@ export default function PortfolioHealthPage() {
   return (
     <AppPageShell
       as="div"
-      width="wide"
+      width="expanded"
       className="pb-6 sm:pb-8"
       nativeTest={{
         routeId: "/kai/optimize",
