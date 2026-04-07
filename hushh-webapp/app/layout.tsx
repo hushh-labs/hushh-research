@@ -46,7 +46,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+    { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },
   ],
 };
 
@@ -64,6 +64,13 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
+        <style>{`
+          html.dark body,
+          html.dark .morphy-app-bg {
+            background-color: rgb(28 28 30) !important;
+            background-image: none !important;
+          }
+        `}</style>
         {gtmContainerId ? (
           <Script
             id="gtm-base"

@@ -22,7 +22,8 @@ const ACCENT_STYLES: Record<SectionAccent, {
 }> = {
   default: {
     eyebrow: "text-muted-foreground",
-    icon: "bg-muted/60 text-foreground dark:bg-white/8",
+    icon:
+      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
     divider: "bg-border/50",
   },
   sky: {

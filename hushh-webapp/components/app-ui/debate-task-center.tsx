@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -139,6 +139,7 @@ function appTaskTimingSummary(task: AppBackgroundTask): string | null {
 
 interface DebateTaskCenterProps {
   triggerClassName?: string;
+  renderTrigger?: (state: { activeCount: number; badgeCount: number }) => ReactElement;
 }
 
 const DEFAULT_TRIGGER_CLASSNAME =
@@ -166,7 +167,7 @@ type NotificationItem =
       task: AppBackgroundTask;
     };
 
-export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {}) {
+export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTaskCenterProps = {}) {
   const router = useRouter();
   const { userId } = useAuth();
   const { vaultOwnerToken } = useVault();
@@ -413,21 +414,25 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
       <DropdownMenuTrigger asChild>
-        <button
-          className={cn(DEFAULT_TRIGGER_CLASSNAME, triggerClassName)}
-          aria-label="Notifications"
-        >
-          {activeCount > 0 ? (
-            <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
-          ) : (
-            <Bell className="h-5 w-5" />
-          )}
-          {badgeCount > 0 ? (
-            <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
-              {badgeCount}
-            </span>
-          ) : null}
-        </button>
+        {renderTrigger ? (
+          renderTrigger({ activeCount, badgeCount })
+        ) : (
+          <button
+            className={cn(DEFAULT_TRIGGER_CLASSNAME, triggerClassName)}
+            aria-label="Notifications"
+          >
+            {activeCount > 0 ? (
+              <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
+            ) : (
+              <Bell className="h-5 w-5" />
+            )}
+            {badgeCount > 0 ? (
+              <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
+                {badgeCount}
+              </span>
+            ) : null}
+          </button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME}>
         <div className={TOP_SHELL_DROPDOWN_HEADER_CLASSNAME}>
