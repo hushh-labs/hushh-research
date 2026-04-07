@@ -629,7 +629,7 @@ export default function MarketplacePage() {
   return (
     <AppPageShell
       as="main"
-      width="content"
+      width="standard"
       className="pb-36"
       nativeTest={{
         routeId: "/marketplace",
@@ -650,7 +650,7 @@ export default function MarketplacePage() {
           title={currentPersona === "ria" ? "Find investors" : "Find advisors"}
           description="Public discovery first. Private access only after consent."
           icon={Compass}
-          accent="sky"
+          accent="marketplace"
           actions={
             <Button
               variant="none"

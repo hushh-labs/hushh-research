@@ -54,10 +54,18 @@ import { cn } from "@/lib/utils";
 
 type ConsentTab = "pending" | "active" | "previous";
 type ConsentManagerMode = ConsentCenterMode;
+type PendingNotificationAction = "review" | "approve" | "deny" | null;
 
 function normalizeTab(value: string | null): ConsentTab {
   if (value === "active" || value === "previous") return value;
   return "pending";
+}
+
+function normalizeNotificationAction(value: string | null): PendingNotificationAction {
+  if (value === "review" || value === "approve" || value === "deny") {
+    return value;
+  }
+  return null;
 }
 
 function normalizeActor(
@@ -420,6 +428,9 @@ export function ConsentCenterPage() {
         : "incoming";
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
   const selectedId = searchParams.get("requestId") || searchParams.get("selected");
+  const notificationAction = normalizeNotificationAction(
+    searchParams.get("notificationAction")
+  );
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
@@ -551,6 +562,10 @@ export function ConsentCenterPage() {
     }
     return items[0] ?? null;
   }, [items, selectedId]);
+  const selectedPendingConsent = useMemo(
+    () => (selectedEntry ? toPendingConsent(selectedEntry) : null),
+    [selectedEntry]
+  );
 
   const setParam = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -576,13 +591,14 @@ export function ConsentCenterPage() {
   const searchPlaceholder = `Search ${tab} by name, email, scope, or reason`;
 
   return (
-    <AppPageShell as="main" width="profile" className="pb-28">
+    <AppPageShell as="main" width="reading" className="pb-28">
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow={pageEyebrow}
           title={pageTitle}
           description={pageDescription}
           icon={ShieldCheck}
+          accent="consent"
           actions={
             <Badge className={cn("border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300")}>
               {summaryData?.counts.pending ?? 0} pending
@@ -693,6 +709,72 @@ export function ConsentCenterPage() {
             : "Choose a consent entry from the list to review details and next actions."
         }
       >
+        {notificationAction && selectedEntry?.status === "pending" ? (
+          <SettingsGroup
+            embedded
+            title="Notification action pending"
+            description={
+              notificationAction === "review"
+                ? "This request was opened from a notification. Review the details below."
+                : notificationAction === "approve"
+                  ? "Approve was chosen from the notification. Final approval still happens here after vault confirmation."
+                  : "Deny was chosen from the notification. Final denial still happens here after vault confirmation."
+            }
+          >
+            <SettingsRow
+              title={
+                notificationAction === "approve"
+                  ? "Confirm approval in app"
+                  : notificationAction === "deny"
+                    ? "Confirm denial in app"
+                    : "Continue review"
+              }
+              description={
+                notificationAction === "review"
+                  ? "Use the actions below when you are ready."
+                  : "Notification actions never commit access changes by themselves."
+              }
+              trailing={
+                <div className="flex items-center gap-2">
+                  {notificationAction === "approve" && selectedPendingConsent ? (
+                    <Button
+                      variant="blue-gradient"
+                      effect="fill"
+                      size="sm"
+                      onClick={() => {
+                        void handleApprove(selectedPendingConsent);
+                        setParam({ notificationAction: null });
+                      }}
+                    >
+                      Confirm approve
+                    </Button>
+                  ) : null}
+                  {notificationAction === "deny" && selectedEntry ? (
+                    <Button
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={() => {
+                        void handleDeny(selectedEntry.request_id || selectedEntry.id);
+                        setParam({ notificationAction: null });
+                      }}
+                    >
+                      Confirm deny
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    onClick={() => setParam({ notificationAction: null })}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              }
+            />
+          </SettingsGroup>
+        ) : null}
         <ConsentEntryDetail
           actor={actor}
           mode={mode}

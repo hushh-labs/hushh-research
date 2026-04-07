@@ -152,11 +152,10 @@ The secret gate is intentionally stricter than raw regex scanning:
 
 1. `scripts/ci/docs-parity-check.sh`
 2. `scripts/ci/subtree-sync-check.sh`
-3. `npm run verify:design-system`
-4. `npm run verify:investor-language`
-5. Native parity checks (`verify:parity`, `verify:capacitor:*`) for native release lanes
-6. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness
-7. Broad full-suite pytest runs and Kai accuracy/compliance suites
+3. `npm run verify:investor-language`
+4. Native parity checks (`verify:parity`, `verify:capacitor:*`) for native release lanes
+5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness
+6. Broad full-suite pytest runs and Kai accuracy/compliance suites
 
 Do not add new CI/parity scripts without replacing or consolidating an existing check.
 
@@ -200,6 +199,9 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 |------|--------------------|-----------|
 | Validate files | `package-lock.json` exists and valid JSON; `next.config.ts` exists | Yes |
 | Install | `npm ci` | Yes |
+| Design system | `npm run verify:design-system` | Yes |
+| Cache coherence | `npm run verify:cache` | Yes |
+| Docs/runtime parity | `npm run verify:docs` | Yes |
 | TypeScript | `npm run typecheck` | Yes |
 | Lint | `npm run lint -- --max-warnings=${WEB_LINT_WARNING_BUDGET}` | Yes |
 | Build (web) | `npm run build` (Next.js) | Yes |

@@ -162,6 +162,9 @@ html body[data-scroll-locked] {
   --page-top-start: 32px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
+  --app-shell-reading: 54rem;
+  --app-shell-standard: 90rem;
+  --app-shell-expanded: 96rem;
   --top-systembar-row-gap: 4px;
   --top-shell-row-gap: var(--top-systembar-row-gap);
   --top-shell-reserved-height: calc(
@@ -182,8 +185,8 @@ html body[data-scroll-locked] {
   --top-content-pad: calc(
     var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap)
   );
-  --page-inline-gutter-standard: 20px;
-  --page-surface-overscan: 14px;
+  --page-inline-gutter-standard: 16px;
+  --page-surface-overscan: 0px;
   --page-surface-gap-standard: 18px;
   --page-surface-gap-compact: 14px;
   --page-header-stack-gap: 10px;
@@ -370,9 +373,12 @@ html body[data-scroll-locked] {
   --app-card-surface-sticky-header: #f7f7fa;
   --app-card-surface-sticky-header-solid: #f7f7fa;
   --app-card-border-standard: transparent;
-  --app-card-border-strong: transparent;
+  --app-card-border-strong: rgba(60, 60, 67, 0.18);
   --app-card-shadow-standard: 0 11px 34px 0 rgba(120, 120, 128, 0.16);
   --app-card-shadow-feature: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
+  --app-segmented-active-surface: #ffffff;
+  --app-segmented-active-foreground: #000000;
+  --app-segmented-active-border: #000000;
   --app-shell-surface-bg: rgba(255, 255, 255, 0.9);
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.98);
   --app-shell-surface-border: rgba(255, 255, 255, 0.68);
@@ -404,8 +410,8 @@ html body[data-scroll-locked] {
     --app-top-body-start-gap: 32px;
     --bottom-chrome-fade-overscan: 22px;
     --top-subnav-gap: 14px;
-    --page-inline-gutter-standard: 28px;
-    --page-surface-overscan: 18px;
+    --page-inline-gutter-standard: 24px;
+    --page-surface-overscan: 8px;
     --page-surface-gap-standard: 22px;
     --page-surface-gap-compact: 18px;
     --page-header-stack-gap: 12px;
@@ -438,13 +444,70 @@ html body[data-scroll-locked] {
   }
 }
 
+@media (min-width: 1024px) {
+  :root {
+    --page-inline-gutter-standard: 28px;
+    --page-surface-overscan: 12px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --page-inline-gutter-standard: 32px;
+    --page-surface-overscan: 16px;
+  }
+}
+
 .native-ios {
   --app-top-safe-offset: 2px;
 }
 
 .app-page-shell {
+  width: 100%;
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
+}
+
+.app-page-shell--reading {
+  max-width: 54rem;
+}
+
+.app-page-shell--standard {
+  max-width: 90rem;
+}
+
+.app-page-shell--expanded {
+  max-width: 96rem;
+}
+
+.app-shell-frame {
+  width: 100%;
+  max-width: 90rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-inline-gutter-standard);
+  padding-right: var(--page-inline-gutter-standard);
+}
+
+.app-reading-measure {
+  width: 100%;
+  max-width: 54rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.app-standard-measure {
+  width: 100%;
+  max-width: 90rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.app-expanded-measure {
+  width: 100%;
+  max-width: 96rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .app-page-shell[data-app-density="compact"] {
@@ -515,10 +578,23 @@ html body[data-scroll-locked] {
 
 .fullscreen-flow-shell {
   min-height: calc(100dvh - var(--app-fullscreen-flow-content-offset, 0px));
+  width: 100%;
   padding-top: var(--app-fullscreen-flow-content-offset);
   padding-bottom: var(--app-screen-footer-pad);
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
+}
+
+.fullscreen-flow-shell--reading {
+  max-width: 54rem;
+}
+
+.fullscreen-flow-shell--standard {
+  max-width: 90rem;
+}
+
+.fullscreen-flow-shell--expanded {
+  max-width: 96rem;
 }
 
 .app-page-header-region {
@@ -699,9 +775,12 @@ html.native-ios {
   --app-card-surface-sticky-header: #2f2f31;
   --app-card-surface-sticky-header-solid: #2f2f31;
   --app-card-border-standard: transparent;
-  --app-card-border-strong: transparent;
+  --app-card-border-strong: rgba(255, 255, 255, 0.18);
   --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
   --app-card-shadow-feature: 0 11px 34px 0 rgba(0, 0, 0, 0.75);
+  --app-segmented-active-surface: #2c2c2e;
+  --app-segmented-active-foreground: #ffffff;
+  --app-segmented-active-border: #ffffff;
   --app-shell-surface-bg: rgba(38, 38, 41, 0.9);
   --app-shell-surface-bg-hover: rgba(48, 48, 52, 0.96);
   --app-shell-surface-border: rgba(255, 255, 255, 0.08);

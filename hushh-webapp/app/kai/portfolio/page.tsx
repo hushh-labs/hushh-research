@@ -42,7 +42,7 @@ export default function KaiPortfolioPage() {
   return (
     <AppPageShell
       as="div"
-      width="wide"
+      width="expanded"
       className="relative pb-32"
       nativeTest={{
         routeId: "/kai/portfolio",

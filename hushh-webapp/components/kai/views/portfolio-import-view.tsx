@@ -23,6 +23,7 @@ import {
   Database,
   Loader2,
 } from "lucide-react";
+import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
@@ -151,9 +152,9 @@ export function PortfolioImportView({
   ]);
 
   return (
-    <div className="w-full max-w-md mx-auto space-y-3.5 px-4 pt-3 pb-6 md:max-w-2xl md:px-6 lg:max-w-3xl">
+    <div className="mx-auto w-full space-y-3.5 pt-3 pb-6" style={APP_MEASURE_STYLES.reading}>
       {/* Header */}
-      <div className="text-center space-y-2 px-2">
+      <div className="space-y-2 text-center">
         <h1 className="text-[34px] font-bold tracking-tight leading-[1.08]">
           Your money
           <br />
@@ -164,7 +165,7 @@ export function PortfolioImportView({
         </p>
       </div>
 
-      <div className="px-2 text-center">
+      <div className="text-center">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Choose import method
         </p>
@@ -229,7 +230,7 @@ export function PortfolioImportView({
         </SurfaceCardContent>
       </SurfaceCard>
 
-      <div className="flex items-center gap-3 px-2">
+      <div className="flex items-center gap-3">
         <div className="h-px flex-1 bg-border/60" />
         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           or

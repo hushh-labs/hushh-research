@@ -21,6 +21,7 @@ Use this skill for frontend structure and placement decisions before adding or m
 2. Put semantic app-level compositions in `components/app-ui/*`.
 3. Put route-specific or domain-specific composition in feature folders.
 4. Do not create a second shared card, surface, or segmented-tab system outside Morphy UX.
+5. Do not create a second route-container system outside `AppPageShell` / `FullscreenFlowShell`.
 
 ## Decision rubric
 
@@ -35,6 +36,8 @@ Choose `components/app-ui/*` when the change owns:
 1. app shell chrome
 2. semantic page sections
 3. shared product-level compositions built from Morphy primitives
+4. route-width and gutter rules
+5. shared header accent contracts
 
 Choose `components/<feature>/*` when the change owns:
 1. feature data mapping

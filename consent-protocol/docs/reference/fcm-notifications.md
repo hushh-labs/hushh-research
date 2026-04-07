@@ -17,6 +17,26 @@ Consent requests are delivered to users via **Firebase Cloud Messaging (FCM)** u
 
 **Supported platforms**: Web (FCM JS SDK), iOS (Capacitor Firebase Messaging), Android (Capacitor Firebase Messaging).
 
+### Native iOS policy
+
+Consent and connection requests are treated as **alert-class notifications** on iOS:
+
+- the backend sends an explicit APNs alert payload for iOS tokens
+- the payload carries a visible alert, sound, badge, routing metadata, and native action category
+- the app still refreshes in-app state after receipt or tap
+- Approve and Deny notification actions only open the app into a confirmation flow; they do not commit a decision directly from the notification
+
+This is stricter than the web lane. Web remains service-worker/browser-notification based, while native iOS is expected to surface a system-visible alert when the device allows it.
+
+### Reminder policy
+
+Consent notifications now use a bounded two-step schedule:
+
+- sequence `1`: initial request push
+- sequence `2`: one final reminder near expiry
+
+There is no midpoint reminder and no repeated reminder loop once a request has been attended or resolved.
+
 ### Architecture
 
 ```
@@ -169,6 +189,28 @@ Remember:
 - `gcloud` can enable APIs and manage secrets.
 - `gcloud` cannot create or rotate the Firebase Console Web Push key pair.
 - A healthy fallback path on web is **SSE + inbox**, not repeated FCM retry loops.
+
+## Native iOS alert checklist
+
+Use this when Firebase accepts an iOS send but the device does not visibly alert:
+
+1. Confirm the token row exists in `user_push_tokens` with `platform='ios'`.
+2. Confirm the send returned a Firebase `message_id` instead of `THIRD_PARTY_AUTH_ERROR`.
+3. On the device, verify the Hushh app has:
+   - `Allow Notifications`
+   - `Notification Center`
+   - `Lock Screen`
+   - `Banners`
+   - `Sounds`
+4. Confirm Focus / Do Not Disturb is off.
+5. Background the app before testing.
+6. Check native logs for:
+   - APNs token registration
+   - FCM token refresh
+   - foreground receipt
+   - notification tap callback
+
+If the backend accepted the send and the app still does not present anything, debug the device presentation path before changing Firebase or the sender again.
 
 ---
 

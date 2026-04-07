@@ -145,7 +145,7 @@ export default function RiaClientsPage() {
       <>
         <AppPageShell
           as="main"
-          width="profile"
+          width="standard"
           nativeTest={{
             routeId: "/ria/clients",
             marker: "native-route-ria-clients",
@@ -166,7 +166,7 @@ export default function RiaClientsPage() {
   return (
     <AppPageShell
       as="main"
-      width="profile"
+      width="standard"
       className="pb-28"
       nativeTest={{
         routeId: "/ria/clients",
@@ -192,7 +192,7 @@ export default function RiaClientsPage() {
           }
           description="Portfolio access and Kai permissions for your connected investors."
           icon={UserRound}
-          accent="sky"
+          accent="ria"
         />
       </AppPageHeaderRegion>
 

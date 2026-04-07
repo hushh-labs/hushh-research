@@ -1357,7 +1357,7 @@ export function ConsentCenterView({
   return (
     <AppPageShell
       as="div"
-      width="content"
+      width="standard"
       className={cn("pb-6 md:pb-8", className)}
     >
       <AppPageHeaderRegion>
@@ -1374,6 +1374,7 @@ export function ConsentCenterView({
               : "One place to review pending approvals, active grants, and the full consent log for the current persona."
           }
           icon={ClipboardList}
+          accent="consent"
           actions={
             <Button
               variant="none"

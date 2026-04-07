@@ -38,6 +38,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
   initializeFCM,
+  clearDeliveredConsentNotifications,
   FCM_MESSAGE_EVENT,
   type FCMInitStatus,
 } from "@/lib/notifications";
@@ -402,9 +403,16 @@ export function ConsentNotificationProvider({
         });
       } catch (error) {
         console.warn("[NotificationProvider] Failed to acknowledge pending consent:", error);
+      } finally {
+        if (isNativePlatform) {
+          void clearDeliveredConsentNotifications({
+            requestId: consent.id,
+            bundleId: consent.bundleId,
+          });
+        }
       }
     },
-    [getVaultOwnerToken, user?.uid]
+    [getVaultOwnerToken, isNativePlatform, user?.uid]
   );
 
   // Show interactive toast for a consent request
@@ -771,6 +779,12 @@ export function ConsentNotificationProvider({
       if (requestId || bundleId) {
         toast.dismiss(bundleId || requestId);
         toastedIdsRef.current.delete(bundleId || requestId);
+        if (Capacitor.isNativePlatform()) {
+          void clearDeliveredConsentNotifications({
+            requestId,
+            bundleId,
+          });
+        }
       }
     };
 
@@ -842,6 +856,12 @@ export function ConsentNotificationProvider({
           toast.dismiss(toastKey);
           toastedIdsRef.current.delete(toastKey);
         }
+        if (isNativePlatform) {
+          void clearDeliveredConsentNotifications({
+            requestId,
+            bundleId,
+          });
+        }
         dispatchConsentStateChanged({
           source: "fcm_opened",
           requestId,
@@ -868,6 +888,12 @@ export function ConsentNotificationProvider({
           const queued = removeQueuedPendingConsent(user.uid, requestId, data.bundle_id);
           setPendingCount((prev) => Math.max(queued.length, Math.max(0, prev - 1)));
         }
+        if (isNativePlatform) {
+          void clearDeliveredConsentNotifications({
+            requestId,
+            bundleId: data.bundle_id,
+          });
+        }
         dispatchConsentStateChanged({
           source: "fcm_resolved",
           requestId,
@@ -877,7 +903,7 @@ export function ConsentNotificationProvider({
 
     window.addEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
     return () => window.removeEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
-  }, [isVaultUnlocked, showConsentToast, user?.uid]);
+  }, [isNativePlatform, isVaultUnlocked, showConsentToast, user?.uid]);
 
   // ONE-TIME fetch on vault unlock to catch requests that arrived while app was closed.
   // This is the ONLY acceptable HTTP call -- not a poll, just a catch-up.

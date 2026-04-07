@@ -142,7 +142,7 @@ export default function ConnectionPortfolioPageClient({
     return (
       <AppPageShell
         as="main"
-        width="profile"
+        width="reading"
         className="pb-24"
         nativeTest={{
           routeId: "/marketplace/connections/portfolio",
@@ -152,12 +152,13 @@ export default function ConnectionPortfolioPageClient({
         }}
       >
         <AppPageHeaderRegion>
-          <PageHeader
-            eyebrow="Connect"
-            title="Portfolio explorer"
-            description="This read-only explorer opens from an active advisor connection."
-            icon={WalletCards}
-          />
+        <PageHeader
+          eyebrow="Connect"
+          title="Portfolio explorer"
+          description="This read-only explorer opens from an active advisor connection."
+          icon={WalletCards}
+          accent="marketplace"
+        />
         </AppPageHeaderRegion>
         <AppPageContentRegion>
           <RiaSurface className="p-5">
@@ -173,7 +174,7 @@ export default function ConnectionPortfolioPageClient({
   return (
     <AppPageShell
       as="main"
-      width="profile"
+      width="reading"
       className="pb-24"
       nativeTest={{
         routeId: "/marketplace/connections/portfolio",
@@ -196,6 +197,7 @@ export default function ConnectionPortfolioPageClient({
           title={workspace?.investor_display_name || "Portfolio explorer"}
           description="Read-only Kai portfolio view for a granted connection scope."
           icon={WalletCards}
+          accent="marketplace"
           actions={
             <Button
               variant="none"

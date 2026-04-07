@@ -22,6 +22,7 @@ Use this skill for structural frontend work, not only component styling.
 3. Prefer one canonical layer and one canonical component path per job.
 4. Favor small reusable primitives over repeated class-string composition.
 5. Avoid adding repo bloat: every new script or contract should replace ambiguity or repeated manual judgment.
+6. Keep the route-container contract centralized in `AppPageShell` / `FullscreenFlowShell` and documented in the quality docs.
 
 ## When adding a new rule
 

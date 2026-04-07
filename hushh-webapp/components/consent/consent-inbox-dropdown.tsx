@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { ExternalLink, Loader2, Shield } from "lucide-react";
 
 import {
@@ -83,8 +83,10 @@ function managerHref(actor: ConsentCenterActor) {
 
 export function ConsentInboxDropdown({
   triggerClassName,
+  renderTrigger,
 }: {
-  triggerClassName: string;
+  triggerClassName?: string;
+  renderTrigger?: (state: { pendingCount: number }) => ReactElement;
 }) {
   const { user } = useAuth();
   const { activePersona } = usePersonaState();
@@ -189,18 +191,22 @@ export function ConsentInboxDropdown({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
       <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={triggerClassName}
-          aria-label="Open consent inbox"
-        >
-          <Shield className="h-5 w-5" />
-          {pendingCount > 0 ? (
-            <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
-              {pendingCount}
-            </span>
-          ) : null}
-        </button>
+        {renderTrigger ? (
+          renderTrigger({ pendingCount })
+        ) : (
+          <button
+            type="button"
+            className={triggerClassName}
+            aria-label="Open consent inbox"
+          >
+            <Shield className="h-5 w-5" />
+            {pendingCount > 0 ? (
+              <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
+                {pendingCount}
+              </span>
+            ) : null}
+          </button>
+        )}
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
