@@ -82,7 +82,8 @@ Those are real, but they are not part of the normal first-PR path. If you need t
 Common checks:
 
 ```bash
-bash scripts/ci/orchestrate.sh all
+./bin/hushh ci
+./bin/hushh docs verify
 cd hushh-webapp && npm run verify:docs
 ```
 

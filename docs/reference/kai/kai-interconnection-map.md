@@ -145,7 +145,7 @@ Notes:
 
 | Change Surface | Immediate Impact | Downstream Risk | Required Validation |
 | --- | --- | --- | --- |
-| Route or payload schema change | API service parse and UI render paths | Silent undefined fields in cards/charts | `verify:routes`, stream contract checks, manual `/kai` + dashboard smoke |
+| Route or payload schema change | API service parse and UI render paths | Silent undefined fields in cards/charts | `cd hushh-webapp && npm run typecheck`, stream contract checks, manual `/kai` + dashboard smoke |
 | Cache key/TTL change | stale/fresh behavior in home/dashboard | hidden over-fetch or stale UI claims | `verify:cache`, `scripts/verify-pre-launch.sh`, cache logs |
 | Unlock warm orchestration change | initial route readiness after vault unlock | duplicate warm calls, repeated `/db/vault/get`, delayed first paint | unlock-to-ready smoke + cache-hit logs |
 | PKM summary change | context counters and dashboard hero values | false-zero context or missing counts | PKM audit script + debate context smoke |

@@ -13,7 +13,17 @@ const docTargets = [
   "consent-protocol/docs",
   "hushh-webapp/docs",
 ];
-const pathPrefixes = ["docs/", "consent-protocol/", "hushh-webapp/", "scripts/", "deploy/", "data/"];
+const ignoredDirs = new Set([
+  "node_modules",
+  ".next",
+  "DerivedData",
+  ".pytest_cache",
+  ".git",
+  ".venv",
+  "dist",
+  "build",
+]);
+const pathPrefixes = ["bin/", "docs/", "consent-protocol/", "hushh-webapp/", "scripts/", "deploy/", "data/"];
 const fileLikeExt = /\.(md|ts|tsx|js|cjs|py|sh|yml|yaml|json|txt)$/i;
 
 function normalize(p) {
@@ -35,6 +45,7 @@ function walkMarkdown(relTarget) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (ignoredDirs.has(entry.name)) continue;
         walk(full);
         continue;
       }

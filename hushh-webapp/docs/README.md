@@ -14,6 +14,8 @@ flowchart TD
 
 Frontend and native-client implementation references for the webapp package.
 
+This docs home is package-local. It should stay focused on frontend/native implementation material that does not belong in cross-cutting root `docs/`.
+
 ## Documents
 
 | Document | Scope |
@@ -32,4 +34,5 @@ Frontend and native-client implementation references for the webapp package.
 ## Related References
 
 - Cross-cutting docs entry: [`docs/README.md`](../../docs/README.md)
+- Documentation homes map: [`docs/reference/operations/documentation-architecture-map.md`](../../docs/reference/operations/documentation-architecture-map.md)
 - Backend docs entry: [`consent-protocol/docs/README.md`](../../consent-protocol/docs/README.md)
