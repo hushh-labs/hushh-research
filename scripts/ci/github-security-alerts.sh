@@ -2,6 +2,8 @@
 set -euo pipefail
 
 STRICT_MODE="${REQUIRE_GITHUB_ALERTS_CLEAN:-0}"
+STRICT_SECRET_ALERTS="${REQUIRE_GITHUB_SECRET_ALERTS_CLEAN:-$STRICT_MODE}"
+STRICT_DEPENDABOT_ALERTS="${REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN:-0}"
 
 strict_fail() {
   echo "$1"
@@ -185,21 +187,29 @@ if len(dependabot_alerts) > 8:
     print(f"  ... {len(dependabot_alerts) - 8} more dependabot alerts")
 PY
 
-if [ "${REQUIRE_GITHUB_ALERTS_CLEAN:-0}" = "1" ]; then
-  SECRET_COUNT="$(python3 - <<'PY' "$FILTERED_SECRET_ALERTS_JSON"
+SECRET_COUNT="$(python3 - <<'PY' "$FILTERED_SECRET_ALERTS_JSON"
 import json, sys
 from pathlib import Path
 print(len(json.loads(Path(sys.argv[1]).read_text())))
 PY
 )"
-  DEPENDABOT_COUNT="$(python3 - <<'PY' "$FILTERED_DEPENDABOT_ALERTS_JSON"
+DEPENDABOT_COUNT="$(python3 - <<'PY' "$FILTERED_DEPENDABOT_ALERTS_JSON"
 import json, sys
 from pathlib import Path
 print(len(json.loads(Path(sys.argv[1]).read_text())))
 PY
 )"
-  if [ "$SECRET_COUNT" -gt 0 ] || [ "$DEPENDABOT_COUNT" -gt 0 ]; then
-    echo "GitHub security alert parity check failed: open alerts remain."
-    exit 1
-  fi
+
+if [ "$SECRET_COUNT" -gt 0 ] && [ "$STRICT_SECRET_ALERTS" = "1" ]; then
+  echo "GitHub security alert parity check failed: open secret-scanning alerts remain."
+  exit 1
+fi
+
+if [ "$DEPENDABOT_COUNT" -gt 0 ] && [ "$STRICT_DEPENDABOT_ALERTS" = "1" ]; then
+  echo "GitHub security alert parity check failed: open Dependabot alerts remain."
+  exit 1
+fi
+
+if [ "$DEPENDABOT_COUNT" -gt 0 ] && [ "$STRICT_DEPENDABOT_ALERTS" != "1" ]; then
+  echo "GitHub security alert parity advisory: open Dependabot alerts remain but are non-blocking in this lane."
 fi

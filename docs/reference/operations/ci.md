@@ -44,6 +44,18 @@ This document describes the **Tri-Flow CI** workflow and how to stay aligned wit
 **Local mirror:** [`./bin/hushh ci`](./cli.md)  
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
 
+## Monitoring Rule
+
+After any merge to `main`, bypass merge, deploy trigger, or manual workflow dispatch, keep monitoring the resulting GitHub workflow chain until it reaches a terminal state.
+
+Minimum expectation:
+
+1. watch the immediate `Tri-Flow CI` or dispatched workflow
+2. if `main` goes green, watch downstream `Deploy to UAT`
+3. report the exact failing workflow, job, and step if anything fails
+4. do not stop at "triggered" or "queued"
+5. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
+
 ---
 
 ## Fundamental Blocking Policy
@@ -113,7 +125,7 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. This a
 
 | Gate | Purpose | Behavior |
 |------|---------|----------|
-| Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range and then compares open GitHub secret-scanning + Dependabot alerts through the GitHub API |
+| Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
 | Main Freshness Gate | Show branch freshness before merge | Advisory on pull requests, blocking on `merge_group` |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
@@ -147,9 +159,10 @@ The secret gate is intentionally stricter than raw regex scanning:
 
 - local runs use authenticated `gh` access to compare against open GitHub secret-scanning and Dependabot alerts
 - CI uses a dedicated repo secret such as `GH_SECURITY_ALERTS_TOKEN` so GitHub Actions can read the same alert surfaces
-- the final strict mode fails if either:
+- the final blocking mode fails if either:
   - `gitleaks` finds a leak in the scanned commit range, or
-  - GitHub still reports any open secret-scanning or Dependabot alerts
+  - GitHub still reports any open secret-scanning alerts
+- open Dependabot alerts are currently advisory in `Tri-Flow CI`; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 
 ## Advisory Checks (Non-Blocking By Default)
 

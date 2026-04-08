@@ -37,6 +37,8 @@ One-time rollout notes belong in PRs, issues, or git history, not in the active 
 
 - `.codex/skills/devops-operations/`: use for CI/CD, branch protection, merge queue, deploy, env or secret parity, Cloud Run or Cloud Build operations, and operational verification.
   It is also the canonical skill for PR approval/admin-bypass decisions and must verify live GitHub identity plus ruleset state before acting.
+  After merges or deploy triggers, it must continue monitoring the resulting CI/deploy runs until they finish or fail with a concrete blocker.
+  For failures inside the operations surface, it should attempt the fix-and-rerun loop instead of stopping at diagnosis.
 - `.codex/skills/github-board-operations/`: use for `Hushh Engineering Core` GitHub board workflows only.
 - `.codex/skills/documentation-governance/`: use for doc placement, consolidation, diagrams, docs verification, and canonical docs-home decisions.
 - frontend skills under `.codex/skills/` are not the right path for repository operations or delivery work.
