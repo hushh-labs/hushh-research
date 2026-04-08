@@ -83,6 +83,14 @@
     }
   },
   {
+    "route": "/kai/funding-trade",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/views/funding-trade-view.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
     "route": "/kai/onboarding",
     "mode": "flow",
     "exemptionReason": "Fullscreen onboarding flow owns its own shell and safe-area spacing."

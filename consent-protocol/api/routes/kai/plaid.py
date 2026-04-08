@@ -123,6 +123,26 @@ class AlpacaConnectCompleteRequest(BaseModel):
     code: str = Field(min_length=1)
 
 
+class PlaidFundedTradeCreateRequest(BaseModel):
+    user_id: str
+    funding_item_id: str = Field(min_length=1)
+    funding_account_id: str = Field(min_length=1)
+    symbol: str = Field(min_length=1)
+    user_legal_name: str = Field(min_length=1)
+    notional_usd: float = Field(gt=0)
+    side: Literal["buy", "sell"] = "buy"
+    order_type: Literal["market", "limit"] = "market"
+    time_in_force: Literal["day", "gtc", "opg", "cls", "ioc", "fok"] = "day"
+    limit_price: float | None = Field(default=None, gt=0)
+    brokerage_account_id: str | None = None
+    transfer_idempotency_key: str | None = None
+    trade_idempotency_key: str | None = None
+
+
+class PlaidFundedTradeRefreshRequest(BaseModel):
+    user_id: str
+
+
 def _verify_user(token_data: dict[str, Any], requested_user_id: str) -> None:
     if token_data["user_id"] != requested_user_id:
         raise HTTPException(
@@ -437,6 +457,84 @@ async def create_plaid_transfer(
         )
     except Exception as exc:
         _raise_logged_http_exception("kai.plaid.transfer_create_failed", request.user_id, exc)
+
+
+@router.post("/plaid/trades/funded/create")
+async def create_plaid_funded_trade(
+    request: PlaidFundedTradeCreateRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_broker_funding_service().create_funded_trade_intent(
+            user_id=request.user_id,
+            funding_item_id=request.funding_item_id,
+            funding_account_id=request.funding_account_id,
+            symbol=request.symbol,
+            user_legal_name=request.user_legal_name,
+            notional_usd=request.notional_usd,
+            side=request.side,
+            order_type=request.order_type,
+            time_in_force=request.time_in_force,
+            limit_price=request.limit_price,
+            brokerage_account_id=request.brokerage_account_id,
+            transfer_idempotency_key=request.transfer_idempotency_key,
+            trade_idempotency_key=request.trade_idempotency_key,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.funded_trade_create_failed", request.user_id, exc)
+
+
+@router.get("/plaid/trades/funded")
+async def list_plaid_funded_trades(
+    user_id: str,
+    limit: int = 20,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, user_id)
+    try:
+        return await get_broker_funding_service().list_funded_trade_intents(
+            user_id=user_id,
+            limit=limit,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.funded_trade_list_failed", user_id, exc)
+
+
+@router.get("/plaid/trades/funded/{intent_id}")
+async def get_plaid_funded_trade(
+    intent_id: str,
+    user_id: str,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, user_id)
+    try:
+        return await get_broker_funding_service().get_funded_trade_intent(
+            user_id=user_id,
+            intent_id=intent_id,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.funded_trade_get_failed", user_id, exc)
+
+
+@router.post("/plaid/trades/funded/{intent_id}/refresh")
+async def refresh_plaid_funded_trade(
+    intent_id: str,
+    request: PlaidFundedTradeRefreshRequest,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        return await get_broker_funding_service().get_funded_trade_intent(
+            user_id=request.user_id,
+            intent_id=intent_id,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception(
+            "kai.plaid.funded_trade_refresh_failed",
+            request.user_id,
+            exc,
+        )
 
 
 @router.get("/plaid/transfers/{transfer_id}")

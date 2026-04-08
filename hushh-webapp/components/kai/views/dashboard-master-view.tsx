@@ -5,6 +5,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  BadgeDollarSign,
   Building2,
   Plus,
   RefreshCw,
@@ -2302,6 +2303,14 @@ export function DashboardMasterView({
                 {hasPlaidConnections ? "Connect Another Brokerage" : "Connect Plaid"}
               </MorphyButton>
             ) : null}
+            <MorphyButton
+              variant="none"
+              effect="fade"
+              onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}
+            >
+              <BadgeDollarSign className="mr-2 h-4 w-4" />
+              Fund + Trade
+            </MorphyButton>
           </div>
         </SurfaceCardContent>
       </SurfaceCard>
@@ -2338,6 +2347,7 @@ export function DashboardMasterView({
           />
 
           <PlaidFundingTransfersSection
+            className="hidden"
             fundingStatus={plaidFundingStatus}
             onManageBrokerage={() => void handleConnectFundingBrokerage()}
             onConnectFunding={(itemId) => void openPlaidFundingLinkFlow(itemId)}

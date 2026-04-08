@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
+  BadgeDollarSign,
   BarChart3,
   Building2,
   ChevronRight,
@@ -832,6 +833,10 @@ export function InvestmentsMasterView({
                   Cancel refresh
                 </Button>
               ) : null}
+              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}>
+                <BadgeDollarSign className="mr-2 h-4 w-4" />
+                Fund + Trade
+              </Button>
               <Button variant="blue-gradient" effect="fill" onClick={handleOptimize}>
                 <ArrowRight className="mr-2 h-4 w-4" />
                 Optimize current source
@@ -936,6 +941,7 @@ export function InvestmentsMasterView({
         />
 
         <PlaidFundingTransfersSection
+          className="hidden"
           fundingStatus={plaidFundingStatus}
           onManageBrokerage={() => void handleConnectFundingBrokerage()}
           onConnectFunding={(itemId) => void openPlaidFundingLinkFlow(itemId)}
