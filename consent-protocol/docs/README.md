@@ -18,71 +18,34 @@ flowchart TD
   root --> n4
 ```
 
----
+This directory is the package-local documentation home for backend and protocol contributors.
 
-## What This Directory Contains
+Use the package root README for:
 
-```
-consent-protocol/
-├── server.py                  # FastAPI app entry point
-├── consent_db.py              # DatabaseClient singleton
-├── requirements.txt           # Python dependencies
-├── Dockerfile                 # Cloud Run container
-├── .env.example               # Environment template
-├── api/
-│   ├── middlewares/            # Rate limiting, auth helpers
-│   └── routes/                # All API endpoint routers
-│       ├── consent.py         # Consent token management
-│       ├── developer.py       # Versioned developer API (/api/v1)
-│       ├── pkm.py             # Personal Knowledge Model CRUD
-│       ├── notifications.py   # FCM push tokens
-│       ├── kai/               # Kai financial agent routes
-│       └── ...
-├── hushh_mcp/
-│   ├── hushh_adk/             # HushhAgent, @hushh_tool, HushhContext
-│   ├── agents/                # Agent implementations (orchestrator, kai)
-│   ├── operons/               # Business logic (calculators, fetchers, LLM)
-│   ├── services/              # Database access layer
-│   ├── consent/               # Token validation, scope helpers
-│   └── config.py              # Environment config loader
-├── mcp_modules/               # MCP server tools and resources
-├── db/migrations/             # SQL migration files
-└── docs/                      # Backend-specific documentation
-    ├── README.md              # This file (entry point)
-    ├── manifesto.md           # Hushh philosophy (timeless)
-    ├── mcp-setup.md           # MCP technical companion
-    └── reference/
-        ├── agent-development.md   # DNA model, operons, contribution guide
-        ├── developer-api.md       # Published developer API contract
-        ├── personal-knowledge-model.md # PKM architecture, BYOK
-        ├── kai-agents.md          # 3-agent debate system
-        ├── consent-protocol.md    # Token model and security
-        └── fcm-notifications.md   # FCM push architecture
-```
+- backend orientation
+- package quick start
+- runtime overview
 
----
+Use this docs index for:
 
-## Quick Start
+- backend reference navigation
+- protocol concepts
+- MCP/developer API docs
+- package-local contributor docs
 
-```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
+## Package Local Boundaries
 
-# Install dependencies
-pip install -r requirements.txt
+This docs home owns:
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your Supabase, Gemini, and Firebase credentials
+- backend implementation reference
+- consent protocol and PKM concepts
+- agent and MCP documentation
 
-# Run server
-python -m uvicorn server:app --host 0.0.0.0 --port 8000 --reload
-```
+It does not own:
 
-Health check: `curl http://localhost:8000/health`
-
----
+- repo-wide contributor onboarding
+- cross-cutting operations governance
+- root documentation policy
 
 ## Documentation
 
@@ -98,56 +61,8 @@ Health check: `curl http://localhost:8000/health`
 | Integrate into a host monorepo (subtree) | [monorepo-integration.md](./monorepo-integration.md) |
 | Read the Hushh philosophy | [manifesto.md](./manifesto.md) |
 
----
+## Related Docs
 
-## Key Concepts
-
-### Service Layer
-
-All database access goes through service classes. API routes never import `DatabaseClient` directly.
-
-```
-API Route → Service (validates consent) → DatabaseClient → PostgreSQL
-```
-
-The backend follows a layered architecture: FastAPI routes delegate to service classes which handle consent validation and database operations. Agents follow the DNA model (Agent > Tools > Operons > Services), ensuring consent is checked at every layer.
-
-See: [Agent Development](./reference/agent-development.md)
-
-### Agent Architecture
-
-Agents follow the DNA model: Agent > Tools > Operons > Services.
-
-See: [Agent Development](./reference/agent-development.md)
-
-### Consent Protocol
-
-All data access requires a consent token. No bypasses.
-
-See: [Consent Protocol](./reference/consent-protocol.md)
-
----
-
-## Linting and Testing
-
-```bash
-ruff check .                    # Linting
-mypy .                          # Type checking
-pytest                          # Tests
-```
-
----
-
-## Deployment
-
-Deploys to Google Cloud Run via GitHub Actions or manual:
-
-```bash
-gcloud run deploy consent-protocol \
-  --source . \
-  --region us-east1 \
-  --port 8000 \
-  --allow-unauthenticated
-```
-
-See [env-vars.md](./reference/env-vars.md) for required environment variables and secrets.
+- Package orientation: [../README.md](../README.md)
+- Cross-cutting docs home: [../../docs/README.md](../../docs/README.md)
+- Documentation governance: [../../docs/reference/operations/docs-governance.md](../../docs/reference/operations/docs-governance.md)

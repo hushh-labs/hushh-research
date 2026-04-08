@@ -1,5 +1,9 @@
 # Frontend UI Architecture Map
 
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](./README.md). Use that map for the top-down quality and UI-system surface; this page is the narrower frontend architecture contract beneath it.
+
 ## Canonical Map
 
 | Layer | Location | Purpose | Rules |

@@ -45,6 +45,7 @@ Start here:
 - [../README.md](../README.md): product and repo orientation
 - [guides/getting-started.md](./guides/getting-started.md): first-run path
 - [guides/environment-model.md](./guides/environment-model.md): runtime profiles
+- [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md): canonical docs-home map
 - [reference/architecture/architecture.md](./reference/architecture/architecture.md): runtime and trust boundaries
 - [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model
 - [vision/README.md](./vision/README.md): product thesis and positioning
@@ -76,12 +77,23 @@ Start here:
 | Service layer and platform-aware calls | [../hushh-webapp/lib/services/README.md](../hushh-webapp/lib/services/README.md) |
 | Backend implementation docs | [../consent-protocol/docs/README.md](../consent-protocol/docs/README.md) |
 
+## Documentation Homes
+
+This repo uses a strict documentation-home model:
+
+1. root markdowns stay thin and point downward
+2. `docs/` owns cross-cutting repo contracts
+3. `consent-protocol/docs/` owns backend/protocol package docs
+4. `hushh-webapp/docs/` owns frontend/native package docs
+
+See [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md).
+
 ## Active Docs Contract
 
 Contributor-facing docs should stay small and stable:
 
 - use one canonical setup path
-- use npm-first commands in public docs
+- use the canonical public command surface (`bin/hushh` at repo root, package-local commands only when the doc is package-local)
 - keep maintainer-only workflows out of first-run guides
 - prefer durable references over one-time runbooks
 

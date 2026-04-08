@@ -120,8 +120,9 @@ Reference docs:
 Native/mobile-specific setup stays outside the first-run path:
 
 - [Mobile Guide](./mobile.md)
-- `npm run verify:mobile-firebase`
-- `npm run verify:parity`
+- `./bin/hushh bootstrap`
+- `./bin/hushh native ios --mode uat`
+- `./bin/hushh native android --mode uat`
 
 ## Developer MCP / External Integrations
 

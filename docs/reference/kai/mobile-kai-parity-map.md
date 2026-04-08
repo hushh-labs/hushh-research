@@ -11,12 +11,12 @@ Route-level and feature-level parity contract for Kai on Web, iOS, and Android.
 
 | Route | Web | iOS (Capacitor) | Android (Capacitor) | Verification |
 | --- | --- | --- | --- | --- |
-| `/kai/import` | Yes | Yes | Yes | `npm run verify:capacitor:routes` + runtime audit |
-| `/kai` | Yes | Yes | Yes | `npm run verify:capacitor:routes` + runtime audit |
-| `/kai/plaid/oauth/return` | Yes | Yes | Yes | `npm run verify:capacitor:routes` + runtime audit |
-| `/kai/portfolio` | Yes | Yes | Yes | `npm run verify:capacitor:routes` + runtime audit |
-| `/kai/analysis` | Yes | Yes | Yes | `npm run verify:capacitor:routes` + runtime audit |
-| `/kai/optimize` | Yes | Yes | Yes | `npm run verify:capacitor:routes` + runtime audit |
+| `/kai/import` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/kai` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/kai/plaid/oauth/return` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/kai/portfolio` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/kai/analysis` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/kai/optimize` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
 
 ## Feature-Level Parity
 
@@ -40,8 +40,8 @@ Route-level and feature-level parity contract for Kai on Web, iOS, and Android.
 ## Parity Verification Commands
 
 ```bash
-cd hushh-webapp && npm run verify:parity
-cd hushh-webapp && npm run verify:capacitor:routes
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
 ```
 
 ## Failure Interpretation

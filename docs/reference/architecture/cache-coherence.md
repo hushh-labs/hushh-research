@@ -146,7 +146,7 @@ Don't:
 
 Run:
 - `cd hushh-webapp && npm run verify:cache`
-- `cd hushh-webapp && npm run verify:capacitor:e2e`
+- `./bin/hushh native ios --mode uat`
 
 The `verify:cache` script hard-fails when critical mutation/auth paths bypass `CacheSyncService`.
 

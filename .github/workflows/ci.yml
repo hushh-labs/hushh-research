@@ -91,6 +91,8 @@ jobs:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
           GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
           REQUIRE_GITHUB_ALERTS_CLEAN: "1"
+          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: "1"
+          REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN: "0"
 
   # ============================================================================
   # Path filters: run frontend/backend jobs only when their paths change (or manual scope)
@@ -266,21 +268,21 @@ jobs:
 
   main-freshness-gate:
     name: "Main Freshness Gate"
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    if: (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'merge_group' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
-      - name: Verify branch contains latest origin/main
+      - name: Verify branch freshness against origin/main
         env:
           MAIN_SYNC_REMOTE: origin
           MAIN_SYNC_BRANCH: main
-          MAIN_SYNC_MODE: block
-          MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref }}
+          MAIN_SYNC_MODE: ${{ github.event_name == 'merge_group' && 'block' || 'warn' }}
+          MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 
   ci-status:

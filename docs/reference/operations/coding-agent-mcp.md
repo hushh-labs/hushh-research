@@ -169,6 +169,11 @@ When working in this repo:
 1. Use `shadcn` MCP before adding or modifying registry-backed UI components.
 2. Use `plaid` MCP before guessing on Plaid flows, sandbox behavior, webhooks, or OAuth.
 3. Use Hushh Consent MCP when you need internal consent/data-access guidance or machine-readable internal documentation.
+4. Use the repo-owned skill `.codex/skills/devops-operations/` for CI/CD, branch protection, merge queue, deploy, env or secret parity, Cloud Run or Cloud Build operations, and operational verification.
+   That skill also owns PR approval/admin handling. It must verify live GitHub identity and ruleset state, and it must not treat repo admin status as equivalent to independent PR approval.
+5. Use the repo-owned skill `.codex/skills/github-board-operations/` when summarizing or updating `Hushh Engineering Core` board work.
+6. Use the repo-owned skill `.codex/skills/documentation-governance/` when reorganizing docs, moving docs, deleting duplicates, or tightening docs verification.
+7. Use the frontend skills only for frontend architecture or design-system work; they are not the right path for repository operations.
 
 If a developer has not configured MCP yet:
 

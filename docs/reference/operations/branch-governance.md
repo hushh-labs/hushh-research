@@ -78,16 +78,24 @@ Before deleting a local backup branch, classify its unique commits as:
 ### `main`
 
 1. Require pull requests before merge.
-2. Require the `CI Status Gate` and `Main Freshness Gate` status checks.
-3. Block force-pushes.
-4. Block branch deletion.
-5. Use bypass for the 3 core owners only; do not rely on overlapping push restrictions.
-6. Keep ordinary development off `main`; use PRs from developer branches.
+2. Require the `CI Status Gate` status check.
+3. Keep classic branch protection non-strict; freshness is enforced through merge queue, not per-PR rebasing churn.
+4. Enable merge queue for `main`.
+5. Block force-pushes.
+6. Block branch deletion.
+7. Use bypass for the 3 core owners only; do not rely on overlapping push restrictions.
+8. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
 
 - `enforce_admins` should stay enabled
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
+- admin ownership does not count as an independent PR approval
+- a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges
+- if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry or bypass; do not assume approval is implicitly satisfied
+- bypass actors may waive review only through an explicit ruleset/branch-protection bypass path
+- direct pushes to `main` are not the default bypass model; the preferred path is a green PR plus bypass merge
+- CI should still gate the landing decision; bypass is for review policy, not for skipping validation
 
 ### Retired release branches
 

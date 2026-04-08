@@ -3,12 +3,13 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+Canonical visual owner: [Documentation Architecture Map](./documentation-architecture-map.md). Use that map for documentation-home placement and consolidation decisions; this page is the narrower governance contract beneath it.
 
 ## Purpose
 
 Define one durable documentation model across:
 
+- root markdown entrypoints
 - `docs/` (cross-cutting)
 - `consent-protocol/docs/` (backend)
 - `hushh-webapp/docs/` (frontend/native)
@@ -28,6 +29,8 @@ Define one durable documentation model across:
 3. Keep cross-cutting architecture/ops/policy docs in root `docs/`.
 4. Do not duplicate source-of-truth content across homes; link instead.
 5. Put AI strategy/runtime planning in `docs/reference/ai/` unless it is backend- or frontend-only.
+6. Keep root markdowns thin and contributor-facing; do not let them become detailed setup or architecture specs.
+7. Keep `consent-protocol/docs/README.md` and `hushh-webapp/docs/README.md` as package docs indexes, not second package READMEs.
 
 ## Visual Coverage Rules
 
@@ -37,6 +40,7 @@ Define one durable documentation model across:
 4. Tier A visual owners are:
    - major README/index docs under `docs/`, `consent-protocol/docs/`, and `hushh-webapp/docs/`
    - `docs/project_context_map.md`
+   - `docs/reference/operations/documentation-architecture-map.md`
    - canonical architecture, IAM, Kai, mobile, CI, and branch-governance north-star docs
 5. Tier B docs may link to the nearest Tier A owner instead of embedding a local diagram.
 6. Diagrams must stay markdown-native. Prefer Mermaid for larger flows and ASCII only when the smaller inline sketch reads better.
@@ -65,7 +69,7 @@ Required baseline:
    - engineering invariants
    - local contributor bootstrap
    - PR/change expectations
-5. Public docs must teach the npm-first contributor surface, not maintainer-only compatibility paths.
+5. Public docs must teach the canonical contributor command surface (`bin/hushh` at repo root, package-local commands only in package-local docs), not maintainer-only compatibility paths.
 6. Public docs must use Hushh branding unless a compatibility identifier is being referenced explicitly.
 7. Secure / Scoped / Handled-by-the-user framing is allowed when it clarifies trust boundaries, but it should remain explanatory and must not replace the Hushh product name.
 
@@ -80,13 +84,31 @@ Not allowed in root docs:
 1. stale runtime specifics that duplicate canonical docs
 2. outdated route/env/test inventory
 3. deleted path references kept for historical convenience
+4. package-local implementation detail that belongs in `consent-protocol/docs/` or `hushh-webapp/docs/`
+
+## Consolidation Rules
+
+Every maintained doc should be classified as one of:
+
+1. `canonical`
+2. `pointer/index`
+3. `merge into existing canonical doc`
+4. `delete`
+
+Default bias:
+
+1. hard-delete stale or redundant docs once a canonical replacement exists
+2. merge duplicate setup/testing/reference content into the canonical doc
+3. downgrade navigation-only docs into short indexes or pointers
+4. keep package-local docs package-local instead of moving them into root `docs/`
 
 ## Required Quality Gates
 
 1. `npm run verify:docs` (runtime/doc parity gate)
 2. `node scripts/verify-doc-links.cjs` (broken link + dead path gate)
+3. `node scripts/verify-doc-governance.cjs` (doc-home, index, thin-root, and Tier A diagram gate)
 
-Both gates must pass in CI before merge.
+All applicable docs gates must pass in CI before merge.
 
 CI gate policy:
 
@@ -102,6 +124,7 @@ CI gate policy:
 3. If a file is renamed, update all links immediately; no deferred follow-up.
 4. Any future-plan document must include an explicit `Status` section and a promotion rule before it can be treated as implementation reference.
 5. If a maintained doc loses or moves its canonical visual owner, update the linked `Visual Context` pages in the same change.
+6. If documentation placement changes, update the documentation skill and the documentation architecture map in the same change.
 
 ## Ownership
 

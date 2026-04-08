@@ -226,6 +226,7 @@ const REQUIRED_DENSITY_MARKERS = [
 
 const VISUAL_TIER_A_EXTRA = new Set([
   "docs/project_context_map.md",
+  "docs/reference/operations/documentation-architecture-map.md",
   "docs/reference/architecture/architecture.md",
   "docs/reference/architecture/api-contracts.md",
   "docs/reference/architecture/cache-coherence.md",
