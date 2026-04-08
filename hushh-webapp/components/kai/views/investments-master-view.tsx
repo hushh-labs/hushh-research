@@ -272,10 +272,7 @@ export function InvestmentsMasterView({
 
       setIsLinkingPlaid(true);
       try {
-        const redirectUri =
-          typeof window !== "undefined"
-            ? new URL(ROUTES.KAI_PLAID_OAUTH_RETURN, window.location.origin).toString()
-            : undefined;
+        const redirectUri = resolvePlaidRedirectUri();
         const linkToken = await PlaidPortfolioService.createLinkToken({
           userId,
           vaultOwnerToken,
