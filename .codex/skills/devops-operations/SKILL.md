@@ -51,6 +51,10 @@ Do not use this skill for:
 8. Self-approval is not valid approval. If the active GitHub identity is the PR author, Codex must not claim the PR is approved.
 9. When a user says they are an admin, verify the live ruleset before taking action. Admin can bypass only if the repository rules actually permit it.
 10. If review is still required, say that explicitly and prefer queue or ruleset-compliant action over pretending the requirement is satisfied.
+11. After any PR merge, bypass merge, workflow dispatch, or deploy trigger, keep monitoring the resulting CI and downstream workflows until they reach a terminal state.
+12. Do not stop at "triggered". Report the final state or the first concrete blocker.
+13. For failures inside the DevOps/CI/release ownership surface, do not stop at diagnosis. Attempt the fix, rerun the affected workflow path, and continue the loop until the change is merged or a hard blocker remains.
+14. Escalate only when the blocker is outside the safe operating surface, such as product-behavior regressions, missing external credentials, policy restrictions the current identity cannot bypass, or ambiguous ownership.
 
 ## Tooling preferences
 
@@ -65,6 +69,25 @@ Do not use this skill for:
 ```
 
 3. Use MCP only when it directly improves repo operations work and is already configured. Do not invent MCP dependencies.
+
+## Post-action monitoring
+
+1. After merges to `main`, monitor:
+   - the resulting `Tri-Flow CI` push run
+   - the downstream `Deploy to UAT` workflow if the `main` run goes green
+2. After manual deploy or workflow dispatch actions, monitor the triggered workflow until:
+   - success
+   - failure with a concrete failing job/step
+   - explicit skip or policy block
+3. Prefer `gh run list`, `gh run view`, and `gh pr checks` for live monitoring.
+4. Report exact failing workflow, job, and step when available. Do not summarize a failed rollout as merely "CI failed".
+5. If the failure is operational and locally actionable, move immediately into fix mode:
+   - inspect the failing job and exact step
+   - patch the workflow, policy, script, or deploy config in scope
+   - rerun the smallest authoritative validation
+   - push the fix through the correct PR or bypass path
+   - continue monitoring until terminal success or a hard blocker
+6. Do not claim completion while a merge, `main` CI run, or downstream deploy remains unresolved.
 
 ## Approval and admin handling
 
