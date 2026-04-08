@@ -78,11 +78,13 @@ Before deleting a local backup branch, classify its unique commits as:
 ### `main`
 
 1. Require pull requests before merge.
-2. Require the `CI Status Gate` and `Main Freshness Gate` status checks.
-3. Block force-pushes.
-4. Block branch deletion.
-5. Use bypass for the 3 core owners only; do not rely on overlapping push restrictions.
-6. Keep ordinary development off `main`; use PRs from developer branches.
+2. Require the `CI Status Gate` status check.
+3. Keep classic branch protection non-strict; freshness is enforced through merge queue, not per-PR rebasing churn.
+4. Enable merge queue for `main`.
+5. Block force-pushes.
+6. Block branch deletion.
+7. Use bypass for the 3 core owners only; do not rely on overlapping push restrictions.
+8. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
 
