@@ -7,8 +7,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
 from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
 
@@ -56,7 +58,74 @@ def _receipt_memory_service():
     return get_receipt_memory_preview_service()
 
 
-def _to_http_exception(exc: Exception) -> HTTPException:
+_DEPENDENCY_ERROR_PATTERNS = (
+    "connection refused",
+    "server closed the connection unexpectedly",
+    "could not connect to server",
+    "timed out",
+    "timeout",
+    "headers timeout",
+    "db operation failed",
+    "psycopg2.operationalerror",
+    "sqlalchemy.exc.operationalerror",
+)
+
+
+def _iter_exception_chain(exc: BaseException):
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_dependency_unavailable_error(exc: Exception) -> bool:
+    for current in _iter_exception_chain(exc):
+        if isinstance(current, (DatabaseExecutionError, SqlalchemyOperationalError)):
+            return True
+        if isinstance(current, (ConnectionError, OSError, TimeoutError)):
+            return True
+        message = str(current).strip().lower()
+        if message and any(pattern in message for pattern in _DEPENDENCY_ERROR_PATTERNS):
+            return True
+    return False
+
+
+def _temporary_unavailable_message(operation: str) -> str:
+    if operation == "status":
+        return "We couldn't check your Gmail connection right now. Please try again in a moment."
+    if operation == "sync":
+        return "We couldn't start Gmail sync right now. Please try again in a moment."
+    if operation == "receipts":
+        return "We couldn't load your receipts right now. Please try again in a moment."
+    if operation == "receipts_memory_preview":
+        return "We couldn't create your shopping summary right now. Please try again in a moment."
+    if operation == "connect_start":
+        return "We couldn't start Gmail connect right now. Please try again in a moment."
+    if operation == "connect_complete":
+        return "We couldn't finish Gmail connect right now. Please try again in a moment."
+    if operation == "disconnect":
+        return "We couldn't disconnect Gmail right now. Please try again in a moment."
+    if operation == "reconcile":
+        return "We couldn't refresh your Gmail connection right now. Please try again in a moment."
+    if operation == "sync_run":
+        return "We couldn't load Gmail sync details right now. Please try again in a moment."
+    if operation == "receipts_memory_artifact":
+        return "We couldn't load your shopping summary right now. Please try again in a moment."
+    return "Gmail is temporarily unavailable. Please try again in a moment."
+
+
+def _to_http_exception(exc: Exception, *, operation: str) -> HTTPException:
+    if _is_dependency_unavailable_error(exc):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "GMAIL_CONNECTOR_TEMPORARILY_UNAVAILABLE",
+                "message": _temporary_unavailable_message(operation),
+                "retryable": True,
+            },
+        )
     if isinstance(exc, GmailApiError):
         detail: dict[str, Any] = {
             "code": "GMAIL_CONNECTOR_ERROR",
@@ -68,7 +137,10 @@ def _to_http_exception(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status_code, detail=detail)
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={"code": "GMAIL_CONNECTOR_UNEXPECTED", "message": str(exc)},
+        detail={
+            "code": "GMAIL_CONNECTOR_UNEXPECTED",
+            "message": _temporary_unavailable_message(operation),
+        },
     )
 
 
@@ -87,7 +159,7 @@ async def gmail_connect_start(
         )
     except Exception as exc:
         logger.exception("kai.gmail.connect_start_failed user_id=%s", payload.user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="connect_start") from exc
 
 
 @router.post("/gmail/connect/complete")
@@ -105,7 +177,7 @@ async def gmail_connect_complete(
         )
     except Exception as exc:
         logger.exception("kai.gmail.connect_complete_failed user_id=%s", payload.user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="connect_complete") from exc
 
 
 @router.get("/gmail/status/{user_id}")
@@ -118,7 +190,7 @@ async def gmail_status(
         return await _service().get_status(user_id=user_id)
     except Exception as exc:
         logger.exception("kai.gmail.status_failed user_id=%s", user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="status") from exc
 
 
 @router.post("/gmail/disconnect")
@@ -131,7 +203,7 @@ async def gmail_disconnect(
         return await _service().disconnect(user_id=payload.user_id)
     except Exception as exc:
         logger.exception("kai.gmail.disconnect_failed user_id=%s", payload.user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="disconnect") from exc
 
 
 @router.post("/gmail/sync")
@@ -148,7 +220,7 @@ async def gmail_sync(
         return result
     except Exception as exc:
         logger.exception("kai.gmail.sync_failed user_id=%s", payload.user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="sync") from exc
 
 
 @router.post("/gmail/reconcile")
@@ -161,7 +233,7 @@ async def gmail_reconcile(
         return await _service().reconcile_connection(user_id=payload.user_id)
     except Exception as exc:
         logger.exception("kai.gmail.reconcile_failed user_id=%s", payload.user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="reconcile") from exc
 
 
 @router.get("/gmail/sync/{run_id}")
@@ -187,7 +259,7 @@ async def gmail_sync_run(
         raise
     except Exception as exc:
         logger.exception("kai.gmail.sync_run_failed user_id=%s run_id=%s", user_id, run_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="sync_run") from exc
 
 
 @router.get("/gmail/receipts/{user_id}")
@@ -206,7 +278,7 @@ async def gmail_receipts(
         )
     except Exception as exc:
         logger.exception("kai.gmail.receipts_failed user_id=%s", user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="receipts") from exc
 
 
 @router.post("/gmail/receipts-memory/preview")
@@ -222,7 +294,7 @@ async def gmail_receipts_memory_preview(
         )
     except Exception as exc:
         logger.exception("kai.gmail.receipts_memory_preview_failed user_id=%s", payload.user_id)
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="receipts_memory_preview") from exc
 
 
 @router.get("/gmail/receipts-memory/artifacts/{artifact_id}")
@@ -255,7 +327,7 @@ async def gmail_receipts_memory_artifact(
             user_id,
             artifact_id,
         )
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="receipts_memory_artifact") from exc
 
 
 @router.post("/gmail/webhook")

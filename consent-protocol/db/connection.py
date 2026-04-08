@@ -39,6 +39,25 @@ logger = logging.getLogger(__name__)
 _pool: Optional[asyncpg.Pool] = None
 
 
+def _get_connect_timeout_seconds() -> float:
+    raw = os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "10").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid float for DB_CONNECT_TIMEOUT_SECONDS=%r; using default 10.0",
+            raw,
+        )
+        return 10.0
+    if value <= 0:
+        logger.warning(
+            "Out-of-range DB_CONNECT_TIMEOUT_SECONDS=%r; expected > 0. Using default 10.0",
+            raw,
+        )
+        return 10.0
+    return value
+
+
 def get_database_url() -> str:
     """
     Build database URL from DB_* environment variables (single source of truth).
@@ -91,6 +110,7 @@ async def get_pool() -> asyncpg.Pool:
     if _pool is None:
         database_url = _get_database_url()
         ssl_config = get_database_ssl()
+        connect_timeout_seconds = _get_connect_timeout_seconds()
         db_host = os.getenv("DB_HOST", "")
         db_unix_socket = os.getenv("DB_UNIX_SOCKET", "")
         db_user = os.getenv("DB_USER", "")
@@ -110,6 +130,7 @@ async def get_pool() -> asyncpg.Pool:
                 port=db_port,
                 min_size=2,
                 max_size=10,
+                timeout=connect_timeout_seconds,
                 command_timeout=60,
                 max_inactive_connection_lifetime=300,
             )
@@ -118,6 +139,7 @@ async def get_pool() -> asyncpg.Pool:
                 database_url,
                 min_size=2,
                 max_size=10,
+                timeout=connect_timeout_seconds,
                 command_timeout=60,
                 max_inactive_connection_lifetime=300,
                 ssl=ssl_config,

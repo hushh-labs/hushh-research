@@ -923,7 +923,15 @@ export class VaultService {
 
       const response = await fetch(url, { headers });
       if (!response.ok) {
-        throw new Error("Failed to get vault");
+        const errorPayload = (await response
+          .json()
+          .catch(async () => ({ error: await response.text().catch(() => "") }))) as {
+          error?: string;
+          message?: string;
+        };
+        throw new Error(
+          errorPayload.error || errorPayload.message || "Failed to get vault"
+        );
       }
       const payload = (await response.json()) as Partial<VaultState>;
       const wrapperProbe = (payload as { wrappers?: unknown }).wrappers;

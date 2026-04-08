@@ -34,12 +34,12 @@ vi.mock("@/components/kai/voice/voice-compact-status", () => ({
 vi.mock("@/components/kai/voice/voice-console-sheet", () => ({
   VoiceConsoleSheet: ({
     open,
-    paused,
+    muted,
     transcriptPreview,
     onCancel,
   }: {
     open: boolean;
-    paused: boolean;
+    muted: boolean;
     transcriptPreview: string;
     onCancel: () => void;
   }) =>
@@ -47,8 +47,8 @@ vi.mock("@/components/kai/voice/voice-console-sheet", () => ({
       ? createElement(
           "div",
           {
-            "data-testid": "voice-console-sheet",
-            "data-paused": paused ? "true" : "false",
+          "data-testid": "voice-console-sheet",
+            "data-muted": muted ? "true" : "false",
           },
           createElement("div", { "data-testid": "voice-console-preview" }, transcriptPreview),
           createElement(
@@ -208,6 +208,8 @@ const {
   clearClientVadFallbackTimer,
   runAutoTurnDispatchSafely,
   scheduleClientVadFallbackCommit,
+  shouldShowAmbientListeningStatus,
+  shouldTriggerVoiceBargeIn,
 } = await import("@/components/kai/kai-search-bar");
 
 describe("kai-search-bar helpers", () => {
@@ -279,7 +281,7 @@ describe("kai-search-bar helpers", () => {
     });
 
     sessionMutedRef.current = true;
-    voiceUiStateRef.current = "sheet_paused";
+    voiceUiStateRef.current = "sheet_muted";
     vi.advanceTimersByTime(1200);
 
     expect(commitInputAudio).not.toHaveBeenCalled();
@@ -299,6 +301,20 @@ describe("kai-search-bar helpers", () => {
 
     expect(recover).toHaveBeenCalledWith(expect.any(Error));
     expect(recover.mock.calls[0]?.[0]?.message).toBe("autoturn_failed");
+  });
+
+  it("only treats meaningful partial transcripts as a barge-in signal", () => {
+    expect(shouldTriggerVoiceBargeIn("uh")).toBe(false);
+    expect(shouldTriggerVoiceBargeIn("hm")).toBe(false);
+    expect(shouldTriggerVoiceBargeIn("stop")).toBe(true);
+    expect(shouldTriggerVoiceBargeIn("open profile")).toBe(true);
+    expect(shouldTriggerVoiceBargeIn("NVDA today")).toBe(true);
+  });
+
+  it("does not overwrite a real transcript with ambient listening copy", () => {
+    expect(shouldShowAmbientListeningStatus("Listening...")).toBe(true);
+    expect(shouldShowAmbientListeningStatus("Audio detected...")).toBe(true);
+    expect(shouldShowAmbientListeningStatus("Analyze Nvidia")).toBe(false);
   });
 
   it("does not acquire a realtime session on mount", () => {
@@ -403,7 +419,7 @@ describe("kai-search-bar helpers", () => {
     await waitFor(() => {
       const sheet = screen.getByTestId("voice-console-sheet");
       expect(sheet).toBeTruthy();
-      expect(sheet.getAttribute("data-paused")).toBe("false");
+      expect(sheet.getAttribute("data-muted")).toBe("false");
       expect(screen.getByTestId("voice-console-preview").textContent).toContain(
         "Waiting for microphone access"
       );

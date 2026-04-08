@@ -69,6 +69,16 @@ function toPathnameFromHref(href: string): string {
   return queryIndex >= 0 ? value.slice(0, queryIndex) : value;
 }
 
+function isSameRouteTarget(currentHref: string, targetHref: string): boolean {
+  const current = String(currentHref || "").trim();
+  const target = String(targetHref || "").trim();
+  if (!current || !target) return false;
+  if (target.includes("?")) {
+    return current === target;
+  }
+  return toPathnameFromHref(current) === toPathnameFromHref(target);
+}
+
 function defaultRouteForAction(action: InvestorKaiActionDefinition): string | null {
   if (action.scope.routes.length === 0) return null;
   const first = action.scope.routes[0];
@@ -160,10 +170,19 @@ function inferActionIdFromTranscript(transcript: string): InvestorKaiActionId | 
   if (/\b(open|show|go to|take me to)\b.*\bgmail\b/.test(text)) {
     return "nav.profile_gmail_panel";
   }
+  if (/\b(open|show|go to|take me to)\b.*\b(pkm|pkm agent lab|memory lab)\b/.test(text)) {
+    return "nav.profile_pkm_agent_lab";
+  }
   if (/\b(open|show|go to|take me to)\b.*\bsupport\b/.test(text)) {
     return "nav.profile_support_panel";
   }
   if (/\b(open|show|go to|take me to)\b.*\b(receipts?)\b/.test(text)) {
+    return "nav.profile_receipts";
+  }
+  if (
+    /\b(add|build|refresh|save)\b.*\b(receipts?)\b.*\bpkm\b/.test(text) ||
+    /\b(receipts?)\b.*\b(memory|preview)\b/.test(text)
+  ) {
     return "nav.profile_receipts";
   }
   if (/\b(open|show|go to|take me to)\b.*\b(security|vault security)\b/.test(text)) {
@@ -262,7 +281,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
     };
   }
 
-  const currentPath = String(input.structuredContext?.route.pathname || "").trim();
+  const currentHref = String(input.structuredContext?.route.pathname || "").trim();
 
   if (action.wiring.status === "dead") {
     return {
@@ -287,11 +306,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
   if (action.wiring.status === "unwired") {
     const targetHref = defaultRouteForAction(action);
     const steps: GroundedExecutionStep[] = [];
-    if (
-      targetHref &&
-      toPathnameFromHref(targetHref) &&
-      toPathnameFromHref(targetHref) !== currentPath
-    ) {
+    if (targetHref && !isSameRouteTarget(currentHref, targetHref)) {
       steps.push({
         type: "navigate",
         href: targetHref,
@@ -341,6 +356,19 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
 
   const binding = action.wiring.binding;
   if (binding.kind === "route") {
+    if (isSameRouteTarget(currentHref, binding.href)) {
+      return {
+        status: "resolved",
+        actionId: action.id,
+        actionLabel: action.label,
+        destructive: false,
+        message: null,
+        execution: {
+          mode: "navigate_only",
+          steps: [],
+        },
+      };
+    }
     return {
       status: "resolved",
       actionId: action.id,
@@ -385,8 +413,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
   const requiresHiddenNavigation =
     action.scope.hiddenNavigable &&
     targetHref &&
-    toPathnameFromHref(targetHref) &&
-    toPathnameFromHref(targetHref) !== currentPath;
+    !isSameRouteTarget(currentHref, targetHref);
 
   if (requiresHiddenNavigation) {
     return {

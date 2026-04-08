@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/services/app-background-task-service", () => ({
@@ -28,6 +28,7 @@ import {
   primeConnectorStatus,
   useGmailConnectorStatus,
 } from "@/lib/profile/gmail-connector-store";
+import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
 describe("gmail-connector-store", () => {
   beforeEach(() => {
@@ -105,5 +106,49 @@ describe("gmail-connector-store", () => {
     expect(result.current.status?.google_email).toBe("user-hook@hushh.ai");
     rerender({ userId: "user-hook" });
     expect(result.current.status?.google_email).toBe("user-hook@hushh.ai");
+  });
+
+  it("falls back to a plain status fetch when reconcile times out", async () => {
+    vi.mocked(GmailReceiptsService.reconcile).mockRejectedValueOnce(
+      new Error("Gmail is taking too long to respond right now. Please try again in a moment.")
+    );
+    vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "fallback@hushh.ai",
+      scope_csv: "gmail.readonly",
+      auto_sync_enabled: true,
+      revoked: false,
+      connection_state: "connected",
+      sync_state: "idle",
+      bootstrap_state: "completed",
+      watch_status: "active",
+      needs_reauth: false,
+    } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>);
+
+    const { result } = renderHook(() =>
+      useGmailConnectorStatus({
+        userId: "user-hook",
+        enabled: true,
+        idTokenProvider: async () => "id-token",
+      })
+    );
+
+    await waitFor(() => {
+      expect(GmailReceiptsService.getStatus).toHaveBeenCalled();
+    });
+
+    vi.mocked(GmailReceiptsService.getStatus).mockClear();
+
+    await act(async () => {
+      await result.current.refreshStatus({ force: true });
+    });
+
+    await waitFor(() => {
+      expect(GmailReceiptsService.reconcile).toHaveBeenCalled();
+      expect(GmailReceiptsService.getStatus).toHaveBeenCalled();
+      expect(result.current.status?.google_email).toBe("fallback@hushh.ai");
+    });
   });
 });

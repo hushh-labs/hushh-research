@@ -16,7 +16,10 @@ import {
   type GmailSyncRun,
 } from "@/lib/services/gmail-receipts-service";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
-import { resolveGmailConnectionPresentation } from "@/lib/profile/mail-flow";
+import {
+  resolveGmailConnectionPresentation,
+  sanitizeGmailUserMessage,
+} from "@/lib/profile/mail-flow";
 
 const STORAGE_KEY = "kai_gmail_connector_cache_v1";
 const STATUS_TTL_MS = 5 * 60 * 1000;
@@ -150,7 +153,7 @@ function deriveConnectorTaskKind(run: GmailSyncRun | null | undefined): GmailCon
 
 function deriveTaskTitle(kind: GmailConnectorTaskKind): string {
   if (kind === "gmail_bootstrap") return "Scanning Gmail in the background";
-  if (kind === "gmail_backfill") return "Backfilling Gmail receipts";
+  if (kind === "gmail_backfill") return "Fetching older receipts";
   return "Syncing Gmail receipts";
 }
 
@@ -159,13 +162,16 @@ function deriveTaskDescription(kind: GmailConnectorTaskKind, run: GmailSyncRun |
     return "Kai is getting the Gmail sync ready. You can keep using the app.";
   }
   if (run?.status === "failed") {
-    return run.error_message || "Gmail sync failed.";
+    return sanitizeGmailUserMessage(run.error_message, {
+      fallback: "We couldn't update your receipts. Please try again in a moment.",
+      authFallback: "Reconnect Gmail to continue syncing your receipts.",
+    });
   }
   if (kind === "gmail_bootstrap") {
     return "Kai is scanning your recent Gmail receipts in the background.";
   }
   if (kind === "gmail_backfill") {
-    return "Kai is filling in older Gmail receipts without blocking the UI.";
+    return "Kai is fetching older Gmail receipts without blocking the UI.";
   }
   return "Kai is syncing Gmail receipts without blocking the UI.";
 }
@@ -279,13 +285,7 @@ function isStatusFresh(entry: GmailConnectorEntry, force = false): boolean {
 }
 
 function statusErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-  if (typeof error === "string" && error.trim()) {
-    return error.trim();
-  }
-  return fallback;
+  return sanitizeGmailUserMessage(error, { fallback });
 }
 
 function taskIdForRun(runId: string, kind: GmailConnectorTaskKind): string {
@@ -359,7 +359,11 @@ function finishTaskFromRun(
   const kind = options?.taskKind || deriveConnectorTaskKind(run);
   const message = deriveTaskDescription(kind, run);
   if (run.status === "failed") {
-    AppBackgroundTaskService.failTask(taskId, run.error_message || message, message);
+    const safeMessage = sanitizeGmailUserMessage(run.error_message, {
+      fallback: "We couldn't update your receipts. Please try again in a moment.",
+      authFallback: "Reconnect Gmail to continue syncing your receipts.",
+    });
+    AppBackgroundTaskService.failTask(taskId, safeMessage, safeMessage);
     return;
   }
   if (run.status === "canceled") {
@@ -411,8 +415,30 @@ async function fetchStatusFromNetwork(params: {
       });
       return status;
     })
-    .catch((error) => {
-      const nextError = statusErrorMessage(error, "Failed to load Gmail connector status.");
+    .catch(async (error) => {
+      if (params.force) {
+        try {
+          const fallbackStatus = await GmailReceiptsService.getStatus({
+            idToken: params.idToken,
+            userId: normalizedUserId,
+          });
+          primeConnectorStatus({
+            userId: normalizedUserId,
+            status: fallbackStatus,
+            routeHref: params.routeHref,
+            source: "status",
+          });
+          return fallbackStatus;
+        } catch (fallbackError) {
+          error = fallbackError;
+        }
+      }
+
+      console.error("[gmail-connector-store] Failed to refresh Gmail status:", error);
+      const nextError = statusErrorMessage(
+        error,
+        "We couldn't check your Gmail connection right now. Please try again in a moment."
+      );
       updateEntry(normalizedUserId, {
         statusError: nextError,
       });
@@ -509,7 +535,11 @@ async function pollSyncRun(params: {
       });
     }
   } catch (error) {
-    const nextError = statusErrorMessage(error, "Gmail sync polling failed.");
+    console.error("[gmail-connector-store] Failed to poll Gmail sync run:", error);
+    const nextError = statusErrorMessage(
+      error,
+      "Something went wrong while syncing your emails. Please try again in a moment."
+    );
     updateEntry(normalizedUserId, {
       statusError: nextError,
     });

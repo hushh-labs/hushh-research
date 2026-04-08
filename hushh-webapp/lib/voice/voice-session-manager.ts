@@ -46,7 +46,11 @@ export type VoiceSessionAcquireInput = {
   activate?: boolean;
 };
 
-const BACKGROUND_DISCONNECT_DELAY_MS = 400;
+// Keep the live session around across brief tab switches so voice does not
+// repeatedly pay the full realtime handshake cost.
+const BACKGROUND_DISCONNECT_DELAY_MS = 5000;
+const REALTIME_SERVER_VAD_SILENCE_MS = 1000;
+const REALTIME_SERVER_BARGE_IN_ENABLED = false;
 
 function isVoiceSessionConnectCancellationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
@@ -440,6 +444,8 @@ class VoiceSessionManager {
           localStream,
           turnId: sessionTurnId,
           signal: connectAbortController.signal,
+          serverVadSilenceMs: REALTIME_SERVER_VAD_SILENCE_MS,
+          enableBargeIn: REALTIME_SERVER_BARGE_IN_ENABLED,
           onTranscript: (transcriptEvent) => {
             this.emit({
               type: "transcript",

@@ -188,7 +188,7 @@ describe("voice-session-manager visibility flow", () => {
 
     (document as Document & { hidden: boolean }).hidden = true;
     document.dispatchEvent(new Event("visibilitychange"));
-    await vi.advanceTimersByTimeAsync(450);
+    await vi.advanceTimersByTimeAsync(5200);
     await flushMicrotasks();
 
     expect(closeMock).toHaveBeenCalled();
@@ -261,7 +261,7 @@ describe("voice-session-manager visibility flow", () => {
 
     (document as Document & { hidden: boolean }).hidden = true;
     document.dispatchEvent(new Event("visibilitychange"));
-    await vi.advanceTimersByTimeAsync(450);
+    await vi.advanceTimersByTimeAsync(5200);
     await flushMicrotasks();
 
     const acquireError = await acquireResult;

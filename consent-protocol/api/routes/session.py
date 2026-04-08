@@ -10,6 +10,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Header, HTTPException
 
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
+from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.consent_db import ConsentDBService
 
@@ -235,15 +236,7 @@ async def lookup_user_by_email(
     - exists: False
     - message: Friendly error message
     """
-    import firebase_admin
-    from firebase_admin import auth, credentials
-
-    # Initialize Firebase Admin if not already done
-    try:
-        firebase_admin.get_app()
-    except ValueError:
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred)
+    from firebase_admin import auth
 
     required_token = (
         str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
@@ -257,7 +250,11 @@ async def lookup_user_by_email(
     logger.info("user_lookup.requested")
 
     try:
-        user_record = auth.get_user_by_email(email)
+        firebase_app = get_firebase_auth_app()
+        if firebase_app is None:
+            raise HTTPException(status_code=503, detail="Firebase Admin not configured")
+
+        user_record = auth.get_user_by_email(email, app=firebase_app)
         logger.info("user_lookup.found")
 
         return {

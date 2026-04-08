@@ -216,7 +216,12 @@ run_preflight() {
 }
 
 PROXY_PID=""
+UVICORN_PID=""
 cleanup() {
+  if [ -n "$UVICORN_PID" ] && kill -0 "$UVICORN_PID" >/dev/null 2>&1; then
+    kill "$UVICORN_PID" >/dev/null 2>&1 || true
+    wait "$UVICORN_PID" >/dev/null 2>&1 || true
+  fi
   if [ -n "$PROXY_PID" ] && kill -0 "$PROXY_PID" >/dev/null 2>&1; then
     kill "$PROXY_PID" >/dev/null 2>&1 || true
     wait "$PROXY_PID" >/dev/null 2>&1 || true
@@ -326,4 +331,6 @@ case "$reload_mode" in
     echo "Uvicorn autoreload disabled (faster local runtime). Use --reload to enable watch mode."
     ;;
 esac
-"$BACKEND_VENV_PYTHON" -m uvicorn "${uvicorn_args[@]}"
+"$BACKEND_VENV_PYTHON" -m uvicorn "${uvicorn_args[@]}" &
+UVICORN_PID=$!
+wait "$UVICORN_PID"
