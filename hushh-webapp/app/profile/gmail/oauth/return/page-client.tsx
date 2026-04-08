@@ -134,7 +134,7 @@ export default function ProfileGmailOAuthReturnPageClient({
     return (
       <AppPageShell
         as="div"
-        width="narrow"
+        width="reading"
         className="flex min-h-[60vh] items-center justify-center"
         nativeTest={{
           routeId: "/profile/gmail/oauth/return",
@@ -161,7 +161,7 @@ export default function ProfileGmailOAuthReturnPageClient({
   return (
     <AppPageShell
       as="div"
-      width="narrow"
+      width="reading"
       className="flex min-h-[60vh] items-center justify-center"
       nativeTest={{
         routeId: "/profile/gmail/oauth/return",

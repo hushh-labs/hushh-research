@@ -13,7 +13,20 @@ import {
 import { cn } from "@/lib/utils";
 
 export type SurfaceTone = "default" | "feature" | "warning" | "success" | "critical";
-export type SurfaceAccent = "none" | "sky" | "emerald" | "amber" | "violet" | "rose";
+export type SurfaceAccent =
+  | "none"
+  | "neutral"
+  | "kai"
+  | "ria"
+  | "consent"
+  | "marketplace"
+  | "developers"
+  | "sky"
+  | "emerald"
+  | "amber"
+  | "violet"
+  | "rose"
+  | "default";
 
 const SURFACE_TONE_CLASSNAMES: Record<SurfaceTone, string> = {
   default: "",
@@ -29,11 +42,18 @@ const SURFACE_TONE_CLASSNAMES: Record<SurfaceTone, string> = {
 
 const SURFACE_ACCENT_CLASSNAMES: Record<SurfaceAccent, string> = {
   none: "",
+  neutral: "",
+  kai: "",
+  ria: "",
+  consent: "",
+  marketplace: "",
+  developers: "",
   sky: "",
   emerald: "",
   amber: "",
   violet: "",
   rose: "",
+  default: "",
 };
 
 export const surfaceDataTableShellClassName = cn(

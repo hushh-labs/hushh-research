@@ -8,6 +8,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
+  APP_MEASURE_STYLES,
   AppPageContentRegion,
   AppPageHeaderRegion,
   AppPageShell,
@@ -81,14 +82,17 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
 
   if (!entry.debate_transcript) {
     return (
-      <div className="mx-auto max-w-2xl rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">
+      <div
+        className="mx-auto w-full rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground"
+        style={APP_MEASURE_STYLES.reading}
+      >
         Debate transcript unavailable for this run.
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4 px-4 pb-safe">
+    <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
       <RoundTabsCard
         roundNumber={1}
         title="Initial Deep Analysis"
@@ -678,7 +682,7 @@ function KaiAnalysisPageContent() {
 
   if (!user || !userId) {
     return (
-      <AppPageShell as="div" width="content" className="flex min-h-96 items-center justify-center">
+      <AppPageShell as="div" width="standard" className="flex min-h-96 items-center justify-center">
         <NativeTestBeacon
           routeId="/kai/analysis"
           marker="native-route-kai-analysis"
@@ -692,7 +696,7 @@ function KaiAnalysisPageContent() {
 
   if (!vaultKey) {
     return (
-      <AppPageShell as="div" width="narrow">
+      <AppPageShell as="div" width="reading">
         <NativeTestBeacon
           routeId="/kai/analysis"
           marker="native-route-kai-analysis"
@@ -729,7 +733,7 @@ function KaiAnalysisPageContent() {
   return (
     <>
       {showWorkspace ? (
-        <AppPageShell as="div" width="wide" data-testid="kai-analysis-primary">
+        <AppPageShell as="div" width="expanded" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId="/kai/analysis"
             marker="native-route-kai-analysis"
@@ -742,7 +746,7 @@ function KaiAnalysisPageContent() {
               title="Analysis"
               description="Move between live debate, summary, and detailed review without losing the current ticker context."
               icon={BarChart3}
-              accent="violet"
+              accent="kai"
               actions={
                 <>
                   <MorphyButton variant="none" effect="fade" size="sm" onClick={handleBackToHistory}>
@@ -799,7 +803,7 @@ function KaiAnalysisPageContent() {
               onValueChange={handleWorkspaceTabChange}
               className="w-full"
             >
-              <div className="flex justify-center">
+              <div className="mx-auto flex justify-center w-full" style={APP_MEASURE_STYLES.reading}>
                 <SegmentedTabs
                   value={workspaceTab}
                   onValueChange={handleWorkspaceTabChange}
@@ -808,7 +812,7 @@ function KaiAnalysisPageContent() {
                     { value: "summary", label: "Summary" },
                     { value: "detailed", label: "Detailed View" },
                   ]}
-                  className="mx-auto w-full max-w-2xl"
+                  className="mx-auto w-full"
                 />
               </div>
               <TabsContent value="debate" className="mt-4 data-[state=inactive]:hidden" forceMount>
@@ -931,7 +935,7 @@ function KaiAnalysisPageContent() {
           </AppPageContentRegion>
         </AppPageShell>
       ) : !resolvingEntry ? (
-        <AppPageShell as="div" width="wide" data-testid="kai-analysis-primary">
+        <AppPageShell as="div" width="expanded" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId="/kai/analysis"
             marker="native-route-kai-analysis"
@@ -953,7 +957,7 @@ function KaiAnalysisPageContent() {
               }
               description="Review saved debates, reopen active analysis, and keep the running history of Kai decisions in one place."
               icon={BarChart3}
-              accent="violet"
+              accent="kai"
             />
           </AppPageHeaderRegion>
           <AppPageContentRegion>
@@ -1012,7 +1016,7 @@ function KaiAnalysisPageContent() {
       ) : null}
 
       {resolvingEntry ? (
-        <AppPageShell as="div" width="content" className="flex min-h-64 items-center justify-center">
+        <AppPageShell as="div" width="standard" className="flex min-h-64 items-center justify-center">
           <HushhLoader variant="inline" label="Loading saved analysis..." />
         </AppPageShell>
       ) : null}

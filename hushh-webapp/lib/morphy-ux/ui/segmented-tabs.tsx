@@ -55,7 +55,7 @@ export function SegmentedTabs({
             className={cn(
               "relative isolate min-h-9 overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
               isActive
-                ? "z-10 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-foreground font-semibold shadow-[var(--shadow-xs)]"
+                ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[0_0_0_1px_var(--app-segmented-active-border),var(--shadow-xs)]"
                 : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
             )}
           >

@@ -1293,7 +1293,7 @@ export function KaiMarketPreviewView() {
   return (
     <AppPageShell
       as="div"
-      width="wide"
+      width="expanded"
       className="pb-8"
     >
       <AppPageContentRegion>

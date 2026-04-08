@@ -29,13 +29,14 @@ import {
   Loader2,
   LogOut,
   MoreHorizontal,
+  Shield,
   Trash2,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { APP_SHELL_FRAME_CLASSNAME, APP_SHELL_FRAME_STYLE } from "@/components/app-ui/app-page-shell";
 import { Button } from "@/lib/morphy-ux/button";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import {
   DropdownMenu,
@@ -74,6 +75,11 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  ShellActionSurface,
+  SHELL_ICON_BUTTON_CLASSNAME,
+  SHELL_PILL_TRIGGER_CLASSNAME,
+} from "@/components/app-ui/shell-action-surface";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
 export {
@@ -85,11 +91,8 @@ export {
 } from "@/components/app-ui/top-shell-metrics";
 
 /* ── Constants ─────────────────────────────────────────────────────── */
-export const TOP_SHELL_ICON_BUTTON_CLASSNAME =
-  "relative grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95";
-
-const TOP_SHELL_TITLE_PILL_CLASSNAME =
-  "group relative inline-flex min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 overflow-hidden rounded-full border-0 bg-card/78 px-3 py-1.5 text-[14px] font-semibold tracking-tight text-foreground shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)] transition-colors hover:bg-card/92 sm:gap-2 sm:px-4 sm:text-base";
+export const TOP_SHELL_ICON_BUTTON_CLASSNAME = SHELL_ICON_BUTTON_CLASSNAME;
+const TOP_SHELL_TITLE_PILL_CLASSNAME = SHELL_PILL_TRIGGER_CLASSNAME;
 
 /* ── Stubs (kept for import stability) ─────────────────────────────── */
 export function TopBarBackground() { return null; }
@@ -227,10 +230,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
   const topGlassStyle = useMemo<React.CSSProperties>(
     () => ({
-      "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
-      "--app-bar-glass-bg-dark": "rgba(29, 29, 31, 0.72)",
-      "--app-bar-glass-blur": "2px",
-      "--app-bar-shadow": "none",
+      "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
+      "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+      "--app-bar-glass-blur": "6px",
+      "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
       "--app-bar-mask-overscan": "14px",
     } as React.CSSProperties),
     []
@@ -254,7 +257,13 @@ export function TopAppBar({ className }: TopAppBarProps) {
           <div className="h-full w-full bar-glass bar-glass-top" style={topGlassStyle} />
         </div>
 
-        <div className="pointer-events-none relative mx-auto flex h-full w-full max-w-4xl flex-col justify-end px-5 sm:px-7">
+        <div
+          className={cn(
+            APP_SHELL_FRAME_CLASSNAME,
+            "pointer-events-none relative flex h-full w-full flex-col justify-end"
+          )}
+          style={APP_SHELL_FRAME_STYLE}
+        >
           <div
             data-testid="top-app-bar-row"
             className="pointer-events-none relative h-[var(--top-bar-h)] w-full shrink-0"
@@ -270,9 +279,8 @@ export function TopAppBar({ className }: TopAppBarProps) {
               >
                 <div className="pointer-events-auto flex h-10 w-10 items-center justify-center">
                   {topShellBreadcrumb ? (
-                    <button
-                      type="button"
-                      className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
+                    <ShellActionSurface
+                      variant="icon"
                       aria-label="Go back"
                       onClick={() => {
                         if (typeof window !== "undefined" && window.history.length > 1) {
@@ -283,7 +291,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       }}
                     >
                       <ArrowLeft className="h-5 w-5" />
-                    </button>
+                    </ShellActionSurface>
                   ) : <div className="h-10 w-10" aria-hidden />}
                 </div>
               </div>
@@ -292,16 +300,14 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 {centerTitle ? (
                   centerTitle.interactive ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            data-tour-id="nav-role-switch"
-                            data-testid="top-app-bar-title"
-                            className={TOP_SHELL_TITLE_PILL_CLASSNAME}
-                            aria-label="Switch role"
-                          >
-                            <span className="relative z-10 inline-flex min-w-0 max-w-full items-center gap-1.5 sm:gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <ShellActionSurface
+                              variant="pill"
+                              data-tour-id="nav-role-switch"
+                              data-testid="top-app-bar-title"
+                              aria-label="Switch role"
+                            >
                               <Icon
                                 icon={switchingPersona ? Loader2 : centerTitle.icon!}
                                 size="sm"
@@ -327,9 +333,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                 />
                               )}
                               <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
-                            </span>
-                            <MaterialRipple variant="none" effect="fade" className="z-0" />
-                          </button>
+                            </ShellActionSurface>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="center" className="min-w-[200px]">
                           <DropdownMenuItem
@@ -389,19 +393,54 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     <OnboardingRouteActions />
                   ) : (
                     <>
-                      <ConsentInboxDropdown triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
+                      <ConsentInboxDropdown
+                        renderTrigger={({ pendingCount }) => (
+                          <ShellActionSurface
+                            variant="icon"
+                            aria-label="Open consent inbox"
+                            badge={
+                              pendingCount > 0 ? (
+                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold leading-none text-white shadow-[0_8px_18px_rgba(14,165,233,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                  {pendingCount}
+                                </span>
+                              ) : null
+                            }
+                          >
+                            <Shield className="h-5 w-5" />
+                          </ShellActionSurface>
+                        )}
+                      />
 
                       {isVaultUnlocked ? (
-                        <DebateTaskCenter triggerClassName={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
+                        <DebateTaskCenter
+                          renderTrigger={({ activeCount, badgeCount }) => (
+                            <ShellActionSurface
+                              variant="icon"
+                              aria-label="Notifications"
+                              badge={
+                                badgeCount > 0 ? (
+                                  <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold leading-none text-white shadow-[0_8px_18px_rgba(14,165,233,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                    {badgeCount}
+                                  </span>
+                                ) : null
+                              }
+                            >
+                              {activeCount > 0 ? (
+                                <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
+                              ) : (
+                                <Bell className="h-5 w-5" />
+                              )}
+                            </ShellActionSurface>
+                          )}
+                        />
                       ) : topShellBreadcrumb ? (
-                        <button
-                          type="button"
-                          className={TOP_SHELL_ICON_BUTTON_CLASSNAME}
+                        <ShellActionSurface
+                          variant="icon"
                           aria-label="Notifications unavailable until your vault is unlocked"
                           disabled
                         >
                           <Bell className="h-5 w-5 opacity-65" />
-                        </button>
+                        </ShellActionSurface>
                       ) : null}
                     </>
                   )}
