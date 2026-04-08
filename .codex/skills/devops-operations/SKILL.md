@@ -80,6 +80,14 @@ Do not use this skill for:
    - required reviews without bypass
 4. When merge queue is enabled, prefer enabling auto-merge or queue entry instead of forcing a direct merge.
 5. If a PR is green but blocked only by review, report that as a policy blocker, not as a CI blocker.
+6. If the active identity is an allowed bypass actor, Codex may use the bypass path only after required CI is green and only when the live rules permit it.
+7. Do not treat direct pushes to `main` as the standard bypass workflow. Prefer a green PR plus bypass merge over direct branch pushes.
+8. If the user explicitly wants a bypass landing, Codex should:
+   - verify required checks are green
+   - verify bypass eligibility on the live branch protection/ruleset
+   - use the least-destructive allowed path
+   - restore any temporarily changed rules immediately after the merge
+9. If rules do not permit bypass, Codex must say so directly instead of improvising a pseudo-approval flow.
 
 ## Delegation policy
 

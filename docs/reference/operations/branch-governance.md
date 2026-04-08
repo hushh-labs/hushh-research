@@ -93,6 +93,9 @@ Current operating note:
 - admin ownership does not count as an independent PR approval
 - a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry or bypass; do not assume approval is implicitly satisfied
+- bypass actors may waive review only through an explicit ruleset/branch-protection bypass path
+- direct pushes to `main` are not the default bypass model; the preferred path is a green PR plus bypass merge
+- CI should still gate the landing decision; bypass is for review policy, not for skipping validation
 
 ### Retired release branches
 
