@@ -14,6 +14,7 @@ flowchart TB
   subgraph integration["Integration lane"]
     freshness["Main Freshness Gate"]
     status["CI Status Gate"]
+    queue["GitHub merge queue"]
     main["main"]
   end
 
@@ -30,8 +31,9 @@ flowchart TB
   feat --> pr --> prci
   prci --> freshness
   prci --> status
-  freshness --> main --> pushci --> green
-  status --> main
+  freshness --> queue
+  status --> queue
+  queue --> main --> pushci --> green
   green --> uat
   green --> prod
 ```
@@ -53,7 +55,7 @@ To prevent CI check-sprawl, only these checks are hard-blocking by default:
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-The local parity script mirrors those same blocking stages. On GitHub, `main` should require both `CI Status Gate` and `Main Freshness Gate` so the remote gate matches the local one-command CI plus the branch-up-to-date policy.
+The local parity script mirrors the blocking validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check, keep `Main Freshness Gate` advisory on pull requests, and enforce freshness authoritatively through merge queue validation.
 
 ### PKM rollout blocker
 
@@ -113,7 +115,7 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. This a
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range and then compares open GitHub secret-scanning + Dependabot alerts through the GitHub API |
 | Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
-| Main Freshness Gate | Prevent stale PR merges into `main` | Blocks pull requests targeting `main` unless the branch contains latest `origin/main` |
+| Main Freshness Gate | Show branch freshness before merge | Advisory on pull requests, blocking on `merge_group` |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
 
 ## Live GitHub Enforcement
@@ -122,8 +124,9 @@ Protected branches are expected to enforce the same CI contract documented here:
 
 - `main`
   - at least `1` approving review
-  - required status checks: `CI Status Gate`, `Main Freshness Gate`
-  - strict/up-to-date checks enabled
+  - required status checks: `CI Status Gate`
+  - strict/up-to-date checks disabled at classic branch protection level
+  - merge queue enabled for `main`
 - force-pushes disabled
 - branch deletion disabled
 
@@ -135,7 +138,7 @@ The live GitHub setting can drift from the docs, so verify it directly:
 
 Current live nuance:
 
-- the repo currently uses classic branch protection rather than GitHub repository rulesets
+- the repo currently relies on classic branch protection for review/check requirements and a branch-attached merge queue rule for freshness-at-merge-time
 - bypass actors should be limited to the 3 core owners, without overlapping push-restriction lists
 
 ### GitHub Alert Parity
