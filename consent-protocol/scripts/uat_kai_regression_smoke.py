@@ -23,8 +23,10 @@ import base64
 import copy
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -40,6 +42,13 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from dotenv import dotenv_values
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from sqlalchemy import create_engine, text
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from api.utils.fcm_messages import build_push_message  # noqa: E402
 
 DEFAULT_BACKEND_URL = "https://api.uat.hushh.ai"
 DEFAULT_PROTOCOL_ENV = os.path.expanduser("~/Documents/GitHub/hushh-research/consent-protocol/.env")
@@ -205,6 +214,8 @@ class UatKaiSmoke:
         self.vault_key_hex: str | None = None
         self.connector = self._new_connector_keypair()
         self.connector_private = self.connector.x25519_box
+        self._db_engine = None
+        self._firebase_admin_app = None
 
     def log(self, message: str) -> None:
         print(f"[uat-smoke] {message}")
@@ -213,6 +224,42 @@ class UatKaiSmoke:
         if not self.developer_token:
             raise RuntimeError("Developer token is required for remote MCP smoke.")
         return f"{self.backend_url.rstrip('/')}/mcp/?token={quote_plus(self.developer_token)}"
+
+    def _db_connection_url(self) -> str:
+        db_user = _require(self.config, "DB_USER")
+        db_password = _require(self.config, "DB_PASSWORD")
+        db_name = _require(self.config, "DB_NAME")
+        db_host = str(self.config.get("DB_HOST") or "").strip()
+        db_port = str(self.config.get("DB_PORT") or "5432").strip()
+        db_unix_socket = str(self.config.get("DB_UNIX_SOCKET") or "").strip()
+        if db_unix_socket:
+            return (
+                f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@/"
+                f"{quote_plus(db_name)}?host={quote_plus(db_unix_socket)}"
+            )
+        if not db_host:
+            raise RuntimeError("Missing DB_HOST/DB_UNIX_SOCKET for push-delivery smoke.")
+        return (
+            f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@"
+            f"{db_host}:{db_port}/{quote_plus(db_name)}"
+        )
+
+    def _get_db_engine(self):
+        if self._db_engine is None:
+            self._db_engine = create_engine(self._db_connection_url(), future=True)
+        return self._db_engine
+
+    def _get_firebase_admin_messaging(self):
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+
+        if self._firebase_admin_app is None:
+            cred = credentials.Certificate(self.firebase_auth_service_account)
+            try:
+                self._firebase_admin_app = firebase_admin.get_app("uat-smoke")
+            except ValueError:
+                self._firebase_admin_app = firebase_admin.initialize_app(cred, name="uat-smoke")
+        return messaging, self._firebase_admin_app
 
     def _parse_mcp_json(self, result: Any) -> dict[str, Any]:
         content = getattr(result, "content", None)
@@ -488,6 +535,66 @@ class UatKaiSmoke:
             raise RuntimeError(f"Developer portal did not return an active token: {payload}")
         self.developer_token = active_token
         self.log("Ensured an active self-serve developer token for the Kai test user.")
+
+    def fetch_latest_push_token(self, *, platform: str = "web") -> dict[str, Any]:
+        engine = self._get_db_engine()
+        query = text(
+            """
+            SELECT user_id, token, platform, updated_at
+            FROM user_push_tokens
+            WHERE user_id = :user_id
+              AND platform = :platform
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """
+        )
+        with engine.connect() as conn:
+            row = (
+                conn.execute(
+                    query,
+                    {
+                        "user_id": self.user_id,
+                        "platform": platform,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+        if not row:
+            raise RuntimeError(
+                f"No user_push_tokens row found for user_id={self.user_id} platform={platform}."
+            )
+        return dict(row)
+
+    def send_push_message(
+        self,
+        *,
+        token: str,
+        platform: str,
+        title: str,
+        body: str,
+        request_url: str,
+        notification_tag: str,
+    ) -> str:
+        messaging, app = self._get_firebase_admin_messaging()
+        message = build_push_message(
+            messaging,
+            token=token,
+            platform=platform,
+            data={
+                "type": "consent_request",
+                "request_id": notification_tag,
+                "request_url": request_url,
+                "deep_link": request_url,
+                "notification_tag": notification_tag,
+            },
+            title=title,
+            body=body,
+            request_url=request_url,
+            notification_tag=notification_tag,
+            show_alert=True,
+        )
+        return messaging.send(message, app=app)
 
     def _firebase_auth_headers_from(self, firebase_id_token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {firebase_id_token}"}
@@ -1628,6 +1735,41 @@ class UatKaiSmoke:
         asyncio.run(self._run_remote_mcp_consent_async(scope=scope))
         self.log("Remote MCP consent/export flow passed.")
 
+    def run_push_delivery(
+        self,
+        *,
+        platform: str,
+        title: str,
+        body: str,
+        request_url: str,
+        notification_tag: str,
+        json_output: bool = False,
+    ) -> None:
+        self.authenticate()
+        token_row = self.fetch_latest_push_token(platform=platform)
+        message_id = self.send_push_message(
+            token=str(token_row["token"]),
+            platform=platform,
+            title=title,
+            body=body,
+            request_url=request_url,
+            notification_tag=notification_tag,
+        )
+        result = {
+            "user_id": self.user_id,
+            "platform": platform,
+            "token_prefix": str(token_row["token"])[:24],
+            "token_updated_at": str(token_row["updated_at"]),
+            "message_id": message_id,
+            "title": title,
+            "body": body,
+            "request_url": request_url,
+            "notification_tag": notification_tag,
+        }
+        self.log(f"Push delivery smoke accepted by Firebase: {message_id}")
+        if json_output:
+            print(json.dumps(result))
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Kai UAT regression smoke.")
@@ -1637,9 +1779,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     parser.add_argument(
         "--scenario",
-        choices=["full", "connection_portfolio", "mcp_transport", "mcp_consent"],
+        choices=["full", "connection_portfolio", "mcp_transport", "mcp_consent", "push_delivery"],
         default="full",
     )
+    parser.add_argument("--push-platform", default="web")
+    parser.add_argument("--push-title", default=f"UAT push smoke {int(time.time())}")
+    parser.add_argument("--push-body", default="Browser delivery validation")
+    parser.add_argument(
+        "--request-url",
+        default="https://uat.kai.hushh.ai/consents?tab=pending",
+    )
+    parser.add_argument(
+        "--notification-tag",
+        default=f"uat-push-smoke:{int(time.time())}",
+    )
+    parser.add_argument("--json", action="store_true")
     return parser.parse_args()
 
 
@@ -1657,6 +1811,15 @@ def main() -> int:
         runner.run_mcp_transport()
     elif args.scenario == "mcp_consent":
         runner.run_mcp_consent()
+    elif args.scenario == "push_delivery":
+        runner.run_push_delivery(
+            platform=args.push_platform,
+            title=args.push_title,
+            body=args.push_body,
+            request_url=args.request_url,
+            notification_tag=args.notification_tag,
+            json_output=args.json,
+        )
     else:
         runner.run()
     return 0

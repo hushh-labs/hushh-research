@@ -1,5 +1,9 @@
 # Frontend UI Architecture Map
 
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](./README.md). Use that map for the top-down quality and UI-system surface; this page is the narrower frontend architecture contract beneath it.
+
 ## Canonical Map
 
 | Layer | Location | Purpose | Rules |
@@ -18,6 +22,17 @@ The production baseline is the current solved shell and settings language on loc
 2. Rounded segmented tabs with a clear active border and elevated highlight.
 3. Single interaction owner per actionable row or shell surface.
 4. Neutral premium surfaces built from shared tokens, not route-local chrome recipes.
+5. One semantic route-container system:
+   - `reading`
+   - `standard`
+   - `expanded`
+6. One curated header accent map:
+   - `neutral`
+   - `kai`
+   - `ria`
+   - `consent`
+   - `marketplace`
+   - `developers`
 
 Reference implementations:
 
@@ -39,6 +54,7 @@ Reference implementations:
    - settings/list rows
    - shared product-level composition
 4. Do not create feature-local one-off primitives when a shared semantic surface should exist.
+5. Do not create route-local outer width shells when `AppPageShell` or `FullscreenFlowShell` should own the container.
 
 ## Labs Graduation Rule
 

@@ -104,6 +104,14 @@
     }
   },
   {
+    "route": "/kai/alpaca/oauth/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/kai/alpaca/oauth/return/page.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion"]
+    }
+  },
+  {
     "route": "/kai/portfolio",
     "mode": "standard",
     "shellVerification": {

@@ -14,6 +14,7 @@ flowchart TB
   subgraph integration["Integration lane"]
     freshness["Main Freshness Gate"]
     status["CI Status Gate"]
+    queue["GitHub merge queue"]
     main["main"]
   end
 
@@ -30,8 +31,9 @@ flowchart TB
   feat --> pr --> prci
   prci --> freshness
   prci --> status
-  freshness --> main --> pushci --> green
-  status --> main
+  freshness --> queue
+  status --> queue
+  queue --> main --> pushci --> green
   green --> uat
   green --> prod
 ```
@@ -41,6 +43,18 @@ This document describes the **Tri-Flow CI** workflow and how to stay aligned wit
 **Workflow file:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)  
 **Local mirror:** [`./bin/hushh ci`](./cli.md)  
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
+
+## Monitoring Rule
+
+After any merge to `main`, bypass merge, deploy trigger, or manual workflow dispatch, keep monitoring the resulting GitHub workflow chain until it reaches a terminal state.
+
+Minimum expectation:
+
+1. watch the immediate `Tri-Flow CI` or dispatched workflow
+2. if `main` goes green, watch downstream `Deploy to UAT`
+3. report the exact failing workflow, job, and step if anything fails
+4. do not stop at "triggered" or "queued"
+5. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
 
 ---
 
@@ -53,7 +67,7 @@ To prevent CI check-sprawl, only these checks are hard-blocking by default:
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-The local parity script mirrors those same blocking stages. On GitHub, `main` should require both `CI Status Gate` and `Main Freshness Gate` so the remote gate matches the local one-command CI plus the branch-up-to-date policy.
+The local parity script mirrors the blocking validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check, keep `Main Freshness Gate` advisory on pull requests, and enforce freshness authoritatively through merge queue validation.
 
 ### PKM rollout blocker
 
@@ -111,9 +125,9 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. This a
 
 | Gate | Purpose | Behavior |
 |------|---------|----------|
-| Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range and then compares open GitHub secret-scanning + Dependabot alerts through the GitHub API |
+| Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
-| Main Freshness Gate | Prevent stale PR merges into `main` | Blocks pull requests targeting `main` unless the branch contains latest `origin/main` |
+| Main Freshness Gate | Show branch freshness before merge | Advisory on pull requests, blocking on `merge_group` |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
 
 ## Live GitHub Enforcement
@@ -122,8 +136,9 @@ Protected branches are expected to enforce the same CI contract documented here:
 
 - `main`
   - at least `1` approving review
-  - required status checks: `CI Status Gate`, `Main Freshness Gate`
-  - strict/up-to-date checks enabled
+  - required status checks: `CI Status Gate`
+  - strict/up-to-date checks disabled at classic branch protection level
+  - merge queue enabled for `main`
 - force-pushes disabled
 - branch deletion disabled
 
@@ -135,7 +150,7 @@ The live GitHub setting can drift from the docs, so verify it directly:
 
 Current live nuance:
 
-- the repo currently uses classic branch protection rather than GitHub repository rulesets
+- the repo currently relies on classic branch protection for review/check requirements and a branch-attached merge queue rule for freshness-at-merge-time
 - bypass actors should be limited to the 3 core owners, without overlapping push-restriction lists
 
 ### GitHub Alert Parity
@@ -144,19 +159,19 @@ The secret gate is intentionally stricter than raw regex scanning:
 
 - local runs use authenticated `gh` access to compare against open GitHub secret-scanning and Dependabot alerts
 - CI uses a dedicated repo secret such as `GH_SECURITY_ALERTS_TOKEN` so GitHub Actions can read the same alert surfaces
-- the final strict mode fails if either:
+- the final blocking mode fails if either:
   - `gitleaks` finds a leak in the scanned commit range, or
-  - GitHub still reports any open secret-scanning or Dependabot alerts
+  - GitHub still reports any open secret-scanning alerts
+- open Dependabot alerts are currently advisory in `Tri-Flow CI`; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 
 ## Advisory Checks (Non-Blocking By Default)
 
 1. `scripts/ci/docs-parity-check.sh`
 2. `scripts/ci/subtree-sync-check.sh`
-3. `npm run verify:design-system`
-4. `npm run verify:investor-language`
-5. Native parity checks (`verify:parity`, `verify:capacitor:*`) for native release lanes
-6. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness
-7. Broad full-suite pytest runs and Kai accuracy/compliance suites
+3. `npm run verify:investor-language`
+4. Native build/smoke checks (`./bin/hushh native ios --mode uat`, `./bin/hushh native android --mode uat`) for native release lanes
+5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness
+6. Broad full-suite pytest runs and Kai accuracy/compliance suites
 
 Do not add new CI/parity scripts without replacing or consolidating an existing check.
 
@@ -200,6 +215,9 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 |------|--------------------|-----------|
 | Validate files | `package-lock.json` exists and valid JSON; `next.config.ts` exists | Yes |
 | Install | `npm ci` | Yes |
+| Design system | `npm run verify:design-system` | Yes |
+| Cache coherence | `npm run verify:cache` | Yes |
+| Docs/runtime parity | `npm run verify:docs` | Yes |
 | TypeScript | `npm run typecheck` | Yes |
 | Lint | `npm run lint -- --max-warnings=${WEB_LINT_WARNING_BUDGET}` | Yes |
 | Build (web) | `npm run build` (Next.js) | Yes |
@@ -337,8 +355,9 @@ Before creating a release tag/public rollout, run strict gate commands from repo
 
 ```bash
 bash scripts/ci/docs-parity-check.sh
-cd hushh-webapp && npm run verify:parity
-cd hushh-webapp && npm run verify:capacitor:routes
+cd hushh-webapp && npm run typecheck
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
 cd hushh-webapp && npm run verify:cache
 cd hushh-webapp && npm run verify:docs
 python scripts/ops/verify-env-secrets-parity.py --project hushh-pda --region us-central1 --backend-service consent-protocol --frontend-service hushh-webapp

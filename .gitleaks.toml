@@ -13,4 +13,7 @@ regexes = [
   '''replace_with_64_char_hex_vault_encryption_key''',
   '''your_local_hex_secret_here''',
   '''your_local_vault_hex_here''',
+  # False positive: route-state variable names in Kai layout matched Plaid client-id heuristic.
+  '''onPlaidOauthReturnRoute''',
+  '''onAlpacaOauthReturnRoute''',
 ]

@@ -29,6 +29,7 @@ export const ROUTES = {
   KAI_ONBOARDING: "/kai/onboarding",
   KAI_IMPORT: "/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
+  KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
   KAI_PORTFOLIO: "/kai/portfolio",
   KAI_INVESTMENTS: "/kai/investments",
   KAI_DASHBOARD: "/kai/portfolio",

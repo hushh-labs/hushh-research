@@ -5,7 +5,7 @@ Agent Kai API Routes — Modular Package
 This package organizes Kai routes into logical modules:
 - chat.py: Conversational chat endpoint with auto-learning
 - portfolio.py: Portfolio import and analysis
-- plaid.py: Brokerage connectivity, funding link/transfer sandbox APIs, OAuth resume, refresh, and source selection
+- plaid.py: Brokerage connectivity, funding link/transfer APIs, OAuth resume, refresh, and source selection
 - analyze.py: Non-streaming analysis endpoint
 - stream.py: SSE streaming analysis endpoint
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
@@ -70,6 +70,13 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/plaid/funding/exchange-public-token",
     "/plaid/funding/status/{user_id}",
     "/plaid/funding/transactions/sync",
+    "/plaid/funding/default-account",
+    "/plaid/funding/admin/search",
+    "/plaid/funding/admin/transfers/{transfer_id}/refresh",
+    "/plaid/funding/admin/escalations",
+    "/plaid/funding/reconcile",
+    "/alpaca/connect/start",
+    "/alpaca/connect/complete",
     "/plaid/transfers/create",
     "/plaid/transfers/{transfer_id}",
     "/plaid/transfers/{transfer_id}/cancel",

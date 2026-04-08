@@ -363,16 +363,11 @@ See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/
   - `ANDROID_RELEASE_KEY_PASSWORD`
 - Developers should treat the frontend runtime profile env files as the local source of truth.
 - `./bin/hushh bootstrap` hydrates those native values into the local profile env files and materializes the active native sidecar under `hushh-webapp/.env.local.d/`.
-- Use `cd hushh-webapp && npm run sync:mobile-firebase` to refresh the active profile env with the latest Firebase app artifacts when needed.
-- Or fetch latest artifacts directly from Firebase into the local cache:
-  ```bash
-  cd hushh-webapp
-  npm run sync:mobile-firebase
-  ```
+- Re-run `./bin/hushh bootstrap` whenever the active profile needs refreshed mobile Firebase artifacts.
 - Native build wrappers apply the generated sidecar for the build and then restore the tracked templates.
 - If a developer already has real local plist/json files in the native paths or the old `.local-secrets` cache, the first sidecar materialization seeds the active profile instead of overwriting that local state.
 - Release CI still injects both real artifacts into the ephemeral workspace before native build/sign.
-- Run `npm run verify:mobile-firebase` with `REQUIRE_PROD_FIREBASE_ARTIFACTS=true` in release jobs to fail fast if templates were not replaced.
+- Release jobs should fail if the real Firebase artifacts were not injected before native build/sign.
 
 ### Local iOS Signing (Shared Team Bootstrap)
 

@@ -98,8 +98,8 @@ Runtime truth note:
 
 ## 6) Mobile Parity Sanity
 1. Run:
-   - `cd hushh-webapp && npm run verify:parity`
-   - `cd hushh-webapp && npm run verify:capacitor:routes`
+   - `./bin/hushh native ios --mode uat`
+   - `./bin/hushh native android --mode uat`
 2. Confirm canonical Kai routes exist in mobile static export mapping.
 3. Confirm stream, token guard, and cache-first behavior match web expectations.
 

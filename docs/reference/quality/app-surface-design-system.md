@@ -25,6 +25,20 @@ Profile remains the reference implementation for settings rows. This document ex
 10. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks.
 11. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent.
 12. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior.
+13. `AppPageShell` owns route width and horizontal gutters for signed-in routes.
+14. The canonical shell widths are:
+   - `reading`
+   - `standard`
+   - `expanded`
+15. The canonical container tokens are:
+   - `--app-shell-reading: 54rem`
+   - `--app-shell-standard: 90rem`
+   - `--app-shell-expanded: 96rem`
+16. Signed-in app routes default to `standard`; use `reading` only for narrow detail/settings pages and `expanded` for dashboard/table-heavy routes.
+17. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
+18. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
+19. Mobile uses page gutters, not a second outer card container. Surface padding belongs inside cards, lists, sheets, and insets.
+20. `SurfaceStack` overscan is allowed only as shared shell breathing on tablet/desktop; mobile defaults stay edge-aware and minimal.
 
 ## Page Header Contract
 
@@ -41,6 +55,15 @@ Rules:
 5. Do not stack a second decorative icon inside the same header block.
 6. If a section already has a header icon, omit redundant per-row decorative icons unless the row needs them for real semantic distinction.
 7. Accent divider lines stay constant across the full width; do not fade them to transparent.
+8. Header accents must come from the shared semantic accent map, not route-local color recipes.
+9. Approved route-role accents are:
+   - `kai`
+   - `ria`
+   - `consent`
+   - `marketplace`
+   - `developers`
+   - `neutral`
+10. Success, warning, and critical accents are reserved for explicit status communication, not page identity.
 
 ## Row and Card Interaction Contract
 
@@ -115,6 +138,7 @@ Rules:
 11. Outer app-facing surface shells must not rely on `overflow-hidden`; clipping is allowed only on inner media/chart/inset containers.
 12. Do not stack glass-inside-glass for list managers. Row-based managers should use one outer shell and flatter rows inside it.
 13. Compact density is the default for signed-in surface cards; if a route needs more space, opt into `comfortable` density explicitly instead of hardcoding larger padding at the page level.
+14. On mobile, do not wrap entire routes in a passive outer card just to create breathing room. Use page gutters plus real inner surfaces.
 
 ### Card Depth Model
 

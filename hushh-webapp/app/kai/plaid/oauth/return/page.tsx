@@ -109,6 +109,7 @@ export default function KaiPlaidOauthReturnPage() {
                       vaultOwnerToken: issued.token,
                       metadata,
                       resumeSessionId: session.resumeSessionId,
+                      consentTimestamp: new Date().toISOString(),
                     })
                   : PlaidPortfolioService.exchangePublicToken({
                       userId: user.uid,
@@ -167,7 +168,7 @@ export default function KaiPlaidOauthReturnPage() {
     return (
       <AppPageShell
         as="div"
-        width="narrow"
+        width="reading"
         className="flex min-h-[60vh] items-center justify-center"
         nativeTest={{
           routeId: "/kai/plaid/oauth/return",
@@ -194,7 +195,7 @@ export default function KaiPlaidOauthReturnPage() {
   return (
     <AppPageShell
       as="div"
-      width="narrow"
+      width="reading"
       className="flex min-h-[60vh] items-center justify-center"
       nativeTest={{
         routeId: "/kai/plaid/oauth/return",

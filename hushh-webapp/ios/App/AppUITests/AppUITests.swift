@@ -175,6 +175,12 @@ final class AppUITests: XCTestCase {
                 allowedDataStates: ["unavailable-valid", "redirect-valid"]
             ),
             reviewerRoute(
+                name: "kai-alpaca-return",
+                redirect: "/kai/alpaca/oauth/return",
+                marker: "native-route-kai-alpaca-return",
+                allowedDataStates: ["unavailable-valid", "redirect-valid"]
+            ),
+            reviewerRoute(
                 name: "profile-gmail-return",
                 redirect: "/profile/gmail/oauth/return",
                 marker: "native-route-profile-gmail-return",

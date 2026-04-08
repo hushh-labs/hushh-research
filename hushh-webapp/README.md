@@ -104,9 +104,12 @@ Use fused stack:
 - Morphy UX for brand surfaces/CTA physics
 - shadcn/ui as stock primitives (`components/ui/*`)
 - Lucide through `Icon` wrapper (`lib/morphy-ux/ui/icon.tsx`)
+- `components/app-ui/*` for Hushh semantic shell/page surfaces
+- `app/labs`, `components/labs`, and `lib/labs` for experimental work only
 
 References:
 - `docs/reference/quality/design-system.md`
+- `docs/reference/quality/frontend-ui-architecture-map.md`
 - `docs/reference/quality/frontend-pattern-catalog.md`
 - `hushh-webapp/components/README.md`
 

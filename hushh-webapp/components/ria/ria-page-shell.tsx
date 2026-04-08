@@ -66,7 +66,7 @@ export function RiaPageShell({
   return (
     <AppPageShell
       as="main"
-      width="content"
+      width="standard"
       className={cn("pb-28", className)}
       nativeTest={nativeTest}
     >
@@ -77,6 +77,7 @@ export function RiaPageShell({
           description={description}
           actions={actions}
           icon={icon}
+          accent="ria"
         />
       </AppPageHeaderRegion>
 

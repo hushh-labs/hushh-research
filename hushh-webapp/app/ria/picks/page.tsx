@@ -2048,7 +2048,7 @@ export default function RiaPicksPage() {
   return (
     <AppPageShell
       as="main"
-      width="wide"
+      width="expanded"
       className="pb-16 sm:pb-24"
       nativeTest={{
         routeId: "/ria/picks",
@@ -2069,7 +2069,7 @@ export default function RiaPicksPage() {
           title="Stock universe"
           description="Switch between Kai's reference package and your live advisor package without losing the avoid or screening context that feeds linked-investor debates."
           icon={FileSpreadsheet}
-          accent="emerald"
+          accent="ria"
         />
       </AppPageHeaderRegion>
 

@@ -12,12 +12,14 @@ flowchart TD
   root --> n2
   n3["Design System"]
   root --> n3
-  n4["Frontend Pattern Catalog"]
+  n4["Frontend UI Architecture Map"]
   root --> n4
-  n5["Pr Impact Checklist"]
+  n5["Frontend Pattern Catalog"]
   root --> n5
-  n6["Profile Settings Design System"]
+  n6["Pr Impact Checklist"]
   root --> n6
+  n7["Profile Settings Design System"]
+  root --> n7
 ```
 
 This is the north-star entrypoint for the app shell, surface system, interaction rules, and responsive layout contract.
@@ -25,6 +27,7 @@ This is the north-star entrypoint for the app shell, surface system, interaction
 ## Read In This Order
 
 - [design-system.md](./design-system.md): component layering and primitive ownership.
+- [frontend-ui-architecture-map.md](./frontend-ui-architecture-map.md): repo map, labs boundary, and layer ownership.
 - [app-surface-design-system.md](./app-surface-design-system.md): page shell, header, card, bell, and interaction contract.
 - [profile-settings-design-system.md](./profile-settings-design-system.md): canonical grouped settings language.
 - [frontend-pattern-catalog.md](./frontend-pattern-catalog.md): implementation patterns and allowed primitives.

@@ -23,6 +23,9 @@ import {
 
 // Event name for FCM messages (both web and native dispatch this)
 export const FCM_MESSAGE_EVENT = "fcm-message";
+const CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW";
+const CONSENT_NOTIFICATION_ACTION_APPROVE = "CONSENT_APPROVE";
+const CONSENT_NOTIFICATION_ACTION_DENY = "CONSENT_DENY";
 
 export type FCMInitStatus =
   | "push_active"
@@ -699,18 +702,17 @@ function setupNativeListeners(): void {
           const data = action.notification.data as
             | Record<string, unknown>
             | undefined;
+          const actionId = String(action.actionId || "tap").trim();
 
           if (
             data &&
             typeof data.type === "string" &&
             data.type === "consent_request"
           ) {
-            const target = resolveConsentNavigationTarget(
-              (typeof data.request_url === "string" && data.request_url) ||
-                (typeof data.deep_link === "string" && data.deep_link) ||
-                null,
-              "pending"
-            );
+            if (actionId === "dismiss") {
+              return;
+            }
+            const target = buildNativeConsentActionTarget(data, actionId);
             if (target.kind === "internal") {
               requestInternalAppNavigation({
                 href: target.href,
@@ -754,6 +756,47 @@ function setupNativeListeners(): void {
       console.warn("[FCM] Native listener setup skipped:", error);
     }
   })();
+}
+
+function buildNativeConsentActionTarget(
+  data: Record<string, unknown> | undefined,
+  actionId: string
+) {
+  const requestId =
+    data && typeof data.request_id === "string" ? data.request_id : undefined;
+  const bundleId =
+    data && typeof data.bundle_id === "string" ? data.bundle_id : undefined;
+  const baseTarget = resolveConsentNavigationTarget(
+    (typeof data?.request_url === "string" && data.request_url) ||
+      (typeof data?.deep_link === "string" && data.deep_link) ||
+      null,
+    "pending",
+    {
+      requestId,
+      bundleId,
+    }
+  );
+  if (baseTarget.kind !== "internal") {
+    return baseTarget;
+  }
+
+  const nextUrl = new URL(baseTarget.href, "https://hushh.local");
+  if (requestId) nextUrl.searchParams.set("requestId", requestId);
+  if (bundleId) nextUrl.searchParams.set("bundleId", bundleId);
+
+  if (actionId === CONSENT_NOTIFICATION_ACTION_APPROVE) {
+    nextUrl.searchParams.set("notificationAction", "approve");
+  } else if (actionId === CONSENT_NOTIFICATION_ACTION_DENY) {
+    nextUrl.searchParams.set("notificationAction", "deny");
+  } else if (actionId === CONSENT_NOTIFICATION_ACTION_REVIEW || actionId === "tap") {
+    nextUrl.searchParams.set("notificationAction", "review");
+  }
+
+  return {
+    kind: "internal" as const,
+    href: `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`,
+    pathname: nextUrl.pathname,
+  };
 }
 
 function buildConsentTargetPath(
@@ -806,6 +849,49 @@ export async function getFCMToken(): Promise<string | null> {
   } catch (error) {
     console.error("[FCM] Failed to get token:", error);
     return null;
+  }
+}
+
+export async function clearDeliveredConsentNotifications(options: {
+  requestId?: string | null;
+  bundleId?: string | null;
+}): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+
+  const requestId = String(options.requestId || "").trim();
+  const bundleId = String(options.bundleId || "").trim();
+  if (!requestId && !bundleId) return;
+
+  try {
+    const { FirebaseMessaging } = await import("@capacitor-firebase/messaging");
+    const delivered = await FirebaseMessaging.getDeliveredNotifications();
+    const matches = delivered.notifications.filter((notification) => {
+      const data =
+        notification.data && typeof notification.data === "object"
+          ? (notification.data as Record<string, unknown>)
+          : {};
+      const notificationRequestId =
+        typeof data.request_id === "string" ? data.request_id.trim() : "";
+      const notificationBundleId =
+        typeof data.bundle_id === "string" ? data.bundle_id.trim() : "";
+      return (
+        (requestId && notificationRequestId === requestId) ||
+        (bundleId && notificationBundleId === bundleId)
+      );
+    });
+    if (matches.length === 0) {
+      return;
+    }
+    await FirebaseMessaging.removeDeliveredNotifications({
+      notifications: matches,
+    });
+    console.log("[FCM] Cleared delivered consent notifications:", {
+      requestId,
+      bundleId,
+      count: matches.length,
+    });
+  } catch (error) {
+    console.warn("[FCM] Failed to clear delivered consent notifications:", error);
   }
 }
 

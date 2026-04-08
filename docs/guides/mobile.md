@@ -129,10 +129,11 @@ Accepted parity exceptions currently documented in the registry:
 
 ### Firebase artifact safety (no secret leak in git)
 
-- `hushh-webapp/android/app/google-services.json` is committed as a template placeholder.
-- Real artifacts should be injected at build time with:
-  - `npm run inject:mobile-firebase`
-- Root-level local files like `google-services.json` are ignored and must remain untracked.
+- `hushh-webapp/ios/App/App/GoogleService-Info.plist` is the tracked iOS template placeholder.
+- Android Firebase config is treated as generated build input, not a committed source artifact.
+- `./bin/hushh bootstrap` hydrates the active profile and materializes native Firebase artifacts under `hushh-webapp/.env.local.d/`.
+- Native build wrappers apply the generated sidecar for the build and then restore tracked templates.
+- Root-level local Firebase artifacts must remain untracked.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -763,26 +764,25 @@ Required rule:
 
 ---
 
-## Capacitor E2E Verification (Hard-Fail)
+## Native Verification Surface
 
 Run from `hushh-webapp`:
 
 ```bash
-npm run verify:capacitor:e2e
+npm run cap:build
+npm run cap:sync:ios
+npm run cap:sync:android
+npm run ios:test
 ```
 
-This runs:
-1. `verify:routes`
-2. `verify:parity`
-3. `verify:mobile-firebase`
-4. `cap:build:mobile`
-5. `verify:capacitor:routes`
+Repo-level wrappers remain the canonical contributor path:
 
-Expected outcome:
-- All commands pass with exit code `0`.
-- Any missing fallback route page, plugin method parity drift, or mobile artifact issue fails the gate immediately.
+```bash
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
+```
 
-Manual smoke on device/simulator is still required after this CI gate.
+Manual smoke on a simulator/device is still required after the build/sync checks.
 
 ---
 

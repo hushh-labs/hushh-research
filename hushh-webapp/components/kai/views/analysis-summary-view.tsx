@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, RefreshCw, Scale } from "lucide-react";
+import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 
 import { Button } from "@/lib/morphy-ux/button";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
@@ -357,7 +358,7 @@ export function AnalysisSummaryView({
         : "bg-blue-500/12 text-blue-600 dark:text-blue-400 border-blue-500/30";
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-0 pb-safe pt-1 sm:px-1">
+    <div className="mx-auto w-full space-y-4 pb-safe pt-1" style={APP_MEASURE_STYLES.reading}>
       {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <Button variant="none" effect="fade" size="sm" onClick={onBack} disabled={!onBack}>
