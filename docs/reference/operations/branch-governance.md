@@ -90,6 +90,9 @@ Current operating note:
 
 - `enforce_admins` should stay enabled
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
+- admin ownership does not count as an independent PR approval
+- a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges
+- if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry or bypass; do not assume approval is implicitly satisfied
 
 ### Retired release branches
 

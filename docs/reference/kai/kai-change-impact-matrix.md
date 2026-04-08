@@ -47,9 +47,9 @@ Use this matrix before merge/release to identify blast radius and compatibility 
 ## Release Gate Dependencies
 
 Required green checks before release:
-- `npm run verify:routes`
-- `npm run verify:parity`
-- `npm run verify:capacitor:routes`
+- `cd hushh-webapp && npm run typecheck`
+- `./bin/hushh native ios --mode uat`
+- `./bin/hushh native android --mode uat`
 - `npm run verify:cache`
 - `npm run verify:docs`
 - `bash scripts/verify-pre-launch.sh`

@@ -126,15 +126,13 @@ What this script automates:
 - Cloud Monitoring dashboard + alert policies
 - Cloud Run Job for Supabase data health + Cloud Scheduler trigger
 
-### Native Firebase artifact sync + verification
+### Native Firebase artifact refresh
 
 ```bash
-cd hushh-webapp
-npm run sync:mobile-firebase
-npm run verify:mobile-firebase:release
+./bin/hushh bootstrap
 ```
 
-If release verification fails on analytics checks, Firebase app configs are not yet analytics-enabled and must be fixed in Firebase/GA linkage before native production builds.
+If native analytics checks still fail after bootstrap refresh, Firebase app configs are not yet analytics-enabled and must be fixed in Firebase/GA linkage before native production builds.
 
 ## Verification
 

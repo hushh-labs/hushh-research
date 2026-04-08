@@ -156,7 +156,7 @@ The secret gate is intentionally stricter than raw regex scanning:
 1. `scripts/ci/docs-parity-check.sh`
 2. `scripts/ci/subtree-sync-check.sh`
 3. `npm run verify:investor-language`
-4. Native parity checks (`verify:parity`, `verify:capacitor:*`) for native release lanes
+4. Native build/smoke checks (`./bin/hushh native ios --mode uat`, `./bin/hushh native android --mode uat`) for native release lanes
 5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness
 6. Broad full-suite pytest runs and Kai accuracy/compliance suites
 
@@ -342,8 +342,9 @@ Before creating a release tag/public rollout, run strict gate commands from repo
 
 ```bash
 bash scripts/ci/docs-parity-check.sh
-cd hushh-webapp && npm run verify:parity
-cd hushh-webapp && npm run verify:capacitor:routes
+cd hushh-webapp && npm run typecheck
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
 cd hushh-webapp && npm run verify:cache
 cd hushh-webapp && npm run verify:docs
 python scripts/ops/verify-env-secrets-parity.py --project hushh-pda --region us-central1 --backend-service consent-protocol --frontend-service hushh-webapp

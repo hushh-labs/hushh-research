@@ -127,8 +127,8 @@ If Firebase bundle ID needs updating:
 4. Download new `GoogleService-Info.plist`
 5. Refresh your active local profile instead of committing the artifact:
    ```bash
-   cd <repo-root>/hushh-webapp
-   npm run sync:mobile-firebase
+   cd <repo-root>
+   ./bin/hushh bootstrap
    ```
 6. Update `Info.plist` reversed client ID if changed
 

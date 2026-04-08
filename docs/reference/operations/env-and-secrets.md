@@ -418,7 +418,7 @@ python3 scripts/ops/logical_backup_freshness_check.py \
 
 Committed files:
 - `hushh-webapp/ios/App/App/GoogleService-Info.plist` (template only)
-- `hushh-webapp/android/app/google-services.json` (template only)
+- Android Firebase config is generated from the active profile sidecar under `hushh-webapp/.env.local.d/android/`
 
 Production release process:
 - Store base64-encoded production artifacts in Secret Manager:
@@ -431,12 +431,11 @@ Production release process:
   - native build wrappers apply the generated artifacts only for the build and then restore the tracked templates
   - if a developer already has real local plist/json files in the native paths or the old `.local-secrets` cache, the first materialization seeds the active env/sidecar instead of overwriting that local state
 - Release CI decodes and overwrites template files only inside the ephemeral job workspace before native build/sign.
-- Optionally fetch latest artifacts from Firebase directly into the active profile env with `cd hushh-webapp && npm run sync:mobile-firebase`.
-- Run `npm run verify:mobile-firebase:release` to fail fast if templates were not replaced.
+- Re-run `./bin/hushh bootstrap` when the active local profile needs refreshed Firebase artifacts.
   - This release gate also enforces analytics readiness (`IS_ANALYTICS_ENABLED=true` on iOS and `services.analytics_service` present on Android).
 
 Repository guard:
-- CI runs `npm run verify:mobile-firebase` to ensure committed files remain templates (no production artifact commits, no real Firebase-style API keys).
+- CI and the bootstrap/native build flow must preserve tracked Firebase artifacts as templates and keep real release artifacts out of git.
 
 Local iOS signing:
 - Store Apple signing assets in Secret Manager and hydrate them into the frontend runtime profile files.

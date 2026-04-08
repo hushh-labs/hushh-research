@@ -161,7 +161,7 @@ BYOK note:
 
 - `python3 -m py_compile consent-protocol/hushh_mcp/services/plaid_portfolio_service.py consent-protocol/api/routes/kai/plaid.py consent-protocol/api/routes/kai/__init__.py`
 - `cd hushh-webapp && npm run typecheck`
-- `cd hushh-webapp && npm run verify:routes`
+- manual runtime smoke for `/kai/import` and `/kai/portfolio`
 
 ## Capability Reminder
 

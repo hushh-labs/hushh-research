@@ -1,0 +1,104 @@
+---
+name: devops-operations
+description: Use when working on Hushh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification. This skill is repo-scoped to hushh-research and stays single-agent unless the user explicitly asks for delegation or parallel agent work.
+---
+
+# Hushh DevOps Operations Skill
+
+Use this skill for repository operations and delivery work.
+
+## Read first
+
+1. `docs/reference/operations/README.md`
+2. `docs/reference/operations/ci.md`
+3. `docs/reference/operations/branch-governance.md`
+4. `docs/reference/operations/cli.md`
+5. `docs/reference/operations/env-and-secrets.md`
+
+Load these references only when needed:
+
+1. `references/operations-surface.md`
+2. `references/deploy-and-release.md`
+3. `references/agent-trigger-policy.md`
+
+## Trigger rules
+
+Trigger this skill when the request is about:
+
+1. CI or GitHub Actions failures
+2. branch protection, merge queue, or freshness policy
+3. UAT or production deploys
+4. Cloud Run, Cloud Build, or runtime rollout issues
+5. environment or secret parity
+6. operational readiness, rollback, or incident triage
+
+Do not use this skill for:
+
+1. frontend UI or design-system changes
+2. generic backend feature work without an operations angle
+3. GitHub board/project management only
+4. ordinary product coding tasks
+
+## Operating rules
+
+1. Prefer live verification over assumptions for GitHub, CI, branch protection, and deploy state.
+2. Use `./bin/hushh` as the canonical repo command surface.
+3. Use repo docs for policy and `gh` for live GitHub state.
+4. Treat `main` as the only integration branch.
+5. Treat merge queue as the standard merge path for `main`.
+6. Treat `CI Status Gate` as the classic blocking status check and `Main Freshness Gate` as advisory on pull requests, blocking on `merge_group`.
+7. Treat approval, mergeability, and admin bypass as separate states. Do not infer one from another.
+8. Self-approval is not valid approval. If the active GitHub identity is the PR author, Codex must not claim the PR is approved.
+9. When a user says they are an admin, verify the live ruleset before taking action. Admin can bypass only if the repository rules actually permit it.
+10. If review is still required, say that explicitly and prefer queue or ruleset-compliant action over pretending the requirement is satisfied.
+
+## Tooling preferences
+
+1. Use local shell and `gh` for live repository, PR, branch protection, and Actions checks.
+2. Use the root CLI for local operational workflows:
+
+```bash
+./bin/hushh ci
+./bin/hushh docs verify
+./bin/hushh sync main
+./bin/hushh doctor --mode uat
+```
+
+3. Use MCP only when it directly improves repo operations work and is already configured. Do not invent MCP dependencies.
+
+## Approval and admin handling
+
+1. Use `gh auth status` and `gh pr view` to verify:
+   - active GitHub identity
+   - PR author
+   - review decision
+   - merge state
+2. If the active identity matches the PR author, do not attempt self-approval.
+3. If the user is an admin, inspect whether the current ruleset allows:
+   - admin merge bypass
+   - merge queue only
+   - required reviews without bypass
+4. When merge queue is enabled, prefer enabling auto-merge or queue entry instead of forcing a direct merge.
+5. If a PR is green but blocked only by review, report that as a policy blocker, not as a CI blocker.
+
+## Delegation policy
+
+1. Stay single-agent by default.
+2. Do not spawn sub-agents automatically for DevOps work.
+3. Only use parallel agents when the user explicitly asks for delegation or parallel agent work.
+4. If delegation is explicitly allowed, split work by bounded ops surfaces such as:
+   - CI log triage
+   - deploy configuration audit
+   - env or secret parity audit
+
+## Required checks
+
+Use the smallest real validation set that matches the change:
+
+```bash
+./bin/hushh docs verify
+./bin/hushh ci
+./scripts/ci/verify-main-branch-protection.sh
+```
+
+For deploy or secrets changes, also verify the relevant workflow or runtime docs path before concluding.
