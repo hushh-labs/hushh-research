@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BadgeDollarSign,
   Building2,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   KeyRound,
   Loader2,
@@ -539,6 +541,7 @@ export function PlaidFundingTransfersSection({
   const [supportError, setSupportError] = useState<string | null>(null);
   const [isSearchingSupport, setIsSearchingSupport] = useState<boolean>(false);
   const [isEscalatingSupport, setIsEscalatingSupport] = useState<boolean>(false);
+  const [isFundingPanelOpen, setIsFundingPanelOpen] = useState<boolean>(false);
 
   const latestTransfers = useMemo(
     () =>
@@ -704,182 +707,200 @@ export function PlaidFundingTransfersSection({
       />
 
       {fundingItem && fundingAccounts.length > 0 && onCreateTransfer ? (
-        <div className="rounded-[20px] border border-border/60 bg-background/60 p-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-xs text-muted-foreground">
-              Funding account
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={selectedFundingAccountId}
-                onChange={(event) => {
-                  const accountId = event.target.value;
-                  setSelectedFundingAccountId(accountId);
-                  if (fundingItem?.item_id && onSetDefaultFundingAccount) {
-                    void onSetDefaultFundingAccount({
-                      itemId: fundingItem.item_id,
-                      accountId,
-                    });
-                  }
-                }}
-              >
-                {fundingAccounts.map((account) => (
-                  <option key={account.account_id} value={account.account_id}>
-                    {`${account.name || account.official_name || account.account_id} ${account.mask ? `•••• ${account.mask}` : ""}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {brokerageAccountOptions.length > 0 ? (
-              <label className="space-y-1 text-xs text-muted-foreground">
-                Alpaca brokerage destination
-                <select
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                  value={selectedBrokerageAccountId}
-                  onChange={(event) => setSelectedBrokerageAccountId(event.target.value)}
-                >
-                  {brokerageAccountOptions.map((option) => (
-                    <option key={option.accountId} value={option.accountId}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+        <div className="space-y-2">
+          <Button
+            variant="none"
+            effect="fade"
+            size="sm"
+            onClick={() => setIsFundingPanelOpen((current) => !current)}
+          >
+            {isFundingPanelOpen ? (
+              <ChevronUp className="mr-2 h-4 w-4" />
             ) : (
-              <div className="space-y-1 rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                Alpaca brokerage destination
-                <p className="text-[11px] leading-5">
-                  No mapped Alpaca account was found. Add or configure at least one Alpaca account
-                  before creating transfers.
-                </p>
-                {onManageBrokerage ? (
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    onClick={() => void onManageBrokerage()}
+              <ChevronDown className="mr-2 h-4 w-4" />
+            )}
+            {isFundingPanelOpen ? "Hide funding controls" : "Show funding controls"}
+          </Button>
+
+          {isFundingPanelOpen ? (
+            <div className="rounded-[20px] border border-border/60 bg-background/60 p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  Funding account
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={selectedFundingAccountId}
+                    onChange={(event) => {
+                      const accountId = event.target.value;
+                      setSelectedFundingAccountId(accountId);
+                      if (fundingItem?.item_id && onSetDefaultFundingAccount) {
+                        void onSetDefaultFundingAccount({
+                          itemId: fundingItem.item_id,
+                          accountId,
+                        });
+                      }
+                    }}
                   >
-                    Connect brokerage account
-                  </Button>
+                    {fundingAccounts.map((account) => (
+                      <option key={account.account_id} value={account.account_id}>
+                        {`${account.name || account.official_name || account.account_id} ${account.mask ? `•••• ${account.mask}` : ""}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {brokerageAccountOptions.length > 0 ? (
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    Alpaca brokerage destination
+                    <select
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                      value={selectedBrokerageAccountId}
+                      onChange={(event) => setSelectedBrokerageAccountId(event.target.value)}
+                    >
+                      {brokerageAccountOptions.map((option) => (
+                        <option key={option.accountId} value={option.accountId}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="space-y-1 rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    Alpaca brokerage destination
+                    <p className="text-[11px] leading-5">
+                      No mapped Alpaca account was found. Add or configure at least one Alpaca
+                      account before creating transfers.
+                    </p>
+                    {onManageBrokerage ? (
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => void onManageBrokerage()}
+                      >
+                        Connect brokerage account
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  Transfer direction
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={transferDirection}
+                    onChange={(event) =>
+                      setTransferDirection(event.target.value as "to_brokerage" | "from_brokerage")
+                    }
+                  >
+                    <option value="to_brokerage">Deposit to brokerage</option>
+                    <option value="from_brokerage">Withdraw to bank</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  Amount (USD)
+                  <input
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={amountInput}
+                    onChange={(event) => setAmountInput(event.target.value)}
+                    inputMode="decimal"
+                    placeholder="100.00"
+                  />
+                  <div className="flex gap-2 pt-1">
+                    {["100.00", "250.00", "500.00"].map((preset) => (
+                      <Button
+                        key={preset}
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => setAmountInput(preset)}
+                      >
+                        {preset}
+                      </Button>
+                    ))}
+                  </div>
+                </label>
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  Legal name
+                  <input
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={legalNameInput}
+                    onChange={(event) => setLegalNameInput(event.target.value)}
+                    placeholder="Name on funding account"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>ACH relationship</span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "rounded-full px-2.5 py-0.5 text-[11px]",
+                      relationshipStatusTone(selectedFundingRelationship?.status)
+                    )}
+                  >
+                    {selectedFundingRelationship?.status || "not_started"}
+                  </Badge>
+                </div>
+                {selectedFundingRelationship?.status_reason_message ? (
+                  <p className="mt-1 text-[11px] leading-5">
+                    {selectedFundingRelationship.status_reason_message}
+                  </p>
+                ) : relationshipPending ? (
+                  <p className="mt-1 text-[11px] leading-5">
+                    Approval is still pending. Transfers are blocked until this relationship becomes
+                    approved.
+                  </p>
+                ) : relationshipFailed ? (
+                  <p className="mt-1 text-[11px] leading-5">
+                    This funding relationship is not eligible right now. Reconnect the bank account
+                    or contact support.
+                  </p>
+                ) : !relationshipApproved ? (
+                  <p className="mt-1 text-[11px] leading-5">
+                    No approved ACH relationship exists for this funding account yet.
+                  </p>
                 ) : null}
               </div>
-            )}
-
-            <label className="space-y-1 text-xs text-muted-foreground">
-              Transfer direction
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={transferDirection}
-                onChange={(event) =>
-                  setTransferDirection(event.target.value as "to_brokerage" | "from_brokerage")
-                }
-              >
-                <option value="to_brokerage">Deposit to brokerage</option>
-                <option value="from_brokerage">Withdraw to bank</option>
-              </select>
-            </label>
-
-            <label className="space-y-1 text-xs text-muted-foreground">
-              Amount (USD)
-              <input
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={amountInput}
-                onChange={(event) => setAmountInput(event.target.value)}
-                inputMode="decimal"
-                placeholder="100.00"
-              />
-              <div className="flex gap-2 pt-1">
-                {["100.00", "250.00", "500.00"].map((preset) => (
-                  <Button
-                    key={preset}
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    onClick={() => setAmountInput(preset)}
-                  >
-                    {preset}
-                  </Button>
-                ))}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="none"
+                  effect="fade"
+                  disabled={isSubmittingTransfer || !relationshipApproved}
+                  onClick={() => {
+                    const amount = Number(amountInput);
+                    if (!Number.isFinite(amount) || amount <= 0) return;
+                    if (!selectedFundingAccountId || !legalNameInput.trim()) return;
+                    if (brokerageAccountOptions.length > 0 && !selectedBrokerageAccountId) return;
+                    const nonce =
+                      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                        ? crypto.randomUUID()
+                        : `${Date.now()}`;
+                    void onCreateTransfer({
+                      fundingItemId: fundingItem.item_id,
+                      fundingAccountId: selectedFundingAccountId,
+                      brokerageItemId: null,
+                      brokerageAccountId: selectedBrokerageAccountId || null,
+                      amount,
+                      userLegalName: legalNameInput.trim(),
+                      direction: transferDirection,
+                      idempotencyKey: `kai_${fundingItem.item_id}_${selectedFundingAccountId}_${amount.toFixed(2)}_${nonce}`,
+                    });
+                  }}
+                >
+                  {isSubmittingTransfer ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <BadgeDollarSign className="mr-2 h-4 w-4" />
+                  )}
+                  Create transfer
+                </Button>
               </div>
-            </label>
-
-            <label className="space-y-1 text-xs text-muted-foreground">
-              Legal name
-              <input
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={legalNameInput}
-                onChange={(event) => setLegalNameInput(event.target.value)}
-                placeholder="Name on funding account"
-              />
-            </label>
-          </div>
-          <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-            <div className="flex flex-wrap items-center gap-2">
-              <span>ACH relationship</span>
-              <Badge
-                variant="outline"
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-[11px]",
-                  relationshipStatusTone(selectedFundingRelationship?.status)
-                )}
-              >
-                {selectedFundingRelationship?.status || "not_started"}
-              </Badge>
             </div>
-            {selectedFundingRelationship?.status_reason_message ? (
-              <p className="mt-1 text-[11px] leading-5">
-                {selectedFundingRelationship.status_reason_message}
-              </p>
-            ) : relationshipPending ? (
-              <p className="mt-1 text-[11px] leading-5">
-                Approval is still pending. Transfers are blocked until this relationship becomes
-                approved.
-              </p>
-            ) : relationshipFailed ? (
-              <p className="mt-1 text-[11px] leading-5">
-                This funding relationship is not eligible right now. Reconnect the bank account or
-                contact support.
-              </p>
-            ) : !relationshipApproved ? (
-              <p className="mt-1 text-[11px] leading-5">
-                No approved ACH relationship exists for this funding account yet.
-              </p>
-            ) : null}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              variant="none"
-              effect="fade"
-              disabled={isSubmittingTransfer || !relationshipApproved}
-              onClick={() => {
-                const amount = Number(amountInput);
-                if (!Number.isFinite(amount) || amount <= 0) return;
-                if (!selectedFundingAccountId || !legalNameInput.trim()) return;
-                if (brokerageAccountOptions.length > 0 && !selectedBrokerageAccountId) return;
-                const nonce =
-                  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                    ? crypto.randomUUID()
-                    : `${Date.now()}`;
-                void onCreateTransfer({
-                  fundingItemId: fundingItem.item_id,
-                  fundingAccountId: selectedFundingAccountId,
-                  brokerageItemId: null,
-                  brokerageAccountId: selectedBrokerageAccountId || null,
-                  amount,
-                  userLegalName: legalNameInput.trim(),
-                  direction: transferDirection,
-                  idempotencyKey: `kai_${fundingItem.item_id}_${selectedFundingAccountId}_${amount.toFixed(2)}_${nonce}`,
-                });
-              }}
-            >
-              {isSubmittingTransfer ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <BadgeDollarSign className="mr-2 h-4 w-4" />
-              )}
-              Create transfer
-            </Button>
-          </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -953,7 +974,7 @@ export function PlaidFundingTransfersSection({
         </div>
       ) : null}
 
-      {hasSupportTools ? (
+      {hasSupportTools && isFundingPanelOpen ? (
         <div className="rounded-[20px] border border-border/60 bg-background/60 p-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Support tools
