@@ -47,6 +47,7 @@ import {
   clearPlaidOAuthResumeSession,
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
+import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
@@ -2810,10 +2811,7 @@ export function KaiFlow({
 
     setIsConnectingPlaid(true);
     try {
-      const redirectUri =
-        typeof window !== "undefined"
-          ? new URL(ROUTES.KAI_PLAID_OAUTH_RETURN, window.location.origin).toString()
-          : undefined;
+      const redirectUri = resolvePlaidRedirectUri();
       const linkToken = await PlaidPortfolioService.createLinkToken({
         userId,
         vaultOwnerToken: effectiveVaultOwnerToken,

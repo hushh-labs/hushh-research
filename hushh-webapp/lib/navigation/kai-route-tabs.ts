@@ -33,6 +33,7 @@ export function activeKaiRouteTabFromPath(pathname: string): KaiRouteTabId {
   if (
     pathname.startsWith(ROUTES.KAI_DASHBOARD) ||
     pathname.startsWith(ROUTES.KAI_INVESTMENTS) ||
+    pathname.startsWith(ROUTES.KAI_FUNDING_TRADE) ||
     pathname.startsWith("/kai/dashboard") ||
     pathname.startsWith(ROUTES.KAI_OPTIMIZE)
   ) {

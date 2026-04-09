@@ -79,6 +79,17 @@ jobs:
             else
               LOG_OPTS="$(resolve_from_default_branch)"
             fi
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            BASE_SHA="${{ github.event.merge_group.base_sha }}"
+            HEAD_SHA="${{ github.event.merge_group.head_sha }}"
+            if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
+              && git rev-parse "$BASE_SHA" >/dev/null 2>&1 \
+              && git rev-parse "$HEAD_SHA" >/dev/null 2>&1 \
+              && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
+              LOG_OPTS="--ancestry-path ${BASE_SHA}..${HEAD_SHA}"
+            else
+              LOG_OPTS="$(resolve_from_default_branch)"
+            fi
           elif [ "${{ github.event_name }}" = "push" ]; then
             LOG_OPTS="$(resolve_from_default_branch)"
           else
