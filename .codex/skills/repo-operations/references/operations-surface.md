@@ -46,5 +46,5 @@ Use this reference to orient DevOps work in `hushh-research`.
 1. Review approval and review bypass are different GitHub states.
 2. A PR author cannot self-approve through GitHub.
 3. A bypass-listed actor may still waive the review gate when the live branch protection allows it.
-4. Merge-queue rules remain separate from review bypass and must be verified independently.
+4. Merge-queue rules remain separate from review bypass and are satisfied through the dedicated `main-bypass-queue` owner team.
 5. The privileged three may dispatch UAT manually; only `kushaltrivedi5` may dispatch Production.

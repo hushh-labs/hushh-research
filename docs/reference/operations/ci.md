@@ -95,7 +95,7 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, and trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA.
+The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated three-person owner team only.
 
 ### PKM rollout blocker
 

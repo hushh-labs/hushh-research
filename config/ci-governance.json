@@ -8,7 +8,12 @@
       "RGlodAkshat"
     ],
     "merge_queue_required": true,
-    "merge_queue_bypass_users": []
+    "merge_queue_bypass_team_slug": "main-bypass-queue",
+    "merge_queue_bypass_users": [
+      "kushaltrivedi5",
+      "Akash-292",
+      "RGlodAkshat"
+    ]
   },
   "uat": {
     "auto_deploy_workflow": "Main Post-Merge Smoke",

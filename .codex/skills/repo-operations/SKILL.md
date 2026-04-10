@@ -58,7 +58,7 @@ Non-owned surfaces:
 3. Move from diagnosis into fix-and-rerun for failures inside the repo-operations surface.
 4. Use `./bin/hushh codex ci-status` for PR-check status and `scripts/ci/watch-gh-workflow-chain.sh` for long-running post-merge or deploy workflow chains.
 5. Treat the delivery model as three stages: PR feedback lane, queue authority lane, and post-merge deploy-authority lane.
-6. Treat GitHub approval and GitHub bypass as separate states: a PR author still cannot self-approve, but a bypass-listed actor may waive the review gate when the live rules permit it.
+6. Treat GitHub approval and GitHub bypass as separate states: a PR author still cannot self-approve, but a bypass-listed actor may waive the review gate and, when configured, use the dedicated queue-bypass owner path.
 7. Monitor the resulting workflow chain until terminal success or a concrete blocker.
 
 ## Handoff Rules

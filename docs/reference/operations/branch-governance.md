@@ -83,7 +83,7 @@ Before deleting a local backup branch, classify its unique commits as:
 4. Enable merge queue for `main`.
 5. Block force-pushes.
 6. Block branch deletion.
-7. Use review bypass for the 3 core owners only; do not rely on overlapping push restrictions.
+7. Use review bypass plus the dedicated `main-bypass-queue` team for the 3 core owners only; do not rely on overlapping push restrictions.
 8. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
@@ -93,8 +93,9 @@ Current operating note:
 - admin ownership does not count as an independent PR approval
 - a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges
 - the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`
+- the current live merge-queue bypass team is `main-bypass-queue`, containing those same 3 users only
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
-- bypass actors may waive review only through explicit branch-protection bypass, not through queue bypass
+- bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
 - direct pushes to `main` are not the default bypass model; the preferred path is a green PR plus bypass merge
 - CI should still gate the landing decision; bypass is for review policy, not for skipping validation
 

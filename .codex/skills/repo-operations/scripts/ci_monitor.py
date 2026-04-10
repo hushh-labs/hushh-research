@@ -58,6 +58,23 @@ def _governance_policy() -> dict[str, Any]:
     return json.loads(GOVERNANCE_POLICY_PATH.read_text(encoding="utf-8"))
 
 
+def _team_membership(org_id: int, team_id: int, actor: str) -> bool:
+    completed = subprocess.run(
+        ["gh", "api", f"organizations/{org_id}/team/{team_id}/memberships/{actor}"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return False
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return False
+    return str(payload.get("state") or "").lower() == "active"
+
+
 def _git_branch() -> str:
     return _run(["git", "branch", "--show-current"]).strip()
 
@@ -133,6 +150,12 @@ def _normalize_checks(pr_payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
     protection = _gh_json(["api", f"repos/hushh-labs/hushh-research/branches/{base_branch}/protection"])
+    merge_queue_rules = _gh_json(["api", f"repos/hushh-labs/hushh-research/rules/branches/{base_branch}"])
+    merge_queue_ruleset_id = next(
+        (item.get("ruleset_id") for item in merge_queue_rules if item.get("type") == "merge_queue"),
+        None,
+    )
+    merge_queue_ruleset = _gh_json(["api", f"repos/hushh-labs/hushh-research/rulesets/{merge_queue_ruleset_id}"]) if merge_queue_ruleset_id else {}
     rulesets = _gh_json(["api", f"repos/hushh-labs/hushh-research/rules/branches/{base_branch}"])
     policy = _governance_policy()
     bypass_users = [
@@ -144,13 +167,22 @@ def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
     actor = _current_actor()
     merge_queue_required = any(item.get("type") == "merge_queue" for item in rulesets)
     review_bypass_users = sorted(set(bypass_users))
+    bypass_actors = merge_queue_ruleset.get("bypass_actors") or []
+    queue_bypass_team = next((actor_info for actor_info in bypass_actors if actor_info.get("actor_type") == "Team"), None)
+    queue_bypass_team_id = int(queue_bypass_team.get("actor_id")) if queue_bypass_team and queue_bypass_team.get("actor_id") else None
+    queue_bypass_team_slug = policy["main"].get("merge_queue_bypass_team_slug")
+    actor_can_bypass_queue = False
+    if queue_bypass_team_id:
+      actor_can_bypass_queue = _team_membership(140115870, queue_bypass_team_id, actor)
     return OrderedDict(
         current_actor=actor,
         required_approving_review_count=protection.get("required_pull_request_reviews", {}).get("required_approving_review_count", 0),
         review_bypass_users=review_bypass_users,
         current_actor_can_bypass_review=actor in review_bypass_users,
         merge_queue_required=merge_queue_required,
-        current_actor_can_bypass_queue=False,
+        merge_queue_bypass_team_slug=queue_bypass_team_slug,
+        merge_queue_bypass_users=policy["main"]["merge_queue_bypass_users"],
+        current_actor_can_bypass_queue=actor_can_bypass_queue,
         uat_manual_dispatch_users=policy["uat"]["manual_dispatch_users"],
         current_actor_can_dispatch_uat=actor in policy["uat"]["manual_dispatch_users"],
         production_manual_dispatch_users=policy["production"]["manual_dispatch_users"],
@@ -158,7 +190,7 @@ def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
         notes=[
             "A PR author still cannot self-approve through GitHub.",
             "Review bypass and merge-queue policy are separate gates.",
-            "The privileged three may waive review on main but do not bypass merge queue.",
+            "The privileged three may waive review on main and bypass merge queue through the dedicated team-backed owner path.",
         ],
     )
 
@@ -204,7 +236,10 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
     else:
         next_actions["review_gate"] = "Current actor is not in the PR-review bypass allowlist."
     if review_policy["merge_queue_required"]:
-        next_actions["merge_queue"] = "main still has an active merge-queue rule; queue bypass is not available to any actor."
+        if review_policy["current_actor_can_bypass_queue"]:
+            next_actions["merge_queue"] = "Current actor may bypass merge queue through the dedicated owner team-backed path."
+        else:
+            next_actions["merge_queue"] = "main still has an active merge-queue rule; current actor is not in the queue-bypass path."
     next_actions["deploy_uat"] = (
         "Current actor may manually dispatch UAT."
         if review_policy["current_actor_can_dispatch_uat"]
