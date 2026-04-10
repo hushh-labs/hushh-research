@@ -1,0 +1,54 @@
+{
+  "id": "skill-authoring",
+  "title": "Skill Authoring",
+  "goal": "Create or retrofit skills, manifests, workflows, and routing metadata for the Codex operating system.",
+  "owner_skill": "codex-skill-authoring",
+  "default_spoke": null,
+  "task_type": "skill-authoring",
+  "affected_surfaces": [
+    ".codex/skills",
+    ".codex/workflows",
+    "docs/reference/operations",
+    "README.md"
+  ],
+  "required_reads": [
+    ".codex/skills/codex-skill-authoring/references/skill-contract.md",
+    ".codex/skills/codex-skill-authoring/references/authoring-workflow.md",
+    ".codex/skills/repo-context/references/index-contract.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task skill-authoring",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundle": {
+    "id": "skill-authoring",
+    "commands": [
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh codex audit",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh codex audit"
+    ]
+  },
+  "deliverables": [
+    "skill and workflow manifests",
+    "updated taxonomy or routing docs",
+    "validation summary"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "codex-skill-authoring",
+    "repo-context",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "adding markdown-only skills without manifest metadata",
+    "creating overlapping task types",
+    "forgetting onboarding or audit updates"
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "mobile-plugin-contracts",
+  "role": "spoke",
+  "owner_family": "mobile-native",
+  "primary_scope": "mobile-plugin-contracts",
+  "description": "Use when implementing or reviewing Capacitor plugin contracts, native plugin registration, or platform bridge alignment across iOS and Android.",
+  "owned_paths": [
+    "hushh-webapp/lib/capacitor",
+    "hushh-webapp/ios/App/App/Plugins",
+    "hushh-webapp/android/app/src/main"
+  ],
+  "non_owned_paths": [
+    "mobile-native",
+    "frontend",
+    "backend"
+  ],
+  "task_types": [
+    "mobile-parity-check",
+    "new-feature-tri-flow"
+  ],
+  "required_reads": [
+    "docs/guides/new-feature.md",
+    "hushh-webapp/ios/App/App/MyViewController.swift",
+    "hushh-webapp/android/app/src/main/AndroidManifest.xml"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run typecheck",
+    "cd hushh-webapp && npm run cap:build"
+  ],
+  "verification_bundles": [
+    {
+      "id": "mobile-plugin-contracts",
+      "commands": [
+        "cd hushh-webapp && npm run typecheck",
+        "cd hushh-webapp && npm run cap:build"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run typecheck"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "mobile-native",
+    "mobile-parity-audit",
+    "frontend",
+    "backend"
+  ],
+  "adjacent_skills": [
+    "mobile-native",
+    "frontend",
+    "backend-api-contracts"
+  ],
+  "risk_tags": [
+    "plugin-contract-drift",
+    "ios-android-parity-drift"
+  ]
+}

@@ -143,6 +143,39 @@ export interface RiaAvailableScopeMetadata {
   summary_only: boolean;
   available?: boolean;
   domain_key?: string | null;
+  bundle_key?: string | null;
+  presentations?: string[];
+  requires_account_selection?: boolean;
+}
+
+export interface RiaAccountBranch {
+  branch_id: string;
+  account_id: string;
+  persistent_account_id?: string | null;
+  item_id?: string | null;
+  institution_name?: string | null;
+  name: string;
+  official_name?: string | null;
+  mask?: string | null;
+  type?: string | null;
+  subtype?: string | null;
+  status: "approved" | "pending" | "approval_required";
+  granted_by_bundle_key?: string | null;
+}
+
+export interface RiaKaiSpecializedBundle {
+  bundle_key: string;
+  template_id: string;
+  label: string;
+  description: string;
+  presentations: string[];
+  requires_account_selection: boolean;
+  status: "available" | "pending" | "partial" | "active";
+  approved_account_ids: string[];
+  pending_account_ids: string[];
+  selected_account_ids: string[];
+  legacy_grant_compatible: boolean;
+  scopes: Array<RiaAvailableScopeMetadata & { status: "available" | "pending" | "active" }>;
 }
 
 export interface RiaClientRequestSummary {
@@ -196,6 +229,8 @@ export interface RiaClientDetail {
   invite_history: RiaInviteRecord[];
   requestable_scope_templates: RiaRequestScopeTemplate[];
   available_scope_metadata: RiaAvailableScopeMetadata[];
+  kai_specialized_bundle: RiaKaiSpecializedBundle;
+  account_branches: RiaAccountBranch[];
   available_domains: string[];
   domain_summaries: Record<string, unknown>;
   total_attributes: number;
@@ -256,6 +291,9 @@ export interface RiaRequestScopeMetadata {
   description: string;
   kind: string;
   summary_only: boolean;
+  bundle_key?: string | null;
+  presentations?: string[];
+  requires_account_selection?: boolean;
 }
 
 export interface RiaRequestScopeTemplate {
@@ -264,7 +302,47 @@ export interface RiaRequestScopeTemplate {
   description?: string | null;
   default_duration_hours: number;
   max_duration_hours: number;
+  bundle_key?: string | null;
+  presentations?: string[];
+  requires_account_selection?: boolean;
   scopes: RiaRequestScopeMetadata[];
+}
+
+export interface RiaClientWorkspace {
+  investor_user_id: string;
+  investor_display_name?: string | null;
+  investor_email?: string | null;
+  investor_secondary_label?: string | null;
+  investor_headline?: string | null;
+  workspace_ready: boolean;
+  available_domains: string[];
+  domain_summaries: Record<string, unknown>;
+  total_attributes: number;
+  relationship_status: string;
+  scope: string;
+  relationship_shares?: Array<{
+    grant_key: string;
+    label: string;
+    description: string;
+    status: string;
+    share_origin?: string | null;
+    granted_at?: string | null;
+    revoked_at?: string | null;
+    has_active_pick_upload?: boolean;
+  }>;
+  picks_feed_status?: string | null;
+  picks_feed_granted_at?: string | null;
+  has_active_pick_upload?: boolean;
+  granted_scopes?: Array<{
+    scope: string;
+    label: string;
+    expires_at?: number | string | null;
+    issued_at?: number | string | null;
+  }>;
+  consent_expires_at?: number | string | null;
+  updated_at?: string;
+  kai_specialized_bundle?: RiaKaiSpecializedBundle;
+  account_branches?: RiaAccountBranch[];
 }
 
 export interface RiaRequestBundleRecord {
@@ -1245,6 +1323,7 @@ export class RiaService {
       subject_user_id: string;
       scope_template_id: string;
       selected_scopes: string[];
+      selected_account_ids?: string[];
       firm_id?: string;
       reason?: string;
     }
@@ -1255,6 +1334,7 @@ export class RiaService {
     request_count: number;
     request_ids: string[];
     selected_scopes: string[];
+    selected_account_ids?: string[];
     expires_at?: number | null;
   }> {
     const response = await authFetch("/api/ria/request-bundles", {
@@ -1269,77 +1349,11 @@ export class RiaService {
     idToken: string,
     investorUserId: string,
     options?: CachedReadOptions
-  ): Promise<{
-    investor_user_id: string;
-    investor_display_name?: string | null;
-    investor_email?: string | null;
-    investor_secondary_label?: string | null;
-    investor_headline?: string | null;
-    workspace_ready: boolean;
-    available_domains: string[];
-    domain_summaries: Record<string, unknown>;
-    total_attributes: number;
-    relationship_status: string;
-    scope: string;
-    relationship_shares?: Array<{
-      grant_key: string;
-      label: string;
-      description: string;
-      status: string;
-      share_origin?: string | null;
-      granted_at?: string | null;
-      revoked_at?: string | null;
-      has_active_pick_upload?: boolean;
-    }>;
-    picks_feed_status?: string | null;
-    picks_feed_granted_at?: string | null;
-    has_active_pick_upload?: boolean;
-    granted_scopes?: Array<{
-      scope: string;
-      label: string;
-      expires_at?: number | string | null;
-      issued_at?: number | string | null;
-    }>;
-      consent_expires_at?: number | string | null;
-      updated_at?: string;
-    }> {
+  ): Promise<RiaClientWorkspace> {
     const cacheKey =
       options?.userId ? CACHE_KEYS.RIA_WORKSPACE(options.userId, investorUserId) : null;
     if (cacheKey) {
-      const cached = this.readCached<{
-        investor_user_id: string;
-        investor_display_name?: string | null;
-        investor_email?: string | null;
-        investor_secondary_label?: string | null;
-        investor_headline?: string | null;
-        workspace_ready: boolean;
-        available_domains: string[];
-        domain_summaries: Record<string, unknown>;
-        total_attributes: number;
-        relationship_status: string;
-        scope: string;
-        relationship_shares?: Array<{
-          grant_key: string;
-          label: string;
-          description: string;
-          status: string;
-          share_origin?: string | null;
-          granted_at?: string | null;
-          revoked_at?: string | null;
-          has_active_pick_upload?: boolean;
-        }>;
-        picks_feed_status?: string | null;
-        picks_feed_granted_at?: string | null;
-        has_active_pick_upload?: boolean;
-        granted_scopes?: Array<{
-          scope: string;
-          label: string;
-          expires_at?: number | string | null;
-          issued_at?: number | string | null;
-        }>;
-        consent_expires_at?: number | string | null;
-        updated_at?: string;
-      }>(cacheKey, options?.force);
+      const cached = this.readCached<RiaClientWorkspace>(cacheKey, options?.force);
       if (cached) return cached;
     }
     const response = await authFetch(
@@ -1349,40 +1363,7 @@ export class RiaService {
         idToken,
       }
     );
-    const payload = await toJsonOrThrow<{
-      investor_user_id: string;
-      investor_display_name?: string | null;
-      investor_email?: string | null;
-      investor_secondary_label?: string | null;
-      investor_headline?: string | null;
-      workspace_ready: boolean;
-      available_domains: string[];
-      domain_summaries: Record<string, unknown>;
-      total_attributes: number;
-      relationship_status: string;
-      scope: string;
-      relationship_shares?: Array<{
-        grant_key: string;
-        label: string;
-        description: string;
-        status: string;
-        share_origin?: string | null;
-        granted_at?: string | null;
-        revoked_at?: string | null;
-        has_active_pick_upload?: boolean;
-      }>;
-      picks_feed_status?: string | null;
-      picks_feed_granted_at?: string | null;
-      has_active_pick_upload?: boolean;
-      granted_scopes?: Array<{
-        scope: string;
-        label: string;
-        expires_at?: number | string | null;
-        issued_at?: number | string | null;
-      }>;
-      consent_expires_at?: number | string | null;
-      updated_at?: string;
-    }>(response);
+    const payload = await toJsonOrThrow<RiaClientWorkspace>(response);
     return cacheKey ? this.writeCached(cacheKey, payload, CACHE_TTL.SHORT) : payload;
   }
 

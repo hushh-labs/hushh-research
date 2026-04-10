@@ -60,7 +60,7 @@ export function buildMarketplaceConnectionsRoute(entries?: {
   tab?: "pending" | "active" | "previous" | null;
   selected?: string | null;
 }) {
-  return withQuery(ROUTES.MARKETPLACE_CONNECTIONS, {
+  return withQuery(ROUTES.CONSENTS, {
     tab: entries?.tab,
     selected: entries?.selected,
   });
@@ -68,12 +68,73 @@ export function buildMarketplaceConnectionsRoute(entries?: {
 
 export function buildMarketplaceConnectionPortfolioRoute(connectionId?: string | null) {
   const normalized = String(connectionId ?? "").trim();
-  if (!normalized) return ROUTES.MARKETPLACE_CONNECTIONS;
-  return withQuery(`${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`, { connectionId: normalized });
+  if (!normalized) return ROUTES.RIA_CLIENTS;
+  return buildRiaClientWorkspaceRoute(normalized, { tab: "kai" });
 }
 
-export function buildRiaWorkspaceRoute(clientId?: string | null) {
-  return withQuery(ROUTES.RIA_WORKSPACE, { clientId });
+export function buildRiaClientWorkspaceRoute(
+  clientId?: string | null,
+  entries?: {
+    tab?: "overview" | "access" | "kai" | "explorer" | null;
+    testProfile?: boolean | null;
+  }
+) {
+  const normalized = String(clientId ?? "").trim();
+  if (!normalized) return ROUTES.RIA_CLIENTS;
+  return withQuery(`${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalized)}`, {
+    tab: entries?.tab,
+    test_profile: entries?.testProfile ? "1" : null,
+  });
+}
+
+export function buildRiaClientAccountRoute(
+  clientId?: string | null,
+  accountId?: string | null,
+  entries?: {
+    testProfile?: boolean | null;
+  }
+) {
+  const normalizedClientId = String(clientId ?? "").trim();
+  const normalizedAccountId = String(accountId ?? "").trim();
+  if (!normalizedClientId || !normalizedAccountId) return ROUTES.RIA_CLIENTS;
+  return withQuery(
+    `${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalizedClientId)}/accounts/${encodeURIComponent(
+      normalizedAccountId
+    )}`,
+    {
+      test_profile: entries?.testProfile ? "1" : null,
+    }
+  );
+}
+
+export function buildRiaClientRequestRoute(
+  clientId?: string | null,
+  requestId?: string | null,
+  entries?: {
+    testProfile?: boolean | null;
+  }
+) {
+  const normalizedClientId = String(clientId ?? "").trim();
+  const normalizedRequestId = String(requestId ?? "").trim();
+  if (!normalizedClientId || !normalizedRequestId) return ROUTES.RIA_CLIENTS;
+  return withQuery(
+    `${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalizedClientId)}/requests/${encodeURIComponent(
+      normalizedRequestId
+    )}`,
+    {
+      test_profile: entries?.testProfile ? "1" : null,
+    }
+  );
+}
+
+export function buildRiaWorkspaceRoute(
+  clientId?: string | null,
+  entries?: {
+    tab?: "overview" | "access" | "kai" | "explorer" | null;
+    testProfile?: boolean | null;
+  }
+) {
+  return buildRiaClientWorkspaceRoute(clientId, entries);
 }
 
 export function buildKaiAnalysisPreviewRoute(entries?: {

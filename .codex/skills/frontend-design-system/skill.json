@@ -1,0 +1,69 @@
+{
+  "id": "frontend-design-system",
+  "role": "spoke",
+  "owner_family": "frontend",
+  "primary_scope": "frontend-design-system",
+  "description": "Use when changing Hushh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.",
+  "owned_paths": [
+    "hushh-webapp/components/ui",
+    "hushh-webapp/lib/morphy-ux",
+    "hushh-webapp/components/app-ui",
+    "docs/reference/quality/design-system.md"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "mobile-native",
+    "docs-governance"
+  ],
+  "task_types": [
+    "new-feature-tri-flow",
+    "docs-sync",
+    "bug-triage"
+  ],
+  "required_reads": [
+    "docs/reference/quality/design-system.md",
+    "docs/reference/quality/frontend-ui-architecture-map.md",
+    "docs/reference/quality/app-surface-design-system.md",
+    "docs/reference/quality/frontend-pattern-catalog.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:design-system",
+    "cd hushh-webapp && npm run verify:cache",
+    "cd hushh-webapp && npm run verify:docs",
+    "cd hushh-webapp && npm run typecheck"
+  ],
+  "verification_bundles": [
+    {
+      "id": "frontend-design-system",
+      "commands": [
+        "cd hushh-webapp && npm run verify:design-system",
+        "cd hushh-webapp && npm run verify:cache",
+        "cd hushh-webapp && npm run verify:docs",
+        "cd hushh-webapp && npm run typecheck"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:design-system",
+        "cd hushh-webapp && npm run verify:cache",
+        "cd hushh-webapp && npm run verify:docs",
+        "cd hushh-webapp && npm run typecheck"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "frontend-architecture",
+    "frontend-surface-placement",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "frontend",
+    "frontend-architecture",
+    "frontend-surface-placement",
+    "docs-governance"
+  ],
+  "risk_tags": [
+    "design-system-drift",
+    "visual-regression",
+    "docs-drift"
+  ]
+}

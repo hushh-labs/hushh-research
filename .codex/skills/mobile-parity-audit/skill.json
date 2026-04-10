@@ -1,0 +1,59 @@
+{
+  "id": "mobile-parity-audit",
+  "role": "spoke",
+  "owner_family": "mobile-native",
+  "primary_scope": "mobile-parity-audit",
+  "description": "Use when auditing mobile/native parity, release readiness, or platform-specific coverage across the Hushh app.",
+  "owned_paths": [
+    "docs/reference/mobile",
+    "hushh-webapp/scripts/native",
+    "hushh-webapp/ios/App/AppTests",
+    "hushh-webapp/ios/App/AppUITests"
+  ],
+  "non_owned_paths": [
+    "mobile-native",
+    "frontend",
+    "security-audit"
+  ],
+  "task_types": [
+    "mobile-parity-check",
+    "release-readiness"
+  ],
+  "required_reads": [
+    "docs/reference/mobile/README.md",
+    "docs/reference/mobile/capacitor-parity-audit.md",
+    "docs/reference/mobile/capacitor-parity-audit-report.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run cap:build",
+    "cd hushh-webapp && npm run ios:test"
+  ],
+  "verification_bundles": [
+    {
+      "id": "mobile-parity-audit",
+      "commands": [
+        "cd hushh-webapp && npm run cap:build",
+        "cd hushh-webapp && npm run ios:test"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run ios:test"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "mobile-native",
+    "mobile-plugin-contracts",
+    "quality-contracts",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "mobile-native",
+    "quality-contracts",
+    "repo-operations"
+  ],
+  "risk_tags": [
+    "native-parity-drift",
+    "release-readiness-drift",
+    "docs-runtime-drift"
+  ]
+}

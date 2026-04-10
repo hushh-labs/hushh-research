@@ -37,27 +37,27 @@ const ACCENT_STYLES: Record<SectionAccent, {
   },
   kai: {
     eyebrow: "text-violet-700 dark:text-violet-300",
-    icon: "bg-violet-500/10 text-violet-700 dark:bg-violet-400/10 dark:text-violet-200",
+    icon: "border border-violet-500/12 bg-violet-500/[0.06] text-violet-700 shadow-[var(--shadow-xs)] dark:border-violet-400/16 dark:bg-violet-400/[0.08] dark:text-violet-200",
     divider: "bg-violet-300/50 dark:bg-violet-400/30",
   },
   ria: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
-    icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
+    icon: "border border-emerald-500/12 bg-emerald-500/[0.06] text-emerald-700 shadow-[var(--shadow-xs)] dark:border-emerald-400/16 dark:bg-emerald-400/[0.08] dark:text-emerald-200",
     divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
   },
   consent: {
     eyebrow: "text-amber-700 dark:text-amber-300",
-    icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
+    icon: "border border-amber-500/12 bg-amber-500/[0.06] text-amber-700 shadow-[var(--shadow-xs)] dark:border-amber-400/16 dark:bg-amber-400/[0.08] dark:text-amber-200",
     divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   marketplace: {
     eyebrow: "text-sky-700 dark:text-sky-300",
-    icon: "bg-sky-500/10 text-sky-700 dark:bg-sky-400/10 dark:text-sky-200",
+    icon: "border border-sky-500/12 bg-sky-500/[0.06] text-sky-700 shadow-[var(--shadow-xs)] dark:border-sky-400/16 dark:bg-sky-400/[0.08] dark:text-sky-200",
     divider: "bg-sky-300/50 dark:bg-sky-400/30",
   },
   developers: {
     eyebrow: "text-rose-700 dark:text-rose-300",
-    icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
+    icon: "border border-rose-500/12 bg-rose-500/[0.06] text-rose-700 shadow-[var(--shadow-xs)] dark:border-rose-400/16 dark:bg-rose-400/[0.08] dark:text-rose-200",
     divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   success: {

@@ -1,0 +1,70 @@
+{
+  "id": "frontend",
+  "role": "owner",
+  "owner_family": "frontend",
+  "primary_scope": "frontend-intake",
+  "description": "Use when the request is broadly about the Hushh web frontend and the correct frontend specialist skill is not yet clear.",
+  "owned_paths": [
+    "hushh-webapp/app",
+    "hushh-webapp/components",
+    "hushh-webapp/lib",
+    "hushh-webapp/__tests__",
+    "hushh-webapp/scripts"
+  ],
+  "non_owned_paths": [
+    "hushh-webapp/ios",
+    "hushh-webapp/android",
+    "docs-governance"
+  ],
+  "task_types": [
+    "new-feature-tri-flow",
+    "bug-triage",
+    "docs-sync"
+  ],
+  "required_reads": [
+    "docs/reference/quality/frontend-ui-architecture-map.md",
+    "docs/reference/quality/design-system.md",
+    "hushh-webapp/components/README.md",
+    "hushh-webapp/lib/services/README.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:docs",
+    "cd hushh-webapp && npm run typecheck",
+    "cd hushh-webapp && npm run verify:routes"
+  ],
+  "verification_bundles": [
+    {
+      "id": "frontend-core",
+      "commands": [
+        "cd hushh-webapp && npm run verify:docs",
+        "cd hushh-webapp && npm run typecheck",
+        "cd hushh-webapp && npm run verify:routes"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:docs",
+        "cd hushh-webapp && npm run typecheck",
+        "cd hushh-webapp && npm run verify:routes"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend-design-system",
+    "frontend-architecture",
+    "frontend-surface-placement",
+    "mobile-native",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "frontend-design-system",
+    "frontend-architecture",
+    "frontend-surface-placement",
+    "mobile-native",
+    "backend-api-contracts",
+    "quality-contracts"
+  ],
+  "risk_tags": [
+    "route-drift",
+    "ui-boundary-drift",
+    "docs-drift"
+  ]
+}

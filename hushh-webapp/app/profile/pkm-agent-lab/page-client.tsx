@@ -811,7 +811,7 @@ export default function PkmAgentLabPageClient() {
   return (
     <>
       <NativeTestBeacon
-        routeId="/profile/pkm"
+        routeId="/profile/pkm-agent-lab"
         marker="native-route-profile-pkm"
         authState={user ? "authenticated" : "pending"}
         dataState={loading || bootstrapLoading || accessLoading ? "loading" : "loaded"}

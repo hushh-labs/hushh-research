@@ -1,0 +1,67 @@
+{
+  "id": "backend",
+  "role": "owner",
+  "owner_family": "backend",
+  "primary_scope": "backend-intake",
+  "description": "Use when the request is broadly about backend runtime, API routes, services, agents, or protocol package behavior and the correct backend specialist skill is not yet clear.",
+  "owned_paths": [
+    "consent-protocol/api",
+    "consent-protocol/hushh_mcp",
+    "consent-protocol/tests",
+    "consent-protocol/docs",
+    "consent-protocol/scripts",
+    "packages/hushh-mcp"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "security-audit",
+    "repo-operations"
+  ],
+  "task_types": [
+    "api-contract-change",
+    "new-feature-tri-flow",
+    "bug-triage",
+    "mcp-surface-change"
+  ],
+  "required_reads": [
+    "consent-protocol/README.md",
+    "consent-protocol/docs/README.md",
+    "docs/reference/architecture/architecture.md",
+    "docs/project_context_map.md"
+  ],
+  "required_commands": [
+    "./bin/hushh protocol --help",
+    "cd consent-protocol && python3 -m pytest tests -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "backend-core",
+      "commands": [
+        "./bin/hushh protocol --help",
+        "cd consent-protocol && python3 -m pytest tests -q"
+      ],
+      "tests": [
+        "cd consent-protocol && python3 -m pytest tests -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend-runtime-governance",
+    "backend-api-contracts",
+    "backend-agents-operons",
+    "mcp-developer-surface",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "backend-runtime-governance",
+    "backend-api-contracts",
+    "backend-agents-operons",
+    "mcp-developer-surface",
+    "security-audit"
+  ],
+  "risk_tags": [
+    "api-drift",
+    "service-boundary-drift",
+    "docs-drift"
+  ]
+}

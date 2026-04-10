@@ -1,0 +1,52 @@
+{
+  "id": "repo-orientation",
+  "title": "Repo Orientation",
+  "goal": "Establish repo context, choose the correct owner skill, and avoid cross-domain drift before implementation starts.",
+  "owner_skill": "repo-context",
+  "default_spoke": null,
+  "task_type": "repo-orientation",
+  "affected_surfaces": [
+    "README.md",
+    "docs",
+    "data",
+    ".codex/skills"
+  ],
+  "required_reads": [
+    "docs/project_context_map.md",
+    "docs/reference/operations/README.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex scan summary",
+    "./bin/hushh codex scan section skills",
+    "./bin/hushh codex list-workflows"
+  ],
+  "verification_bundle": {
+    "id": "repo-orientation",
+    "commands": [
+      "./bin/hushh codex scan summary",
+      "./bin/hushh codex audit"
+    ],
+    "tests": []
+  },
+  "deliverables": [
+    "selected owner skill",
+    "selected workflow pack",
+    "initial impact map"
+  ],
+  "impact_fields": [
+    "Routes touched",
+    "API/schema/type changes",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "repo-context",
+    "selected-owner-skill"
+  ],
+  "common_failures": [
+    "choosing a spoke before routing through the owner skill",
+    "loading broad repo context too early",
+    "skipping north-star invariants before execution"
+  ]
+}

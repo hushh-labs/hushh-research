@@ -1,0 +1,59 @@
+{
+  "id": "backend-api-contracts",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "backend-api-contracts",
+  "description": "Use when changing backend API contracts, Next.js proxy-to-backend contracts, or route-level request/response boundaries.",
+  "owned_paths": [
+    "consent-protocol/api/routes",
+    "hushh-webapp/app/api",
+    "docs/reference/architecture/api-contracts.md"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "frontend",
+    "security-audit"
+  ],
+  "task_types": [
+    "api-contract-change",
+    "new-feature-tri-flow",
+    "bug-triage"
+  ],
+  "required_reads": [
+    "docs/reference/architecture/api-contracts.md",
+    "docs/guides/new-feature.md",
+    "consent-protocol/api/routes"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run typecheck",
+    "cd consent-protocol && python3 -m pytest tests/test_developer_api_routes.py -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "backend-api-contracts",
+      "commands": [
+        "cd hushh-webapp && npm run typecheck",
+        "cd consent-protocol && python3 -m pytest tests/test_developer_api_routes.py -q"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run typecheck",
+        "cd consent-protocol && python3 -m pytest tests/test_developer_api_routes.py -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "backend-runtime-governance",
+    "frontend"
+  ],
+  "adjacent_skills": [
+    "backend",
+    "frontend",
+    "security-audit"
+  ],
+  "risk_tags": [
+    "api-contract-drift",
+    "proxy-contract-drift",
+    "docs-drift"
+  ]
+}

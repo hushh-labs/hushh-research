@@ -50,7 +50,11 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
   if (pathname === ROUTES.RIA_SETTINGS) return "ria_settings";
-  if (pathname === ROUTES.RIA_WORKSPACE || pathname.startsWith(`${ROUTES.RIA_HOME}/workspace/`)) {
+  if (
+    pathname === ROUTES.RIA_WORKSPACE ||
+    pathname.startsWith(`${ROUTES.RIA_HOME}/workspace/`) ||
+    pathname.startsWith(`${ROUTES.RIA_CLIENTS}/`)
+  ) {
     return "ria_workspace";
   }
   if (pathname === ROUTES.KAI_HOME) return "kai_home";

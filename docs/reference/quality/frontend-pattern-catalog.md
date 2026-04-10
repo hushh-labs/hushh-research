@@ -80,6 +80,27 @@ Rules:
 1. Back, bell, shield, and persona pill interactions all use the same shell surface contract.
 2. Dropdown triggers should accept a wrapper or render-trigger path, not just a class string, when ripple ownership is required.
 
+## Pattern: Nested Route Back Navigation
+Use the shared top-bar back affordance for signed-in subroutes that drill below a parent workspace.
+
+Rules:
+1. Nested routes should navigate back through the top shell, not through feature-local inline buttons.
+2. Preserve the parent workspace context in the back target, including route params or query state when that context is part of the flow.
+3. Only use inline back controls when the surface is outside the normal shell, such as a modal, sheet, or fullscreen flow.
+
+## Pattern: Signed-In Route Dogfooding
+Use the route-contract Playwright sweep for signed-in route families.
+
+```bash
+cd hushh-webapp
+npm run verify:routes
+```
+
+Rules:
+1. The route contract in `lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth.
+2. The sweep must use the real reviewer login and vault unlock path when the route family is signed-in.
+3. Route-specific one-off scripts are for debugging; they do not replace the contract-driven sweep.
+
 ## Pattern: Stock Chart Primitives
 Use stock chart infrastructure for all chart surfaces.
 

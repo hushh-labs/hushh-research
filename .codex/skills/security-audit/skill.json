@@ -1,0 +1,70 @@
+{
+  "id": "security-audit",
+  "role": "owner",
+  "owner_family": "security-audit",
+  "primary_scope": "security-audit-intake",
+  "description": "Use when the request is broadly about IAM, consent, trust, vault, PKM, streaming safety, verification, or audit workflows and the correct security specialist skill is not yet clear.",
+  "owned_paths": [
+    "docs/reference/iam",
+    "docs/reference/streaming",
+    "hushh-webapp/lib/consent",
+    "hushh-webapp/lib/vault",
+    "hushh-webapp/lib/pkm",
+    "hushh-webapp/lib/personal-knowledge-model",
+    "consent-protocol/hushh_mcp/consent",
+    "consent-protocol/hushh_mcp/trust",
+    "consent-protocol/hushh_mcp/vault"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "repo-operations",
+    "docs-governance"
+  ],
+  "task_types": [
+    "security-consent-audit",
+    "release-readiness",
+    "bug-triage"
+  ],
+  "required_reads": [
+    "docs/reference/iam/README.md",
+    "docs/reference/streaming/README.md",
+    "docs/project_context_map.md",
+    "consent-protocol/docs/reference/consent-protocol.md"
+  ],
+  "required_commands": [
+    "./bin/hushh docs verify",
+    "cd consent-protocol && python3 -m pytest tests/quality -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "security-audit-core",
+      "commands": [
+        "./bin/hushh docs verify",
+        "cd consent-protocol && python3 -m pytest tests/quality -q"
+      ],
+      "tests": [
+        "./bin/hushh docs verify",
+        "cd consent-protocol && python3 -m pytest tests/quality -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "iam-consent-governance",
+    "vault-pkm-governance",
+    "quality-contracts",
+    "streaming-contracts",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "iam-consent-governance",
+    "vault-pkm-governance",
+    "quality-contracts",
+    "streaming-contracts",
+    "backend"
+  ],
+  "risk_tags": [
+    "consent-drift",
+    "vault-boundary-drift",
+    "verification-drift"
+  ]
+}

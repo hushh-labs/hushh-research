@@ -20,6 +20,7 @@ class ConsentCenterService:
     _CONNECTION_TEMPLATE_IDS = {
         "ria_financial_summary_v1",
         "investor_advisor_disclosure_v1",
+        "ria_kai_specialized_v1",
     }
     _PORTFOLIO_SCOPE_PREFIXES = ("attr.financial.", "pkm.read")
     _RIA_DISCLOSURE_SCOPE_PREFIX = "attr.ria."

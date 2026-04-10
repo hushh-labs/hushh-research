@@ -8,24 +8,22 @@ flowchart TB
   subgraph dev["Developer lanes"]
     feat["Feature / hotfix / developer branches"]
     pr["Pull request to main"]
-    prci["PR CI<br/>path-filtered validation"]
+    prci["PR Validation<br/>medium-depth, path-filtered"]
   end
 
   subgraph integration["Integration lane"]
     freshness["Main Freshness Gate"]
     status["CI Status Gate"]
+    queueci["Queue Validation<br/>authoritative pre-merge"]
     queue["GitHub merge queue"]
     main["main"]
   end
 
   subgraph release["Environment deployment lanes"]
     green["Green main SHA"]
+    smoke["Main Post-Merge Smoke<br/>deploy-authority on main"]
     uat["Deploy to UAT<br/>auto from workflow_run"]
     prod["Deploy to Production<br/>manual SHA dispatch"]
-  end
-
-  subgraph delivery["Post-merge delivery"]
-    pushci["Protected main push CI"]
   end
 
   feat --> pr --> prci
@@ -33,14 +31,14 @@ flowchart TB
   prci --> status
   freshness --> queue
   status --> queue
-  queue --> main --> pushci --> green
+  queue --> queueci --> main --> smoke --> green
   green --> uat
   green --> prod
 ```
 
-This document describes the **Tri-Flow CI** workflow and how to stay aligned with it so code changes do not fail CI. Run local checks before every commit.
+This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run local checks before every commit.
 
-**Workflow file:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)  
+**Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)  
 **Local mirror:** [`./bin/hushh ci`](./cli.md)  
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
 
@@ -50,24 +48,54 @@ After any merge to `main`, bypass merge, deploy trigger, or manual workflow disp
 
 Minimum expectation:
 
-1. watch the immediate `Tri-Flow CI` or dispatched workflow
-2. if `main` goes green, watch downstream `Deploy to UAT`
-3. report the exact failing workflow, job, and step if anything fails
-4. do not stop at "triggered" or "queued"
-5. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
+1. watch the immediate `PR Validation`, `Queue Validation`, or dispatched workflow
+2. if `main` goes green, watch `Main Post-Merge Smoke`
+3. if post-merge smoke goes green, watch downstream `Deploy to UAT`
+4. report the exact failing workflow, job, and step if anything fails
+5. do not stop at "triggered" or "queued"
+6. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
+7. when the run is expected to outlive the current chat turn, start the persistent watcher instead of relying on manual follow-up
+
+Codex-first PR watcher:
+
+```bash
+./bin/hushh codex ci-status --watch
+```
+
+Use this command first for active pull-request checks because it classifies failing jobs into the right owner skill and points to the next workflow pack before dropping to raw `gh run` inspection.
+
+Canonical watcher:
+
+```bash
+scripts/ci/watch-gh-workflow-chain.sh --run-id <ci-run-id> --follow-workflow "Main Post-Merge Smoke" --follow-workflow "Deploy to UAT"
+```
+
+Local daemon form:
+
+```bash
+scripts/ci/watch-gh-workflow-chain.sh --run-id <ci-run-id> --follow-workflow "Main Post-Merge Smoke" --follow-workflow "Deploy to UAT" --daemonize
+```
+
+For deploy-only monitoring:
+
+```bash
+scripts/ci/watch-gh-workflow-chain.sh --run-id <deploy-run-id> --daemonize
+```
+
+The watcher logs to `tmp/devops-watch/`.
 
 ---
 
 ## Fundamental Blocking Policy
 
-To prevent CI check-sprawl, only these checks are hard-blocking by default:
+To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by default:
 
 1. `scripts/ci/secret-scan.sh`
 2. `scripts/ci/web-check.sh`
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-The local parity script mirrors the blocking validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check, keep `Main Freshness Gate` advisory on pull requests, and enforce freshness authoritatively through merge queue validation.
+The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated three-person owner team only.
 
 ### PKM rollout blocker
 
@@ -99,12 +127,12 @@ The canonical blocker for that broader surface is:
 
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
-| Pull request | All branches (`**`) | Full CI (path-filtered) |
-| Push | `main` | Full CI (path-filtered, authoritative post-merge run) |
-| Merge queue | `main` | Full CI (frontend + backend forced on) |
-| Manual | Any | **workflow_dispatch** with scope: `frontend` \| `backend` \| `all` |
+| Pull request | All branches (`**`) | `PR Validation` medium-depth CI (path-filtered) |
+| Merge queue | `main` | `Queue Validation` full authoritative pre-merge CI |
+| Push | `main` | `Main Post-Merge Smoke` compact deploy-authority smoke |
+| Manual | Any | `PR Validation` `workflow_dispatch` with scope: `frontend` \| `backend` \| `all` |
 
-**Path filters:** Jobs run only when relevant paths change for `push`/`pull_request` (or when run manually with a scope). Merge queue runs both stacks for deterministic gating.
+**Path filters:** `PR Validation` runs jobs only when relevant paths change (or when run manually with a scope). `Queue Validation` runs both stacks for deterministic gating, and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
 - **Frontend job** runs when `hushh-webapp/**` changes.
 - **Backend job** runs when `consent-protocol/**` changes.
@@ -112,12 +140,7 @@ The canonical blocker for that broader surface is:
 
 ### Duplicate-Run Policy
 
-Feature and hotfix branches intentionally rely on `pull_request` CI only. This avoids the same head SHA fan-out that happens when a branch triggers both:
-
-1. a `push` run, and
-2. one or more `pull_request` runs for different base branches.
-
-`main` keeps the only authoritative `push` CI run. Deployment workflows consume that green `main` SHA instead of requiring separate release-branch pushes.
+Feature and hotfix branches intentionally rely on `pull_request` CI only. Merge queue absorbs stale-base risk before merge, and `main` then runs a smaller smoke bundle on the real landed SHA.
 
 ---
 
@@ -162,7 +185,7 @@ The secret gate is intentionally stricter than raw regex scanning:
 - the final blocking mode fails if either:
   - `gitleaks` finds a leak in the scanned commit range, or
   - GitHub still reports any open secret-scanning alerts
-- open Dependabot alerts are currently advisory in `Tri-Flow CI`; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
+- open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 
 ## Advisory Checks (Non-Blocking By Default)
 
@@ -184,11 +207,12 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 ## Branch Lanes
 
 1. `main` is the only integration branch for day-to-day development.
-2. A successful `main` push CI run produces the only deployable source of truth: the green `main` SHA.
+2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
 3. UAT auto-deploys from that green `main` SHA through `.github/workflows/deploy-uat.yml`.
-4. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`.
-5. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in CI.
-6. Feature or hotfix branches never deploy directly; they merge through `main`.
+4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`.
+5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only `kushaltrivedi5` may trigger it.
+6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
+7. Feature or hotfix branches never deploy directly; they merge through `main`.
 
 See [Branch Governance](./branch-governance.md).
 
@@ -321,6 +345,12 @@ To include advisory checks locally:
 
 ```bash
 ./bin/hushh ci --include-advisory
+```
+
+This advisory lane now includes the Codex operating-system audit:
+
+```bash
+./bin/hushh codex audit
 ```
 
 To verify the live GitHub branch gate matches the documented minimum contract:

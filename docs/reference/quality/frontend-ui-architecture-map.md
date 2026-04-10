@@ -70,8 +70,9 @@ A lab pattern graduates into production only after it has:
 
 Project skills live under `.codex/skills/`:
 
-1. `design-system`
+1. `frontend`
+2. `frontend-design-system`
 3. `frontend-architecture`
-4. `frontend-surface-governance`
+4. `frontend-surface-placement`
 
 These skills must stay aligned with the docs and verification commands in this quality section.

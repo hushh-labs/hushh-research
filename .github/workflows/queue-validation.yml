@@ -1,0 +1,232 @@
+name: "Queue Validation"
+
+on:
+  merge_group:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.13"
+  WEB_LINT_WARNING_BUDGET: "161"
+  WEB_AUDIT_MODERATE_BUDGET: "0"
+  WEB_AUDIT_HIGH_BUDGET: "0"
+  WEB_AUDIT_CRITICAL_BUDGET: "0"
+  CI_NATIVE_PARITY_REQUIRED: "0"
+  CI_DOCS_PARITY_REQUIRED: "0"
+  GITLEAKS_VERSION: "8.24.2"
+
+jobs:
+  secret-scan:
+    name: "Secret Scan"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks OSS CLI (license-free)
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${{ env.GITLEAKS_VERSION }}/gitleaks_${{ env.GITLEAKS_VERSION }}_linux_x64.tar.gz" \
+            | tar -xz
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Resolve scan commit range
+        id: scan-range
+        shell: bash
+        run: |
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          git fetch origin "$DEFAULT_BRANCH" --quiet || true
+          if git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
+            LOG_OPTS="--ancestry-path origin/$DEFAULT_BRANCH..${{ github.sha }}"
+          else
+            LOG_OPTS="${{ github.sha }}"
+          fi
+
+          BASE_SHA="${{ github.event.merge_group.base_sha }}"
+          HEAD_SHA="${{ github.event.merge_group.head_sha }}"
+          if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
+            && git rev-parse "$BASE_SHA" >/dev/null 2>&1 \
+            && git rev-parse "$HEAD_SHA" >/dev/null 2>&1 \
+            && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
+            LOG_OPTS="--ancestry-path ${BASE_SHA}..${HEAD_SHA}"
+          fi
+
+          echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
+      - name: Run gitleaks scan (no license secret required)
+        run: bash scripts/ci/orchestrate.sh secret
+        env:
+          GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
+          GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
+          REQUIRE_GITHUB_ALERTS_CLEAN: "1"
+          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: "1"
+          REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN: "0"
+
+  web-check:
+    name: "Web (Next.js)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Run full web check
+        run: bash scripts/ci/orchestrate.sh web
+        env:
+          WEB_LINT_WARNING_BUDGET: ${{ env.WEB_LINT_WARNING_BUDGET }}
+          WEB_AUDIT_MODERATE_BUDGET: ${{ env.WEB_AUDIT_MODERATE_BUDGET }}
+          WEB_AUDIT_HIGH_BUDGET: ${{ env.WEB_AUDIT_HIGH_BUDGET }}
+          WEB_AUDIT_CRITICAL_BUDGET: ${{ env.WEB_AUDIT_CRITICAL_BUDGET }}
+          CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+          NEXT_PUBLIC_BACKEND_URL: https://api.example.com
+          NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
+          NEXT_PUBLIC_FIREBASE_API_KEY: "test-api-key"
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "dummy-project.firebaseapp.com"
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: "dummy-project"
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "dummy-project.appspot.com"
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:abcdef123456"
+
+      - name: Upload security audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-npm-audit-report
+          path: hushh-webapp/npm-audit-report.json
+
+  protocol-check:
+    name: "Protocol (Python)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: consent-protocol/requirements.txt
+
+      - name: Run full protocol check
+        timeout-minutes: 22
+        run: bash scripts/ci/orchestrate.sh protocol
+        env:
+          TESTING: "true"
+          SECRET_KEY: "test_secret_key_for_ci_only_32chars_min"
+          VAULT_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
+
+  integration-check:
+    name: "Integration"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: consent-protocol/requirements.txt
+
+      - name: Install protocol deps for PKM gate
+        run: |
+          python3 -m pip install --disable-pip-version-check \
+            -r consent-protocol/requirements.txt \
+            -r consent-protocol/requirements-dev.txt
+
+      - name: Run cross-surface integration gate
+        run: bash scripts/ci/orchestrate.sh integration
+        env:
+          CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+          CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
+
+  subtree-sync-check:
+    name: "Upstream Sync"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check if upstream consent-protocol has unpulled commits
+        continue-on-error: true
+        run: bash scripts/ci/subtree-sync-check.sh
+
+  main-freshness-gate:
+    name: "Main Freshness Gate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Verify queue freshness against origin/main
+        env:
+          MAIN_SYNC_REMOTE: origin
+          MAIN_SYNC_BRANCH: main
+          MAIN_SYNC_MODE: block
+          MAIN_SYNC_CURRENT_BRANCH: ${{ github.ref_name }}
+        run: sh scripts/git/check-main-sync.sh
+
+  ci-status:
+    name: "CI Status Gate"
+    needs:
+      - secret-scan
+      - web-check
+      - protocol-check
+      - integration-check
+      - main-freshness-gate
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate queue job outcomes
+        shell: bash
+        run: |
+          SECRET_SCAN="${{ needs['secret-scan'].result }}"
+          WEB="${{ needs['web-check'].result }}"
+          PROTOCOL="${{ needs['protocol-check'].result }}"
+          INTEGRATION="${{ needs['integration-check'].result }}"
+          MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
+
+          printf 'secret-scan=%s\n' "$SECRET_SCAN"
+          printf 'web-check=%s\n' "$WEB"
+          printf 'protocol-check=%s\n' "$PROTOCOL"
+          printf 'integration-check=%s\n' "$INTEGRATION"
+          printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
+
+          fail=0
+          for result in "$SECRET_SCAN" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
+              fail=1
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more queue validation jobs failed."
+            exit 1
+          fi
+          echo "Queue validation passed."

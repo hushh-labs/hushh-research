@@ -1,0 +1,62 @@
+{
+  "id": "iam-consent-governance",
+  "role": "spoke",
+  "owner_family": "security-audit",
+  "primary_scope": "iam-consent-governance",
+  "description": "Use when changing IAM, consent scopes, actor model, verification policy, or marketplace access contracts inside the security-audit owner family.",
+  "owned_paths": [
+    "docs/reference/iam",
+    "consent-protocol/api/routes/iam.py",
+    "consent-protocol/api/routes/consent.py",
+    "hushh-webapp/lib/consent",
+    "hushh-webapp/components/consent",
+    "hushh-webapp/components/iam"
+  ],
+  "non_owned_paths": [
+    "security-audit",
+    "backend",
+    "docs-governance"
+  ],
+  "task_types": [
+    "security-consent-audit",
+    "api-contract-change",
+    "new-feature-tri-flow"
+  ],
+  "required_reads": [
+    "docs/reference/iam/README.md",
+    "docs/reference/iam/architecture.md",
+    "docs/reference/iam/consent-scope-catalog.md",
+    "docs/reference/iam/validation-checklist.md"
+  ],
+  "required_commands": [
+    "cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q",
+    "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "iam-consent-governance",
+      "commands": [
+        "cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q",
+        "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q"
+      ],
+      "tests": [
+        "cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q",
+        "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "security-audit",
+    "vault-pkm-governance",
+    "backend"
+  ],
+  "adjacent_skills": [
+    "security-audit",
+    "backend",
+    "vault-pkm-governance"
+  ],
+  "risk_tags": [
+    "consent-scope-drift",
+    "iam-policy-drift"
+  ]
+}

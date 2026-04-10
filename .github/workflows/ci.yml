@@ -1,13 +1,8 @@
-name: "Tri-Flow CI"
+name: "PR Validation"
 
 on:
   pull_request:
     branches: ["**"]
-  push:
-    branches:
-      - main
-  merge_group:
-    branches: [main]
   workflow_dispatch:
     inputs:
       scope:
@@ -39,7 +34,6 @@ env:
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
   GITLEAKS_VERSION: "8.24.2"
-  CLOUD_RUN_REVISION_RETENTION: "10"
 
 jobs:
   secret-scan:
@@ -131,23 +125,18 @@ jobs:
               - '.github/workflows/ci.yml'
 
       - id: override
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group'
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            scope="${{ github.event.inputs.scope }}"
-            case "$scope" in
-              frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT" ;;
-              backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
-              *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
-            esac
-          else
-            echo "frontend=true" >> "$GITHUB_OUTPUT"
-            echo "backend=true" >> "$GITHUB_OUTPUT"
-          fi
+          scope="${{ github.event.inputs.scope }}"
+          case "$scope" in
+            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - id: resolve
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "merge_group" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.override.outputs.backend }}" >> "$GITHUB_OUTPUT"
           else
@@ -162,7 +151,7 @@ jobs:
   web-check:
     name: "Web (Next.js)"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: needs.paths.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -203,7 +192,7 @@ jobs:
   protocol-check:
     name: "Protocol (Python)"
     needs: [paths]
-    if: needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: needs.paths.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -230,7 +219,7 @@ jobs:
   integration-check:
     name: "Integration"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -279,20 +268,20 @@ jobs:
 
   main-freshness-gate:
     name: "Main Freshness Gate"
-    if: (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'merge_group' && github.ref == 'refs/heads/main')
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Verify branch freshness against origin/main
         env:
           MAIN_SYNC_REMOTE: origin
           MAIN_SYNC_BRANCH: main
-          MAIN_SYNC_MODE: ${{ github.event_name == 'merge_group' && 'block' || 'warn' }}
+          MAIN_SYNC_MODE: warn
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 

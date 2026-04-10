@@ -1,0 +1,63 @@
+{
+  "id": "security-consent-audit",
+  "title": "Security Consent Audit",
+  "goal": "Audit IAM, consent, vault, PKM, and delegated access boundaries against Hushh trust invariants.",
+  "owner_skill": "security-audit",
+  "default_spoke": "iam-consent-governance",
+  "task_type": "security-consent-audit",
+  "affected_surfaces": [
+    "docs/reference/iam",
+    "docs/reference/streaming",
+    "hushh-webapp/lib/consent",
+    "hushh-webapp/lib/vault",
+    "hushh-webapp/lib/pkm",
+    "consent-protocol/api",
+    "consent-protocol/hushh_mcp"
+  ],
+  "required_reads": [
+    "docs/project_context_map.md",
+    "docs/reference/iam/README.md",
+    "docs/reference/iam/validation-checklist.md",
+    "consent-protocol/docs/reference/consent-protocol.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task security-consent-audit",
+    "./bin/hushh docs verify",
+    "./bin/hushh protocol test-ci"
+  ],
+  "verification_bundle": {
+    "id": "security-consent-audit",
+    "commands": [
+      "./bin/hushh docs verify",
+      "./bin/hushh protocol test-ci",
+      "cd consent-protocol && python3 scripts/verify_adk_a2a_compliance.py"
+    ],
+    "tests": [
+      "./bin/hushh protocol test-ci"
+    ]
+  },
+  "deliverables": [
+    "consent boundary assessment",
+    "scope/actor review",
+    "required remediation list",
+    "verification summary"
+  ],
+  "impact_fields": [
+    "API/schema/type changes",
+    "PKM effects",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "security-audit",
+    "iam-consent-governance",
+    "vault-pkm-governance",
+    "quality-contracts",
+    "backend"
+  ],
+  "common_failures": [
+    "treating signed-in as consent",
+    "allowing delegated scope escalation",
+    "ignoring vault or PKM boundary docs"
+  ]
+}

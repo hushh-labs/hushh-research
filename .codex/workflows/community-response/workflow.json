@@ -1,0 +1,45 @@
+{
+  "id": "community-response",
+  "title": "Community Response",
+  "goal": "Draft short public or community responses grounded in shipped repo truth and current technical boundaries.",
+  "owner_skill": "comms-community",
+  "default_spoke": null,
+  "task_type": "community-response",
+  "affected_surfaces": [
+    ".codex/skills/comms-community",
+    "docs/reference/iam",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_reads": [
+    ".codex/skills/comms-community/references/reply-rules.md",
+    "docs/reference/iam/README.md",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task community-response"
+  ],
+  "verification_bundle": {
+    "id": "community-response",
+    "commands": [
+      "./bin/hushh codex route-task community-response"
+    ],
+    "tests": []
+  },
+  "deliverables": [
+    "public reply draft",
+    "shipped-vs-future distinction",
+    "repo-backed citations"
+  ],
+  "impact_fields": [
+    "Docs updated"
+  ],
+  "handoff_chain": [
+    "comms-community",
+    "docs-governance",
+    "repo-context"
+  ],
+  "common_failures": [
+    "overstating shipped functionality",
+    "mixing roadmap with runtime truth"
+  ]
+}

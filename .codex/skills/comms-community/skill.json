@@ -1,0 +1,47 @@
+{
+  "id": "comms-community",
+  "role": "owner",
+  "owner_family": "comms-community",
+  "primary_scope": "comms-community-intake",
+  "description": "Use when drafting short community-facing replies for Discord or public chat about hushh-research, Kai, PKM, consent architecture, mobile/native tradeoffs, privacy boundaries, roadmap questions, or repo-based technical Q&A.",
+  "owned_paths": [
+    ".codex/skills/comms-community"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "repo-context"
+  ],
+  "task_types": [
+    "community-response"
+  ],
+  "required_reads": [
+    ".codex/skills/comms-community/references/reply-rules.md",
+    "docs/reference/iam/README.md",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_commands": [
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "comms-community",
+      "commands": [
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "docs-governance",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "docs-governance"
+  ],
+  "risk_tags": [
+    "public-messaging-drift"
+  ]
+}

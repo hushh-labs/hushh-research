@@ -1,0 +1,59 @@
+{
+  "id": "release-readiness",
+  "title": "Release Readiness",
+  "goal": "Run the canonical repo checks, advisory checks, and release-focused audits before shipping or cutting a release.",
+  "owner_skill": "repo-operations",
+  "default_spoke": null,
+  "task_type": "release-readiness",
+  "affected_surfaces": [
+    "bin",
+    "scripts",
+    "deploy",
+    "docs/reference/operations",
+    "hushh-webapp/scripts",
+    "consent-protocol/scripts"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/reference/kai/kai-runtime-smoke-checklist.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task release-readiness",
+    "./bin/hushh ci --include-advisory",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "release-readiness",
+    "commands": [
+      "./bin/hushh ci --include-advisory",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "./bin/hushh ci --include-advisory"
+    ]
+  },
+  "deliverables": [
+    "release checklist summary",
+    "advisory findings review",
+    "verification report",
+    "remaining launch-risk debt"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed",
+    "Mobile parity impacts"
+  ],
+  "handoff_chain": [
+    "repo-operations",
+    "quality-contracts",
+    "mobile-parity-audit",
+    "docs-governance",
+    "security-audit"
+  ],
+  "common_failures": [
+    "treating advisory findings as invisible",
+    "shipping without docs parity",
+    "skipping native checks when mobile surfaces changed"
+  ]
+}

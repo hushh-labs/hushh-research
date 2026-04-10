@@ -1158,6 +1158,12 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       <AppPageShell
         width="standard"
         className="pb-[calc(6rem+var(--app-safe-area-bottom-effective))] md:pb-12 lg:pb-6"
+        nativeTest={{
+          routeId: "/developers",
+          marker: "native-route-developers",
+          authState: user ? "authenticated" : "public",
+          dataState: "loaded",
+        }}
       >
         <AppPageContentRegion className="grid gap-6 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[272px_minmax(0,1fr)] 2xl:grid-cols-[288px_minmax(0,1fr)] 2xl:gap-8">
           <DesktopContentsRail onSelectSection={handleSectionSelect} />

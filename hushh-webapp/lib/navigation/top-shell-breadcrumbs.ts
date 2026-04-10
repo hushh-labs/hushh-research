@@ -31,6 +31,69 @@ export function resolveTopShellBreadcrumb(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null
 ): TopShellBreadcrumbConfig | null {
+  if (pathname === ROUTES.RIA_CLIENTS) {
+    return {
+      backHref: ROUTES.RIA_HOME,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "RIA", href: ROUTES.RIA_HOME },
+        { label: "Clients" },
+      ],
+    };
+  }
+
+  if (pathname.startsWith(`${ROUTES.RIA_CLIENTS}/`)) {
+    const nestedPath = pathname.slice(`${ROUTES.RIA_CLIENTS}/`.length);
+    const segments = nestedPath.split("/").filter(Boolean);
+    const clientId = segments[0];
+    const primaryWorkspaceHref = clientId
+      ? `${ROUTES.RIA_CLIENTS}/${encodeURIComponent(clientId)}`
+      : ROUTES.RIA_CLIENTS;
+
+    if (segments.length === 1) {
+      return {
+        backHref: ROUTES.RIA_CLIENTS,
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "Clients", href: ROUTES.RIA_CLIENTS },
+          { label: "Workspace" },
+        ],
+      };
+    }
+
+    const section = segments[1];
+    if (section === "accounts") {
+      return {
+        backHref: primaryWorkspaceHref,
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "Clients", href: ROUTES.RIA_CLIENTS },
+          { label: "Workspace", href: primaryWorkspaceHref },
+          { label: "Account detail" },
+        ],
+      };
+    }
+
+    if (section === "requests") {
+      return {
+        backHref: primaryWorkspaceHref,
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "Clients", href: ROUTES.RIA_CLIENTS },
+          { label: "Workspace", href: primaryWorkspaceHref },
+          { label: "Request detail" },
+        ],
+      };
+    }
+  }
+
   if (pathname === ROUTES.CONSENTS) {
     const originHref = normalizeInternalHref(searchParams?.get("from"));
     const privacyHref = `${ROUTES.PROFILE}?tab=privacy`;

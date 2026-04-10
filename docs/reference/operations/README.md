@@ -33,15 +33,35 @@ flowchart TD
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
 One-time rollout notes belong in PRs, issues, or git history, not in the active operations surface.
 
+## Codex OS
+
+Use the root CLI for agent-first onboarding and deterministic workflow routing:
+
+- `./bin/hushh codex onboard`
+- `./bin/hushh codex list-workflows`
+- `./bin/hushh codex route-task <workflow-id>`
+- `./bin/hushh codex impact <workflow-id> [--path <repo-path>]`
+- `./bin/hushh codex ci-status [--watch]`
+- `./bin/hushh codex audit`
+
 ## Codex skills
 
-- `.codex/skills/devops-operations/`: use for CI/CD, branch protection, merge queue, deploy, env or secret parity, Cloud Run or Cloud Build operations, and operational verification.
-  It is also the canonical skill for PR approval/admin-bypass decisions and must verify live GitHub identity plus ruleset state before acting.
-  After merges or deploy triggers, it must continue monitoring the resulting CI/deploy runs until they finish or fail with a concrete blocker.
-  For failures inside the operations surface, it should attempt the fix-and-rerun loop instead of stopping at diagnosis.
-- `.codex/skills/github-board-operations/`: use for `Hushh Engineering Core` GitHub board workflows only.
-- `.codex/skills/documentation-governance/`: use for doc placement, consolidation, diagrams, docs verification, and canonical docs-home decisions.
-- frontend skills under `.codex/skills/` are not the right path for repository operations or delivery work.
+Top-level owner skills:
+
+- `.codex/skills/repo-context/`: broad repository orientation, cross-domain routing, and full-repo coverage mapping.
+- `.codex/skills/frontend/`: broad frontend intake across routes, components, services, and verification ownership.
+- `.codex/skills/mobile-native/`: iOS, Android, Capacitor plugin, and mobile parity intake.
+- `.codex/skills/backend/`: backend runtime, route, service, agent, and package-surface intake.
+- `.codex/skills/security-audit/`: IAM, consent, trust, vault, PKM, streaming, and verification/audit intake.
+- `.codex/skills/docs-governance/`: documentation homes, consolidation, maps, and docs verification policy.
+- `.codex/skills/repo-operations/`: CI/CD, branch protection, deploys, env parity, and runtime operations.
+- `.codex/skills/planning-board/`: `Hushh Engineering Core` board workflows only.
+- `.codex/skills/comms-community/`: public/community explanation workflows.
+- `.codex/skills/codex-skill-authoring/`: repo-local skill creation, retrofit, linting, scaffolding, and taxonomy maintenance.
+
+Specialist spoke skills live under the same tree and should be used after the correct owner skill or `repo-context` has narrowed the request.
+Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.
+Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends on live PR checks or GitHub Actions state.
 
 ## References
 
