@@ -135,6 +135,31 @@ export interface PlaidFundingTransferRef {
   failure_reason_message?: string | null;
 }
 
+export interface PlaidFundingTradeIntentRef {
+  intent_id: string;
+  transfer_id?: string | null;
+  alpaca_account_id?: string | null;
+  funding_item_id?: string | null;
+  funding_account_id?: string | null;
+  symbol?: string | null;
+  side?: string | null;
+  order_type?: string | null;
+  time_in_force?: string | null;
+  notional_usd?: string | null;
+  quantity?: string | null;
+  limit_price?: string | null;
+  status?: string | null;
+  order_id?: string | null;
+  idempotency_key?: string | null;
+  failure_code?: string | null;
+  failure_message?: string | null;
+  requested_at?: string | null;
+  executed_at?: string | null;
+  request?: Record<string, unknown>;
+  transfer_snapshot?: Record<string, unknown>;
+  order?: Record<string, unknown>;
+}
+
 export interface PlaidFundingBrokerageAccountSummary {
   alpaca_account_id?: string | null;
   status?: string | null;
@@ -179,6 +204,7 @@ export interface PlaidFundingStatusResponse {
   items: PlaidFundingItemSummary[];
   brokerage_accounts?: PlaidFundingBrokerageAccountSummary[];
   latest_transfers: PlaidFundingTransferRef[];
+  latest_trade_intents?: PlaidFundingTradeIntentRef[];
   aggregate: {
     item_count: number;
     account_count: number;

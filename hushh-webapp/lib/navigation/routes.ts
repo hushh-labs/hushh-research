@@ -32,6 +32,7 @@ export const ROUTES = {
   KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
   KAI_PORTFOLIO: "/kai/portfolio",
   KAI_INVESTMENTS: "/kai/investments",
+  KAI_FUNDING_TRADE: "/kai/funding-trade",
   KAI_DASHBOARD: "/kai/portfolio",
   KAI_ANALYSIS: "/kai/analysis",
   KAI_OPTIMIZE: "/kai/optimize",

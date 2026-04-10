@@ -21,6 +21,7 @@ export const ROUTE_ID_VALUES = [
   "kai_import",
   "kai_dashboard",
   "kai_investments",
+  "kai_funding_trade",
   "kai_analysis",
   "kai_optimize",
   "kai_dashboard_legacy_redirect",
@@ -61,6 +62,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.KAI_IMPORT) return "kai_import";
   if (pathname === ROUTES.KAI_DASHBOARD) return "kai_dashboard";
   if (pathname === ROUTES.KAI_INVESTMENTS) return "kai_investments";
+  if (pathname === ROUTES.KAI_FUNDING_TRADE) return "kai_funding_trade";
   if (pathname === ROUTES.KAI_ANALYSIS) return "kai_analysis";
   if (pathname === ROUTES.KAI_OPTIMIZE) return "kai_optimize";
   if (pathname === "/kai/dashboard") return "kai_dashboard_legacy_redirect";
@@ -181,6 +183,22 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/kai\/plaid\/transfers\/create(?:\?.*)?$/i,
     template: "/api/kai/plaid/transfers/create",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/trades\/funded\/create(?:\?.*)?$/i,
+    template: "/api/kai/plaid/trades/funded/create",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/trades\/funded(?:\?.*)?$/i,
+    template: "/api/kai/plaid/trades/funded",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/trades\/funded\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/plaid/trades/funded/{intent_id}",
+  },
+  {
+    regex: /^\/api\/kai\/plaid\/trades\/funded\/[^/?]+\/refresh(?:\?.*)?$/i,
+    template: "/api/kai/plaid/trades/funded/{intent_id}/refresh",
   },
   {
     regex: /^\/api\/kai\/plaid\/transfers\/[^/?]+(?:\?.*)?$/i,

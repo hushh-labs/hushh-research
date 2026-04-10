@@ -45,6 +45,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "kai_investments",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/kai/funding-trade")).toEqual({
+      screen: "kai_funding_trade",
+      subview: null,
+    });
   });
 
   it("accepts search params passed separately from the pathname", () => {
