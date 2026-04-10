@@ -108,6 +108,8 @@ def _normalize_checks(pr_payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _overall_status(checks: list[dict[str, Any]]) -> str:
+    if not checks:
+        return "booting"
     if any((check["conclusion"] or "").upper() in FAILURE_CONCLUSIONS for check in checks):
         return "failing"
     if any((check["status"] or "").upper() not in TERMINAL_STATUSES for check in checks):
@@ -219,6 +221,8 @@ def _render_text(payload: OrderedDict[str, Any]) -> str:
                 f"- {check['name']} [{check['workflow_name'] or 'no-workflow'}] -> "
                 f"{check['recommended_owner_skill']}"
             )
+    elif payload["overall_status"] == "booting":
+        lines.append("Checks have not been reported by GitHub yet.")
     else:
         lines.append("No failing or pending checks.")
     lines.append("Next actions:")
@@ -246,7 +250,7 @@ def main() -> int:
         print(json.dumps(payload, indent=2))
     else:
         print(_render_text(payload))
-    return 0 if payload["overall_status"] == "passing" else 1 if payload["overall_status"] in {"failing", "attention", "timed_out"} else 0
+    return 0 if payload["overall_status"] in {"passing", "pending", "booting"} else 1
 
 
 if __name__ == "__main__":
