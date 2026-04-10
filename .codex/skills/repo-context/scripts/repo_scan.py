@@ -66,6 +66,7 @@ REQUIRED_WORKFLOWS = [
     "new-feature-tri-flow",
     "api-contract-change",
     "bug-triage",
+    "ci-watch-and-heal",
     "security-consent-audit",
     "mobile-parity-check",
     "release-readiness",
@@ -582,6 +583,7 @@ def build_onboard() -> dict[str, Any]:
             "Choose one workflow pack from `./bin/hushh codex list-workflows`.",
             "Run `./bin/hushh codex route-task <workflow-id>`.",
             "Run `./bin/hushh codex impact <workflow-id>`.",
+            "Use `./bin/hushh codex ci-status --watch` when the task depends on PR checks or GitHub workflow state.",
             "Execute only the listed docs, commands, and verification bundle.",
         ],
         available_workflows=[
@@ -646,6 +648,7 @@ def build_audit() -> dict[str, Any]:
             "new-feature-tri-flow",
             "api-contract-change",
             "bug-triage",
+            "ci-watch-and-heal",
             "security-consent-audit",
             "mobile-parity-check",
             "release-readiness",

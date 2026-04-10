@@ -57,6 +57,14 @@ Minimum expectation:
 5. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
 6. when the run is expected to outlive the current chat turn, start the persistent watcher instead of relying on manual follow-up
 
+Codex-first PR watcher:
+
+```bash
+./bin/hushh codex ci-status --watch
+```
+
+Use this command first for active pull-request checks because it classifies failing jobs into the right owner skill and points to the next workflow pack before dropping to raw `gh run` inspection.
+
 Canonical watcher:
 
 ```bash

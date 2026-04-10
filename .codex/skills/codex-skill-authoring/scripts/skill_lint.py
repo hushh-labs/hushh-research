@@ -58,6 +58,7 @@ EXPECTED_WORKFLOW_IDS = [
     "new-feature-tri-flow",
     "api-contract-change",
     "bug-triage",
+    "ci-watch-and-heal",
     "security-consent-audit",
     "mobile-parity-check",
     "release-readiness",

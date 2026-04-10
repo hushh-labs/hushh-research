@@ -90,6 +90,7 @@ Usage:
   ./bin/hushh codex route-task <workflow-id> [--json|--text] [--verbose]
   ./bin/hushh codex impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]
+  ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
 EOF
 }
@@ -339,6 +340,12 @@ run_codex() {
     impact)
       [ "${#args[@]}" -ge 1 ] || die "codex impact requires <workflow-id>"
       exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
+      ;;
+    ci-status)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "${args[@]}" "$format_flag"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
       ;;
     audit)
       if [ "${#args[@]}" -gt 0 ]; then

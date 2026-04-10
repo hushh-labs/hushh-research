@@ -35,6 +35,7 @@ Non-owned surfaces:
 1. Failing CI or GitHub Actions investigation.
 2. Branch protection, merge queue, freshness policy, and approval-state questions.
 3. UAT or production deployment work, Cloud Run or Cloud Build issues, and environment parity checks.
+4. Live PR check monitoring, failing-job classification, and fix-and-rerun ownership.
 
 ## Do Not Use
 
@@ -55,7 +56,8 @@ Non-owned surfaces:
 1. Prefer live verification over assumptions for GitHub, CI, deploy, and ruleset state.
 2. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state.
 3. Move from diagnosis into fix-and-rerun for failures inside the repo-operations surface.
-4. Monitor the resulting workflow chain until terminal success or a concrete blocker.
+4. Use `./bin/hushh codex ci-status` for PR-check status and `scripts/ci/watch-gh-workflow-chain.sh` for long-running post-merge or deploy workflow chains.
+5. Monitor the resulting workflow chain until terminal success or a concrete blocker.
 
 ## Handoff Rules
 
@@ -67,6 +69,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
+./bin/hushh codex ci-status
 ./bin/hushh docs verify
 ./bin/hushh ci
 ./scripts/ci/verify-main-branch-protection.sh

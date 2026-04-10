@@ -171,17 +171,18 @@ When working in this repo:
 3. Use Hushh Consent MCP when you need internal consent/data-access guidance or machine-readable internal documentation.
 4. Start with `./bin/hushh codex onboard` for first-run contributor or agent orientation.
 5. Use `./bin/hushh codex list-workflows`, `route-task <workflow-id>`, and `impact <workflow-id>` for recurring repo workflows before improvising a route.
-6. Use the repo-owned skill `.codex/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
-7. Use owner skills for broad domain intake:
+6. Use `./bin/hushh codex ci-status --watch` when the task depends on live PR checks or GitHub Actions state.
+7. Use the repo-owned skill `.codex/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
+8. Use owner skills for broad domain intake:
    - `.codex/skills/frontend/`
    - `.codex/skills/mobile-native/`
    - `.codex/skills/backend/`
    - `.codex/skills/security-audit/`
    - `.codex/skills/docs-governance/`
    - `.codex/skills/repo-operations/`
-8. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
-9. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-10. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+9. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
+10. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+11. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
 
 If a developer has not configured MCP yet:
 

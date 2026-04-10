@@ -20,6 +20,7 @@ Use package-local commands only when you are working inside a package on purpose
 <repo-root>/bin/hushh codex onboard
 <repo-root>/bin/hushh codex route-task repo-orientation
 <repo-root>/bin/hushh codex impact repo-orientation
+<repo-root>/bin/hushh codex ci-status --watch
 <repo-root>/bin/hushh web --mode uat
 <repo-root>/bin/hushh stack --mode local
 <repo-root>/bin/hushh backend
@@ -36,6 +37,7 @@ Use package-local commands only when you are working inside a package on purpose
 <repo-root>/bin/hushh codex scan summary
 <repo-root>/bin/hushh codex scan section skills
 <repo-root>/bin/hushh codex list-workflows
+<repo-root>/bin/hushh codex ci-status
 <repo-root>/bin/hushh codex audit
 <repo-root>/bin/hushh env bootstrap
 <repo-root>/bin/hushh env use --mode prod

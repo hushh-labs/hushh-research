@@ -17,6 +17,7 @@
     "backend"
   ],
   "task_types": [
+    "ci-watch-and-heal",
     "release-readiness",
     "mobile-parity-check",
     "docs-sync"
@@ -29,6 +30,7 @@
     ".codex/skills/repo-operations/references/agent-trigger-policy.md"
   ],
   "required_commands": [
+    "./bin/hushh codex ci-status",
     "./bin/hushh docs verify",
     "./bin/hushh ci",
     "./scripts/ci/verify-main-branch-protection.sh",
@@ -38,6 +40,7 @@
     {
       "id": "repo-operations",
       "commands": [
+        "./bin/hushh codex ci-status",
         "./bin/hushh docs verify",
         "./bin/hushh ci",
         "./scripts/ci/verify-main-branch-protection.sh",

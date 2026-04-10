@@ -15,6 +15,7 @@ Use this reference to orient DevOps work in `hushh-research`.
 ## Canonical repo-level commands
 
 ```bash
+./bin/hushh codex ci-status
 ./bin/hushh ci
 ./bin/hushh docs verify
 ./bin/hushh sync main
@@ -28,6 +29,7 @@ Use this reference to orient DevOps work in `hushh-research`.
 2. GitHub PR and Actions state via `gh pr`, `gh run`, and `gh api`
 3. deploy workflow state via repository Actions runs
 4. Cloud Run and Cloud Build only after verifying the repo workflow and env contract
+5. Codex PR check routing via `./bin/hushh codex ci-status`
 
 ## Repo invariants
 
