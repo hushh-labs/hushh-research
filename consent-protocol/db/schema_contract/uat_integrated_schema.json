@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 44,
+  "expected_migration_version": 45,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -238,6 +238,46 @@
       "artifact_metadata",
       "created_at",
       "updated_at"
+    ],
+    "kai_funding_trade_intents": [
+      "intent_id",
+      "user_id",
+      "transfer_id",
+      "alpaca_account_id",
+      "funding_item_id",
+      "funding_account_id",
+      "symbol",
+      "side",
+      "order_type",
+      "time_in_force",
+      "notional_usd",
+      "quantity",
+      "limit_price",
+      "status",
+      "order_id",
+      "idempotency_key",
+      "request_payload_json",
+      "transfer_snapshot_json",
+      "order_payload_json",
+      "failure_code",
+      "failure_message",
+      "requested_at",
+      "executed_at",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_funding_trade_events": [
+      "event_id",
+      "intent_id",
+      "user_id",
+      "event_source",
+      "event_type",
+      "event_status",
+      "reason_code",
+      "reason_message",
+      "payload_json",
+      "occurred_at",
+      "created_at"
     ]
   }
 }
