@@ -1,0 +1,57 @@
+{
+  "id": "backend-runtime-governance",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "backend-runtime-governance",
+  "description": "Use when changing backend route placement, service boundaries, runtime ownership, or backend docs/tests alignment.",
+  "owned_paths": [
+    "consent-protocol/api",
+    "consent-protocol/hushh_mcp/services",
+    "consent-protocol/hushh_mcp/integrations",
+    "consent-protocol/tests/services"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "security-audit",
+    "repo-operations"
+  ],
+  "task_types": [
+    "api-contract-change",
+    "bug-triage",
+    "release-readiness"
+  ],
+  "required_reads": [
+    "docs/reference/architecture/architecture.md",
+    "docs/reference/architecture/api-contracts.md",
+    "consent-protocol/docs/README.md"
+  ],
+  "required_commands": [
+    "cd consent-protocol && python3 -m pytest tests/services -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "backend-runtime",
+      "commands": [
+        "cd consent-protocol && python3 -m pytest tests/services -q"
+      ],
+      "tests": [
+        "cd consent-protocol && python3 -m pytest tests/services -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "backend-api-contracts",
+    "backend-agents-operons",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "backend",
+    "backend-api-contracts",
+    "security-audit"
+  ],
+  "risk_tags": [
+    "runtime-boundary-drift",
+    "service-test-drift"
+  ]
+}

@@ -43,6 +43,8 @@ run_stage() {
       scripts/ci/docs-parity-check.sh
       scripts/ci/subtree-sync-check.sh
       scripts/ci/github-security-alerts.sh
+      scripts/ci/verify-production-environment-governance.sh
+      ./bin/hushh codex audit --text
       ;;
     *)
       echo "Unknown stage: $stage" >&2
@@ -64,7 +66,7 @@ case "$STAGE" in
     run_stage protocol
     run_stage integration
     if [ "${INCLUDE_ADVISORY_CHECKS:-0}" = "1" ]; then
-      echo "Including advisory checks (docs parity + subtree sync)."
+      echo "Including advisory checks (docs parity + subtree sync + Codex OS audit)."
       run_stage advisory
     else
       echo "Skipping advisory checks. Set INCLUDE_ADVISORY_CHECKS=1 to include."

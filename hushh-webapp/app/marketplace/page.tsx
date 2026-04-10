@@ -19,13 +19,19 @@ import {
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsDetailPanel } from "@/components/profile/settings-ui";
+import {
+  buildKaiTestMarketplaceInvestor,
+  canShowKaiTestProfile,
+  getKaiTestUserId,
+  isKaiTestProfileUser,
+} from "@/components/ria/ria-client-test-profile";
 import { RiaSurface } from "@/components/ria/ria-page-shell";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePersonaState } from "@/lib/persona/persona-context";
-import { buildMarketplaceConnectionsRoute } from "@/lib/navigation/routes";
+import { buildMarketplaceConnectionsRoute, buildRiaClientWorkspaceRoute } from "@/lib/navigation/routes";
 import {
   ConsentCenterService,
   type ConsentCenterEntry,
@@ -128,6 +134,8 @@ export default function MarketplacePage() {
   const { personaState } = usePersonaState();
   const environment = resolveAppEnvironment();
   const allowTestProfiles = environment !== "production";
+  const allowKaiTestInvestor = canShowKaiTestProfile();
+  const kaiTestUserId = getKaiTestUserId();
   const currentPersona =
     personaState?.active_persona || personaState?.last_active_persona || "investor";
   const directoryKind = currentPersona === "ria" ? "investors" : "rias";
@@ -225,6 +233,25 @@ export default function MarketplacePage() {
       },
     ];
   }, [allowTestProfiles, directoryKind]);
+
+  const injectedKaiTestInvestor = useMemo<DiscoveryCard | null>(() => {
+    if (!allowKaiTestInvestor || !kaiTestUserId || directoryKind !== "investors") return null;
+    if (investors.some((investor) => investor.user_id === kaiTestUserId)) return null;
+    const investor = buildKaiTestMarketplaceInvestor(kaiTestUserId);
+    return {
+      id: investor.user_id,
+      kind: "investor",
+      title: investor.display_name,
+      headline: investor.headline || "Open to advisor connections",
+      summary:
+        investor.strategy_summary ||
+        "Preloaded PKM-aligned explorer example for advisor-side Kai and data-view validation.",
+      metaLine: investor.location_hint || "Public discovery profile",
+      canConnect: true,
+      isTestProfile: true,
+      profile: investor,
+    };
+  }, [allowKaiTestInvestor, directoryKind, investors, kaiTestUserId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -474,7 +501,7 @@ export default function MarketplacePage() {
           "Discovery metadata only until both sides move into a connection flow.",
         metaLine: investor.location_hint || "Public discovery profile",
         canConnect,
-        isTestProfile: false,
+        isTestProfile: Boolean(investor.is_test_profile || isKaiTestProfileUser(investor.user_id)),
         profile: investor,
       };
     }).filter((item) => item.canConnect);
@@ -485,8 +512,8 @@ export default function MarketplacePage() {
     if (directoryKind === "rias") {
       return [...base, ...injectedTestCards];
     }
-    return base;
-  }, [advisorCards, directoryKind, injectedTestCards, investorCards]);
+    return injectedKaiTestInvestor ? [injectedKaiTestInvestor, ...base] : base;
+  }, [advisorCards, directoryKind, injectedKaiTestInvestor, injectedTestCards, investorCards]);
   const passedIds = directoryKind === "rias" ? passedRiaIds : passedInvestorIds;
   const shuffledSwipeCards = useMemo(() => {
     const items = activeCards.filter((item) => !passedIds.includes(item.id));
@@ -503,7 +530,12 @@ export default function MarketplacePage() {
   const swipeCards = shuffledSwipeCards;
   const swipeCard = swipeCards[0] || null;
   const selectedInvestor =
-    selectedProfile?.kind === "investor" ? investorMap.get(selectedProfile.id) || null : null;
+    selectedProfile?.kind === "investor"
+      ? investorMap.get(selectedProfile.id) ||
+        (injectedKaiTestInvestor?.id === selectedProfile.id
+          ? (injectedKaiTestInvestor.profile as MarketplaceInvestor)
+          : null)
+      : null;
   const selectedInjectedRia =
     selectedProfile?.kind === "ria"
       ? ((injectedTestCards.find((item) => item.kind === "ria" && item.id === selectedProfile.id)
@@ -625,6 +657,10 @@ export default function MarketplacePage() {
   }
 
   const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
+
+  function openTestInvestorWorkspace(userId: string) {
+    router.push(buildRiaClientWorkspaceRoute(userId, { tab: "overview", testProfile: true }));
+  }
 
   return (
     <AppPageShell
@@ -820,16 +856,31 @@ export default function MarketplacePage() {
                       effect="fill"
                       size="sm"
                       className="justify-center"
-                      onClick={() =>
-                        swipeCard.kind === "ria"
-                          ? void createConnectionToAdvisor(swipeCard.profile as MarketplaceRia)
-                          : void createConnectionToInvestor(swipeCard.profile as MarketplaceInvestor)
+                      onClick={() => {
+                        if (
+                          currentPersona === "ria" &&
+                          swipeCard.kind === "investor" &&
+                          swipeCard.isTestProfile
+                        ) {
+                          openTestInvestorWorkspace(swipeCard.profile.user_id);
+                          return;
+                        }
+                        if (swipeCard.kind === "ria") {
+                          void createConnectionToAdvisor(swipeCard.profile as MarketplaceRia);
+                          return;
+                        }
+                        void createConnectionToInvestor(swipeCard.profile as MarketplaceInvestor);
+                      }}
+                      disabled={
+                        actionLoadingUserId === swipeCard.profile.user_id ||
+                        (Boolean(swipeCard.isTestProfile) && swipeCard.kind === "ria")
                       }
-                      disabled={actionLoadingUserId === swipeCard.profile.user_id || Boolean(swipeCard.isTestProfile)}
                     >
                       <span className="truncate">
                         {swipeCard.isTestProfile
-                          ? "Demo"
+                          ? swipeCard.kind === "investor" && currentPersona === "ria"
+                            ? "Open workspace"
+                            : "Demo"
                           : actionLoadingUserId === swipeCard.profile.user_id
                             ? "Connecting..."
                             : "Connect"}
@@ -874,7 +925,16 @@ export default function MarketplacePage() {
                 <div className="flex items-start gap-4">
                   <ProfileAvatar kind={item.kind} label={item.title} />
                   <div className="min-w-0 flex-1 space-y-2">
-                    <h3 className="text-lg font-semibold tracking-tight text-foreground">{item.title}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold tracking-tight text-foreground">
+                        {item.title}
+                      </h3>
+                      {item.isTestProfile ? (
+                        <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                          Test
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="text-sm leading-6 text-foreground/84">{item.headline}</p>
                   </div>
                 </div>
@@ -890,15 +950,26 @@ export default function MarketplacePage() {
                     effect="fill"
                     size="sm"
                     className="justify-center"
-                    onClick={() =>
-                      item.kind === "ria"
-                        ? void createConnectionToAdvisor(item.profile as MarketplaceRia)
-                        : void createConnectionToInvestor(item.profile as MarketplaceInvestor)
+                    onClick={() => {
+                      if (currentPersona === "ria" && item.kind === "investor" && item.isTestProfile) {
+                        openTestInvestorWorkspace(item.profile.user_id);
+                        return;
+                      }
+                      if (item.kind === "ria") {
+                        void createConnectionToAdvisor(item.profile as MarketplaceRia);
+                        return;
+                      }
+                      void createConnectionToInvestor(item.profile as MarketplaceInvestor);
+                    }}
+                    disabled={
+                      actionLoadingUserId === userId ||
+                      (Boolean(item.isTestProfile) && item.kind === "ria")
                     }
-                    disabled={actionLoadingUserId === userId || Boolean(item.isTestProfile)}
                   >
                     {item.isTestProfile
-                      ? "Demo"
+                      ? item.kind === "investor" && currentPersona === "ria"
+                        ? "Open workspace"
+                        : "Demo"
                       : actionLoadingUserId === userId
                         ? "Connecting..."
                         : "Connect"}
@@ -1024,6 +1095,11 @@ export default function MarketplacePage() {
               <div className="flex items-start gap-4">
                 <ProfileAvatar kind="investor" label={selectedInvestor.display_name} className="h-16 w-16" />
                 <div className="space-y-2">
+                  {Boolean(selectedInvestor.is_test_profile || isKaiTestProfileUser(selectedInvestor.user_id)) ? (
+                    <span className="inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                      Test
+                    </span>
+                  ) : null}
                   <p className="text-sm leading-6 text-muted-foreground">
                     {selectedInvestor.location_hint || "Public discovery profile"}
                   </p>
@@ -1045,10 +1121,26 @@ export default function MarketplacePage() {
                   variant="blue-gradient"
                   effect="fill"
                   size="sm"
-                  onClick={() => void createConnectionToInvestor(selectedInvestor)}
-                  disabled={actionLoadingUserId === selectedInvestor.user_id}
+                  onClick={() => {
+                    if (
+                      currentPersona === "ria" &&
+                      (selectedInvestor.is_test_profile || isKaiTestProfileUser(selectedInvestor.user_id))
+                    ) {
+                      openTestInvestorWorkspace(selectedInvestor.user_id);
+                      return;
+                    }
+                    void createConnectionToInvestor(selectedInvestor);
+                  }}
+                  disabled={
+                    actionLoadingUserId === selectedInvestor.user_id &&
+                    !(selectedInvestor.is_test_profile || isKaiTestProfileUser(selectedInvestor.user_id))
+                  }
                 >
-                  {actionLoadingUserId === selectedInvestor.user_id ? "Connecting..." : "Connect"}
+                  {selectedInvestor.is_test_profile || isKaiTestProfileUser(selectedInvestor.user_id)
+                    ? "Open workspace"
+                    : actionLoadingUserId === selectedInvestor.user_id
+                      ? "Connecting..."
+                      : "Connect"}
                 </Button>
                 <Button
                   variant="none"

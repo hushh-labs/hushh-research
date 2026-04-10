@@ -1,0 +1,66 @@
+{
+  "id": "frontend-surface-placement",
+  "role": "spoke",
+  "owner_family": "frontend",
+  "primary_scope": "frontend-surface-placement",
+  "description": "Use when deciding whether frontend code belongs in Morphy UX, app-ui, or a feature folder inside the frontend owner family.",
+  "owned_paths": [
+    "hushh-webapp/components/app-ui",
+    "hushh-webapp/lib/morphy-ux",
+    "hushh-webapp/components/kai",
+    "hushh-webapp/components/ria"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "mobile-native",
+    "docs-governance"
+  ],
+  "task_types": [
+    "new-feature-tri-flow",
+    "bug-triage"
+  ],
+  "required_reads": [
+    "hushh-webapp/lib/morphy-ux/README.md",
+    "hushh-webapp/components/app-ui/README.md",
+    "docs/reference/quality/design-system.md",
+    "docs/reference/quality/frontend-ui-architecture-map.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run audit:ui-surfaces",
+    "cd hushh-webapp && npm run verify:design-system",
+    "cd hushh-webapp && npm run verify:docs",
+    "cd hushh-webapp && npm run typecheck"
+  ],
+  "verification_bundles": [
+    {
+      "id": "frontend-surface-placement",
+      "commands": [
+        "cd hushh-webapp && npm run audit:ui-surfaces",
+        "cd hushh-webapp && npm run verify:design-system",
+        "cd hushh-webapp && npm run verify:docs",
+        "cd hushh-webapp && npm run typecheck"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run audit:ui-surfaces",
+        "cd hushh-webapp && npm run verify:design-system",
+        "cd hushh-webapp && npm run verify:docs",
+        "cd hushh-webapp && npm run typecheck"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "frontend-design-system",
+    "frontend-architecture",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "frontend",
+    "frontend-design-system",
+    "frontend-architecture"
+  ],
+  "risk_tags": [
+    "surface-placement-drift",
+    "component-ownership-drift"
+  ]
+}

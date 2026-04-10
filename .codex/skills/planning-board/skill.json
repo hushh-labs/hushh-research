@@ -1,0 +1,47 @@
+{
+  "id": "planning-board",
+  "role": "owner",
+  "owner_family": "planning-board",
+  "primary_scope": "planning-board-intake",
+  "description": "Use when inspecting, summarizing, creating, triaging, or updating work on the Hushh Engineering Core GitHub board.",
+  "owned_paths": [
+    ".codex/skills/planning-board"
+  ],
+  "non_owned_paths": [
+    "repo-operations",
+    "repo-context"
+  ],
+  "task_types": [
+    "board-update"
+  ],
+  "required_reads": [
+    ".codex/skills/planning-board/references/engineering-core-board.md",
+    "docs/project_context_map.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_commands": [
+    "python3 -m py_compile .codex/skills/planning-board/scripts/board_ops.py",
+    "python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07"
+  ],
+  "verification_bundles": [
+    {
+      "id": "planning-board",
+      "commands": [
+        "python3 -m py_compile .codex/skills/planning-board/scripts/board_ops.py",
+        "python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07"
+      ],
+      "tests": []
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "repo-operations"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "repo-operations"
+  ],
+  "risk_tags": [
+    "board-triage-drift"
+  ]
+}

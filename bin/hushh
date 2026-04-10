@@ -24,6 +24,7 @@ Core commands:
   lint
   test
   ci [--include-advisory]
+  codex <subcommand>
 
 Operational commands:
   docs verify
@@ -37,6 +38,7 @@ Operational commands:
 Run:
   ./bin/hushh protocol --help
   ./bin/hushh sync --help
+  ./bin/hushh codex --help
 EOF
 }
 
@@ -76,6 +78,19 @@ sync_usage() {
 Usage:
   ./bin/hushh sync main
   ./bin/hushh sync check-main
+EOF
+}
+
+codex_usage() {
+  cat <<'EOF'
+Usage:
+  ./bin/hushh codex onboard [--json|--text]
+  ./bin/hushh codex scan summary [--json|--text]
+  ./bin/hushh codex scan section <docs|frontend|backend|skills|commands> [--json|--text] [--verbose]
+  ./bin/hushh codex route-task <workflow-id> [--json|--text] [--verbose]
+  ./bin/hushh codex impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
+  ./bin/hushh codex list-workflows [--json|--text] [--verbose]
+  ./bin/hushh codex audit [--json|--text]
 EOF
 }
 
@@ -252,6 +267,92 @@ run_docs() {
       ;;
     *)
       die "Unknown docs subcommand: $1"
+      ;;
+  esac
+}
+
+run_codex() {
+  [ "$#" -ge 1 ] || {
+    codex_usage
+    exit 1
+  }
+
+  local subcommand="${1:-}"
+  shift || true
+  local format_flag=""
+  local args=()
+  local saw_format="0"
+
+  while [ "$#" -gt 0 ]; do
+    case "${1:-}" in
+      --json|--text)
+        format_flag="$1"
+        saw_format="1"
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if [ "$saw_format" = "0" ]; then
+    format_flag="--text"
+  fi
+
+  case "$subcommand" in
+    scan)
+      [ "${#args[@]}" -ge 1 ] || die "codex scan requires a subcommand"
+      case "${args[0]}" in
+        summary)
+          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" summary "$format_flag"
+          ;;
+        section)
+          [ "${#args[@]}" -ge 2 ] || die "codex scan section requires <docs|frontend|backend|skills|commands>"
+          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" section "${args[@]:1}" "$format_flag"
+          ;;
+        validate)
+          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" validate "$format_flag"
+          ;;
+        *)
+          die "Unknown codex scan subcommand: ${args[0]}"
+          ;;
+      esac
+      ;;
+    onboard)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag" "${args[@]}"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag"
+      ;;
+    list-workflows)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag" "${args[@]}"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag"
+      ;;
+    route-task)
+      [ "${#args[@]}" -ge 1 ] || die "codex route-task requires <workflow-id>"
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" route-task "${args[@]}" "$format_flag"
+      ;;
+    impact)
+      [ "${#args[@]}" -ge 1 ] || die "codex impact requires <workflow-id>"
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
+      ;;
+    audit)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag" "${args[@]}"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag"
+      ;;
+    -h|--help|help)
+      codex_usage
+      exit 0
+      ;;
+    *)
+      codex_usage
+      exit 1
       ;;
   esac
 }
@@ -476,6 +577,9 @@ EOF
     ;;
   protocol)
     run_protocol "$@"
+    ;;
+  codex)
+    run_codex "$@"
     ;;
   sync)
     run_sync "$@"

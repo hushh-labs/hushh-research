@@ -185,10 +185,10 @@ html body[data-scroll-locked] {
   --top-content-pad: calc(
     var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap)
   );
-  --page-inline-gutter-standard: 16px;
+  --page-inline-gutter-standard: 12px;
   --page-surface-overscan: 0px;
-  --page-surface-gap-standard: 18px;
-  --page-surface-gap-compact: 14px;
+  --page-surface-gap-standard: 16px;
+  --page-surface-gap-compact: 12px;
   --page-header-stack-gap: 10px;
   --page-header-row-gap: 10px;
   --page-header-copy-gap: 4px;
@@ -199,15 +199,15 @@ html body[data-scroll-locked] {
   --section-header-copy-gap: 6px;
   --section-header-actions-gap: 10px;
   --surface-shadow-overscan: 14px;
-  --surface-stack-gap-standard: 22px;
-  --surface-stack-gap-compact: 18px;
-  --surface-card-header-px: 16px;
+  --surface-stack-gap-standard: 18px;
+  --surface-stack-gap-compact: 14px;
+  --surface-card-header-px: 14px;
   --surface-card-header-pt: 16px;
   --surface-card-header-pb: 8px;
-  --surface-card-content-px: 16px;
+  --surface-card-content-px: 14px;
   --surface-card-content-pb: 16px;
-  --surface-inset-p: 16px;
-  --settings-group-stack-gap: 8px;
+  --surface-inset-p: 14px;
+  --settings-group-stack-gap: 6px;
   --settings-heading-stack-gap: 4px;
   --settings-row-px: 12px;
   --settings-row-py: 14px;
@@ -376,6 +376,7 @@ html body[data-scroll-locked] {
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
   --app-card-shadow-standard: 0 11px 34px 0 rgba(120, 120, 128, 0.16);
   --app-card-shadow-feature: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
+  --app-list-row-surface: color-mix(in srgb, var(--app-card-surface-default-solid) 90%, transparent);
   --app-segmented-active-surface: #ffffff;
   --app-segmented-active-foreground: #000000;
   --app-segmented-active-border: #000000;
@@ -410,7 +411,7 @@ html body[data-scroll-locked] {
     --app-top-body-start-gap: 32px;
     --bottom-chrome-fade-overscan: 22px;
     --top-subnav-gap: 14px;
-    --page-inline-gutter-standard: 24px;
+    --page-inline-gutter-standard: 20px;
     --page-surface-overscan: 8px;
     --page-surface-gap-standard: 22px;
     --page-surface-gap-compact: 18px;
@@ -446,14 +447,14 @@ html body[data-scroll-locked] {
 
 @media (min-width: 1024px) {
   :root {
-    --page-inline-gutter-standard: 28px;
+    --page-inline-gutter-standard: 24px;
     --page-surface-overscan: 12px;
   }
 }
 
 @media (min-width: 1280px) {
   :root {
-    --page-inline-gutter-standard: 32px;
+    --page-inline-gutter-standard: 28px;
     --page-surface-overscan: 16px;
   }
 }
@@ -605,6 +606,18 @@ html body[data-scroll-locked] {
 .app-page-content-region {
   width: 100%;
   min-width: 0;
+}
+
+.app-page-shell[data-app-shell-width="reading"] {
+  max-width: var(--app-shell-reading);
+}
+
+.app-page-shell[data-app-shell-width="standard"] {
+  max-width: var(--app-shell-standard);
+}
+
+.app-page-shell[data-app-shell-width="expanded"] {
+  max-width: var(--app-shell-expanded);
 }
 
 .app-page-header-region + .app-page-content-region,

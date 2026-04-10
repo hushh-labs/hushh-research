@@ -13,6 +13,9 @@ describe("observability route map", () => {
     expect(resolveRouteId("/marketplace")).toBe("marketplace");
     expect(resolveRouteId("/marketplace/ria")).toBe("marketplace_ria_profile");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
+    expect(resolveRouteId("/ria/clients/user_123")).toBe("ria_workspace");
+    expect(resolveRouteId("/ria/clients/user_123/accounts/account_456")).toBe("ria_workspace");
+    expect(resolveRouteId("/ria/clients/user_123/requests/request_789")).toBe("ria_workspace");
     expect(resolveRouteId("/ria/workspace")).toBe("ria_workspace");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
   });

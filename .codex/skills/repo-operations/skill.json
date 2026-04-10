@@ -1,0 +1,71 @@
+{
+  "id": "repo-operations",
+  "role": "owner",
+  "owner_family": "repo-operations",
+  "primary_scope": "repo-operations-intake",
+  "description": "Use when working on Hushh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.",
+  "owned_paths": [
+    "bin",
+    "scripts",
+    "config",
+    "deploy"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "planning-board",
+    "frontend",
+    "backend"
+  ],
+  "task_types": [
+    "release-readiness",
+    "mobile-parity-check",
+    "docs-sync"
+  ],
+  "required_reads": [
+    "docs/reference/operations/README.md",
+    "docs/reference/operations/ci.md",
+    "docs/reference/operations/branch-governance.md",
+    "docs/reference/operations/cli.md",
+    ".codex/skills/repo-operations/references/agent-trigger-policy.md"
+  ],
+  "required_commands": [
+    "./bin/hushh docs verify",
+    "./bin/hushh ci",
+    "./scripts/ci/verify-main-branch-protection.sh",
+    "./scripts/ci/verify-production-environment-governance.sh"
+  ],
+  "verification_bundles": [
+    {
+      "id": "repo-operations",
+      "commands": [
+        "./bin/hushh docs verify",
+        "./bin/hushh ci",
+        "./scripts/ci/verify-main-branch-protection.sh",
+        "./scripts/ci/verify-production-environment-governance.sh"
+      ],
+      "tests": [
+        "./bin/hushh docs verify",
+        "./scripts/ci/verify-main-branch-protection.sh",
+        "./scripts/ci/verify-production-environment-governance.sh"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "planning-board",
+    "docs-governance",
+    "backend",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "backend",
+    "security-audit",
+    "docs-governance"
+  ],
+  "risk_tags": [
+    "ci-drift",
+    "env-parity-drift",
+    "release-drift"
+  ]
+}

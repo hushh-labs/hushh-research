@@ -82,6 +82,7 @@ The `consent-protocol` subtree relationship still exists, but it is maintainer-o
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 ./bin/hushh bootstrap
+./bin/hushh codex onboard
 ./bin/hushh web --mode uat
 ```
 
@@ -96,6 +97,8 @@ That is the canonical first-run path:
 ```bash
 ./bin/hushh bootstrap
 ./bin/hushh doctor --mode uat
+./bin/hushh codex onboard
+./bin/hushh codex route-task repo-orientation
 ./bin/hushh web --mode uat
 ./bin/hushh native ios --mode uat
 ./bin/hushh native android --mode uat

@@ -55,6 +55,27 @@ Minimum expectation:
 3. report the exact failing workflow, job, and step if anything fails
 4. do not stop at "triggered" or "queued"
 5. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
+6. when the run is expected to outlive the current chat turn, start the persistent watcher instead of relying on manual follow-up
+
+Canonical watcher:
+
+```bash
+scripts/ci/watch-gh-workflow-chain.sh --run-id <tri-flow-run-id> --follow-workflow "Deploy to UAT"
+```
+
+Local daemon form:
+
+```bash
+scripts/ci/watch-gh-workflow-chain.sh --run-id <tri-flow-run-id> --follow-workflow "Deploy to UAT" --daemonize
+```
+
+For deploy-only monitoring:
+
+```bash
+scripts/ci/watch-gh-workflow-chain.sh --run-id <deploy-run-id> --daemonize
+```
+
+The watcher logs to `tmp/devops-watch/`.
 
 ---
 
@@ -321,6 +342,12 @@ To include advisory checks locally:
 
 ```bash
 ./bin/hushh ci --include-advisory
+```
+
+This advisory lane now includes the Codex operating-system audit:
+
+```bash
+./bin/hushh codex audit
 ```
 
 To verify the live GitHub branch gate matches the documented minimum contract:

@@ -109,11 +109,18 @@ The production workflow uses two GitHub environment names:
 
 | Environment | Intended use |
 |---|---|
-| `production-approval` | Non-owner deploys, configure required reviewers |
-| `production-owner-bypass` | Owner-triggered deploys, no reviewer gate |
+| `production-approval` | Non-owner production deploys; require `kushaltrivedi5` as reviewer |
+| `production-owner-bypass` | Owner-only production deploy lane for `kushaltrivedi5` |
 
 Default owner assumption in the workflow:
 
-- `kushaltrivedi`
+- `kushaltrivedi5`
 
-If ownership changes, update `.github/workflows/deploy-production.yml` and the environment reviewers together.
+Operational rules:
+
+1. Only `kushaltrivedi5` should trigger the `production-owner-bypass` lane.
+2. Other developers may still merge to `main` through PR flow and trigger production workflows, but they must land in `production-approval`.
+3. Keep `kushaltrivedi5` as the required reviewer on `production-approval`.
+4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
+
+If ownership changes, update `.github/workflows/deploy-production.yml` and the GitHub environment reviewers together.

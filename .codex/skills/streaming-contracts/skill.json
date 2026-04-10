@@ -1,0 +1,61 @@
+{
+  "id": "streaming-contracts",
+  "role": "spoke",
+  "owner_family": "security-audit",
+  "primary_scope": "streaming-contracts",
+  "description": "Use when changing SSE events, streaming payload contracts, parser behavior, degraded-state handling, or provider-specific streaming notes.",
+  "owned_paths": [
+    "docs/reference/streaming",
+    "hushh-webapp/lib/streaming",
+    "hushh-webapp/__tests__/streaming",
+    "consent-protocol/api/routes/sse.py",
+    "consent-protocol/api/routes/kai/stream.py",
+    "consent-protocol/api/routes/kai/_streaming.py"
+  ],
+  "non_owned_paths": [
+    "security-audit",
+    "backend",
+    "frontend"
+  ],
+  "task_types": [
+    "api-contract-change",
+    "bug-triage",
+    "release-readiness"
+  ],
+  "required_reads": [
+    "docs/reference/streaming/streaming-contract.md",
+    "docs/reference/streaming/streaming-implementation-guide.md",
+    "docs/reference/streaming/vertex-ai-streaming-notes.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts",
+    "cd consent-protocol && python3 -m pytest tests/test_kai_stream_contract.py -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "streaming-contracts",
+      "commands": [
+        "cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts",
+        "cd consent-protocol && python3 -m pytest tests/test_kai_stream_contract.py -q"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts",
+        "cd consent-protocol && python3 -m pytest tests/test_kai_stream_contract.py -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "security-audit",
+    "quality-contracts",
+    "backend-api-contracts"
+  ],
+  "adjacent_skills": [
+    "security-audit",
+    "backend-api-contracts",
+    "quality-contracts"
+  ],
+  "risk_tags": [
+    "streaming-contract-drift",
+    "parser-regression"
+  ]
+}

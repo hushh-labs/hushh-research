@@ -1,0 +1,62 @@
+{
+  "id": "vault-pkm-governance",
+  "role": "spoke",
+  "owner_family": "security-audit",
+  "primary_scope": "vault-pkm-governance",
+  "description": "Use when changing vault boundaries, PKM storage rules, encrypted data handling, or vault/PKM upgrade behavior inside the security-audit owner family.",
+  "owned_paths": [
+    "consent-protocol/hushh_mcp/vault",
+    "consent-protocol/api/routes/pkm.py",
+    "consent-protocol/api/routes/pkm_routes_shared.py",
+    "hushh-webapp/lib/vault",
+    "hushh-webapp/lib/pkm",
+    "hushh-webapp/lib/personal-knowledge-model",
+    "hushh-webapp/components/vault"
+  ],
+  "non_owned_paths": [
+    "security-audit",
+    "backend",
+    "repo-operations"
+  ],
+  "task_types": [
+    "security-consent-audit",
+    "new-feature-tri-flow",
+    "bug-triage"
+  ],
+  "required_reads": [
+    "consent-protocol/docs/reference/personal-knowledge-model.md",
+    "docs/reference/architecture/pkm-cutover-runbook.md",
+    "docs/project_context_map.md"
+  ],
+  "required_commands": [
+    "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
+    "cd hushh-webapp && npm run verify:cache"
+  ],
+  "verification_bundles": [
+    {
+      "id": "vault-pkm-governance",
+      "commands": [
+        "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
+        "cd hushh-webapp && npm run verify:cache"
+      ],
+      "tests": [
+        "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
+        "cd hushh-webapp && npm run verify:cache"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "security-audit",
+    "iam-consent-governance",
+    "backend"
+  ],
+  "adjacent_skills": [
+    "security-audit",
+    "backend",
+    "iam-consent-governance"
+  ],
+  "risk_tags": [
+    "pkm-boundary-drift",
+    "encrypted-data-drift"
+  ]
+}

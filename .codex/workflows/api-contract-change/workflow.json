@@ -1,0 +1,60 @@
+{
+  "id": "api-contract-change",
+  "title": "API Contract Change",
+  "goal": "Change a backend or proxy contract while keeping request/response, auth, docs, and verification in sync.",
+  "owner_skill": "backend",
+  "default_spoke": "backend-api-contracts",
+  "task_type": "api-contract-change",
+  "affected_surfaces": [
+    "consent-protocol/api",
+    "hushh-webapp/app/api",
+    "docs/reference/architecture/api-contracts.md",
+    "consent-protocol/docs"
+  ],
+  "required_reads": [
+    "docs/reference/architecture/api-contracts.md",
+    "docs/guides/new-feature.md",
+    "docs/reference/quality/pr-impact-checklist.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task api-contract-change",
+    "cd hushh-webapp && npm run typecheck",
+    "./bin/hushh protocol test-ci"
+  ],
+  "verification_bundle": {
+    "id": "api-contract-change",
+    "commands": [
+      "cd hushh-webapp && npm run typecheck",
+      "./bin/hushh protocol test-ci",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "cd hushh-webapp && npm run typecheck",
+      "./bin/hushh protocol test-ci"
+    ]
+  },
+  "deliverables": [
+    "updated route or proxy contract",
+    "runtime + docs sync",
+    "blast-radius note",
+    "impact map"
+  ],
+  "impact_fields": [
+    "Routes touched",
+    "API/schema/type changes",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "backend",
+    "backend-api-contracts",
+    "frontend",
+    "docs-governance",
+    "quality-contracts"
+  ],
+  "common_failures": [
+    "changing backend response shape without proxy/service updates",
+    "updating runtime without contract docs",
+    "missing auth or consent boundary review"
+  ]
+}

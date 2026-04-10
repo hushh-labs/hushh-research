@@ -137,19 +137,13 @@
   },
   {
     "route": "/marketplace/connections",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/marketplace/connections/page.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion"]
-    }
+    "mode": "redirect",
+    "exemptionReason": "Legacy connection route now deep-links into the canonical /consents access manager."
   },
   {
     "route": "/marketplace/connections/portfolio",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/marketplace/connections/portfolio/page.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion"]
-    }
+    "mode": "redirect",
+    "exemptionReason": "Legacy portfolio explorer route now deep-links into the dedicated /ria/clients/[userId] workspace."
   },
   {
     "route": "/portfolio/shared",
@@ -189,7 +183,31 @@
     "route": "/ria/clients",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/ria/ria-page-shell.tsx",
+      "file": "app/ria/clients/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
+    "route": "/ria/clients/[userId]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-client-workspace.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/ria/clients/[userId]/accounts/[accountId]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-client-account-detail.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/ria/clients/[userId]/requests/[requestId]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/ria/ria-client-request-detail.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
     }
   },
@@ -221,10 +239,7 @@
   },
   {
     "route": "/ria/workspace",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/ria/ria-page-shell.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
-    }
+    "mode": "redirect",
+    "exemptionReason": "Compatibility alias now redirects into the dedicated /ria/clients/[userId] client workspace."
   }
 ]

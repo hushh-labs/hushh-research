@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
   ArrowUpRight,
-  BriefcaseBusiness,
   ChartColumnIncreasing,
   Cpu,
   ExternalLink,
@@ -14,15 +13,14 @@ import {
   Newspaper,
   Percent,
   RefreshCw,
-  Target,
   TrendingDown,
   TrendingUp,
   type LucideIcon,
   Zap,
 } from "lucide-react";
 
-import { SectionHeader } from "@/components/app-ui/page-sections";
-import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -400,6 +398,28 @@ function SignalGroupBlock({
           ) : null}
         </p>
       </div>
+    </div>
+  );
+}
+
+function MarketSectionLead({
+  title,
+  description,
+  aside,
+}: {
+  title: string;
+  description?: string;
+  aside?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0 space-y-1">
+        <h2 className="text-base font-semibold tracking-tight text-foreground">{title}</h2>
+        {description ? (
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
+      {aside ? <div className="flex shrink-0 items-center gap-2">{aside}</div> : null}
     </div>
   );
 }
@@ -1296,6 +1316,31 @@ export function KaiMarketPreviewView() {
       width="expanded"
       className="pb-8"
     >
+      <AppPageHeaderRegion className="pt-2 sm:pt-3">
+        <PageHeader
+          eyebrow="Kai"
+          title="Market"
+          description="Track what matters now, advisor ideas, and your portfolio context without bouncing between separate screens."
+          accent="kai"
+          icon={ChartColumnIncreasing}
+          actions={
+            <Button
+              variant="none"
+              effect="fade"
+              disabled={refreshing}
+              size="icon"
+              className="h-9 w-9 rounded-full"
+              onClick={() => void loadInsights({ manual: true })}
+            >
+              {refreshing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          }
+        />
+      </AppPageHeaderRegion>
       <AppPageContentRegion>
         <SurfaceStack>
       {loading && !hasPayload ? (
@@ -1332,48 +1377,24 @@ export function KaiMarketPreviewView() {
       {hasPayload ? (
         <div className="flex flex-col gap-12">
           <section className="space-y-4">
-            <SectionHeader
-              eyebrow="Pulse"
-              title={
-                <span className="inline-flex flex-wrap items-center gap-2">
-                  Market overview
-                  {marketStatus ? (
-                    <Badge variant="outline" className={cn("text-[10px] font-medium", marketStatus.className)}>
-                      {marketStatus.label}
-                    </Badge>
-                  ) : null}
-                </span>
-              }
-              description="A denser read of the current tape with stronger status cues and less filler."
-              icon={ChartColumnIncreasing}
-              accent="default"
-              actions={
-                <Button
-                  variant="none"
-                  effect="fade"
-                  disabled={refreshing}
-                  size="icon"
-                  className="h-9 w-9 rounded-full"
-                  onClick={() => void loadInsights({ manual: true })}
-                >
-                  {refreshing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                </Button>
+            <MarketSectionLead
+              title="Market overview"
+              description="A clean read of the current tape without extra chrome."
+              aside={
+                marketStatus ? (
+                  <Badge variant="outline" className={cn("text-[10px] font-medium", marketStatus.className)}>
+                    {marketStatus.label}
+                  </Badge>
+                ) : null
               }
             />
             <MarketOverviewGrid metrics={overviewMetrics} />
           </section>
 
           <section className="space-y-4">
-            <SectionHeader
-              eyebrow="Advisor signals"
-              title="RIA’s picks"
-              description="Choose the default Kai list or any connected advisor source. Kai remembers the last active selection and uses it for market and stock comparison surfaces."
-              icon={BriefcaseBusiness}
-              accent="emerald"
+            <MarketSectionLead
+              title="Advisor ideas"
+              description="Choose Kai or a connected advisor source. The active source carries forward into market and comparison surfaces."
             />
             <RiaPicksList
               rows={pickRows}
@@ -1384,12 +1405,9 @@ export function KaiMarketPreviewView() {
           </section>
 
           <section className="space-y-4">
-            <SectionHeader
-              eyebrow="Market read"
-              title="Signals worth noting"
+            <MarketSectionLead
+              title="Signals worth watching"
               description="A tighter read of what the current tape is implying before you move into deeper analysis."
-              icon={Activity}
-              accent="default"
             />
             {scenarioSignal ? (
               <SurfaceCard accent="none">
@@ -1546,24 +1564,18 @@ export function KaiMarketPreviewView() {
 
           {themeItems.length > 0 ? (
             <section className="space-y-4">
-              <SectionHeader
-                eyebrow="Narratives"
+              <MarketSectionLead
                 title="Themes in focus"
                 description="Compact narratives that can shape how the next debate or trade idea gets framed."
-                icon={Cpu}
-                accent="default"
               />
               <ThemeFocusList themes={themeItems} />
             </section>
           ) : null}
 
           <section className="space-y-4">
-            <SectionHeader
-              eyebrow="Explore the market with Kai"
+            <MarketSectionLead
               title="What matters now"
-              description="News and spotlight names grouped together so the freshest market context stays in one place."
-              icon={Target}
-              accent="default"
+              description="News and spotlight names stay together so the freshest market context is easy to scan."
             />
             <div className="space-y-4">
               {spotlightRows.length > 0 ? (
@@ -1593,12 +1605,9 @@ export function KaiMarketPreviewView() {
 
           {showConnectPortfolio ? (
             <section className="space-y-4">
-              <SectionHeader
-                eyebrow="Portfolio context"
+              <MarketSectionLead
                 title="Bring your own positions"
-                description="Connecting a portfolio makes the market page and downstream debate surfaces meaningfully more personal."
-                icon={BriefcaseBusiness}
-                accent="emerald"
+                description="Connecting a portfolio makes the market page and downstream debate surfaces more personal."
               />
               <ConnectPortfolioCta />
             </section>

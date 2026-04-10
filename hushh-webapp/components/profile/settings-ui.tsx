@@ -110,7 +110,9 @@ export function SettingsGroup({
   const shell = (
     <div
       className={cn(
-        "relative isolate p-px [--settings-group-radius:24px] rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
+        "relative isolate [--settings-group-radius:24px] rounded-[var(--app-card-radius-feature)]",
+        "border border-transparent bg-transparent p-0 shadow-none",
+        "sm:border-[color:var(--app-card-border-standard)] sm:bg-[color:var(--app-card-surface-default-solid)] sm:p-px sm:shadow-[var(--app-card-shadow-standard)]",
         !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
       )}
     >
@@ -182,7 +184,7 @@ export function SettingsRow({
   const rowRadiusClassName =
     "[--settings-row-top-radius:0px] [--settings-row-bottom-radius:0px] first:[--settings-row-top-radius:calc(var(--settings-group-radius)-1px)] last:[--settings-row-bottom-radius:calc(var(--settings-group-radius)-1px)] [border-top-left-radius:var(--settings-row-top-radius)] [border-top-right-radius:var(--settings-row-top-radius)] [border-bottom-left-radius:var(--settings-row-bottom-radius)] [border-bottom-right-radius:var(--settings-row-bottom-radius)]";
   const rowShellClassName = cn(
-    "group/settings-row relative isolate overflow-hidden bg-transparent",
+    "group/settings-row relative isolate overflow-hidden bg-[color:var(--app-list-row-surface)] sm:bg-transparent",
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
     className

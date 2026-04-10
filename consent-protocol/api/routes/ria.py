@@ -53,6 +53,7 @@ class RIAConsentBundleCreate(BaseModel):
     subject_user_id: str = Field(..., min_length=1)
     scope_template_id: str = Field(..., min_length=1)
     selected_scopes: list[str] = Field(default_factory=list)
+    selected_account_ids: list[str] = Field(default_factory=list)
     firm_id: str | None = None
     reason: str | None = None
 
@@ -130,6 +131,8 @@ class RIAClientDetailResponse(BaseModel):
     invite_history: list[dict] = Field(default_factory=list)
     requestable_scope_templates: list[dict] = Field(default_factory=list)
     available_scope_metadata: list[dict] = Field(default_factory=list)
+    kai_specialized_bundle: dict = Field(default_factory=dict)
+    account_branches: list[dict] = Field(default_factory=list)
     available_domains: list[str] = Field(default_factory=list)
     domain_summaries: dict = Field(default_factory=dict)
     total_attributes: int = 0
@@ -386,6 +389,7 @@ async def create_ria_request_bundle(
             subject_user_id=payload.subject_user_id,
             scope_template_id=payload.scope_template_id,
             selected_scopes=payload.selected_scopes,
+            selected_account_ids=payload.selected_account_ids,
             firm_id=payload.firm_id,
             reason=payload.reason,
         )

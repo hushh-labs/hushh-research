@@ -36,7 +36,6 @@ import {
 } from "@/lib/consent/consent-display";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 import { usePersonaState } from "@/lib/persona/persona-context";
-import { buildMarketplaceConnectionsRoute } from "@/lib/navigation/routes";
 import {
   CONSENT_CENTER_PAGE_SIZE,
   ConsentCenterService,
@@ -45,20 +44,23 @@ import {
   type ConsentCenterPageListResponse,
   type ConsentCenterMode,
   type ConsentCenterPageSummary,
+  type ConsentCenterResponse,
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
-import { buildRiaWorkspaceRoute } from "@/lib/navigation/routes";
+import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
-type ConsentTab = "pending" | "active" | "previous";
+type ConsentTab = "requests" | "active" | "history" | "relationships";
 type ConsentManagerMode = ConsentCenterMode;
 type PendingNotificationAction = "review" | "approve" | "deny" | null;
 
 function normalizeTab(value: string | null): ConsentTab {
-  if (value === "active" || value === "previous") return value;
-  return "pending";
+  if (value === "active") return "active";
+  if (value === "history" || value === "previous") return "history";
+  if (value === "relationships") return "relationships";
+  return "requests";
 }
 
 function normalizeNotificationAction(value: string | null): PendingNotificationAction {
@@ -82,11 +84,17 @@ function resolveConsentTab(searchParams: URLSearchParams | ReadonlyURLSearchPara
   }
 
   const viewParam = searchParams.get("view");
-  if (viewParam === "pending" || viewParam === "active" || viewParam === "previous") {
+  if (
+    viewParam === "pending" ||
+    viewParam === "active" ||
+    viewParam === "previous" ||
+    viewParam === "history" ||
+    viewParam === "relationships"
+  ) {
     return normalizeTab(viewParam);
   }
 
-  return "pending";
+  return "requests";
 }
 
 function formatStatus(status?: string | null) {
@@ -141,6 +149,98 @@ function entrySummary(entry: ConsentCenterEntry) {
     kind: entry.kind,
     isScopeUpgrade: entry.is_scope_upgrade,
     existingGrantedScopes: entry.existing_granted_scopes,
+  });
+}
+
+function relationshipSortValue(entry: ConsentCenterEntry) {
+  const candidates = [entry.issued_at, entry.expires_at]
+    .map((value) => (value ? new Date(value).getTime() : 0))
+    .filter((value) => Number.isFinite(value));
+  return candidates.length > 0 ? Math.max(...candidates) : 0;
+}
+
+function relationshipPriority(entry: ConsentCenterEntry) {
+  if (entry.kind === "active_grant" || entry.status === "active" || entry.status === "approved") {
+    return 3;
+  }
+  if (
+    entry.kind === "incoming_request" ||
+    entry.kind === "outgoing_request" ||
+    entry.status === "pending" ||
+    entry.status === "request_pending"
+  ) {
+    return 2;
+  }
+  if (entry.kind === "invite") {
+    return 1;
+  }
+  return 0;
+}
+
+function buildRelationshipEntries(center: ConsentCenterResponse | null): ConsentCenterEntry[] {
+  if (!center) return [];
+
+  const grouped = new Map<string, ConsentCenterEntry[]>();
+  const sourceEntries = [
+    ...center.incoming_requests,
+    ...center.outgoing_requests,
+    ...center.active_grants,
+    ...center.history,
+    ...center.invites,
+  ];
+
+  for (const entry of sourceEntries) {
+    const counterpartKey =
+      `${entry.counterpart_type}:${entry.counterpart_id || entry.counterpart_email || entry.counterpart_label || entry.id}`;
+    const bucket = grouped.get(counterpartKey) || [];
+    bucket.push(entry);
+    grouped.set(counterpartKey, bucket);
+  }
+
+  const resolved: ConsentCenterEntry[] = [];
+  for (const [key, entries] of grouped.entries()) {
+      const sorted = [...entries].sort((left, right) => {
+        const priorityDelta = relationshipPriority(right) - relationshipPriority(left);
+        if (priorityDelta !== 0) return priorityDelta;
+        return relationshipSortValue(right) - relationshipSortValue(left);
+      });
+      const primary = sorted[0];
+      if (!primary) continue;
+      const scopeLabels = Array.from(
+        new Set(entries.map((entry) => entry.scope_description || entry.scope).filter(Boolean))
+      );
+      resolved.push({
+        ...primary,
+        id: `relationship:${key}`,
+        additional_access_summary:
+          scopeLabels.length > 0
+            ? `${scopeLabels.length} scope${scopeLabels.length === 1 ? "" : "s"} shared in this relationship`
+            : primary.additional_access_summary,
+      });
+  }
+
+  return resolved.sort((left, right) => relationshipSortValue(right) - relationshipSortValue(left));
+}
+
+function filterRelationshipEntries(entries: ConsentCenterEntry[], query: string): ConsentCenterEntry[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return entries;
+  return entries.filter((entry) => {
+    const haystack = [
+      resolveCounterpartLabel(entry),
+      entry.counterpart_email,
+      entry.counterpart_secondary_label,
+      entry.scope,
+      entry.scope_description,
+      entry.additional_access_summary,
+      entry.reason,
+      entry.relationship_status,
+      entry.relationship_state,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedQuery);
   });
 }
 
@@ -259,14 +359,12 @@ function ConsentEntryRow({
 
 function ConsentEntryDetail({
   actor,
-  mode,
   entry,
   onApprove,
   onDeny,
   onRevoke,
 }: {
   actor: ConsentCenterActor;
-  mode: ConsentManagerMode;
   entry: ConsentCenterEntry | null;
   onApprove: (entry: ConsentCenterEntry) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
@@ -286,7 +384,7 @@ function ConsentEntryDetail({
 
   const requestRoute =
     actor === "ria" && entry.counterpart_id
-      ? buildRiaWorkspaceRoute(entry.counterpart_id)
+      ? buildRiaClientWorkspaceRoute(entry.counterpart_id, { tab: "access" })
       : null;
 
   return (
@@ -378,15 +476,11 @@ function ConsentEntryDetail({
 
         {requestRoute ? (
           <SettingsRow
-            title={mode === "connections" ? "Open connection workspace" : "Open advisor workspace"}
-            description={
-              mode === "connections"
-                ? "Review the current advisor connection and the latest granted access."
-                : "Review the advisor workspace and the latest granted access."
-            }
+            title="Open client workspace"
+            description="Review the dedicated client workspace, including access state, account branches, Kai parity, and the explorer view."
             trailing={
               <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={requestRoute}>Open workspace</Link>
+                <Link href={requestRoute}>Open client</Link>
               </Button>
             }
           />
@@ -420,9 +514,9 @@ export function ConsentCenterPage() {
   const actor = normalizeActor(searchParams.get("actor"), defaultActor);
   const mode: ConsentManagerMode = "consents";
   const tab = resolveConsentTab(searchParams);
-  const managerView =
+  const managerView: "incoming" | "outgoing" =
     searchParams.get("view") === "incoming" || searchParams.get("view") === "outgoing"
-      ? searchParams.get("view")
+      ? (searchParams.get("view") as "incoming" | "outgoing")
       : actor === "ria"
         ? "outgoing"
         : "incoming";
@@ -437,11 +531,12 @@ export function ConsentCenterPage() {
   const summaryCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
     : "consent_center_summary_guest";
+  const listSurface = tab === "requests" ? "pending" : tab === "history" ? "previous" : "active";
   const listCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_LIST(
         user.uid,
         `${actor}:${mode}`,
-        tab,
+        listSurface,
         deferredQuery,
         page,
         CONSENT_CENTER_PAGE_SIZE
@@ -465,14 +560,11 @@ export function ConsentCenterPage() {
 
   useEffect(() => {
     if (searchParams.get("mode") !== "connections") return;
-    router.replace(
-      buildMarketplaceConnectionsRoute({
-        tab,
-        selected: selectedId,
-      }),
-      { scroll: false }
-    );
-  }, [router, searchParams, selectedId, tab]);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("mode");
+    const query = next.toString();
+    router.replace(query ? `${ROUTES.CONSENTS}?${query}` : ROUTES.CONSENTS, { scroll: false });
+  }, [router, searchParams]);
 
   useEffect(() => {
     const handleAction = () => setMutationTick((value) => value + 1);
@@ -510,10 +602,29 @@ export function ConsentCenterPage() {
     },
   });
 
+  const centerResource = useStaleResource({
+    cacheKey: user?.uid ? CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${managerView}`) : "consent_center_guest",
+    refreshKey: `${actor}:${managerView}:${mutationTick}`,
+    enabled: Boolean(user?.uid),
+    load: async () => {
+      const idToken = await idTokenLoader();
+      if (!user?.uid || !idToken) {
+        throw new Error("Sign in to review consents");
+      }
+      return ConsentCenterService.getCenter({
+        idToken,
+        userId: user.uid,
+        actor,
+        view: managerView,
+        force: mutationTick > 0,
+      });
+    },
+  });
+
   const listResource = useStaleResource({
     cacheKey: listCacheKey,
-    refreshKey: `${actor}:${mode}:${tab}:${deferredQuery}:${page}:${mutationTick}`,
-    enabled: Boolean(user?.uid),
+    refreshKey: `${actor}:${mode}:${listSurface}:${deferredQuery}:${page}:${mutationTick}`,
+    enabled: Boolean(user?.uid && tab !== "relationships"),
     load: async () => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -524,7 +635,7 @@ export function ConsentCenterPage() {
         userId: user.uid,
         actor,
         mode,
-        surface: tab,
+        surface: listSurface,
         q: deferredQuery,
         page,
         limit: CONSENT_CENTER_PAGE_SIZE,
@@ -550,7 +661,14 @@ export function ConsentCenterPage() {
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
   const listData =
     listResource.data ?? (retainedList?.key === listCacheKey ? retainedList.data : null);
-  const items = useMemo(() => listData?.items || [], [listData?.items]);
+  const relationshipItems = useMemo(
+    () => filterRelationshipEntries(buildRelationshipEntries(centerResource.data || null), deferredQuery),
+    [centerResource.data, deferredQuery]
+  );
+  const items = useMemo(
+    () => (tab === "relationships" ? relationshipItems : listData?.items || []),
+    [listData?.items, relationshipItems, tab]
+  );
   const selectedEntry = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -580,18 +698,22 @@ export function ConsentCenterPage() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
 
-  const pageEyebrow = "Profile / Privacy";
-  const pageTitle = "Consent manager";
+  const pageEyebrow = "Access / Consent";
+  const pageTitle = "Access manager";
+  const relationshipCount = relationshipItems.length;
   const pageDescription =
     actor === "ria"
-      ? "Outgoing requests, active grants, and prior investor decisions stay in one privacy workspace for your active advisor persona."
+      ? "Requests, active access, history, and relationship state live in one canonical advisor access manager."
       : managerView === "outgoing"
-        ? "Outgoing consent activity and grants stay grouped in one privacy workspace."
-        : "Incoming requests, active grants, and prior decisions stay grouped in one privacy workspace.";
-  const searchPlaceholder = `Search ${tab} by name, email, scope, or reason`;
+        ? "Outgoing access requests, active access, history, and relationship state stay grouped in one canonical access workspace."
+        : "Incoming access requests, active access, history, and relationship state stay grouped in one canonical access workspace.";
+  const searchPlaceholder =
+    tab === "relationships"
+      ? "Search relationships by name, email, scope, or status"
+      : `Search ${tab} by name, email, scope, or reason`;
 
   return (
-    <AppPageShell as="main" width="reading" className="pb-28">
+    <AppPageShell as="main" width="expanded" className="pb-24 sm:pb-28">
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow={pageEyebrow}
@@ -615,16 +737,20 @@ export function ConsentCenterPage() {
               onValueChange={(value) => setParam({ tab: value, page: "1", requestId: null })}
               options={[
                 {
-                  value: "pending",
-                  label: `Pending (${summaryData?.counts.pending ?? 0})`,
+                  value: "requests",
+                  label: `Requests (${summaryData?.counts.pending ?? 0})`,
                 },
                 {
                   value: "active",
-                  label: `Active (${summaryData?.counts.active ?? 0})`,
+                  label: `Active Access (${summaryData?.counts.active ?? 0})`,
                 },
                 {
-                  value: "previous",
-                  label: `Previous (${summaryData?.counts.previous ?? 0})`,
+                  value: "history",
+                  label: `History (${summaryData?.counts.previous ?? 0})`,
+                },
+                {
+                  value: "relationships",
+                  label: `Relationships (${relationshipCount})`,
                 },
               ]}
             />
@@ -644,7 +770,7 @@ export function ConsentCenterPage() {
                     className="pl-9"
                   />
                 </div>
-                {(listResource.loading || listResource.refreshing) && items.length > 0 ? (
+                {((tab === "relationships" ? centerResource.loading || centerResource.refreshing : listResource.loading || listResource.refreshing) && items.length > 0) ? (
                   <div className="mt-3 text-xs text-muted-foreground">
                     Refreshing from the latest consent state…
                   </div>
@@ -660,9 +786,14 @@ export function ConsentCenterPage() {
                       Loading consent entries…
                     </div>
                   ) : null}
-                  {!listResource.loading && items.length === 0 ? (
+                  {!listResource.loading && tab !== "relationships" && items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
                       No {tab} entries match this view right now.
+                    </div>
+                  ) : null}
+                  {!centerResource.loading && tab === "relationships" && items.length === 0 ? (
+                    <div className="px-3 py-8 text-sm text-muted-foreground">
+                      No relationship entries match this view right now.
                     </div>
                   ) : null}
                   {items.map((entry) => (
@@ -679,7 +810,7 @@ export function ConsentCenterPage() {
                   ))}
                 </div>
 
-                {listData ? (
+                {tab !== "relationships" && listData ? (
                   <PaginatedListFooter
                     page={listData.page}
                     limit={listData.limit}
@@ -777,7 +908,6 @@ export function ConsentCenterPage() {
         ) : null}
         <ConsentEntryDetail
           actor={actor}
-          mode={mode}
           entry={selectedEntry}
           onApprove={(entry) => void handleApprove(toPendingConsent(entry))}
           onDeny={(entry) => void handleDeny(entry.request_id || entry.id)}

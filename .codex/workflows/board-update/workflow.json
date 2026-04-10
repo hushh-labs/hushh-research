@@ -1,0 +1,43 @@
+{
+  "id": "board-update",
+  "title": "Board Update",
+  "goal": "Summarize, create, or update Hushh Engineering Core board items with consistent project metadata.",
+  "owner_skill": "planning-board",
+  "default_spoke": null,
+  "task_type": "board-update",
+  "affected_surfaces": [
+    ".codex/skills/planning-board",
+    "docs/project_context_map.md"
+  ],
+  "required_reads": [
+    ".codex/skills/planning-board/references/engineering-core-board.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task board-update"
+  ],
+  "verification_bundle": {
+    "id": "board-update",
+    "commands": [
+      "./bin/hushh codex route-task board-update"
+    ],
+    "tests": []
+  },
+  "deliverables": [
+    "board summary or issue update",
+    "field updates",
+    "date-window note if relevant"
+  ],
+  "impact_fields": [
+    "Docs updated"
+  ],
+  "handoff_chain": [
+    "planning-board",
+    "repo-context",
+    "repo-operations"
+  ],
+  "common_failures": [
+    "creating draft work without issue backing",
+    "updating board without status and date hygiene"
+  ]
+}

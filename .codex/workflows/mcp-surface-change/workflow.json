@@ -1,0 +1,57 @@
+{
+  "id": "mcp-surface-change",
+  "title": "MCP Surface Change",
+  "goal": "Change the Hushh MCP package, server surface, or developer onboarding contract without breaking docs or setup parity.",
+  "owner_skill": "backend",
+  "default_spoke": "mcp-developer-surface",
+  "task_type": "mcp-surface-change",
+  "affected_surfaces": [
+    "packages/hushh-mcp",
+    "consent-protocol/docs/mcp-setup.md",
+    "consent-protocol/docs/reference/developer-api.md",
+    "consent-protocol/mcp_server.py"
+  ],
+  "required_reads": [
+    "packages/hushh-mcp/README.md",
+    "consent-protocol/docs/mcp-setup.md",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task mcp-surface-change",
+    "cd packages/hushh-mcp && npm run docs:check",
+    "./bin/hushh protocol test-ci"
+  ],
+  "verification_bundle": {
+    "id": "mcp-surface-change",
+    "commands": [
+      "cd packages/hushh-mcp && npm run docs:check",
+      "./bin/hushh protocol test-ci",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "cd packages/hushh-mcp && npm run docs:check",
+      "./bin/hushh protocol test-ci"
+    ]
+  },
+  "deliverables": [
+    "updated MCP wire surface",
+    "developer setup docs sync",
+    "verification of package output and config"
+  ],
+  "impact_fields": [
+    "API/schema/type changes",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "backend",
+    "mcp-developer-surface",
+    "docs-governance",
+    "security-audit"
+  ],
+  "common_failures": [
+    "changing package behavior without docs updates",
+    "breaking remote vs local MCP parity",
+    "forgetting developer API contract sync"
+  ]
+}

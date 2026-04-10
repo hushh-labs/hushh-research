@@ -1,0 +1,61 @@
+{
+  "id": "bug-triage",
+  "title": "Bug Triage",
+  "goal": "Reproduce, bound blast radius, pick the right owner skill, and run the minimal verification bundle needed to fix a bug safely.",
+  "owner_skill": "repo-context",
+  "default_spoke": null,
+  "task_type": "bug-triage",
+  "affected_surfaces": [
+    "hushh-webapp/lib",
+    "hushh-webapp/__tests__",
+    "consent-protocol/api",
+    "consent-protocol/tests",
+    "docs/reference/quality",
+    "scripts/ci"
+  ],
+  "required_reads": [
+    "docs/project_context_map.md",
+    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/reference/kai/kai-runtime-smoke-checklist.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task bug-triage",
+    "./bin/hushh codex impact bug-triage",
+    "./bin/hushh ci --include-advisory"
+  ],
+  "verification_bundle": {
+    "id": "bug-triage",
+    "commands": [
+      "./bin/hushh ci --include-advisory"
+    ],
+    "tests": [
+      "./bin/hushh ci --include-advisory"
+    ]
+  },
+  "deliverables": [
+    "repro and blast-radius summary",
+    "selected owner skill",
+    "minimal verification bundle",
+    "docs/runtime drift note when relevant"
+  ],
+  "impact_fields": [
+    "Routes touched",
+    "API/schema/type changes",
+    "Cache keys touched",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "repo-context",
+    "frontend",
+    "backend",
+    "security-audit",
+    "quality-contracts",
+    "repo-operations"
+  ],
+  "common_failures": [
+    "jumping into a subsystem before bounding blast radius",
+    "fixing symptoms without docs/tests updates",
+    "running oversized verification instead of targeted checks"
+  ]
+}

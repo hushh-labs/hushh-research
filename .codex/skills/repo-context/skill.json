@@ -1,0 +1,74 @@
+{
+  "id": "repo-context",
+  "role": "owner",
+  "owner_family": "repo-context",
+  "primary_scope": "repo-context-intake",
+  "description": "Use when a request starts with scanning the Hushh repository, establishing repo context, mapping code/docs/skills, or deciding which owner skill should own the next step.",
+  "owned_paths": [
+    "README.md",
+    "data"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "mobile-native",
+    "backend",
+    "security-audit",
+    "docs-governance",
+    "repo-operations"
+  ],
+  "task_types": [
+    "repo-orientation",
+    "bug-triage",
+    "skill-authoring"
+  ],
+  "required_reads": [
+    ".codex/skills/repo-context/references/index-contract.md",
+    ".codex/skills/repo-context/references/ownership-map.md",
+    "docs/project_context_map.md"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/repo-context/scripts/repo_scan.py summary",
+    "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills",
+    "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills --verbose",
+    "python3 .codex/skills/repo-context/scripts/repo_scan.py summary --text",
+    "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
+  ],
+  "verification_bundles": [
+    {
+      "id": "repo-context-core",
+      "commands": [
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py summary",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills --verbose",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py summary --text",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
+      ],
+      "tests": []
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "mobile-native",
+    "backend",
+    "security-audit",
+    "docs-governance",
+    "repo-operations",
+    "codex-skill-authoring",
+    "planning-board",
+    "comms-community"
+  ],
+  "adjacent_skills": [
+    "frontend",
+    "mobile-native",
+    "backend",
+    "security-audit",
+    "docs-governance",
+    "repo-operations",
+    "codex-skill-authoring"
+  ],
+  "risk_tags": [
+    "coverage-drift",
+    "routing-drift",
+    "orphaned-surfaces"
+  ]
+}

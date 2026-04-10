@@ -34,7 +34,7 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
-  PRODUCTION_DEPLOY_OWNER: kushaltrivedi
+  PRODUCTION_DEPLOY_OWNER: kushaltrivedi5
   CLOUD_RUN_REVISION_RETENTION: "10"
   BACKUP_BUCKET: hushh-pda-prod-db-backups
   BACKUP_PREFIX: prod/supabase-logical
@@ -50,7 +50,8 @@ jobs:
     name: Deploy Production Scope
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
-    environment: production-owner-bypass
+    # Route the owner account to the bypass lane and everyone else to the approval lane.
+    environment: ${{ github.actor == 'kushaltrivedi5' && 'production-owner-bypass' || 'production-approval' }}
 
     steps:
       - name: Assert manual dispatch originates from main
