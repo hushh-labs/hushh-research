@@ -1,7 +1,7 @@
 {
   "id": "ci-watch-and-heal",
   "title": "CI Watch And Heal",
-  "goal": "Monitor PR checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until CI reaches a terminal state or a hard blocker is identified.",
+  "goal": "Monitor PR, merge-queue, and post-merge smoke checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until CI reaches a terminal state or a hard blocker is identified.",
   "owner_skill": "repo-operations",
   "default_spoke": null,
   "task_type": "ci-watch-and-heal",
@@ -35,12 +35,14 @@
   },
   "deliverables": [
     "live check-state summary",
+    "delivery stage classification",
     "failing job classification",
     "fix-and-rerun log",
     "terminal CI outcome or blocker note"
   ],
   "impact_fields": [
     "Failing checks",
+    "Delivery stage",
     "Owner skill selected",
     "Docs updated",
     "Verification commands executed"
@@ -56,6 +58,7 @@
   "common_failures": [
     "treating a red check as someone else's problem",
     "not routing the failed job to the correct owner skill",
+    "not distinguishing PR feedback from queue authority or post-merge deploy authority",
     "stopping after rerun without monitoring terminal state"
   ]
 }

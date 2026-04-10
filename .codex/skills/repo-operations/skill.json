@@ -34,7 +34,9 @@
     "./bin/hushh docs verify",
     "./bin/hushh ci",
     "./scripts/ci/verify-main-branch-protection.sh",
-    "./scripts/ci/verify-production-environment-governance.sh"
+    "./scripts/ci/verify-production-environment-governance.sh",
+    "./scripts/ci/assert-governed-actor.py --surface uat --actor kushaltrivedi5",
+    "./scripts/ci/assert-governed-actor.py --surface production --actor kushaltrivedi5"
   ],
   "verification_bundles": [
     {
@@ -44,7 +46,9 @@
         "./bin/hushh docs verify",
         "./bin/hushh ci",
         "./scripts/ci/verify-main-branch-protection.sh",
-        "./scripts/ci/verify-production-environment-governance.sh"
+        "./scripts/ci/verify-production-environment-governance.sh",
+        "./scripts/ci/assert-governed-actor.py --surface uat --actor kushaltrivedi5",
+        "./scripts/ci/assert-governed-actor.py --surface production --actor kushaltrivedi5"
       ],
       "tests": [
         "./bin/hushh docs verify",

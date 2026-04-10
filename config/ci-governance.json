@@ -1,0 +1,29 @@
+{
+  "main": {
+    "required_status_check": "CI Status Gate",
+    "required_approving_reviews": 1,
+    "review_bypass_users": [
+      "kushaltrivedi5",
+      "Akash-292",
+      "RGlodAkshat"
+    ],
+    "merge_queue_required": true,
+    "merge_queue_bypass_users": []
+  },
+  "uat": {
+    "auto_deploy_workflow": "Main Post-Merge Smoke",
+    "required_post_merge_check": "Main Post-Merge Smoke Gate",
+    "manual_dispatch_users": [
+      "kushaltrivedi5",
+      "Akash-292",
+      "RGlodAkshat"
+    ]
+  },
+  "production": {
+    "required_post_merge_check": "Main Post-Merge Smoke Gate",
+    "manual_dispatch_users": [
+      "kushaltrivedi5"
+    ],
+    "owner_environment": "production-owner-bypass"
+  }
+}

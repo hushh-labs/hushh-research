@@ -35,7 +35,16 @@ Use this reference to orient DevOps work in `hushh-research`.
 
 1. `main` is the only integration branch.
 2. Merge queue is the standard path to `main`.
-3. `CI Status Gate` is the classic blocking required check.
+3. `CI Status Gate` is the blocking queue/PR check on pre-merge commits.
 4. `Main Freshness Gate` is advisory on PRs and blocking on `merge_group`.
-5. UAT deploys from a green `main` SHA.
-6. Production deploys from an approved green `main` SHA.
+5. `Main Post-Merge Smoke Gate` is the deploy-authority check on the real `main` SHA.
+6. UAT deploys from a green `main` SHA that passed post-merge smoke.
+7. Production deploys from an approved green `main` SHA that passed post-merge smoke.
+
+## Review bypass semantics
+
+1. Review approval and review bypass are different GitHub states.
+2. A PR author cannot self-approve through GitHub.
+3. A bypass-listed actor may still waive the review gate when the live branch protection allows it.
+4. Merge-queue rules remain separate from review bypass and must be verified independently.
+5. The privileged three may dispatch UAT manually; only `kushaltrivedi5` may dispatch Production.

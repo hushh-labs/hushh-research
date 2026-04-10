@@ -3,7 +3,7 @@ name: Deploy to UAT
 on:
   workflow_run:
     workflows:
-      - "Tri-Flow CI"
+      - "Main Post-Merge Smoke"
     types:
       - completed
     branches:
@@ -64,6 +64,13 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Assert manual UAT dispatch actor policy
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
+
       - name: Resolve deployment SHA
         id: resolve-sha
         shell: bash
@@ -85,7 +92,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "CI Status Gate"
+          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Checkout deployment SHA
