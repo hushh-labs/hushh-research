@@ -63,7 +63,7 @@ firebase-admin==7.1.0
 # Anchoring to Protobuf 6.x to resolve conflicts between firebase-admin and google-adk
 # grpcio 1.76+ provides pre-built wheels for Python 3.13 (see https://pypi.org/project/grpcio/)
 # protobuf 6.x required by grpcio-status 1.76; compatible with firebase-admin and google-adk
-protobuf>=6.31.1,<7.0.0
+protobuf>=6.31.1,<8.0.0
 grpcio==1.76.0
 grpcio-status==1.76.0
 # 2.25.1+ required for protobuf 6.x; pinned to avoid resolution-too-deep
