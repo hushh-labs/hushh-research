@@ -22,6 +22,7 @@
   ],
   "task_types": [
     "security-consent-audit",
+    "security-posture-maintenance",
     "release-readiness",
     "bug-triage"
   ],
@@ -33,14 +34,16 @@
   ],
   "required_commands": [
     "./bin/hushh docs verify",
-    "cd consent-protocol && python3 -m pytest tests/quality -q"
+    "cd consent-protocol && python3 -m pytest tests/quality -q",
+    "./bin/hushh codex maintenance daily --no-issue-update --text"
   ],
   "verification_bundles": [
     {
       "id": "security-audit-core",
       "commands": [
         "./bin/hushh docs verify",
-        "cd consent-protocol && python3 -m pytest tests/quality -q"
+        "cd consent-protocol && python3 -m pytest tests/quality -q",
+        "./bin/hushh codex maintenance daily --no-issue-update --text"
       ],
       "tests": [
         "./bin/hushh docs verify",

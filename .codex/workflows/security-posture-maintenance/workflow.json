@@ -1,0 +1,86 @@
+{
+  "id": "security-posture-maintenance",
+  "title": "Security Posture Maintenance",
+  "goal": "Review live GitHub security drift and Codex-system integrity on a recurring cadence without waiting for a feature PR to surface aged backlog.",
+  "owner_skill": "security-audit",
+  "default_spoke": null,
+  "task_type": "security-posture-maintenance",
+  "affected_surfaces": [
+    ".github/workflows",
+    ".github/dependabot.yml",
+    "scripts/ci",
+    "scripts/ops",
+    "docs/reference/operations",
+    ".codex/workflows/security-posture-maintenance"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/project_context_map.md",
+    "docs/reference/iam/README.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task security-posture-maintenance",
+    "./bin/hushh codex maintenance daily",
+    "python3 scripts/ops/codex_maintenance.py snapshot-alerts --kind dependabot --severity-threshold high",
+    "python3 scripts/ops/codex_maintenance.py snapshot-alerts --kind code-scanning --severity-threshold high"
+  ],
+  "verification_bundle": {
+    "id": "security-posture-maintenance",
+    "commands": [
+      "./bin/hushh codex audit --json",
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh docs verify",
+      "python3 scripts/ops/codex_maintenance.py snapshot-alerts --kind dependabot --severity-threshold high",
+      "python3 scripts/ops/codex_maintenance.py snapshot-alerts --kind code-scanning --severity-threshold high"
+    ],
+    "tests": [
+      "./bin/hushh codex audit --json",
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "security severity snapshot",
+    "Codex audit scorecard",
+    "workflow maintenance report",
+    "updated rolling maintenance issue"
+  ],
+  "impact_fields": [
+    "Security findings",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "security-audit",
+    "repo-operations",
+    "codex-skill-authoring",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "letting open high-severity backlog age outside normal PR traffic",
+    "treating workflow drift as separate from security posture",
+    "running scheduled maintenance without updating the rolling issue"
+  ],
+  "scheduled_safe": true,
+  "maintenance_cadence": "daily",
+  "maintenance_runner": [
+    "./bin/hushh codex audit --json",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "./bin/hushh docs verify",
+    "python3 scripts/ops/codex_maintenance.py snapshot-alerts --kind dependabot --severity-threshold high",
+    "python3 scripts/ops/codex_maintenance.py snapshot-alerts --kind code-scanning --severity-threshold high"
+  ],
+  "maintenance_owner": "security-audit",
+  "maintenance_issue_section": "security-posture-maintenance",
+  "maintenance_blockers": [
+    "high or critical Dependabot alerts remain open",
+    "high or critical code scanning alerts remain open",
+    "codex audit reports high findings",
+    "skill lint fails"
+  ],
+  "maintenance_prerequisites": [
+    "command:gh",
+    "gh-auth",
+    "command:python3"
+  ]
+}

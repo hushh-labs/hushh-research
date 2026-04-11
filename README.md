@@ -100,6 +100,7 @@ That is the canonical first-run path:
 ./bin/hushh codex onboard
 ./bin/hushh codex ci-status --watch
 ./bin/hushh codex route-task repo-orientation
+./bin/hushh codex maintenance daily
 ./bin/hushh web --mode uat
 ./bin/hushh native ios --mode uat
 ./bin/hushh native android --mode uat

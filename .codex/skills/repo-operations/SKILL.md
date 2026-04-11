@@ -60,6 +60,9 @@ Non-owned surfaces:
 5. Treat the delivery model as three stages: PR feedback lane, queue authority lane, and post-merge deploy-authority lane.
 6. Treat GitHub approval and GitHub bypass as separate states: a PR author still cannot self-approve, but a bypass-listed actor may waive the review gate and, when configured, use the dedicated queue-bypass owner path.
 7. Monitor the resulting workflow chain until terminal success or a concrete blocker.
+8. If the user explicitly wants visible OS terminal windows for runtime commands, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands instead of long-lived hidden Codex sessions.
+9. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
+10. Prefer `./bin/hushh codex maintenance <daily|weekly|monthly>` for unattended repo-health runs so the workflow metadata, GitHub schedules, and rolling maintenance issue stay aligned.
 
 ## Handoff Rules
 
@@ -72,6 +75,7 @@ Non-owned surfaces:
 
 ```bash
 ./bin/hushh codex ci-status
+./bin/hushh codex maintenance daily --no-issue-update --text
 ./bin/hushh docs verify
 ./bin/hushh ci
 ./scripts/ci/verify-main-branch-protection.sh

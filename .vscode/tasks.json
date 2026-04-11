@@ -2,72 +2,45 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Profile: Local",
+      "label": "Runtime: Visible Local Backend",
       "type": "shell",
-      "command": "make profile-use PROFILE=local-uatdb",
+      "command": "./bin/hushh terminal backend --mode local --reload",
       "options": {
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     },
     {
-      "label": "Profile: UAT",
+      "label": "Runtime: Visible Local Frontend",
       "type": "shell",
-      "command": "make profile-use PROFILE=uat-remote",
+      "command": "./bin/hushh terminal web --mode local",
       "options": {
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     },
     {
-      "label": "Profile: Production",
+      "label": "Runtime: Visible UAT Frontend",
       "type": "shell",
-      "command": "make profile-use PROFILE=prod-remote",
+      "command": "./bin/hushh terminal web --mode uat",
       "options": {
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     },
     {
-      "label": "Runtime: Local Stack",
+      "label": "Runtime: Visible Production Frontend",
       "type": "shell",
-      "command": "make local",
+      "command": "./bin/hushh terminal web --mode prod",
       "options": {
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     },
     {
-      "label": "Runtime: UAT Stack",
+      "label": "Runtime: Visible Local Stack",
       "type": "shell",
-      "command": "make uat",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Runtime: Production Stack",
-      "type": "shell",
-      "command": "make prod",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Runtime: Local Web",
-      "type": "shell",
-      "command": "make local-web",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Runtime: Local Backend",
-      "type": "shell",
-      "command": "make local-backend",
+      "command": "./bin/hushh terminal stack --mode local",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -76,7 +49,7 @@
     {
       "label": "Native: Android Local",
       "type": "shell",
-      "command": "cd hushh-webapp && npm run cap:android:run -- --profile local-uatdb --fresh",
+      "command": "./bin/hushh native android --mode local --fresh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -85,7 +58,7 @@
     {
       "label": "Native: iOS Local",
       "type": "shell",
-      "command": "cd hushh-webapp && npm run cap:ios:run -- --profile local-uatdb --fresh",
+      "command": "./bin/hushh native ios --mode local --fresh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
