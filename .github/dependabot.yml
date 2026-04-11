@@ -3,8 +3,11 @@ updates:
   - package-ecosystem: "npm"
     directory: "/hushh-webapp"
     schedule:
-      interval: "daily"
-    open-pull-requests-limit: 10
+      interval: "weekly"
+      day: "monday"
+      time: "15:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
     labels:
       - "dependencies"
       - "security"
@@ -16,12 +19,19 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "npm"
     directory: "/packages/hushh-mcp"
     schedule:
-      interval: "daily"
-    open-pull-requests-limit: 10
+      interval: "weekly"
+      day: "tuesday"
+      time: "15:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "security"
@@ -33,13 +43,19 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "pip"
     directory: "/consent-protocol"
     schedule:
       interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
+      day: "wednesday"
+      time: "15:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "security"
@@ -51,13 +67,19 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
+      day: "thursday"
+      time: "15:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "security"
@@ -69,3 +91,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
