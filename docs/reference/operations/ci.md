@@ -187,6 +187,43 @@ The secret gate is intentionally stricter than raw regex scanning:
   - GitHub still reports any open secret-scanning alerts
 - open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 
+## Scheduled Codex Maintenance
+
+Merge-time CI stays event-driven. Time-driven maintenance runs beside it through three scheduled workflows:
+
+1. `Codex Maintenance Daily`
+2. `Codex Maintenance Weekly`
+3. `Codex Maintenance Monthly`
+
+Canonical entrypoint:
+
+```bash
+./bin/hushh codex maintenance daily
+./bin/hushh codex maintenance weekly
+./bin/hushh codex maintenance monthly
+```
+
+These runs:
+
+1. execute only workflow packs marked `scheduled_safe=true`
+2. respect each workflow pack's `maintenance_cadence`
+3. snapshot live GitHub Dependabot and code-scanning alerts
+4. run Codex audit and skill lint checks
+5. update one rolling GitHub issue: `Codex Maintenance Radar`
+
+Cadence contract:
+
+1. `daily`
+   - security posture and Codex-system integrity
+   - fails on open `high` or `critical` GitHub security alerts
+2. `weekly`
+   - repo-health workflow packs: `repo-orientation`, `docs-sync`, `security-consent-audit`, `release-readiness`, `skill-authoring`
+3. `monthly`
+   - environment-sensitive workflow packs: `mobile-parity-check`, `mcp-surface-change`
+   - unmet prerequisites are recorded as `skipped`, not `passed`
+
+Dependency-update cadence is repo-tracked in [`.github/dependabot.yml`](../../../.github/dependabot.yml).
+
 ## Advisory Checks (Non-Blocking By Default)
 
 1. `scripts/ci/docs-parity-check.sh`

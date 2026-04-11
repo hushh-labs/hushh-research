@@ -55,6 +55,8 @@ Non-owned surfaces:
 1. Decide whether the task belongs to runtime governance, API contracts, agents/operons, or the MCP developer surface.
 2. Keep backend docs, tests, and boundary contracts aligned when the underlying rule changes.
 3. Route IAM, consent, vault, PKM, and audit-heavy issues into `security-audit` when those are the real ownership surface.
+4. If the user explicitly wants a visible OS terminal window, prefer `./bin/hushh terminal backend --mode local --reload` as the primary backend path.
+5. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred over separate backend/frontend terminals.
 
 ## Handoff Rules
 

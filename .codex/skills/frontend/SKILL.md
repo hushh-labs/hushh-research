@@ -55,6 +55,8 @@ Non-owned surfaces:
 2. Decide whether the work belongs to `frontend-design-system`, `frontend-architecture`, or `frontend-surface-placement`.
 3. Route native-only concerns to `mobile-native`.
 4. Keep route and verification changes aligned with existing package scripts and contracts.
+5. If the user explicitly wants a visible OS terminal window, prefer `./bin/hushh terminal web --mode <mode>` as the primary frontend path.
+6. Use `./bin/hushh terminal stack --mode <mode>` only when one combined visible terminal is explicitly preferred over separate backend/frontend terminals.
 
 ## Handoff Rules
 

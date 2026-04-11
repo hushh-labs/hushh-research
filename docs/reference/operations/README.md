@@ -42,6 +42,7 @@ Use the root CLI for agent-first onboarding and deterministic workflow routing:
 - `./bin/hushh codex route-task <workflow-id>`
 - `./bin/hushh codex impact <workflow-id> [--path <repo-path>]`
 - `./bin/hushh codex ci-status [--watch]`
+- `./bin/hushh codex maintenance <daily|weekly|monthly>`
 - `./bin/hushh codex audit`
 
 ## Codex skills
@@ -61,6 +62,7 @@ Top-level owner skills:
 
 Specialist spoke skills live under the same tree and should be used after the correct owner skill or `repo-context` has narrowed the request.
 Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.
+Scheduled Codex maintenance workflows are the canonical time-driven maintenance surface for workflow drift, security backlog visibility, and the rolling `Codex Maintenance Radar` issue.
 Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends on live PR checks or GitHub Actions state.
 
 ## References

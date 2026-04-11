@@ -61,7 +61,7 @@ Every visible page route must be documented as either native-supported or explic
 
 Recommended commands:
 
-- Terminal A (repo root): `./bin/hushh backend`
+- Terminal A (repo root): `./bin/hushh terminal backend --mode local --reload`
 - Terminal B (repo root):
   - Android: `./bin/hushh native android --mode local --fresh`
   - iOS: `./bin/hushh native ios --mode local --fresh`
