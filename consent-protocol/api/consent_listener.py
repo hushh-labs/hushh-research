@@ -19,6 +19,7 @@ from typing import Any, Dict
 
 from api.utils.consent_notifications import next_pending_notification
 from api.utils.fcm_messages import build_push_message
+from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
@@ -30,6 +31,9 @@ logger = logging.getLogger(__name__)
 # Interval for timeout job (seconds)
 TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
+JOB_DB_RECOVERY_DELAY_SECONDS = 15
+FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
+MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
 # Per-user queues for SSE generators (no polling). Key = user_id.
 _consent_notify_queues: Dict[str, asyncio.Queue] = {}
@@ -43,6 +47,15 @@ _last_notify_action: str | None = None
 _UUID_LIKE_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
+)
+_DB_UNAVAILABLE_PATTERNS = (
+    "connection refused",
+    "server closed the connection unexpectedly",
+    "could not connect to server",
+    "connection reset by peer",
+    "timed out",
+    "timeout",
+    "db operation failed",
 )
 
 
@@ -70,6 +83,25 @@ def _looks_technical_requester_label(
         return True
     if _UUID_LIKE_PATTERN.match(normalized):
         return True
+    return False
+
+
+def _iter_exception_chain(exc: BaseException):
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_database_unavailable_error(exc: Exception) -> bool:
+    for current in _iter_exception_chain(exc):
+        if isinstance(current, (DatabaseExecutionError, ConnectionError, OSError, TimeoutError)):
+            return True
+        message = str(current).strip().lower()
+        if message and any(pattern in message for pattern in _DB_UNAVAILABLE_PATTERNS):
+            return True
     return False
 
 
@@ -556,6 +588,14 @@ async def _notification_job_loop():
         except asyncio.CancelledError:
             break
         except Exception as exc:
+            if _is_database_unavailable_error(exc):
+                logger.warning(
+                    "Consent notification job database unavailable; retrying in %ss: %s",
+                    JOB_DB_RECOVERY_DELAY_SECONDS,
+                    exc,
+                )
+                await asyncio.sleep(JOB_DB_RECOVERY_DELAY_SECONDS)
+                continue
             logger.warning("Consent notification job error: %s", exc)
 
 
@@ -572,6 +612,14 @@ async def _timeout_job_loop():
         except asyncio.CancelledError:
             break
         except Exception as e:
+            if _is_database_unavailable_error(e):
+                logger.warning(
+                    "Timeout job database unavailable; retrying in %ss: %s",
+                    JOB_DB_RECOVERY_DELAY_SECONDS,
+                    e,
+                )
+                await asyncio.sleep(JOB_DB_RECOVERY_DELAY_SECONDS)
+                continue
             logger.warning("Timeout job error: %s", e)
 
 

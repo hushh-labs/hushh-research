@@ -1,5 +1,53 @@
 import type { KaiCommandAction, KaiWorkspaceTab } from "@/lib/kai/kai-command-types";
 
+export type VoiceSurfaceSectionDefinition = {
+  id: string;
+  title: string;
+  purpose?: string | null;
+  summary?: string | null;
+};
+
+export type VoiceSurfaceActionDefinition = {
+  id: string;
+  label: string;
+  purpose?: string | null;
+  description?: string | null;
+  voiceAliases?: string[];
+};
+
+export type VoiceSurfaceControlDefinition = {
+  id: string;
+  label: string;
+  type?: string | null;
+  state?: string | null;
+  purpose?: string | null;
+  description?: string | null;
+  actionId?: string | null;
+  role?: string | null;
+  voiceAliases?: string[];
+};
+
+export type VoiceSurfaceConceptDefinition = {
+  id?: string | null;
+  label: string;
+  description?: string | null;
+  explanation?: string | null;
+  aliases?: string[];
+};
+
+export type VoiceSurfaceDefinition = {
+  screenId?: string | null;
+  title?: string | null;
+  purpose?: string | null;
+  primaryEntity?: string | null;
+  sections: VoiceSurfaceSectionDefinition[];
+  actions: VoiceSurfaceActionDefinition[];
+  controls: VoiceSurfaceControlDefinition[];
+  concepts: VoiceSurfaceConceptDefinition[];
+  activeControlId?: string | null;
+  lastInteractedControlId?: string | null;
+};
+
 export type VoiceExecuteKaiCommandCall = {
   tool_name: "execute_kai_command";
   args: {

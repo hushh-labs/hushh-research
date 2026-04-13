@@ -198,4 +198,29 @@ describe("resolveGroundedVoicePlan", () => {
       },
     ]);
   });
+
+  it("grounds PKM navigation from transcript heuristics even for speak-only replies", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening PKM Agent Lab.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open pkm",
+      response,
+      structuredContext: makeContext("/profile"),
+    });
+
+    expect(plan.status).toBe("resolved");
+    expect(plan.actionId).toBe("nav.profile_pkm_agent_lab");
+    expect(plan.execution.mode).toBe("navigate_only");
+    expect(plan.execution.steps).toEqual([
+      {
+        type: "navigate",
+        href: "/profile/pkm-agent-lab",
+        reason: "route_bound_action",
+      },
+    ]);
+  });
 });

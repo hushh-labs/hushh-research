@@ -197,8 +197,7 @@ function isVoiceFailFastEnabled(): boolean {
 function isVoiceDirectBackendRequired(): boolean {
   if (Capacitor.isNativePlatform()) return false;
   const explicitDirect = isTruthyEnvFlag(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND);
-  const devDefaultDirectOnly = process.env.NODE_ENV === "development";
-  return explicitDirect || isVoiceFailFastEnabled() || devDefaultDirectOnly;
+  return explicitDirect || isVoiceFailFastEnabled();
 }
 
 function normalizeVoiceAudioMimeType(rawMimeType: string | null | undefined): string {
@@ -595,7 +594,6 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
             (options.headers as Record<string, string>)["x-voice-turn-id"]
           : undefined;
   const turnIdHeader = turnIdHeaderRaw || undefined;
-  const finalizeTrace = /\/api\/kai\/voice\/tts$/.test(path);
   if (directRequired && transport.mode !== "direct_backend") {
     const reason = `VOICE_DIRECT_BACKEND_REQUIRED:${transport.reason}`;
     emitVoiceTransportStage(turnIdHeader, "transport_config_invalid", {
@@ -627,7 +625,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
           mode: "nextjs_proxy",
           status: response.status,
         },
-        { finalize: finalizeTrace || !response.ok }
+        { finalize: true }
       );
       return response;
     } catch (error) {
@@ -705,7 +703,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
         mode: "direct_backend",
         status: response.status,
       },
-      { finalize: finalizeTrace || !response.ok }
+      { finalize: true }
     );
     return response;
   } catch (error) {

@@ -287,6 +287,44 @@ describe("executeVoiceResponse", () => {
     });
   });
 
+  it("executes grounded navigation for speak-only route intents", async () => {
+    const input = baseInput();
+    const result = await executeVoiceResponse({
+      ...input,
+      response: {
+        kind: "speak_only",
+        message: "Opening Gmail.",
+        speak: true,
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "nav.profile_gmail_panel",
+        actionLabel: "Open Gmail Connector Panel",
+        destructive: false,
+        message: null,
+        execution: {
+          mode: "navigate_only",
+          steps: [
+            {
+              type: "navigate",
+              href: "/profile?tab=account&panel=gmail",
+              reason: "route_bound_action",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(input.router.push).toHaveBeenCalledWith("/profile?tab=account&panel=gmail");
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      shortTermMemoryWrite: true,
+      toolName: "navigate",
+      ticker: null,
+      responseKind: "speak_only",
+    });
+  });
+
   it("falls back to legacy execute path when grounded execution rollout flag is disabled", async () => {
     process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED = "0";
     const input = baseInput();
@@ -350,6 +388,23 @@ describe("executeVoiceResponse", () => {
     });
 
     expect(toastInfoMock).toHaveBeenCalledTimes(1);
+    expect(result.shortTermMemoryWrite).toBe(false);
+    expect(result.toolName).toBeNull();
+  });
+
+  it("suppresses duplicate notifications when the voice UI already presents the reply", async () => {
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      suppressNotifications: true,
+      response: {
+        kind: "clarify",
+        reason: "stt_unusable",
+        message: "I couldn’t understand what you said, please repeat.",
+        speak: true,
+      },
+    });
+
+    expect(toastInfoMock).not.toHaveBeenCalled();
     expect(result.shortTermMemoryWrite).toBe(false);
     expect(result.toolName).toBeNull();
   });
@@ -421,6 +476,29 @@ describe("executeVoiceResponse", () => {
     });
 
     expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      shortTermMemoryWrite: true,
+      toolName: "background_started",
+      ticker: "MSFT",
+      responseKind: "background_started",
+    });
+  });
+
+  it("suppresses background-started success toasts when voice compact UI is active", async () => {
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      suppressNotifications: true,
+      response: {
+        kind: "background_started",
+        task: "analysis",
+        ticker: "MSFT",
+        run_id: "run_2",
+        message: "Started analysis for MSFT in background.",
+        speak: true,
+      },
+    });
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       shortTermMemoryWrite: true,
       toolName: "background_started",

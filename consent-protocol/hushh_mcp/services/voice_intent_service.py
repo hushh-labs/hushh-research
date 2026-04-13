@@ -4,6 +4,7 @@ import os
 import re
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Any
 
@@ -11,6 +12,12 @@ import httpx
 
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 from hushh_mcp.services.ticker_cache import ticker_cache
+from hushh_mcp.services.voice_app_knowledge import (
+    looks_like_voice_knowledge_request,
+    resolve_global_concept,
+    resolve_surface_explanation,
+    resolve_voice_explain_knowledge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +27,14 @@ _OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 _OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
 _OPENAI_HTTP_TIMEOUT_SECONDS = 45.0
 _OPENAI_TTS_TIMEOUT_SECONDS = 20.0
+_REALTIME_TRANSCRIPTION_LANGUAGE = "en"
+_REALTIME_TRANSCRIPTION_PROMPT = (
+    "Transcribe spoken English only. Do not translate or transliterate. "
+    "If the speech is unclear, keep the transcript short and in English."
+)
+_REALTIME_NOISE_REDUCTION_TYPE = "near_field"
+_REALTIME_SERVER_VAD_THRESHOLD = 0.72
+_REALTIME_SERVER_VAD_PREFIX_PADDING_MS = 450
 
 _ALLOWED_TOOL_NAMES = {
     "execute_kai_command",
@@ -122,13 +137,28 @@ _STATUS_QUERY_KEYWORDS = (
 _SCREEN_EXPLAIN_KEYWORDS = (
     "what is on my screen",
     "what's on my screen",
+    "what is this screen",
+    "what's this screen",
+    "what is this page",
+    "what's this page",
     "what is going on on my screen",
     "what is going on my screen",
     "what is going on on the screen",
     "what is going on the screen",
     "what is happening here",
+    "what's happening here",
     "explain this screen",
     "explain this page",
+    "explain this section",
+)
+_DETAIL_REQUEST_KEYWORDS = (
+    "explain more",
+    "go deeper",
+    "break it down",
+    "give me details",
+    "more detail",
+    "more details",
+    "in detail",
 )
 _IMPORT_INTENT_KEYWORDS = (
     "import",
@@ -436,6 +466,10 @@ def _coerce_str_or_none(value: Any) -> str | None:
     return text or None
 
 
+def _coerce_int(value: Any) -> int | None:
+    return value if isinstance(value, int) else None
+
+
 def _coerce_str_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -462,100 +496,567 @@ def _is_screen_explain_intent(lowered_text: str) -> bool:
     )
 
 
+def _wants_detailed_response(lowered_text: str) -> bool:
+    if _contains_any(lowered_text, _DETAIL_REQUEST_KEYWORDS):
+        return True
+    return bool(re.search(r"\bwhy\b", lowered_text))
+
+
+def _match_surface_navigation_intent(lowered_text: str) -> str | None:
+    if re.search(r"\b(open|show|go to|take me to)\b.*\bgmail\b", lowered_text):
+        return "gmail"
+    if re.search(r"\b(open|show|go to|take me to)\b.*\b(receipts?)\b", lowered_text):
+        return "receipts"
+    if re.search(
+        r"\b(open|show|go to|take me to)\b.*\b(pkm|pkm agent lab|personal knowledge model)\b",
+        lowered_text,
+    ):
+        return "pkm_agent_lab"
+    return None
+
+
+def _is_receipts_memory_intent(lowered_text: str) -> bool:
+    return bool(
+        re.search(r"\b(add|build|refresh|save)\b.*\b(receipts?)\b.*\bpkm\b", lowered_text)
+        or re.search(r"\b(receipts?)\b.*\b(memory|preview)\b", lowered_text)
+    )
+
+
+def _spoken_command_label(command: str) -> str:
+    normalized = _COMMAND_ALIASES.get(_coerce_str(command).lower(), _coerce_str(command).lower())
+    labels = {
+        "home": "market",
+        "dashboard": "dashboard",
+        "import": "import",
+        "history": "history",
+        "profile": "profile",
+        "consent": "consents",
+        "optimize": "optimize",
+    }
+    return labels.get(normalized, normalized or "that")
+
+
+def _is_generic_execute_message(message: str) -> bool:
+    normalized = _coerce_str(message).lower().rstrip(".!?")
+    return normalized in {
+        "working on that now",
+        "done",
+        "okay",
+        "ok",
+        "sure",
+    }
+
+
+def _build_execute_message(tool_call: dict[str, Any] | None) -> str:
+    if not isinstance(tool_call, dict):
+        return "Working on that now."
+    tool_name = _coerce_str(tool_call.get("tool_name"))
+    args = tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
+    if tool_name == "navigate_back":
+        return "Going back."
+    if tool_name == "resume_active_analysis":
+        return "Resuming analysis."
+    if tool_name == "cancel_active_analysis":
+        return "Cancelling analysis."
+    if tool_name == "execute_kai_command":
+        command = _coerce_str(args.get("command"))
+        params = args.get("params") if isinstance(args.get("params"), dict) else {}
+        if command == "analyze":
+            symbol = _coerce_str(params.get("symbol")).upper()
+            return f"Starting analysis for {symbol}." if symbol else "Starting analysis."
+        return f"Opening {_spoken_command_label(command)}."
+    return "Working on that now."
+
+
+def _normalize_banker_message(
+    message: str,
+    *,
+    kind: str,
+    tool_call: dict[str, Any] | None,
+) -> str:
+    text = re.sub(r"\s+", " ", _coerce_str(message)).strip()
+    if not text:
+        if kind == "execute":
+            text = _build_execute_message(tool_call)
+        return text
+    text = re.sub(
+        r"^(?:absolutely|great question|happy to help)\b[,\-: ]*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    text = re.sub(
+        r"^(?:let me|here(?:'| i)?s what i found)\b[,\-: ]*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    if kind == "execute" and _is_generic_execute_message(text):
+        text = _build_execute_message(tool_call)
+    if text and text[-1] not in ".!?":
+        text = f"{text}."
+    return text
+
+
+def _titleize_label(value: Any) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[_\-]+", " ", _coerce_str(value))).strip().title()
+
+
+def _read_structured_screen_context(
+    legacy_context: dict[str, Any],
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+]:
+    structured = (
+        legacy_context.get("structured_screen_context")
+        if isinstance(legacy_context.get("structured_screen_context"), dict)
+        else {}
+    )
+    route = structured.get("route") if isinstance(structured.get("route"), dict) else {}
+    ui = structured.get("ui") if isinstance(structured.get("ui"), dict) else {}
+    runtime = structured.get("runtime") if isinstance(structured.get("runtime"), dict) else {}
+    surface = structured.get("surface") if isinstance(structured.get("surface"), dict) else {}
+    screen_metadata = (
+        structured.get("screen_metadata")
+        if isinstance(structured.get("screen_metadata"), dict)
+        else {}
+    )
+    return structured, route, ui, runtime, surface, screen_metadata
+
+
+def _format_action_hint(actions: list[str]) -> str | None:
+    normalized = [_coerce_str(action) for action in actions if _coerce_str(action)]
+    if not normalized:
+        return None
+    lowered = [action[:1].lower() + action[1:] if action else action for action in normalized[:3]]
+    if len(lowered) == 1:
+        return f"You can {lowered[0]}."
+    if len(lowered) == 2:
+        return f"You can {lowered[0]} or {lowered[1]}."
+    return f"You can {lowered[0]}, {lowered[1]}, or {lowered[2]}."
+
+
+def _screen_label(screen: str, pathname: str) -> str:
+    labels = {
+        "home": "market home",
+        "kai_market": "market home",
+        "dashboard": "portfolio dashboard",
+        "kai_portfolio_dashboard": "portfolio dashboard",
+        "kai_portfolio_bootstrap": "portfolio",
+        "kai_portfolio_import": "portfolio import",
+        "kai_portfolio_import_progress": "portfolio import",
+        "kai_portfolio_import_complete": "portfolio import",
+        "kai_portfolio_review": "portfolio review",
+        "kai_portfolio_analysis": "portfolio analysis",
+        "analysis": "analysis",
+        "kai_analysis": "analysis",
+        "kai_analysis_workspace": "analysis workspace",
+        "kai_analysis_history": "analysis history",
+        "import": "import",
+        "kai_import": "import",
+        "optimize": "optimize",
+        "kai_optimize": "optimize",
+        "profile": "profile",
+        "profile_account": "profile",
+        "profile_preferences": "profile preferences",
+        "profile_privacy": "profile privacy",
+        "profile_gmail_panel": "Gmail connector",
+        "profile_support_panel": "support panel",
+        "profile_security_panel": "vault security",
+        "profile_receipts": "receipts",
+        "profile_pkm_agent_lab": "PKM Agent Lab",
+        "consent": "consent center",
+        "consents": "consent center",
+        "history": "analysis history",
+    }
+    if screen in labels:
+        return labels[screen]
+    if pathname.startswith("/profile"):
+        return "profile"
+    if pathname.startswith("/kai"):
+        return "Kai"
+    return "Kai"
+
+
+def _preferred_screen_key(
+    structured_route: dict[str, Any],
+    structured_surface: dict[str, Any],
+    route_state: dict[str, Any],
+) -> str:
+    surface_screen = _coerce_str(
+        structured_surface.get("screen_id") or structured_surface.get("screenId")
+    )
+    if surface_screen:
+        return surface_screen
+    route_screen = _coerce_str(structured_route.get("screen"))
+    if route_screen:
+        return route_screen
+    return _coerce_str(route_state.get("screen"))
+
+
+def _screen_specific_summary(
+    *,
+    screen: str,
+    screen_metadata: dict[str, Any],
+    available_actions: list[str],
+) -> str | None:
+    if screen == "profile_receipts":
+        connector = _coerce_str_or_none(
+            screen_metadata.get("connector_badge_label") or screen_metadata.get("connector_state")
+        )
+        receipt_count = screen_metadata.get("receipt_count")
+        preview_available = _coerce_bool(screen_metadata.get("preview_available"), default=False)
+        preview_stale = _coerce_bool(screen_metadata.get("preview_stale"), default=False)
+        if connector and isinstance(receipt_count, int):
+            summary = f"Gmail is {connector.lower()} with {receipt_count} stored receipts."
+            if preview_available:
+                preview_state = "stale" if preview_stale else "ready"
+                summary = f"{summary} A receipt memory preview is {preview_state}."
+            return summary
+    if screen == "profile_gmail_panel":
+        connected = _coerce_bool(screen_metadata.get("gmail_connected"), default=False)
+        inbox = _coerce_str_or_none(screen_metadata.get("google_email"))
+        if connected and inbox:
+            return f"Gmail is connected to {inbox}."
+        if connected:
+            return "Gmail is connected."
+        return "Gmail is not connected yet."
+    if screen == "profile_pkm_agent_lab":
+        domain_count = screen_metadata.get("domain_count")
+        selected_domain = _coerce_str_or_none(screen_metadata.get("selected_domain_key"))
+        preview_card_count = screen_metadata.get("preview_card_count")
+        if selected_domain:
+            return f"The current PKM domain focus is {_titleize_label(selected_domain)}."
+        if isinstance(domain_count, int) and isinstance(preview_card_count, int):
+            return (
+                f"{domain_count} PKM domains are loaded and {preview_card_count} preview"
+                f" capture{'s' if preview_card_count != 1 else ''} are visible."
+            )
+    if screen == "profile_account":
+        if _coerce_bool(screen_metadata.get("gmail_connected"), default=False):
+            return "Gmail receipts are connected from account settings."
+    if screen == "profile_privacy":
+        pending_consents = screen_metadata.get("pending_consents")
+        if isinstance(pending_consents, int) and pending_consents > 0:
+            return (
+                f"{pending_consents} consent request"
+                f"{'' if pending_consents == 1 else 's'} are waiting for review."
+            )
+    if screen == "kai_market":
+        market_mode = _coerce_str_or_none(screen_metadata.get("market_mode")) or "baseline"
+        pick_source = _coerce_str_or_none(screen_metadata.get("active_pick_source"))
+        signal_count = _coerce_int(screen_metadata.get("signal_count"))
+        news_count = _coerce_int(screen_metadata.get("news_count"))
+        spotlight_count = _coerce_int(screen_metadata.get("spotlight_count"))
+        connect_portfolio_visible = _coerce_bool(
+            screen_metadata.get("connect_portfolio_visible"), default=False
+        )
+        parts = [
+            "This market home screen summarizes the live tape, advisor signals, and discovery modules."
+        ]
+        if market_mode == "personalized" and pick_source:
+            parts.append(f"The active advisor source is {pick_source}.")
+        elif market_mode == "baseline":
+            parts.append("It is showing the baseline market mode.")
+        if isinstance(signal_count, int) and isinstance(spotlight_count, int):
+            parts.append(
+                f"{signal_count} signal{'s' if signal_count != 1 else ''} and "
+                f"{spotlight_count} spotlight name{'s' if spotlight_count != 1 else ''} are visible."
+            )
+        elif isinstance(news_count, int) and news_count > 0:
+            parts.append(f"{news_count} news item{'s' if news_count != 1 else ''} are available.")
+        if connect_portfolio_visible:
+            parts.append("You can connect a portfolio to personalize this surface further.")
+        return " ".join(parts[:3])
+    if screen in {
+        "kai_portfolio_bootstrap",
+        "kai_portfolio_import",
+        "kai_portfolio_import_progress",
+        "kai_portfolio_import_complete",
+        "kai_portfolio_review",
+        "kai_portfolio_dashboard",
+        "kai_portfolio_analysis",
+    }:
+        flow_state = _coerce_str_or_none(screen_metadata.get("flow_state"))
+        parsed_holdings_count = _coerce_int(screen_metadata.get("parsed_holdings_count"))
+        saved_holdings_count = _coerce_int(screen_metadata.get("saved_holdings_count"))
+        import_stage = _coerce_str_or_none(screen_metadata.get("import_stage"))
+        progress_pct = _coerce_int(screen_metadata.get("import_progress_pct"))
+        active_source = _coerce_str_or_none(screen_metadata.get("active_source"))
+        if flow_state == "import_required":
+            return "This portfolio screen is waiting for a statement import or a Plaid connection."
+        if flow_state == "importing":
+            progress = f" at {progress_pct} percent" if isinstance(progress_pct, int) else ""
+            stage = f" during {import_stage}" if import_stage else ""
+            return f"Portfolio import is running{stage}{progress}."
+        if flow_state == "import_complete":
+            if isinstance(parsed_holdings_count, int):
+                return (
+                    f"The import is ready for review with {parsed_holdings_count} parsed holding"
+                    f"{'' if parsed_holdings_count == 1 else 's'}."
+                )
+            return "The portfolio import is complete and ready for review."
+        if flow_state == "reviewing":
+            if isinstance(parsed_holdings_count, int):
+                return (
+                    f"You are reviewing {parsed_holdings_count} parsed holding"
+                    f"{'' if parsed_holdings_count == 1 else 's'} before save."
+                )
+            return "You are reviewing the parsed portfolio before save."
+        if flow_state == "dashboard":
+            if active_source and isinstance(saved_holdings_count, int):
+                return (
+                    f"The portfolio dashboard is showing the {active_source} source with "
+                    f"{saved_holdings_count} holding{'' if saved_holdings_count == 1 else 's'}."
+                )
+            return "The portfolio dashboard is showing the active portfolio source."
+    if screen in {"analysis", "kai_analysis", "kai_analysis_workspace", "kai_analysis_history"}:
+        surface_mode = _coerce_str_or_none(screen_metadata.get("surface_mode"))
+        active_ticker = _coerce_str_or_none(screen_metadata.get("active_ticker"))
+        workspace_tab = _coerce_str_or_none(screen_metadata.get("workspace_tab"))
+        has_active_run = _coerce_bool(screen_metadata.get("has_active_run"), default=False)
+        if surface_mode == "workspace":
+            tab_text = f" in the {_titleize_label(workspace_tab)} tab" if workspace_tab else ""
+            ticker_text = f" for {active_ticker}" if active_ticker else ""
+            run_text = " A live analysis run is active." if has_active_run else ""
+            return f"You are in the analysis workspace{ticker_text}{tab_text}.{run_text}".strip()
+        if surface_mode == "history":
+            ticker_text = f" for {active_ticker}" if active_ticker else ""
+            return f"You are in analysis history{ticker_text}."
+    if screen == "consents":
+        pending_count = _coerce_int(screen_metadata.get("pending_count"))
+        active_count = _coerce_int(screen_metadata.get("active_count"))
+        selected_status = _coerce_str_or_none(screen_metadata.get("selected_status"))
+        tab = _coerce_str_or_none(screen_metadata.get("tab"))
+        if isinstance(pending_count, int) and isinstance(active_count, int):
+            summary = (
+                f"Consent manager is on the {_titleize_label(tab or 'pending')} tab with "
+                f"{pending_count} pending and {active_count} active grant"
+                f"{'' if active_count == 1 else 's'}."
+            )
+            if selected_status:
+                summary = f"{summary} The selected entry is {selected_status.replace('_', ' ')}."
+            return summary
+    action_hint = _format_action_hint(available_actions)
+    return action_hint
+
+
 def _build_screen_explain_message(
     *,
+    transcript: str,
     app_state: dict[str, Any] | None,
     legacy_context: dict[str, Any],
+    detailed: bool = False,
 ) -> str:
     runtime_state = app_state.get("runtime") if isinstance(app_state, dict) else {}
     portfolio_state = app_state.get("portfolio") if isinstance(app_state, dict) else {}
     route_state = app_state.get("route") if isinstance(app_state, dict) else {}
-    screen = _coerce_str(route_state.get("screen")) if isinstance(route_state, dict) else ""
-    pathname = _coerce_str(route_state.get("pathname")) if isinstance(route_state, dict) else ""
-    subview = (
-        _coerce_str_or_none(route_state.get("subview")) if isinstance(route_state, dict) else None
+    _, structured_route, structured_ui, structured_runtime, structured_surface, screen_metadata = (
+        _read_structured_screen_context(legacy_context)
     )
-    if not screen:
-        screen = _coerce_str(legacy_context.get("screen"))
-    if not pathname:
-        pathname = _coerce_str(legacy_context.get("route"))
+
+    screen = _preferred_screen_key(structured_route, structured_surface, route_state)
+    pathname = _coerce_str(structured_route.get("pathname")) or _coerce_str(
+        route_state.get("pathname")
+    )
+    subview = _coerce_str_or_none(structured_route.get("subview")) or _coerce_str_or_none(
+        route_state.get("subview")
+    )
+    active_tab = _coerce_str_or_none(structured_ui.get("active_tab"))
+    active_section = _coerce_str_or_none(structured_ui.get("active_section"))
+    visible_modules = _coerce_str_list(structured_ui.get("visible_modules"))
+    available_actions = _coerce_str_list(structured_ui.get("available_actions"))
+    analysis_active = _coerce_bool(
+        structured_runtime.get("analysis_active")
+        if isinstance(structured_runtime, dict)
+        else runtime_state.get("analysis_active")
+        if isinstance(runtime_state, dict)
+        else legacy_context.get("stock_analysis_active"),
+        default=False,
+    )
+    analysis_ticker = _coerce_str_or_none(
+        structured_runtime.get("analysis_ticker")
+        if isinstance(structured_runtime, dict)
+        else runtime_state.get("analysis_ticker")
+        if isinstance(runtime_state, dict)
+        else legacy_context.get("current_ticker")
+    )
+    import_active = _coerce_bool(
+        structured_runtime.get("import_active")
+        if isinstance(structured_runtime, dict)
+        else runtime_state.get("import_active")
+        if isinstance(runtime_state, dict)
+        else False,
+        default=False,
+    )
+    busy_ops = _coerce_str_list(
+        structured_runtime.get("busy_operations")
+        if isinstance(structured_runtime, dict)
+        else runtime_state.get("busy_operations")
+        if isinstance(runtime_state, dict)
+        else []
+    )
     has_portfolio_data = _coerce_bool(
         portfolio_state.get("has_portfolio_data")
         if isinstance(portfolio_state, dict)
         else legacy_context.get("has_portfolio_data"),
         default=False,
     )
-    analysis_active = _coerce_bool(
-        runtime_state.get("analysis_active")
-        if isinstance(runtime_state, dict)
-        else legacy_context.get("stock_analysis_active"),
-        default=False,
-    )
-    analysis_ticker = _coerce_str_or_none(
-        runtime_state.get("analysis_ticker")
-        if isinstance(runtime_state, dict)
-        else legacy_context.get("current_ticker")
-    )
-    import_active = _coerce_bool(
-        runtime_state.get("import_active") if isinstance(runtime_state, dict) else False,
-        default=False,
-    )
-    busy_ops = _coerce_str_list(
-        runtime_state.get("busy_operations") if isinstance(runtime_state, dict) else []
-    )
 
     screen_key = screen.lower() if screen else ""
-    purpose_by_screen = {
-        "home": "This is the Kai home view for market context, spotlight ideas, and quick voice actions.",
-        "dashboard": "This dashboard summarizes your portfolio and is the fastest place to review position-level changes.",
-        "analysis": "This analysis view is for running and reviewing ticker deep-dives.",
-        "import": "This page is for importing statements and monitoring ingest progress.",
-        "profile": "This profile page summarizes your investor profile and preference signals.",
-        "consent": "This page is for consent visibility and permission controls.",
-        "history": "This history page is for reviewing prior analysis runs and transcripts.",
-    }
-
-    if screen and pathname:
-        location_line = f"You are on the {screen} screen at {pathname}."
-    elif screen:
-        location_line = f"You are on the {screen} screen."
-    elif pathname:
-        location_line = f"You are on {pathname}."
-    else:
-        location_line = "You are in Kai."
-
-    if subview:
-        location_line = f"{location_line[:-1]} The active subview is {subview}."
-
-    purpose_line = purpose_by_screen.get(screen_key)
-    if not purpose_line and pathname:
-        purpose_line = f"This section is focused on tasks related to {pathname}."
-    if not purpose_line:
-        purpose_line = "This section helps you navigate, explain context, and run voice actions."
-
-    runtime_parts: list[str] = []
-    if analysis_active:
-        ticker_label = analysis_ticker or "an active ticker"
-        runtime_parts.append(f"An analysis is running for {ticker_label}.")
-    if import_active:
-        runtime_parts.append("A portfolio import is currently running.")
-    if busy_ops:
-        runtime_parts.append(f"Current busy operations: {', '.join(busy_ops[:3])}.")
-    if not runtime_parts:
-        runtime_parts.append("No long-running analysis or import task is active right now.")
-
-    portfolio_line = (
-        "Portfolio data is connected, so personalized insights should be available."
-        if has_portfolio_data
-        else "Portfolio data looks limited right now, so insights may be partial."
+    compat_surface_message = resolve_surface_explanation(
+        transcript,
+        screen=screen_key,
+        surface_payload=structured_surface,
+        active_section=active_section,
+        active_tab=active_tab,
+        focused_widget=_coerce_str_or_none(structured_ui.get("focused_widget")),
+        detailed=detailed,
+    )
+    knowledge = resolve_voice_explain_knowledge(
+        transcript=transcript,
+        screen=screen_key,
+        pathname=pathname,
+        active_section=active_section,
+        active_tab=active_tab,
+        focused_widget=_coerce_str_or_none(structured_ui.get("focused_widget")),
+        available_actions=available_actions,
+        visible_modules=visible_modules,
+        screen_metadata=screen_metadata,
+        allow_surface_overview=True,
     )
 
-    actions_hint = _SCREEN_ACTION_HINTS.get(screen_key) if screen else None
-    if not actions_hint:
-        actions_hint = "You can ask me to explain this view, open another section, or start analysis for a ticker."
-    actions_line = f"Next actions: {actions_hint}"
+    label = _screen_label(screen_key, pathname)
+    location_parts: list[str] = []
+    if active_section:
+        location_parts.append(f"the {_titleize_label(active_section)} section")
+    elif active_tab:
+        location_parts.append(f"the {_titleize_label(active_tab)} tab")
+    elif subview:
+        location_parts.append(f"the {_titleize_label(subview)} view")
 
-    return " ".join([location_line, purpose_line, *runtime_parts, portfolio_line, actions_line])
+    if label == "PKM Agent Lab":
+        location_line = "You are in PKM Agent Lab."
+    elif label == "Kai":
+        location_line = "You are in Kai."
+    elif location_parts:
+        location_line = f"You are on the {label} screen, in {location_parts[0]}."
+    else:
+        location_line = f"You are on the {label} screen."
+
+    runtime_line: str | None = None
+    if analysis_active:
+        ticker_label = analysis_ticker or "an active ticker"
+        runtime_line = f"An analysis is running for {ticker_label}."
+    elif import_active:
+        runtime_line = "A portfolio import is currently running."
+    elif busy_ops:
+        runtime_line = f"Busy operations include {', '.join(busy_ops[:3])}."
+
+    transcript_lowered = transcript.lower()
+    prefer_surface_specific_message = bool(
+        compat_surface_message
+        and any(
+            token in transcript_lowered
+            for token in (
+                "this button",
+                "this control",
+                "this action",
+                "this card",
+                "section",
+                "tab",
+                "panel",
+            )
+        )
+    )
+    knowledge_summary = _coerce_str(knowledge.summary)
+    knowledge_detail = _coerce_str(knowledge.detail)
+    fallback_screen_specific_line = _screen_specific_summary(
+        screen=screen_key,
+        screen_metadata=screen_metadata,
+        available_actions=available_actions,
+    )
+    screen_specific_line = (
+        _coerce_str(compat_surface_message)
+        if prefer_surface_specific_message
+        else knowledge_summary
+    )
+    surface_purpose = _coerce_str_or_none(structured_surface.get("purpose"))
+    if (
+        not prefer_surface_specific_message
+        and surface_purpose
+        and screen_key.startswith("profile_")
+        and not screen_metadata
+    ):
+        screen_specific_line = (
+            surface_purpose if surface_purpose.endswith(".") else f"{surface_purpose}."
+        )
+    if (
+        not prefer_surface_specific_message
+        and fallback_screen_specific_line
+        and screen_key
+        in {
+            "kai_market",
+            "kai_portfolio_bootstrap",
+            "kai_portfolio_import",
+            "kai_portfolio_import_progress",
+            "kai_portfolio_import_complete",
+            "kai_portfolio_review",
+            "kai_portfolio_dashboard",
+            "kai_portfolio_analysis",
+            "analysis",
+            "kai_analysis",
+            "kai_analysis_workspace",
+            "kai_analysis_history",
+            "consents",
+        }
+    ):
+        screen_specific_line = fallback_screen_specific_line
+    if knowledge.tier == "fallback" and fallback_screen_specific_line:
+        screen_specific_line = fallback_screen_specific_line
+    elif not screen_specific_line:
+        screen_specific_line = fallback_screen_specific_line
+    actions_line = _format_action_hint(available_actions)
+    visible_modules_line = (
+        f"Visible modules include {', '.join(visible_modules[:4])}." if visible_modules else None
+    )
+    portfolio_line = (
+        "Portfolio data is connected."
+        if has_portfolio_data
+        else "Portfolio data is limited right now."
+    )
+
+    if not detailed:
+        concise_parts = [part for part in [screen_specific_line, runtime_line] if part]
+        if not concise_parts and not has_portfolio_data:
+            concise_parts.append(portfolio_line)
+        if not concise_parts and actions_line:
+            concise_parts.append(actions_line)
+        if not concise_parts:
+            concise_parts.append("This screen handles the current Kai workflow.")
+        return " ".join([location_line, concise_parts[0]])
+
+    detailed_actions_line = (
+        f"Next actions: {actions_line}"
+        if actions_line
+        else "Next actions: ask me to open another section or explain this area in more detail."
+    )
+
+    detailed_parts = [
+        location_line,
+        screen_specific_line,
+        knowledge_detail if knowledge_detail and knowledge_detail != knowledge_summary else None,
+        runtime_line,
+        visible_modules_line,
+        portfolio_line,
+        detailed_actions_line,
+    ]
+    return " ".join([part for part in detailed_parts if part])
 
 
 def _is_likely_english(text: str) -> bool:
@@ -757,6 +1258,53 @@ class VoiceServiceError(Exception):
         super().__init__(message)
 
 
+@dataclass(slots=True)
+class VoiceTTSStreamHandle:
+    response: httpx.Response
+    response_cm: Any
+    client: httpx.AsyncClient
+    meta: dict[str, Any]
+    trace_hook: Callable[[str, dict[str, Any]], None] | None = None
+    started_at: float = 0.0
+    _chunk_iter: Any = None
+    _closed: bool = False
+
+    async def read_next_chunk(self) -> bytes | None:
+        if self._closed:
+            return None
+        if self._chunk_iter is None:
+            self._chunk_iter = self.response.aiter_bytes().__aiter__()
+        try:
+            chunk = await self._chunk_iter.__anext__()
+        except StopAsyncIteration:
+            self.meta["completed"] = True
+            if self.trace_hook:
+                self.trace_hook(
+                    "tts_upstream_finished",
+                    {
+                        "model_used": self.meta.get("model"),
+                        "elapsed_ms": int((time.perf_counter() - self.started_at) * 1000),
+                        "status_code": self.response.status_code,
+                        "audio_bytes": int(self.meta.get("audio_bytes") or 0),
+                        "content_length": self.meta.get("content_length"),
+                    },
+                )
+            return None
+        if chunk:
+            self.meta["audio_bytes"] = int(self.meta.get("audio_bytes") or 0) + len(chunk)
+        return chunk
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            await self.response.aclose()
+        finally:
+            await self.response_cm.__aexit__(None, None, None)
+            await self.client.aclose()
+
+
 class VoiceIntentService:
     def __init__(self) -> None:
         self.api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
@@ -874,6 +1422,8 @@ class VoiceIntentService:
         }
         turn_detection = {
             "type": "server_vad",
+            "threshold": _REALTIME_SERVER_VAD_THRESHOLD,
+            "prefix_padding_ms": _REALTIME_SERVER_VAD_PREFIX_PADDING_MS,
             "silence_duration_ms": max(300, int(server_vad_silence_ms)),
             "create_response": False if disable_auto_response else True,
             "interrupt_response": True if enable_barge_in else False,
@@ -887,8 +1437,11 @@ class VoiceIntentService:
             input_section = (
                 input_audio.get("input") if isinstance(input_audio.get("input"), dict) else {}
             )
+            input_section["noise_reduction"] = {"type": _REALTIME_NOISE_REDUCTION_TYPE}
             input_section["transcription"] = {
-                "model": self.stt_models[0] if self.stt_models else "gpt-4o-mini-transcribe"
+                "model": self.stt_models[0] if self.stt_models else "gpt-4o-mini-transcribe",
+                "language": _REALTIME_TRANSCRIPTION_LANGUAGE,
+                "prompt": _REALTIME_TRANSCRIPTION_PROMPT,
             }
             input_section["turn_detection"] = turn_detection
             input_audio["input"] = input_section
@@ -902,6 +1455,7 @@ class VoiceIntentService:
             input_section = (
                 input_audio.get("input") if isinstance(input_audio.get("input"), dict) else {}
             )
+            input_section["noise_reduction"] = {"type": _REALTIME_NOISE_REDUCTION_TYPE}
             input_section["turn_detection"] = turn_detection
             input_audio["input"] = input_section
             session_payload["audio"] = input_audio
@@ -1176,6 +1730,7 @@ class VoiceIntentService:
         system_prompt = (
             "You are Kai voice intent planner. Output exactly one tool call from provided tools. "
             "Never output plain text. "
+            "Do not produce conversational filler. Spoken response styling is handled separately. "
             "Important: speech-to-text may contain misspellings/homophones. Infer the intended destination "
             "for navigation requests like go to / take me to / open / navigate to, even if text is imperfect. "
             "Navigation target mapping: "
@@ -1280,9 +1835,14 @@ class VoiceIntentService:
         tool_call: dict[str, Any] | None = None,
         execution_allowed: bool | None = None,
     ) -> dict[str, Any]:
+        normalized_message = _normalize_banker_message(
+            message,
+            kind=kind,
+            tool_call=tool_call,
+        )
         response: dict[str, Any] = {
             "kind": kind,
-            "message": _coerce_str(message),
+            "message": normalized_message,
             "speak": True,
             "execution_allowed": (
                 kind == "execute" if execution_allowed is None else bool(execution_allowed)
@@ -1335,7 +1895,8 @@ class VoiceIntentService:
         system_prompt = (
             "You are Kai voice intent planner. "
             "Use English-only behavior for V1. "
-            "Return exactly one tool call from provided tools and never output plain text."
+            "Return exactly one tool call from provided tools and never output plain text. "
+            "Do not add conversational filler or explanation."
         )
 
         def _emit_trace(stage: str, payload: dict[str, Any]) -> None:
@@ -1435,6 +1996,7 @@ class VoiceIntentService:
         clean_transcript = _coerce_str(transcript)
         context_payload = _compact_context(context)
         runtime_state = _normalize_runtime_state(app_state, legacy_context=context_payload)
+        app_route = app_state.get("route") if isinstance(app_state, dict) else {}
         gate_state = _normalize_voice_gate(
             app_state, user_id=user_id, legacy_context=context_payload
         )
@@ -1502,6 +2064,113 @@ class VoiceIntentService:
             has_active_import = bool(active_import_payload or runtime_state.get("import_active"))
 
         lowered = clean_transcript.lower()
+        detailed_response = _wants_detailed_response(lowered)
+
+        _, structured_route, structured_ui, _, structured_surface, screen_metadata = (
+            _read_structured_screen_context(context_payload)
+        )
+        current_screen = _preferred_screen_key(
+            structured_route,
+            structured_surface,
+            app_route if isinstance(app_route, dict) else {},
+        )
+        current_pathname = _coerce_str(structured_route.get("pathname")) or _coerce_str(
+            app_route.get("pathname") if isinstance(app_route, dict) else ""
+        )
+        local_surface_request = bool(
+            looks_like_voice_knowledge_request(clean_transcript)
+            and (
+                any(
+                    token in lowered
+                    for token in (
+                        "this button",
+                        "this control",
+                        "this action",
+                        "this card",
+                        "this section",
+                        "this tab",
+                        "this panel",
+                    )
+                )
+                or bool(re.search(r"\b(?:my|this)\s+profile\b", lowered))
+            )
+        )
+
+        if local_surface_request:
+            compat_surface_message = resolve_surface_explanation(
+                clean_transcript,
+                screen=current_screen,
+                surface_payload=structured_surface,
+                active_section=_coerce_str_or_none(structured_ui.get("active_section")),
+                active_tab=_coerce_str_or_none(structured_ui.get("active_tab")),
+                focused_widget=_coerce_str_or_none(structured_ui.get("focused_widget")),
+                detailed=detailed_response,
+            )
+        else:
+            compat_surface_message = None
+        if compat_surface_message:
+            response = self._build_response(
+                kind="speak_only",
+                message=compat_surface_message,
+            )
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
+        if not _is_screen_explain_intent(lowered) and looks_like_voice_knowledge_request(
+            clean_transcript
+        ):
+            knowledge = resolve_voice_explain_knowledge(
+                transcript=clean_transcript,
+                screen=current_screen,
+                pathname=current_pathname,
+                active_section=_coerce_str_or_none(structured_ui.get("active_section")),
+                active_tab=_coerce_str_or_none(structured_ui.get("active_tab")),
+                focused_widget=_coerce_str_or_none(structured_ui.get("focused_widget")),
+                available_actions=_coerce_str_list(structured_ui.get("available_actions")),
+                visible_modules=_coerce_str_list(structured_ui.get("visible_modules")),
+                screen_metadata=screen_metadata,
+                allow_surface_overview=False,
+            )
+        else:
+            knowledge = None
+        if knowledge is not None and knowledge.tier in {"control", "section", "local_concept"}:
+            message = knowledge.summary
+            if detailed_response and knowledge.detail and knowledge.detail != knowledge.summary:
+                message = f"{message} {knowledge.detail}"
+            response = self._build_response(
+                kind="speak_only",
+                message=message,
+            )
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
+        compat_concept_message = (
+            resolve_global_concept(clean_transcript, detailed=detailed_response)
+            if (
+                not _is_screen_explain_intent(lowered)
+                and looks_like_voice_knowledge_request(clean_transcript)
+            )
+            else None
+        )
+        if compat_concept_message:
+            response = self._build_response(
+                kind="speak_only",
+                message=compat_concept_message,
+            )
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
+        if knowledge is not None and knowledge.tier != "fallback":
+            message = knowledge.summary
+            if detailed_response and knowledge.detail and knowledge.detail != knowledge.summary:
+                message = f"{message} {knowledge.detail}"
+            response = self._build_response(
+                kind="speak_only",
+                message=message,
+            )
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
 
         if _contains_any(lowered, _DESTRUCTIVE_INTENT_KEYWORDS):
             response = self._build_response(
@@ -1514,7 +2183,10 @@ class VoiceIntentService:
 
         if _is_screen_explain_intent(lowered):
             message = _build_screen_explain_message(
-                app_state=app_state, legacy_context=context_payload
+                transcript=clean_transcript,
+                app_state=app_state,
+                legacy_context=context_payload,
+                detailed=detailed_response,
             )
             response = self._build_response(kind="speak_only", message=message)
             response["memory"] = self._memory_hint_from_response(response)
@@ -1528,6 +2200,36 @@ class VoiceIntentService:
                 message = "A portfolio import is currently running."
             else:
                 message = "No analysis or import is currently running."
+            response = self._build_response(kind="speak_only", message=message)
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
+
+        surface_navigation = _match_surface_navigation_intent(lowered)
+        if surface_navigation == "gmail":
+            response = self._build_response(kind="speak_only", message="Opening Gmail.")
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
+
+        if surface_navigation == "receipts":
+            response = self._build_response(kind="speak_only", message="Opening receipts.")
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
+
+        if surface_navigation == "pkm_agent_lab":
+            response = self._build_response(kind="speak_only", message="Opening PKM Agent Lab.")
+            response["memory"] = self._memory_hint_from_response(response)
+            response["tool_call"] = self._legacy_tool_call_for_response(response)
+            return response, 0, "deterministic"
+
+        if _is_receipts_memory_intent(lowered):
+            message = (
+                "Use Add receipts to memory here."
+                if current_screen == "profile_receipts"
+                else "Opening receipts. Use Add receipts to memory there."
+            )
             response = self._build_response(kind="speak_only", message=message)
             response["memory"] = self._memory_hint_from_response(response)
             response["tool_call"] = self._legacy_tool_call_for_response(response)
@@ -1566,7 +2268,7 @@ class VoiceIntentService:
                 }
                 response = self._build_response(
                     kind="execute",
-                    message=f"Starting analysis for {symbol}.",
+                    message=_build_execute_message(tool_call),
                     tool_call=tool_call,
                 )
                 response["memory"] = self._memory_hint_from_response(response)
@@ -1643,7 +2345,7 @@ class VoiceIntentService:
                 return response, 0, "deterministic"
             response = self._build_response(
                 kind="execute",
-                message="Resuming your active analysis.",
+                message="Resuming analysis.",
                 tool_call={"tool_name": "resume_active_analysis", "args": {}},
             )
             response["memory"] = self._memory_hint_from_response(response)
@@ -1660,7 +2362,7 @@ class VoiceIntentService:
                 return response, 0, "deterministic"
             response = self._build_response(
                 kind="execute",
-                message="Cancelling your active analysis.",
+                message="Cancelling analysis.",
                 tool_call={"tool_name": "cancel_active_analysis", "args": {"confirm": True}},
             )
             response["memory"] = self._memory_hint_from_response(response)
@@ -1679,7 +2381,7 @@ class VoiceIntentService:
             if keyword in lowered:
                 response = self._build_response(
                     kind="execute",
-                    message=f"Opening {command}.",
+                    message=f"Opening {_spoken_command_label(command)}.",
                     tool_call={"tool_name": "execute_kai_command", "args": {"command": command}},
                 )
                 response["memory"] = self._memory_hint_from_response(response)
@@ -1731,7 +2433,7 @@ class VoiceIntentService:
 
         response = self._build_response(
             kind="execute",
-            message="Working on that now.",
+            message=_build_execute_message(validated),
             tool_call=validated,
         )
         response["memory"] = self._memory_hint_from_response(response)
@@ -1744,131 +2446,166 @@ class VoiceIntentService:
         voice: str,
         trace_hook: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> tuple[bytes, str, dict[str, Any]]:
+        tts_stream, mime_type, tts_meta = await self.open_tts_stream(
+            text=text,
+            voice=voice,
+            trace_hook=trace_hook,
+        )
+        audio_chunks: list[bytes] = []
+        try:
+            while True:
+                chunk = await tts_stream.read_next_chunk()
+                if chunk is None:
+                    break
+                audio_chunks.append(chunk)
+        finally:
+            await tts_stream.aclose()
+        return b"".join(audio_chunks), mime_type, tts_meta
+
+    async def open_tts_stream(
+        self,
+        *,
+        text: str,
+        voice: str,
+        trace_hook: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> tuple[VoiceTTSStreamHandle, str, dict[str, Any]]:
         self._require_api_key()
         clean_text = str(text or "").strip()
         if not clean_text:
             raise VoiceServiceError(422, "Text is required for TTS")
         selected_voice = str(voice or self.tts_default_voice).strip() or self.tts_default_voice
-        response: httpx.Response | None = None
-        error_payload: dict[str, Any] = {}
         selected_model = self.tts_model or "gpt-4o-mini-tts"
         tts_attempts: list[dict[str, Any]] = []
-        upstream_http_ms = 0
+        started_at = time.perf_counter()
+        if trace_hook:
+            trace_hook(
+                "tts_upstream_started",
+                {
+                    "model_attempted": selected_model,
+                    "attempt_index": 1,
+                    "attempt_count": 1,
+                    "timeout_seconds": self.tts_timeout_seconds,
+                    "text_chars": len(clean_text),
+                },
+            )
 
-        async with httpx.AsyncClient(timeout=self.tts_timeout_seconds) as client:
-            attempt_started_at = time.perf_counter()
-            if trace_hook:
-                trace_hook(
-                    "tts_upstream_started",
-                    {
-                        "model_attempted": selected_model,
-                        "attempt_index": 1,
-                        "attempt_count": 1,
-                        "timeout_seconds": self.tts_timeout_seconds,
-                        "text_chars": len(clean_text),
-                    },
-                )
-            payload = {
+        client = httpx.AsyncClient(timeout=self.tts_timeout_seconds)
+        response_cm = client.stream(
+            "POST",
+            _OPENAI_TTS_URL,
+            headers={
+                **self._headers(),
+                "Content-Type": "application/json",
+            },
+            json={
                 "model": selected_model,
                 "input": clean_text,
                 "voice": selected_voice,
                 "format": self.tts_format,
-            }
-            candidate_response = await client.post(
-                _OPENAI_TTS_URL,
-                headers={
-                    **self._headers(),
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            attempt_elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
-            upstream_http_ms = attempt_elapsed_ms
-            if candidate_response.status_code < 400:
-                if trace_hook:
-                    trace_hook(
-                        "tts_upstream_finished",
-                        {
-                            "model_used": selected_model,
-                            "elapsed_ms": attempt_elapsed_ms,
-                            "status_code": candidate_response.status_code,
-                            "audio_bytes": len(candidate_response.content or b""),
-                        },
-                    )
-                response = candidate_response
-                tts_attempts.append(
-                    {
-                        "model": selected_model,
-                        "status_code": candidate_response.status_code,
-                        "elapsed_ms": attempt_elapsed_ms,
-                        "result": "success",
-                    }
-                )
-            else:
-                maybe_payload = candidate_response.json() if candidate_response.content else {}
-                extracted_error = _extract_openai_error(maybe_payload)
-                tts_attempts.append(
-                    {
-                        "model": selected_model,
-                        "status_code": candidate_response.status_code,
-                        "elapsed_ms": attempt_elapsed_ms,
-                        "result": "failed",
-                        "error": extracted_error or "",
-                    }
-                )
-                if trace_hook:
-                    trace_hook(
-                        "tts_upstream_failed",
-                        {
-                            "model_used": selected_model,
-                            "elapsed_ms": attempt_elapsed_ms,
-                            "status_code": candidate_response.status_code,
-                            "exception_type": None,
-                            "upstream_error_message": extracted_error,
-                            "upstream_error_payload": maybe_payload.get("error")
-                            if isinstance(maybe_payload, dict)
-                            else maybe_payload,
-                        },
-                    )
-                response = candidate_response
-                error_payload = maybe_payload
+            },
+        )
 
-        if response is None:
-            raise VoiceServiceError(502, "TTS request failed")
+        try:
+            response = await response_cm.__aenter__()
+        except Exception:
+            await client.aclose()
+            raise
+
+        attempt_elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        content_length_raw = str(response.headers.get("content-length") or "").strip()
+        content_length: int | None = None
+        if content_length_raw.isdigit():
+            content_length = int(content_length_raw)
 
         if response.status_code >= 400:
-            if not error_payload:
-                error_payload = response.json() if response.content else {}
-            detail = _extract_openai_error(error_payload) or "TTS request failed"
+            error_payload: dict[str, Any] = {}
+            if response.content:
+                try:
+                    error_payload = response.json()
+                except Exception:
+                    error_payload = {}
+            extracted_error = _extract_openai_error(error_payload)
+            tts_attempts.append(
+                {
+                    "model": selected_model,
+                    "status_code": response.status_code,
+                    "elapsed_ms": attempt_elapsed_ms,
+                    "result": "failed",
+                    "error": extracted_error or "",
+                }
+            )
+            if trace_hook:
+                trace_hook(
+                    "tts_upstream_failed",
+                    {
+                        "model_used": selected_model,
+                        "elapsed_ms": attempt_elapsed_ms,
+                        "status_code": response.status_code,
+                        "exception_type": None,
+                        "upstream_error_message": extracted_error,
+                        "upstream_error_payload": error_payload.get("error")
+                        if isinstance(error_payload, dict)
+                        else error_payload,
+                    },
+                )
+            detail = extracted_error or "TTS request failed"
+            await response.aclose()
+            await response_cm.__aexit__(None, None, None)
+            await client.aclose()
             raise VoiceServiceError(502, detail)
 
-        audio_bytes = response.content or b""
-        if not audio_bytes:
-            raise VoiceServiceError(502, "TTS response was empty")
+        tts_attempts.append(
+            {
+                "model": selected_model,
+                "status_code": response.status_code,
+                "elapsed_ms": attempt_elapsed_ms,
+                "result": "success",
+            }
+        )
+        if trace_hook:
+            trace_hook(
+                "tts_upstream_ready",
+                {
+                    "model_used": selected_model,
+                    "elapsed_ms": attempt_elapsed_ms,
+                    "status_code": response.status_code,
+                    "content_length": content_length,
+                },
+            )
         mime_type = "audio/mpeg" if self.tts_format == "mp3" else f"audio/{self.tts_format}"
+        meta = {
+            "model": selected_model,
+            "voice": selected_voice,
+            "format": self.tts_format,
+            "source": "backend_openai_audio",
+            "attempts": tts_attempts,
+            "openai_http_ms": attempt_elapsed_ms,
+            "audio_bytes": 0,
+            "content_length": content_length,
+            "completed": False,
+            "aborted": False,
+        }
         logger.info(
-            (
-                "[VOICE_TTS] status=ok source=backend_openai_audio model=%s voice=%s format=%s "
-                "text_chars=%s audio_bytes=%s attempts=%s"
-            ),
+            "[VOICE_TTS] status=ready source=backend_openai_audio model=%s voice=%s format=%s "
+            "text_chars=%s content_length=%s attempts=%s",
             selected_model,
             selected_voice,
             self.tts_format,
             len(clean_text),
-            len(audio_bytes),
+            content_length,
             tts_attempts,
         )
         return (
-            audio_bytes,
+            VoiceTTSStreamHandle(
+                response=response,
+                response_cm=response_cm,
+                client=client,
+                meta=meta,
+                trace_hook=trace_hook,
+                started_at=started_at,
+            ),
             mime_type,
-            {
-                "model": selected_model,
-                "voice": selected_voice,
-                "format": self.tts_format,
-                "source": "backend_openai_audio",
-                "attempts": tts_attempts,
-                "openai_http_ms": upstream_http_ms,
-            },
+            meta,
         )
 
 

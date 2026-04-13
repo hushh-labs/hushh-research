@@ -1,19 +1,19 @@
 "use client";
 
-import { Mic, Pause, Play, Send, X } from "lucide-react";
+import { Mic, MicOff, Send, X } from "lucide-react";
 
 import { VoiceEqualizer } from "@/components/kai/voice-equalizer";
 import { cn } from "@/lib/utils";
 
 type VoiceConsoleSheetProps = {
   open: boolean;
-  paused: boolean;
+  muted: boolean;
   submitting: boolean;
   submitEnabled?: boolean;
   showSubmit?: boolean;
   transcriptPreview: string;
   smoothedLevel: number;
-  onPauseToggle: () => void;
+  onMuteToggle: () => void;
   onSubmit: () => void;
   onCancel: () => void;
   onExamplePrompt: (prompt: string) => void;
@@ -28,13 +28,13 @@ const EXAMPLE_PROMPTS = [
 
 export function VoiceConsoleSheet({
   open,
-  paused,
+  muted,
   submitting,
   submitEnabled = true,
   showSubmit = true,
   transcriptPreview,
   smoothedLevel,
-  onPauseToggle,
+  onMuteToggle,
   onSubmit,
   onCancel,
   onExamplePrompt,
@@ -53,10 +53,10 @@ export function VoiceConsoleSheet({
       <div className="border-b border-border/60 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-foreground">
-            {submitting ? "Submitting..." : paused ? "Listening Paused" : "Listening..."}
+            {submitting ? "Submitting..." : muted ? "Microphone muted" : "Listening..."}
           </p>
           <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
-            {submitting ? "Submitting" : paused ? "Paused" : "Listening"}
+            {submitting ? "Submitting" : muted ? "Muted" : "Listening"}
           </span>
         </div>
         <p className="mt-2 min-h-10 whitespace-normal break-words text-xs text-muted-foreground">
@@ -86,11 +86,11 @@ export function VoiceConsoleSheet({
           <button
             type="button"
             className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-full border border-border/70 bg-background text-xs font-semibold text-foreground transition-colors hover:bg-muted"
-            onClick={onPauseToggle}
+            onClick={onMuteToggle}
             disabled={submitting}
           >
-            {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-            {paused ? "Resume" : "Pause"}
+            {muted ? <Mic className="h-3.5 w-3.5" /> : <MicOff className="h-3.5 w-3.5" />}
+            {muted ? "Unmute" : "Mute"}
           </button>
           {showSubmit ? (
             <button
@@ -113,7 +113,7 @@ export function VoiceConsoleSheet({
             type="button"
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={onCancel}
-            aria-label="Close voice console"
+            aria-label="End voice session"
           >
             <X className="h-4 w-4" />
           </button>

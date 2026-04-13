@@ -96,17 +96,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const router = useRouter();
 
-  // Helper: Timeout wrapper
-  const withTimeout = <T,>(
-    promise: Promise<T>,
-    ms: number
-  ): Promise<T | null> => {
-    return Promise.race([
-      promise,
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-    ]);
-  };
-
   /**
    * Core Auth Check Logic
    * Handles both Native Restoration and Web Firebase auth
@@ -118,24 +107,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // 1. Native Session Restoration
     if (Capacitor.isNativePlatform()) {
       try {
-        // Use timeout to avoid hanging
-        const nativeUser = await withTimeout(
-          AuthService.restoreNativeSession(),
-          5000
-        );
+        const nativeUser = await AuthService.restoreNativeSession();
 
         if (nativeUser) {
           console.log(
             "🍎 [AuthProvider] Native session restored:",
             nativeUser.uid
           );
+          userRef.current = nativeUser;
           setUser(nativeUser);
           setUserId(nativeUser.uid);
         } else {
           console.log("🍎 [AuthProvider] No native session found");
         }
       } catch (e) {
-        console.warn("🍎 [AuthProvider] Native restore error/timeout:", e);
+        console.warn("🍎 [AuthProvider] Native restore error:", e);
         // User will need to log in again
       } finally {
         // ✅ CRITICAL: Always set loading to false after native check
@@ -163,6 +149,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Ref to track current user for null-safety check without causing re-renders
   const userRef = useRef<User | null>(null);
+  const authRecoveryInFlightRef = useRef(false);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -191,6 +178,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
               // Reactive state will handle UI updates (e.g. VaultLockGuard will see locked vault)
               // No need to force reload, which causes loops on some Android devices
+              return;
+            }
+
+            if (!userRef.current) {
+              console.log("🍎 [AuthProvider] App active with no in-memory user - rechecking native auth");
+              void checkAuth();
             }
           });
         } catch (error) {
@@ -218,6 +211,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
       }
 
+      userRef.current = firebaseUser;
       setUser(firebaseUser);
       setUserId(firebaseUser?.uid ?? null);
       if (firebaseUser?.phoneNumber) {
@@ -259,6 +253,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await UserLocalStateService.clearForUser(currentUid);
       }
 
+      userRef.current = null;
       setUser(null);
       setPhoneNumber(null);
       setConfirmationResult(null);
@@ -287,7 +282,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
         "🔒 [AuthProvider] Auth session invalidated:",
         customEvent.detail?.reason || "unknown reason"
       );
-      void signOut({ redirectTo: ROUTES.LOGIN });
+      if (authRecoveryInFlightRef.current) {
+        return;
+      }
+
+      const recoverOrSignOut = async () => {
+        authRecoveryInFlightRef.current = true;
+        try {
+          if (Capacitor.isNativePlatform()) {
+            const [nativeUser, refreshedToken] = await Promise.all([
+              AuthService.restoreNativeSession(),
+              AuthService.getIdToken(true),
+            ]);
+
+            if (nativeUser && refreshedToken) {
+              console.info("🍎 [AuthProvider] Recovered native session after auth invalidation");
+              userRef.current = nativeUser;
+              setUser(nativeUser);
+              setUserId(nativeUser.uid);
+              setLoading(false);
+              return;
+            }
+          }
+
+          await signOut({ redirectTo: ROUTES.LOGIN });
+        } finally {
+          authRecoveryInFlightRef.current = false;
+        }
+      };
+
+      void recoverOrSignOut();
     };
 
     window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, handleAuthInvalidated);

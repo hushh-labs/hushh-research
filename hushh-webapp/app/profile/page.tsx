@@ -76,7 +76,11 @@ import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
-import { resolveGmailConnectionPresentation } from "@/lib/profile/mail-flow";
+import {
+  resolveGmailConnectionPresentation,
+  resolveGmailStatusSummary,
+  sanitizeGmailUserMessage,
+} from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -111,6 +115,10 @@ import {
   type VaultCapabilityMatrix,
   type VaultMethod,
 } from "@/lib/services/vault-method-service";
+import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
 import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
@@ -965,7 +973,10 @@ function ProfilePageContent() {
       }
       assignWindowLocation(payload.authorize_url);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start Gmail OAuth.";
+      const message = sanitizeGmailUserMessage(error, {
+        fallback: "We couldn't start Gmail connection right now. Please try again in a moment.",
+      });
+      console.error("[ProfilePage] Failed to start Gmail OAuth:", error);
       toast.error(message);
     } finally {
       setGmailActionBusy(null);
@@ -978,10 +989,12 @@ function ProfilePageContent() {
       setGmailActionBusy("disconnect");
       const next = await gmail.disconnectGmail();
       if (!next) return;
-      toast.success("Gmail connector disconnected. Stored receipts stay available.");
+      toast.success("Gmail disconnected. Your saved receipts will stay here.");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to disconnect Gmail.";
+      const message = sanitizeGmailUserMessage(error, {
+        fallback: "We couldn't disconnect Gmail right now. Please try again in a moment.",
+      });
+      console.error("[ProfilePage] Failed to disconnect Gmail:", error);
       toast.error(message);
     } finally {
       setGmailActionBusy(null);
@@ -994,12 +1007,16 @@ function ProfilePageContent() {
       setGmailActionBusy("sync");
       const payload = await gmail.syncNow();
       if (!payload?.run?.run_id) {
-        toast.message("Gmail sync is already running.");
+        toast.message("We're already syncing your receipts.");
         return;
       }
-      toast.message("Gmail sync started in the background.");
+      toast.message("Syncing your receipts now.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start Gmail sync.";
+      const message = sanitizeGmailUserMessage(error, {
+        fallback: "We couldn't sync your receipts. Please try again in a moment.",
+        authFallback: "Reconnect Gmail to continue syncing your receipts.",
+      });
+      console.error("[ProfilePage] Failed to start Gmail sync:", error);
       toast.error(message);
     } finally {
       setGmailActionBusy(null);
@@ -1134,10 +1151,6 @@ function ProfilePageContent() {
     }
   }
 
-  if (authLoading || !user) {
-    return null;
-  }
-
   const deleteButtonLabel =
     vaultAccess.needsUnlock
       ? hasDualPersona
@@ -1180,7 +1193,9 @@ function ProfilePageContent() {
     vaultMethod === "passphrase" && availableQuickMethod
       ? availableQuickMethod
       : null;
-  const canEditKaiPreferences = Boolean(user.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData);
+  const canEditKaiPreferences = Boolean(
+    user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData
+  );
 
   const kaiPreferencesDescription =
     vaultAccess.needsVaultCreation
@@ -1197,6 +1212,15 @@ function ProfilePageContent() {
         : "Hidden from marketplace search";
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
+  const gmailStatusSummary = useMemo(
+    () =>
+      resolveGmailStatusSummary({
+        status: gmail.status,
+        loading: gmail.loadingStatus || gmailActionBusy === "sync",
+        errorText: gmail.statusError,
+      }),
+    [gmail.loadingStatus, gmail.status, gmail.statusError, gmailActionBusy]
+  );
   const gmailSettingsDescription = gmailPresentation.description;
   const gmailLastSyncText = gmailPresentation.latestSyncText;
   const profileManagerLoading = loadingPkmMetadata || loadingConsentCenter;
@@ -1206,10 +1230,262 @@ function ProfilePageContent() {
     : vaultAccess.needsUnlock
       ? "Locked"
       : profileManagerLoading
-        ? "Loading"
-        : profileSummary.totalDomains > 0
+      ? "Loading"
+      : profileSummary.totalDomains > 0
           ? `${profileSummary.totalDomains} domains`
           : "Ready";
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
+  const supportComposeKind =
+    activePanel === "support" && activeDetail?.startsWith("support-compose:")
+      ? (activeDetail.slice("support-compose:".length) as SupportMessageKind)
+      : null;
+  const securitySummaryText =
+    vaultAccess.needsVaultCreation
+      ? "Vault not created yet"
+      : loadingVaultMethod
+        ? "Loading methods…"
+        : vaultAccess.needsUnlock
+          ? "Locked"
+          : readableMethod(displayedUnlockMethod);
+  const profileVoiceSurfaceMetadata = useMemo(() => {
+    const controls = [
+      {
+        id: "profile_my_data",
+        label: "My Data",
+        purpose: "opens readable PKM and source-health details.",
+        actionId: "nav.profile_my_data",
+        role: "card",
+        voiceAliases: ["my data", "pkm data"],
+      },
+      {
+        id: "profile_access",
+        label: "Access & sharing",
+        purpose: "opens consent-backed access and sharing controls.",
+        actionId: "nav.profile_access",
+        role: "card",
+        voiceAliases: ["access", "sharing", "consent access"],
+      },
+      {
+        id: "profile_gmail",
+        label: "Gmail receipts",
+        purpose: "opens Gmail receipt sync and receipt-memory management.",
+        actionId: "nav.profile_gmail",
+        role: "card",
+        voiceAliases: ["gmail receipts", "receipts"],
+      },
+      {
+        id: "profile_support",
+        label: "Support & feedback",
+        purpose: "opens support routing and compose flows.",
+        actionId: "nav.profile_support",
+        role: "card",
+        voiceAliases: ["support", "feedback"],
+      },
+      {
+        id: "profile_sign_out",
+        label: "Sign out",
+        purpose: "ends this session on the current device.",
+        actionId: "profile.sign_out",
+        role: "button",
+        voiceAliases: ["sign out", "log out"],
+      },
+      {
+        id: "profile_delete_account",
+        label: "Delete account",
+        purpose: "opens destructive account deletion controls.",
+        actionId: "profile.delete_account",
+        role: "button",
+        voiceAliases: ["delete account", "remove account"],
+      },
+      ...(canShowPkmAgentLab
+        ? [
+            {
+              id: "profile_pkm_agent_lab",
+              label: "PKM Agent Lab",
+              purpose: "opens the developer-facing PKM workspace.",
+              actionId: "nav.profile_pkm_agent_lab",
+              role: "card",
+              voiceAliases: ["pkm agent lab", "memory lab"],
+            },
+          ]
+        : []),
+    ];
+    const activeControl =
+      controls.find((control) => control.id === activeVoiceControlId) ||
+      controls.find((control) => control.id === lastVoiceControlId) ||
+      null;
+    const visibleModules = activePanel
+      ? [
+          activePanel === "my-data"
+            ? "My Data"
+            : activePanel === "access"
+              ? "Access & sharing"
+              : activePanel === "preferences"
+                ? "Preferences"
+                : activePanel === "security"
+                  ? "Security"
+                  : activePanel === "gmail"
+                    ? "Gmail receipts"
+                    : "Support & feedback",
+          ...(activeDetail ? [activeDetail] : []),
+        ]
+      : [
+          "My Data",
+          "Access & sharing",
+          "Preferences",
+          "Security",
+          "Support & feedback",
+          "Gmail receipts",
+          ...(canShowPkmAgentLab ? ["PKM Agent Lab"] : []),
+        ];
+    const availableActions =
+      activePanel === "gmail"
+        ? [
+            gmailPresentation.isConnected
+              ? "Sync Gmail receipts"
+              : gmailPresentation.state === "needs_reauthentication"
+                ? "Reconnect Gmail"
+                : "Connect Gmail",
+            "Open receipts",
+            ...(gmailPresentation.isConnected ? ["Disconnect Gmail"] : []),
+          ]
+        : activePanel === "support"
+          ? ["Report a bug", "Get support", "Reach developer"]
+          : activePanel === "security"
+            ? [
+                vaultAccess.needsVaultCreation ? "Create your vault" : "Unlock vault",
+                "Change passphrase",
+                "Delete account",
+              ]
+            : ["Open My Data", "Open Access & sharing", "Open Gmail receipts", "Open Support"];
+
+    return {
+      surfaceDefinition: {
+        screenId: activePanel ? `profile_${activePanel}` : "profile_home",
+        title: activePanel
+          ? activePanel === "my-data"
+            ? "My Data"
+            : activePanel === "access"
+              ? "Access & sharing"
+              : activePanel === "preferences"
+                ? "Preferences"
+                : activePanel === "security"
+                  ? "Security"
+                  : activePanel === "gmail"
+                    ? "Gmail receipts"
+                    : "Support & feedback"
+          : "Profile",
+        purpose:
+          "This surface manages profile data, access, preferences, Gmail receipts, support, and vault security.",
+        sections: [
+          { id: "my-data", title: "My Data", purpose: "Readable PKM and source health." },
+          { id: "access", title: "Access & sharing", purpose: "Consent-backed access and sharing." },
+          { id: "preferences", title: "Preferences", purpose: "Shell and Kai preferences." },
+          { id: "security", title: "Security", purpose: "Vault and destructive account actions." },
+          { id: "gmail", title: "Gmail receipts", purpose: "Receipt sync and Gmail connector state." },
+          { id: "support", title: "Support & feedback", purpose: "Support routing and compose flows." },
+        ],
+        actions: availableActions.map((action) => ({
+          id: action.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+          label: action,
+          purpose: `${action} from Profile.`,
+        })),
+        controls,
+        concepts: [
+          {
+            id: "pkm",
+            label: "PKM",
+            explanation:
+              "PKM is your encrypted personal memory layer. Kai uses it to store durable user memory safely.",
+            aliases: ["pkm", "personal knowledge model"],
+          },
+          {
+            id: "gmail_receipts",
+            label: "Gmail receipts",
+            explanation:
+              "Gmail receipts connects Gmail receipt sync and feeds receipt-memory imports into PKM.",
+            aliases: ["gmail receipts", "receipt sync"],
+          },
+        ],
+        activeControlId: activeVoiceControlId,
+        lastInteractedControlId: lastVoiceControlId,
+      },
+      activeSection: activePanel || "profile",
+      activeTab: activePanel || "profile",
+      visibleModules,
+      focusedWidget: activeControl?.label || (activeDetail ?? activePanel ?? "Profile"),
+      modalState: passphraseDialogOpen
+        ? "passphrase_dialog"
+        : showVaultUnlock
+          ? "vault_unlock"
+          : supportComposeKind
+            ? "support_compose"
+            : activeDetail
+              ? `${activePanel}_${activeDetail}`
+              : activePanel
+                ? `${activePanel}_panel`
+                : null,
+      availableActions,
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+      busyOperations: [
+        ...(gmailActionsBusy ? ["gmail_action"] : []),
+        ...(sendingSupportMessage ? ["support_message"] : []),
+        ...(switchingVaultMethod ? ["vault_method_update"] : []),
+        ...(savingMarketplaceOptIn ? ["marketplace_visibility_update"] : []),
+      ],
+      screenMetadata: {
+        profile_panel: activePanel,
+        profile_detail: activeDetail,
+        total_attributes: profileSummary.totalAttributes,
+        domain_count: profileSummary.totalDomains,
+        pending_consents: pendingConsents,
+        gmail_connected: gmailPresentation.isConnected,
+        gmail_state: gmailPresentation.state,
+        gmail_status_label: gmailStatusLabel,
+        gmail_status_title: gmailStatusSummary.title,
+        gmail_last_sync_text: gmailLastSyncText,
+        google_email: gmail.status?.google_email || null,
+        pkm_agent_lab_available: canShowPkmAgentLab,
+        marketplace_opt_in: marketplaceOptIn,
+        security_summary: securitySummaryText,
+      },
+    };
+  }, [
+    activeDetail,
+    activePanel,
+    activeVoiceControlId,
+    canShowPkmAgentLab,
+    gmailActionsBusy,
+    gmailLastSyncText,
+    gmailPresentation.isConnected,
+    gmailPresentation.state,
+    gmailStatusLabel,
+    gmailStatusSummary.title,
+    gmail.status?.google_email,
+    lastVoiceControlId,
+    marketplaceOptIn,
+    passphraseDialogOpen,
+    pendingConsents,
+    profileSummary.totalAttributes,
+    profileSummary.totalDomains,
+    savingMarketplaceOptIn,
+    securitySummaryText,
+    sendingSupportMessage,
+    showVaultUnlock,
+    supportComposeKind,
+    switchingVaultMethod,
+    vaultAccess.needsVaultCreation,
+  ]);
+  usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  if (authLoading || !user) {
+    return null;
+  }
+
   const openKaiPreferences = () => {
     if (vaultAccess.needsVaultCreation) {
       router.push(ROUTES.KAI_IMPORT);
@@ -1265,11 +1541,6 @@ function ProfilePageContent() {
       description: "Direct product or engineering feedback routed through support.",
     },
   ];
-
-  const supportComposeKind =
-    activePanel === "support" && activeDetail?.startsWith("support-compose:")
-      ? (activeDetail.slice("support-compose:".length) as SupportMessageKind)
-      : null;
 
   const myDataContent = (
     <PkmDataManagerPanel
@@ -2150,6 +2421,7 @@ function ProfilePageContent() {
         </SurfaceStack>
       </AppPageContentRegion>
 
+      <ProfileStackNavigator entries={profileStackEntries} onBack={popProfileStack} />
       <ProfileStackNavigator entries={profileStackEntries} onBack={popProfileStack} />
 
       {hasVault === true && (

@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import logging
@@ -9,6 +10,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
@@ -810,9 +812,9 @@ async def kai_voice_realtime_session(
         session = await voice_service.create_realtime_session(
             voice=body.voice,
             include_input_transcription=True,
-            server_vad_silence_ms=800,
+            server_vad_silence_ms=1000,
             disable_auto_response=True,
-            enable_barge_in=True,
+            enable_barge_in=False,
         )
         _trace_voice_stage(
             turn_id,
@@ -2683,77 +2685,29 @@ async def kai_voice_tts(
                 },
             )
 
-        audio_bytes, mime_type, tts_meta = await voice_service.synthesize_speech(
+        tts_stream, mime_type, tts_meta = await voice_service.open_tts_stream(
             text=body.text,
             voice=body.voice or voice_service.tts_default_voice,
             trace_hook=_trace_tts_upstream,
         )
-        await _ensure_client_connected(
-            request,
-            turn_id=turn_id,
-            route="/voice/tts",
-            stage="request_aborted",
-            metadata={
-                "abort_stage": "post_tts_upstream",
-                "current_stage": "tts_finished",
-                "upstream_in_flight": False,
-            },
-            finalize=False,
-        )
-        _trace_voice_stage(
-            turn_id,
-            "tts_finished",
-            {
-                "route": "/voice/tts",
-                "status": "ok",
-                "model": tts_meta.get("model"),
-                "voice": tts_meta.get("voice"),
-                "format": tts_meta.get("format"),
-                "source": tts_meta.get("source") or "backend_openai_audio",
-                "attempts": tts_meta.get("attempts"),
-                "mime_type": mime_type,
-                "audio_bytes": len(audio_bytes),
-            },
-        )
-        _trace_voice_stage(
-            turn_id,
-            "tts_backend_finished",
-            {
-                "route": "/voice/tts",
-                "origin": "backend_confirmed",
-                "source": "kai_voice_tts",
-                "status": "ok",
-                "model": tts_meta.get("model"),
-                "voice": tts_meta.get("voice"),
-                "format": tts_meta.get("format"),
-                "audio_bytes": len(audio_bytes),
-            },
-        )
-        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.info(
-            "[Kai Voice] route=/voice/tts status=ok turn_id=%s elapsed_ms=%s text_chars=%s "
-            "audio_bytes=%s model=%s voice=%s format=%s source=%s",
-            turn_id,
-            elapsed_ms,
-            len(body.text or ""),
-            len(audio_bytes),
-            tts_meta.get("model", ""),
-            tts_meta.get("voice", ""),
-            tts_meta.get("format", ""),
-            tts_meta.get("source", "backend_openai_audio"),
-        )
-        _log_voice_metric(
-            "tts_latency_ms",
-            elapsed_ms,
-            turn_id=turn_id,
-            user_id=body.user_id,
-            tags={
-                "route": "/voice/tts",
-                "model": tts_meta.get("model"),
-                "voice": tts_meta.get("voice"),
-                "format": tts_meta.get("format"),
-            },
-        )
+        first_chunk = await tts_stream.read_next_chunk()
+        if first_chunk is None:
+            await tts_stream.aclose()
+            raise VoiceServiceError(502, "TTS response was empty")
+
+        content_length = tts_meta.get("content_length")
+        response_headers = {
+            "X-Voice-Turn-Id": turn_id,
+            "X-Kai-TTS-Model": str(tts_meta.get("model") or ""),
+            "X-Kai-TTS-Voice": str(tts_meta.get("voice") or ""),
+            "X-Kai-TTS-Format": str(tts_meta.get("format") or ""),
+            "X-Kai-TTS-Source": str(tts_meta.get("source") or "backend_openai_audio"),
+            "X-Kai-TTS-Timeout-Ms": str(int(voice_service.tts_timeout_seconds * 1000)),
+            "X-Kai-TTS-OpenAI-Http-Ms": str(int(tts_meta.get("openai_http_ms") or 0)),
+            "Cache-Control": "no-store",
+        }
+        if isinstance(content_length, int) and content_length > 0:
+            response_headers["X-Kai-TTS-Audio-Bytes"] = str(content_length)
         _trace_voice_stage(
             turn_id,
             "response_prepare_started",
@@ -2764,49 +2718,211 @@ async def kai_voice_tts(
                 "status": "ok",
             },
         )
-        response_headers = {
-            "X-Voice-Turn-Id": turn_id,
-            "X-Kai-TTS-Model": str(tts_meta.get("model") or ""),
-            "X-Kai-TTS-Voice": str(tts_meta.get("voice") or ""),
-            "X-Kai-TTS-Format": str(tts_meta.get("format") or ""),
-            "X-Kai-TTS-Source": str(tts_meta.get("source") or "backend_openai_audio"),
-            "X-Kai-TTS-Timeout-Ms": str(int(voice_service.tts_timeout_seconds * 1000)),
-            "X-Kai-TTS-Audio-Bytes": str(len(audio_bytes)),
-            "X-Kai-TTS-OpenAI-Http-Ms": str(int(tts_meta.get("openai_http_ms") or 0)),
-            "Cache-Control": "no-store",
-        }
-        binary_response = Response(
-            content=audio_bytes,
-            media_type=mime_type,
-            headers=response_headers,
-        )
-        _trace_voice_stage(
-            turn_id,
-            "response_prepare_finished",
-            {
-                "route": "/voice/tts",
-                "origin": "backend_confirmed",
-                "source": "kai_voice_tts",
-                "status": "ok",
-            },
-        )
-        _trace_voice_stage(
-            turn_id,
-            "response_sent",
-            {
-                "route": "/voice/tts",
-                "origin": "backend_confirmed",
-                "source": "kai_voice_tts",
-                "status": "ok",
-                "http_status": 200,
-                "elapsed_ms": elapsed_ms,
-                "model": str(tts_meta.get("model") or ""),
-                "mime_type": mime_type,
-                "audio_bytes": len(audio_bytes),
-            },
-            finalize=True,
-        )
-        return binary_response
+
+        async def _stream_audio():
+            aborted = False
+            sent_bytes = 0
+            first_yield = True
+            try:
+                chunk = first_chunk
+                while chunk is not None:
+                    if first_yield:
+                        _trace_voice_stage(
+                            turn_id,
+                            "response_prepare_finished",
+                            {
+                                "route": "/voice/tts",
+                                "origin": "backend_confirmed",
+                                "source": "kai_voice_tts",
+                                "status": "ok",
+                            },
+                        )
+                        first_yield = False
+                    if await request.is_disconnected():
+                        aborted = True
+                        tts_meta["aborted"] = True
+                        _trace_voice_stage(
+                            turn_id,
+                            "request_aborted",
+                            {
+                                "route": "/voice/tts",
+                                "origin": "backend_confirmed",
+                                "source": "kai_voice_tts",
+                                "status": "aborted",
+                                "error": "client_disconnected",
+                                "client_disconnected": True,
+                                "abort_stage": "streaming",
+                                "current_stage": "tts_streaming",
+                                "upstream_in_flight": False,
+                            },
+                            finalize=False,
+                        )
+                        break
+                    sent_bytes += len(chunk)
+                    yield chunk
+                    if await request.is_disconnected():
+                        aborted = True
+                        tts_meta["aborted"] = True
+                        _trace_voice_stage(
+                            turn_id,
+                            "request_aborted",
+                            {
+                                "route": "/voice/tts",
+                                "origin": "backend_confirmed",
+                                "source": "kai_voice_tts",
+                                "status": "aborted",
+                                "error": "client_disconnected",
+                                "client_disconnected": True,
+                                "abort_stage": "streaming",
+                                "current_stage": "tts_streaming",
+                                "upstream_in_flight": False,
+                            },
+                            finalize=False,
+                        )
+                        break
+                    chunk = await tts_stream.read_next_chunk()
+
+                if not first_yield and not aborted:
+                    tts_meta["completed"] = True
+                    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+                    logger.info(
+                        "[Kai Voice] route=/voice/tts status=ok turn_id=%s elapsed_ms=%s text_chars=%s "
+                        "audio_bytes=%s model=%s voice=%s format=%s source=%s",
+                        turn_id,
+                        elapsed_ms,
+                        len(body.text or ""),
+                        sent_bytes,
+                        tts_meta.get("model", ""),
+                        tts_meta.get("voice", ""),
+                        tts_meta.get("format", ""),
+                        tts_meta.get("source", "backend_openai_audio"),
+                    )
+                    _log_voice_metric(
+                        "tts_latency_ms",
+                        elapsed_ms,
+                        turn_id=turn_id,
+                        user_id=body.user_id,
+                        tags={
+                            "route": "/voice/tts",
+                            "model": tts_meta.get("model"),
+                            "voice": tts_meta.get("voice"),
+                            "format": tts_meta.get("format"),
+                        },
+                    )
+                    _trace_voice_stage(
+                        turn_id,
+                        "tts_finished",
+                        {
+                            "route": "/voice/tts",
+                            "status": "ok",
+                            "model": tts_meta.get("model"),
+                            "voice": tts_meta.get("voice"),
+                            "format": tts_meta.get("format"),
+                            "source": tts_meta.get("source") or "backend_openai_audio",
+                            "attempts": tts_meta.get("attempts"),
+                            "mime_type": mime_type,
+                            "audio_bytes": sent_bytes,
+                            "content_length": tts_meta.get("content_length"),
+                        },
+                    )
+                    _trace_voice_stage(
+                        turn_id,
+                        "tts_backend_finished",
+                        {
+                            "route": "/voice/tts",
+                            "origin": "backend_confirmed",
+                            "source": "kai_voice_tts",
+                            "status": "ok",
+                            "model": tts_meta.get("model"),
+                            "voice": tts_meta.get("voice"),
+                            "format": tts_meta.get("format"),
+                            "audio_bytes": sent_bytes,
+                        },
+                    )
+                    _trace_voice_stage(
+                        turn_id,
+                        "response_sent",
+                        {
+                            "route": "/voice/tts",
+                            "origin": "backend_confirmed",
+                            "source": "kai_voice_tts",
+                            "status": "ok",
+                            "http_status": 200,
+                            "elapsed_ms": elapsed_ms,
+                            "model": str(tts_meta.get("model") or ""),
+                            "mime_type": mime_type,
+                            "audio_bytes": sent_bytes,
+                        },
+                        finalize=True,
+                    )
+                elif aborted:
+                    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+                    _trace_voice_stage(
+                        turn_id,
+                        "tts_finished",
+                        {
+                            "route": "/voice/tts",
+                            "status": "error",
+                            "error": "Client disconnected",
+                            "audio_bytes": sent_bytes,
+                            "content_length": tts_meta.get("content_length"),
+                        },
+                    )
+                    _trace_voice_stage(
+                        turn_id,
+                        "response_sent",
+                        {
+                            "route": "/voice/tts",
+                            "origin": "backend_confirmed",
+                            "source": "kai_voice_tts",
+                            "status": "error",
+                            "http_status": 499,
+                            "elapsed_ms": elapsed_ms,
+                            "error": "client_disconnected",
+                            "client_disconnected": True,
+                            "audio_bytes": sent_bytes,
+                        },
+                        finalize=True,
+                    )
+            except asyncio.CancelledError:
+                tts_meta["aborted"] = True
+                elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+                _trace_voice_stage(
+                    turn_id,
+                    "request_aborted",
+                    {
+                        "route": "/voice/tts",
+                        "origin": "backend_confirmed",
+                        "source": "kai_voice_tts",
+                        "status": "aborted",
+                        "error": "client_disconnected",
+                        "client_disconnected": True,
+                        "abort_stage": "stream_cancelled",
+                        "current_stage": "tts_streaming",
+                        "upstream_in_flight": False,
+                    },
+                    finalize=False,
+                )
+                _trace_voice_stage(
+                    turn_id,
+                    "response_sent",
+                    {
+                        "route": "/voice/tts",
+                        "origin": "backend_confirmed",
+                        "source": "kai_voice_tts",
+                        "status": "error",
+                        "http_status": 499,
+                        "elapsed_ms": elapsed_ms,
+                        "error": "client_disconnected",
+                        "client_disconnected": True,
+                    },
+                    finalize=True,
+                )
+                raise
+            finally:
+                await tts_stream.aclose()
+
+        return StreamingResponse(_stream_audio(), media_type=mime_type, headers=response_headers)
     except HTTPException as error:
         if error.status_code == 499:
             raise

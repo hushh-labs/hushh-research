@@ -430,6 +430,7 @@ export function KaiCommandBarGlobal() {
           groundedPlan: payload.groundedPlan,
           executionAllowed: payload.executionAllowed,
           needsConfirmation: payload.needsConfirmation,
+          suppressNotifications: true,
           turnId: payload.turnId,
           responseId: payload.responseId,
           userId,

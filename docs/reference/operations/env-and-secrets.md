@@ -417,7 +417,7 @@ python3 scripts/ops/logical_backup_freshness_check.py \
 ## Mobile Firebase Artifacts (iOS/Android)
 
 Committed files:
-- `hushh-webapp/ios/App/App/GoogleService-Info.plist` (template only)
+- `hushh-webapp/ios/App/App/GoogleService-Info-README.md` (tracks the iOS Firebase plist setup workflow)
 - Android Firebase config is generated from the active profile sidecar under `hushh-webapp/.env.local.d/android/`
 
 Production release process:

@@ -9,6 +9,126 @@ import {
   withRequestIdJson,
   withRequestIdResponse,
 } from "@/app/api/_utils/request-id";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+
+const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(15_000, {
+  developmentFloorMs: 15_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_TIMEOUT_MS",
+});
+const GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
+  developmentFloorMs: 45_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS",
+});
+const GMAIL_RECONCILE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
+  developmentFloorMs: 30_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_RECONCILE_TIMEOUT_MS",
+});
+const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
+  developmentFloorMs: 30_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_CONNECT_COMPLETE_TIMEOUT_MS",
+});
+
+function isGmailPath(path: string): boolean {
+  return path === "gmail" || path.startsWith("gmail/");
+}
+
+function isUpstreamTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const normalizedMessage = error.message.toLowerCase();
+  const causeCode =
+    typeof (error as Error & { cause?: { code?: unknown } }).cause?.code === "string"
+      ? (error as Error & { cause: { code: string } }).cause.code
+      : "";
+  return (
+    error.name === "TimeoutError" ||
+    normalizedMessage.includes("timed out") ||
+    normalizedMessage.includes("timeout") ||
+    causeCode === "UND_ERR_HEADERS_TIMEOUT"
+  );
+}
+
+function buildUpstreamFailurePayload(path: string, error: unknown) {
+  if (!isGmailPath(path)) {
+    return {
+      error: "Upstream request failed",
+      message: "The request could not be completed right now. Please try again.",
+    };
+  }
+
+  if (path === "gmail/sync") {
+    return {
+      error: "Gmail sync unavailable",
+      message: "We couldn't start Gmail sync right now. Please try again in a moment.",
+    };
+  }
+
+  if (path === "gmail/reconcile") {
+    return {
+      error: "Gmail refresh unavailable",
+      message: isUpstreamTimeoutError(error)
+        ? "Gmail is taking a little longer to refresh right now. Please try again in a moment."
+        : "We couldn't refresh your Gmail connection right now. Please try again in a moment.",
+    };
+  }
+
+  if (path.startsWith("gmail/status/")) {
+    return {
+      error: "Gmail status unavailable",
+      message: "We couldn't check your Gmail connection right now. Please try again in a moment.",
+    };
+  }
+
+  if (path.startsWith("gmail/receipts-memory/")) {
+    return {
+      error: "Receipt summary unavailable",
+      message: "We couldn't create your shopping summary right now. Please try again in a moment.",
+    };
+  }
+
+  if (path.startsWith("gmail/receipts/")) {
+    return {
+      error: "Receipts unavailable",
+      message: "We couldn't load your receipts right now. Please try again in a moment.",
+    };
+  }
+
+  return {
+    error: "Gmail temporarily unavailable",
+    message: isUpstreamTimeoutError(error)
+      ? "Gmail is taking too long to respond right now. Please try again in a moment."
+      : "Gmail is temporarily unavailable. Please try again in a moment.",
+  };
+}
+
+function resolveKaiUpstreamTimeoutMs(path: string): number | null {
+  if (path === "gmail/receipts-memory/preview") {
+    return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
+  }
+  if (path === "gmail/reconcile") {
+    return GMAIL_RECONCILE_TIMEOUT_MS;
+  }
+  if (path === "gmail/connect/complete") {
+    return GMAIL_CONNECT_COMPLETE_TIMEOUT_MS;
+  }
+  if (isGmailPath(path)) {
+    return GMAIL_PROXY_TIMEOUT_MS;
+  }
+  return null;
+}
+
+function summarizeProxyError(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
+  }
+
+  const cause = error as Error & { cause?: { code?: unknown; message?: unknown } };
+  return {
+    name: error.name,
+    message: error.message,
+    causeCode: typeof cause.cause?.code === "string" ? cause.cause.code : undefined,
+    causeMessage: typeof cause.cause?.message === "string" ? cause.cause.message : undefined,
+  };
+}
 
 /**
  * Kai Catch-All Proxy
@@ -91,10 +211,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       body = await request.text();
     }
 
+    const upstreamTimeoutMs = resolveKaiUpstreamTimeoutMs(path);
+
     const response = await fetch(url, {
       method: request.method,
       headers: headers,
       body: body,
+      ...(upstreamTimeoutMs ? { signal: AbortSignal.timeout(upstreamTimeoutMs) } : {}),
     });
 
     // Check for SSE stream response
@@ -145,11 +268,15 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
     return withRequestIdJson(requestId, data);
   } catch (error) {
-    console.error(`[Kai API] request_id=${requestId} proxy_error path=${path}`, error);
+    console.error(
+      `[Kai API] request_id=${requestId} proxy_error path=${path}`,
+      summarizeProxyError(error)
+    );
+    const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(
       requestId,
-      { error: "Internal Proxy Error", details: String(error) },
-      { status: 500 }
+      buildUpstreamFailurePayload(path, error),
+      { status: statusCode }
     );
   }
 }

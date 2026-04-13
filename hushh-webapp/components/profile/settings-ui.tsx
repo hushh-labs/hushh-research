@@ -160,6 +160,10 @@ export function SettingsRow({
   tone = "default",
   stackTrailingOnMobile = false,
   className,
+  voiceControlId,
+  voiceActionId,
+  voiceLabel,
+  voicePurpose,
 }: {
   asChild?: boolean;
   children?: ReactNode;
@@ -174,6 +178,10 @@ export function SettingsRow({
   tone?: "default" | "destructive";
   stackTrailingOnMobile?: boolean;
   className?: string;
+  voiceControlId?: string;
+  voiceActionId?: string;
+  voiceLabel?: string;
+  voicePurpose?: string;
 }) {
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive = !disabled && (typeof onClick === "function" || resolvedAsChild);
@@ -253,6 +261,15 @@ export function SettingsRow({
     isInteractive &&
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
   );
+  const primaryActionClassName = cn(
+    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
+  );
+  const voiceProps = {
+    "data-voice-control-id": voiceControlId || undefined,
+    "data-voice-action-id": voiceActionId || undefined,
+    "data-voice-label": voiceLabel || (typeof title === "string" ? title : undefined),
+    "data-voice-purpose": voicePurpose || (typeof description === "string" ? description : undefined),
+  };
   const asChildContent =
     resolvedAsChild
       ? cloneElement(children as ReactElement, undefined, mainContent, trailingContent)
@@ -260,19 +277,7 @@ export function SettingsRow({
 
   if (splitPrimaryAction) {
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        className={rowShellClassName}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-            "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]"
-          )}
-        />
+      <div className={rowShellClassName}>
         <div
           className={cn(
             "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
@@ -281,15 +286,28 @@ export function SettingsRow({
               : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3"
           )}
         >
-          <div className="min-w-0">{mainContent}</div>
+          <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            className={primaryActionClassName}
+            {...voiceProps}
+          >
+            {mainContent}
+            <MaterialRipple
+              variant="none"
+              effect="fade"
+              disabled={disabled}
+              className="z-10"
+            />
+          </button>
           {trailingContent ? (
             <div onClick={(e) => e.stopPropagation()}>
               {trailingContent}
             </div>
           ) : null}
         </div>
-        <MaterialRipple variant="none" effect="fade" disabled={disabled} className="z-10" />
-      </button>
+      </div>
     );
   }
 
@@ -308,6 +326,7 @@ export function SettingsRow({
         <Comp
           {...(!resolvedAsChild ? { "aria-disabled": disabled || undefined } : {})}
           className={sharedClassName}
+          {...voiceProps}
         >
           {asChildContent}
         </Comp>
@@ -331,6 +350,7 @@ export function SettingsRow({
           ? { type: "button" as const, onClick, disabled }
           : { "aria-disabled": disabled || undefined })}
         className={sharedClassName}
+        {...voiceProps}
       >
         <>
           {mainContent}

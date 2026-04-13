@@ -20,18 +20,34 @@ import logging
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, TypeVar, Union
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from sqlalchemy.pool import NullPool, QueuePool
+
+from db.connection import format_database_unavailable_details, local_database_unavailable_hint
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+_DB_CONNECTION_ERROR_PATTERNS = (
+    "connection refused",
+    "server closed the connection unexpectedly",
+    "could not connect to server",
+    "connection reset by peer",
+    "terminating connection due to administrator command",
+    "connection not open",
+    "timeout",
+    "timed out",
+    "ssl syscall error: eof detected",
+)
+_DB_RETRY_ATTEMPTS = 2
+_T = TypeVar("_T")
 
 # Singleton engine instance
 _engine: Optional[Engine] = None
@@ -90,11 +106,77 @@ class DatabaseExecutionError(RuntimeError):
         table_name: str,
         operation: str,
         details: str,
+        status_code: int = 500,
+        code: str = "DATABASE_EXECUTION_ERROR",
+        hint: str | None = None,
     ):
         self.table_name = table_name
         self.operation = operation
         self.details = details
+        self.status_code = status_code
+        self.code = code
+        self.hint = hint
         super().__init__(f"DB operation failed [{table_name}.{operation}]: {details}")
+
+
+def _iter_exception_chain(exc: BaseException):
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_transient_connection_error(exc: Exception) -> bool:
+    for current in _iter_exception_chain(exc):
+        if isinstance(
+            current, (SqlalchemyOperationalError, ConnectionError, OSError, TimeoutError)
+        ):
+            return True
+        message = str(current).strip().lower()
+        if message and any(pattern in message for pattern in _DB_CONNECTION_ERROR_PATTERNS):
+            return True
+    return False
+
+
+def _dispose_engine_quietly(engine: Any, *, reason: str) -> None:
+    dispose = getattr(engine, "dispose", None)
+    if not callable(dispose):
+        return
+    try:
+        dispose()
+    except Exception as exc:  # pragma: no cover - best-effort cleanup only
+        logger.warning("Failed to dispose database engine after %s: %s", reason, exc)
+
+
+def _run_with_connection_retry(
+    engine: Any,
+    *,
+    operation_label: str,
+    callback: Callable[[Any], _T],
+) -> _T:
+    last_error: Exception | None = None
+    for attempt in range(1, _DB_RETRY_ATTEMPTS + 1):
+        try:
+            with engine.connect() as conn:
+                return callback(conn)
+        except DatabaseExecutionError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            should_retry = attempt < _DB_RETRY_ATTEMPTS and _is_transient_connection_error(exc)
+            if not should_retry:
+                raise
+            logger.warning(
+                "Transient database connection error during %s; disposing engine and retrying once: %s",
+                operation_label,
+                exc,
+            )
+            _dispose_engine_quietly(engine, reason=operation_label)
+    if last_error is None:  # pragma: no cover - defensive fallback
+        raise RuntimeError(f"Database operation failed without captured error: {operation_label}")
+    raise last_error
 
 
 def get_db_engine() -> Engine:
@@ -388,31 +470,41 @@ class TableQuery:
     def execute(self) -> QueryResult:
         """Execute the query and return results."""
         try:
-            with self.engine.connect() as conn:
+
+            def _execute(conn) -> QueryResult:
                 if self._operation == "select":
                     return self._execute_select(conn)
-                elif self._operation == "insert":
+                if self._operation == "insert":
                     return self._execute_insert(conn)
-                elif self._operation == "update":
+                if self._operation == "update":
                     return self._execute_update(conn)
-                elif self._operation == "upsert":
+                if self._operation == "upsert":
                     return self._execute_upsert(conn)
-                elif self._operation == "delete":
+                if self._operation == "delete":
                     return self._execute_delete(conn)
-                else:
-                    raise DatabaseExecutionError(
-                        table_name=self.table_name,
-                        operation=self._operation,
-                        details=f"Unknown operation: {self._operation}",
-                    )
+                raise DatabaseExecutionError(
+                    table_name=self.table_name,
+                    operation=self._operation,
+                    details=f"Unknown operation: {self._operation}",
+                )
+
+            return _run_with_connection_retry(
+                self.engine,
+                operation_label=f"{self.table_name}.{self._operation}",
+                callback=_execute,
+            )
         except DatabaseExecutionError:
             raise
         except Exception as e:
             logger.error(f"Database error: {e}")
+            is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name=self.table_name,
                 operation=self._operation,
-                details=str(e),
+                details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
+                status_code=503 if is_unavailable else 500,
+                code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
+                hint=local_database_unavailable_hint() if is_unavailable else None,
             ) from e
 
     def _execute_select(self, conn) -> QueryResult:
@@ -634,7 +726,8 @@ class DatabaseClient:
             QueryResult with data
         """
         try:
-            with self.engine.connect() as conn:
+
+            def _execute(conn) -> QueryResult:
                 dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
                 adapted_params = _adapt_db_params(params or {}, dialect_name=dialect_name)
                 result = conn.execute(text(sql), adapted_params)
@@ -646,14 +739,24 @@ class DatabaseClient:
                     return QueryResult(data=rows, count=len(rows))
                 conn.commit()
                 return QueryResult(data=[], count=result.rowcount)
+
+            return _run_with_connection_retry(
+                self.engine,
+                operation_label="<raw_sql>.execute_raw",
+                callback=_execute,
+            )
         except DatabaseExecutionError:
             raise
         except Exception as e:
             logger.error(f"Raw SQL error: {e}")
+            is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",
                 operation="execute_raw",
-                details=str(e),
+                details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
+                status_code=503 if is_unavailable else 500,
+                code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
+                hint=local_database_unavailable_hint() if is_unavailable else None,
             ) from e
 
     def rpc(self, function_name: str, params: Optional[dict] = None) -> QueryResult:
@@ -668,7 +771,8 @@ class DatabaseClient:
             QueryResult with function result
         """
         try:
-            with self.engine.connect() as conn:
+
+            def _execute(conn) -> QueryResult:
                 if params:
                     param_list = ", ".join(f":{k}" for k in params.keys())
                     sql = f"SELECT {function_name}({param_list})"
@@ -678,14 +782,24 @@ class DatabaseClient:
                 result = conn.execute(text(sql), params or {})
                 rows = [dict(row._mapping) for row in result]
                 return QueryResult(data=rows, count=len(rows))
+
+            return _run_with_connection_retry(
+                self.engine,
+                operation_label=f"<rpc>.{function_name}",
+                callback=_execute,
+            )
         except DatabaseExecutionError:
             raise
         except Exception as e:
             logger.error(f"RPC error: {e}")
+            is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<rpc>",
                 operation=function_name,
-                details=str(e),
+                details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
+                status_code=503 if is_unavailable else 500,
+                code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
+                hint=local_database_unavailable_hint() if is_unavailable else None,
             ) from e
 
 

@@ -56,6 +56,10 @@ import { VaultService } from "@/lib/services/vault-service";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
 import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
+import {
   resolveVaultAvailabilityState,
   resolveVaultCapabilityState,
 } from "@/lib/vault/vault-access-policy";
@@ -281,7 +285,7 @@ export default function PkmAgentLabPageClient() {
     [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
   );
   const environment = resolveAppEnvironment();
-  const _nonProdLabel = environment === "uat" ? "UAT" : "development";
+  const nonProdLabel = environment === "uat" ? "UAT" : "development";
 
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
@@ -477,7 +481,170 @@ export default function PkmAgentLabPageClient() {
   const upgradeNeedsBackgroundResume =
     upgradeStatus?.upgradeStatus === "ready" ||
     upgradeStatus?.upgradeStatus === "awaiting_local_auth_resume";
-  const _showUpgradeRecoveryAction = upgradeStatus?.upgradeStatus === "failed";
+  const developerReady = Boolean(access?.access_enabled);
+  const canUseTooling = Boolean(user && developerReady && vaultAccess.canMutateSecureData);
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
+  const pkmVoiceSurfaceMetadata = useMemo(() => {
+    const visibleModules = [
+      "Upgrade status",
+      "Summary",
+      "Domain permissions",
+      "Recent captures",
+      "Capture composer",
+      "Readable PKM view",
+      "Explorer",
+    ];
+    if (detailOpen) {
+      visibleModules.push("Domain permissions panel");
+    }
+
+    const availableActions = [
+      ...(vaultAccess.canMutateSecureData ? ["Generate PKM preview", "Save PKM capture"] : []),
+      ...(upgradeNeedsBackgroundResume ? ["Resume PKM upgrade"] : []),
+      ...(selectedDomain ? ["Review domain permissions"] : []),
+    ];
+    const controls = [
+      {
+        id: "generate_pkm_preview",
+        label: "Generate PKM preview",
+        purpose: "builds a preview of the current PKM capture without saving it.",
+        actionId: "profile.pkm.preview_capture",
+        role: "button",
+        voiceAliases: ["generate pkm preview", "preview pkm capture"],
+      },
+      {
+        id: "save_pkm_capture",
+        label: "Save PKM capture",
+        purpose: "persists the current capture into encrypted PKM storage.",
+        actionId: "profile.pkm.save_capture",
+        role: "button",
+        voiceAliases: ["save pkm capture", "save pkm"],
+      },
+      {
+        id: "resume_pkm_upgrade",
+        label: "Resume PKM upgrade",
+        purpose: "continues a pending local PKM upgrade flow.",
+        actionId: "profile.pkm.resume_upgrade",
+        role: "button",
+        voiceAliases: ["resume pkm upgrade"],
+      },
+    ];
+    const surfaceDefinition = {
+      screenId: "profile_pkm_agent_lab",
+      title: "PKM Agent Lab",
+      purpose:
+        "This workspace previews, saves, and inspects encrypted PKM captures and permissions.",
+      sections: [
+        {
+          id: "pkm_overview",
+          title: "PKM overview",
+          purpose: "This section summarizes current PKM state, domains, and capture context.",
+        },
+        {
+          id: "capture_preview",
+          title: "Latest capture preview",
+          purpose: "This section previews candidate PKM writes before they are saved.",
+        },
+        {
+          id: "domain_permissions",
+          title: "Domain permissions",
+          purpose: "This section manages permission exposure for PKM domains and scopes.",
+        },
+      ],
+      actions: availableActions.map((action) => ({
+        id: action.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+        label: action,
+        purpose: `${action} from PKM Agent Lab.`,
+      })),
+      controls,
+      concepts: [
+        {
+          id: "pkm",
+          label: "PKM",
+          explanation:
+            "PKM is your encrypted personal memory layer. Kai uses it to store durable user memory safely.",
+          aliases: ["pkm", "personal knowledge model"],
+        },
+      ],
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+    };
+    const activeControl =
+      controls.find((control) => control.id === activeVoiceControlId) ||
+      controls.find((control) => control.id === lastVoiceControlId) ||
+      null;
+
+    return {
+      surfaceDefinition,
+      activeSection: detailOpen
+        ? "Domain permissions"
+        : previewCards.length > 0
+          ? "Latest capture preview"
+          : "PKM overview",
+      selectedEntity: selectedDomain?.displayName || null,
+      focusedWidget:
+        activeControl?.label ||
+        (detailOpen
+          ? "Domain permissions panel"
+          : previewCards.length > 0
+            ? "Latest capture preview"
+            : "PKM summary"),
+      modalState: detailOpen ? "domain_permissions" : null,
+      visibleModules,
+      availableActions,
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+      busyOperations: [
+        ...(bootstrapLoading ? ["pkm_bootstrap"] : []),
+        ...(upgradeLoading ? ["pkm_upgrade_status_refresh"] : []),
+        ...(upgradeBusy ? ["pkm_upgrade_resume"] : []),
+        ...(submitting ? ["pkm_capture_preview"] : []),
+        ...(saving ? ["pkm_capture_save"] : []),
+        ...(togglingKey ? ["pkm_permission_update"] : []),
+      ],
+      screenMetadata: {
+        environment: nonProdLabel,
+        domain_count: domains.length,
+        enabled_sections: enabledSections,
+        total_sections: totalSections,
+        upgrade_status: upgradeStatus?.upgradeStatus || null,
+        upgradable_domain_count: upgradableDomains.length,
+        preview_card_count: previewCards.length,
+        selected_domain_key: selectedDomain?.key || null,
+        selected_domain_needs_upgrade: selectedDomainNeedsUpgrade,
+        developer_ready: developerReady,
+        can_use_tooling: canUseTooling,
+        detail_panel_open: detailOpen,
+      },
+    };
+  }, [
+    activeVoiceControlId,
+    bootstrapLoading,
+    canUseTooling,
+    detailOpen,
+    developerReady,
+    domains.length,
+    enabledSections,
+    previewCards.length,
+    saving,
+    selectedDomain,
+    selectedDomainNeedsUpgrade,
+    submitting,
+    togglingKey,
+    totalSections,
+    upgradeBusy,
+    upgradeLoading,
+    upgradeNeedsBackgroundResume,
+    upgradeStatus?.upgradeStatus,
+    upgradableDomains.length,
+    lastVoiceControlId,
+    nonProdLabel,
+    vaultAccess.canMutateSecureData,
+  ]);
+  usePublishVoiceSurfaceMetadata(pkmVoiceSurfaceMetadata);
 
   const openDomain = useCallback((domainKey: string) => {
     setSelectedDomainKey(domainKey);
@@ -805,9 +972,6 @@ export default function PkmAgentLabPageClient() {
     ]
   );
 
-  const developerReady = Boolean(access?.access_enabled);
-  const canUseTooling = Boolean(user && developerReady && vaultAccess.canMutateSecureData);
-
   return (
     <>
       <NativeTestBeacon
@@ -1022,6 +1186,10 @@ export default function PkmAgentLabPageClient() {
                         effect="fade"
                         disabled={!canUseTooling || submitting}
                         onClick={() => void handlePreview()}
+                        data-voice-control-id="generate_pkm_preview"
+                        data-voice-action-id="profile.pkm.preview_capture"
+                        data-voice-label="Generate PKM preview"
+                        data-voice-purpose="builds a preview of the current PKM capture without saving it."
                       >
                         {submitting ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1035,6 +1203,10 @@ export default function PkmAgentLabPageClient() {
                         effect="fade"
                         disabled={!canUseTooling || saving || previewCards.every((card) => card.write_mode !== "can_save")}
                         onClick={() => void persistPreview()}
+                        data-voice-control-id="save_pkm_capture"
+                        data-voice-action-id="profile.pkm.save_capture"
+                        data-voice-label="Save PKM capture"
+                        data-voice-purpose="persists the current capture into encrypted PKM storage."
                       >
                         {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         Save encrypted capture

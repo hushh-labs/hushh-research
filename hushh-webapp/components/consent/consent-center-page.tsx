@@ -51,6 +51,10 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
 import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
 
 type ConsentTab = "requests" | "active" | "history" | "relationships";
 type ConsentManagerMode = ConsentCenterMode;
@@ -430,7 +434,13 @@ function ConsentEntryDetail({
               title="Approve request"
               description="Grant the requested slice with your chosen vault-backed export."
               trailing={
-                <Button variant="blue-gradient" effect="fill" size="sm" onClick={() => onApprove(entry)}>
+                <Button
+                  variant="blue-gradient"
+                  effect="fill"
+                  size="sm"
+                  onClick={() => onApprove(entry)}
+                  data-voice-control-id="consent_approve"
+                >
                   Approve
                 </Button>
               }
@@ -439,7 +449,13 @@ function ConsentEntryDetail({
               title="Deny request"
               description="Decline the request without opening access."
               trailing={
-                <Button variant="none" effect="fade" size="sm" onClick={() => onDeny(entry)}>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  onClick={() => onDeny(entry)}
+                  data-voice-control-id="consent_deny"
+                >
                   Deny
                 </Button>
               }
@@ -452,7 +468,13 @@ function ConsentEntryDetail({
             title="Revoke active access"
             description="Immediately stop this grant and keep the audit trail intact."
             trailing={
-              <Button variant="none" effect="fade" size="sm" onClick={() => onRevoke(entry)}>
+              <Button
+                variant="none"
+                effect="fade"
+                size="sm"
+                onClick={() => onRevoke(entry)}
+                data-voice-control-id="consent_revoke"
+              >
                 Revoke
               </Button>
             }
@@ -465,7 +487,10 @@ function ConsentEntryDetail({
             description="Jump to the original request or disclosure surface."
             trailing={
               <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={normalizeInternalAppHref(entry.request_url) || entry.request_url}>
+                <Link
+                  href={normalizeInternalAppHref(entry.request_url) || entry.request_url}
+                  data-voice-control-id="consent_open_request"
+                >
                   Open
                   <ExternalLink className="ml-2 h-4 w-4" />
                 </Link>
@@ -510,6 +535,10 @@ export function ConsentCenterPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { activePersona } = usePersonaState();
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
   const defaultActor: ConsentCenterActor = activePersona === "ria" ? "ria" : "investor";
   const actor = normalizeActor(searchParams.get("actor"), defaultActor);
   const mode: ConsentManagerMode = "consents";
@@ -684,6 +713,185 @@ export function ConsentCenterPage() {
     () => (selectedEntry ? toPendingConsent(selectedEntry) : null),
     [selectedEntry]
   );
+  const consentVoiceSurfaceMetadata = useMemo(() => {
+    const tabTitle =
+      tab === "requests" ? "Pending" : tab === "active" ? "Active" : "Previous";
+    const actions = [
+      {
+        id: "consents.search",
+        label: "Search consents",
+        purpose: "Filters the current consent list by name, email, scope, or reason.",
+        voiceAliases: ["search consents", "filter consents"],
+      },
+      {
+        id: "consents.review",
+        label: "Review consent details",
+        purpose: "Opens the selected consent request details and next actions.",
+        voiceAliases: ["review consent", "open consent details"],
+      },
+      ...(selectedEntry?.kind === "incoming_request" && selectedEntry.status === "pending"
+        ? [
+            {
+              id: "consents.approve",
+              label: "Approve request",
+              purpose: "Approves the selected incoming consent request.",
+              voiceAliases: ["approve request", "approve consent"],
+            },
+            {
+              id: "consents.deny",
+              label: "Deny request",
+              purpose: "Denies the selected incoming consent request.",
+              voiceAliases: ["deny request", "deny consent"],
+            },
+          ]
+        : []),
+      ...(selectedEntry?.kind === "active_grant" && selectedEntry.scope
+        ? [
+            {
+              id: "consents.revoke",
+              label: "Revoke active access",
+              purpose: "Revokes the selected active consent grant.",
+              voiceAliases: ["revoke access", "revoke consent"],
+            },
+          ]
+        : []),
+    ];
+
+    return {
+      screenId: "consents",
+      title: "Consent manager",
+      purpose:
+        "This screen is the permission workspace for reviewing pending requests, active grants, and prior decisions.",
+      sections: [
+        {
+          id: "pending",
+          title: "Pending",
+          purpose: "Shows consent requests waiting for a decision.",
+        },
+        {
+          id: "active",
+          title: "Active",
+          purpose: "Shows currently active consent grants.",
+        },
+        {
+          id: "previous",
+          title: "Previous",
+          purpose: "Shows prior consent decisions and closed requests.",
+        },
+        {
+          id: "consent_details",
+          title: "Consent details",
+          purpose: "Shows the selected request details and next available actions.",
+        },
+      ],
+      actions,
+      controls: [
+        {
+          id: "consent_search",
+          label: "Search consents",
+          purpose: "Filters the current consent list.",
+          actionId: "consents.search",
+          role: "input",
+        },
+        {
+          id: "consent_detail_panel",
+          label: "Consent details",
+          purpose: "Shows the selected consent request details and actions.",
+          actionId: "consents.review",
+          role: "panel",
+        },
+        ...(selectedEntry?.kind === "incoming_request" && selectedEntry.status === "pending"
+          ? [
+              {
+                id: "consent_approve",
+                label: "Approve request",
+                purpose: "Approves the selected incoming consent request.",
+                actionId: "consents.approve",
+                role: "button",
+              },
+              {
+                id: "consent_deny",
+                label: "Deny request",
+                purpose: "Denies the selected incoming consent request.",
+                actionId: "consents.deny",
+                role: "button",
+              },
+            ]
+          : []),
+        ...(selectedEntry?.kind === "active_grant" && selectedEntry.scope
+          ? [
+              {
+                id: "consent_revoke",
+                label: "Revoke active access",
+                purpose: "Revokes the selected active grant.",
+                actionId: "consents.revoke",
+                role: "button",
+              },
+            ]
+          : []),
+      ],
+      concepts: [
+        {
+          id: "consents",
+          label: "Consents",
+          explanation:
+            "Consents is the permission workspace where sharing requests and active grants are reviewed.",
+          aliases: ["consents", "consent center", "consent manager"],
+        },
+      ],
+      activeSection: tabTitle,
+      activeTab: tab,
+      visibleModules: ["Consent manager", tabTitle, ...(selectedEntry ? ["Consent details"] : [])],
+      focusedWidget: selectedEntry ? "Consent details" : "Consent manager",
+      searchQuery: searchValue.trim() || null,
+      availableActions: actions.map((action) => action.label),
+      activeControlId: activeVoiceControlId || (selectedEntry ? "consent_detail_panel" : null),
+      lastInteractedControlId: lastVoiceControlId,
+      activeFilters: [actor, managerView].filter(
+        (
+          value
+        ): value is ConsentCenterActor | "incoming" | "outgoing" => Boolean(value)
+      ),
+      selectedEntity: selectedEntry ? resolveCounterpartLabel(selectedEntry) : null,
+      busyOperations: [
+        ...(summaryResource.loading ? ["consent_summary_load"] : []),
+        ...(listResource.loading ? ["consent_list_load"] : []),
+        ...(listResource.refreshing ? ["consent_list_refresh"] : []),
+      ],
+      screenMetadata: {
+        actor,
+        tab,
+        manager_view: managerView,
+        pending_count: summaryData?.counts.pending ?? 0,
+        active_count: summaryData?.counts.active ?? 0,
+        previous_count: summaryData?.counts.previous ?? 0,
+        selected_request_id: selectedEntry?.request_id || selectedEntry?.id || null,
+        selected_status: selectedEntry?.status || null,
+        selected_scope: selectedEntry?.scope || null,
+        detail_open: Boolean(selectedId),
+        visible_entry_count: items.length,
+        total_entries: listData?.total || 0,
+      },
+    };
+  }, [
+    activeVoiceControlId,
+    actor,
+    items.length,
+    lastVoiceControlId,
+    listData?.total,
+    listResource.loading,
+    listResource.refreshing,
+    managerView,
+    searchValue,
+    selectedEntry,
+    selectedId,
+    summaryData?.counts.active,
+    summaryData?.counts.pending,
+    summaryData?.counts.previous,
+      summaryResource.loading,
+      tab,
+    ]);
+  usePublishVoiceSurfaceMetadata(consentVoiceSurfaceMetadata);
 
   const setParam = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -768,6 +976,7 @@ export function ConsentCenterPage() {
                     }}
                     placeholder={searchPlaceholder}
                     className="pl-9"
+                    data-voice-control-id="consent_search"
                   />
                 </div>
                 {((tab === "relationships" ? centerResource.loading || centerResource.refreshing : listResource.loading || listResource.refreshing) && items.length > 0) ? (

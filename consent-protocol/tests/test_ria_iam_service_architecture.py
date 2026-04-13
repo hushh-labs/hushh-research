@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -680,3 +681,88 @@ async def test_sync_relationship_from_consent_action_uses_active_tokens_over_lat
 
     assert updates == [("relationship_1", "approved")]
     assert materialized and materialized[0]["relationship_id"] == "relationship_1"
+
+
+@pytest.mark.asyncio
+async def test_queue_ria_invite_email_delivery_records_queue_and_success_metadata(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    service = ria_module.RIAIAMService()
+    metadata_updates: list[tuple[str, dict[str, object]]] = []
+    captured: dict[str, object] = {}
+
+    class _FakeConfig:
+        configured = True
+        delivery_mode = "test"
+        test_to_email = "qa@example.com"
+        from_email = "kai@hushh.ai"
+        support_to_email = "support@hushh.ai"
+        delegated_user = "support@hushh.ai"
+
+    class _FakeInviteEmailService:
+        config = _FakeConfig()
+
+        def _effective_recipient(self, target_email: str) -> str:
+            _ = target_email
+            return "qa@example.com"
+
+        def send_ria_invite(self, **kwargs):  # noqa: ANN003
+            captured["send_kwargs"] = kwargs
+            return SimpleNamespace(
+                accepted=True,
+                message_id="msg_1",
+                recipient="qa@example.com",
+                intended_recipient=kwargs["target_email"],
+                delivery_mode="test",
+                from_email="kai@hushh.ai",
+            )
+
+    class _FakeQueue:
+        async def enqueue(self, **kwargs):  # noqa: ANN003
+            captured["enqueue_kwargs"] = kwargs
+            return {
+                "accepted": True,
+                "delivery_status": "queued",
+                "job_id": "job_1",
+                "kind": kwargs["kind"],
+                "queued_at": "2026-04-13T00:00:00Z",
+            }
+
+    async def _record_update(self, invite_id: str, metadata_patch: dict[str, object]):
+        metadata_updates.append((invite_id, metadata_patch))
+
+    monkeypatch.setattr(
+        ria_module, "get_kai_invite_email_service", lambda: _FakeInviteEmailService()
+    )
+    monkeypatch.setattr(ria_module, "get_email_delivery_queue_service", lambda: _FakeQueue())
+    monkeypatch.setattr(
+        ria_module.RIAIAMService,
+        "_update_ria_invite_email_delivery_metadata",
+        _record_update,
+    )
+
+    created_item: dict[str, object] = {}
+    sample_invite_code = "invite-fixture-1"
+    await service._queue_ria_invite_email_delivery(
+        invite_id="invite_1",
+        invite_token=sample_invite_code,
+        invite_path=f"/kai/onboarding?invite={sample_invite_code}",
+        target_email="investor@example.com",
+        target_display_name="Taylor",
+        advisor_name="Advisor Alpha",
+        firm_name="Advisor Alpha LLC",
+        expires_at="2026-05-01T00:00:00Z",
+        reason="Come join Kai",
+        created_item=created_item,
+    )
+
+    assert created_item["delivery_status"] == "queued"
+    assert metadata_updates[0][1]["status"] == "queued"
+    assert captured["enqueue_kwargs"]["kind"] == "invite_email"
+
+    send_result = captured["enqueue_kwargs"]["send_callable"]()
+    await captured["enqueue_kwargs"]["on_success"](send_result)
+
+    assert created_item["delivery_status"] == "sent"
+    assert created_item["delivery_message_id"] == "msg_1"
+    assert metadata_updates[-1][1]["status"] == "sent"
