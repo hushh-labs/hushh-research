@@ -289,10 +289,7 @@ export function resolveGmailConnectionPresentation(options: {
 }
 
 export function buildProfileGmailReturnPath(): string {
-  const params = new URLSearchParams({
-    tab: "account",
-    panel: "gmail",
-  });
+  const params = new URLSearchParams({ panel: "gmail" });
   return `${ROUTES.PROFILE}?${params.toString()}`;
 }
 

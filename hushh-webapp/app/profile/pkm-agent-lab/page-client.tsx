@@ -484,7 +484,7 @@ export default function PkmAgentLabPageClient() {
     setDetailOpen(true);
   }, []);
   const openPrivacySecurity = useCallback(() => {
-    router.push("/profile?tab=privacy&panel=security");
+    router.push("/profile?panel=security");
   }, [router]);
   const handleVaultAccessRequired = useCallback(
     (message: string) => {

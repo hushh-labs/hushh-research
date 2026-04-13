@@ -6,7 +6,7 @@ import PkmAgentLabPageClient from "./page-client";
 
 export default function PkmAgentLabPage() {
   if (resolveAppEnvironment() === "production") {
-    redirect("/profile?tab=account");
+    redirect("/profile?panel=my-data");
   }
 
   return <PkmAgentLabPageClient />;

@@ -49,6 +49,12 @@ const FALLBACK_ICON: Record<MarketOverviewMetric["tone"], LucideIcon> = {
   warning: Activity,
 };
 
+const MARKET_GLASS_CARD_CLASSNAME =
+  "bg-[linear-gradient(180deg,rgba(255,255,255,0.88)_0%,rgba(248,250,252,0.72)_52%,rgba(241,245,249,0.58)_100%)] dark:bg-[color:var(--app-card-surface-default-solid)]";
+
+const MARKET_ACTION_CARD_CLASSNAME =
+  "border-[color:color-mix(in_srgb,var(--app-card-border-strong)_68%,rgba(99,102,241,0.22)_32%)] shadow-[var(--app-card-shadow-standard)]";
+
 export function MarketOverviewGrid({
   metrics = [],
   onMetricSelect,
@@ -67,7 +73,7 @@ export function MarketOverviewGrid({
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {metrics.map((metric) => {
         const actionable = Boolean(metric.detailPanel && onMetricSelect);
 
@@ -75,12 +81,15 @@ export function MarketOverviewGrid({
           <SurfaceCard
             accent="none"
             className={cn(
+              "h-full",
+              MARKET_GLASS_CARD_CLASSNAME,
+              actionable && MARKET_ACTION_CARD_CLASSNAME,
               actionable &&
-                "transition-[transform,box-shadow,background-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:shadow-[var(--app-card-shadow-feature)]"
+                "transition-[transform,box-shadow,background-color,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-[color:color-mix(in_srgb,var(--app-card-border-strong)_82%,rgba(99,102,241,0.35)_18%)] group-hover:shadow-[var(--app-card-shadow-feature)]"
             )}
           >
-            <SurfaceCardContent className="flex min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
-              <div className="flex items-start justify-between gap-3">
+            <SurfaceCardContent className="flex h-full min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
+              <div className="flex items-start gap-3">
                 <div className="flex items-start gap-3">
                   <span
                     className={cn(
@@ -103,13 +112,8 @@ export function MarketOverviewGrid({
                     </span>
                   </div>
                 </div>
-                {actionable ? (
-                  <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--app-card-surface-compact)] text-muted-foreground transition-colors group-hover:text-foreground">
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </span>
-                ) : null}
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <p className="text-base font-semibold leading-none tracking-tight text-foreground sm:text-lg">
                   {metric.value}
                 </p>
@@ -138,6 +142,18 @@ export function MarketOverviewGrid({
                   </p>
                 ) : null}
               </div>
+              {actionable ? (
+                <div className="flex items-center justify-between border-t border-[color:var(--app-card-border-standard)]/80 pt-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/72">
+                    View detail
+                  </p>
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-white/75 text-foreground/72 transition-colors group-hover:text-foreground dark:bg-[var(--app-card-surface-compact)]">
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </span>
+                </div>
+              ) : (
+                <div className="h-[38px]" />
+              )}
             </SurfaceCardContent>
           </SurfaceCard>
         );
@@ -151,7 +167,7 @@ export function MarketOverviewGrid({
             key={metric.id || metric.label}
             type="button"
             onClick={() => onMetricSelect?.(metric)}
-            className="group relative isolate w-full rounded-[var(--app-card-radius-feature)] text-left outline-none focus-visible:ring-2 focus-visible:ring-foreground/10 focus-visible:ring-offset-2"
+            className="group relative isolate w-full rounded-[var(--app-card-radius-feature)] text-left outline-none focus-visible:ring-2 focus-visible:ring-foreground/15 focus-visible:ring-offset-2"
           >
             {card}
             <MaterialRipple variant="none" effect="fade" className="z-10" />

@@ -6,10 +6,12 @@
 flowchart TB
   root["Root Markdown<br/>thin contributor entrypoints"]
   cross["docs/<br/>cross-cutting contracts and maps"]
+  future["docs/future/<br/>future roadmap + R&D planning"]
   protocol["consent-protocol/docs/<br/>backend and protocol docs"]
   webapp["hushh-webapp/docs/<br/>frontend/native package docs"]
 
   root --> cross
+  cross --> future
   root --> protocol
   root --> webapp
 ```
@@ -39,8 +41,15 @@ This is the canonical home for:
 - operations
 - quality
 - vision
+- future roadmap and R&D planning
 
 Anything cross-cutting belongs here.
+
+Within root `docs/`, keep these boundaries explicit:
+
+- `docs/vision/` = durable north stars and product thesis
+- `docs/future/` = planning-only future-state concepts, R&D assessments, and promotion criteria
+- `docs/reference/` = execution-owned cross-cutting contracts
 
 ### 3. `consent-protocol/docs/`
 

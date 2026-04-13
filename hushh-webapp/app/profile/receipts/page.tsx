@@ -638,7 +638,7 @@ export default function ProfileReceiptsPage() {
                 <Mail className="h-4 w-4" />
                 Connect Gmail from Profile to start syncing receipts.
               </div>
-              <Button onClick={() => router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)}>
+              <Button onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}>
                 Open Gmail connector
               </Button>
             </SurfaceInset>

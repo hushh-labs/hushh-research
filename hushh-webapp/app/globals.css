@@ -1302,7 +1302,12 @@ md-ripple.morphy-md-ripple {
   transition:
     color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
     background-color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
+    background-image var(--motion-duration-md) var(--motion-ease-standard) 0ms,
     border-color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
+    box-shadow var(--motion-duration-md) var(--motion-ease-standard) 0ms,
+    opacity var(--motion-duration-md) var(--motion-ease-standard) 0ms,
+    -webkit-backdrop-filter var(--motion-duration-md) var(--motion-ease-standard) 0ms,
+    backdrop-filter var(--motion-duration-md) var(--motion-ease-standard) 0ms,
     fill var(--motion-duration-md) var(--motion-ease-standard) 0ms,
     stroke var(--motion-duration-md) var(--motion-ease-standard) 0ms;
   transition-delay: 0ms !important;

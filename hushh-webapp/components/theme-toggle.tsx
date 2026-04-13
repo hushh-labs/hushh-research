@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Moon, Monitor, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
+import { beginThemeSwitchTransition } from "@/components/theme-provider";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
@@ -60,6 +61,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             aria-checked={isActive}
             onClick={() => {
               if (option.value === activeTheme) return;
+              beginThemeSwitchTransition();
               setTheme(option.value);
             }}
             className={cn(

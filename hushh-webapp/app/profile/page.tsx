@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { ReadonlyURLSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Bug,
@@ -14,19 +15,17 @@ import {
   Loader2,
   LogOut,
   Mail,
-  MessageSquare,
   Monitor,
   RefreshCw,
   SendHorizontal,
+  ShieldCheck,
   Trash2,
   User,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { KaiPreferencesSheet } from "@/components/kai/onboarding/KaiPreferencesSheet";
 import {
-  SettingsDetailPanel,
   SettingsGroup,
   SettingsRow,
   SettingsSegmentedTabs,
@@ -36,7 +35,25 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
+import {
+  SurfaceCard,
+  SurfaceCardContent,
+  SurfaceCardDescription,
+  SurfaceCardHeader,
+  SurfaceCardTitle,
+  SurfaceInset,
+  SurfaceStack,
+} from "@/components/app-ui/surfaces";
+import {
+  PkmAccessManagerPanel,
+  PkmAccessConnectionDetailPanel,
+  PkmDataManagerPanel,
+  PkmDomainDetailPanel,
+  ProfileStateNotice,
+  type ProfileSourceHealthEntry,
+} from "@/components/profile/pkm-data-manager";
+import { ProfileStackNavigator, type ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
+import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -45,8 +62,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -75,10 +90,19 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { RiaService } from "@/lib/services/ria-service";
 import {
+  ConsentCenterService,
+  type ConsentCenterResponse,
+} from "@/lib/services/consent-center-service";
+import {
   SupportService,
   type SupportMessageKind,
 } from "@/lib/services/support-service";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import {
+  buildPkmAccessConnections,
+  buildPkmDomainPresentation,
+  buildPkmProfileSummaryPresentation,
+} from "@/lib/profile/pkm-profile-presentation";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { VaultService } from "@/lib/services/vault-service";
@@ -89,13 +113,38 @@ import {
 } from "@/lib/services/vault-method-service";
 import {
   PersonalKnowledgeModelService,
-  type DomainSummary,
+  type PersonalKnowledgeModelMetadata,
 } from "@/lib/services/personal-knowledge-model-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
+import { useConsentActions } from "@/lib/consent";
 
-type ProfileTab = "account" | "preferences" | "privacy";
-type ProfilePanel = "security" | "support" | "consents" | "gmail";
+type ProfilePanel =
+  | "my-data"
+  | "access"
+  | "preferences"
+  | "security"
+  | "support"
+  | "gmail";
+
+type ProfileDetail =
+  | `domain:${string}`
+  | `connection:${string}`
+  | "appearance"
+  | "kai-preferences"
+  | "device"
+  | "vault"
+  | "session"
+  | "danger"
+  | "gmail-connection"
+  | "gmail-actions"
+  | "support-routing"
+  | `support-compose:${SupportMessageKind}`;
+
+type ProfileRouteState = {
+  panel: ProfilePanel | null;
+  detail: ProfileDetail | null;
+};
 
 const SUPPORT_KIND_COPY: Record<
   SupportMessageKind,
@@ -118,23 +167,59 @@ const SUPPORT_KIND_COPY: Record<
   },
 };
 
-function normalizeProfileTab(value: string | null): ProfileTab {
-  if (value === "preferences" || value === "privacy") {
-    return value;
-  }
-  return "account";
-}
-
 function normalizeProfilePanel(value: string | null): ProfilePanel | null {
   if (
+    value === "my-data" ||
+    value === "access" ||
+    value === "preferences" ||
     value === "security" ||
     value === "support" ||
-    value === "consents" ||
     value === "gmail"
   ) {
     return value;
   }
   return null;
+}
+
+function normalizeProfileDetail(panel: ProfilePanel | null, value: string | null): ProfileDetail | null {
+  const detail = String(value || "").trim();
+  if (!panel || !detail) return null;
+
+  if (panel === "my-data" && detail.startsWith("domain:")) {
+    return detail as ProfileDetail;
+  }
+  if (panel === "access" && detail.startsWith("connection:")) {
+    return detail as ProfileDetail;
+  }
+  if (
+    panel === "preferences" &&
+    (detail === "appearance" || detail === "kai-preferences" || detail === "device")
+  ) {
+    return detail;
+  }
+  if (panel === "security" && (detail === "vault" || detail === "session" || detail === "danger")) {
+    return detail;
+  }
+  if (panel === "gmail" && (detail === "gmail-connection" || detail === "gmail-actions")) {
+    return detail;
+  }
+  if (panel === "support" && (detail === "support-routing" || detail.startsWith("support-compose:"))) {
+    return detail as ProfileDetail;
+  }
+
+  return null;
+}
+
+function buildProfileHref(params: { panel?: ProfilePanel | null; detail?: ProfileDetail | null }) {
+  const next = new URLSearchParams();
+  if (params.panel) {
+    next.set("panel", params.panel);
+  }
+  if (params.panel && params.detail) {
+    next.set("detail", params.detail);
+  }
+  const query = next.toString();
+  return query ? `${ROUTES.PROFILE}?${query}` : ROUTES.PROFILE;
 }
 
 function getProvider(user: ReturnType<typeof useAuth>["user"]) {
@@ -209,10 +294,21 @@ function formatMethodList(methods: VaultMethod[]): string {
   return methods.map((method) => readableMethod(method)).join(", ");
 }
 
-function tabForPanel(panel: ProfilePanel | null, fallback: ProfileTab): ProfileTab {
-  if (panel === "support" || panel === "gmail") return "account";
-  if (panel === "security" || panel === "consents") return "privacy";
-  return fallback;
+function resolveProfileRouteState(searchParams: ReadonlyURLSearchParams): ProfileRouteState {
+  let panel = normalizeProfilePanel(searchParams.get("panel"));
+
+  if (!panel) {
+    const tab = searchParams.get("tab");
+    if (tab === "my-data") panel = "my-data";
+    else if (tab === "access" || tab === "privacy") panel = "access";
+    else if (tab === "preferences") panel = "preferences";
+    else if (tab === "security") panel = "security";
+  }
+
+  return {
+    panel,
+    detail: normalizeProfileDetail(panel, searchParams.get("detail")),
+  };
 }
 
 function ProfilePageContent() {
@@ -236,9 +332,12 @@ function ProfilePageContent() {
   const [deleteTarget, setDeleteTarget] = useState<AccountDeletionTarget>("both");
   const [isDeleting, setIsDeleting] = useState(false);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
-  const [domains, setDomains] = useState<DomainSummary[]>([]);
-  const [totalAttributes, setTotalAttributes] = useState(0);
-  const [loadingDomains, setLoadingDomains] = useState(true);
+  const [pkmMetadata, setPkmMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
+  const [loadingPkmMetadata, setLoadingPkmMetadata] = useState(true);
+  const [pkmError, setPkmError] = useState<string | null>(null);
+  const [consentCenter, setConsentCenter] = useState<ConsentCenterResponse | null>(null);
+  const [loadingConsentCenter, setLoadingConsentCenter] = useState(true);
+  const [consentCenterError, setConsentCenterError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [vaultMethod, setVaultMethod] = useState<VaultMethod | null>(null);
   const [capabilityMatrix, setCapabilityMatrix] =
@@ -254,11 +353,9 @@ function ProfilePageContent() {
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
   const [newPassphrase, setNewPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
-  const [showKaiPreferencesSheet, setShowKaiPreferencesSheet] = useState(false);
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
-  const [supportDialogOpen, setSupportDialogOpen] = useState(false);
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
   const [supportSubject, setSupportSubject] = useState("");
@@ -268,10 +365,9 @@ function ProfilePageContent() {
     "connect" | "disconnect" | "sync" | null
   >(null);
 
-  const requestedPanel = normalizeProfilePanel(searchParams.get("panel"));
-  const requestedTab = normalizeProfileTab(searchParams.get("tab"));
-  const activeTab = tabForPanel(requestedPanel, requestedTab);
-  const activePanel = requestedPanel;
+  const profileRouteState = resolveProfileRouteState(searchParams);
+  const activePanel = profileRouteState.panel;
+  const activeDetail = profileRouteState.detail;
 
   const provider = getProvider(user);
   const gmailRouteHref = `${pathname}?${searchParamsString}`;
@@ -308,28 +404,130 @@ function ProfilePageContent() {
       }),
     [gmail.loadingStatus, gmail.status, gmail.statusError, gmailActionBusy]
   );
+  const domainPresentations = useMemo(
+    () =>
+      (pkmMetadata?.domains || []).map((domain) =>
+        buildPkmDomainPresentation({
+          domain,
+          activeGrants: consentCenter?.active_grants || [],
+        })
+      ),
+    [consentCenter?.active_grants, pkmMetadata?.domains]
+  );
+
+  const profileSummary = useMemo(
+    () =>
+      buildPkmProfileSummaryPresentation({
+        metadata: pkmMetadata,
+        domains: domainPresentations,
+        activeGrants: consentCenter?.active_grants || [],
+        pendingRequestCount: pendingConsents,
+      }),
+    [consentCenter?.active_grants, domainPresentations, pendingConsents, pkmMetadata]
+  );
+
+  const sourceHealthEntries = useMemo<ProfileSourceHealthEntry[]>(
+    () => [
+      {
+        id: "vault",
+        label: "Vault",
+        detail: vaultAccess.needsVaultCreation
+          ? "Create your vault to start managing readable data."
+          : vaultAccess.needsUnlock
+            ? "Unlock to reveal private PKM data."
+            : "Readable data manager is active.",
+        status: vaultAccess.needsVaultCreation
+          ? "Not created"
+          : vaultAccess.needsUnlock
+            ? "Locked"
+            : "Ready",
+        tone: vaultAccess.needsVaultCreation
+          ? "warning"
+          : vaultAccess.needsUnlock
+            ? "warning"
+            : "success",
+      },
+      {
+        id: "gmail",
+        label: "Gmail receipts",
+        detail: gmailPresentation.description,
+        status: gmailPresentation.badgeLabel,
+        tone: gmailPresentation.isConnected
+          ? "success"
+          : gmailPresentation.state === "needs_reauthentication"
+            ? "warning"
+            : "default",
+      },
+      {
+        id: "access",
+        label: "Consent-backed access",
+        detail:
+          pendingConsents > 0
+            ? `${pendingConsents} request${pendingConsents === 1 ? "" : "s"} waiting for review.`
+            : `${consentCenter?.active_grants.length || 0} active grant${(consentCenter?.active_grants.length || 0) === 1 ? "" : "s"} currently live.`,
+        status: pendingConsents > 0 ? "Review needed" : "Stable",
+        tone: pendingConsents > 0 ? "warning" : "default",
+      },
+      {
+        id: "marketplace",
+        label: "Marketplace visibility",
+        detail: marketplaceOptIn
+          ? "Your investor profile is discoverable to RIAs."
+          : "Your investor profile is hidden from marketplace search.",
+        status: marketplaceOptIn ? "Visible" : "Hidden",
+        tone: marketplaceOptIn ? "success" : "default",
+      },
+    ],
+    [
+      consentCenter?.active_grants.length,
+      gmailPresentation.badgeLabel,
+      gmailPresentation.description,
+      gmailPresentation.isConnected,
+      gmailPresentation.state,
+      marketplaceOptIn,
+      pendingConsents,
+      vaultAccess.needsUnlock,
+      vaultAccess.needsVaultCreation,
+    ]
+  );
+
+  const accessConnections = useMemo(
+    () => buildPkmAccessConnections(domainPresentations),
+    [domainPresentations]
+  );
+
+  const selectedDomain = useMemo(() => {
+    if (activePanel !== "my-data" || !activeDetail?.startsWith("domain:")) return null;
+    const domainKey = activeDetail.slice("domain:".length);
+    return domainPresentations.find((domain) => domain.key === domainKey) || null;
+  }, [activeDetail, activePanel, domainPresentations]);
+
+  const selectedConnection = useMemo(() => {
+    if (activePanel !== "access" || !activeDetail?.startsWith("connection:")) return null;
+    const connectionId = activeDetail.slice("connection:".length);
+    return accessConnections.find((connection) => connection.id === connectionId) || null;
+  }, [accessConnections, activeDetail, activePanel]);
 
   const updateProfileView = useMemo(
     () =>
-      (next: { tab?: ProfileTab; panel?: ProfilePanel | null }) => {
-        const params = new URLSearchParams(searchParamsString);
-        const nextTab = next.tab ?? activeTab;
-        params.set("tab", nextTab);
-
-        if (typeof next.panel === "undefined") {
-          if (!params.get("panel")) {
-            params.delete("panel");
-          }
-        } else if (next.panel) {
-          params.set("panel", next.panel);
+      (
+        next: {
+          panel?: ProfilePanel | null;
+          detail?: ProfileDetail | null;
+        },
+        mode: "push" | "replace" = "push"
+      ) => {
+        const href = buildProfileHref({
+          panel: typeof next.panel === "undefined" ? activePanel : next.panel,
+          detail: typeof next.detail === "undefined" ? activeDetail : next.detail,
+        });
+        if (mode === "push") {
+          router.push(href, { scroll: false });
         } else {
-          params.delete("panel");
+          router.replace(href, { scroll: false });
         }
-
-        const query = params.toString();
-        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
       },
-    [activeTab, pathname, router, searchParamsString]
+    [activeDetail, activePanel, router]
   );
 
   useEffect(() => {
@@ -431,6 +629,44 @@ function ProfilePageContent() {
     setLoadingMarketplaceOptIn(false);
   }, [personaState, user]);
 
+  const refreshPkmMetadata = useCallback(
+    async (force = false) => {
+      if (!user?.uid || !vaultOwnerToken || !vaultAccess.canReadSecureData) return;
+      const metadata = await PersonalKnowledgeModelService.getMetadata(
+        user.uid,
+        force,
+        vaultOwnerToken
+      );
+      setPkmMetadata(metadata);
+      setPkmError(null);
+    },
+    [user?.uid, vaultAccess.canReadSecureData, vaultOwnerToken]
+  );
+
+  const refreshConsentCenter = useCallback(
+    async (force = false) => {
+      if (!user?.uid) return;
+      const idToken = await user.getIdToken();
+      const nextCenter = await ConsentCenterService.getCenter({
+        idToken,
+        userId: user.uid,
+        actor: "investor",
+        view: "active",
+        force,
+      });
+      setConsentCenter(nextCenter);
+      setConsentCenterError(null);
+    },
+    [user]
+  );
+
+  const { handleRevoke } = useConsentActions({
+    userId: user?.uid ?? null,
+    onActionComplete: () => {
+      void refreshConsentCenter(true);
+    },
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -442,45 +678,54 @@ function ProfilePageContent() {
         setInitialized(true);
       }
 
-      if (!user?.uid) return;
-      if (hasVault === null) return;
+      if (!user?.uid || hasVault === null) return;
 
       try {
-        setLoadingDomains(true);
+        setLoadingPkmMetadata(true);
+        setLoadingConsentCenter(true);
 
-        if (hasVault !== true) {
+        if (hasVault !== true || !vaultAccess.canReadSecureData || !vaultOwnerToken) {
           if (!cancelled) {
-            setDomains([]);
-            setTotalAttributes(0);
+            setPkmMetadata(null);
+            setConsentCenter(null);
+            setPkmError(null);
+            setConsentCenterError(null);
             completeStep();
           }
           return;
         }
 
-        if (!vaultAccess.canReadSecureData || !vaultOwnerToken) {
-          if (!cancelled) {
-            setDomains([]);
-            setTotalAttributes(0);
-            completeStep();
-          }
-          return;
-        }
-
-        const metadata = await PersonalKnowledgeModelService.getMetadata(
-          user.uid,
-          false,
-          vaultOwnerToken || undefined
-        );
+        const idToken = await user.getIdToken();
+        const [metadata, center] = await Promise.all([
+          PersonalKnowledgeModelService.getMetadata(user.uid, false, vaultOwnerToken),
+          ConsentCenterService.getCenter({
+            idToken,
+            userId: user.uid,
+            actor: "investor",
+            view: "active",
+            force: false,
+          }),
+        ]);
+        if (cancelled) return;
+        setPkmMetadata(metadata);
+        setConsentCenter(center);
+        setPkmError(null);
+        setConsentCenterError(null);
+        completeStep();
+      } catch (error) {
+        console.error("Failed to load profile manager data:", error);
         if (!cancelled) {
-          setDomains(metadata.domains);
-          setTotalAttributes(metadata.totalAttributes);
+          const message =
+            error instanceof Error ? error.message : "Failed to load profile data manager.";
+          setPkmError(message);
+          setConsentCenterError(message);
           completeStep();
         }
-      } catch (error) {
-        console.error("Failed to load PKM data:", error);
-        if (!cancelled) completeStep();
       } finally {
-        if (!cancelled) setLoadingDomains(false);
+        if (!cancelled) {
+          setLoadingPkmMetadata(false);
+          setLoadingConsentCenter(false);
+        }
       }
     }
 
@@ -497,7 +742,7 @@ function ProfilePageContent() {
     initialized,
     registerSteps,
     reset,
-    user?.uid,
+    user,
     vaultAccess.canReadSecureData,
     vaultOwnerToken,
   ]);
@@ -627,11 +872,17 @@ function ProfilePageContent() {
     }
   };
 
-  function openSupportDialog(kind: SupportMessageKind) {
+  function openSupportComposer(kind: SupportMessageKind) {
     setSupportKind(kind);
     setSupportSubject(SUPPORT_KIND_COPY[kind].subject);
     setSupportMessage("");
-    setSupportDialogOpen(true);
+    updateProfileView(
+      {
+        panel: "support",
+        detail: `support-compose:${kind}`,
+      },
+      "push"
+    );
   }
 
   function requestVaultUnlock(reason: "profile_data" | "delete_account" = "profile_data") {
@@ -674,7 +925,7 @@ function ProfilePageContent() {
           ? `Sent in test mode to ${result.recipient}.`
           : `Sent to ${result.recipient}.`
       );
-      setSupportDialogOpen(false);
+      updateProfileView({ panel: "support", detail: null }, "replace");
       setSupportMessage("");
     } catch (error) {
       console.error("[ProfilePage] Failed to send support message:", error);
@@ -931,17 +1182,6 @@ function ProfilePageContent() {
       : null;
   const canEditKaiPreferences = Boolean(user.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData);
 
-  const kaiProfileDescription =
-    loadingDomains
-      ? "Loading your personalized signals."
-      : vaultAccess.needsVaultCreation
-        ? "Create your vault from import to start building your profile."
-        : vaultAccess.needsUnlock
-          ? "Open your Kai workspace now, then unlock whenever you want to reveal saved signals."
-          : totalAttributes > 0
-            ? `${totalAttributes} signal${totalAttributes === 1 ? "" : "s"} across ${domains.length} domain${domains.length === 1 ? "" : "s"}.`
-            : "Nothing here yet. Chat with Kai or import a portfolio to personalize your profile.";
-
   const kaiPreferencesDescription =
     vaultAccess.needsVaultCreation
       ? "Create your vault first so Kai preferences can be saved securely."
@@ -956,26 +1196,20 @@ function ProfilePageContent() {
         ? "Discoverable to RIAs"
         : "Hidden from marketplace search";
 
-  const securitySummaryText =
-    vaultAccess.needsVaultCreation
-      ? "Vault not created yet"
-      : loadingVaultMethod
-        ? "Loading methods…"
-        : vaultAccess.needsUnlock
-          ? "Locked"
-        : readableMethod(displayedUnlockMethod);
-
   const gmailStatusLabel = gmailPresentation.badgeLabel;
   const gmailSettingsDescription = gmailPresentation.description;
   const gmailLastSyncText = gmailPresentation.latestSyncText;
-  const openKaiProfile = () => {
-    if (vaultAccess.needsVaultCreation) {
-      router.push(ROUTES.KAI_IMPORT);
-      return;
-    }
-    router.push(ROUTES.KAI_DASHBOARD);
-  };
-
+  const profileManagerLoading = loadingPkmMetadata || loadingConsentCenter;
+  const activeGrantCount = consentCenter?.active_grants.length || 0;
+  const myDataRootBadge = vaultAccess.needsVaultCreation
+    ? "Set up vault"
+    : vaultAccess.needsUnlock
+      ? "Locked"
+      : profileManagerLoading
+        ? "Loading"
+        : profileSummary.totalDomains > 0
+          ? `${profileSummary.totalDomains} domains`
+          : "Ready";
   const openKaiPreferences = () => {
     if (vaultAccess.needsVaultCreation) {
       router.push(ROUTES.KAI_IMPORT);
@@ -985,10 +1219,26 @@ function ProfilePageContent() {
       requestVaultUnlock("profile_data");
       return;
     }
-    setShowKaiPreferencesSheet(true);
+    updateProfileView(
+      {
+        panel: "preferences",
+        detail: "kai-preferences",
+      },
+      "push"
+    );
   };
 
-  const closeDetailPanel = () => updateProfileView({ panel: null });
+  const popProfileStack = () => {
+    if (activeDetail) {
+      updateProfileView({ panel: activePanel, detail: null }, "replace");
+      return;
+    }
+    updateProfileView({ panel: null, detail: null }, "replace");
+  };
+  const openMyDataPanel = () => updateProfileView({ panel: "my-data", detail: null }, "push");
+  const openAccessPanel = () => updateProfileView({ panel: "access", detail: null }, "push");
+  const openPreferencesPanel = () => updateProfileView({ panel: "preferences", detail: null }, "push");
+  const openSecurityPanel = () => updateProfileView({ panel: "security", detail: null }, "push");
 
   const supportActions: Array<{
     kind: SupportMessageKind;
@@ -1016,12 +1266,740 @@ function ProfilePageContent() {
     },
   ];
 
+  const supportComposeKind =
+    activePanel === "support" && activeDetail?.startsWith("support-compose:")
+      ? (activeDetail.slice("support-compose:".length) as SupportMessageKind)
+      : null;
+
+  const myDataContent = (
+    <PkmDataManagerPanel
+      signedIn={Boolean(user)}
+      loading={profileManagerLoading}
+      needsVaultCreation={vaultAccess.needsVaultCreation}
+      needsUnlock={vaultAccess.needsUnlock}
+      summary={profileSummary}
+      domains={domainPresentations}
+      sourceHealth={sourceHealthEntries}
+      canShowAdvancedTools={canShowPkmAgentLab}
+      onOpenAdvancedTools={
+        canShowPkmAgentLab ? () => router.push("/profile/pkm-agent-lab") : undefined
+      }
+      onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
+      onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
+      onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
+      onRefresh={() => {
+        void refreshPkmMetadata(true);
+        void refreshConsentCenter(true);
+      }}
+      onOpenDomain={(domain) =>
+        updateProfileView(
+          {
+            panel: "my-data",
+            detail: `domain:${domain.key}`,
+          },
+          "push"
+        )
+      }
+      onRevokeAccess={async (scope) => {
+        await handleRevoke(scope);
+        await refreshConsentCenter(true);
+      }}
+    />
+  );
+
+  const accessContent = (
+    <div className="space-y-4 sm:space-y-5">
+      <PkmAccessManagerPanel
+        signedIn={Boolean(user)}
+        loading={profileManagerLoading}
+        summary={profileSummary}
+        domains={domainPresentations}
+        onOpenConnection={(connection) =>
+          updateProfileView(
+            {
+              panel: "access",
+              detail: `connection:${connection.id}`,
+            },
+            "push"
+          )
+        }
+        onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
+        onRevokeAccess={async (scope) => {
+          await handleRevoke(scope);
+          await refreshConsentCenter(true);
+        }}
+      />
+
+      <SettingsGroup
+        eyebrow="Access"
+        description="Account-level visibility and consent management outside individual data domains."
+      >
+        <SettingsRow
+          icon={ShieldCheck}
+          title="Consent center"
+          description={
+            pendingConsents > 0
+              ? `${pendingConsents} request${pendingConsents === 1 ? "" : "s"} waiting for review.`
+              : "Open the full consent center for history, pending approvals, and relationship-level actions."
+          }
+          trailing={
+            pendingConsents > 0 ? <Badge variant="secondary">{pendingConsents}</Badge> : null
+          }
+          chevron
+          stackTrailingOnMobile
+          onClick={() => router.push(ROUTES.CONSENTS)}
+        />
+        <SettingsRow
+          icon={RefreshCw}
+          title="Marketplace visibility"
+          description={marketplaceStatusText}
+          trailing={
+            <Switch
+              checked={marketplaceOptIn}
+              disabled={loadingMarketplaceOptIn || savingMarketplaceOptIn}
+              aria-label="Toggle marketplace visibility"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+              }}
+              onClick={(event) => event.stopPropagation()}
+              onCheckedChange={() => void handleMarketplaceOptInToggle()}
+            />
+          }
+        />
+      </SettingsGroup>
+    </div>
+  );
+
+  const preferencesContent = (
+    <SettingsGroup
+      eyebrow="Preferences"
+      description="Personalize the shell, your Kai preferences, and device sync behavior."
+    >
+      <SettingsRow
+        icon={Monitor}
+        title="Appearance"
+        description="Choose light, dark, or system mode for the signed-in shell."
+        chevron
+        onClick={() => updateProfileView({ panel: "preferences", detail: "appearance" }, "push")}
+      />
+      <SettingsRow
+        icon={RefreshCw}
+        title="Kai preferences"
+        description={kaiPreferencesDescription}
+        trailing={canEditKaiPreferences ? <Badge variant="secondary">Ready</Badge> : null}
+        chevron
+        stackTrailingOnMobile
+        onClick={openKaiPreferences}
+      />
+      <SettingsRow
+        icon={Cloud}
+        title="On-device first"
+        description="BYOK for cloud models."
+        trailing={<Badge variant="secondary">Coming soon</Badge>}
+        chevron
+        stackTrailingOnMobile
+        onClick={() => updateProfileView({ panel: "preferences", detail: "device" }, "push")}
+      />
+    </SettingsGroup>
+  );
+
+  const securityContent = (
+    <SettingsGroup
+      eyebrow="Security"
+      description="Manage vault methods, current session, and destructive account actions."
+    >
+      <SettingsRow
+        icon={Fingerprint}
+        title="Vault methods"
+        description="Passphrase, passkey, current unlock state, and preferred security method."
+        chevron
+        onClick={() => updateProfileView({ panel: "security", detail: "vault" }, "push")}
+      />
+      <SettingsRow
+        icon={Trash2}
+        title="Danger zone"
+        description="Delete Investor, RIA, or the full account."
+        chevron
+        tone="destructive"
+        onClick={() => updateProfileView({ panel: "security", detail: "danger" }, "push")}
+      />
+    </SettingsGroup>
+  );
+
+  const supportContent = (
+    <div className="space-y-4 sm:space-y-5">
+      <SettingsGroup eyebrow="Contact">
+        {supportActions.map((action) => (
+          <SettingsRow
+            key={action.kind}
+            icon={action.icon}
+            title={action.label}
+            description={action.description}
+            chevron
+            onClick={() => openSupportComposer(action.kind)}
+          />
+        ))}
+      </SettingsGroup>
+
+      <SettingsGroup eyebrow="Routing">
+        <SettingsRow
+          icon={SendHorizontal}
+          title="Support routing"
+          description="See where messages go and which reply address we use."
+          chevron
+          onClick={() => updateProfileView({ panel: "support", detail: "support-routing" }, "push")}
+        />
+      </SettingsGroup>
+    </div>
+  );
+
+  const gmailContent = (
+    <div className="space-y-4 sm:space-y-5">
+      <SettingsGroup eyebrow="Connector">
+        <SettingsRow
+          icon={Mail}
+          title="Connection"
+          description={gmailSettingsDescription}
+          trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
+          chevron
+          stackTrailingOnMobile
+          onClick={() => updateProfileView({ panel: "gmail", detail: "gmail-connection" }, "push")}
+        />
+        <SettingsRow
+          icon={RefreshCw}
+          title="Actions"
+          description="Connect, sync, refresh status, open receipts, or disconnect."
+          chevron
+          onClick={() => updateProfileView({ panel: "gmail", detail: "gmail-actions" }, "push")}
+        />
+      </SettingsGroup>
+    </div>
+  );
+
+  const vaultMethodsContent = (
+    <div className="space-y-4 sm:space-y-5">
+      <SettingsGroup
+        eyebrow="Vault security"
+        description="Manage passphrase, passkey, and current unlock behavior without changing how your vault stays protected."
+      >
+        {vaultAccess.needsVaultCreation ? (
+          <SettingsRow
+            icon={Folder}
+            title="Create your vault"
+            description="Start from import to enable passphrase or passkey unlock for this account."
+            chevron
+            onClick={() => {
+              router.push(ROUTES.KAI_IMPORT);
+            }}
+          />
+        ) : null}
+
+        {vaultAccess.hasVault && loadingVaultMethod ? (
+          <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
+            <Icon icon={Loader2} size="sm" className="animate-spin" />
+            Loading vault methods...
+          </SurfaceInset>
+        ) : null}
+
+        {vaultAccess.hasVault && !loadingVaultMethod ? (
+          <>
+            <SettingsRow
+              icon={Fingerprint}
+              title="Unlock here"
+              description={
+                unlockMethodDiffersFromStoredDefault
+                  ? `This device or domain is using ${readableMethod(displayedUnlockMethod)} right now.`
+                  : "This is the unlock method available in your current environment."
+              }
+              trailing={
+                <Badge variant="secondary">
+                  {displayedUnlockMethod === "passphrase" ? "Passphrase unlock" : "Quick unlock"}
+                </Badge>
+              }
+              stackTrailingOnMobile
+            />
+            {vaultMethod ? (
+              <SettingsRow
+                icon={KeyRound}
+                title="Stored default"
+                description="Primary vault preference stored with your account."
+                trailing={<Badge variant="secondary">{readableMethod(vaultMethod)}</Badge>}
+                stackTrailingOnMobile
+              />
+            ) : null}
+            <SettingsRow
+              icon={Monitor}
+              title="Enrolled methods"
+              description={
+                enrolledVaultMethods.length > 0
+                  ? formatMethodList(enrolledVaultMethods)
+                  : "No quick unlock methods enrolled yet."
+              }
+            />
+
+            {!vaultAccess.canMutateSecureData ? (
+              <SettingsRow
+                icon={KeyRound}
+                title="Unlock vault"
+                description="Unlock your vault to change methods or update your passphrase."
+                chevron
+                onClick={() => requestVaultUnlock("profile_data")}
+              />
+            ) : null}
+
+            {vaultMethod === "passphrase" && recommendedQuickMethod ? (
+              <SettingsRow
+                icon={KeyRound}
+                title={
+                  quickMethodReadyOnCurrentDevice
+                    ? `Use ${readableQuickMethod(quickMethodReadyOnCurrentDevice)} by default`
+                    : `Enable ${readableQuickMethod(recommendedQuickMethod)}`
+                }
+                description={
+                  quickMethodReadyOnCurrentDevice
+                    ? "Switch your primary unlock to the quick method already enrolled here."
+                    : "Enroll and switch to the recommended quick unlock method."
+                }
+                disabled={switchingVaultMethod}
+                chevron
+                onClick={() =>
+                  quickMethodReadyOnCurrentDevice
+                    ? void setQuickMethodAsDefault(
+                        quickMethodReadyOnCurrentDevice,
+                        availableQuickWrapperId
+                      )
+                    : void switchToQuickMethod(recommendedQuickMethod)
+                }
+              />
+            ) : null}
+
+            {vaultMethod && vaultMethod !== "passphrase" ? (
+              <SettingsRow
+                icon={RefreshCw}
+                title="Prefer passphrase unlock"
+                description="Make passphrase the stored default again."
+                disabled={switchingVaultMethod}
+                chevron
+                onClick={() => void preferPassphraseUnlock()}
+              />
+            ) : null}
+
+            {vaultMethod ? (
+              <SettingsRow
+                icon={RefreshCw}
+                title="Change passphrase"
+                description="Update the passphrase that protects your vault."
+                disabled={switchingVaultMethod}
+                chevron
+                onClick={() => setPassphraseDialogOpen(true)}
+              />
+            ) : null}
+          </>
+        ) : null}
+      </SettingsGroup>
+    </div>
+  );
+
+  const gmailConnectionContent = (
+    <div className="space-y-4 sm:space-y-5">
+      <SettingsGroup eyebrow="Connection">
+        <SettingsRow
+          icon={Mail}
+          title="Status"
+          description={gmailSettingsDescription}
+          trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
+          stackTrailingOnMobile
+        />
+        <SettingsRow
+          icon={SendHorizontal}
+          title="Inbox"
+          description={
+            gmail.status?.google_email
+              ? gmail.status.google_email
+              : gmail.loadingStatus
+                ? "Resolving connected inbox..."
+                : "No Gmail inbox connected yet."
+          }
+        />
+        <SettingsRow
+          icon={RefreshCw}
+          title="Latest sync"
+          description={gmailLastSyncText}
+          trailing={
+            gmail.syncRun?.status || gmailPresentation.latestSyncBadge ? (
+              <Badge variant="secondary">
+                {gmail.syncRun?.status || gmailPresentation.latestSyncBadge}
+              </Badge>
+            ) : undefined
+          }
+          stackTrailingOnMobile
+        />
+      </SettingsGroup>
+      {gmail.statusError ? (
+        <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
+          {gmail.statusError}
+        </SurfaceInset>
+      ) : null}
+    </div>
+  );
+
+  const gmailActionsContent = (
+    <SettingsGroup eyebrow="Actions">
+      {gmailPresentation.isConnected ? (
+        <SettingsRow
+          icon={RefreshCw}
+          title="Sync now"
+          description="Fetch new receipt emails and refresh extracted records."
+          disabled={gmailActionsBusy || !gmailPresentation.isConnected}
+          chevron
+          onClick={() => void handleSyncGmailNow()}
+        />
+      ) : (
+        <SettingsRow
+          icon={Mail}
+          title={
+            gmailPresentation.state === "needs_reauthentication"
+              ? "Reconnect Gmail"
+              : "Connect Gmail"
+          }
+          description="Authorize Gmail read-only access for receipt sync."
+          disabled={gmailActionsBusy || gmail.status?.configured === false}
+          chevron
+          onClick={() => void handleConnectGmail()}
+        />
+      )}
+
+      <SettingsRow
+        icon={RefreshCw}
+        title="Refresh status"
+        description="Re-check your Gmail connection, sync status, and inbox details."
+        disabled={gmailActionsBusy}
+        chevron
+        onClick={() => void gmail.refreshStatus({ force: true })}
+      />
+
+      <SettingsRow
+        icon={Folder}
+        title="Open receipts"
+        description="Review synced receipts, merchants, and extracted totals."
+        chevron
+        onClick={() => router.push(ROUTES.PROFILE_RECEIPTS)}
+      />
+
+      {gmailPresentation.isConnected ? (
+        <SettingsRow
+          icon={Trash2}
+          title="Disconnect Gmail"
+          description="Stop future syncs. Existing synced receipts remain available."
+          tone="destructive"
+          disabled={gmailActionsBusy}
+          chevron
+          onClick={() => void handleDisconnectGmail()}
+        />
+      ) : null}
+    </SettingsGroup>
+  );
+
+  const supportRoutingContent = (
+    <SettingsGroup eyebrow="Routing">
+      <SettingsRow
+        icon={SendHorizontal}
+        title="Support inbox"
+        description="Messages are routed through support@hushh.ai."
+      />
+      {user.email ? (
+        <SettingsRow
+          icon={SendHorizontal}
+          title="Reply address"
+          description={user.email}
+        />
+      ) : null}
+    </SettingsGroup>
+  );
+
+  const supportComposeContent = supportComposeKind ? (
+    <SurfaceCard>
+      <SurfaceCardHeader>
+        <SurfaceCardTitle>{SUPPORT_KIND_COPY[supportComposeKind].title}</SurfaceCardTitle>
+        <SurfaceCardDescription>
+          {SUPPORT_KIND_COPY[supportComposeKind].description}
+        </SurfaceCardDescription>
+      </SurfaceCardHeader>
+      <SurfaceCardContent className="space-y-3">
+        <Input
+          value={supportSubject}
+          onChange={(event) => setSupportSubject(event.target.value)}
+          placeholder="Subject"
+        />
+        <Textarea
+          value={supportMessage}
+          onChange={(event) => setSupportMessage(event.target.value)}
+          placeholder="Tell us what happened and what you expected."
+          className="min-h-[180px]"
+        />
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            variant="none"
+            effect="fade"
+            size="default"
+            className="w-full sm:w-auto"
+            onClick={() => popProfileStack()}
+            disabled={sendingSupportMessage}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="default"
+            className="w-full sm:w-auto"
+            onClick={() => void submitSupportMessage()}
+            disabled={sendingSupportMessage}
+          >
+            {sendingSupportMessage ? (
+              <>
+                <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Icon icon={SendHorizontal} size="sm" className="mr-2" />
+                Send message
+              </>
+            )}
+          </Button>
+        </div>
+      </SurfaceCardContent>
+    </SurfaceCard>
+  ) : null;
+
+  const profileStackEntries: ProfileStackEntry[] = [];
+
+  if (activePanel === "my-data") {
+    profileStackEntries.push({
+      key: "panel:my-data",
+      title: "My Data",
+      description: "Readable PKM, freshness, source health, and access state.",
+      breadcrumb: ["Profile", "My Data"],
+      content: myDataContent,
+    });
+    if (selectedDomain) {
+      profileStackEntries.push({
+        key: `detail:domain:${selectedDomain.key}`,
+        title: selectedDomain.title,
+        description: selectedDomain.summary,
+        breadcrumb: ["Profile", "My Data", selectedDomain.title],
+        content: (
+          <PkmDomainDetailPanel
+            domain={selectedDomain}
+            onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
+            onRevokeAccess={async (scope) => {
+              await handleRevoke(scope);
+              await refreshConsentCenter(true);
+            }}
+          />
+        ),
+      });
+    }
+  } else if (activePanel === "access") {
+    profileStackEntries.push({
+      key: "panel:access",
+      title: "Access & sharing",
+      description: "Consent-backed access, marketplace visibility, and live grants.",
+      breadcrumb: ["Profile", "Access & sharing"],
+      content: accessContent,
+    });
+    if (selectedConnection) {
+      profileStackEntries.push({
+        key: `detail:connection:${selectedConnection.id}`,
+        title: selectedConnection.requesterLabel,
+        description: "Review active grants for this connected app or advisor.",
+        breadcrumb: ["Profile", "Access & sharing", selectedConnection.requesterLabel],
+        content: (
+          <PkmAccessConnectionDetailPanel
+            connection={selectedConnection}
+            onRevokeAccess={async (scope) => {
+              await handleRevoke(scope);
+              await refreshConsentCenter(true);
+            }}
+          />
+        ),
+      });
+    }
+  } else if (activePanel === "preferences") {
+    profileStackEntries.push({
+      key: "panel:preferences",
+      title: "Preferences",
+      description: "Personalize the shell, Kai preferences, and device sync behavior.",
+      breadcrumb: ["Profile", "Preferences"],
+      content: preferencesContent,
+    });
+    if (activeDetail === "appearance") {
+      profileStackEntries.push({
+        key: "detail:appearance",
+        title: "Appearance",
+        description: "Choose light, dark, or system mode for the signed-in shell.",
+        breadcrumb: ["Profile", "Preferences", "Appearance"],
+        content: (
+          <SettingsGroup eyebrow="Appearance">
+            <SettingsRow
+              icon={Monitor}
+              title="Theme"
+              description="Choose light, dark, or system mode for the signed-in shell."
+              trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
+              stackTrailingOnMobile
+            />
+          </SettingsGroup>
+        ),
+      });
+    } else if (activeDetail === "kai-preferences") {
+      profileStackEntries.push({
+        key: "detail:kai-preferences",
+        title: "Kai preferences",
+        description: kaiPreferencesDescription,
+        breadcrumb: ["Profile", "Preferences", "Kai preferences"],
+        content: (
+          <ProfileKaiPreferencesPanel
+            userId={user.uid}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken}
+            canEdit={canEditKaiPreferences}
+            onRequestUnlock={() => requestVaultUnlock("profile_data")}
+          />
+        ),
+      });
+    } else if (activeDetail === "device") {
+      profileStackEntries.push({
+        key: "detail:device",
+        title: "On-device first",
+        description: "BYOK and local-first controls for future device-aware experiences.",
+        breadcrumb: ["Profile", "Preferences", "On-device first"],
+        content: (
+          <SettingsGroup eyebrow="Device">
+            <SettingsRow
+              icon={Cloud}
+              title="Bring your own key"
+              description="This device-first control surface is planned but not available yet."
+              trailing={<Badge variant="secondary">Coming soon</Badge>}
+              stackTrailingOnMobile
+            />
+          </SettingsGroup>
+        ),
+      });
+    }
+  } else if (activePanel === "security") {
+    profileStackEntries.push({
+      key: "panel:security",
+      title: "Security",
+      description: "Vault, passphrase, passkey, session, and destructive account actions.",
+      breadcrumb: ["Profile", "Security"],
+      content: securityContent,
+    });
+    if (activeDetail === "vault") {
+      profileStackEntries.push({
+        key: "detail:vault",
+        title: "Vault methods",
+        description: "Passphrase, passkey, current unlock state, and primary security method.",
+        breadcrumb: ["Profile", "Security", "Vault methods"],
+        content: vaultMethodsContent,
+      });
+    } else if (activeDetail === "session") {
+      profileStackEntries.push({
+        key: "detail:session",
+        title: "Session",
+        description: "Manage the current signed-in device session.",
+        breadcrumb: ["Profile", "Security", "Session"],
+        content: (
+          <SettingsGroup eyebrow="Session">
+            <SettingsRow
+              icon={LogOut}
+              title="Sign out"
+              description="End this session on the current device."
+              onClick={() => void handleSignOut()}
+              chevron
+            />
+          </SettingsGroup>
+        ),
+      });
+    } else if (activeDetail === "danger") {
+      profileStackEntries.push({
+        key: "detail:danger",
+        title: "Danger zone",
+        description: "Deleting your account is permanent. This cannot be undone.",
+        breadcrumb: ["Profile", "Security", "Danger zone"],
+        content: (
+          <SettingsGroup
+            eyebrow="Danger zone"
+            description="Deleting your account is permanent. All vault records and identity details will be erased."
+          >
+            <SettingsRow
+              icon={Trash2}
+              title={deleteButtonLabel}
+              description={deleteRowDescription}
+              tone="destructive"
+              onClick={() => void handleDeleteClick()}
+              chevron
+            />
+          </SettingsGroup>
+        ),
+      });
+    }
+  } else if (activePanel === "gmail") {
+    profileStackEntries.push({
+      key: "panel:gmail",
+      title: "Gmail receipts",
+      description: "Connect your Gmail account to sync receipt emails into a dedicated receipts view.",
+      breadcrumb: ["Profile", "Gmail receipts"],
+      content: gmailContent,
+    });
+    if (activeDetail === "gmail-connection") {
+      profileStackEntries.push({
+        key: "detail:gmail-connection",
+        title: "Connection",
+        description: "Current inbox, connector status, and latest sync metadata.",
+        breadcrumb: ["Profile", "Gmail receipts", "Connection"],
+        content: gmailConnectionContent,
+      });
+    } else if (activeDetail === "gmail-actions") {
+      profileStackEntries.push({
+        key: "detail:gmail-actions",
+        title: "Actions",
+        description: "Connect, sync, refresh, open receipts, or disconnect.",
+        breadcrumb: ["Profile", "Gmail receipts", "Actions"],
+        content: gmailActionsContent,
+      });
+    }
+  } else if (activePanel === "support") {
+    profileStackEntries.push({
+      key: "panel:support",
+      title: "Support & feedback",
+      description: "Use support@hushh.ai for bugs, account help, or direct developer feedback.",
+      breadcrumb: ["Profile", "Support & feedback"],
+      content: supportContent,
+    });
+    if (activeDetail === "support-routing") {
+      profileStackEntries.push({
+        key: "detail:support-routing",
+        title: "Support routing",
+        description: "See where support messages go and which reply address we use.",
+        breadcrumb: ["Profile", "Support & feedback", "Routing"],
+        content: supportRoutingContent,
+      });
+    } else if (supportComposeKind && supportComposeContent) {
+      profileStackEntries.push({
+        key: `detail:support-compose:${supportComposeKind}`,
+        title: SUPPORT_KIND_COPY[supportComposeKind].title,
+        description: SUPPORT_KIND_COPY[supportComposeKind].description,
+        breadcrumb: ["Profile", "Support & feedback", SUPPORT_KIND_COPY[supportComposeKind].title],
+        content: supportComposeContent,
+      });
+    }
+  }
+
   return (
     <AppPageShell
       data-testid="profile-primary"
       as="div"
       width="reading"
-      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="relative isolate overflow-hidden pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: "/profile",
         marker: "native-route-profile",
@@ -1068,58 +2046,44 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <SettingsSegmentedTabs
-            value={activeTab}
-            onValueChange={(next) =>
-              updateProfileView({
-                tab: normalizeProfileTab(next),
-                panel: null,
-              })
-            }
-            options={[
-              { value: "account", label: "Account" },
-              { value: "preferences", label: "Preferences" },
-              { value: "privacy", label: "Privacy" },
-            ]}
-          />
+          <div className="space-y-4 sm:space-y-5">
+            {pkmError ? (
+              <ProfileStateNotice
+                tone="warning"
+                title="Data manager loaded partially"
+                description={pkmError}
+              />
+            ) : null}
+            {consentCenterError ? (
+              <ProfileStateNotice
+                tone="warning"
+                title="Access view loaded partially"
+                description={consentCenterError}
+              />
+            ) : null}
 
-          {activeTab === "account" ? (
-            <div className="space-y-4 sm:space-y-5">
             <SettingsGroup
-              eyebrow="Profile"
-              description="Your signed-in account, Kai profile summary, and direct support access."
+              eyebrow="Data"
+              description="Readable PKM and connected memory sources."
             >
               <SettingsRow
                 icon={Folder}
-                title="Kai profile"
-                description={kaiProfileDescription}
-                trailing={
-                  !loadingDomains && totalAttributes > 0 ? (
-                    <Badge variant="secondary">{totalAttributes} signals</Badge>
-                  ) : loadingDomains ? (
-                    <Badge variant="secondary">Loading</Badge>
-                  ) : null
-                }
+                title="My Data"
+                description="Read what Kai knows, what is stale, and what is missing."
+                trailing={<Badge variant="secondary">{myDataRootBadge}</Badge>}
                 chevron
                 stackTrailingOnMobile
-                onClick={openKaiProfile}
+                onClick={openMyDataPanel}
               />
               <SettingsRow
-                icon={LifeBuoy}
-                title="Support & feedback"
-                description="Bug reports, support, and direct product feedback."
+                icon={ShieldCheck}
+                title="Access & sharing"
+                description="See who can read your data and manage live permissions."
+                trailing={<Badge variant="secondary">{activeGrantCount} active</Badge>}
                 chevron
-                onClick={() => updateProfileView({ tab: "account", panel: "support" })}
+                stackTrailingOnMobile
+                onClick={openAccessPanel}
               />
-              {canShowPkmAgentLab ? (
-                <SettingsRow
-                  icon={Code2}
-                  title="PKM Agent Lab"
-                  description="Capture intent, inspect saved PKM data, and review how live encrypted storage is organized for your account."
-                  chevron
-                  onClick={() => router.push("/profile/pkm-agent-lab")}
-                />
-              ) : null}
               <SettingsRow
                 icon={Mail}
                 title="Gmail receipts"
@@ -1127,8 +2091,46 @@ function ProfilePageContent() {
                 trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
                 chevron
                 stackTrailingOnMobile
-                onClick={() => updateProfileView({ tab: "account", panel: "gmail" })}
+                onClick={() => updateProfileView({ panel: "gmail", detail: null }, "push")}
               />
+            </SettingsGroup>
+
+            <SettingsGroup
+              eyebrow="Account"
+              description="Preferences, security, support, and workspace tools."
+            >
+              <SettingsRow
+                icon={RefreshCw}
+                title="Preferences"
+                description={kaiPreferencesDescription}
+                chevron
+                onClick={openPreferencesPanel}
+              />
+              <SettingsRow
+                icon={Fingerprint}
+                title="Security"
+                description="Vault, passphrase, passkey, and account deletion."
+                chevron
+                onClick={openSecurityPanel}
+              />
+              <SettingsRow
+                icon={LifeBuoy}
+                title="Support & feedback"
+                description="Report bugs, ask for help, or send product feedback."
+                chevron
+                onClick={() => updateProfileView({ panel: "support", detail: null }, "push")}
+              />
+              {canShowPkmAgentLab ? (
+                <SettingsRow
+                  icon={Code2}
+                  title="Advanced PKM tools"
+                  description="Developer-only explorer and mutation lab."
+                  trailing={<Badge variant="secondary">Dev / UAT</Badge>}
+                  chevron
+                  stackTrailingOnMobile
+                  onClick={() => router.push("/profile/pkm-agent-lab")}
+                />
+              ) : null}
             </SettingsGroup>
 
             <SettingsGroup eyebrow="Session">
@@ -1136,413 +2138,19 @@ function ProfilePageContent() {
                 icon={LogOut}
                 title="Sign out"
                 description="End this session on the current device."
-                onClick={() => void handleSignOut()}
-                chevron
-              />
-            </SettingsGroup>
-
-            <SettingsGroup
-              eyebrow="Danger zone"
-              description="Deleting your account is permanent. All vault records and identity details will be erased."
-            >
-              <SettingsRow
-                icon={Trash2}
-                title={deleteButtonLabel}
-                description={deleteRowDescription}
                 tone="destructive"
-                onClick={() => void handleDeleteClick()}
                 chevron
+                onClick={() => void handleSignOut()}
               />
             </SettingsGroup>
-            </div>
-          ) : null}
-
-          {activeTab === "preferences" ? (
-            <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup
-              eyebrow="Preferences"
-              description="Personalize the shell, your Kai preferences, and device sync behavior."
-            >
-              <SettingsRow
-                icon={Monitor}
-                title="Appearance"
-                description="Choose light, dark, or system mode for the signed-in shell."
-                trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
-                stackTrailingOnMobile
-              />
-              <SettingsRow
-                icon={RefreshCw}
-                title="Kai preferences"
-                description={kaiPreferencesDescription}
-                trailing={
-                  canEditKaiPreferences ? (
-                    <Badge variant="secondary">Ready</Badge>
-                  ) : null
-                }
-                chevron
-                stackTrailingOnMobile
-                onClick={openKaiPreferences}
-              />
-              <SettingsRow
-                icon={Cloud}
-                title="On-device first"
-                description="BYOK for cloud models."
-                trailing={<Badge variant="secondary">Coming soon</Badge>}
-                stackTrailingOnMobile
-              />
-            </SettingsGroup>
-            </div>
-          ) : null}
-
-          {activeTab === "privacy" ? (
-            <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup
-              eyebrow="Privacy"
-              description="Consent access, investor marketplace visibility, and vault security."
-            >
-              <SettingsRow
-                icon={MessageSquare}
-                title="Consent center"
-                description={
-                  pendingConsents > 0
-                    ? `${pendingConsents} request${pendingConsents === 1 ? "" : "s"} waiting for review.`
-                    : "Review current access and approve new requests."
-                }
-                trailing={
-                  pendingConsents > 0 ? (
-                    <Badge variant="secondary">{pendingConsents}</Badge>
-                  ) : null
-                }
-                chevron
-                stackTrailingOnMobile
-                onClick={() => router.push(ROUTES.CONSENTS)}
-              />
-              <SettingsRow
-                icon={RefreshCw}
-                title="Marketplace visibility"
-                description={marketplaceStatusText}
-                trailing={
-                  <Switch
-                    checked={marketplaceOptIn}
-                    disabled={loadingMarketplaceOptIn || savingMarketplaceOptIn}
-                    aria-label="Toggle marketplace visibility"
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                    }}
-                    onClick={(event) => event.stopPropagation()}
-                    onCheckedChange={() => void handleMarketplaceOptInToggle()}
-                  >
-                  </Switch>
-                }
-              />
-              <SettingsRow
-                icon={Fingerprint}
-                title="Vault security"
-                description="Review passphrase, passkey, and current unlock behavior for this device."
-                trailing={
-                  <Badge variant="secondary" className="max-w-full">
-                    {securitySummaryText}
-                  </Badge>
-                }
-                chevron
-                stackTrailingOnMobile
-                onClick={() => updateProfileView({ tab: "privacy", panel: "security" })}
-              />
-            </SettingsGroup>
-            </div>
-          ) : null}
+          </div>
           <p className="text-center text-xs leading-5 text-muted-foreground">
-          Your records are protected before storage, and only your Vault credentials can unlock them.
+            Your records are protected before storage, and only your Vault credentials can unlock them.
           </p>
         </SurfaceStack>
       </AppPageContentRegion>
 
-      <SettingsDetailPanel
-        open={activePanel === "support"}
-        onOpenChange={(open) => {
-          if (!open) closeDetailPanel();
-        }}
-        title="Support & feedback"
-        description="Use support@hushh.ai for bugs, account help, or direct developer feedback."
-      >
-        <div className="space-y-4 sm:space-y-5">
-          <SettingsGroup eyebrow="Contact">
-            {supportActions.map((action) => (
-              <SettingsRow
-                key={action.kind}
-                icon={action.icon}
-                title={action.label}
-                description={action.description}
-                chevron
-                onClick={() => openSupportDialog(action.kind)}
-              />
-            ))}
-          </SettingsGroup>
-
-          <SettingsGroup eyebrow="Routing">
-            <SettingsRow
-              icon={MessageSquare}
-              title="Support inbox"
-              description="Messages are routed through support@hushh.ai."
-            />
-            {user.email ? (
-              <SettingsRow
-                icon={SendHorizontal}
-                title="Reply address"
-                description={user.email}
-              />
-            ) : null}
-          </SettingsGroup>
-        </div>
-      </SettingsDetailPanel>
-
-      <SettingsDetailPanel
-        open={activePanel === "gmail"}
-        onOpenChange={(open) => {
-          if (!open) closeDetailPanel();
-        }}
-        title="Gmail receipts connector"
-        description="Connect your Gmail account to sync receipt emails into a dedicated receipts view."
-      >
-        <div className="space-y-4 sm:space-y-5">
-          <SettingsGroup eyebrow="Connection">
-            <SettingsRow
-              icon={Mail}
-              title="Status"
-              description={gmailSettingsDescription}
-              trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
-              stackTrailingOnMobile
-            />
-            <SettingsRow
-              icon={SendHorizontal}
-              title="Inbox"
-              description={
-                gmail.status?.google_email
-                  ? gmail.status.google_email
-                  : gmail.loadingStatus
-                    ? "Resolving connected inbox..."
-                    : "No Gmail inbox connected yet."
-              }
-            />
-            <SettingsRow
-              icon={RefreshCw}
-              title="Latest sync"
-              description={gmailLastSyncText}
-              trailing={
-                gmail.syncRun?.status || gmailPresentation.latestSyncBadge ? (
-                  <Badge variant="secondary">
-                    {gmail.syncRun?.status || gmailPresentation.latestSyncBadge}
-                  </Badge>
-                ) : undefined
-              }
-              stackTrailingOnMobile
-            />
-          </SettingsGroup>
-
-          <SettingsGroup eyebrow="Actions">
-            {gmailPresentation.isConnected ? (
-              <SettingsRow
-                icon={RefreshCw}
-                title="Sync now"
-                description="Fetch new receipt emails and refresh extracted records."
-                disabled={gmailActionsBusy || !gmailPresentation.isConnected}
-                chevron
-                onClick={() => void handleSyncGmailNow()}
-              />
-            ) : (
-              <SettingsRow
-                icon={Mail}
-                title={
-                  gmailPresentation.state === "needs_reauthentication"
-                    ? "Reconnect Gmail"
-                    : "Connect Gmail"
-                }
-                description="Authorize Gmail read-only access for receipt sync."
-                disabled={gmailActionsBusy || gmail.status?.configured === false}
-                chevron
-                onClick={() => void handleConnectGmail()}
-              />
-            )}
-
-            <SettingsRow
-              icon={RefreshCw}
-              title="Refresh status"
-              description="Re-check your Gmail connection, sync status, and inbox details."
-              disabled={gmailActionsBusy}
-              chevron
-              onClick={() => void gmail.refreshStatus({ force: true })}
-            />
-
-            <SettingsRow
-              icon={Folder}
-              title="Open receipts"
-              description="Review synced receipts, merchants, and extracted totals."
-              chevron
-              onClick={() => router.push(ROUTES.PROFILE_RECEIPTS)}
-            />
-
-            {gmailPresentation.isConnected ? (
-              <SettingsRow
-                icon={Trash2}
-                title="Disconnect Gmail"
-                description="Stop future syncs. Existing synced receipts remain available."
-                tone="destructive"
-                disabled={gmailActionsBusy}
-                chevron
-                onClick={() => void handleDisconnectGmail()}
-              />
-            ) : null}
-          </SettingsGroup>
-
-          {gmail.statusError ? (
-            <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
-              {gmail.statusError}
-            </SurfaceInset>
-          ) : null}
-        </div>
-      </SettingsDetailPanel>
-
-      <SettingsDetailPanel
-        open={activePanel === "security"}
-        onOpenChange={(open) => {
-          if (!open) closeDetailPanel();
-        }}
-        title="Vault security"
-        description="Manage passphrase, passkey, and current unlock behavior without changing how your vault stays protected."
-      >
-        <div className="space-y-4 sm:space-y-5">
-          {vaultAccess.needsVaultCreation ? (
-            <SettingsGroup eyebrow="Vault required">
-              <SettingsRow
-                icon={Folder}
-                title="Create your vault"
-                description="Start from import to enable passphrase or passkey unlock for this account."
-                chevron
-                onClick={() => {
-                  closeDetailPanel();
-                  router.push(ROUTES.KAI_IMPORT);
-                }}
-              />
-            </SettingsGroup>
-          ) : null}
-
-          {vaultAccess.hasVault && loadingVaultMethod ? (
-            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-              <Icon icon={Loader2} size="sm" className="animate-spin" />
-              Loading vault methods...
-            </SurfaceInset>
-          ) : null}
-
-          {vaultAccess.hasVault && !loadingVaultMethod ? (
-            <>
-              <SettingsGroup eyebrow="Current state">
-                <SettingsRow
-                  icon={Fingerprint}
-                  title="Unlock here"
-                  description={
-                    unlockMethodDiffersFromStoredDefault
-                      ? `This device or domain is using ${readableMethod(displayedUnlockMethod)} right now.`
-                      : "This is the unlock method available in your current environment."
-                  }
-                  trailing={
-                    <Badge variant="secondary">
-                      {displayedUnlockMethod === "passphrase"
-                        ? "Passphrase unlock"
-                        : "Quick unlock"}
-                    </Badge>
-                  }
-                  stackTrailingOnMobile
-                />
-                {vaultMethod ? (
-                  <SettingsRow
-                    icon={KeyRound}
-                    title="Stored default"
-                    description="Primary vault preference stored with your account."
-                    trailing={<Badge variant="secondary">{readableMethod(vaultMethod)}</Badge>}
-                    stackTrailingOnMobile
-                  />
-                ) : null}
-                <SettingsRow
-                  icon={Monitor}
-                  title="Enrolled methods"
-                  description={
-                    enrolledVaultMethods.length > 0
-                      ? formatMethodList(enrolledVaultMethods)
-                      : "No quick unlock methods enrolled yet."
-                  }
-                />
-              </SettingsGroup>
-
-              {vaultMethod === "passphrase" && availableQuickMethod ? (
-                <SurfaceInset className="px-3.5 py-3.5 text-sm leading-6 text-muted-foreground sm:px-4 sm:py-4">
-                  {readableMethod(availableQuickMethod)} is already enrolled on this
-                  device or domain. It is not the default unlock yet.
-                </SurfaceInset>
-              ) : null}
-
-              <SettingsGroup eyebrow="Actions">
-                {!vaultAccess.canMutateSecureData ? (
-                  <SettingsRow
-                    icon={KeyRound}
-                    title="Unlock vault"
-                    description="Unlock your vault to change methods or update your passphrase."
-                    chevron
-                    onClick={() => requestVaultUnlock("profile_data")}
-                  />
-                ) : null}
-
-                {vaultMethod === "passphrase" && recommendedQuickMethod ? (
-                  <SettingsRow
-                    icon={KeyRound}
-                    title={
-                      quickMethodReadyOnCurrentDevice
-                        ? `Use ${readableQuickMethod(quickMethodReadyOnCurrentDevice)} by default`
-                        : `Enable ${readableQuickMethod(recommendedQuickMethod)}`
-                    }
-                    description={
-                      quickMethodReadyOnCurrentDevice
-                        ? "Switch your primary unlock to the quick method already enrolled here."
-                        : "Enroll and switch to the recommended quick unlock method."
-                    }
-                    disabled={switchingVaultMethod}
-                    chevron
-                    onClick={() =>
-                      quickMethodReadyOnCurrentDevice
-                        ? void setQuickMethodAsDefault(
-                            quickMethodReadyOnCurrentDevice,
-                            availableQuickWrapperId
-                          )
-                        : void switchToQuickMethod(recommendedQuickMethod)
-                    }
-                  />
-                ) : null}
-
-                {vaultMethod && vaultMethod !== "passphrase" ? (
-                  <SettingsRow
-                    icon={RefreshCw}
-                    title="Prefer passphrase unlock"
-                    description="Make passphrase the stored default again."
-                    disabled={switchingVaultMethod}
-                    chevron
-                    onClick={() => void preferPassphraseUnlock()}
-                  />
-                ) : null}
-
-                {vaultMethod ? (
-                  <SettingsRow
-                    icon={RefreshCw}
-                    title="Change passphrase"
-                    description="Update the passphrase that protects your vault."
-                    disabled={switchingVaultMethod}
-                    chevron
-                    onClick={() => setPassphraseDialogOpen(true)}
-                  />
-                ) : null}
-              </SettingsGroup>
-            </>
-          ) : null}
-        </div>
-      </SettingsDetailPanel>
+      <ProfileStackNavigator entries={profileStackEntries} onBack={popProfileStack} />
 
       {hasVault === true && (
         <VaultUnlockDialog
@@ -1609,74 +2217,6 @@ function ProfilePageContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={supportDialogOpen} onOpenChange={setSupportDialogOpen}>
-        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{SUPPORT_KIND_COPY[supportKind].title}</DialogTitle>
-            <DialogDescription>
-              {SUPPORT_KIND_COPY[supportKind].description}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="rounded-xl bg-muted/35 p-3 text-xs text-muted-foreground">
-              Routed through <span className="font-medium text-foreground">support@hushh.ai</span>
-              {user.email ? (
-                <>
-                  {" "}
-                  with replies pointing back to{" "}
-                  <span className="font-medium text-foreground">{user.email}</span>.
-                </>
-              ) : (
-                "."
-              )}
-            </div>
-            <Input
-              value={supportSubject}
-              onChange={(event) => setSupportSubject(event.target.value)}
-              placeholder="Subject"
-              maxLength={140}
-            />
-            <Textarea
-              value={supportMessage}
-              onChange={(event) => setSupportMessage(event.target.value)}
-              placeholder="What happened, what you expected, and anything else we should know"
-              className="min-h-[160px]"
-              maxLength={8000}
-            />
-          </div>
-          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-            <Button
-              variant="none"
-              effect="fade"
-              size="default"
-              className="w-full sm:w-auto"
-              onClick={() => setSupportDialogOpen(false)}
-              disabled={sendingSupportMessage}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="default"
-              className="w-full sm:w-auto"
-              onClick={() => void submitSupportMessage()}
-              disabled={sendingSupportMessage}
-            >
-              {sendingSupportMessage ? (
-                <>
-                  <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Icon icon={SendHorizontal} size="sm" className="mr-2" />
-                  Send message
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
           <AlertDialogHeader>
@@ -1733,15 +2273,6 @@ function ProfilePageContent() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {canEditKaiPreferences && (
-        <KaiPreferencesSheet
-          open={showKaiPreferencesSheet}
-          onOpenChange={setShowKaiPreferencesSheet}
-          userId={user.uid}
-          vaultKey={vaultKey as string}
-          vaultOwnerToken={vaultOwnerToken as string}
-        />
-      )}
     </AppPageShell>
   );
 }

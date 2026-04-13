@@ -31,6 +31,52 @@ export function resolveTopShellBreadcrumb(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null
 ): TopShellBreadcrumbConfig | null {
+  if (pathname === ROUTES.KAI_ANALYSIS) {
+    const debateId = String(searchParams?.get("debate_id") || "").trim();
+    const focus = String(searchParams?.get("focus") || "").trim();
+    const runId = String(searchParams?.get("run_id") || "").trim();
+    const ticker = String(searchParams?.get("ticker") || "").trim().toUpperCase();
+
+    if (debateId) {
+      return {
+        backHref: ROUTES.KAI_ANALYSIS,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+          { label: ticker ? `${ticker} run` : "Saved run" },
+        ],
+      };
+    }
+
+    if (focus === "active" || runId) {
+      return {
+        backHref: ROUTES.KAI_ANALYSIS,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+          { label: ticker ? `${ticker} live` : "Active run" },
+        ],
+      };
+    }
+
+    if (ticker) {
+      return {
+        backHref: ROUTES.KAI_ANALYSIS,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+          { label: `${ticker} preview` },
+        ],
+      };
+    }
+  }
+
   if (pathname === ROUTES.RIA_CLIENTS) {
     return {
       backHref: ROUTES.RIA_HOME,

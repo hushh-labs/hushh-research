@@ -139,6 +139,8 @@ export function PageHeader({
   title,
   description,
   actions,
+  actionsInlineMobile = false,
+  descriptionFullWidth = false,
   icon,
   leading,
   accent = "default",
@@ -148,6 +150,8 @@ export function PageHeader({
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  actionsInlineMobile?: boolean;
+  descriptionFullWidth?: boolean;
   icon?: LucideIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
@@ -174,7 +178,10 @@ export function PageHeader({
         ) : null}
         <div className="min-w-0 flex-1">
           <div
-            className="flex flex-col gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between"
+            className={cn(
+              "gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between",
+              actionsInlineMobile ? "flex items-start justify-between" : "flex flex-col"
+            )}
             data-slot="page-header-row"
           >
             <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
@@ -191,7 +198,7 @@ export function PageHeader({
               <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
                 {title}
               </h1>
-              {description ? (
+              {description && !descriptionFullWidth ? (
                 <div
                   className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
                   data-slot="page-header-description"
@@ -202,7 +209,10 @@ export function PageHeader({
             </div>
             {actions ? (
               <div
-                className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
+                className={cn(
+                  "flex flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center",
+                  actionsInlineMobile ? "w-auto shrink-0 justify-end self-start" : "w-full"
+                )}
                 data-slot="page-header-actions"
               >
                 {actions}
@@ -211,6 +221,14 @@ export function PageHeader({
           </div>
         </div>
       </div>
+      {description && descriptionFullWidth ? (
+        <div
+          className="text-sm leading-6 text-muted-foreground"
+          data-slot="page-header-description"
+        >
+          {description}
+        </div>
+      ) : null}
       <div className={cn("h-px w-full", styles.divider)} />
     </header>
   );

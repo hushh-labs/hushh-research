@@ -41,6 +41,7 @@ import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/them
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
   KaiFinancialResourceService,
@@ -69,6 +70,17 @@ function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
 }
+
+const MARKET_GLASS_CARD_CLASSNAME =
+  "bg-[linear-gradient(180deg,rgba(255,255,255,0.88)_0%,rgba(248,250,252,0.72)_52%,rgba(241,245,249,0.58)_100%)] dark:bg-[color:var(--app-card-surface-default-solid)]";
+
+const MARKET_SIGNAL_CARD_CLASSNAME = cn(
+  MARKET_GLASS_CARD_CLASSNAME,
+  "border-[color:color-mix(in_srgb,var(--app-card-border-strong)_74%,rgba(59,130,246,0.16)_26%)] shadow-[var(--app-card-shadow-standard)]"
+);
+
+const MARKET_SIGNAL_INSET_CLASSNAME =
+  "border-[color:color-mix(in_srgb,var(--app-card-border-standard)_74%,rgba(148,163,184,0.18)_26%)] bg-white/80 text-foreground dark:bg-[var(--app-card-surface-compact)]";
 
 function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
@@ -372,38 +384,147 @@ function signalHeadlineLabel(signal: KaiHomeSignal | undefined): string {
   return "Signal";
 }
 
-function signalAccentClass(signal: KaiHomeSignal | undefined): string {
-  const signalId = String(signal?.id || "").trim().toLowerCase();
-  if (signalId === "breadth") return "text-muted-foreground";
-  if (signalId === "volatility-regime") return "text-amber-700 dark:text-amber-300";
-  if (signalId === "recommendation-consensus") return "text-emerald-700 dark:text-emerald-300";
-  return "text-muted-foreground";
+type SignalGroupDetailPanel = {
+  eyebrow: string;
+  title: string;
+  summary: string;
+  sections: MarketOverviewDetailPanel["sections"];
+};
+
+function signalGroupSummary(scopeLabel: string, label: string, count: number): string {
+  if (label.toLowerCase().includes("buy")) {
+    return `${count} names are currently supporting the ${scopeLabel.toLowerCase()} read on the buy side.`;
+  }
+  if (label.toLowerCase().includes("sell") || label.toLowerCase().includes("reduce")) {
+    return `${count} names are currently leaning defensive inside the ${scopeLabel.toLowerCase()} read.`;
+  }
+  return `${count} names are contributing to the ${scopeLabel.toLowerCase()} grouping right now.`;
+}
+
+function buildSignalGroupDetailPanel(params: {
+  scopeLabel: string;
+  label: string;
+  symbols: string[];
+  supportingLines?: string[];
+}): SignalGroupDetailPanel {
+  const topNames = params.symbols.slice(0, 12);
+  const overflowCount = Math.max(0, params.symbols.length - topNames.length);
+  return {
+    eyebrow: "Signal detail",
+    title: `${params.label} · ${params.symbols.length} names`,
+    summary: signalGroupSummary(params.scopeLabel, params.label, params.symbols.length),
+    sections: [
+      {
+        title: "Names in scope",
+        lines: [
+          topNames.join(", "),
+          overflowCount > 0 ? `${overflowCount} more names are in this grouping.` : "This is the full current group.",
+        ],
+      },
+      ...(params.supportingLines?.length
+        ? [
+            {
+              title: "Why this matters",
+              lines: params.supportingLines,
+            },
+          ]
+        : []),
+    ],
+  };
 }
 
 function SignalGroupBlock({
+  scopeLabel,
   label,
   symbols,
+  onOpen,
 }: {
-  scopeId: string;
+  scopeLabel: string;
   label: string;
   symbols: string[];
+  onOpen?: () => void;
 }) {
   const top = symbols.slice(0, 5);
+  const actionable = Boolean(onOpen);
 
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5">
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="mt-1 text-sm font-semibold text-foreground">
-          {symbols.length} names
-          {top.length > 0 ? (
-            <span className="ml-2 font-normal text-muted-foreground">
-              {top.join(", ")}{symbols.length > 5 ? "..." : ""}
-            </span>
-          ) : null}
+  const content = (
+    <div className="rounded-[var(--app-card-radius-compact)] border border-[color:color-mix(in_srgb,var(--app-card-border-strong)_72%,rgba(99,102,241,0.12)_28%)] bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(244,247,252,0.82)_100%)] px-4 py-3.5 transition-[background-color,border-color,box-shadow,transform] duration-200 group-hover:border-[color:color-mix(in_srgb,var(--app-card-border-strong)_82%,rgba(99,102,241,0.2)_18%)] group-hover:bg-white/95 group-hover:shadow-[var(--shadow-xs)] dark:bg-[var(--app-card-surface-compact)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            {scopeLabel}
+          </p>
+          <p className="mt-1 text-sm font-semibold tracking-tight text-foreground">{label}</p>
+        </div>
+        {actionable ? (
+          <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/72 shadow-[var(--shadow-xs)] dark:bg-background/50 dark:text-muted-foreground">
+            View
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 space-y-2">
+        <p className="text-xl font-semibold tracking-tight text-foreground">{symbols.length} names</p>
+        <p className="line-clamp-2 text-xs leading-5 text-foreground/72 dark:text-muted-foreground">
+          {top.length > 0 ? `${top.join(", ")}${symbols.length > 5 ? "..." : ""}` : "Names are still loading."}
         </p>
       </div>
     </div>
+  );
+
+  if (!actionable) return content;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group relative isolate w-full rounded-[var(--app-card-radius-compact)] text-left outline-none focus-visible:ring-2 focus-visible:ring-foreground/15 focus-visible:ring-offset-2"
+    >
+      {content}
+      <MaterialRipple variant="none" effect="fade" className="z-10" />
+    </button>
+  );
+}
+
+function SignalBoardCard({
+  eyebrow,
+  title,
+  summary,
+  badge,
+  children,
+  className,
+  compact = false,
+}: {
+  eyebrow: string;
+  title: string;
+  summary?: string;
+  badge?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+  compact?: boolean;
+}) {
+  return (
+    <SurfaceCard
+      accent="none"
+      className={cn("h-full", MARKET_SIGNAL_CARD_CLASSNAME, className)}
+    >
+      <SurfaceCardContent className={cn("flex h-full flex-col gap-4 p-4 sm:p-5", compact && "gap-3 p-4")}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {eyebrow}
+            </p>
+            <p className={cn("text-base font-semibold tracking-tight text-foreground sm:text-lg", compact && "text-[15px] sm:text-base")}>
+              {title}
+            </p>
+          </div>
+          {badge ? <div className="shrink-0">{badge}</div> : null}
+        </div>
+        {summary ? (
+          <p className={cn("text-sm leading-6 text-foreground/72 dark:text-muted-foreground", compact && "text-xs leading-5")}>{summary}</p>
+        ) : null}
+        {children ? <div className="mt-auto space-y-3">{children}</div> : null}
+      </SurfaceCardContent>
+    </SurfaceCard>
   );
 }
 
@@ -523,7 +644,7 @@ function SpotlightFeatureTile({
 function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   if (!rows.length) {
     return (
-      <SurfaceCard className="h-full">
+      <SurfaceCard className={cn("h-full", MARKET_GLASS_CARD_CLASSNAME)}>
         <SurfaceCardContent className="flex h-full min-h-[240px] items-center justify-center p-5 text-sm text-muted-foreground">
           No recent market headlines are available right now.
         </SurfaceCardContent>
@@ -532,7 +653,7 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   }
 
   return (
-    <SurfaceCard className="h-full overflow-hidden">
+    <SurfaceCard className={cn("h-full overflow-hidden", MARKET_GLASS_CARD_CLASSNAME)}>
       <SurfaceCardContent className="flex h-full min-h-[240px] flex-col p-0">
         <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3">
           <div className="space-y-1">
@@ -1002,6 +1123,47 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
   };
 }
 
+function formatCacheAgeLabel(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  if (safeSeconds < 10) return "Updated just now";
+  if (safeSeconds < 60) return `Updated ${safeSeconds}s ago`;
+  const minutes = Math.floor(safeSeconds / 60);
+  if (minutes < 60) return `Updated ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Updated ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `Updated ${days}d ago`;
+}
+
+function formatLocalTimestamp(value: string | null | undefined): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function marketCacheTimerMeta(payload: KaiHomeInsightsV2 | null): {
+  initialAgeSeconds: number;
+  cacheTier: string | null;
+  warmSource: string | null;
+  stale: boolean;
+} | null {
+  const meta = payload?.meta;
+  if (!meta) return null;
+  const cacheAgeSeconds = Number(meta.cache_age_seconds ?? payload?.cache_age_seconds ?? 0);
+  const initialAgeSeconds = Number.isFinite(cacheAgeSeconds) ? Math.max(0, cacheAgeSeconds) : 0;
+  return {
+    initialAgeSeconds,
+    cacheTier: typeof meta.cache_tier === "string" ? meta.cache_tier : null,
+    warmSource: typeof meta.warm_source === "string" ? meta.warm_source : null,
+    stale: Boolean(meta.stale ?? payload?.stale),
+  };
+}
+
 type KaiMarketLoadOptions = {
   forceTokenRefresh?: boolean;
   manual?: boolean;
@@ -1380,6 +1542,8 @@ export function KaiMarketPreviewView() {
   const [selectedOverviewMetric, setSelectedOverviewMetric] = useState<MarketOverviewMetric | null>(
     null
   );
+  const [selectedSignalGroup, setSelectedSignalGroup] = useState<SignalGroupDetailPanel | null>(null);
+  const [cacheTimerSeconds, setCacheTimerSeconds] = useState(0);
 
   useEffect(() => {
     if (payload) {
@@ -1389,6 +1553,7 @@ export function KaiMarketPreviewView() {
 
   const effectivePayload = payload ?? retainedPayload;
   const hasPayload = Boolean(effectivePayload);
+  const cacheTimerMeta = useMemo(() => marketCacheTimerMeta(effectivePayload), [effectivePayload]);
   const overviewMetrics = useMemo(() => toOverviewMetrics(effectivePayload), [effectivePayload]);
   const marketStatus = useMemo(() => marketStatusBadge(effectivePayload), [effectivePayload]);
   const themeItems = useMemo(() => toThemeItems(effectivePayload), [effectivePayload]);
@@ -1445,46 +1610,96 @@ export function KaiMarketPreviewView() {
     return !Number.isFinite(count) || count <= 0;
   }, [effectivePayload, hasPayload]);
 
+  useEffect(() => {
+    setCacheTimerSeconds(cacheTimerMeta?.initialAgeSeconds ?? 0);
+    if (!cacheTimerMeta) return;
+    const timer = window.setInterval(() => {
+      setCacheTimerSeconds((current) => current + 1);
+    }, 1000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [cacheTimerMeta]);
+
+  const marketFreshnessLabel = useMemo(() => {
+    if (!cacheTimerMeta) return null;
+    const localTimestamp = formatLocalTimestamp(effectivePayload?.generated_at);
+    return {
+      localTimestamp,
+      freshness: formatCacheAgeLabel(cacheTimerSeconds),
+    };
+  }, [cacheTimerMeta, cacheTimerSeconds, effectivePayload?.generated_at]);
+
+  const marketRefreshLabel = useMemo(() => {
+    const statusShort =
+      marketStatus?.label.toLowerCase().includes("open") ? "On" : marketStatus ? "Off" : null;
+    const timeShort = marketFreshnessLabel?.localTimestamp || marketFreshnessLabel?.freshness || null;
+    return [statusShort, timeShort].filter(Boolean).join(" · ");
+  }, [marketFreshnessLabel, marketStatus]);
+
   return (
     <AppPageShell
       as="div"
       width="expanded"
-      className="pb-8"
+      className="relative isolate pb-8"
     >
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-20 bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_36%,#f6f8fc_100%)] dark:bg-[linear-gradient(180deg,#050816_0%,#0a1324_38%,#0b1020_100%)]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[58vh] bg-[radial-gradient(72%_52%_at_0%_0%,rgba(56,189,248,0.12)_0%,transparent_58%),radial-gradient(68%_48%_at_100%_0%,rgba(99,102,241,0.14)_0%,transparent_52%),radial-gradient(48%_36%_at_50%_14%,rgba(255,255,255,0.62)_0%,transparent_78%)] dark:bg-[radial-gradient(72%_52%_at_0%_0%,rgba(56,189,248,0.16)_0%,transparent_58%),radial-gradient(68%_48%_at_100%_0%,rgba(99,102,241,0.18)_0%,transparent_52%),radial-gradient(48%_36%_at_50%_14%,rgba(148,163,184,0.08)_0%,transparent_78%)]"
+      />
       <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
           eyebrow="Kai"
           title="Market"
-          description="Track what matters now, advisor ideas, and your portfolio context without bouncing between separate screens."
+          leading={
+            <div className="flex h-[56px] w-10 items-center justify-center rounded-[var(--app-card-radius-feature)] border border-violet-500/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.82)_0%,rgba(226,232,255,0.74)_100%)] text-violet-700 shadow-[var(--shadow-xs)] dark:border-violet-400/16 dark:bg-violet-400/[0.08] dark:text-violet-200 sm:h-[64px] sm:w-12">
+              <ChartColumnIncreasing className="h-5 w-5" />
+            </div>
+          }
+          description={
+            "Track what matters now, advisor ideas, and your portfolio context without bouncing between separate screens."
+          }
           accent="kai"
-          icon={ChartColumnIncreasing}
+          descriptionFullWidth
+          actionsInlineMobile
           actions={
             <Button
               variant="none"
               effect="fade"
               disabled={refreshing}
-              size="icon"
-              className="h-9 w-9 rounded-full"
+              size="sm"
+              className="h-9 rounded-full px-3 self-start"
               onClick={() => void loadInsights({ manual: true })}
             >
-              {refreshing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
+              <span className="flex items-center gap-2">
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                {marketRefreshLabel ? (
+                  <span className="text-[11px] font-semibold tracking-tight text-foreground/85">
+                    {marketRefreshLabel}
+                  </span>
+                ) : null}
+              </span>
             </Button>
           }
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <div className="relative isolate">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(110%_90%_at_0%_0%,rgba(59,130,246,0.1)_0%,transparent_48%),radial-gradient(110%_90%_at_100%_0%,rgba(99,102,241,0.08)_0%,transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.08)_0%,transparent_100%)] dark:bg-[radial-gradient(110%_90%_at_0%_0%,rgba(56,189,248,0.12)_0%,transparent_48%),radial-gradient(110%_90%_at_100%_0%,rgba(96,165,250,0.1)_0%,transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.03)_0%,transparent_100%)]"
-          />
         <SurfaceStack>
       {loading && !hasPayload ? (
-        <SurfaceCard tone="default" data-testid="page-primary-module">
+        <SurfaceCard
+          tone="default"
+          data-testid="page-primary-module"
+          className={MARKET_GLASS_CARD_CLASSNAME}
+        >
           <SurfaceCardContent className="flex min-h-32 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             <p className="max-w-sm text-balance">
@@ -1495,7 +1710,7 @@ export function KaiMarketPreviewView() {
       ) : null}
 
       {error ? (
-        <SurfaceCard tone="critical">
+        <SurfaceCard tone="critical" className={MARKET_GLASS_CARD_CLASSNAME}>
           <SurfaceCardContent className="space-y-3 text-left">
             <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
               <AlertTriangle className="h-4 w-4" />
@@ -1522,13 +1737,6 @@ export function KaiMarketPreviewView() {
             <MarketSectionLead
               title="Overview"
               description="Benchmarks, breadth, and leadership in one clean read."
-              aside={
-                marketStatus ? (
-                  <Badge variant="outline" className={cn("text-[10px] font-medium", marketStatus.className)}>
-                    {marketStatus.label}
-                  </Badge>
-                ) : null
-              }
             />
             <MarketOverviewGrid
               metrics={overviewMetrics}
@@ -1556,151 +1764,199 @@ export function KaiMarketPreviewView() {
               description="A tighter read of what the current tape is implying before you move into deeper analysis."
             />
             {scenarioSignal ? (
-              <SurfaceCard accent="none">
-                <SurfaceCardContent className="space-y-4 sm:space-y-5">
-                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.95fr)]">
-                    <SurfaceInset className="space-y-3">
-                      <div className="space-y-1.5">
-                        <p className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-                          {scenarioSignal.title}
-                        </p>
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          {scenarioSignal.summary}
-                        </p>
-                      </div>
+              <div className="space-y-4">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,0.9fr)]">
+                  <SignalBoardCard
+                    eyebrow={signalHeadlineLabel(scenarioSignal)}
+                    title={scenarioSignal.title}
+                    summary={scenarioSignal.summary}
+                    badge={
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                          signalConfidenceTone(scenarioSignal)
+                        )}
+                      >
+                        {signalConfidenceLabel(scenarioSignal)}
+                      </span>
+                    }
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant="outline"
+                          className="border-[color:var(--app-card-border-standard)] bg-white/82 text-[10px] font-medium text-foreground/72 dark:bg-[var(--app-card-surface-compact)] dark:text-muted-foreground"
+                        >
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="grid gap-2">
                       {primarySignalEvidence.length ? (
-                        <div className="grid gap-2">
-                          {primarySignalEvidence.map((line) => (
-                            <p key={line} className="text-sm leading-6 text-foreground/85">
-                              {line}
-                            </p>
-                          ))}
-                        </div>
+                        primarySignalEvidence.map((line) => (
+                          <p
+                            key={line}
+                            className={cn(
+                              "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-sm leading-6 text-foreground/88",
+                              MARKET_SIGNAL_INSET_CLASSNAME
+                            )}
+                          >
+                            {line}
+                          </p>
+                        ))
                       ) : (
-                        <p className="text-sm leading-6 text-muted-foreground">
+                        <p className={cn(
+                          "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-sm leading-6 text-foreground/72 dark:text-muted-foreground",
+                          MARKET_SIGNAL_INSET_CLASSNAME
+                        )}>
                           Kai is summarizing the dominant tape posture from the active advisor lane.
                         </p>
                       )}
-                    </SurfaceInset>
+                    </div>
+                  </SignalBoardCard>
 
-                    <SurfaceInset className="space-y-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                            className={cn(
-                              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                              signalConfidenceTone(scenarioSignal)
-                            )}
-                        >
-                          {signalConfidenceLabel(scenarioSignal)}
-                        </span>
-                        <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Primary signal
-                        </span>
-                      </div>
-                      {visibleSignalSourceTags(scenarioSignal).length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
-                            <Badge
-                              key={tag}
-                              variant="outline"
-                              className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-[10px] font-medium text-muted-foreground"
-                            >
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5 shadow-[var(--shadow-xs)]">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            Read
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-foreground">
-                            {signalHeadlineLabel(scenarioSignal)}
-                          </p>
-                        </div>
-                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5 shadow-[var(--shadow-xs)]">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            Scope
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-foreground">
-                            {primarySignalGroups.length} focus blocks
-                          </p>
-                        </div>
-                      </div>
-                    </SurfaceInset>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <SignalBoardCard
+                      eyebrow="Primary read"
+                      title={signalHeadlineLabel(scenarioSignal)}
+                      summary="Top-level framing for the current tape."
+                      compact
+                    />
+                    <SignalBoardCard
+                      eyebrow="Focus blocks"
+                      title={`${primarySignalGroups.length}`}
+                      summary={
+                        primarySignalGroups.length
+                          ? "Tap a block below to inspect the names driving this read."
+                          : "Focus groups are still populating."
+                      }
+                      compact
+                    />
+                    <SignalBoardCard
+                      eyebrow="Signal coverage"
+                      title={`${scenarioSignals.length}`}
+                      summary={
+                        scenarioSignals.length > 1
+                          ? "Additional signal cards continue below."
+                          : "This is the only active top-level signal right now."
+                      }
+                      compact
+                    />
                   </div>
+                </div>
 
-                  {primarySignalGroups.length ? (
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {primarySignalGroups.length ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold tracking-tight text-foreground">
+                        Focus blocks behind this read
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Tap a block to inspect the names
+                      </p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {primarySignalGroups.map((group) => (
                         <SignalGroupBlock
                           key={`${scenarioSignal.id}:${group.label}`}
-                          scopeId={scenarioSignal.id}
+                          scopeLabel={signalHeadlineLabel(scenarioSignal)}
                           label={group.label}
                           symbols={group.symbols}
+                          onOpen={() =>
+                            setSelectedSignalGroup(
+                              buildSignalGroupDetailPanel({
+                                scopeLabel: signalHeadlineLabel(scenarioSignal),
+                                label: group.label,
+                                symbols: group.symbols,
+                                supportingLines: primarySignalEvidence,
+                              })
+                            )
+                          }
                         />
                       ))}
                     </div>
-                  ) : null}
+                  </div>
+                ) : null}
 
-                  {scenarioSignals.length > 1 ? (
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      {scenarioSignals.slice(1).map((signal) => (
-                        <SurfaceInset
-                          key={signal.id}
-                          className="space-y-3"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-1">
-                              <p className={cn("text-[10px] font-semibold uppercase tracking-[0.16em]", signalAccentClass(signal))}>
-                                {signalHeadlineLabel(signal)}
-                              </p>
-                              <p className="text-sm font-semibold tracking-tight text-foreground">
-                              {signal.title}
-                            </p>
-                          </div>
-                            <span
-                              className={cn(
-                                "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                                signalConfidenceTone(signal)
-                              )}
-                            >
-                              {signalConfidenceLabel(signal)}
-                            </span>
-                          </div>
-                          <p className="text-sm leading-5 text-muted-foreground">
-                            {signal.summary}
-                          </p>
-                          {signalEvidenceLines(signal, effectivePayload, pickRows).length ? (
-                            <div className="space-y-1.5">
-                              {signalEvidenceLines(signal, effectivePayload, pickRows).map((line) => (
-                                <p key={line} className="text-xs leading-5 text-foreground/85">
-                                  {line}
-                                </p>
-                              ))}
-                            </div>
-                          ) : null}
-                          {signalDetailGroups(signal, effectivePayload, pickRows).length ? (
-                            <div className="space-y-1.5">
-                              {signalDetailGroups(signal, effectivePayload, pickRows).map((group) => (
-                                <SignalGroupBlock
-                                  key={`${signal.id}:${group.label}`}
-                                  scopeId={signal.id}
-                                  label={group.label}
-                                  symbols={group.symbols}
-                                />
-                              ))}
-                            </div>
-                          ) : null}
-                        </SurfaceInset>
-                      ))}
+                {scenarioSignals.length > 1 ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold tracking-tight text-foreground">
+                        Secondary reads
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Supporting signals that refine the same tape
+                      </p>
                     </div>
-                  ) : null}
-                </SurfaceCardContent>
-              </SurfaceCard>
-              ) : (
-                <SurfaceCard tone="warning">
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {scenarioSignals.slice(1).map((signal) => {
+                        const evidence = signalEvidenceLines(signal, effectivePayload, pickRows);
+                        const groups = signalDetailGroups(signal, effectivePayload, pickRows);
+
+                        return (
+                          <SignalBoardCard
+                            key={signal.id}
+                            eyebrow={signalHeadlineLabel(signal)}
+                            title={signal.title}
+                            summary={signal.summary}
+                            badge={
+                              <span
+                                className={cn(
+                                  "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                                  signalConfidenceTone(signal)
+                                )}
+                              >
+                                {signalConfidenceLabel(signal)}
+                              </span>
+                            }
+                          >
+                            {evidence.length ? (
+                              <div className="grid gap-2">
+                                {evidence.map((line) => (
+                                  <p
+                                    key={line}
+                                    className={cn(
+                                      "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-xs leading-5 text-foreground/88",
+                                      MARKET_SIGNAL_INSET_CLASSNAME
+                                    )}
+                                  >
+                                    {line}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {groups.length ? (
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                {groups.map((group) => (
+                                  <SignalGroupBlock
+                                    key={`${signal.id}:${group.label}`}
+                                    scopeLabel={signalHeadlineLabel(signal)}
+                                    label={group.label}
+                                    symbols={group.symbols}
+                                    onOpen={() =>
+                                      setSelectedSignalGroup(
+                                        buildSignalGroupDetailPanel({
+                                          scopeLabel: signalHeadlineLabel(signal),
+                                          label: group.label,
+                                          symbols: group.symbols,
+                                          supportingLines: evidence,
+                                        })
+                                      )
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                          </SignalBoardCard>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+                <SurfaceCard tone="warning" className={MARKET_GLASS_CARD_CLASSNAME}>
                   <SurfaceCardContent className="text-sm text-muted-foreground">
                   Scenario insight is unavailable at the moment.
                 </SurfaceCardContent>
@@ -1821,6 +2077,35 @@ export function KaiMarketPreviewView() {
             </SurfaceInset>
 
             {selectedOverviewMetric.detailPanel.sections?.map((section) => (
+              <SurfaceInset key={section.title} className="space-y-2 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {section.title}
+                </p>
+                <div className="space-y-2">
+                  {section.lines.map((line) => (
+                    <p key={line} className="text-sm leading-6 text-foreground/90">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </SurfaceInset>
+            ))}
+          </div>
+        ) : null}
+      </KaiControlSurface>
+
+      <KaiControlSurface
+        open={Boolean(selectedSignalGroup)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedSignalGroup(null);
+        }}
+        eyebrow={selectedSignalGroup?.eyebrow}
+        title={selectedSignalGroup?.title || "Signal detail"}
+        description={selectedSignalGroup?.summary}
+      >
+        {selectedSignalGroup ? (
+          <div className="space-y-4">
+            {selectedSignalGroup.sections?.map((section) => (
               <SurfaceInset key={section.title} className="space-y-2 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   {section.title}

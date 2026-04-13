@@ -5,8 +5,10 @@ import type { ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Drawer,
@@ -39,22 +41,6 @@ export function KaiControlSurface({
   bodyClassName?: string;
 }) {
   const isMobile = useIsMobile();
-
-  const headerContent = (
-    <>
-      {eyebrow ? (
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-          {eyebrow}
-        </p>
-      ) : null}
-      <div className="space-y-1">
-        <div className="text-base font-semibold tracking-tight text-foreground">{title}</div>
-        {description ? (
-          <div className="text-sm leading-6 text-muted-foreground">{description}</div>
-        ) : null}
-      </div>
-    </>
-  );
 
   const body = (
     <div
@@ -108,7 +94,21 @@ export function KaiControlSurface({
           className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(120%_100%_at_50%_0%,rgba(99,102,241,0.1)_0%,rgba(59,130,246,0.05)_42%,transparent_74%),linear-gradient(180deg,rgba(255,255,255,0.08)_0%,transparent_100%)] dark:bg-[radial-gradient(120%_100%_at_50%_0%,rgba(96,165,250,0.12)_0%,rgba(14,165,233,0.06)_42%,transparent_74%),linear-gradient(180deg,rgba(255,255,255,0.04)_0%,transparent_100%)]"
         />
         <DialogHeader className="relative z-10 border-b border-[color:var(--app-card-border-standard)] px-6 py-5 text-left">
-          {headerContent}
+          {eyebrow ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              {eyebrow}
+            </p>
+          ) : null}
+          <div className="space-y-1">
+            <DialogTitle className="text-base font-semibold tracking-tight text-foreground">
+              {title}
+            </DialogTitle>
+            {description ? (
+              <DialogDescription className="text-sm leading-6 text-muted-foreground">
+                {description}
+              </DialogDescription>
+            ) : null}
+          </div>
         </DialogHeader>
         {body}
         {footer ? (

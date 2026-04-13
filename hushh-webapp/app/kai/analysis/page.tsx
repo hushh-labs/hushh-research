@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, BarChart3, X } from "lucide-react";
+import { BarChart3, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
@@ -204,12 +204,6 @@ function KaiAnalysisPageContent() {
       setWorkspaceTab(routeIntent.workspaceTab);
     }
 
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("tab");
-    params.delete("focus");
-    params.delete("run_id");
-    const query = params.toString();
-    router.replace(query ? `/kai/analysis?${query}` : "/kai/analysis");
   }, [router, searchParams]);
 
   useEffect(() => {
@@ -378,16 +372,6 @@ function KaiAnalysisPageContent() {
     setDebateIdParam(null);
   }, [activeRunTask, setAnalysisParams, setDebateIdParam, vaultOwnerToken]);
 
-  const handleBackToHistory = useCallback(() => {
-    setAnalysisParams(null);
-    setLiveEntry(null);
-    setResolvedEntry(null);
-    setFocusedRunId(null);
-    setFocusedRunTask(null);
-    setShowHistoryWhileActive(true);
-    setDebateIdParam(null);
-  }, [setAnalysisParams, setDebateIdParam]);
-
   const handleReanalyze = useCallback(
     (ticker: string) => {
       const normalizedTicker = String(ticker || "").trim().toUpperCase();
@@ -445,12 +429,13 @@ function KaiAnalysisPageContent() {
     setHistoryFallbackEntry(entry);
     setShowHistoryWhileActive(false);
     setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
+    setDebateIdParam(extractDebateId(entry));
     if (summaryLoadingToastIdRef.current !== null) {
       toast.dismiss(summaryLoadingToastIdRef.current);
       summaryLoadingToastIdRef.current = null;
     }
     toast.success("Analysis saved to history.");
-  }, []);
+  }, [setDebateIdParam]);
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
   const activeEntry = liveEntry || resolvedEntry;
@@ -523,7 +508,11 @@ function KaiAnalysisPageContent() {
         });
         setShowHistoryWhileActive(false);
         setWorkspaceTab("debate");
-        router.replace(ROUTES.KAI_ANALYSIS);
+        router.replace(
+          `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=${encodeURIComponent(
+            currentPreviewTicker
+          )}`
+        );
       })
       .catch((error) => {
         toast.error("Could not start debate.", {
@@ -749,10 +738,6 @@ function KaiAnalysisPageContent() {
               accent="kai"
               actions={
                 <>
-                  <MorphyButton variant="none" effect="fade" size="sm" onClick={handleBackToHistory}>
-                    <Icon icon={ArrowLeft} size="sm" className="mr-1" />
-                    Back to history
-                  </MorphyButton>
                   {liveIntentReady ? (
                     <MorphyButton variant="none" effect="fade" size="sm" onClick={handleCloseLiveDebate}>
                       <Icon icon={X} size="xs" className="mr-1" />

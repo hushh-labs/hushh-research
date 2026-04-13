@@ -4,6 +4,16 @@ import { useEffect, useRef } from "react";
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
 import type { ThemeProviderProps } from "next-themes";
 
+export function beginThemeSwitchTransition() {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  root.classList.add("theme-switching");
+
+  window.setTimeout(() => {
+    root.classList.remove("theme-switching");
+  }, 320);
+}
+
 export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
   return (
     <NextThemesProvider {...props}>
