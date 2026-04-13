@@ -130,6 +130,18 @@ function isRealtimeBackendFallbackEnabled(): boolean {
   return isTruthyEnvFlag(process.env.NEXT_PUBLIC_VOICE_V2_TTS_BACKEND_FALLBACK_ENABLED);
 }
 
+function isStreamBackedAudioPlaybackSupported(mimeType: string): boolean {
+  if (typeof MediaSource === "undefined") return false;
+  if (typeof MediaSource.isTypeSupported === "function") {
+    try {
+      return MediaSource.isTypeSupported(mimeType);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class VoiceTtsPlaybackManager {
   private audio: HTMLAudioElement | null = null;
   private audioUrl: string | null = null;
@@ -208,6 +220,302 @@ export class VoiceTtsPlaybackManager {
         ...metadata,
       },
       finalize: options?.finalize,
+    });
+  }
+
+  private async playBackendAudioFromStream(
+    runId: number,
+    input: VoiceSpeakInput,
+    responseMimeType: string,
+    statusCode: number,
+    responseReader: ReadableStreamDefaultReader<Uint8Array>,
+    ttsBodyReadStartedAt: number,
+    headerMeta: {
+      model?: string;
+      voice?: string;
+      format?: string;
+      fallbackAttempted: boolean;
+      candidateOrder: string[];
+      attempts: Array<{
+        result?: string;
+        model?: string;
+        status_code?: number;
+        elapsed_ms?: number;
+        error?: string;
+        next_model?: string | null;
+      }>;
+      audioBytesEstimate?: number;
+    }
+  ): Promise<void> {
+    if (typeof MediaSource === "undefined") {
+      throw new Error("VOICE_TTS_STREAM_PLAYBACK_UNSUPPORTED");
+    }
+
+    const mediaSource = new MediaSource();
+    this.audioUrl = URL.createObjectURL(mediaSource);
+    this.audio = new Audio(this.audioUrl);
+    this.activePlaybackSource = "backend_openai_audio";
+    this.emitTraceEvent(
+      "tts_audio_src_assigned",
+      {
+        route: "/api/kai/voice/tts",
+        playback_source: "backend_openai_audio",
+        audio_url_created: Boolean(this.audioUrl),
+        stream_mode: true,
+        source: "voice_tts_playback",
+      },
+      { voiceTurnId: input.voiceTurnId }
+    );
+
+    let playbackReject: ((error: Error) => void) | null = null;
+    const playbackPromise = new Promise<void>((resolve, reject) => {
+      if (!this.audio) {
+        reject(new Error("VOICE_TTS_AUDIO_INIT"));
+        return;
+      }
+      let settled = false;
+      const safeResolve = () => {
+        if (settled) return;
+        settled = true;
+        this.playbackCompletionResolver = null;
+        resolve();
+      };
+      const safeReject = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        this.playbackCompletionResolver = null;
+        reject(error);
+      };
+      playbackReject = safeReject;
+      this.playbackCompletionResolver = safeResolve;
+      this.audio.onended = () => safeResolve();
+      this.audio.onerror = () => safeReject(new Error("VOICE_TTS_AUDIO_PLAYBACK"));
+      this.audio.onplay = () => {
+        if (!this.isRunActive(runId)) return;
+        this.emitTraceEvent(
+          "tts_playback_started",
+          {
+            route: "/api/kai/voice/tts",
+            playback_source: "backend_openai_audio",
+            stream_mode: true,
+            source: "voice_tts_playback",
+          },
+          { voiceTurnId: input.voiceTurnId }
+        );
+        this.setState("playing");
+        this.lifecycleHandlers?.onPlaybackStarted?.({
+          voiceTurnId: input.voiceTurnId,
+          source: "backend_openai_audio",
+        });
+      };
+    });
+
+    let sourceBuffer: SourceBuffer | null = null;
+    const appendQueue: Uint8Array[] = [];
+    let sourceBufferEnded = false;
+    let appendInFlight = false;
+    let playbackRequested = false;
+    let firstAudioByteMs: number | null = null;
+    let audioBytesRead = 0;
+
+    const markFirstAudioByte = () => {
+      if (firstAudioByteMs !== null) return;
+      firstAudioByteMs = Math.max(0, Math.round(performance.now() - ttsBodyReadStartedAt));
+      this.emitTraceEvent(
+        "tts_first_audio_byte_received",
+        {
+          route: "/api/kai/voice/tts",
+          first_audio_byte_ms: firstAudioByteMs,
+          stream_mode: true,
+          source: "voice_tts_playback",
+        },
+        { voiceTurnId: input.voiceTurnId }
+      );
+      this.emitTraceEvent(
+        "tts_first_playable_data_received",
+        {
+          route: "/api/kai/voice/tts",
+          first_playable_data_ms: firstAudioByteMs,
+          stream_mode: true,
+          source: "voice_tts_playback",
+        },
+        { voiceTurnId: input.voiceTurnId }
+      );
+    };
+
+    const requestPlayback = () => {
+      if (playbackRequested || !this.audio || !this.isRunActive(runId)) return;
+      playbackRequested = true;
+      this.emitTraceEvent(
+        "tts_play_requested",
+        {
+          route: "/api/kai/voice/tts",
+          playback_source: "backend_openai_audio",
+          stream_mode: true,
+          source: "voice_tts_playback",
+        },
+        { voiceTurnId: input.voiceTurnId }
+      );
+      const playResult = this.audio.play();
+      if (playResult) {
+        void playResult.catch((error: unknown) => {
+          if (!this.isRunActive(runId)) return;
+          playbackReject?.(error instanceof Error ? error : new Error("VOICE_TTS_AUDIO_PLAYBACK"));
+        });
+      }
+    };
+
+    const maybeFinalizeStream = () => {
+      if (!sourceBuffer || sourceBuffer.updating || appendQueue.length > 0) {
+        return;
+      }
+      if (!sourceBufferEnded) {
+        return;
+      }
+      try {
+        if (mediaSource.readyState === "open") {
+          mediaSource.endOfStream();
+        }
+      } catch {
+        // noop
+      }
+    };
+
+    const drainAppendQueue = () => {
+      if (!sourceBuffer || sourceBuffer.updating || appendInFlight) return;
+      const nextChunk = appendQueue.shift();
+      if (!nextChunk) {
+        maybeFinalizeStream();
+        return;
+      }
+      appendInFlight = true;
+      try {
+        const stableChunk = new Uint8Array(nextChunk.byteLength);
+        stableChunk.set(nextChunk);
+        sourceBuffer.appendBuffer(stableChunk.buffer as ArrayBuffer);
+      } catch (error) {
+        appendInFlight = false;
+        throw error;
+      }
+    };
+
+    const sourceOpenPromise = new Promise<void>((resolve, reject) => {
+      mediaSource.addEventListener(
+        "sourceopen",
+        () => {
+          if (!this.isRunActive(runId)) {
+            resolve();
+            return;
+          }
+          try {
+            sourceBuffer = mediaSource.addSourceBuffer(responseMimeType);
+            sourceBuffer.mode = "sequence";
+            sourceBuffer.addEventListener("updateend", () => {
+              appendInFlight = false;
+              if (!this.isRunActive(runId)) {
+                return;
+              }
+              if (!playbackRequested) {
+                requestPlayback();
+              }
+              drainAppendQueue();
+            });
+            sourceBuffer.addEventListener("error", () => {
+              reject(new Error("VOICE_TTS_MEDIA_SOURCE_BUFFER_ERROR"));
+            });
+            resolve();
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error("VOICE_TTS_MEDIA_SOURCE_INIT"));
+          }
+        },
+        { once: true }
+      );
+      mediaSource.addEventListener(
+        "error",
+        () => reject(new Error("VOICE_TTS_MEDIA_SOURCE_ERROR")),
+        { once: true }
+      );
+    });
+
+    const readerLoop = (async () => {
+      while (true) {
+        const { done, value } = await responseReader.read();
+        if (done) break;
+        if (!value || value.byteLength === 0) continue;
+        markFirstAudioByte();
+        const stableChunk = new Uint8Array(value.byteLength);
+        stableChunk.set(value);
+        appendQueue.push(stableChunk);
+        audioBytesRead += stableChunk.byteLength;
+        if (sourceBuffer) {
+          drainAppendQueue();
+        }
+      }
+      sourceBufferEnded = true;
+      maybeFinalizeStream();
+    })();
+
+    await sourceOpenPromise;
+    if (!this.isRunActive(runId)) return;
+    if (appendQueue.length > 0) {
+      drainAppendQueue();
+    }
+
+    await readerLoop;
+    if (!this.isRunActive(runId)) return;
+
+    const bodyReadElapsedMs = Math.max(0, Math.round(performance.now() - ttsBodyReadStartedAt));
+    this.emitTraceEvent(
+      "tts_response_body_received",
+      {
+        route: "/api/kai/voice/tts",
+        origin: "backend_confirmed",
+        status_code: statusCode,
+        stream_mode: true,
+        audio_bytes: audioBytesRead,
+        first_audio_byte_ms: firstAudioByteMs,
+        elapsed_ms: bodyReadElapsedMs,
+        source: "voice_tts_playback",
+      },
+      { voiceTurnId: input.voiceTurnId }
+    );
+
+    if (audioBytesRead <= 0) {
+      throw new Error("VOICE_TTS_EMPTY_AUDIO");
+    }
+
+    this.lifecycleHandlers?.onAudioReceived?.({
+      voiceTurnId: input.voiceTurnId,
+      mimeType: responseMimeType,
+      audioBytesEstimate:
+        typeof headerMeta.audioBytesEstimate === "number" && headerMeta.audioBytesEstimate > 0
+          ? Math.round(headerMeta.audioBytesEstimate)
+          : audioBytesRead,
+      source: "backend_openai_audio",
+      model: headerMeta.model,
+      voice: headerMeta.voice || (typeof input.voice === "string" ? input.voice : undefined),
+      format: headerMeta.format,
+      fallbackAttempted: headerMeta.fallbackAttempted,
+      candidateOrder: headerMeta.candidateOrder,
+      attempts: headerMeta.attempts,
+    });
+
+    await playbackPromise;
+    if (!this.isRunActive(runId)) return;
+    this.setState("idle");
+    this.emitTraceEvent(
+      "tts_playback_ended",
+      {
+        route: "/api/kai/voice/tts",
+        playback_source: "backend_openai_audio",
+        stream_mode: true,
+        source: "voice_tts_playback",
+      },
+      { voiceTurnId: input.voiceTurnId, finalize: true }
+    );
+    this.lifecycleHandlers?.onPlaybackEnded?.({
+      voiceTurnId: input.voiceTurnId,
+      source: "backend_openai_audio",
     });
   }
 
@@ -653,6 +961,32 @@ export class VoiceTtsPlaybackManager {
         response.body && typeof response.body.getReader === "function"
           ? response.body.getReader()
           : null;
+      const canStreamResponse = Boolean(responseReader) && isStreamBackedAudioPlaybackSupported(responseMimeType);
+      if (canStreamResponse && responseReader) {
+        await this.playBackendAudioFromStream(
+          runId,
+          input,
+          responseMimeType,
+          response.status,
+          responseReader,
+          ttsBodyReadStartedAt,
+          {
+            model: headerModel,
+            voice: headerVoice,
+            format: headerFormat,
+            fallbackAttempted: headerFallbackAttempted,
+            candidateOrder: headerCandidateOrder,
+            attempts:
+              Number.isFinite(headerAttemptsCount) && headerAttemptsCount > 0
+                ? [{ result: `count:${Math.round(headerAttemptsCount)}` }]
+                : [],
+            audioBytesEstimate:
+              Number.isFinite(headerAudioBytes) && headerAudioBytes > 0 ? Math.round(headerAudioBytes) : undefined,
+          }
+        );
+        return;
+      }
+
       const audioChunks: ArrayBuffer[] = [];
       let audioBytesRead = 0;
       let firstAudioByteMs: number | null = null;

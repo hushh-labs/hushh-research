@@ -5,6 +5,7 @@ Goal: a single, reliable initialization path for local dev + Cloud Run.
 
 Credential sources (in priority order):
 1) FIREBASE_SERVICE_ACCOUNT_JSON  (JSON string)
+2) FIREBASE_AUTH_SERVICE_ACCOUNT_JSON (JSON string for auth-only operations)
 2) GOOGLE_APPLICATION_CREDENTIALS / ADC
 """
 
@@ -15,6 +16,8 @@ import os
 from typing import Any, Optional, Tuple
 
 DEFAULT_SERVICE_ACCOUNT_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
+AUTH_SERVICE_ACCOUNT_ENV = "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON"
+AUTH_APP_NAME = "firebase-auth"
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
@@ -53,6 +56,17 @@ def _project_id_from_service_account(service_account: Optional[dict[str, Any]]) 
     return None
 
 
+def _get_existing_app(name: str | None = None):
+    import firebase_admin
+
+    try:
+        if name:
+            return firebase_admin.get_app(name)
+        return firebase_admin.get_app()
+    except ValueError:
+        return None
+
+
 def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     """
     Ensure Firebase Admin SDK is initialized.
@@ -64,15 +78,11 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     from firebase_admin import credentials
 
     # Already initialized
-    try:
-        app = firebase_admin.get_app()
+    app = _get_existing_app()
+    if app is not None:
         proj = app.project_id if hasattr(app, "project_id") else None
         return True, proj
-    except ValueError:
-        pass
 
-    # Single shared Firebase project model:
-    # auth verification and FCM/admin operations both use the default app.
     sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
     if sa:
         cred = credentials.Certificate(sa)
@@ -91,22 +101,39 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:
     """
-    Backward-compatible alias for the single shared Firebase Admin app.
+    Ensure the Firebase Admin app used for ID token verification exists.
+
+    When FIREBASE_AUTH_SERVICE_ACCOUNT_JSON is provided, use a dedicated named
+    app so local/UAT runtimes can verify auth tokens from a different Firebase
+    project than the default admin/FCM project. Otherwise fall back to the
+    default Firebase Admin app.
     """
+    import firebase_admin
+    from firebase_admin import credentials
+
+    auth_app = _get_existing_app(AUTH_APP_NAME)
+    if auth_app is not None:
+        return True, _project_id_from_app(auth_app)
+
+    auth_sa = _load_service_account_from_env(AUTH_SERVICE_ACCOUNT_ENV)
+    if auth_sa:
+        cred = credentials.Certificate(auth_sa)
+        auth_app = firebase_admin.initialize_app(cred, name=AUTH_APP_NAME)
+        return True, _project_id_from_app(auth_app, auth_sa)
+
     return ensure_firebase_admin()
 
 
 def get_firebase_auth_app():
     """
-    Return the default Firebase app used for both ID token verification and FCM.
+    Return the Firebase app used for auth-only operations.
     """
-    import firebase_admin
-
     configured, _ = ensure_firebase_auth_admin()
     if not configured:
         return None
 
-    try:
-        return firebase_admin.get_app()
-    except ValueError:
-        return None
+    auth_app = _get_existing_app(AUTH_APP_NAME)
+    if auth_app is not None:
+        return auth_app
+
+    return _get_existing_app()

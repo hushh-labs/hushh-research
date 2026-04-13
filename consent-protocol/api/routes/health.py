@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.middlewares.rate_limit import limiter
-from api.utils.firebase_admin import ensure_firebase_admin, get_firebase_auth_app
+from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ async def issue_app_review_mode_session(request: Request):
             headers=NO_STORE_HEADERS,
         )
 
-    configured, project_id = ensure_firebase_admin()
+    configured, project_id = ensure_firebase_auth_admin()
     if not configured:
         logger.error("app_review_mode.session_failed reason=firebase_admin_not_configured")
         raise HTTPException(

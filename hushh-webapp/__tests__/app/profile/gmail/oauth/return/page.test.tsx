@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
+  searchParamsGet: vi.fn(),
   useAuth: vi.fn(),
   gmailReceiptsService: {
     completeConnect: vi.fn(),
@@ -13,6 +14,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.routerReplace }),
+  useSearchParams: () => ({
+    get: mocks.searchParamsGet,
+  }),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -55,6 +59,7 @@ import ProfileGmailOAuthReturnPage from "@/app/profile/gmail/oauth/return/page";
 describe("ProfileGmailOAuthReturnPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.searchParamsGet.mockReturnValue(null);
     mocks.useAuth.mockReturnValue({
       user: {
         uid: "user-123",
@@ -105,5 +110,29 @@ describe("ProfileGmailOAuthReturnPage", () => {
     });
 
     expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
+  });
+
+  it("uses live search params when the initial server props are empty", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "live-code-123";
+      if (key === "state") return "live-state-123";
+      return null;
+    });
+
+    render(
+      <ProfileGmailOAuthReturnPage
+        searchParams={{}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        code: "live-code-123",
+        state: "live-state-123",
+        redirectUri: "http://localhost:3000/profile/gmail/oauth/return",
+      });
+    });
   });
 });

@@ -26,7 +26,7 @@ export function deriveVoiceRouteScreen(
     return { screen: "unknown", subview: null };
   }
   if (normalizedPath === ROUTES.KAI_HOME || normalizedPath.startsWith("/kai/home")) {
-    return { screen: "home", subview: null };
+    return { screen: "kai_market", subview: query.get("tab") || null };
   }
   if (normalizedPath === ROUTES.KAI_INVESTMENTS) {
     return { screen: "kai_investments", subview: null };
@@ -36,10 +36,16 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath.startsWith("/kai/dashboard") || normalizedPath.startsWith(ROUTES.KAI_PORTFOLIO)) {
     const segments = normalizedPath.split("/").filter(Boolean);
-    return { screen: "dashboard", subview: segments[2] || null };
+    return {
+      screen: "kai_portfolio_dashboard",
+      subview: query.get("tab") || segments[2] || null,
+    };
   }
   if (normalizedPath.startsWith(ROUTES.KAI_ANALYSIS)) {
-    return { screen: "analysis", subview: null };
+    return {
+      screen: "kai_analysis",
+      subview: query.get("tab") || (query.get("focus") === "active" ? "active" : null),
+    };
   }
   if (normalizedPath.startsWith(ROUTES.KAI_IMPORT)) {
     return { screen: "import", subview: null };
@@ -48,7 +54,16 @@ export function deriveVoiceRouteScreen(
     return { screen: "optimize", subview: null };
   }
   if (normalizedPath.startsWith(ROUTES.CONSENTS)) {
-    return { screen: "consents", subview: null };
+    return { screen: "consents", subview: query.get("tab") || null };
+  }
+  if (
+    normalizedPath === ROUTES.PROFILE_PKM_AGENT_LAB ||
+    normalizedPath === ROUTES.PROFILE_PKM
+  ) {
+    return {
+      screen: "profile_pkm_agent_lab",
+      subview: query.get("tab"),
+    };
   }
   if (normalizedPath === ROUTES.PROFILE_RECEIPTS) {
     return { screen: "profile_receipts", subview: null };
@@ -65,6 +80,13 @@ export function deriveVoiceRouteScreen(
     if (panel === "security") {
       return { screen: "profile_security_panel", subview: tab || null };
     }
+    if (tab === "preferences") {
+      return { screen: "profile_preferences", subview: null };
+    }
+    if (tab === "privacy") {
+      return { screen: "profile_privacy", subview: panel || null };
+    }
+    return { screen: "profile_account", subview: panel || null };
   }
   if (normalizedPath.startsWith(ROUTES.PROFILE)) {
     return { screen: "profile", subview: null };

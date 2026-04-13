@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from api.utils.firebase_admin import ensure_firebase_admin, get_firebase_auth_app
+from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 
 
 def verify_firebase_bearer(authorization: Optional[str]) -> str:
@@ -20,7 +20,7 @@ def verify_firebase_bearer(authorization: Optional[str]) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    configured, _ = ensure_firebase_admin()
+    configured, _ = ensure_firebase_auth_admin()
     if not configured:
         # Backend misconfiguration (common in local dev)
         raise HTTPException(status_code=500, detail="Firebase Admin not configured")

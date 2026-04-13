@@ -17,9 +17,11 @@ from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from db.db_client import DatabaseExecutionError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token
@@ -40,6 +42,29 @@ _UUID_LIKE_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
+_CONSENT_STORAGE_ERROR_PATTERNS = (
+    "connection refused",
+    "server closed the connection unexpectedly",
+    "db operation failed",
+    "timed out",
+    "timeout",
+)
+
+
+def _is_consent_storage_unavailable(exc: Exception) -> bool:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (DatabaseExecutionError, SqlalchemyOperationalError)):
+            return True
+        if isinstance(current, (ConnectionError, OSError, TimeoutError)):
+            return True
+        message = str(current).strip().lower()
+        if message and any(pattern in message for pattern in _CONSENT_STORAGE_ERROR_PATTERNS):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def get_scope_description(scope: str) -> str:
@@ -176,10 +201,20 @@ async def get_pending_consents(
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
     service = ConsentDBService()
-    pending_from_db = await service.get_pending_requests(userId)
-    pending_from_db = await _hydrate_pending_requester_labels(pending_from_db)
-    logger.info("consent.pending_fetched count=%s", len(pending_from_db))
-    return {"pending": pending_from_db}
+    try:
+        pending_from_db = await service.get_pending_requests(userId)
+        pending_from_db = await _hydrate_pending_requester_labels(pending_from_db)
+        logger.info("consent.pending_fetched count=%s", len(pending_from_db))
+        return {"pending": pending_from_db}
+    except Exception as exc:
+        if _is_consent_storage_unavailable(exc):
+            logger.warning(
+                "consent.pending_degraded user_id=%s reason=%s",
+                userId,
+                exc,
+            )
+            return {"pending": [], "degraded": True}
+        raise
 
 
 @router.post("/pending/opened")

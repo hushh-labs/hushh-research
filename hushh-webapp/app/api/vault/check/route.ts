@@ -31,7 +31,10 @@ const vaultCheckCache = new Map<
   string,
   { hasVault: boolean; cachedAt: number }
 >();
-const vaultCheckInflight = new Map<string, Promise<boolean>>();
+const vaultCheckInflight = new Map<
+  string,
+  Promise<{ status: number; payload: { hasVault: boolean; cached?: boolean; degraded?: boolean; error?: string; code?: string; hint?: string } }>
+>();
 
 function readFreshVaultCheck(userId: string): boolean | null {
   const cached = vaultCheckCache.get(userId);
@@ -101,8 +104,14 @@ export async function GET(request: NextRequest) {
 
     const existing = vaultCheckInflight.get(userId);
     if (existing) {
-      const hasVault = await existing;
-      return withRequestIdJson(requestId, { hasVault, deduped: true });
+      const deduped = await existing;
+      return withRequestIdJson(
+        requestId,
+        deduped.status === 200
+          ? { ...deduped.payload, deduped: true }
+          : deduped.payload,
+        { status: deduped.status }
+      );
     }
 
     const load = (async () => {
@@ -116,19 +125,38 @@ export async function GET(request: NextRequest) {
         body: JSON.stringify({ userId }),
       });
 
+      const payload = await response
+        .json()
+        .catch(async () => ({ error: await response.text().catch(() => "") }));
+
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error(
-          `[API] request_id=${requestId} vault_check backend_error status=${response.status}`,
-          errorText
-        );
-        throw new Error(`backend_error:${response.status}`);
+        return {
+          status: response.status,
+          payload: {
+            hasVault: false,
+            error:
+              typeof payload?.error === "string"
+                ? payload.error
+                : typeof payload?.detail === "string"
+                  ? payload.detail
+                  : "Failed to check vault status",
+            code:
+              typeof payload?.code === "string"
+                ? payload.code
+                : response.status === 401
+                  ? "AUTH_INVALID"
+                  : undefined,
+            hint: typeof payload?.hint === "string" ? payload.hint : undefined,
+          },
+        };
       }
 
-      const data = await response.json();
-      const hasVault = Boolean(data.hasVault);
+      const hasVault = Boolean(payload?.hasVault);
       writeVaultCheck(userId, hasVault);
-      return hasVault;
+      return {
+        status: 200,
+        payload: { hasVault },
+      };
     })().finally(() => {
       if (vaultCheckInflight.get(userId) === load) {
         vaultCheckInflight.delete(userId);
@@ -136,7 +164,21 @@ export async function GET(request: NextRequest) {
     });
 
     vaultCheckInflight.set(userId, load);
-    const hasVault = await load;
+    const result = await load;
+
+    if (result.status !== 200) {
+      const cached = readFreshVaultCheck(userId);
+      if (result.status >= 500 && cached !== null) {
+        return withRequestIdJson(
+          requestId,
+          { hasVault: cached, degraded: true },
+          { status: 200 }
+        );
+      }
+      return withRequestIdJson(requestId, result.payload, { status: result.status });
+    }
+
+    const hasVault = result.payload.hasVault;
 
     logSecurityEvent("VAULT_CHECK_SUCCESS", {
       userId,

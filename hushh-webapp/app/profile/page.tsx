@@ -61,7 +61,11 @@ import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
-import { resolveGmailConnectionPresentation } from "@/lib/profile/mail-flow";
+import {
+  resolveGmailConnectionPresentation,
+  resolveGmailStatusSummary,
+  sanitizeGmailUserMessage,
+} from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -87,6 +91,10 @@ import {
   type VaultCapabilityMatrix,
   type VaultMethod,
 } from "@/lib/services/vault-method-service";
+import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
 import {
   PersonalKnowledgeModelService,
   type DomainSummary,
@@ -714,7 +722,10 @@ function ProfilePageContent() {
       }
       assignWindowLocation(payload.authorize_url);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start Gmail OAuth.";
+      const message = sanitizeGmailUserMessage(error, {
+        fallback: "We couldn't start Gmail connection right now. Please try again in a moment.",
+      });
+      console.error("[ProfilePage] Failed to start Gmail OAuth:", error);
       toast.error(message);
     } finally {
       setGmailActionBusy(null);
@@ -727,10 +738,12 @@ function ProfilePageContent() {
       setGmailActionBusy("disconnect");
       const next = await gmail.disconnectGmail();
       if (!next) return;
-      toast.success("Gmail connector disconnected. Stored receipts stay available.");
+      toast.success("Gmail disconnected. Your saved receipts will stay here.");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to disconnect Gmail.";
+      const message = sanitizeGmailUserMessage(error, {
+        fallback: "We couldn't disconnect Gmail right now. Please try again in a moment.",
+      });
+      console.error("[ProfilePage] Failed to disconnect Gmail:", error);
       toast.error(message);
     } finally {
       setGmailActionBusy(null);
@@ -743,12 +756,16 @@ function ProfilePageContent() {
       setGmailActionBusy("sync");
       const payload = await gmail.syncNow();
       if (!payload?.run?.run_id) {
-        toast.message("Gmail sync is already running.");
+        toast.message("We're already syncing your receipts.");
         return;
       }
-      toast.message("Gmail sync started in the background.");
+      toast.message("Syncing your receipts now.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start Gmail sync.";
+      const message = sanitizeGmailUserMessage(error, {
+        fallback: "We couldn't sync your receipts. Please try again in a moment.",
+        authFallback: "Reconnect Gmail to continue syncing your receipts.",
+      });
+      console.error("[ProfilePage] Failed to start Gmail sync:", error);
       toast.error(message);
     } finally {
       setGmailActionBusy(null);
@@ -883,10 +900,6 @@ function ProfilePageContent() {
     }
   }
 
-  if (authLoading || !user) {
-    return null;
-  }
-
   const deleteButtonLabel =
     vaultAccess.needsUnlock
       ? hasDualPersona
@@ -929,7 +942,9 @@ function ProfilePageContent() {
     vaultMethod === "passphrase" && availableQuickMethod
       ? availableQuickMethod
       : null;
-  const canEditKaiPreferences = Boolean(user.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData);
+  const canEditKaiPreferences = Boolean(
+    user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData
+  );
 
   const kaiProfileDescription =
     loadingDomains
@@ -966,8 +981,306 @@ function ProfilePageContent() {
         : readableMethod(displayedUnlockMethod);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
-  const gmailSettingsDescription = gmailPresentation.description;
+  const gmailStatusSummary = useMemo(
+    () =>
+      resolveGmailStatusSummary({
+        status: gmail.status,
+        loading: gmail.loadingStatus || gmailActionBusy === "sync",
+        errorText: gmail.statusError,
+      }),
+    [gmail.loadingStatus, gmail.status, gmail.statusError, gmailActionBusy]
+  );
   const gmailLastSyncText = gmailPresentation.latestSyncText;
+  const gmailSettingsDescription = gmailPresentation.description;
+  const gmailPrimaryActionLabel = gmailPresentation.isConnected
+    ? gmailActionsBusy
+      ? "Syncing receipts…"
+      : "Sync receipts"
+    : gmailPresentation.state === "needs_reauthentication"
+      ? gmailActionBusy === "connect"
+        ? "Reconnecting…"
+        : "Reconnect Gmail"
+      : gmailActionBusy === "connect"
+        ? "Connecting…"
+        : "Connect Gmail";
+  const gmailStatusToneClassName =
+    gmailStatusSummary.tone === "success"
+      ? "border-emerald-500/18 bg-emerald-500/[0.05]"
+      : gmailStatusSummary.tone === "error"
+        ? "border-rose-500/22 bg-rose-500/[0.06]"
+        : gmailStatusSummary.tone === "loading"
+          ? "border-sky-500/18 bg-sky-500/[0.05]"
+          : "border-border/60 bg-background/68";
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
+  const profileVoiceSurfaceMetadata = useMemo(() => {
+    const visibleModules =
+      activeTab === "account"
+        ? ["Kai profile", "Support & feedback", "Gmail receipts", "Session", "Danger zone"]
+        : activeTab === "preferences"
+          ? ["Appearance", "Kai preferences", "On-device first"]
+          : ["Consent center", "Marketplace visibility", "Vault security"];
+
+    if (canShowPkmAgentLab && activeTab === "account") {
+      visibleModules.splice(2, 0, "PKM Agent Lab");
+    }
+    if (activePanel === "support") {
+      visibleModules.push("Support panel");
+    }
+    if (activePanel === "gmail") {
+      visibleModules.push("Gmail connector panel");
+    }
+    if (activePanel === "security") {
+      visibleModules.push("Vault security panel");
+    }
+
+    const availableActions =
+      activePanel === "gmail"
+        ? [
+            gmailPresentation.isConnected
+              ? "Sync Gmail receipts"
+              : gmailPresentation.state === "needs_reauthentication"
+                ? "Reconnect Gmail"
+                : "Connect Gmail",
+            "View receipts",
+            ...(gmailPresentation.isConnected ? ["Disconnect Gmail"] : []),
+          ]
+        : activePanel === "support"
+          ? ["Report a bug", "Contact support", "Reach the developer"]
+          : activePanel === "security"
+            ? [
+                vaultAccess.needsVaultCreation ? "Create your vault" : "Unlock vault",
+                "Change passphrase",
+                "Prefer passphrase unlock",
+              ]
+            : activeTab === "privacy"
+              ? ["Open consent center", "Open vault security"]
+              : [
+                  "Open Gmail",
+                  "Open receipts",
+                  "Open support",
+                  ...(canShowPkmAgentLab ? ["Open PKM Agent Lab"] : []),
+                ];
+    const profileScreenId =
+      activePanel === "gmail"
+        ? "profile_gmail_panel"
+        : activePanel === "support"
+          ? "profile_support_panel"
+          : activePanel === "security"
+            ? "profile_security_panel"
+            : activeTab === "preferences"
+              ? "profile_preferences"
+              : activeTab === "privacy"
+                ? "profile_privacy"
+                : "profile_account";
+    const profileTitle =
+      activePanel === "gmail"
+        ? "Gmail connector"
+        : activePanel === "support"
+          ? "Support"
+          : activePanel === "security"
+            ? "Vault security"
+            : "Profile";
+    const profilePurpose =
+      activePanel === "gmail"
+        ? "This panel manages Gmail connection state and receipt sync readiness."
+        : activePanel === "support"
+          ? "This panel handles bug reports, support requests, and product feedback."
+          : activePanel === "security"
+            ? "This panel manages vault access and security settings."
+            : activeTab === "privacy"
+              ? "This page manages consent, privacy, and vault-related controls."
+              : activeTab === "preferences"
+                ? "This page manages product preferences and profile defaults."
+                : "This page gives you account settings, Gmail receipts access, support, and PKM access.";
+    const controls = [
+      ...(canShowPkmAgentLab
+        ? [
+            {
+              id: "pkm_agent_lab",
+              label: "PKM Agent Lab",
+              purpose: "opens the workspace for previewing and saving encrypted PKM captures.",
+              actionId: "nav.profile_pkm_agent_lab",
+              role: "card",
+              voiceAliases: ["pkm agent lab", "memory lab"],
+            },
+          ]
+        : []),
+      {
+        id: "gmail_receipts",
+        label: "Gmail receipts",
+        purpose: "opens Gmail receipt sync and receipt-memory import.",
+        actionId: "nav.profile_receipts",
+        role: "card",
+        voiceAliases: ["gmail receipts", "receipts"],
+      },
+      {
+        id: "support_feedback",
+        label: "Support & feedback",
+        purpose: "opens direct support and product feedback tools.",
+        actionId: "nav.profile_support_panel",
+        role: "card",
+        voiceAliases: ["support", "feedback"],
+      },
+      {
+        id: "sign_out",
+        label: "Sign out",
+        purpose: "ends this session on the current device.",
+        role: "button",
+        voiceAliases: ["sign out", "log out"],
+      },
+      {
+        id: "delete_account",
+        label: "Delete account",
+        purpose: "permanently deletes your account and vault-linked records.",
+        role: "button",
+        voiceAliases: ["delete account", "remove account"],
+      },
+    ];
+    const surfaceDefinition = {
+      screenId: profileScreenId,
+      title: profileTitle,
+      purpose: profilePurpose,
+      sections: [
+        {
+          id: "account",
+          title: "Account",
+          purpose: "This section covers your signed-in account and profile-level entry points.",
+        },
+        {
+          id: "preferences",
+          title: "Preferences",
+          purpose: "This section manages personal preferences and profile defaults.",
+        },
+        {
+          id: "privacy",
+          title: "Privacy",
+          purpose: "This section manages vault, privacy, and consent-related settings.",
+        },
+      ],
+      actions: availableActions.map((action) => ({
+        id: action.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+        label: action,
+        purpose: `${action} from Profile.`,
+      })),
+      controls,
+      concepts: [
+        {
+          id: "pkm",
+          label: "PKM",
+          explanation:
+            "PKM is your encrypted personal memory layer. Kai uses it to store durable user memory safely.",
+          aliases: ["pkm", "personal knowledge model"],
+        },
+        {
+          id: "gmail_receipts",
+          label: "Gmail receipts",
+          explanation:
+            "Gmail receipts connects Gmail receipt sync and feeds receipt-memory imports into PKM.",
+          aliases: ["gmail receipts", "receipt sync"],
+        },
+      ],
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+    };
+    const activeControl =
+      controls.find((control) => control.id === activeVoiceControlId) ||
+      controls.find((control) => control.id === lastVoiceControlId) ||
+      null;
+
+    return {
+      surfaceDefinition,
+      activeSection:
+        activePanel === "gmail"
+          ? "Gmail connector"
+          : activePanel === "support"
+            ? "Support"
+            : activePanel === "security"
+              ? "Vault security"
+              : activeTab === "account"
+                ? "Account"
+                : activeTab === "preferences"
+                  ? "Preferences"
+                  : "Privacy",
+      activeTab: activeTab,
+      visibleModules,
+      focusedWidget:
+        activeControl?.label ||
+        (activePanel === "gmail"
+          ? "Gmail connector panel"
+          : activePanel === "support"
+            ? "Support panel"
+            : activePanel === "security"
+              ? "Vault security panel"
+              : `${activeTab} settings`),
+      modalState:
+        supportDialogOpen
+          ? "support_dialog"
+          : passphraseDialogOpen
+            ? "passphrase_dialog"
+            : showVaultUnlock
+              ? "vault_unlock"
+              : activePanel
+                ? `${activePanel}_panel`
+                : null,
+      availableActions,
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+      busyOperations: [
+        ...(gmailActionsBusy ? ["gmail_action"] : []),
+        ...(sendingSupportMessage ? ["support_message"] : []),
+        ...(switchingVaultMethod ? ["vault_method_update"] : []),
+        ...(savingMarketplaceOptIn ? ["marketplace_visibility_update"] : []),
+      ],
+      screenMetadata: {
+        profile_tab: activeTab,
+        profile_panel: activePanel,
+        total_attributes: totalAttributes,
+        domain_count: domains.length,
+        pending_consents: pendingConsents,
+        gmail_connected: gmailPresentation.isConnected,
+        gmail_state: gmailPresentation.state,
+        gmail_status_label: gmailStatusLabel,
+        gmail_last_sync_text: gmailLastSyncText,
+        google_email: gmail.status?.google_email || null,
+        pkm_agent_lab_available: canShowPkmAgentLab,
+        marketplace_opt_in: marketplaceOptIn,
+        security_summary: securitySummaryText,
+      },
+    };
+  }, [
+    activePanel,
+    activeTab,
+    activeVoiceControlId,
+    canShowPkmAgentLab,
+    domains.length,
+    gmailActionsBusy,
+    gmailPresentation.isConnected,
+    gmailPresentation.state,
+    gmailLastSyncText,
+    gmailStatusLabel,
+    gmail.status?.google_email,
+    marketplaceOptIn,
+    lastVoiceControlId,
+    passphraseDialogOpen,
+    pendingConsents,
+    savingMarketplaceOptIn,
+    securitySummaryText,
+    sendingSupportMessage,
+    showVaultUnlock,
+    supportDialogOpen,
+    switchingVaultMethod,
+    totalAttributes,
+    vaultAccess.needsVaultCreation,
+  ]);
+  usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  if (authLoading || !user) {
+    return null;
+  }
+
   const openKaiProfile = () => {
     if (vaultAccess.needsVaultCreation) {
       router.push(ROUTES.KAI_IMPORT);
@@ -1109,6 +1422,9 @@ function ProfilePageContent() {
                 title="Support & feedback"
                 description="Bug reports, support, and direct product feedback."
                 chevron
+                voiceControlId="support_feedback"
+                voiceActionId="nav.profile_support_panel"
+                voicePurpose="opens direct support and product feedback tools."
                 onClick={() => updateProfileView({ tab: "account", panel: "support" })}
               />
               {canShowPkmAgentLab ? (
@@ -1117,6 +1433,9 @@ function ProfilePageContent() {
                   title="PKM Agent Lab"
                   description="Capture intent, inspect saved PKM data, and review how live encrypted storage is organized for your account."
                   chevron
+                  voiceControlId="pkm_agent_lab"
+                  voiceActionId="nav.profile_pkm_agent_lab"
+                  voicePurpose="opens the workspace for previewing and saving encrypted PKM captures."
                   onClick={() => router.push("/profile/pkm-agent-lab")}
                 />
               ) : null}
@@ -1127,6 +1446,9 @@ function ProfilePageContent() {
                 trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
                 chevron
                 stackTrailingOnMobile
+                voiceControlId="gmail_receipts"
+                voiceActionId="nav.profile_receipts"
+                voicePurpose="opens Gmail receipt sync and receipt-memory import."
                 onClick={() => updateProfileView({ tab: "account", panel: "gmail" })}
               />
             </SettingsGroup>
@@ -1136,6 +1458,8 @@ function ProfilePageContent() {
                 icon={LogOut}
                 title="Sign out"
                 description="End this session on the current device."
+                voiceControlId="sign_out"
+                voicePurpose="ends this session on the current device."
                 onClick={() => void handleSignOut()}
                 chevron
               />
@@ -1150,6 +1474,8 @@ function ProfilePageContent() {
                 title={deleteButtonLabel}
                 description={deleteRowDescription}
                 tone="destructive"
+                voiceControlId="delete_account"
+                voicePurpose="permanently deletes your account and vault-linked records."
                 onClick={() => void handleDeleteClick()}
                 chevron
               />
@@ -1305,100 +1631,89 @@ function ProfilePageContent() {
         description="Connect your Gmail account to sync receipt emails into a dedicated receipts view."
       >
         <div className="space-y-4 sm:space-y-5">
-          <SettingsGroup eyebrow="Connection">
-            <SettingsRow
-              icon={Mail}
-              title="Status"
-              description={gmailSettingsDescription}
-              trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
-              stackTrailingOnMobile
-            />
-            <SettingsRow
-              icon={SendHorizontal}
-              title="Inbox"
-              description={
-                gmail.status?.google_email
-                  ? gmail.status.google_email
-                  : gmail.loadingStatus
-                    ? "Resolving connected inbox..."
-                    : "No Gmail inbox connected yet."
+          <SurfaceInset
+            className={`space-y-3 border px-4 py-4 sm:px-5 sm:py-5 ${gmailStatusToneClassName}`}
+          >
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  Status
+                </p>
+                <Badge variant="secondary">{gmailStatusLabel}</Badge>
+              </div>
+              <h3 className="text-base font-semibold tracking-tight text-foreground">
+                {gmailStatusSummary.title}
+              </h3>
+              <p className="text-sm text-muted-foreground">{gmailStatusSummary.detail}</p>
+              {gmailStatusSummary.helper ? (
+                <p className="text-xs text-muted-foreground">{gmailStatusSummary.helper}</p>
+              ) : null}
+            </div>
+          </SurfaceInset>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() =>
+                gmailPresentation.isConnected
+                  ? void handleSyncGmailNow()
+                  : void handleConnectGmail()
               }
-            />
-            <SettingsRow
-              icon={RefreshCw}
-              title="Latest sync"
-              description={gmailLastSyncText}
-              trailing={
-                gmail.syncRun?.status || gmailPresentation.latestSyncBadge ? (
-                  <Badge variant="secondary">
-                    {gmail.syncRun?.status || gmailPresentation.latestSyncBadge}
-                  </Badge>
-                ) : undefined
+              disabled={
+                gmailActionsBusy ||
+                (!gmailPresentation.isConnected && gmail.status?.configured === false)
               }
-              stackTrailingOnMobile
-            />
-          </SettingsGroup>
+              className="min-w-[156px]"
+              data-voice-control-id="profile_gmail_primary_action"
+              data-voice-action-id={
+                gmailPresentation.isConnected ? "profile.gmail.sync_now" : "profile.gmail.connect"
+              }
+              data-voice-label={gmailPrimaryActionLabel}
+              data-voice-purpose={
+                gmailPresentation.isConnected
+                  ? "starts Gmail receipt sync."
+                  : "connects Gmail for receipt syncing."
+              }
+            >
+              {gmailActionsBusy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : gmailPresentation.isConnected ? (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              ) : (
+                <Mail className="mr-2 h-4 w-4" />
+              )}
+              {gmailPrimaryActionLabel}
+            </Button>
 
-          <SettingsGroup eyebrow="Actions">
-            {gmailPresentation.isConnected ? (
-              <SettingsRow
-                icon={RefreshCw}
-                title="Sync now"
-                description="Fetch new receipt emails and refresh extracted records."
-                disabled={gmailActionsBusy || !gmailPresentation.isConnected}
-                chevron
-                onClick={() => void handleSyncGmailNow()}
-              />
-            ) : (
-              <SettingsRow
-                icon={Mail}
-                title={
-                  gmailPresentation.state === "needs_reauthentication"
-                    ? "Reconnect Gmail"
-                    : "Connect Gmail"
-                }
-                description="Authorize Gmail read-only access for receipt sync."
-                disabled={gmailActionsBusy || gmail.status?.configured === false}
-                chevron
-                onClick={() => void handleConnectGmail()}
-              />
-            )}
-
-            <SettingsRow
-              icon={RefreshCw}
-              title="Refresh status"
-              description="Re-check your Gmail connection, sync status, and inbox details."
-              disabled={gmailActionsBusy}
-              chevron
-              onClick={() => void gmail.refreshStatus({ force: true })}
-            />
-
-            <SettingsRow
-              icon={Folder}
-              title="Open receipts"
-              description="Review synced receipts, merchants, and extracted totals."
-              chevron
+            <Button
+              variant="none"
+              effect="fade"
               onClick={() => router.push(ROUTES.PROFILE_RECEIPTS)}
-            />
+              data-voice-control-id="view_gmail_receipts"
+              data-voice-action-id="nav.profile_receipts"
+              data-voice-label="View receipts"
+              data-voice-purpose="opens the receipts view."
+            >
+              View receipts
+            </Button>
 
             {gmailPresentation.isConnected ? (
-              <SettingsRow
-                icon={Trash2}
-                title="Disconnect Gmail"
-                description="Stop future syncs. Existing synced receipts remain available."
-                tone="destructive"
-                disabled={gmailActionsBusy}
-                chevron
+              <Button
+                variant="destructive"
                 onClick={() => void handleDisconnectGmail()}
-              />
+                disabled={gmailActionsBusy}
+                data-voice-control-id="disconnect_gmail"
+                data-voice-action-id="profile.gmail.disconnect"
+                data-voice-label="Disconnect Gmail"
+                data-voice-purpose="stops future Gmail receipt sync."
+              >
+                Disconnect Gmail
+              </Button>
             ) : null}
-          </SettingsGroup>
+          </div>
 
-          {gmail.statusError ? (
-            <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
-              {gmail.statusError}
-            </SurfaceInset>
-          ) : null}
+          <p className="text-xs text-muted-foreground">
+            We only use Gmail to find receipt emails and keep them together in one place.
+          </p>
         </div>
       </SettingsDetailPanel>
 

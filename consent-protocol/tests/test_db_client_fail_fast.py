@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from db.db_client import DatabaseClient, DatabaseExecutionError, TableQuery
 
@@ -40,6 +41,70 @@ def test_execute_raises_database_execution_error_for_sql_failures(sqlite_engine)
 
     with pytest.raises(DatabaseExecutionError, match="missing_table.select"):
         query.execute()
+
+
+def test_table_query_retries_once_after_transient_connection_error(sqlite_engine):
+    class _FlakyEngine:
+        def __init__(self, wrapped_engine):
+            self._wrapped_engine = wrapped_engine
+            self.dialect = wrapped_engine.dialect
+            self.connect_calls = 0
+            self.dispose_calls = 0
+
+        def connect(self):
+            self.connect_calls += 1
+            if self.connect_calls == 1:
+                raise SqlalchemyOperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception("server closed the connection unexpectedly"),
+                )
+            return self._wrapped_engine.connect()
+
+        def dispose(self):
+            self.dispose_calls += 1
+            return None
+
+    engine = _FlakyEngine(sqlite_engine)
+    query = TableQuery("vault_key_wrappers", engine)
+    result = query.select("*").execute()
+
+    assert result.data == []
+    assert result.count == 0
+    assert engine.connect_calls == 2
+    assert engine.dispose_calls == 1
+
+
+def test_execute_raw_retries_once_after_transient_connection_error(sqlite_engine):
+    class _FlakyEngine:
+        def __init__(self, wrapped_engine):
+            self._wrapped_engine = wrapped_engine
+            self.dialect = wrapped_engine.dialect
+            self.connect_calls = 0
+            self.dispose_calls = 0
+
+        def connect(self):
+            self.connect_calls += 1
+            if self.connect_calls == 1:
+                raise SqlalchemyOperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception("connection refused"),
+                )
+            return self._wrapped_engine.connect()
+
+        def dispose(self):
+            self.dispose_calls += 1
+            return None
+
+    engine = _FlakyEngine(sqlite_engine)
+    db = DatabaseClient(engine=engine)
+
+    result = db.execute_raw("SELECT 1 AS value")
+
+    assert result.data == [{"value": 1}]
+    assert engine.connect_calls == 2
+    assert engine.dispose_calls == 1
 
 
 def test_upsert_supports_composite_conflict_columns(sqlite_engine):

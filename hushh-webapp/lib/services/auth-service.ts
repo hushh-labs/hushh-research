@@ -51,6 +51,97 @@ export class AuthService {
     console.error(label);
   }
 
+  private static async pause(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private static decodeJwtPayload(token: string): Record<string, unknown> | null {
+    const normalized = String(token || "").trim();
+    if (!normalized) return null;
+    const parts = normalized.split(".");
+    if (parts.length < 2) return null;
+    const payloadSegment = parts[1];
+    if (!payloadSegment) return null;
+
+    try {
+      const base64 = payloadSegment
+        .replace(/-/g, "+")
+        .replace(/_/g, "/")
+        .padEnd(Math.ceil(payloadSegment.length / 4) * 4, "=");
+      if (typeof atob !== "function") {
+        return null;
+      }
+      const json = atob(base64);
+      return JSON.parse(json) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private static isUsableIdToken(token: string | null | undefined, minRemainingMs = 60_000): boolean {
+    const normalized = String(token || "").trim();
+    if (!normalized) return false;
+    const payload = this.decodeJwtPayload(normalized);
+    const expSeconds =
+      typeof payload?.exp === "number"
+        ? payload.exp
+        : typeof payload?.exp === "string"
+          ? Number(payload.exp)
+          : NaN;
+    if (!Number.isFinite(expSeconds) || expSeconds <= 0) {
+      return false;
+    }
+    return expSeconds * 1000 - Date.now() > minRemainingMs;
+  }
+
+  private static getNativeUserField(
+    nativeUser: Record<string, unknown> | null | undefined,
+    keys: string[],
+  ): string {
+    if (!nativeUser) return "";
+    for (const key of keys) {
+      const value = nativeUser[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value;
+      }
+    }
+    return "";
+  }
+
+  private static async resolveLiveNativeIdToken(
+    initialToken: string,
+    forceRefresh = false
+  ): Promise<string> {
+    const firebaseUser = auth.currentUser;
+    if (firebaseUser) {
+      try {
+        return await firebaseUser.getIdToken(forceRefresh);
+      } catch (error) {
+        this.debugError("[AuthService] Failed to get Firebase JS token during native resolution", error);
+      }
+    }
+
+    try {
+      const result = await FirebaseAuthentication.getIdToken();
+      if (result.token && this.isUsableIdToken(result.token)) {
+        return result.token;
+      }
+    } catch (error) {
+      this.debugError("[AuthService] FirebaseAuthentication token lookup failed", error);
+    }
+
+    try {
+      const result = await HushhAuth.getIdToken();
+      if (result.idToken && this.isUsableIdToken(result.idToken)) {
+        return result.idToken;
+      }
+    } catch (error) {
+      this.debugError("[AuthService] HushhAuth token lookup failed", error);
+    }
+
+    return this.isUsableIdToken(initialToken) ? initialToken : "";
+  }
+
   /**
    * Sign in with Google using the appropriate method for the current platform.
    *
@@ -260,12 +351,23 @@ export class AuthService {
     idToken: string,
     providerId: string = "google.com"
   ): User {
+    const uid = this.getNativeUserField(nativeUser, ["uid", "id"]);
+    const email = this.getNativeUserField(nativeUser, ["email"]);
+    const displayName = this.getNativeUserField(nativeUser, ["displayName"]);
+    const photoURL = this.getNativeUserField(nativeUser, ["photoUrl", "photoURL"]);
+    const emailVerified =
+      typeof nativeUser?.emailVerified === "boolean"
+        ? nativeUser.emailVerified
+        : true;
+    const liveTokenProvider = async (forceRefresh = false) =>
+      this.resolveLiveNativeIdToken(idToken, forceRefresh);
+
     return {
-      uid: nativeUser.uid,
-      email: nativeUser.email,
-      displayName: nativeUser.displayName,
-      photoURL: nativeUser.photoUrl,
-      emailVerified: nativeUser.emailVerified ?? true,
+      uid,
+      email,
+      displayName,
+      photoURL,
+      emailVerified,
       isAnonymous: false,
       metadata: {
         creationTime: new Date().toISOString(),
@@ -274,26 +376,30 @@ export class AuthService {
       providerData: [
         {
           providerId,
-          uid: nativeUser.uid,
-          displayName: nativeUser.displayName,
-          email: nativeUser.email,
+          uid,
+          displayName,
+          email,
           phoneNumber: null,
-          photoURL: nativeUser.photoUrl,
+          photoURL,
         },
       ],
       refreshToken: "",
       tenantId: null,
       delete: async () => {},
-      getIdToken: async () => idToken,
-      getIdTokenResult: async () => ({
-        token: idToken,
-        claims: {},
-        authTime: "",
-        issuedAtTime: "",
-        expirationTime: "",
-        signInProvider: providerId,
-        signInSecondFactor: null,
-      }),
+      getIdToken: async (forceRefresh?: boolean) =>
+        liveTokenProvider(Boolean(forceRefresh)),
+      getIdTokenResult: async () => {
+        const liveToken = await liveTokenProvider();
+        return {
+          token: liveToken,
+          claims: {},
+          authTime: "",
+          issuedAtTime: "",
+          expirationTime: "",
+          signInProvider: providerId,
+          signInSecondFactor: null,
+        };
+      },
       reload: async () => {},
       toJSON: () => ({}),
       phoneNumber: null,
@@ -466,45 +572,7 @@ export class AuthService {
    * Create a User-like object from native Apple Sign-In user data
    */
   private static createUserFromNativeApple(nativeUser: any, idToken: string): User {
-    return {
-      uid: nativeUser.uid,
-      email: nativeUser.email,
-      displayName: nativeUser.displayName,
-      photoURL: nativeUser.photoUrl,
-      emailVerified: nativeUser.emailVerified ?? true,
-      isAnonymous: false,
-      metadata: {
-        creationTime: new Date().toISOString(),
-        lastSignInTime: new Date().toISOString(),
-      },
-      providerData: [
-        {
-          providerId: "apple.com",
-          uid: nativeUser.uid,
-          displayName: nativeUser.displayName,
-          email: nativeUser.email,
-          phoneNumber: null,
-          photoURL: nativeUser.photoUrl,
-        },
-      ],
-      refreshToken: "",
-      tenantId: null,
-      delete: async () => {},
-      getIdToken: async () => idToken,
-      getIdTokenResult: async () => ({
-        token: idToken,
-        claims: {},
-        authTime: "",
-        issuedAtTime: "",
-        expirationTime: "",
-        signInProvider: "apple.com",
-        signInSecondFactor: null,
-      }),
-      reload: async () => {},
-      toJSON: () => ({}),
-      phoneNumber: null,
-      providerId: "apple.com",
-    } as unknown as User;
+    return this.createUserFromNative(nativeUser, idToken, "apple.com");
   }
 
   /**
@@ -650,38 +718,73 @@ export class AuthService {
    * Works on all platforms for uniform behavior
    */
   static async restoreNativeSession(): Promise<User | null> {
-    try {
-      // Use Capacitor Firebase plugin to get current user
+    const restoreFromFirebaseAuthentication = async (): Promise<User | null> => {
       const result = await FirebaseAuthentication.getCurrentUser();
-
       if (!result.user) {
-        this.debugLog("🍎 [AuthService] No session found");
         return null;
       }
 
-      this.debugLog("🍎 [AuthService] Restoring session");
-
-      // Get ID token
       const tokenResult = await FirebaseAuthentication.getIdToken();
       const idToken = tokenResult.token || "";
+      const providerId =
+        (result.user as { providerId?: string | null }).providerId?.trim() ||
+        auth.currentUser?.providerData?.[0]?.providerId ||
+        "native";
 
-      // Check if Firebase JS SDK has the user
+      return this.createUserFromNative(result.user, idToken, providerId);
+    };
+
+    const restoreFromHushhAuth = async (): Promise<User | null> => {
+      const [{ user }, { idToken }] = await Promise.all([
+        HushhAuth.getCurrentUser(),
+        HushhAuth.getIdToken(),
+      ]);
+      if (!user) {
+        return null;
+      }
+      const restoredIdToken = this.isUsableIdToken(idToken) ? String(idToken) : "";
+      if (!restoredIdToken) {
+        return null;
+      }
+
+      const providerId =
+        (user as { providerId?: string | null }).providerId?.trim() || "native";
+
+      return this.createUserFromNative(user, restoredIdToken, providerId);
+    };
+
+    try {
       if (auth.currentUser) {
-        this.debugLog("✅ [AuthService] Firebase JS SDK user available");
+        this.debugLog("✅ [AuthService] Firebase JS SDK user already available");
         return auth.currentUser;
       }
 
-      // Construct User object from native data
-      // If the user has an email, assume password provider for restoration if not google/apple
-      // Usually getCurrentUser() result.user contains providerId in some plugins, 
-      // but @capacitor-firebase/authentication might not expose it clearly in result.user
-      // We'll check email presence.
-      const providerId = result.user.email ? "password" : "google.com"; 
+      const maxAttempts = Capacitor.getPlatform() === "ios" ? 4 : 2;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        this.debugLog(`🍎 [AuthService] Attempting native session restore (${attempt}/${maxAttempts})`);
 
-      const restoredUser = this.createUserFromNative(result.user, idToken, providerId);
+        const restoredUser =
+          (await restoreFromFirebaseAuthentication().catch((error) => {
+            this.debugError("🍎 [AuthService] FirebaseAuthentication restore failed", error);
+            return null;
+          })) ||
+          (await restoreFromHushhAuth().catch((error) => {
+            this.debugError("🍎 [AuthService] HushhAuth restore failed", error);
+            return null;
+          }));
 
-      this.debugLog("🍎 [AuthService] Session restored");
-      return restoredUser;
+        if (restoredUser) {
+          this.debugLog("🍎 [AuthService] Session restored");
+          return restoredUser;
+        }
+
+        if (attempt < maxAttempts) {
+          await this.pause(attempt === 1 ? 200 : 400);
+        }
+      }
+
+      this.debugLog("🍎 [AuthService] No session found");
+      return null;
     } catch (error) {
       this.debugError("🍎 [AuthService] Failed to restore session", error);
       return null;

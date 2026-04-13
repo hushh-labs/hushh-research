@@ -58,6 +58,8 @@ type PendingSpeechState = {
 const DEFAULT_SPEECH_TIMEOUT_MS = 30000;
 const DEFAULT_FINAL_TRANSCRIPT_TIMEOUT_MS = 25000;
 const DEFAULT_REALTIME_SDP_TIMEOUT_MS = 15000;
+const DEFAULT_SERVER_VAD_THRESHOLD = 0.72;
+const DEFAULT_SERVER_VAD_PREFIX_PADDING_MS = 450;
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -326,6 +328,8 @@ export class VoiceRealtimeClient {
             input: {
               turn_detection: {
                 type: "server_vad",
+                threshold: DEFAULT_SERVER_VAD_THRESHOLD,
+                prefix_padding_ms: DEFAULT_SERVER_VAD_PREFIX_PADDING_MS,
                 silence_duration_ms: input.silenceDurationMs,
                 create_response: input.disableAutoResponse ? false : true,
                 interrupt_response: input.enableBargeIn ? true : false,
@@ -338,6 +342,8 @@ export class VoiceRealtimeClient {
         },
       });
       this.onDebug?.("session_update_sent", {
+        threshold: DEFAULT_SERVER_VAD_THRESHOLD,
+        prefix_padding_ms: DEFAULT_SERVER_VAD_PREFIX_PADDING_MS,
         silence_duration_ms: input.silenceDurationMs,
         create_response: input.disableAutoResponse ? false : true,
         interrupt_response: input.enableBargeIn ? true : false,
@@ -455,16 +461,21 @@ export class VoiceRealtimeClient {
   }
 
   cancelSpeech(reason: string = "VOICE_STREAM_TTS_CANCELLED"): void {
-    const hasOpenChannel = Boolean(this.dataChannel && this.dataChannel.readyState === "open");
-    if (hasOpenChannel) {
+    const pending = this.pendingSpeech;
+    const hasCancelablePendingResponse = Boolean(
+      pending &&
+        !pending.responseDone &&
+        this.dataChannel &&
+        this.dataChannel.readyState === "open"
+    );
+    if (hasCancelablePendingResponse) {
       try {
         this.sendEvent({ type: "response.cancel" });
       } catch {
         // Ignore cancel attempts during teardown when the data channel is racing closed.
       }
     }
-    if (!this.pendingSpeech) return;
-    const pending = this.pendingSpeech;
+    if (!pending) return;
     this.pendingSpeech = null;
     window.clearTimeout(pending.timeoutHandle);
     pending.reject(new Error(reason));
@@ -608,15 +619,21 @@ export class VoiceRealtimeClient {
       return false;
     }
 
-    if (eventType === "response.created" || eventType === "response.audio.delta" || eventType === "response.done") {
+    if (
+      eventType === "response.created" ||
+      eventType === "response.audio.delta" ||
+      eventType === "response.done"
+    ) {
       this.onDebug?.("stream_unsolicited_response_dropped", {
         event_type: eventType,
         response_id: responseId,
       });
-      try {
-        this.sendEvent({ type: "response.cancel" });
-      } catch {
-        // ignore race when channel is closing
+      if (eventType !== "response.done") {
+        try {
+          this.sendEvent({ type: "response.cancel" });
+        } catch {
+          // ignore race when channel is closing
+        }
       }
       return true;
     }

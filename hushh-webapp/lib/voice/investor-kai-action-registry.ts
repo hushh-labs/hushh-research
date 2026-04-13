@@ -22,6 +22,7 @@ export type InvestorKaiScreenScope =
   | "profile_gmail_panel"
   | "profile_security_panel"
   | "profile_receipts"
+  | "profile_pkm_agent_lab"
   | "consents";
 
 export type InvestorKaiGuardId =
@@ -680,6 +681,39 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     mapReferences: ["app/profile/page.tsx"],
   },
   {
+    id: "nav.profile_pkm_agent_lab",
+    label: "Open PKM Agent Lab",
+    meaning: "Navigates to the PKM Agent Lab privacy workspace.",
+    scope: {
+      routes: [ROUTES.PROFILE_PKM_AGENT_LAB],
+      screens: ["profile_pkm_agent_lab"],
+      hiddenNavigable: true,
+      navigationPrerequisites: ["development or UAT access to PKM Agent Lab must be enabled"],
+    },
+    trigger: {
+      primary: "voice",
+      supported: ["voice", "tap", "keyboard", "programmatic"],
+    },
+    guards: [],
+    expectedEffects: {
+      stateChanges: ["current route becomes /profile/pkm-agent-lab"],
+      backendEffects: [],
+    },
+    risk: {
+      level: "low",
+      executionPolicy: "allow_direct",
+    },
+    wiring: {
+      status: "wired",
+      handler: "router.push",
+      binding: {
+        kind: "route",
+        href: ROUTES.PROFILE_PKM_AGENT_LAB,
+      },
+    },
+    mapReferences: ["app/profile/pkm-agent-lab/page-client.tsx"],
+  },
+  {
     id: "profile.gmail.connect",
     label: "Connect Gmail",
     meaning: "Starts OAuth flow for Gmail receipts connector.",
@@ -764,6 +798,92 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     mapReferences: ["app/profile/page.tsx", "app/profile/receipts/page.tsx"],
   },
   {
+    id: "profile.receipts_memory.preview",
+    label: "Build receipts memory preview",
+    meaning: "Builds the receipts-to-PKM preview from stored Gmail receipts.",
+    scope: {
+      routes: [ROUTES.PROFILE_RECEIPTS],
+      screens: ["profile_receipts"],
+      hiddenNavigable: false,
+      navigationPrerequisites: [],
+    },
+    trigger: {
+      primary: "tap",
+      supported: ["tap", "voice", "programmatic"],
+    },
+    guards: [],
+    expectedEffects: {
+      stateChanges: [
+        "receipt memory preview loads or refreshes",
+        "preview summary reflects merchants, patterns, highlights, and signals",
+      ],
+      backendEffects: [
+        {
+          api: "POST /api/kai/gmail/receipts-memory/preview (proxied)",
+          effect: "Builds or refreshes the receipts memory artifact preview.",
+        },
+      ],
+    },
+    risk: {
+      level: "medium",
+      executionPolicy: "allow_direct",
+    },
+    wiring: {
+      status: "unwired",
+      reason: "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
+      intendedHandler: "dispatchVoiceToolCall",
+    },
+    mapReferences: ["app/profile/receipts/page.tsx"],
+  },
+  {
+    id: "profile.receipts_memory.save",
+    label: "Save receipts memory to PKM",
+    meaning: "Persists the current receipts-memory preview into shopping.receipts_memory.",
+    scope: {
+      routes: [ROUTES.PROFILE_RECEIPTS],
+      screens: ["profile_receipts"],
+      hiddenNavigable: false,
+      navigationPrerequisites: ["receipt memory preview must exist before save"],
+    },
+    trigger: {
+      primary: "tap",
+      supported: ["tap", "voice", "programmatic"],
+    },
+    guards: [
+      {
+        id: "vault_unlocked",
+        description: "Requires an unlocked vault and owner token for encrypted PKM save.",
+      },
+      {
+        id: "manual_user_execution",
+        description: "Saving new durable memory remains user-owned in the current receipts flow.",
+      },
+    ],
+    expectedEffects: {
+      stateChanges: ["shopping.receipts_memory is refreshed in PKM", "receipt memory save status updates"],
+      backendEffects: [
+        {
+          api: "POST /api/pkm/store-domain/validate",
+          effect: "Validates the prepared shopping domain payload before store.",
+        },
+        {
+          api: "POST /api/pkm/store-domain",
+          effect: "Persists the updated shopping PKM domain after encryption.",
+        },
+      ],
+    },
+    risk: {
+      level: "medium",
+      executionPolicy: "manual_only",
+    },
+    wiring: {
+      status: "unwired",
+      reason: "Save to PKM is currently implemented only inside the receipts page.",
+      intendedHandler: "dispatchVoiceToolCall",
+    },
+    mapReferences: ["app/profile/receipts/page.tsx"],
+  },
+  {
     id: "profile.gmail.disconnect",
     label: "Disconnect Gmail",
     meaning: "Disconnects Gmail OAuth credentials for future syncs.",
@@ -806,6 +926,90 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       intendedHandler: "dispatchVoiceToolCall",
     },
     mapReferences: ["app/profile/page.tsx"],
+  },
+  {
+    id: "profile.pkm.preview_capture",
+    label: "Generate PKM capture preview",
+    meaning: "Builds the current PKM Agent Lab capture preview without saving it.",
+    scope: {
+      routes: [ROUTES.PROFILE_PKM_AGENT_LAB],
+      screens: ["profile_pkm_agent_lab"],
+      hiddenNavigable: false,
+      navigationPrerequisites: [],
+    },
+    trigger: {
+      primary: "tap",
+      supported: ["tap", "voice", "programmatic"],
+    },
+    guards: [
+      {
+        id: "vault_unlocked",
+        description: "Agent Lab preview requires vault-backed PKM access for the current account.",
+      },
+    ],
+    expectedEffects: {
+      stateChanges: ["capture preview cards refresh", "raw PKM agent response payload updates"],
+      backendEffects: [
+        {
+          api: "POST /api/pkm/agent-lab/structure",
+          effect: "Builds a PKM capture preview and manifest draft.",
+        },
+      ],
+    },
+    risk: {
+      level: "medium",
+      executionPolicy: "allow_direct",
+    },
+    wiring: {
+      status: "unwired",
+      reason: "Generate preview is currently handled only by local PKM Agent Lab state.",
+      intendedHandler: "dispatchVoiceToolCall",
+    },
+    mapReferences: ["app/profile/pkm-agent-lab/page-client.tsx"],
+  },
+  {
+    id: "profile.pkm.save_capture",
+    label: "Save PKM capture",
+    meaning: "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
+    scope: {
+      routes: [ROUTES.PROFILE_PKM_AGENT_LAB],
+      screens: ["profile_pkm_agent_lab"],
+      hiddenNavigable: false,
+      navigationPrerequisites: ["a saveable PKM capture preview must already exist"],
+    },
+    trigger: {
+      primary: "tap",
+      supported: ["tap", "voice", "programmatic"],
+    },
+    guards: [
+      {
+        id: "vault_unlocked",
+        description: "Requires an unlocked vault before saving encrypted PKM data.",
+      },
+      {
+        id: "manual_user_execution",
+        description: "Agent Lab save remains user-owned until a shared dispatcher exists.",
+      },
+    ],
+    expectedEffects: {
+      stateChanges: ["preview cards are saved into PKM", "natural/explorer views refresh after save"],
+      backendEffects: [
+        {
+          api: "POST /api/pkm/store-domain",
+          effect: "Persists the encrypted PKM write prepared by Agent Lab.",
+        },
+      ],
+    },
+    risk: {
+      level: "medium",
+      executionPolicy: "manual_only",
+    },
+    wiring: {
+      status: "unwired",
+      reason: "Save encrypted capture is currently handled only inside PKM Agent Lab.",
+      intendedHandler: "dispatchVoiceToolCall",
+    },
+    mapReferences: ["app/profile/pkm-agent-lab/page-client.tsx"],
   },
   {
     id: "profile.support.submit_message",
@@ -1078,6 +1282,52 @@ export function resolveInvestorKaiActionWiring(action: InvestorKaiActionDefiniti
     resolvable: binding.href.startsWith("/"),
     reason: binding.href.startsWith("/") ? "resolved via router.push" : "invalid route href",
   };
+}
+
+function normalizeRouteHref(value: string | null | undefined): string {
+  return String(value || "").trim();
+}
+
+function stripQuery(value: string | null | undefined): string {
+  const normalized = normalizeRouteHref(value);
+  if (!normalized) return "";
+  const queryIndex = normalized.indexOf("?");
+  return queryIndex >= 0 ? normalized.slice(0, queryIndex) : normalized;
+}
+
+function routeMatchesSurface(
+  routeHref: string,
+  surfaceHref: string,
+  surfacePathname: string
+): boolean {
+  const normalizedRoute = normalizeRouteHref(routeHref);
+  if (!normalizedRoute) return false;
+  if (normalizedRoute.includes("?")) {
+    return Boolean(surfaceHref) && normalizedRoute === surfaceHref;
+  }
+  if (surfaceHref && normalizedRoute === surfaceHref) {
+    return true;
+  }
+  return stripQuery(normalizedRoute) === surfacePathname;
+}
+
+export function listInvestorKaiActionsForSurface(input: {
+  screen?: string | null;
+  href?: string | null;
+  pathname?: string | null;
+}): readonly InvestorKaiActionDefinition[] {
+  const screen = String(input.screen || "").trim();
+  const href = normalizeRouteHref(input.href);
+  const pathname = stripQuery(input.pathname || href);
+
+  return INVESTOR_KAI_ACTION_REGISTRY.filter((action) => {
+    if (screen && action.scope.screens.includes(screen as InvestorKaiScreenScope)) {
+      return true;
+    }
+    return action.scope.routes.some((routeHref) =>
+      routeMatchesSurface(routeHref, href, pathname)
+    );
+  });
 }
 
 export function listInvestorKaiActions(): readonly InvestorKaiActionDefinition[] {

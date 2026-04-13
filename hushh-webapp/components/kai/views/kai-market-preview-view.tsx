@@ -59,6 +59,10 @@ import {
 import { assignWindowLocation, openExternalUrl } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
 
 function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
@@ -1245,6 +1249,10 @@ export function KaiMarketPreviewView() {
     handlePickSourceChange,
   } = useKaiMarketHomeController();
   const [retainedPayload, setRetainedPayload] = useState<KaiHomeInsightsV2 | null>(payload);
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
 
   useEffect(() => {
     if (payload) {
@@ -1309,6 +1317,171 @@ export function KaiMarketPreviewView() {
     const count = Number(effectivePayload?.hero?.holdings_count ?? 0);
     return !Number.isFinite(count) || count <= 0;
   }, [effectivePayload, hasPayload]);
+  const marketVoiceSurfaceMetadata = useMemo(() => {
+    const sections = [
+      {
+        id: "market_overview",
+        title: "Market overview",
+        purpose: "Summarizes the live market tape, breadth, and sector leadership.",
+      },
+      {
+        id: "ria_picks",
+        title: "RIA's picks",
+        purpose: "Lets you review and switch the active advisor signal source.",
+      },
+      {
+        id: "signals",
+        title: "Signals worth noting",
+        purpose: "Highlights the strongest current market read before deeper analysis.",
+      },
+      {
+        id: "themes",
+        title: "Themes in focus",
+        purpose: "Shows compact narratives shaping the next debate or trade setup.",
+      },
+      {
+        id: "what_matters_now",
+        title: "What matters now",
+        purpose: "Groups spotlight names and market news into one discovery surface.",
+      },
+      ...(showConnectPortfolio
+        ? [
+            {
+              id: "portfolio_context",
+              title: "Bring your own positions",
+              purpose: "Explains how connecting a portfolio personalizes the market surface.",
+            },
+          ]
+        : []),
+    ];
+    const actions = [
+      {
+        id: "kai.market.refresh",
+        label: "Refresh market home",
+        purpose: "Refreshes the current market overview, signals, and discovery modules.",
+        voiceAliases: ["refresh market", "refresh market home"],
+      },
+      {
+        id: "kai.market.switch_pick_source",
+        label: "Switch advisor pick source",
+        purpose: "Changes which advisor source powers the current picks surface.",
+        voiceAliases: ["switch advisor source", "change pick source"],
+      },
+      ...(showConnectPortfolio
+        ? [
+            {
+              id: "nav.portfolio",
+              label: "Connect portfolio",
+              purpose: "Opens portfolio setup so Kai can personalize this market surface.",
+              voiceAliases: ["connect portfolio", "open portfolio"],
+            },
+          ]
+        : []),
+    ];
+    const controls = [
+      {
+        id: "refresh_market_home",
+        label: "Refresh",
+        purpose: "Refreshes the current market home surface.",
+        actionId: "kai.market.refresh",
+        role: "button",
+        voiceAliases: ["refresh market", "refresh"],
+      },
+      {
+        id: "pick_source_selector",
+        label: "Advisor pick source",
+        purpose: "Switches the active advisor signal source for RIA picks.",
+        actionId: "kai.market.switch_pick_source",
+        role: "selector",
+        voiceAliases: ["pick source", "advisor source"],
+      },
+      ...(showConnectPortfolio
+        ? [
+            {
+              id: "connect_portfolio",
+              label: "Connect portfolio",
+              purpose: "Opens portfolio connection so this surface can use your positions.",
+              actionId: "nav.portfolio",
+              role: "button",
+              voiceAliases: ["connect portfolio"],
+            },
+          ]
+        : []),
+    ];
+    const visibleModules = sections.map((section) => section.title);
+    const marketMode = String(effectivePayload?.meta?.market_mode || "baseline").trim() || "baseline";
+
+    return {
+      screenId: "kai_market",
+      title: "Market",
+      purpose:
+        "This screen is the market overview workspace for live tape, advisor signals, and discovery.",
+      primaryEntity: effectivePayload?.active_pick_source || null,
+      sections,
+      actions,
+      controls,
+      concepts: [
+        {
+          id: "market",
+          label: "Market",
+          explanation: "Market is the live overview workspace for current tape, signals, and discovery.",
+          aliases: ["market", "market home", "kai home"],
+        },
+      ],
+      activeSection:
+        refreshing || loading
+          ? "Market overview"
+          : showConnectPortfolio
+            ? "Bring your own positions"
+            : "What matters now",
+      visibleModules,
+      focusedWidget:
+        refreshing || loading
+          ? "Market overview"
+          : activePickSource !== "default"
+            ? "RIA's picks"
+            : "What matters now",
+      availableActions: actions.map((action) => action.label),
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+      busyOperations: [
+        ...(loading ? ["market_initial_load"] : []),
+        ...(refreshing ? ["market_refresh"] : []),
+      ],
+      screenMetadata: {
+        market_mode: marketMode,
+        market_status_label: marketStatus?.label || null,
+        has_payload: hasPayload,
+        has_error: Boolean(error),
+        active_pick_source: activePickSource,
+        pick_source_count: pickSources.length,
+        pick_row_count: pickRows.length,
+        spotlight_count: spotlightRows.length,
+        signal_count: scenarioSignals.length,
+        theme_count: themeItems.length,
+        news_count: Array.isArray(effectivePayload?.news_tape) ? effectivePayload.news_tape.length : 0,
+        connect_portfolio_visible: showConnectPortfolio,
+        holdings_count: Number(effectivePayload?.hero?.holdings_count ?? 0) || 0,
+      },
+    };
+  }, [
+    activePickSource,
+    activeVoiceControlId,
+    effectivePayload,
+    error,
+    hasPayload,
+    lastVoiceControlId,
+    loading,
+    marketStatus?.label,
+    pickRows.length,
+    pickSources.length,
+    refreshing,
+    scenarioSignals.length,
+    showConnectPortfolio,
+    spotlightRows.length,
+    themeItems.length,
+  ]);
+  usePublishVoiceSurfaceMetadata(marketVoiceSurfaceMetadata);
 
   return (
     <AppPageShell

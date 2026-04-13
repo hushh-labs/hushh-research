@@ -143,11 +143,21 @@ def _realtime_session_body() -> dict:
 
 
 class _FakeRequest:
-    def __init__(self, headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        headers: dict[str, str] | None = None,
+        *,
+        disconnect_after_calls: int | None = None,
+    ) -> None:
         self.headers = headers or {}
+        self._disconnect_after_calls = disconnect_after_calls
+        self._disconnect_checks = 0
 
     async def is_disconnected(self) -> bool:
-        return False
+        self._disconnect_checks += 1
+        if self._disconnect_after_calls is None:
+            return False
+        return self._disconnect_checks > self._disconnect_after_calls
 
 
 class _ChunkedUploadFile:
@@ -185,6 +195,55 @@ class _GuardedUploadFile:
     async def read(self, size: int = -1) -> bytes:
         self.read_called = True
         raise AssertionError("audio_file.read should not be called")
+
+
+class _FakeTTSStream:
+    def __init__(
+        self,
+        chunks: list[bytes],
+        *,
+        model: str = "gpt-4o-mini-tts",
+        voice: str = "alloy",
+        format_: str = "mp3",
+        content_length: int | None = None,
+        openai_http_ms: int = 12,
+    ) -> None:
+        self._chunks = list(chunks)
+        self.read_calls = 0
+        self.closed = False
+        self.meta = {
+            "model": model,
+            "voice": voice,
+            "format": format_,
+            "source": "backend_openai_audio",
+            "attempts": [
+                {
+                    "model": model,
+                    "status_code": 200,
+                    "elapsed_ms": openai_http_ms,
+                    "result": "success",
+                }
+            ],
+            "openai_http_ms": openai_http_ms,
+            "audio_bytes": 0,
+            "content_length": content_length,
+            "completed": False,
+            "aborted": False,
+        }
+
+    async def read_next_chunk(self) -> bytes | None:
+        self.read_calls += 1
+        if not self._chunks:
+            self.meta["completed"] = True
+            return None
+        chunk = self._chunks.pop(0)
+        self.meta["audio_bytes"] = int(self.meta.get("audio_bytes") or 0) + len(chunk)
+        if not self._chunks:
+            self.meta["completed"] = True
+        return chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 def test_voice_plan_respects_rollout_allowlist(
@@ -427,9 +486,9 @@ def test_voice_tts_rollout_blocks_before_upstream_call(
     monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
 
     async def _never_tts(*args, **kwargs):
-        raise AssertionError("synthesize_speech should not run for rollout-blocked TTS requests")
+        raise AssertionError("open_tts_stream should not run for rollout-blocked TTS requests")
 
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "synthesize_speech", _never_tts)
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "open_tts_stream", _never_tts)
 
     response = client.post(
         "/api/kai/voice/tts",
@@ -709,19 +768,10 @@ def test_voice_tts_echoes_voice_turn_id_header(
     monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
 
     async def _fake_tts(*args, **kwargs):
-        return (
-            b"abc",
-            "audio/mpeg",
-            {
-                "model": "gpt-4o-mini-tts",
-                "voice": "alloy",
-                "format": "mp3",
-                "source": "backend_openai_audio",
-                "openai_http_ms": 12,
-            },
-        )
+        stream = _FakeTTSStream([b"abc"], content_length=3, openai_http_ms=12)
+        return stream, "audio/mpeg", stream.meta
 
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "synthesize_speech", _fake_tts)
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "open_tts_stream", _fake_tts)
 
     response = client.post(
         "/api/kai/voice/tts",
@@ -733,4 +783,62 @@ def test_voice_tts_echoes_voice_turn_id_header(
     assert response.headers.get("X-Voice-Turn-Id") == "vturn_test_003"
     assert response.headers.get("content-type", "").startswith("audio/mpeg")
     assert response.headers.get("X-Kai-TTS-Timeout-Ms") == "20000"
+    assert response.headers.get("X-Kai-TTS-Audio-Bytes") == "3"
     assert response.content == b"abc"
+
+
+@pytest.mark.anyio
+async def test_voice_tts_stops_streaming_after_client_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
+    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+
+    stream = _FakeTTSStream([b"ab", b"c"], content_length=3, openai_http_ms=12)
+
+    async def _fake_tts(*args, **kwargs):
+        return stream, "audio/mpeg", stream.meta
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "open_tts_stream", _fake_tts)
+
+    response = await VOICE_ROUTES.kai_voice_tts(
+        request=_FakeRequest(disconnect_after_calls=1),
+        http_response=Response(),
+        body=VOICE_ROUTES.VoiceTTSRequest(user_id="user_a", text="hello"),
+        token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
+    )
+
+    assert response.headers.get("X-Kai-TTS-Audio-Bytes") == "3"
+    receive_calls = 0
+
+    async def _receive() -> dict[str, object]:
+        nonlocal receive_calls
+        receive_calls += 1
+        if receive_calls == 1:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.disconnect"}
+
+    async def _send(message: dict[str, object]) -> None:
+        _ = message
+
+    await response(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/kai/voice/tts",
+            "raw_path": b"/api/kai/voice/tts",
+            "query_string": b"",
+            "headers": [],
+            "client": ("testclient", 1234),
+            "server": ("testserver", 80),
+        },
+        _receive,
+        _send,
+    )
+
+    assert stream.read_calls == 1
+    assert stream.closed is True
+    assert stream.meta["aborted"] is True

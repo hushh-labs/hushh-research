@@ -4,6 +4,7 @@ import {
   INVESTOR_KAI_ACTION_REGISTRY,
   getInvestorKaiActionByKaiCommand,
   getInvestorKaiActionByVoiceToolCall,
+  listInvestorKaiActionsForSurface,
   listInvestorKaiActions,
   resolveInvestorKaiActionWiring,
 } from "@/lib/voice/investor-kai-action-registry";
@@ -114,6 +115,16 @@ describe("investor-kai-action-registry", () => {
     ]);
 
     expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.receipts_memory.preview")
+        ?.expectedEffects.backendEffects
+    ).toEqual([
+      {
+        api: "POST /api/kai/gmail/receipts-memory/preview (proxied)",
+        effect: "Builds or refreshes the receipts memory artifact preview.",
+      },
+    ]);
+
+    expect(
       INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.disconnect")
         ?.expectedEffects.backendEffects
     ).toEqual([
@@ -132,5 +143,35 @@ describe("investor-kai-action-registry", () => {
         effect: "Routes support payload to support_email_service.",
       },
     ]);
+  });
+
+  it("lists surface-specific actions for Gmail and PKM routes", () => {
+    const gmailActions = listInvestorKaiActionsForSurface({
+      screen: "profile_gmail_panel",
+      href: "/profile?tab=account&panel=gmail",
+      pathname: "/profile?tab=account&panel=gmail",
+    }).map((action) => action.id);
+
+    expect(gmailActions).toEqual(
+      expect.arrayContaining([
+        "nav.profile_gmail_panel",
+        "profile.gmail.connect",
+        "profile.gmail.sync_now",
+      ])
+    );
+
+    const pkmActions = listInvestorKaiActionsForSurface({
+      screen: "profile_pkm_agent_lab",
+      href: "/profile/pkm-agent-lab",
+      pathname: "/profile/pkm-agent-lab",
+    }).map((action) => action.id);
+
+    expect(pkmActions).toEqual(
+      expect.arrayContaining([
+        "nav.profile_pkm_agent_lab",
+        "profile.pkm.preview_capture",
+        "profile.pkm.save_capture",
+      ])
+    );
   });
 });

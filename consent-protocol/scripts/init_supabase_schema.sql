@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS kai_gmail_connections (
     last_notification_at TIMESTAMPTZ,
     auto_sync_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    receipt_total INTEGER NOT NULL DEFAULT 0,
     bootstrap_state TEXT NOT NULL DEFAULT 'idle'
         CHECK (bootstrap_state IN ('idle', 'queued', 'running', 'completed', 'failed')),
     bootstrap_completed_at TIMESTAMPTZ,

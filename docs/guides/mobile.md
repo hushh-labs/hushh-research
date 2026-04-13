@@ -129,7 +129,7 @@ Accepted parity exceptions currently documented in the registry:
 
 ### Firebase artifact safety (no secret leak in git)
 
-- `hushh-webapp/ios/App/App/GoogleService-Info.plist` is the tracked iOS template placeholder.
+- `hushh-webapp/ios/App/App/GoogleService-Info-README.md` documents the untracked iOS Firebase plist workflow.
 - Android Firebase config is treated as generated build input, not a committed source artifact.
 - `./bin/hushh bootstrap` hydrates the active profile and materializes native Firebase artifacts under `hushh-webapp/.env.local.d/`.
 - Native build wrappers apply the generated sidecar for the build and then restore tracked templates.

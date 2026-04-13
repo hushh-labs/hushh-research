@@ -255,7 +255,7 @@ describe("UnlockWarmOrchestrator", () => {
       let _runInternalCallCount = 0;
       const originalLoadDomain = pkmLoadDomainDataMock;
       originalLoadDomain.mockImplementation(async () => {
-        runInternalCallCount += 1;
+        _runInternalCallCount += 1;
         return null;
       });
 

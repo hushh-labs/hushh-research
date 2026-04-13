@@ -32,6 +32,7 @@ export type ExecuteVoiceResponseInput = {
   groundedPlan?: GroundedVoicePlan;
   executionAllowed?: boolean;
   needsConfirmation?: boolean;
+  suppressNotifications?: boolean;
   turnId?: string;
   responseId?: string;
   userId: string;
@@ -125,6 +126,15 @@ export async function executeVoiceResponse(
   const groundedExecutionEnabled = voiceFlags.groundedActionExecutionEnabled;
   const executionAllowed = input.executionAllowed !== false;
   const waitingForConfirmation = input.needsConfirmation === true && response.kind === "execute";
+  const suppressNotifications = input.suppressNotifications === true;
+  const notifyInfo = (...args: Parameters<typeof toast.info>) => {
+    if (suppressNotifications) return;
+    toast.info(...args);
+  };
+  const notifySuccess = (...args: Parameters<typeof toast.success>) => {
+    if (suppressNotifications) return;
+    toast.success(...args);
+  };
 
   if (!executionAllowed) {
     emitExecutionTelemetry(input, "execution_disallowed_by_backend", {
@@ -140,14 +150,14 @@ export async function executeVoiceResponse(
   }
 
   if (
-    response.kind === "execute" &&
+    (response.kind === "execute" || response.kind === "speak_only") &&
     groundedPlan &&
     groundedPlan.status !== "none" &&
     groundedExecutionEnabled
   ) {
     if (groundedPlan.status === "manual_only") {
       const message = groundedPlan.message || VOICE_MANUAL_ONLY_MESSAGE;
-      toast.info(message);
+      notifyInfo(message);
       emitExecutionTelemetry(input, "blocked_destructive_intent", {
         action_id: groundedPlan.actionId,
         reason: "self_serve_required",
@@ -162,7 +172,7 @@ export async function executeVoiceResponse(
 
     if (groundedPlan.status === "unavailable") {
       const message = groundedPlan.message || VOICE_UNAVAILABLE_MESSAGE;
-      toast.info(message);
+      notifyInfo(message);
       emitExecutionTelemetry(input, "grounded_unavailable", {
         action_id: groundedPlan.actionId,
       });
@@ -221,11 +231,11 @@ export async function executeVoiceResponse(
             extractedTicker = extractedTicker || extractTickerFromToolCall(step.toolCall);
             continue;
           }
-          toast.info(step.message);
+          notifyInfo(step.message);
         }
       } catch (error) {
         const message = VOICE_UNAVAILABLE_MESSAGE;
-        toast.info(message);
+        notifyInfo(message);
         emitExecutionTelemetry(input, "grounded_execution_failure", {
           action_id: groundedPlan.actionId,
           error: error instanceof Error ? error.message : "unknown_error",
@@ -279,7 +289,7 @@ export async function executeVoiceResponse(
       emitExecutionTelemetry(input, "confirmation_required", {
         tool_name: response.tool_call.tool_name,
       });
-      toast.info(response.message);
+      notifyInfo(response.message);
       return {
         shortTermMemoryWrite: false,
         toolName: null,
@@ -322,7 +332,7 @@ export async function executeVoiceResponse(
         };
       }
     } catch (error) {
-      toast.info(VOICE_UNAVAILABLE_MESSAGE);
+      notifyInfo(VOICE_UNAVAILABLE_MESSAGE);
       emitExecutionTelemetry(input, "legacy_execute_failure", {
         tool_name: response.tool_call.tool_name,
         error: error instanceof Error ? error.message : "unknown_error",
@@ -346,7 +356,7 @@ export async function executeVoiceResponse(
   }
 
   if (response.kind === "background_started") {
-    toast.success(response.message, {
+    notifySuccess(response.message, {
       description: `Run ${response.run_id} started for ${response.ticker}.`,
     });
     emitExecutionTelemetry(input, "background_started", {
@@ -363,7 +373,7 @@ export async function executeVoiceResponse(
   }
 
   if (response.kind === "already_running") {
-    toast.info(response.message);
+    notifyInfo(response.message);
     emitExecutionTelemetry(input, "already_running", {
       task: response.task,
       ticker: response.ticker ?? null,
@@ -378,7 +388,7 @@ export async function executeVoiceResponse(
   }
 
   if (response.kind === "clarify") {
-    toast.info(response.message);
+    notifyInfo(response.message);
     emitExecutionTelemetry(input, "clarify", {
       reason: response.reason,
     });
@@ -392,7 +402,7 @@ export async function executeVoiceResponse(
 
   if (response.kind === "blocked") {
     const message = String(response.message || "").trim() || VOICE_UNAVAILABLE_MESSAGE;
-    toast.info(message);
+    notifyInfo(message);
     emitExecutionTelemetry(input, "action_blocked", {
       reason: response.reason,
     });
@@ -404,7 +414,7 @@ export async function executeVoiceResponse(
     };
   }
 
-  toast.info(String(response.message || "").trim() || VOICE_UNAVAILABLE_MESSAGE);
+  notifyInfo(String(response.message || "").trim() || VOICE_UNAVAILABLE_MESSAGE);
   emitExecutionTelemetry(input, "fallback_speak_only", {
     response_kind: response.kind,
   });
