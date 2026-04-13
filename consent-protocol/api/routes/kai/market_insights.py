@@ -1696,14 +1696,18 @@ async def warm_market_insights_startup_once() -> None:
     try:
         await asyncio.wait_for(_run_refresh_with_advisory_lock(), timeout=timeout_seconds)
     except TimeoutError:
-        logger.warning("[Kai Market] startup public module warm timed out after %ss", timeout_seconds)
+        logger.warning(
+            "[Kai Market] startup public module warm timed out after %ss", timeout_seconds
+        )
     except Exception as exc:
         logger.warning("[Kai Market] startup public module warm failed: %s", exc)
 
     try:
         await asyncio.wait_for(_warm_shared_baseline_market_home_once(), timeout=timeout_seconds)
     except TimeoutError:
-        logger.warning("[Kai Market] startup baseline home warm timed out after %ss", timeout_seconds)
+        logger.warning(
+            "[Kai Market] startup baseline home warm timed out after %ss", timeout_seconds
+        )
     except Exception as exc:
         logger.warning("[Kai Market] startup baseline home warm failed: %s", exc)
 
