@@ -1,0 +1,59 @@
+{
+  "id": "backend-agents-operons",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "backend-agents-operons",
+  "description": "Use when changing backend agents, operons, ADK surfaces, or orchestration contracts inside the consent-protocol runtime.",
+  "owned_paths": [
+    "consent-protocol/hushh_mcp/agents",
+    "consent-protocol/hushh_mcp/operons",
+    "consent-protocol/hushh_mcp/tools",
+    "consent-protocol/hushh_mcp/hushh_adk",
+    "consent-protocol/hushh_mcp/adk_bridge"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "security-audit",
+    "repo-operations"
+  ],
+  "task_types": [
+    "bug-triage",
+    "mcp-surface-change"
+  ],
+  "required_reads": [
+    "consent-protocol/docs/reference/agent-development.md",
+    "consent-protocol/docs/reference/kai-agents.md",
+    "docs/reference/ai/README.md"
+  ],
+  "required_commands": [
+    "cd consent-protocol && python3 -m pytest tests/agents -q",
+    "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "backend-agents-operons",
+      "commands": [
+        "cd consent-protocol && python3 -m pytest tests/agents -q",
+        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q"
+      ],
+      "tests": [
+        "cd consent-protocol && python3 -m pytest tests/agents -q",
+        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "backend-runtime-governance",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "backend",
+    "security-audit",
+    "mcp-developer-surface"
+  ],
+  "risk_tags": [
+    "agent-contract-drift",
+    "tool-surface-drift"
+  ]
+}

@@ -68,6 +68,21 @@ _RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
     "automatic_avoid_triggers",
     "the_math",
 )
+_RIA_KAI_SPECIALIZED_TEMPLATE_ID = "ria_kai_specialized_v1"
+_RIA_KAI_SPECIALIZED_BUNDLE_KEY = "ria_kai_specialized"
+_RIA_KAI_SPECIALIZED_LABEL = "Kai specialized access"
+_RIA_KAI_SPECIALIZED_DESCRIPTION = (
+    "Advisor-side Kai and explorer access for portfolio, profile, analysis history, "
+    "and runtime context."
+)
+_RIA_KAI_SPECIALIZED_PRESENTATIONS: tuple[str, ...] = ("kai", "explorer")
+_RIA_KAI_SPECIALIZED_SCOPES: tuple[str, ...] = (
+    "attr.financial.portfolio.*",
+    "attr.financial.profile.*",
+    "attr.financial.analysis_history.*",
+    "attr.financial.runtime.*",
+)
+_RIA_KAI_SPECIALIZED_SCOPE_SET = set(_RIA_KAI_SPECIALIZED_SCOPES)
 
 
 class RIAIAMPolicyError(Exception):
@@ -840,6 +855,8 @@ class RIAIAMService:
         conn: asyncpg.Connection,
         template_id: str,
     ) -> ScopeTemplate:
+        if template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
+            return self._kai_specialized_template()
         row = await conn.fetchrow(
             """
             SELECT
@@ -1313,16 +1330,19 @@ class RIAIAMService:
     @staticmethod
     def _scope_metadata(scope: str) -> dict[str, Any]:
         normalized_scope = str(scope or "").strip()
+        is_kai_specialized = normalized_scope in _RIA_KAI_SPECIALIZED_SCOPE_SET
         return {
             "scope": normalized_scope,
             "label": get_scope_description(normalized_scope),
             "description": get_scope_description(normalized_scope),
             "kind": "pkm"
             if normalized_scope == "pkm.read"
+            else "kai_specialized"
+            if is_kai_specialized
             else "portfolio_domain"
             if normalized_scope.startswith("attr.financial.")
             else "profile_domain",
-            "summary_only": normalized_scope != "pkm.read",
+            "summary_only": normalized_scope not in {"pkm.read", *_RIA_KAI_SPECIALIZED_SCOPES},
         }
 
     @classmethod
@@ -1359,8 +1379,262 @@ class RIAIAMService:
                     "domain_key": domain_key,
                 }
             )
+            if domain_key == "financial":
+                for specialized_scope in _RIA_KAI_SPECIALIZED_SCOPES:
+                    items.append(
+                        {
+                            **cls._scope_metadata(specialized_scope),
+                            "available": True,
+                            "domain_key": domain_key,
+                            "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                            "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                            "requires_account_selection": True,
+                        }
+                    )
 
         return items
+
+    @staticmethod
+    def _normalize_account_ids(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            cleaned = str(value or "").strip()
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            out.append(cleaned)
+        return out
+
+    @classmethod
+    def _kai_specialized_template(cls) -> ScopeTemplate:
+        return ScopeTemplate(
+            template_id=_RIA_KAI_SPECIALIZED_TEMPLATE_ID,
+            requester_actor_type="ria",
+            subject_actor_type="investor",
+            template_name=_RIA_KAI_SPECIALIZED_LABEL,
+            allowed_scopes=list(_RIA_KAI_SPECIALIZED_SCOPES),
+            default_duration_hours=24 * 7,
+            max_duration_hours=24 * 365,
+        )
+
+    @staticmethod
+    def _parse_list_of_dicts(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return []
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)]
+        return []
+
+    async def _list_linked_account_branches(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        investor_user_id: str,
+    ) -> list[dict[str, Any]]:
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT item_id, institution_name, latest_accounts_json
+                FROM kai_plaid_items
+                WHERE user_id = $1
+                  AND COALESCE(status, '') <> 'permission_revoked'
+                ORDER BY updated_at DESC
+                """,
+                investor_user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError:
+            return []
+
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            item_id = str(row["item_id"] or "").strip() or None
+            institution_name = str(row["institution_name"] or "").strip() or None
+            accounts = self._parse_list_of_dicts(row["latest_accounts_json"])
+            for account in accounts:
+                account_id = str(account.get("account_id") or "").strip()
+                persistent_account_id = (
+                    str(account.get("persistent_account_id") or "").strip() or None
+                )
+                branch_id = persistent_account_id or account_id
+                if not branch_id or branch_id in seen:
+                    continue
+                seen.add(branch_id)
+                out.append(
+                    {
+                        "branch_id": branch_id,
+                        "account_id": account_id or branch_id,
+                        "persistent_account_id": persistent_account_id,
+                        "item_id": item_id,
+                        "institution_name": institution_name
+                        or str(account.get("institution_name") or "").strip()
+                        or None,
+                        "name": str(
+                            account.get("name") or account.get("official_name") or branch_id
+                        ).strip(),
+                        "official_name": str(account.get("official_name") or "").strip() or None,
+                        "mask": str(account.get("mask") or "").strip() or None,
+                        "type": str(account.get("type") or "").strip() or None,
+                        "subtype": str(account.get("subtype") or "").strip() or None,
+                    }
+                )
+
+        out.sort(
+            key=lambda item: (
+                str(item.get("institution_name") or "").lower(),
+                str(item.get("name") or "").lower(),
+                str(item.get("mask") or "").lower(),
+            )
+        )
+        return out
+
+    @staticmethod
+    def _bundle_scope_state(
+        scope: str,
+        *,
+        granted_scope_keys: set[str],
+        pending_scope_keys: set[str],
+    ) -> str:
+        if (
+            scope in granted_scope_keys
+            or "pkm.read" in granted_scope_keys
+            or "attr.financial.*" in granted_scope_keys
+        ):
+            return "active"
+        if (
+            scope in pending_scope_keys
+            or "pkm.read" in pending_scope_keys
+            or "attr.financial.*" in pending_scope_keys
+        ):
+            return "pending"
+        return "available"
+
+    @classmethod
+    def _build_kai_specialized_bundle_state(
+        cls,
+        *,
+        account_branches: list[dict[str, Any]],
+        granted_payloads: list[dict[str, Any]],
+        pending_payloads: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        granted_scope_keys = {
+            str(payload.get("scope") or "").strip() for payload in granted_payloads
+        }
+        pending_scope_keys = {
+            str(payload.get("scope") or "").strip() for payload in pending_payloads
+        }
+
+        approved_account_ids: list[str] = []
+        pending_account_ids: list[str] = []
+        legacy_full_access = False
+
+        for payload in granted_payloads:
+            scope = str(payload.get("scope") or "").strip()
+            metadata = cls._parse_metadata(payload.get("metadata"))
+            if scope not in _RIA_KAI_SPECIALIZED_SCOPE_SET and scope not in {
+                "attr.financial.*",
+                "pkm.read",
+            }:
+                continue
+            selected = cls._normalize_account_ids(metadata.get("selected_account_ids"))
+            if selected:
+                approved_account_ids.extend(selected)
+            elif scope in {"attr.financial.*", "pkm.read"}:
+                legacy_full_access = True
+
+        for payload in pending_payloads:
+            scope = str(payload.get("scope") or "").strip()
+            metadata = cls._parse_metadata(payload.get("metadata"))
+            template_id = str(metadata.get("scope_template_id") or "").strip()
+            if (
+                template_id != _RIA_KAI_SPECIALIZED_TEMPLATE_ID
+                and scope not in _RIA_KAI_SPECIALIZED_SCOPE_SET
+            ):
+                continue
+            pending_account_ids.extend(
+                cls._normalize_account_ids(metadata.get("selected_account_ids"))
+            )
+
+        approved_account_ids = list(dict.fromkeys(approved_account_ids))
+        pending_account_ids = list(dict.fromkeys(pending_account_ids))
+        if legacy_full_access:
+            approved_account_ids = [
+                str(item.get("branch_id") or item.get("account_id") or "").strip()
+                for item in account_branches
+                if str(item.get("branch_id") or item.get("account_id") or "").strip()
+            ]
+
+        scoped_account_branches: list[dict[str, Any]] = []
+        approved_set = set(approved_account_ids)
+        pending_set = set(pending_account_ids)
+        for branch in account_branches:
+            branch_id = str(branch.get("branch_id") or branch.get("account_id") or "").strip()
+            status = (
+                "approved"
+                if branch_id in approved_set
+                else "pending"
+                if branch_id in pending_set
+                else "approval_required"
+            )
+            scoped_account_branches.append(
+                {
+                    **branch,
+                    "status": status,
+                    "granted_by_bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY
+                    if status == "approved"
+                    else None,
+                }
+            )
+
+        scope_states = [
+            {
+                **cls._scope_metadata(scope),
+                "status": cls._bundle_scope_state(
+                    scope,
+                    granted_scope_keys=granted_scope_keys,
+                    pending_scope_keys=pending_scope_keys,
+                ),
+            }
+            for scope in _RIA_KAI_SPECIALIZED_SCOPES
+        ]
+
+        if any(item["status"] == "active" for item in scope_states):
+            bundle_status = (
+                "partial"
+                if scoped_account_branches
+                and any(item["status"] != "approved" for item in scoped_account_branches)
+                else "active"
+            )
+        elif any(item["status"] == "pending" for item in scope_states):
+            bundle_status = "pending"
+        else:
+            bundle_status = "available"
+
+        return (
+            {
+                "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                "template_id": _RIA_KAI_SPECIALIZED_TEMPLATE_ID,
+                "label": _RIA_KAI_SPECIALIZED_LABEL,
+                "description": _RIA_KAI_SPECIALIZED_DESCRIPTION,
+                "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                "requires_account_selection": True,
+                "status": bundle_status,
+                "approved_account_ids": approved_account_ids,
+                "pending_account_ids": pending_account_ids,
+                "selected_account_ids": approved_account_ids or pending_account_ids,
+                "legacy_grant_compatible": legacy_full_access,
+                "scopes": scope_states,
+            },
+            scoped_account_branches,
+        )
 
     async def list_requestable_scope_templates(self, user_id: str) -> list[dict[str, Any]]:
         conn = await self._conn()
@@ -1401,6 +1675,33 @@ class RIAIAMService:
                         "scopes": [self._scope_metadata(scope) for scope in allowed_scopes],
                     }
                 )
+            if not any(
+                str(item.get("template_id") or "").strip() == _RIA_KAI_SPECIALIZED_TEMPLATE_ID
+                for item in items
+            ):
+                template = self._kai_specialized_template()
+                items.append(
+                    {
+                        "template_id": template.template_id,
+                        "template_name": template.template_name,
+                        "description": _RIA_KAI_SPECIALIZED_DESCRIPTION,
+                        "default_duration_hours": template.default_duration_hours,
+                        "max_duration_hours": template.max_duration_hours,
+                        "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                        "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                        "requires_account_selection": True,
+                        "scopes": [
+                            {
+                                **self._scope_metadata(scope),
+                                "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                                "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                                "requires_account_selection": True,
+                            }
+                            for scope in template.allowed_scopes
+                        ],
+                    }
+                )
+            items.sort(key=lambda item: str(item.get("template_name") or "").lower())
             return items
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
@@ -1423,6 +1724,7 @@ class RIAIAMService:
         bundle_id: str | None,
         bundle_label: str | None,
         bundle_scope_count: int | None,
+        selected_account_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         request_id = uuid.uuid4().hex
         now_ms = self._now_ms()
@@ -1438,6 +1740,13 @@ class RIAIAMService:
             or f"RIA {str(ria_map['id'])[:8]}"
         )
         requester_website_url = str(ria_map.get("disclosures_url") or "").strip() or None
+        normalized_account_ids = self._normalize_account_ids(selected_account_ids)
+        account_summary = (
+            f"{len(normalized_account_ids)} linked account"
+            f"{'' if len(normalized_account_ids) == 1 else 's'} pending investor approval"
+            if normalized_account_ids
+            else None
+        )
 
         metadata = {
             "requester_actor_type": "ria",
@@ -1461,9 +1770,10 @@ class RIAIAMService:
             "bundle_label": bundle_label,
             "bundle_scope_count": bundle_scope_count or 1,
             "request_url": request_url,
-            "additional_access_summary": self._relationship_share_summary(
-                _RELATIONSHIP_SHARE_ACTIVE_PICKS
-            ),
+            "selected_account_ids": normalized_account_ids,
+            "account_branch_mode": "explicit_snapshot" if normalized_account_ids else "unspecified",
+            "additional_access_summary": account_summary
+            or self._relationship_share_summary(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
             "included_relationship_shares": [
                 {
                     **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
@@ -1606,8 +1916,9 @@ class RIAIAMService:
         subject_user_id: str,
         scope_template_id: str,
         selected_scopes: list[str],
-        firm_id: str | None,
-        reason: str | None,
+        selected_account_ids: list[str] | None = None,
+        firm_id: str | None = None,
+        reason: str | None = None,
     ) -> dict[str, Any]:
         conn = await self._conn()
         try:
@@ -1637,6 +1948,30 @@ class RIAIAMService:
                     raise RIAIAMPolicyError(
                         "Selected scope is not allowed for this template", status_code=400
                     )
+
+                normalized_account_ids = self._normalize_account_ids(selected_account_ids)
+                if template.template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
+                    account_branches = await self._list_linked_account_branches(
+                        conn,
+                        investor_user_id=subject_user_id,
+                    )
+                    available_account_ids = {
+                        str(item.get("branch_id") or item.get("account_id") or "").strip()
+                        for item in account_branches
+                        if str(item.get("branch_id") or item.get("account_id") or "").strip()
+                    }
+                    if not normalized_account_ids and available_account_ids:
+                        normalized_account_ids = sorted(available_account_ids)
+                    invalid_account_ids = [
+                        account_id
+                        for account_id in normalized_account_ids
+                        if account_id not in available_account_ids
+                    ]
+                    if invalid_account_ids:
+                        raise RIAIAMPolicyError(
+                            "Selected account is not available for this investor workspace",
+                            status_code=400,
+                        )
 
                 if firm_id:
                     membership = await conn.fetchrow(
@@ -1672,6 +2007,7 @@ class RIAIAMService:
                             bundle_id=bundle_id,
                             bundle_label=bundle_label,
                             bundle_scope_count=len(deduped_scopes),
+                            selected_account_ids=normalized_account_ids,
                         )
                     )
 
@@ -1689,6 +2025,7 @@ class RIAIAMService:
                     "requests": created_requests,
                     "request_ids": [item["request_id"] for item in created_requests],
                     "selected_scopes": [item["scope"] for item in created_requests],
+                    "selected_account_ids": normalized_account_ids,
                     "expires_at": expires_at,
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:
@@ -2979,6 +3316,28 @@ class RIAIAMService:
                 available_domains=available_domains,
                 total_attributes=total_attributes,
             )
+            granted_payloads = [
+                payload
+                for payload in latest_by_scope.values()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+            pending_payloads = [
+                payload
+                for payload in latest_by_request.values()
+                if payload.get("action") == "REQUESTED"
+            ]
+            account_branches = await self._list_linked_account_branches(
+                conn,
+                investor_user_id=investor_user_id,
+            )
+            kai_specialized_bundle, scoped_account_branches = (
+                self._build_kai_specialized_bundle_state(
+                    account_branches=account_branches,
+                    granted_payloads=granted_payloads,
+                    pending_payloads=pending_payloads,
+                )
+            )
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
@@ -3061,6 +3420,8 @@ class RIAIAMService:
             ],
             "requestable_scope_templates": requestable_scope_templates,
             "available_scope_metadata": available_scope_metadata,
+            "kai_specialized_bundle": kai_specialized_bundle,
+            "account_branches": scoped_account_branches,
             "available_domains": available_domains,
             # Relationship detail only exposes metadata-level availability before consent.
             "domain_summaries": raw_domain_summaries if reveal_workspace_metadata else {},
@@ -5526,7 +5887,7 @@ class RIAIAMService:
             agent_id = f"ria:{ria['id']}"
             consent_rows = await conn.fetch(
                 """
-                SELECT scope, action, expires_at, issued_at
+                SELECT scope, action, expires_at, issued_at, metadata
                 FROM consent_audit
                 WHERE user_id = $1
                   AND agent_id = $2
@@ -5541,7 +5902,9 @@ class RIAIAMService:
                 scope = str(row["scope"] or "").strip()
                 if not scope or scope in latest_by_scope:
                     continue
-                latest_by_scope[scope] = dict(row)
+                payload = dict(row)
+                payload["metadata"] = self._parse_metadata(payload.get("metadata"))
+                latest_by_scope[scope] = payload
 
             now_ms = self._now_ms()
             granted_scopes = [
@@ -5589,6 +5952,23 @@ class RIAIAMService:
             )
             granted_scope_keys = {str(item["scope"]) for item in granted_scopes}
             if metadata is None:
+                account_branches = await self._list_linked_account_branches(
+                    conn,
+                    investor_user_id=investor_user_id,
+                )
+                granted_payloads = [
+                    payload
+                    for payload in latest_by_scope.values()
+                    if payload.get("action") == "CONSENT_GRANTED"
+                    and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+                ]
+                kai_specialized_bundle, scoped_account_branches = (
+                    self._build_kai_specialized_bundle_state(
+                        account_branches=account_branches,
+                        granted_payloads=granted_payloads,
+                        pending_payloads=[],
+                    )
+                )
                 return {
                     "investor_user_id": investor_user_id,
                     "workspace_ready": False,
@@ -5616,6 +5996,8 @@ class RIAIAMService:
                         (item["expires_at"] for item in granted_scopes if item.get("expires_at")),
                         default=None,
                     ),
+                    "kai_specialized_bundle": kai_specialized_bundle,
+                    "account_branches": scoped_account_branches,
                 }
 
             available_domains = self._parse_string_list(metadata["available_domains"])
@@ -5636,6 +6018,24 @@ class RIAIAMService:
                 else:
                     available_domains = []
                     domain_summaries = {}
+
+            account_branches = await self._list_linked_account_branches(
+                conn,
+                investor_user_id=investor_user_id,
+            )
+            granted_payloads = [
+                payload
+                for payload in latest_by_scope.values()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+            kai_specialized_bundle, scoped_account_branches = (
+                self._build_kai_specialized_bundle_state(
+                    account_branches=account_branches,
+                    granted_payloads=granted_payloads,
+                    pending_payloads=[],
+                )
+            )
 
             return {
                 "investor_user_id": investor_user_id,
@@ -5663,6 +6063,8 @@ class RIAIAMService:
                     (item["expires_at"] for item in granted_scopes if item.get("expires_at")),
                     default=None,
                 ),
+                "kai_specialized_bundle": kai_specialized_bundle,
+                "account_branches": scoped_account_branches,
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc

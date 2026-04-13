@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/ci/orchestrate.sh <secret|web|protocol|integration|all|advisory>
+  scripts/ci/orchestrate.sh <secret|web|protocol|integration|smoke|all|advisory>
 
 Environment flags:
   INCLUDE_ADVISORY_CHECKS=1   Also run advisory checks when stage=all
@@ -39,10 +39,15 @@ run_stage() {
     integration)
       scripts/ci/integration-check.sh
       ;;
+    smoke)
+      scripts/ci/main-post-merge-smoke.sh
+      ;;
     advisory)
       scripts/ci/docs-parity-check.sh
       scripts/ci/subtree-sync-check.sh
       scripts/ci/github-security-alerts.sh
+      scripts/ci/verify-production-environment-governance.sh
+      ./bin/hushh codex audit --text
       ;;
     *)
       echo "Unknown stage: $stage" >&2
@@ -53,7 +58,7 @@ run_stage() {
 }
 
 case "$STAGE" in
-  secret|web|protocol|integration|advisory)
+  secret|web|protocol|integration|smoke|advisory)
     run_stage "$STAGE"
     ;;
   all)
@@ -64,7 +69,7 @@ case "$STAGE" in
     run_stage protocol
     run_stage integration
     if [ "${INCLUDE_ADVISORY_CHECKS:-0}" = "1" ]; then
-      echo "Including advisory checks (docs parity + subtree sync)."
+      echo "Including advisory checks (docs parity + subtree sync + Codex OS audit)."
       run_stage advisory
     else
       echo "Skipping advisory checks. Set INCLUDE_ADVISORY_CHECKS=1 to include."

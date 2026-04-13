@@ -44,4 +44,41 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
+
+  it("owns ria client workspace back navigation from the shared top bar", () => {
+    expect(resolveTopShellBreadcrumb("/ria/clients/user_123")).toEqual({
+      backHref: "/ria/clients",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "RIA", href: "/ria" },
+        { label: "Clients", href: "/ria/clients" },
+        { label: "Workspace" },
+      ],
+    });
+
+    expect(resolveTopShellBreadcrumb("/ria/clients/user_123/accounts/account_456")).toEqual({
+      backHref: "/ria/clients/user_123",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "RIA", href: "/ria" },
+        { label: "Clients", href: "/ria/clients" },
+        { label: "Workspace", href: "/ria/clients/user_123" },
+        { label: "Account detail" },
+      ],
+    });
+
+    expect(resolveTopShellBreadcrumb("/ria/clients/user_123/requests/request_789")).toEqual({
+      backHref: "/ria/clients/user_123",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "RIA", href: "/ria" },
+        { label: "Clients", href: "/ria/clients" },
+        { label: "Workspace", href: "/ria/clients/user_123" },
+        { label: "Request detail" },
+      ],
+    });
+  });
 });

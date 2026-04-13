@@ -1,0 +1,83 @@
+---
+name: repo-operations
+description: Use when working on Hushh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.
+---
+
+# Hushh Repo Operations Skill
+
+## Purpose and Trigger
+
+- Primary scope: `repo-operations-intake`
+- Trigger on CI/CD, branch protection, merge queue, deploys, env parity, runtime rollout, and operational verification.
+- Avoid overlap with `repo-context`, `planning-board`, and `docs-governance`.
+
+## Coverage and Ownership
+
+- Role: `owner`
+- Owner family: `repo-operations`
+
+Owned repo surfaces:
+
+1. `bin`
+2. `scripts`
+3. `config`
+4. `deploy`
+
+Non-owned surfaces:
+
+1. `docs-governance`
+2. `planning-board`
+3. `frontend`
+4. `backend`
+
+## Do Use
+
+1. Failing CI or GitHub Actions investigation.
+2. Branch protection, merge queue, freshness policy, and approval-state questions.
+3. UAT or production deployment work, Cloud Run or Cloud Build issues, and environment parity checks.
+4. Live PR check monitoring, failing-job classification, and fix-and-rerun ownership.
+
+## Do Not Use
+
+1. Product implementation or broad repo mapping work.
+2. GitHub board/project-management workflows.
+3. Documentation-home governance or frontend design-system work.
+
+## Read First
+
+1. `docs/reference/operations/README.md`
+2. `docs/reference/operations/ci.md`
+3. `docs/reference/operations/branch-governance.md`
+4. `docs/reference/operations/cli.md`
+5. `.codex/skills/repo-operations/references/agent-trigger-policy.md`
+
+## Workflow
+
+1. Prefer live verification over assumptions for GitHub, CI, deploy, and ruleset state.
+2. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state.
+3. Move from diagnosis into fix-and-rerun for failures inside the repo-operations surface.
+4. Use `./bin/hushh codex ci-status` for PR-check status and `scripts/ci/watch-gh-workflow-chain.sh` for long-running post-merge or deploy workflow chains.
+5. Treat the delivery model as three stages: PR feedback lane, queue authority lane, and post-merge deploy-authority lane.
+6. Treat GitHub approval and GitHub bypass as separate states: a PR author still cannot self-approve, but a bypass-listed actor may waive the review gate and, when configured, use the dedicated queue-bypass owner path.
+7. Monitor the resulting workflow chain until terminal success or a concrete blocker.
+8. If the user explicitly wants visible OS terminal windows for runtime commands, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands instead of long-lived hidden Codex sessions.
+9. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
+10. Prefer `./bin/hushh codex maintenance <daily|weekly|monthly>` for unattended repo-health runs so the workflow metadata, GitHub schedules, and rolling maintenance issue stay aligned.
+
+## Handoff Rules
+
+1. If the task is broad repo orientation, start with `repo-context`.
+2. If the task is board/project work, use `planning-board`.
+3. If the task is docs-home governance, use `docs-governance`.
+4. If the task is domain-specific backend or security implementation beyond repo operations, use `backend` or `security-audit`.
+
+## Required Checks
+
+```bash
+./bin/hushh codex ci-status
+./bin/hushh codex maintenance daily --no-issue-update --text
+./bin/hushh docs verify
+./bin/hushh ci
+./scripts/ci/verify-main-branch-protection.sh
+./scripts/ci/verify-production-environment-governance.sh
+```

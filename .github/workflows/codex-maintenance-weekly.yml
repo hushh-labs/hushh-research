@@ -1,0 +1,59 @@
+name: "Codex Maintenance Weekly"
+
+on:
+  schedule:
+    - cron: "37 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  security-events: read
+
+concurrency:
+  group: codex-maintenance-weekly
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  maintenance:
+    name: "Weekly Maintenance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: |
+            hushh-webapp/package-lock.json
+            packages/hushh-mcp/package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: consent-protocol/requirements.txt
+
+      - name: Run weekly Codex maintenance
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
+        run: |
+          mkdir -p tmp/codex-maintenance/weekly
+          ./bin/hushh codex maintenance weekly \
+            --report-file tmp/codex-maintenance/weekly/report.json \
+            --artifacts-dir tmp/codex-maintenance/weekly/artifacts \
+            --json
+
+      - name: Upload maintenance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-maintenance-weekly
+          path: tmp/codex-maintenance/weekly
+

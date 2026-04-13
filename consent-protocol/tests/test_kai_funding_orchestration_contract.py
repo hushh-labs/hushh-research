@@ -1,6 +1,10 @@
 import pytest
 
-from api.routes.kai.plaid import PlaidFundingBrokerageAccountRequest, _to_http_exception
+from api.routes.kai.plaid import (
+    PlaidFundedTradeCreateRequest,
+    PlaidFundingBrokerageAccountRequest,
+    _to_http_exception,
+)
 from hushh_mcp.integrations.alpaca import AlpacaApiError, AlpacaBrokerRuntimeConfig
 from hushh_mcp.integrations.plaid import PlaidRuntimeConfig
 from hushh_mcp.services.broker_funding_service import (
@@ -9,6 +13,7 @@ from hushh_mcp.services.broker_funding_service import (
     _decimal_to_currency_text,
     _direction_to_alpaca,
     _looks_like_alpaca_account_id,
+    _normalize_symbol,
     _user_facing_transfer_status,
 )
 
@@ -50,6 +55,17 @@ def test_looks_like_alpaca_account_id_uuid_shape():
     assert _looks_like_alpaca_account_id("") is False
 
 
+def test_normalize_symbol_allows_standard_equity_tickers():
+    assert _normalize_symbol("aapl") == "AAPL"
+    assert _normalize_symbol("brk.b") == "BRK.B"
+
+
+def test_normalize_symbol_rejects_invalid_values():
+    with pytest.raises(FundingOrchestrationError) as bad_symbol:
+        _normalize_symbol("user_good")
+    assert bad_symbol.value.code == "INVALID_TICKER_SYMBOL"
+
+
 def test_route_error_mapping_for_funding_orchestration_error():
     exc = FundingOrchestrationError(
         "ACH relationship pending",
@@ -81,6 +97,20 @@ def test_brokerage_account_request_allows_background_resolution():
     assert payload.user_id == "user_123"
     assert payload.alpaca_account_id is None
     assert payload.set_default is True
+
+
+def test_funded_trade_request_defaults():
+    payload = PlaidFundedTradeCreateRequest(
+        user_id="user_123",
+        funding_item_id="item_123",
+        funding_account_id="acc_123",
+        symbol="AAPL",
+        user_legal_name="Test User",
+        notional_usd=100.0,
+    )
+    assert payload.side == "buy"
+    assert payload.order_type == "market"
+    assert payload.time_in_force == "day"
 
 
 def test_resolve_alpaca_account_id_prefers_latest_relationship_over_env_default(monkeypatch):
@@ -293,3 +323,13 @@ async def test_create_alpaca_connect_link_returns_authorization_url(monkeypatch)
     assert payload["state"] == "alpaca_state_123"
     assert "https://app.alpaca.markets/oauth/authorize?" in payload["authorization_url"]
     assert "client_id=alpaca_client" in payload["authorization_url"]
+
+
+def test_order_status_to_trade_intent_status_mapping():
+    service = BrokerFundingService()
+    assert service._order_status_to_trade_intent_status("filled") == "order_filled"
+    assert (
+        service._order_status_to_trade_intent_status("partially_filled") == "order_partially_filled"
+    )
+    assert service._order_status_to_trade_intent_status("rejected") == "failed"
+    assert service._order_status_to_trade_intent_status("new") == "order_submitted"

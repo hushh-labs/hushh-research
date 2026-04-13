@@ -1,0 +1,60 @@
+name: "Main Post-Merge Smoke"
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  smoke-gate:
+    name: "Main Post-Merge Smoke Gate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: consent-protocol/requirements.txt
+
+      - name: Install protocol deps for smoke import
+        run: |
+          python3 -m pip install --disable-pip-version-check \
+            -r consent-protocol/requirements.txt \
+            -r consent-protocol/requirements-dev.txt
+
+      - name: Run compact post-merge smoke bundle
+        run: bash scripts/ci/orchestrate.sh smoke
+        env:
+          TESTING: "true"
+          SECRET_KEY: "test_secret_key_for_ci_only_32chars_min"
+          VAULT_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
+          NEXT_PUBLIC_BACKEND_URL: https://api.example.com
+          NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
+          NEXT_PUBLIC_APP_ENV: development
+          NEXT_PUBLIC_FIREBASE_API_KEY: "test-api-key"
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "dummy-project.firebaseapp.com"
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: "dummy-project"
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "dummy-project.appspot.com"
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:abcdef123456"

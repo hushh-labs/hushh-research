@@ -1,0 +1,54 @@
+{
+  "id": "mcp-developer-surface",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "mcp-developer-surface",
+  "description": "Use when changing the Hushh MCP developer surface, @hushh/mcp package behavior, developer API docs, or MCP setup guidance.",
+  "owned_paths": [
+    "packages/hushh-mcp",
+    "consent-protocol/docs/mcp-setup.md",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "security-audit",
+    "docs-governance"
+  ],
+  "task_types": [
+    "mcp-surface-change",
+    "docs-sync"
+  ],
+  "required_reads": [
+    "packages/hushh-mcp/README.md",
+    "consent-protocol/docs/mcp-setup.md",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_commands": [
+    "cd packages/hushh-mcp && npm run docs:check",
+    "cd packages/hushh-mcp && npm run print-config"
+  ],
+  "verification_bundles": [
+    {
+      "id": "mcp-developer-surface",
+      "commands": [
+        "cd packages/hushh-mcp && npm run docs:check",
+        "cd packages/hushh-mcp && npm run print-config"
+      ],
+      "tests": []
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "backend-api-contracts",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "backend",
+    "docs-governance",
+    "security-audit"
+  ],
+  "risk_tags": [
+    "developer-api-drift",
+    "mcp-setup-drift"
+  ]
+}

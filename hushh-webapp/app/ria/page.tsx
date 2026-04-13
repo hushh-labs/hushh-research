@@ -169,6 +169,7 @@ export default function RiaHomePage() {
 
   return (
     <RiaPageShell
+      width="expanded"
       eyebrow="RIA Home"
       title="Trusted advisor ops"
       description="See readiness, what needs attention, and where to go next without scanning a settings wall."

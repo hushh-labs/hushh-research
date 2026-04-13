@@ -47,11 +47,27 @@ _RELATIONSHIP_TERMINAL_FAILURE_STATUSES = {"REJECTED", "CANCELED", "DISABLED", "
 _ALPACA_ACCOUNT_ID_PATTERN = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
+_EQUITY_SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 _ALPACA_CONNECT_DEFAULT_AUTHORIZE_URL = "https://app.alpaca.markets/oauth/authorize"
 _ALPACA_CONNECT_DEFAULT_TOKEN_URL = "https://api.alpaca.markets/oauth/token"  # noqa: S105
 _ALPACA_CONNECT_DEFAULT_ACCOUNT_URL = "https://api.alpaca.markets/v2/account"
 _ALPACA_CONNECT_DEFAULT_SCOPES = "account:write trading"
 _ALPACA_CONNECT_SESSION_TTL_SECONDS_DEFAULT = 15 * 60
+
+_TRADE_INTENT_TERMINAL_STATUSES = {
+    "order_filled",
+    "order_canceled",
+    "failed",
+}
+
+_ORDER_STATUS_TERMINAL = {
+    "filled",
+    "canceled",
+    "expired",
+    "rejected",
+    "stopped",
+    "suspended",
+}
 
 
 class FundingOrchestrationError(RuntimeError):
@@ -187,6 +203,50 @@ def _direction_to_alpaca(direction: str) -> str:
     if normalized in {"from_brokerage", "outgoing", "withdraw", "withdrawal"}:
         return _FUNDS_DIRECTION_OUTGOING
     return _FUNDS_DIRECTION_INCOMING
+
+
+def _normalize_order_side(value: str | None) -> str:
+    side = _clean_text(value, default="buy").lower()
+    if side not in {"buy", "sell"}:
+        raise FundingOrchestrationError(
+            "Order side must be buy or sell.",
+            code="INVALID_ORDER_SIDE",
+            status_code=422,
+        )
+    return side
+
+
+def _normalize_order_type(value: str | None) -> str:
+    order_type = _clean_text(value, default="market").lower()
+    if order_type not in {"market", "limit"}:
+        raise FundingOrchestrationError(
+            "Order type must be market or limit.",
+            code="INVALID_ORDER_TYPE",
+            status_code=422,
+        )
+    return order_type
+
+
+def _normalize_time_in_force(value: str | None) -> str:
+    tif = _clean_text(value, default="day").lower()
+    if tif not in {"day", "gtc", "opg", "cls", "ioc", "fok"}:
+        raise FundingOrchestrationError(
+            "time_in_force is not supported.",
+            code="INVALID_TIME_IN_FORCE",
+            status_code=422,
+        )
+    return tif
+
+
+def _normalize_symbol(value: str | None) -> str:
+    symbol = _clean_text(value).upper()
+    if not _EQUITY_SYMBOL_PATTERN.match(symbol):
+        raise FundingOrchestrationError(
+            "A valid stock ticker symbol is required.",
+            code="INVALID_TICKER_SYMBOL",
+            status_code=422,
+        )
+    return symbol
 
 
 def _looks_like_alpaca_account_id(value: str | None) -> bool:
@@ -1609,6 +1669,292 @@ class BrokerFundingService:
         )
         return result.data[0] if result.data else None
 
+    def _fetch_trade_intent(self, *, user_id: str, intent_id: str) -> dict[str, Any] | None:
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_trade_intents
+            WHERE user_id = :user_id
+              AND intent_id = :intent_id
+            LIMIT 1
+            """,
+            {
+                "user_id": user_id,
+                "intent_id": intent_id,
+            },
+        )
+        return result.data[0] if result.data else None
+
+    def _fetch_trade_intent_by_idempotency(
+        self,
+        *,
+        user_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_trade_intents
+            WHERE user_id = :user_id
+              AND idempotency_key = :idempotency_key
+            LIMIT 1
+            """,
+            {
+                "user_id": user_id,
+                "idempotency_key": idempotency_key,
+            },
+        )
+        return result.data[0] if result.data else None
+
+    def _list_trade_intents_for_transfer(
+        self,
+        *,
+        user_id: str,
+        transfer_id: str,
+    ) -> list[dict[str, Any]]:
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_trade_intents
+            WHERE user_id = :user_id
+              AND transfer_id = :transfer_id
+            ORDER BY requested_at DESC, updated_at DESC
+            """,
+            {
+                "user_id": user_id,
+                "transfer_id": transfer_id,
+            },
+        )
+        return result.data
+
+    def _list_trade_intents(
+        self,
+        *,
+        user_id: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        bounded_limit = max(1, min(limit, 100))
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_trade_intents
+            WHERE user_id = :user_id
+            ORDER BY requested_at DESC, updated_at DESC
+            LIMIT :limit
+            """,
+            {
+                "user_id": user_id,
+                "limit": bounded_limit,
+            },
+        )
+        return result.data
+
+    def _record_trade_event(
+        self,
+        *,
+        user_id: str,
+        intent_id: str,
+        event_source: str,
+        event_type: str,
+        event_status: str | None,
+        reason_code: str | None,
+        reason_message: str | None,
+        payload: dict[str, Any],
+    ) -> None:
+        self.db.execute_raw(
+            """
+            INSERT INTO kai_funding_trade_events (
+                event_id,
+                intent_id,
+                user_id,
+                event_source,
+                event_type,
+                event_status,
+                reason_code,
+                reason_message,
+                payload_json,
+                occurred_at,
+                created_at
+            )
+            VALUES (
+                :event_id,
+                :intent_id,
+                :user_id,
+                :event_source,
+                :event_type,
+                :event_status,
+                :reason_code,
+                :reason_message,
+                CAST(:payload_json AS JSONB),
+                NOW(),
+                NOW()
+            )
+            """,
+            {
+                "event_id": f"trade_event_{uuid.uuid4().hex}",
+                "intent_id": intent_id,
+                "user_id": user_id,
+                "event_source": event_source,
+                "event_type": event_type,
+                "event_status": event_status,
+                "reason_code": reason_code,
+                "reason_message": reason_message,
+                "payload_json": json.dumps(payload),
+            },
+        )
+
+    def _store_trade_intent(
+        self,
+        *,
+        intent_id: str,
+        user_id: str,
+        transfer_id: str | None,
+        alpaca_account_id: str,
+        funding_item_id: str,
+        funding_account_id: str,
+        symbol: str,
+        side: str,
+        order_type: str,
+        time_in_force: str,
+        notional_usd: str | None,
+        quantity: str | None,
+        limit_price: str | None,
+        status: str,
+        order_id: str | None,
+        idempotency_key: str,
+        request_payload: dict[str, Any],
+        transfer_snapshot: dict[str, Any],
+        order_payload: dict[str, Any],
+        failure_code: str | None,
+        failure_message: str | None,
+        executed_at: str | None = None,
+    ) -> None:
+        self.db.execute_raw(
+            """
+            INSERT INTO kai_funding_trade_intents (
+                intent_id,
+                user_id,
+                transfer_id,
+                alpaca_account_id,
+                funding_item_id,
+                funding_account_id,
+                symbol,
+                side,
+                order_type,
+                time_in_force,
+                notional_usd,
+                quantity,
+                limit_price,
+                status,
+                order_id,
+                idempotency_key,
+                request_payload_json,
+                transfer_snapshot_json,
+                order_payload_json,
+                failure_code,
+                failure_message,
+                requested_at,
+                executed_at,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :intent_id,
+                :user_id,
+                :transfer_id,
+                :alpaca_account_id,
+                :funding_item_id,
+                :funding_account_id,
+                :symbol,
+                :side,
+                :order_type,
+                :time_in_force,
+                CAST(:notional_usd AS NUMERIC),
+                CAST(:quantity AS NUMERIC),
+                CAST(:limit_price AS NUMERIC),
+                :status,
+                :order_id,
+                :idempotency_key,
+                CAST(:request_payload_json AS JSONB),
+                CAST(:transfer_snapshot_json AS JSONB),
+                CAST(:order_payload_json AS JSONB),
+                :failure_code,
+                :failure_message,
+                NOW(),
+                CAST(:executed_at AS TIMESTAMPTZ),
+                NOW(),
+                NOW()
+            )
+            ON CONFLICT (intent_id)
+            DO UPDATE SET
+                transfer_id = EXCLUDED.transfer_id,
+                status = EXCLUDED.status,
+                order_id = EXCLUDED.order_id,
+                transfer_snapshot_json = EXCLUDED.transfer_snapshot_json,
+                order_payload_json = EXCLUDED.order_payload_json,
+                failure_code = EXCLUDED.failure_code,
+                failure_message = EXCLUDED.failure_message,
+                executed_at = COALESCE(EXCLUDED.executed_at, kai_funding_trade_intents.executed_at),
+                updated_at = NOW()
+            """,
+            {
+                "intent_id": intent_id,
+                "user_id": user_id,
+                "transfer_id": transfer_id,
+                "alpaca_account_id": alpaca_account_id,
+                "funding_item_id": funding_item_id,
+                "funding_account_id": funding_account_id,
+                "symbol": symbol,
+                "side": side,
+                "order_type": order_type,
+                "time_in_force": time_in_force,
+                "notional_usd": notional_usd,
+                "quantity": quantity,
+                "limit_price": limit_price,
+                "status": status,
+                "order_id": order_id,
+                "idempotency_key": idempotency_key,
+                "request_payload_json": json.dumps(request_payload),
+                "transfer_snapshot_json": json.dumps(transfer_snapshot),
+                "order_payload_json": json.dumps(order_payload),
+                "failure_code": failure_code,
+                "failure_message": failure_message,
+                "executed_at": executed_at,
+            },
+        )
+
+    def _serialize_trade_intent(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "intent_id": _clean_text(row.get("intent_id")) or None,
+            "transfer_id": _clean_text(row.get("transfer_id")) or None,
+            "alpaca_account_id": _clean_text(row.get("alpaca_account_id")) or None,
+            "funding_item_id": _clean_text(row.get("funding_item_id")) or None,
+            "funding_account_id": _clean_text(row.get("funding_account_id")) or None,
+            "symbol": _clean_text(row.get("symbol")) or None,
+            "side": _clean_text(row.get("side")) or None,
+            "order_type": _clean_text(row.get("order_type")) or None,
+            "time_in_force": _clean_text(row.get("time_in_force")) or None,
+            "notional_usd": _clean_text(str(row.get("notional_usd")))
+            if row.get("notional_usd") is not None
+            else None,
+            "quantity": _clean_text(str(row.get("quantity")))
+            if row.get("quantity") is not None
+            else None,
+            "limit_price": _clean_text(str(row.get("limit_price")))
+            if row.get("limit_price") is not None
+            else None,
+            "status": _clean_text(row.get("status")) or None,
+            "order_id": _clean_text(row.get("order_id")) or None,
+            "idempotency_key": _clean_text(row.get("idempotency_key")) or None,
+            "failure_code": _clean_text(row.get("failure_code")) or None,
+            "failure_message": _clean_text(row.get("failure_message")) or None,
+            "requested_at": _clean_text(row.get("requested_at")) or None,
+            "executed_at": _clean_text(row.get("executed_at")) or None,
+            "request": _json_load(row.get("request_payload_json"), fallback={}),
+            "transfer_snapshot": _json_load(row.get("transfer_snapshot_json"), fallback={}),
+            "order": _json_load(row.get("order_payload_json"), fallback={}),
+        }
+
     def _store_transfer(
         self,
         *,
@@ -1739,6 +2085,416 @@ class BrokerFundingService:
             if _clean_text(parsed.get("transfer_id")) == transfer_id:
                 return parsed
         return None
+
+    def _is_transfer_funded(self, status_value: str | None) -> bool:
+        return _user_facing_transfer_status(status_value) == "completed"
+
+    def _is_transfer_terminal_failure(self, status_value: str | None) -> bool:
+        user_status = _user_facing_transfer_status(status_value)
+        return user_status in {"failed", "returned", "canceled"}
+
+    def _parse_order_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        amount_notional = _clean_text(payload.get("notional"))
+        amount_qty = _clean_text(payload.get("qty"))
+        return {
+            "order_id": _clean_text(payload.get("id") or payload.get("order_id")) or None,
+            "client_order_id": _clean_text(payload.get("client_order_id")) or None,
+            "status": _clean_text(payload.get("status")) or None,
+            "symbol": _clean_text(payload.get("symbol")) or None,
+            "side": _clean_text(payload.get("side")) or None,
+            "type": _clean_text(payload.get("type")) or None,
+            "time_in_force": _clean_text(payload.get("time_in_force")) or None,
+            "notional": amount_notional or None,
+            "qty": amount_qty or None,
+            "filled_qty": _clean_text(payload.get("filled_qty")) or None,
+            "filled_avg_price": _clean_text(payload.get("filled_avg_price")) or None,
+            "submitted_at": _clean_text(payload.get("submitted_at")) or None,
+            "filled_at": _clean_text(payload.get("filled_at")) or None,
+            "canceled_at": _clean_text(payload.get("canceled_at")) or None,
+            "raw": payload,
+        }
+
+    def _order_status_to_trade_intent_status(self, order_status: str | None) -> str:
+        normalized = _clean_text(order_status).lower()
+        if normalized == "filled":
+            return "order_filled"
+        if normalized == "partially_filled":
+            return "order_partially_filled"
+        if normalized in {"canceled", "expired"}:
+            return "order_canceled"
+        if normalized in {"rejected", "stopped", "suspended"}:
+            return "failed"
+        return "order_submitted"
+
+    async def _submit_order_to_alpaca(
+        self,
+        *,
+        alpaca_account_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        candidate_paths = [
+            f"/v1/trading/accounts/{alpaca_account_id}/orders",
+            f"/v1/accounts/{alpaca_account_id}/orders",
+        ]
+        last_error: Exception | None = None
+        for path in candidate_paths:
+            try:
+                response = await self._alpaca_post(path, payload)
+                if isinstance(response, dict):
+                    return response
+            except AlpacaApiError as exc:
+                last_error = exc
+                if exc.status_code in {404, 405}:
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        raise FundingOrchestrationError(
+            "Alpaca did not return a valid order response.",
+            code="ALPACA_ORDER_SUBMIT_FAILED",
+            status_code=502,
+        )
+
+    async def _fetch_order_from_alpaca(
+        self,
+        *,
+        alpaca_account_id: str,
+        order_id: str,
+    ) -> dict[str, Any] | None:
+        candidate_paths = [
+            f"/v1/trading/accounts/{alpaca_account_id}/orders/{order_id}",
+            f"/v1/accounts/{alpaca_account_id}/orders/{order_id}",
+        ]
+        for path in candidate_paths:
+            try:
+                response = await self._alpaca_get(path)
+                if isinstance(response, dict):
+                    parsed = self._parse_order_payload(response)
+                    if _clean_text(parsed.get("order_id")):
+                        return parsed
+            except AlpacaApiError as exc:
+                if exc.status_code in {404, 405}:
+                    continue
+                raise
+        return None
+
+    async def _process_trade_intent(
+        self,
+        *,
+        row: dict[str, Any],
+        transfer_row: dict[str, Any] | None,
+        event_source: str,
+    ) -> dict[str, Any]:
+        user_id = _clean_text(row.get("user_id"))
+        intent_id = _clean_text(row.get("intent_id"))
+        if not user_id or not intent_id:
+            return row
+
+        current_status = _clean_text(row.get("status"))
+        if current_status in _TRADE_INTENT_TERMINAL_STATUSES:
+            return row
+
+        request_payload = _json_load(row.get("request_payload_json"), fallback={})
+        transfer_snapshot = _json_load(row.get("transfer_snapshot_json"), fallback={})
+        order_snapshot = _json_load(row.get("order_payload_json"), fallback={})
+
+        transfer_id = _clean_text(row.get("transfer_id")) or None
+        transfer_status = _clean_text((transfer_row or {}).get("status"))
+        if transfer_row:
+            transfer_snapshot = {
+                "transfer_id": _clean_text(transfer_row.get("transfer_id")) or transfer_id,
+                "status": transfer_status or None,
+                "user_facing_status": _clean_text(transfer_row.get("user_facing_status")) or None,
+                "failure_reason_code": _clean_text(transfer_row.get("failure_reason_code")) or None,
+                "failure_reason_message": _clean_text(transfer_row.get("failure_reason_message"))
+                or None,
+                "updated_at": _clean_text(transfer_row.get("updated_at")) or _utcnow_iso(),
+            }
+
+        if transfer_id:
+            if self._is_transfer_terminal_failure(transfer_status):
+                next_status = "failed"
+                reason_code = (
+                    _clean_text(transfer_row.get("failure_reason_code")) or "TRANSFER_FAILED"
+                )
+                reason_message = (
+                    _clean_text(transfer_row.get("failure_reason_message"))
+                    or "Funding transfer did not complete."
+                )
+                self._store_trade_intent(
+                    intent_id=intent_id,
+                    user_id=user_id,
+                    transfer_id=transfer_id,
+                    alpaca_account_id=_clean_text(row.get("alpaca_account_id")),
+                    funding_item_id=_clean_text(row.get("funding_item_id")),
+                    funding_account_id=_clean_text(row.get("funding_account_id")),
+                    symbol=_clean_text(row.get("symbol")),
+                    side=_clean_text(row.get("side"), default="buy"),
+                    order_type=_clean_text(row.get("order_type"), default="market"),
+                    time_in_force=_clean_text(row.get("time_in_force"), default="day"),
+                    notional_usd=_clean_text(str(row.get("notional_usd")))
+                    if row.get("notional_usd") is not None
+                    else None,
+                    quantity=_clean_text(str(row.get("quantity")))
+                    if row.get("quantity") is not None
+                    else None,
+                    limit_price=_clean_text(str(row.get("limit_price")))
+                    if row.get("limit_price") is not None
+                    else None,
+                    status=next_status,
+                    order_id=_clean_text(row.get("order_id")) or None,
+                    idempotency_key=_clean_text(row.get("idempotency_key")),
+                    request_payload=request_payload,
+                    transfer_snapshot=transfer_snapshot,
+                    order_payload=order_snapshot,
+                    failure_code=reason_code,
+                    failure_message=reason_message,
+                )
+                self._record_trade_event(
+                    user_id=user_id,
+                    intent_id=intent_id,
+                    event_source=event_source,
+                    event_type="trade_failed_due_to_transfer",
+                    event_status=next_status,
+                    reason_code=reason_code,
+                    reason_message=reason_message,
+                    payload={
+                        "transfer": transfer_snapshot,
+                    },
+                )
+                refreshed = self._fetch_trade_intent(user_id=user_id, intent_id=intent_id)
+                return refreshed or row
+
+            if not self._is_transfer_funded(transfer_status):
+                if current_status != "funding_pending":
+                    self._store_trade_intent(
+                        intent_id=intent_id,
+                        user_id=user_id,
+                        transfer_id=transfer_id,
+                        alpaca_account_id=_clean_text(row.get("alpaca_account_id")),
+                        funding_item_id=_clean_text(row.get("funding_item_id")),
+                        funding_account_id=_clean_text(row.get("funding_account_id")),
+                        symbol=_clean_text(row.get("symbol")),
+                        side=_clean_text(row.get("side"), default="buy"),
+                        order_type=_clean_text(row.get("order_type"), default="market"),
+                        time_in_force=_clean_text(row.get("time_in_force"), default="day"),
+                        notional_usd=_clean_text(str(row.get("notional_usd")))
+                        if row.get("notional_usd") is not None
+                        else None,
+                        quantity=_clean_text(str(row.get("quantity")))
+                        if row.get("quantity") is not None
+                        else None,
+                        limit_price=_clean_text(str(row.get("limit_price")))
+                        if row.get("limit_price") is not None
+                        else None,
+                        status="funding_pending",
+                        order_id=_clean_text(row.get("order_id")) or None,
+                        idempotency_key=_clean_text(row.get("idempotency_key")),
+                        request_payload=request_payload,
+                        transfer_snapshot=transfer_snapshot,
+                        order_payload=order_snapshot,
+                        failure_code=None,
+                        failure_message=None,
+                    )
+                refreshed = self._fetch_trade_intent(user_id=user_id, intent_id=intent_id)
+                return refreshed or row
+
+        order_id = _clean_text(row.get("order_id"))
+        parsed_order: dict[str, Any] | None = None
+        if order_id:
+            parsed_order = await self._fetch_order_from_alpaca(
+                alpaca_account_id=_clean_text(row.get("alpaca_account_id")),
+                order_id=order_id,
+            )
+
+        if parsed_order is None:
+            symbol = _normalize_symbol(_clean_text(row.get("symbol")))
+            side = _normalize_order_side(_clean_text(row.get("side"), default="buy"))
+            order_type = _normalize_order_type(_clean_text(row.get("order_type"), default="market"))
+            time_in_force = _normalize_time_in_force(
+                _clean_text(row.get("time_in_force"), default="day")
+            )
+            order_request: dict[str, Any] = {
+                "symbol": symbol,
+                "side": side,
+                "type": order_type,
+                "time_in_force": time_in_force,
+                "client_order_id": f"kai_{intent_id}",
+            }
+            if row.get("quantity") is not None:
+                order_request["qty"] = _clean_text(str(row.get("quantity")))
+            if row.get("notional_usd") is not None:
+                order_request["notional"] = _clean_text(str(row.get("notional_usd")))
+            if order_type == "limit":
+                raw_limit_price = row.get("limit_price")
+                limit_price = (
+                    _clean_text(str(raw_limit_price)) if raw_limit_price is not None else ""
+                )
+                if not limit_price:
+                    raise FundingOrchestrationError(
+                        "Limit orders require limit_price.",
+                        code="LIMIT_PRICE_REQUIRED",
+                        status_code=422,
+                    )
+                order_request["limit_price"] = limit_price
+
+            order_response = await self._submit_order_to_alpaca(
+                alpaca_account_id=_clean_text(row.get("alpaca_account_id")),
+                payload=order_request,
+            )
+            parsed_order = self._parse_order_payload(
+                order_response if isinstance(order_response, dict) else {}
+            )
+            self._record_trade_event(
+                user_id=user_id,
+                intent_id=intent_id,
+                event_source=event_source,
+                event_type="alpaca_order_submitted",
+                event_status=_clean_text(parsed_order.get("status")) or "submitted",
+                reason_code=None,
+                reason_message=None,
+                payload={
+                    "request": order_request,
+                    "response": parsed_order.get("raw")
+                    if isinstance(parsed_order.get("raw"), dict)
+                    else {},
+                },
+            )
+
+        order_status = _clean_text(parsed_order.get("status"))
+        next_status = self._order_status_to_trade_intent_status(order_status)
+        executed_at = (
+            _utcnow_iso() if next_status in {"order_filled", "order_canceled", "failed"} else None
+        )
+        failure_code = None
+        failure_message = None
+        if next_status == "failed":
+            failure_code = "ORDER_REJECTED"
+            failure_message = "Alpaca rejected the order."
+        self._store_trade_intent(
+            intent_id=intent_id,
+            user_id=user_id,
+            transfer_id=transfer_id,
+            alpaca_account_id=_clean_text(row.get("alpaca_account_id")),
+            funding_item_id=_clean_text(row.get("funding_item_id")),
+            funding_account_id=_clean_text(row.get("funding_account_id")),
+            symbol=_clean_text(row.get("symbol")),
+            side=_clean_text(row.get("side"), default="buy"),
+            order_type=_clean_text(row.get("order_type"), default="market"),
+            time_in_force=_clean_text(row.get("time_in_force"), default="day"),
+            notional_usd=_clean_text(str(row.get("notional_usd")))
+            if row.get("notional_usd") is not None
+            else None,
+            quantity=_clean_text(str(row.get("quantity")))
+            if row.get("quantity") is not None
+            else None,
+            limit_price=_clean_text(str(row.get("limit_price")))
+            if row.get("limit_price") is not None
+            else None,
+            status=next_status,
+            order_id=_clean_text(parsed_order.get("order_id")) or order_id or None,
+            idempotency_key=_clean_text(row.get("idempotency_key")),
+            request_payload=request_payload,
+            transfer_snapshot=transfer_snapshot,
+            order_payload=parsed_order.get("raw")
+            if isinstance(parsed_order.get("raw"), dict)
+            else {},
+            failure_code=failure_code,
+            failure_message=failure_message,
+            executed_at=executed_at,
+        )
+        self._record_trade_event(
+            user_id=user_id,
+            intent_id=intent_id,
+            event_source=event_source,
+            event_type="trade_intent_status_updated",
+            event_status=next_status,
+            reason_code=failure_code,
+            reason_message=failure_message,
+            payload={
+                "order_id": _clean_text(parsed_order.get("order_id")) or None,
+                "order_status": order_status or None,
+                "transfer_id": transfer_id,
+            },
+        )
+        refreshed = self._fetch_trade_intent(user_id=user_id, intent_id=intent_id)
+        return refreshed or row
+
+    async def _process_trade_intents_for_transfer(
+        self,
+        *,
+        user_id: str,
+        transfer_row: dict[str, Any],
+        event_source: str,
+    ) -> list[dict[str, Any]]:
+        transfer_id = _clean_text(transfer_row.get("transfer_id"))
+        if not transfer_id:
+            return []
+
+        intents = self._list_trade_intents_for_transfer(user_id=user_id, transfer_id=transfer_id)
+        if not intents:
+            return []
+
+        out: list[dict[str, Any]] = []
+        for intent in intents:
+            try:
+                processed = await self._process_trade_intent(
+                    row=intent,
+                    transfer_row=transfer_row,
+                    event_source=event_source,
+                )
+                out.append(processed)
+            except Exception as exc:
+                intent_id = _clean_text(intent.get("intent_id"))
+                if intent_id:
+                    self._record_trade_event(
+                        user_id=user_id,
+                        intent_id=intent_id,
+                        event_source=event_source,
+                        event_type="trade_intent_processing_error",
+                        event_status="failed",
+                        reason_code="TRADE_INTENT_PROCESSING_ERROR",
+                        reason_message=str(exc),
+                        payload={},
+                    )
+                    self._store_trade_intent(
+                        intent_id=intent_id,
+                        user_id=user_id,
+                        transfer_id=_clean_text(intent.get("transfer_id")) or None,
+                        alpaca_account_id=_clean_text(intent.get("alpaca_account_id")),
+                        funding_item_id=_clean_text(intent.get("funding_item_id")),
+                        funding_account_id=_clean_text(intent.get("funding_account_id")),
+                        symbol=_clean_text(intent.get("symbol")),
+                        side=_clean_text(intent.get("side"), default="buy"),
+                        order_type=_clean_text(intent.get("order_type"), default="market"),
+                        time_in_force=_clean_text(intent.get("time_in_force"), default="day"),
+                        notional_usd=_clean_text(str(intent.get("notional_usd")))
+                        if intent.get("notional_usd") is not None
+                        else None,
+                        quantity=_clean_text(str(intent.get("quantity")))
+                        if intent.get("quantity") is not None
+                        else None,
+                        limit_price=_clean_text(str(intent.get("limit_price")))
+                        if intent.get("limit_price") is not None
+                        else None,
+                        status="failed",
+                        order_id=_clean_text(intent.get("order_id")) or None,
+                        idempotency_key=_clean_text(intent.get("idempotency_key")),
+                        request_payload=_json_load(intent.get("request_payload_json"), fallback={}),
+                        transfer_snapshot=_json_load(
+                            intent.get("transfer_snapshot_json"), fallback={}
+                        ),
+                        order_payload=_json_load(intent.get("order_payload_json"), fallback={}),
+                        failure_code="TRADE_INTENT_PROCESSING_ERROR",
+                        failure_message=str(exc),
+                    )
+                logger.exception(
+                    "funding.trade_intent_processing_failed user_id=%s transfer_id=%s intent_id=%s",
+                    user_id,
+                    transfer_id,
+                    intent_id or "unknown",
+                )
+        return out
 
     def _relationship_status_requirements(
         self,
@@ -2160,6 +2916,16 @@ class BrokerFundingService:
             """,
             {"user_id": user_id},
         )
+        trade_intent_result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_trade_intents
+            WHERE user_id = :user_id
+            ORDER BY requested_at DESC, updated_at DESC
+            LIMIT 20
+            """,
+            {"user_id": user_id},
+        )
 
         relationship_result = self.db.execute_raw(
             """
@@ -2293,6 +3059,9 @@ class BrokerFundingService:
                 for row in brokerage_result.data
             ],
             "latest_transfers": latest_transfers,
+            "latest_trade_intents": [
+                self._serialize_trade_intent(row) for row in trade_intent_result.data
+            ],
             "aggregate": {
                 "item_count": len(items),
                 "account_count": account_count,
@@ -2965,6 +3734,263 @@ class BrokerFundingService:
             },
         }
 
+    async def create_funded_trade_intent(
+        self,
+        *,
+        user_id: str,
+        funding_item_id: str,
+        funding_account_id: str,
+        symbol: str,
+        user_legal_name: str,
+        notional_usd: float | str,
+        side: str = "buy",
+        order_type: str = "market",
+        time_in_force: str = "day",
+        limit_price: float | str | None = None,
+        brokerage_account_id: str | None = None,
+        transfer_idempotency_key: str | None = None,
+        trade_idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        cleaned_symbol = _normalize_symbol(symbol)
+        cleaned_side = _normalize_order_side(side)
+        cleaned_order_type = _normalize_order_type(order_type)
+        cleaned_tif = _normalize_time_in_force(time_in_force)
+        notional_text = _decimal_to_currency_text(notional_usd)
+        limit_price_text = (
+            _decimal_to_currency_text(limit_price) if limit_price is not None else None
+        )
+        if cleaned_order_type == "limit" and not limit_price_text:
+            raise FundingOrchestrationError(
+                "Limit orders require limit_price.",
+                code="LIMIT_PRICE_REQUIRED",
+                status_code=422,
+            )
+
+        item_row = self._fetch_funding_item_row(user_id=user_id, item_id=funding_item_id)
+        if item_row is None:
+            raise FundingOrchestrationError(
+                "No linked Plaid funding item is available.",
+                code="PLAID_FUNDING_ITEM_NOT_FOUND",
+                status_code=404,
+            )
+        account_row = self._find_funding_account(
+            user_id=user_id,
+            item_id=funding_item_id,
+            account_id=funding_account_id,
+        )
+        if account_row is None:
+            raise FundingOrchestrationError(
+                "Selected funding account does not belong to the linked Plaid item.",
+                code="PLAID_FUNDING_ACCOUNT_NOT_FOUND",
+                status_code=422,
+            )
+        self._set_default_funding_account(
+            user_id=user_id,
+            item_id=funding_item_id,
+            account_id=funding_account_id,
+        )
+
+        resolved_trade_idempotency = (
+            _clean_text(trade_idempotency_key) or f"funded_trade_{uuid.uuid4().hex}"
+        )
+        deduped_intent = self._fetch_trade_intent_by_idempotency(
+            user_id=user_id,
+            idempotency_key=resolved_trade_idempotency,
+        )
+        if deduped_intent is not None:
+            serialized = self._serialize_trade_intent(deduped_intent)
+            serialized["deduped"] = True
+            return {
+                "intent": serialized,
+                "transfer": None,
+                "decision": "deduped",
+            }
+
+        transfer_payload: dict[str, Any] | None = None
+        transfer_ref: dict[str, Any] | None = None
+        transfer_row: dict[str, Any] | None = None
+        transfer_id: str | None = None
+
+        alpaca_account_id = self._resolve_alpaca_account_id(
+            user_id=user_id,
+            requested_account_id=brokerage_account_id,
+        )
+        self._upsert_brokerage_account(
+            user_id=user_id,
+            alpaca_account_id=alpaca_account_id,
+            set_as_default=True,
+            metadata={
+                "last_used_at": _utcnow_iso(),
+                "last_one_click_trade_symbol": cleaned_symbol,
+            },
+        )
+
+        if cleaned_side == "buy":
+            resolved_transfer_idempotency = (
+                _clean_text(transfer_idempotency_key)
+                or f"funded_trade_transfer_{resolved_trade_idempotency}"
+            )
+            transfer_create_response = await self.create_transfer(
+                user_id=user_id,
+                funding_item_id=funding_item_id,
+                funding_account_id=funding_account_id,
+                amount=notional_text,
+                user_legal_name=user_legal_name,
+                direction="to_brokerage",
+                description=f"Kai funded trade for {cleaned_symbol}",
+                idempotency_key=resolved_transfer_idempotency,
+                brokerage_account_id=alpaca_account_id,
+            )
+            transfer_payload = (
+                transfer_create_response.get("transfer")
+                if isinstance(transfer_create_response.get("transfer"), dict)
+                else None
+            )
+            transfer_ref = (
+                transfer_create_response.get("relationship")
+                if isinstance(transfer_create_response.get("relationship"), dict)
+                else None
+            )
+            transfer_id = _clean_text((transfer_payload or {}).get("transfer_id")) or None
+            if transfer_id:
+                transfer_row = self._fetch_transfer_row(user_id=user_id, transfer_id=transfer_id)
+
+        intent_id = f"funding_trade_{uuid.uuid4().hex}"
+        initial_status = "ready_to_trade"
+        if cleaned_side == "buy":
+            if transfer_row and self._is_transfer_funded(_clean_text(transfer_row.get("status"))):
+                initial_status = "ready_to_trade"
+            else:
+                initial_status = "funding_pending"
+
+        request_snapshot = {
+            "symbol": cleaned_symbol,
+            "side": cleaned_side,
+            "order_type": cleaned_order_type,
+            "time_in_force": cleaned_tif,
+            "notional_usd": notional_text,
+            "limit_price": limit_price_text,
+            "alpaca_account_id": alpaca_account_id,
+        }
+        transfer_snapshot = {
+            "transfer_id": transfer_id,
+            "status": _clean_text((transfer_row or {}).get("status")) or None,
+            "user_facing_status": _clean_text((transfer_row or {}).get("user_facing_status"))
+            or None,
+            "relationship": transfer_ref,
+        }
+        self._store_trade_intent(
+            intent_id=intent_id,
+            user_id=user_id,
+            transfer_id=transfer_id,
+            alpaca_account_id=alpaca_account_id,
+            funding_item_id=funding_item_id,
+            funding_account_id=funding_account_id,
+            symbol=cleaned_symbol,
+            side=cleaned_side,
+            order_type=cleaned_order_type,
+            time_in_force=cleaned_tif,
+            notional_usd=notional_text,
+            quantity=None,
+            limit_price=limit_price_text,
+            status=initial_status,
+            order_id=None,
+            idempotency_key=resolved_trade_idempotency,
+            request_payload=request_snapshot,
+            transfer_snapshot=transfer_snapshot,
+            order_payload={},
+            failure_code=None,
+            failure_message=None,
+        )
+        self._record_trade_event(
+            user_id=user_id,
+            intent_id=intent_id,
+            event_source="kai_api",
+            event_type="trade_intent_created",
+            event_status=initial_status,
+            reason_code=None,
+            reason_message=None,
+            payload={
+                "transfer_id": transfer_id,
+                "symbol": cleaned_symbol,
+                "notional_usd": notional_text,
+                "side": cleaned_side,
+            },
+        )
+
+        intent_row = self._fetch_trade_intent(user_id=user_id, intent_id=intent_id)
+        if intent_row is None:
+            raise FundingOrchestrationError(
+                "Trade intent could not be persisted.",
+                code="TRADE_INTENT_PERSIST_FAILED",
+                status_code=500,
+            )
+
+        if cleaned_side != "buy" or initial_status == "ready_to_trade":
+            intent_row = await self._process_trade_intent(
+                row=intent_row,
+                transfer_row=transfer_row,
+                event_source="kai_api",
+            )
+
+        return {
+            "intent": self._serialize_trade_intent(intent_row),
+            "transfer": transfer_payload,
+            "decision": "accepted",
+        }
+
+    async def get_funded_trade_intent(self, *, user_id: str, intent_id: str) -> dict[str, Any]:
+        row = self._fetch_trade_intent(user_id=user_id, intent_id=intent_id)
+        if row is None:
+            raise FundingOrchestrationError(
+                "Trade intent not found for this user.",
+                code="TRADE_INTENT_NOT_FOUND",
+                status_code=404,
+            )
+
+        transfer_row: dict[str, Any] | None = None
+        transfer_id = _clean_text(row.get("transfer_id"))
+        if transfer_id:
+            await self.get_transfer(user_id=user_id, transfer_id=transfer_id)
+            transfer_row = self._fetch_transfer_row(user_id=user_id, transfer_id=transfer_id)
+
+        refreshed = await self._process_trade_intent(
+            row=self._fetch_trade_intent(user_id=user_id, intent_id=intent_id) or row,
+            transfer_row=transfer_row,
+            event_source="kai_poll",
+        )
+
+        return {
+            "intent": self._serialize_trade_intent(refreshed),
+            "transfer": {
+                "transfer_id": _clean_text((transfer_row or {}).get("transfer_id")) or None,
+                "status": _clean_text((transfer_row or {}).get("status")) or None,
+                "user_facing_status": _clean_text((transfer_row or {}).get("user_facing_status"))
+                or None,
+                "failure_reason_code": _clean_text((transfer_row or {}).get("failure_reason_code"))
+                or None,
+                "failure_reason_message": _clean_text(
+                    (transfer_row or {}).get("failure_reason_message")
+                )
+                or None,
+            }
+            if transfer_row is not None
+            else None,
+        }
+
+    async def list_funded_trade_intents(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        rows = self._list_trade_intents(user_id=user_id, limit=limit)
+        serialized = [self._serialize_trade_intent(row) for row in rows]
+        return {
+            "count": len(serialized),
+            "items": serialized,
+        }
+
     async def get_transfer(self, *, user_id: str, transfer_id: str) -> dict[str, Any]:
         row = self._fetch_transfer_row(user_id=user_id, transfer_id=transfer_id)
         if row is None:
@@ -3062,6 +4088,12 @@ class BrokerFundingService:
             else None,
             direction=_clean_text(refreshed_row.get("direction")) or None,
             failure_reason=_clean_text(refreshed_row.get("failure_reason_message")) or None,
+        )
+
+        await self._process_trade_intents_for_transfer(
+            user_id=user_id,
+            transfer_row=refreshed_row,
+            event_source="transfer_poll",
         )
 
         return {

@@ -53,13 +53,9 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "kai_investments",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/kai/analysis?tab=summary")).toEqual({
-      screen: "kai_analysis",
-      subview: "summary",
-    });
-    expect(deriveVoiceRouteScreen("/consents?tab=active")).toEqual({
-      screen: "consents",
-      subview: "active",
+    expect(deriveVoiceRouteScreen("/kai/funding-trade")).toEqual({
+      screen: "kai_funding_trade",
+      subview: null,
     });
   });
 

@@ -18,12 +18,14 @@ Core commands:
   bootstrap [--mode <local|uat|prod>]
   doctor --mode <local|uat|prod> [--json]
   stack --mode <local|uat|prod> [-- <next-dev args>]
+  terminal <stack|web|backend> [...]
   web [--mode <local|uat|prod>] [-- <next-dev args>]
   backend [--mode local] [--reload|--no-reload]
   native <ios|android> [--mode <local|uat|prod>] [--fresh]
   lint
   test
   ci [--include-advisory]
+  codex <subcommand>
 
 Operational commands:
   docs verify
@@ -37,6 +39,7 @@ Operational commands:
 Run:
   ./bin/hushh protocol --help
   ./bin/hushh sync --help
+  ./bin/hushh codex --help
 EOF
 }
 
@@ -79,6 +82,21 @@ Usage:
 EOF
 }
 
+codex_usage() {
+  cat <<'EOF'
+Usage:
+  ./bin/hushh codex onboard [--json|--text]
+  ./bin/hushh codex scan summary [--json|--text]
+  ./bin/hushh codex scan section <docs|frontend|backend|skills|commands> [--json|--text] [--verbose]
+  ./bin/hushh codex route-task <workflow-id> [--json|--text] [--verbose]
+  ./bin/hushh codex impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
+  ./bin/hushh codex list-workflows [--json|--text] [--verbose]
+  ./bin/hushh codex maintenance <daily|weekly|monthly> [--json|--text] [--report-file <path>] [--artifacts-dir <path>] [--no-issue-update]
+  ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
+  ./bin/hushh codex audit [--json|--text]
+EOF
+}
+
 run_web() {
   local mode="uat"
   local next_args=()
@@ -113,6 +131,130 @@ EOF
     exec npm run dev -- "${next_args[@]}"
   fi
   exec npm run dev
+}
+
+run_terminal() {
+  [ "$#" -ge 1 ] || die "terminal requires <stack|web|backend>"
+
+  local target="${1:-}"
+  shift || true
+  local title=""
+  local command_args=()
+
+  case "$target" in
+    stack)
+      local mode=""
+      local next_args=()
+      while [ "$#" -gt 0 ]; do
+        case "${1:-}" in
+          --mode)
+            mode="${2:-}"
+            shift 2
+            ;;
+          --)
+            shift
+            next_args=("$@")
+            break
+            ;;
+          -h|--help)
+            cat <<'EOF'
+Usage:
+  ./bin/hushh terminal stack --mode <local|uat|prod> [-- <next-dev args>]
+EOF
+            exit 0
+            ;;
+          *)
+            die "Unknown option for terminal stack: $1"
+            ;;
+        esac
+      done
+      [ -n "$mode" ] || die "terminal stack requires --mode"
+      title="Hushh stack (${mode})"
+      command_args=(./bin/hushh stack --mode "$mode")
+      if [ "${#next_args[@]}" -gt 0 ]; then
+        command_args+=(-- "${next_args[@]}")
+      fi
+      ;;
+    web)
+      local mode="uat"
+      local next_args=()
+      while [ "$#" -gt 0 ]; do
+        case "${1:-}" in
+          --mode)
+            mode="${2:-}"
+            shift 2
+            ;;
+          --)
+            shift
+            next_args=("$@")
+            break
+            ;;
+          -h|--help)
+            cat <<'EOF'
+Usage:
+  ./bin/hushh terminal web [--mode <local|uat|prod>] [-- <next-dev args>]
+EOF
+            exit 0
+            ;;
+          *)
+            die "Unknown option for terminal web: $1"
+            ;;
+        esac
+      done
+      title="Hushh web (${mode})"
+      command_args=(./bin/hushh web --mode "$mode")
+      if [ "${#next_args[@]}" -gt 0 ]; then
+        command_args+=(-- "${next_args[@]}")
+      fi
+      ;;
+    backend)
+      local mode="local"
+      local extra=()
+      while [ "$#" -gt 0 ]; do
+        case "${1:-}" in
+          --mode)
+            mode="${2:-}"
+            shift 2
+            ;;
+          --reload|--no-reload|--skip-activate|--preflight-only|--skip-preflight)
+            extra+=("$1")
+            shift
+            ;;
+          -h|--help)
+            cat <<'EOF'
+Usage:
+  ./bin/hushh terminal backend [--mode local] [--reload|--no-reload]
+EOF
+            exit 0
+            ;;
+          *)
+            die "Unknown option for terminal backend: $1"
+            ;;
+        esac
+      done
+      title="Hushh backend (${mode})"
+      command_args=(./bin/hushh backend --mode "$mode" "${extra[@]}")
+      ;;
+    -h|--help|help)
+      cat <<'EOF'
+Usage:
+  ./bin/hushh terminal stack --mode <local|uat|prod> [-- <next-dev args>]
+  ./bin/hushh terminal web [--mode <local|uat|prod>] [-- <next-dev args>]
+  ./bin/hushh terminal backend [--mode local] [--reload|--no-reload]
+
+Opens a visible OS terminal window and runs the canonical Hushh command there.
+EOF
+      exit 0
+      ;;
+    *)
+      die "Unknown terminal target: $target"
+      ;;
+  esac
+
+  exec bash "$REPO_ROOT/scripts/runtime/open_visible_terminal.sh" \
+    --cwd "$REPO_ROOT" \
+    --title "$title" \
+    -- "${command_args[@]}"
 }
 
 run_native() {
@@ -252,6 +394,113 @@ run_docs() {
       ;;
     *)
       die "Unknown docs subcommand: $1"
+      ;;
+  esac
+}
+
+run_codex() {
+  [ "$#" -ge 1 ] || {
+    codex_usage
+    exit 1
+  }
+
+  local subcommand="${1:-}"
+  shift || true
+  local format_flag=""
+  local args=()
+  local saw_format="0"
+
+  while [ "$#" -gt 0 ]; do
+    case "${1:-}" in
+      --json|--text)
+        format_flag="$1"
+        saw_format="1"
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if [ "$saw_format" = "0" ]; then
+    format_flag="--text"
+  fi
+
+  case "$subcommand" in
+    scan)
+      [ "${#args[@]}" -ge 1 ] || die "codex scan requires a subcommand"
+      case "${args[0]}" in
+        summary)
+          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" summary "$format_flag"
+          ;;
+        section)
+          [ "${#args[@]}" -ge 2 ] || die "codex scan section requires <docs|frontend|backend|skills|commands>"
+          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" section "${args[@]:1}" "$format_flag"
+          ;;
+        validate)
+          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" validate "$format_flag"
+          ;;
+        *)
+          die "Unknown codex scan subcommand: ${args[0]}"
+          ;;
+      esac
+      ;;
+    onboard)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag" "${args[@]}"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag"
+      ;;
+    list-workflows)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag" "${args[@]}"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag"
+      ;;
+    route-task)
+      [ "${#args[@]}" -ge 1 ] || die "codex route-task requires <workflow-id>"
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" route-task "${args[@]}" "$format_flag"
+      ;;
+    impact)
+      [ "${#args[@]}" -ge 1 ] || die "codex impact requires <workflow-id>"
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
+      ;;
+    maintenance)
+      [ "${#args[@]}" -ge 1 ] || die "codex maintenance requires <daily|weekly|monthly>"
+      local cadence="${args[0]}"
+      case "$cadence" in
+        daily|weekly|monthly)
+          ;;
+        *)
+          die "Unknown codex maintenance cadence: $cadence"
+          ;;
+      esac
+      if [ "${#args[@]}" -gt 1 ]; then
+        exec python3 "$REPO_ROOT/scripts/ops/codex_maintenance.py" run --cadence "$cadence" "${args[@]:1}" "$format_flag"
+      fi
+      exec python3 "$REPO_ROOT/scripts/ops/codex_maintenance.py" run --cadence "$cadence" "$format_flag"
+      ;;
+    ci-status)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "${args[@]}" "$format_flag"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
+      ;;
+    audit)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag" "${args[@]}"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag"
+      ;;
+    -h|--help|help)
+      codex_usage
+      exit 0
+      ;;
+    *)
+      codex_usage
+      exit 1
       ;;
   esac
 }
@@ -421,6 +670,9 @@ EOF
     fi
     exec bash "$REPO_ROOT/scripts/runtime/launch_stack.sh" "$mode"
     ;;
+  terminal)
+    run_terminal "$@"
+    ;;
   web)
     run_web "$@"
     ;;
@@ -476,6 +728,9 @@ EOF
     ;;
   protocol)
     run_protocol "$@"
+    ;;
+  codex)
+    run_codex "$@"
     ;;
   sync)
     run_sync "$@"

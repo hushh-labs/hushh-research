@@ -17,8 +17,15 @@ Use package-local commands only when you are working inside a package on purpose
 ```bash
 <repo-root>/bin/hushh bootstrap
 <repo-root>/bin/hushh doctor --mode uat
+<repo-root>/bin/hushh codex onboard
+<repo-root>/bin/hushh codex route-task repo-orientation
+<repo-root>/bin/hushh codex impact repo-orientation
+<repo-root>/bin/hushh codex ci-status --watch
 <repo-root>/bin/hushh web --mode uat
 <repo-root>/bin/hushh stack --mode local
+<repo-root>/bin/hushh terminal backend --mode local --reload
+<repo-root>/bin/hushh terminal web --mode local
+<repo-root>/bin/hushh terminal web --mode uat
 <repo-root>/bin/hushh backend
 <repo-root>/bin/hushh native ios --mode local --fresh
 <repo-root>/bin/hushh lint
@@ -30,6 +37,14 @@ Use package-local commands only when you are working inside a package on purpose
 ## Operational Commands
 
 ```bash
+<repo-root>/bin/hushh codex scan summary
+<repo-root>/bin/hushh codex scan section skills
+<repo-root>/bin/hushh codex list-workflows
+<repo-root>/bin/hushh codex ci-status
+<repo-root>/bin/hushh codex maintenance daily
+<repo-root>/bin/hushh codex maintenance weekly
+<repo-root>/bin/hushh codex maintenance monthly
+<repo-root>/bin/hushh codex audit
 <repo-root>/bin/hushh env bootstrap
 <repo-root>/bin/hushh env use --mode prod
 <repo-root>/bin/hushh db init-iam
@@ -46,3 +61,7 @@ Use package-local commands only when you are working inside a package on purpose
 - Do not document root `npm run ...` commands.
 - Do not document `make`.
 - Keep helper output and runbooks aligned with this CLI.
+- Contributor and agent onboarding should start with `./bin/hushh codex onboard`, not direct internal script paths.
+- Use `./bin/hushh codex maintenance <daily|weekly|monthly>` as the canonical unattended maintenance surface; do not hardcode deep internal scripts in scheduled workflows.
+- Use `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` as the preferred visible-terminal dev flow.
+- Use `./bin/hushh terminal stack --mode local` only when you explicitly want one combined terminal window to own both processes.

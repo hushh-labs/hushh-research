@@ -39,6 +39,10 @@ Profile remains the reference implementation for settings rows. This document ex
 18. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
 19. Mobile uses page gutters, not a second outer card container. Surface padding belongs inside cards, lists, sheets, and insets.
 20. `SurfaceStack` overscan is allowed only as shared shell breathing on tablet/desktop; mobile defaults stay edge-aware and minimal.
+21. Signed-in nested routes must expose a back affordance through the shared top bar when they drill below a parent workspace route.
+22. Route-local inline back buttons are reserved for contexts that do not participate in the shared shell, such as modal, sheet, or fullscreen-flow surfaces.
+23. Signed-in route verification is contract-driven. `hushh-webapp/lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth for `npm run verify:routes`.
+24. Signed-in route work is not complete until the route-contract Playwright sweep passes with the reviewer login and vault-unlock path.
 
 ## Page Header Contract
 
@@ -139,6 +143,7 @@ Rules:
 12. Do not stack glass-inside-glass for list managers. Row-based managers should use one outer shell and flatter rows inside it.
 13. Compact density is the default for signed-in surface cards; if a route needs more space, opt into `comfortable` density explicitly instead of hardcoding larger padding at the page level.
 14. On mobile, do not wrap entire routes in a passive outer card just to create breathing room. Use page gutters plus real inner surfaces.
+15. Prefer flatter list/tape layouts for browse-heavy signed-in surfaces. Reserve cards for premium summaries, carousels, charts, and clearly grouped data.
 
 ### Card Depth Model
 

@@ -34,7 +34,6 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
-  PRODUCTION_DEPLOY_OWNER: kushaltrivedi
   CLOUD_RUN_REVISION_RETENTION: "10"
   BACKUP_BUCKET: hushh-pda-prod-db-backups
   BACKUP_PREFIX: prod/supabase-logical
@@ -68,12 +67,18 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Assert production dispatch actor policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
+
       - name: Validate deployment SHA against main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "CI Status Gate"
+          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ github.event.inputs.sha }}"
 
       - name: Checkout deployment SHA
@@ -82,13 +87,9 @@ jobs:
           set -euo pipefail
           git checkout --detach "${{ github.event.inputs.sha }}"
 
-      - name: Report deployment approval lane
+      - name: Report production deploy lane
         run: |
-          if [ "${GITHUB_ACTOR}" = "${{ env.PRODUCTION_DEPLOY_OWNER }}" ]; then
-            echo "Owner-triggered production deploy: using owner-bypass environment."
-          else
-            echo "Non-owner production deploy: using approval-gated environment."
-          fi
+          echo "Owner-only production deploy: using production-owner-bypass environment."
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

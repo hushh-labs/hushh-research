@@ -13,7 +13,11 @@ describe("observability route map", () => {
     expect(resolveRouteId("/marketplace")).toBe("marketplace");
     expect(resolveRouteId("/marketplace/ria")).toBe("marketplace_ria_profile");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
+    expect(resolveRouteId("/ria/clients/user_123")).toBe("ria_workspace");
+    expect(resolveRouteId("/ria/clients/user_123/accounts/account_456")).toBe("ria_workspace");
+    expect(resolveRouteId("/ria/clients/user_123/requests/request_789")).toBe("ria_workspace");
     expect(resolveRouteId("/ria/workspace")).toBe("ria_workspace");
+    expect(resolveRouteId("/kai/funding-trade")).toBe("kai_funding_trade");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
   });
 
@@ -32,6 +36,12 @@ describe("observability route map", () => {
     );
     expect(normalizeApiPathToTemplate("/api/ria/workspace/user_123")).toBe(
       "/api/ria/workspace/{investor_user_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/plaid/trades/funded/create")).toBe(
+      "/api/kai/plaid/trades/funded/create"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/plaid/trades/funded/intent_123/refresh")).toBe(
+      "/api/kai/plaid/trades/funded/{intent_id}/refresh"
     );
     expect(normalizeApiPathToTemplate("/api/consent/center?actor=ria&view=outgoing")).toBe(
       "/api/consent/center"

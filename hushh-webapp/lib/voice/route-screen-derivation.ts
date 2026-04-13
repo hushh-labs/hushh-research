@@ -31,6 +31,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.KAI_INVESTMENTS) {
     return { screen: "kai_investments", subview: null };
   }
+  if (normalizedPath === ROUTES.KAI_FUNDING_TRADE) {
+    return { screen: "kai_funding_trade", subview: null };
+  }
   if (normalizedPath.startsWith("/kai/dashboard") || normalizedPath.startsWith(ROUTES.KAI_PORTFOLIO)) {
     const segments = normalizedPath.split("/").filter(Boolean);
     return {

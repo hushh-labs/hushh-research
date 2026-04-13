@@ -1,0 +1,54 @@
+{
+  "id": "codex-skill-authoring",
+  "role": "owner",
+  "owner_family": "codex-skill-authoring",
+  "primary_scope": "codex-skill-authoring-intake",
+  "description": "Use when creating, renaming, retrofitting, linting, or scaffolding repo-local Codex skills for hushh-research.",
+  "owned_paths": [
+    ".codex/skills"
+  ],
+  "non_owned_paths": [
+    "repo-context",
+    "docs-governance"
+  ],
+  "task_types": [
+    "skill-authoring",
+    "repo-orientation"
+  ],
+  "required_reads": [
+    ".codex/skills/codex-skill-authoring/references/skill-contract.md",
+    ".codex/skills/codex-skill-authoring/references/authoring-workflow.md",
+    ".codex/skills/repo-context/references/index-contract.md"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --dry-run",
+    "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "codex-skill-authoring",
+      "commands": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --dry-run",
+        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
+      ],
+      "tests": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "docs-governance"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "docs-governance"
+  ],
+  "risk_tags": [
+    "skill-taxonomy-drift",
+    "manifest-drift"
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "id": "quality-contracts",
+  "role": "spoke",
+  "owner_family": "security-audit",
+  "primary_scope": "quality-contracts",
+  "description": "Use when changing cross-surface verification policy, contract-test placement, test selection, or quality gates across frontend and backend.",
+  "owned_paths": [
+    "docs/reference/quality",
+    "hushh-webapp/__tests__",
+    "consent-protocol/tests"
+  ],
+  "non_owned_paths": [
+    "security-audit",
+    "frontend",
+    "backend"
+  ],
+  "task_types": [
+    "bug-triage",
+    "release-readiness",
+    "new-feature-tri-flow"
+  ],
+  "required_reads": [
+    "docs/reference/quality/README.md",
+    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/reference/kai/kai-runtime-smoke-checklist.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm test",
+    "cd consent-protocol && python3 -m pytest tests/quality -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "quality-contracts",
+      "commands": [
+        "cd hushh-webapp && npm test",
+        "cd consent-protocol && python3 -m pytest tests/quality -q"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm test",
+        "cd consent-protocol && python3 -m pytest tests/quality -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "security-audit",
+    "repo-operations",
+    "streaming-contracts",
+    "frontend",
+    "backend"
+  ],
+  "adjacent_skills": [
+    "security-audit",
+    "repo-operations",
+    "frontend",
+    "backend"
+  ],
+  "risk_tags": [
+    "verification-gap",
+    "test-contract-drift"
+  ]
+}

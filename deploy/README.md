@@ -251,7 +251,7 @@ Manual dispatch now supports `scope`:
 
 1. **GitHub secret:** add `GCP_SA_KEY` (and optionally `GCP_SA_KEY_UAT`) with Cloud Build + Cloud Run + Secret Manager permissions.
 2. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
-3. **Approval policy:** configure environment reviewers in GitHub Environments (`production`, `uat`) rather than repo code.
+3. **Approval policy:** use `production-owner-bypass` for `kushaltrivedi5`, `production-approval` for everyone else, and keep `kushaltrivedi5` as the required reviewer on the approval lane. Keep `uat` separately configured for UAT rollout.
 
 ### CI Security Gates
 

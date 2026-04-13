@@ -69,8 +69,11 @@ If you are not doing backend work, stop there. Do not start the local backend or
 ./bin/hushh doctor --mode uat
 ./bin/hushh doctor --mode prod
 
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh terminal web --mode local
 ./bin/hushh web --mode uat
 ./bin/hushh web --mode prod
+./bin/hushh terminal web --mode uat
 ./bin/hushh native ios --mode uat
 ./bin/hushh native android --mode uat
 ```
@@ -94,10 +97,11 @@ The default contributor path does not require it.
 When you do need the full local stack:
 
 ```bash
-./bin/hushh backend
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh terminal web --mode local
 ```
 
-That remains a maintainer/deeper-development path, not the primary onboarding contract.
+That separate-terminal backend + frontend flow is the preferred maintainer path. Use `./bin/hushh terminal stack --mode local` only if you deliberately want one visible terminal window to own both processes.
 
 The local backend path is the only place that uses:
 

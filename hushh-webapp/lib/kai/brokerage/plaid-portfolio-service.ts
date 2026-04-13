@@ -3,6 +3,7 @@
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ApiService } from "@/lib/services/api-service";
 import type {
+  PlaidFundingTradeIntentRef,
   PlaidFundingStatusResponse,
   PlaidTransferPayload,
   PlaidPortfolioStatusResponse,
@@ -48,6 +49,12 @@ export interface AlpacaConnectStartResponse {
   expires_at?: string | null;
   redirect_uri?: string | null;
   oauth_env?: string | null;
+}
+
+export interface PlaidFundedTradeIntentCreateResponse {
+  intent: PlaidFundingTradeIntentRef;
+  transfer?: PlaidTransferPayload | null;
+  decision?: string | null;
 }
 
 const PLAID_STATUS_CACHE_TTL_MS = 15_000;
@@ -696,6 +703,170 @@ export class PlaidPortfolioService {
     }
     this.invalidateStatusCache(params.userId);
     return (await response.json()) as PlaidTransferCreateResponse;
+  }
+
+  static async createFundedTradeIntent(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    fundingItemId: string;
+    fundingAccountId: string;
+    symbol: string;
+    userLegalName: string;
+    notionalUsd: number;
+    side?: "buy" | "sell";
+    orderType?: "market" | "limit";
+    timeInForce?: "day" | "gtc" | "opg" | "cls" | "ioc" | "fok";
+    limitPrice?: number | null;
+    brokerageAccountId?: string | null;
+    transferIdempotencyKey?: string | null;
+    tradeIdempotencyKey?: string | null;
+  }): Promise<PlaidFundedTradeIntentCreateResponse> {
+    const response = await ApiService.apiFetch("/api/kai/plaid/trades/funded/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: params.userId,
+        funding_item_id: params.fundingItemId,
+        funding_account_id: params.fundingAccountId,
+        symbol: params.symbol,
+        user_legal_name: params.userLegalName,
+        notional_usd: params.notionalUsd,
+        side: params.side || "buy",
+        order_type: params.orderType || "market",
+        time_in_force: params.timeInForce || "day",
+        limit_price: params.limitPrice ?? null,
+        brokerage_account_id: params.brokerageAccountId || null,
+        transfer_idempotency_key: params.transferIdempotencyKey || null,
+        trade_idempotency_key: params.tradeIdempotencyKey || null,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "One-click funded trade could not be created right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as PlaidFundedTradeIntentCreateResponse;
+  }
+
+  static async listFundedTradeIntents(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<{ count: number; items: PlaidFundingTradeIntentRef[] }> {
+    const query = new URLSearchParams({
+      user_id: params.userId,
+      ...(typeof params.limit === "number" ? { limit: String(params.limit) } : {}),
+    }).toString();
+    const response = await ApiService.apiFetch(`/api/kai/plaid/trades/funded?${query}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+    });
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funded trade intents are not available right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as { count: number; items: PlaidFundingTradeIntentRef[] };
+  }
+
+  static async getFundedTradeIntent(params: {
+    userId: string;
+    intentId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    intent: PlaidFundingTradeIntentRef;
+    transfer?: {
+      transfer_id?: string | null;
+      status?: string | null;
+      user_facing_status?: string | null;
+      failure_reason_code?: string | null;
+      failure_reason_message?: string | null;
+    } | null;
+  }> {
+    const query = new URLSearchParams({ user_id: params.userId }).toString();
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/trades/funded/${encodeURIComponent(params.intentId)}?${query}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funded trade intent status is not available right now."
+      );
+      throw new Error(detail);
+    }
+    return (await response.json()) as {
+      intent: PlaidFundingTradeIntentRef;
+      transfer?: {
+        transfer_id?: string | null;
+        status?: string | null;
+        user_facing_status?: string | null;
+        failure_reason_code?: string | null;
+        failure_reason_message?: string | null;
+      } | null;
+    };
+  }
+
+  static async refreshFundedTradeIntent(params: {
+    userId: string;
+    intentId: string;
+    vaultOwnerToken: string;
+  }): Promise<{
+    intent: PlaidFundingTradeIntentRef;
+    transfer?: {
+      transfer_id?: string | null;
+      status?: string | null;
+      user_facing_status?: string | null;
+      failure_reason_code?: string | null;
+      failure_reason_message?: string | null;
+    } | null;
+  }> {
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/trades/funded/${encodeURIComponent(params.intentId)}/refresh`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Funded trade intent could not be refreshed right now."
+      );
+      throw new Error(detail);
+    }
+    this.invalidateStatusCache(params.userId);
+    return (await response.json()) as {
+      intent: PlaidFundingTradeIntentRef;
+      transfer?: {
+        transfer_id?: string | null;
+        status?: string | null;
+        user_facing_status?: string | null;
+        failure_reason_code?: string | null;
+        failure_reason_message?: string | null;
+      } | null;
+    };
   }
 
   static async getTransfer(params: {

@@ -1,0 +1,59 @@
+{
+  "id": "docs-governance",
+  "role": "owner",
+  "owner_family": "docs-governance",
+  "primary_scope": "docs-governance-intake",
+  "description": "Use when reorganizing docs, deciding documentation homes, consolidating redundant docs, updating diagrams or doc maps, or changing documentation verification policy in this repo.",
+  "owned_paths": [
+    "docs",
+    "consent-protocol/docs",
+    "hushh-webapp/docs"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "backend",
+    "repo-operations"
+  ],
+  "task_types": [
+    "docs-sync",
+    "release-readiness",
+    "repo-orientation"
+  ],
+  "required_reads": [
+    "docs/reference/operations/documentation-architecture-map.md",
+    "docs/reference/operations/docs-governance.md",
+    ".codex/skills/docs-governance/references/documentation-homes.md"
+  ],
+  "required_commands": [
+    "./bin/hushh docs verify",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+  ],
+  "verification_bundles": [
+    {
+      "id": "docs-governance",
+      "commands": [
+        "./bin/hushh docs verify",
+        "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+      ],
+      "tests": [
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "frontend",
+    "backend",
+    "repo-operations"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "frontend",
+    "backend",
+    "repo-operations"
+  ],
+  "risk_tags": [
+    "docs-home-drift",
+    "reference-drift"
+  ]
+}

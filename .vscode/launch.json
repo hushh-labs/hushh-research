@@ -2,66 +2,62 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Runtime: UAT Stack",
+      "name": "Runtime: Visible Local Backend",
       "type": "node-terminal",
       "request": "launch",
-      "command": "make uat",
+      "command": "./bin/hushh terminal backend --mode local --reload",
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Runtime: Production Stack",
+      "name": "Runtime: Visible Local Frontend",
       "type": "node-terminal",
       "request": "launch",
-      "command": "make prod",
+      "command": "./bin/hushh terminal web --mode local",
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Runtime: Local Web",
+      "name": "Runtime: Visible UAT Frontend",
       "type": "node-terminal",
       "request": "launch",
-      "command": "make local-web",
+      "command": "./bin/hushh terminal web --mode uat",
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Runtime: UAT Web",
+      "name": "Runtime: Visible Production Frontend",
       "type": "node-terminal",
       "request": "launch",
-      "command": "make uat-web",
+      "command": "./bin/hushh terminal web --mode prod",
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Runtime: Production Web",
+      "name": "Runtime: Visible Local Stack",
       "type": "node-terminal",
       "request": "launch",
-      "command": "make prod-web",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Runtime: Local Backend",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make local-backend",
+      "command": "./bin/hushh terminal stack --mode local",
       "cwd": "${workspaceFolder}"
     },
     {
       "name": "Native: Android Local",
       "type": "node-terminal",
       "request": "launch",
-      "command": "cd hushh-webapp && npm run cap:android:run -- --profile local-uatdb --fresh",
+      "command": "./bin/hushh native android --mode local --fresh",
       "cwd": "${workspaceFolder}"
     },
     {
       "name": "Native: iOS Local",
       "type": "node-terminal",
       "request": "launch",
-      "command": "cd hushh-webapp && npm run cap:ios:run -- --profile local-uatdb --fresh",
+      "command": "./bin/hushh native ios --mode local --fresh",
       "cwd": "${workspaceFolder}"
     }
   ],
   "compounds": [
     {
-      "name": "Runtime: Local Dev",
-      "configurations": ["Runtime: Local Backend", "Runtime: Local Web"],
+      "name": "Runtime: Visible Local Dev",
+      "configurations": [
+        "Runtime: Visible Local Backend",
+        "Runtime: Visible Local Frontend"
+      ],
       "stopAll": true
     }
   ]
