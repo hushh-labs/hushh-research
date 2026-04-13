@@ -26,7 +26,8 @@ const STATUS_TTL_MS = 5 * 60 * 1000;
 const ACTIVE_STATUS_TTL_MS = 30 * 1000;
 const RUN_POLL_BASE_MS = 2_000;
 const RUN_POLL_MAX_MS = 15_000;
-const RUN_POLL_MAX_ATTEMPTS = 45;
+const RUN_POLL_MAX_ATTEMPTS = 18;
+const RUN_POLL_MAX_ELAPSED_MS = 2 * 60 * 1000;
 
 type GmailConnectorTaskKind = "gmail_bootstrap" | "gmail_manual_sync" | "gmail_backfill";
 
@@ -45,6 +46,7 @@ interface GmailConnectorEntry {
   activeTaskId: string | null;
   activeTaskKind: GmailConnectorTaskKind | null;
   activeTaskRouteHref: string | null;
+  suppressedRunId: string | null;
   isRefreshing: boolean;
   isPolling: boolean;
   pollAttempts: number;
@@ -81,6 +83,7 @@ export interface UseGmailConnectorStatusResult {
   loadingStatus: boolean;
   refreshingStatus: boolean;
   syncingRun: boolean;
+  isStale: boolean;
   statusError: string | null;
   refreshStatus: (options?: { force?: boolean }) => Promise<GmailConnectionStatus | null>;
   disconnectGmail: () => Promise<GmailConnectionStatus | null>;
@@ -137,6 +140,14 @@ function isTerminalRunStatus(value: unknown): boolean {
 function hasActiveRun(run: GmailSyncRun | null | undefined): boolean {
   if (!run) return false;
   return run.status === "queued" || run.status === "running";
+}
+
+function isPassiveBackfillRun(run: GmailSyncRun | null | undefined): boolean {
+  return hasActiveRun(run) && deriveConnectorTaskKind(run) === "gmail_backfill";
+}
+
+function hasBlockingRun(run: GmailSyncRun | null | undefined): boolean {
+  return hasActiveRun(run) && !isPassiveBackfillRun(run);
 }
 
 function deriveConnectorTaskKind(run: GmailSyncRun | null | undefined): GmailConnectorTaskKind {
@@ -206,9 +217,10 @@ function readPersistedState(): Record<string, GmailConnectorEntry> {
             : null,
         activeTaskRouteHref:
           typeof value.activeTaskRouteHref === "string" ? value.activeTaskRouteHref : null,
-        isRefreshing: Boolean(value.isRefreshing),
-        isPolling: Boolean(value.isPolling),
-        pollAttempts: typeof value.pollAttempts === "number" ? value.pollAttempts : 0,
+        suppressedRunId: typeof value.suppressedRunId === "string" ? value.suppressedRunId : null,
+        isRefreshing: false,
+        isPolling: false,
+        pollAttempts: 0,
       };
     }
     return nextEntries;
@@ -217,10 +229,21 @@ function readPersistedState(): Record<string, GmailConnectorEntry> {
   }
 }
 
+function toPersistedEntry(entry: GmailConnectorEntry): GmailConnectorEntry {
+  return {
+    ...entry,
+    isRefreshing: false,
+    isPolling: false,
+    pollAttempts: 0,
+  };
+}
+
 function persistState(): void {
   const payload: PersistedGmailConnectorState = {
     version: 1,
-    entries: Object.fromEntries(entries.entries()),
+    entries: Object.fromEntries(
+      Array.from(entries.entries()).map(([userId, entry]) => [userId, toPersistedEntry(entry)])
+    ),
   };
   setSessionItem(STORAGE_KEY, JSON.stringify(payload));
 }
@@ -246,6 +269,7 @@ function getOrCreateEntry(userId: string): GmailConnectorEntry {
       activeTaskId: null,
       activeTaskKind: null,
       activeTaskRouteHref: null,
+      suppressedRunId: null,
       isRefreshing: false,
       isPolling: false,
       pollAttempts: 0,
@@ -383,17 +407,34 @@ async function fetchStatusFromNetwork(params: {
   idToken: string;
   force?: boolean;
   routeHref?: string | null;
+  idTokenProvider?: (() => Promise<string>) | null;
+  pollActiveRun?: boolean;
 }): Promise<GmailConnectionStatus | null> {
   const normalizedUserId = String(params.userId || "").trim();
   if (!normalizedUserId) return null;
 
   const existingRequest = inflightStatusRequests.get(normalizedUserId);
-  if (existingRequest) {
+  if (existingRequest && !params.force) {
     return existingRequest;
   }
 
   const entry = getOrCreateEntry(normalizedUserId);
   if (isStatusFresh(entry, Boolean(params.force))) {
+    const activeRun = entry.syncRun || entry.status?.latest_run || null;
+    if (
+      params.pollActiveRun !== false &&
+      params.idTokenProvider &&
+      activeRun &&
+      hasActiveRun(activeRun)
+    ) {
+      void pollSyncRun({
+        userId: normalizedUserId,
+        idTokenProvider: params.idTokenProvider,
+        runId: activeRun.run_id,
+        routeHref: params.routeHref,
+        taskKind: deriveConnectorTaskKind(activeRun),
+      });
+    }
     return entry.status;
   }
 
@@ -412,6 +453,7 @@ async function fetchStatusFromNetwork(params: {
         status,
         routeHref: params.routeHref,
         source: "status",
+        idTokenProvider: params.pollActiveRun === false ? null : params.idTokenProvider || null,
       });
       return status;
     })
@@ -427,6 +469,7 @@ async function fetchStatusFromNetwork(params: {
             status: fallbackStatus,
             routeHref: params.routeHref,
             source: "status",
+            idTokenProvider: params.pollActiveRun === false ? null : params.idTokenProvider || null,
           });
           return fallbackStatus;
         } catch (fallbackError) {
@@ -480,9 +523,41 @@ async function pollSyncRun(params: {
   });
 
   let attempt = 0;
+  const startedAtMs = nowMs();
+  let handoffRunId: string | null = null;
+  let handoffTaskKind: GmailConnectorTaskKind | null = null;
+  let shouldStopPolling = false;
   try {
-    while (!controller.signal.aborted && attempt < RUN_POLL_MAX_ATTEMPTS) {
+    while (!controller.signal.aborted && !shouldStopPolling) {
       attempt += 1;
+      const elapsedMs = nowMs() - startedAtMs;
+      if (attempt > RUN_POLL_MAX_ATTEMPTS || elapsedMs >= RUN_POLL_MAX_ELAPSED_MS) {
+        updateEntry(normalizedUserId, {
+          activeRunId: null,
+          activeTaskId: null,
+          activeTaskKind: null,
+          suppressedRunId: normalizedRunId,
+          isPolling: false,
+        });
+        try {
+          await fetchStatusFromNetwork({
+            userId: normalizedUserId,
+            idToken: await params.idTokenProvider(),
+            force: true,
+            routeHref: params.routeHref,
+            idTokenProvider: null,
+            pollActiveRun: false,
+          });
+        } catch (refreshError) {
+          console.warn(
+            "[gmail-connector-store] Failed to refresh Gmail status after poll timeout:",
+            refreshError
+          );
+        }
+        shouldStopPolling = true;
+        continue;
+      }
+
       updateEntry(normalizedUserId, { pollAttempts: attempt });
       const idToken = await params.idTokenProvider();
       const payload = await GmailReceiptsService.getSyncRun({
@@ -505,6 +580,7 @@ async function pollSyncRun(params: {
         activeRunId: hasActiveRun(run) ? normalizedRunId : null,
         activeTaskId: taskId,
         activeTaskKind: taskKind,
+        suppressedRunId: run.run_id === normalizedRunId && hasActiveRun(run) ? null : undefined,
       });
 
       if (isTerminalRunStatus(run.status)) {
@@ -518,12 +594,25 @@ async function pollSyncRun(params: {
             idToken,
             force: true,
             routeHref: params.routeHref,
+            idTokenProvider: params.idTokenProvider,
+            pollActiveRun: false,
           });
           params.onComplete?.(refreshed);
+          const nextRun = refreshed?.latest_run;
+          if (
+            nextRun &&
+            hasActiveRun(nextRun) &&
+            nextRun.run_id &&
+            nextRun.run_id !== normalizedRunId
+          ) {
+            handoffRunId = nextRun.run_id;
+            handoffTaskKind = deriveConnectorTaskKind(nextRun);
+          }
         } catch {
           params.onComplete?.(null);
         }
-        return;
+        shouldStopPolling = true;
+        continue;
       }
 
       const delayMs = Math.min(RUN_POLL_MAX_MS, RUN_POLL_BASE_MS * Math.max(1, attempt));
@@ -547,6 +636,21 @@ async function pollSyncRun(params: {
     inflightRunPollers.delete(normalizedUserId);
     updateEntry(normalizedUserId, { isPolling: false });
   }
+
+  if (
+    handoffRunId &&
+    !controller.signal.aborted &&
+    inflightRunPollers.get(normalizedUserId) == null
+  ) {
+    void pollSyncRun({
+      userId: normalizedUserId,
+      idTokenProvider: params.idTokenProvider,
+      runId: handoffRunId,
+      routeHref: params.routeHref,
+      taskKind: handoffTaskKind,
+      onComplete: params.onComplete,
+    });
+  }
 }
 
 export function subscribe(listener: Listener): () => void {
@@ -568,24 +672,33 @@ export function getConnectorView(userId: string | null | undefined): GmailConnec
     return cached.view;
   }
 
-  const status = entry?.status || null;
-  const syncRun = entry?.syncRun || status?.latest_run || null;
+  const rawStatus = entry?.status || null;
+  const rawSyncRun = entry?.syncRun || rawStatus?.latest_run || null;
+  const syncRun = rawSyncRun;
+  const activeTaskKind =
+    entry?.activeTaskKind || (syncRun && hasActiveRun(syncRun) ? deriveConnectorTaskKind(syncRun) : null);
   const isFresh = entry ? isStatusFresh(entry) : false;
+  const isBackgroundRunStale =
+    Boolean(entry?.suppressedRunId) &&
+    rawSyncRun?.run_id === entry?.suppressedRunId &&
+    hasActiveRun(rawSyncRun);
   const view: GmailConnectorView = {
-    status,
+    status: rawStatus,
     syncRun,
     statusError: entry?.statusError || null,
-    loadingStatus: Boolean(entry?.isRefreshing) && !status,
-    refreshingStatus: Boolean(entry?.isRefreshing) && Boolean(status),
-    syncingRun: Boolean(entry?.isPolling || hasActiveRun(syncRun)),
-    isStale: !isFresh,
+    loadingStatus: Boolean(entry?.isRefreshing) && !rawStatus,
+    refreshingStatus: Boolean(entry?.isRefreshing) && Boolean(rawStatus),
+    syncingRun: Boolean(
+      (entry?.isPolling && activeTaskKind !== "gmail_backfill") || hasBlockingRun(syncRun)
+    ),
+    isStale: !isFresh || isBackgroundRunStale,
     activeRunId: entry?.activeRunId || syncRun?.run_id || null,
     activeTaskId: entry?.activeTaskId || null,
-    activeTaskKind: entry?.activeTaskKind || null,
+    activeTaskKind: activeTaskKind || null,
     activeTaskRouteHref: entry?.activeTaskRouteHref || null,
     presentation: resolveGmailConnectionPresentation({
-      status,
-      loading: Boolean(entry?.isRefreshing) && !status,
+      status: rawStatus,
+      loading: Boolean(entry?.isRefreshing) && !rawStatus,
       errorText: entry?.statusError || null,
     }),
   };
@@ -607,7 +720,12 @@ export function primeConnectorStatus(params: {
   const normalizedUserId = String(params.userId || "").trim();
   if (!normalizedUserId) return;
 
+  const currentEntry = getOrCreateEntry(normalizedUserId);
   const latestRun = params.status.latest_run || null;
+  const shouldKeepSuppressedRun =
+    Boolean(currentEntry.suppressedRunId) &&
+    latestRun?.run_id === currentEntry.suppressedRunId &&
+    hasActiveRun(latestRun);
   const nextTaskKind =
     latestRun && hasActiveRun(latestRun)
       ? deriveConnectorTaskKind(latestRun)
@@ -648,14 +766,15 @@ export function primeConnectorStatus(params: {
     statusError: null,
     syncRun: latestRun,
     syncRunFetchedAt: latestRun ? nowMs() : null,
-    activeRunId: latestRun && hasActiveRun(latestRun) ? latestRun.run_id : null,
-    activeTaskId: nextTaskId,
-    activeTaskKind: nextTaskKind,
+    activeRunId: latestRun && hasActiveRun(latestRun) && !shouldKeepSuppressedRun ? latestRun.run_id : null,
+    activeTaskId: shouldKeepSuppressedRun ? null : nextTaskId,
+    activeTaskKind: shouldKeepSuppressedRun ? null : nextTaskKind,
     activeTaskRouteHref: params.routeHref || null,
+    suppressedRunId: shouldKeepSuppressedRun ? currentEntry.suppressedRunId : null,
     isRefreshing: false,
   });
 
-  if (latestRun && hasActiveRun(latestRun)) {
+  if (latestRun && hasActiveRun(latestRun) && !shouldKeepSuppressedRun) {
     const taskKind = nextTaskKind || deriveConnectorTaskKind(latestRun);
     const taskId = seedTaskFromRun(normalizedUserId, latestRun, {
       routeHref: params.routeHref,
@@ -715,6 +834,7 @@ export function useGmailConnectorStatus(
         idToken,
         force: refreshOptions?.force,
         routeHref,
+        idTokenProvider,
       });
     },
     [enabled, idTokenProvider, normalizedUserId, routeHref]
@@ -811,6 +931,7 @@ export function useGmailConnectorStatus(
     loadingStatus: snapshot.loadingStatus,
     refreshingStatus: snapshot.refreshingStatus,
     syncingRun: snapshot.syncingRun,
+    isStale: snapshot.isStale,
     statusError: snapshot.statusError,
     refreshStatus,
     disconnectGmail,

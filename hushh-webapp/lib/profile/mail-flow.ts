@@ -106,11 +106,11 @@ function formatRelativeTimeFromNow(value: string | null | undefined): string | n
 
 function hasActiveSync(status: GmailConnectionStatus | null): boolean {
   if (!status) return false;
-  return (
+  const active =
     status.last_sync_status === "running" ||
     status.latest_run?.status === "queued" ||
-    status.latest_run?.status === "running"
-  );
+    status.latest_run?.status === "running";
+  return active && !isBackfillRunning(status);
 }
 
 function isBootstrapRunning(status: GmailConnectionStatus | null): boolean {
@@ -149,10 +149,10 @@ function latestSyncTimestamp(
   status: GmailConnectionStatus | null
 ): string | null {
   return (
-    formatDateTime(run?.completed_at) ||
-    formatDateTime(run?.started_at) ||
-    formatDateTime(run?.requested_at) ||
-    formatDateTime(status?.last_sync_at) ||
+    run?.completed_at ||
+    run?.started_at ||
+    run?.requested_at ||
+    status?.last_sync_at ||
     null
   );
 }
@@ -249,13 +249,20 @@ export function resolveGmailStatusSummary(options: {
     };
   }
 
-  if (connected && (hasActiveSync(status) || isBootstrapRunning(status) || isBackfillRunning(status))) {
+  if (connected && isBackfillRunning(status)) {
+    return {
+      tone: "success",
+      title: "Older receipts are still loading",
+      detail: "Your recent receipts are ready while we fetch older receipts in the background.",
+      helper: lastUpdated || connectedLabel,
+    };
+  }
+
+  if (connected && (hasActiveSync(status) || isBootstrapRunning(status))) {
     return {
       tone: "loading",
       title: "Syncing your receipts…",
-      detail: isBackfillRunning(status)
-        ? "We're fetching your recent purchases and older receipts in the background."
-        : "We're fetching your recent purchases.",
+      detail: "We're fetching your recent purchases.",
       helper: lastUpdated || connectedLabel,
     };
   }
@@ -371,6 +378,17 @@ export function resolveGmailConnectionPresentation(options: {
     };
   }
 
+  if (connected && isBackfillRunning(status)) {
+    return {
+      state: "connected_backfill_running",
+      badgeLabel: "Connected",
+      description: `${resolveGmailConnectedLabel(status)}. We're fetching older receipts in the background.`,
+      latestSyncText: resolveLatestSyncText(status),
+      latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || "running",
+      isConnected: true,
+    };
+  }
+
   if (hasActiveSync(status)) {
     return {
       state: "syncing",
@@ -411,17 +429,6 @@ export function resolveGmailConnectionPresentation(options: {
       state: "connected_initial_scan_running",
       badgeLabel: "Syncing",
       description: `${resolveGmailConnectedLabel(status)}. We're fetching your recent purchases.`,
-      latestSyncText: resolveLatestSyncText(status),
-      latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || "running",
-      isConnected: true,
-    };
-  }
-
-  if (connected && isBackfillRunning(status)) {
-    return {
-      state: "connected_backfill_running",
-      badgeLabel: "Syncing",
-      description: `${resolveGmailConnectedLabel(status)}. We're fetching older receipts in the background.`,
       latestSyncText: resolveLatestSyncText(status),
       latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || "running",
       isConnected: true,

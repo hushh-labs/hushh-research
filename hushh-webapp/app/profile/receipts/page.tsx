@@ -126,6 +126,104 @@ function buildEditableReceiptMemoryArtifact(
   };
 }
 
+const RECEIPT_MEMORY_DETERMINISTIC_CONFIG_VERSION = "receipt_memory_v1";
+const RECEIPT_MEMORY_INFERENCE_WINDOW_DAYS = 365;
+const RECEIPT_MEMORY_HIGHLIGHTS_WINDOW_DAYS = 90;
+
+interface ReceiptMemorySourceWatermark {
+  eligible_receipt_count: number;
+  latest_receipt_updated_at: string | null;
+  latest_receipt_id: number | null;
+  latest_receipt_date: string | null;
+  deterministic_config_version: string;
+  inference_window_days: number;
+  highlights_window_days: number;
+}
+
+function toComparableIso(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const iso = date.toISOString();
+  return iso.endsWith(".000Z") ? iso.replace(".000Z", "Z") : iso;
+}
+
+function receiptSortKey(item: ReceiptListItem): [number, number] | null {
+  const timestamp = toComparableIso(
+    item.receipt_date || item.gmail_internal_date || item.created_at || item.updated_at || null
+  );
+  if (!timestamp) return null;
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) return null;
+  return [parsed, item.id];
+}
+
+function buildReceiptMemorySourceWatermark(
+  cached: ReturnType<typeof getCachedGmailReceipts>
+): ReceiptMemorySourceWatermark | null {
+  if (!cached || cached.has_more || !Array.isArray(cached.items) || cached.items.length === 0) {
+    return null;
+  }
+
+  const latestItem = [...cached.items]
+    .filter((item) => receiptSortKey(item) !== null)
+    .sort((left, right) => {
+      const leftKey = receiptSortKey(left);
+      const rightKey = receiptSortKey(right);
+      if (!leftKey || !rightKey) return 0;
+      if (leftKey[0] !== rightKey[0]) return rightKey[0] - leftKey[0];
+      return rightKey[1] - leftKey[1];
+    })[0];
+
+  if (!latestItem) return null;
+
+  const latestReceiptDate = toComparableIso(
+    latestItem.receipt_date || latestItem.gmail_internal_date || latestItem.created_at || null
+  );
+  const latestReceiptUpdatedAt = toComparableIso(
+    latestItem.updated_at || latestItem.created_at || latestItem.receipt_date || null
+  );
+
+  if (!latestReceiptDate || !latestReceiptUpdatedAt) {
+    return null;
+  }
+
+  return {
+    eligible_receipt_count: cached.total,
+    latest_receipt_updated_at: latestReceiptUpdatedAt,
+    latest_receipt_id: latestItem.id,
+    latest_receipt_date: latestReceiptDate,
+    deterministic_config_version: RECEIPT_MEMORY_DETERMINISTIC_CONFIG_VERSION,
+    inference_window_days: RECEIPT_MEMORY_INFERENCE_WINDOW_DAYS,
+    highlights_window_days: RECEIPT_MEMORY_HIGHLIGHTS_WINDOW_DAYS,
+  };
+}
+
+function isReceiptMemoryWatermarkCurrent(
+  artifact: ReceiptMemoryArtifact | null,
+  cached: ReturnType<typeof getCachedGmailReceipts>
+): boolean {
+  if (!artifact) return false;
+  const current = buildReceiptMemorySourceWatermark(cached);
+  if (!current) return false;
+
+  const sourceWatermark = artifact.source_watermark;
+  if (!sourceWatermark || typeof sourceWatermark !== "object" || Array.isArray(sourceWatermark)) {
+    return false;
+  }
+
+  const record = sourceWatermark as Record<string, unknown>;
+  return (
+    Number(record.eligible_receipt_count) === current.eligible_receipt_count &&
+    toComparableIso(String(record.latest_receipt_updated_at || "")) === current.latest_receipt_updated_at &&
+    Number(record.latest_receipt_id) === current.latest_receipt_id &&
+    toComparableIso(String(record.latest_receipt_date || "")) === current.latest_receipt_date &&
+    String(record.deterministic_config_version || "") === current.deterministic_config_version &&
+    Number(record.inference_window_days) === current.inference_window_days &&
+    Number(record.highlights_window_days) === current.highlights_window_days
+  );
+}
+
 export default function ProfileReceiptsPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -301,6 +399,7 @@ export default function ProfileReceiptsPage() {
   const connectorState = gmail.presentation.state;
   const latestSyncText = gmail.presentation.latestSyncText;
   const latestSyncBadge = gmail.presentation.latestSyncBadge;
+  const isPassiveBackfillState = connectorState === "connected_backfill_running";
 
   const handleSyncNow = useCallback(async () => {
     if (!user?.uid) return;
@@ -369,6 +468,7 @@ export default function ProfileReceiptsPage() {
     connectorState === "connected_initial_scan_running" ||
     connectorState === "connected_backfill_running" ||
     connectorState === "syncing";
+  const hasStaleBackgroundSync = gmail.isStale && isSyncingState;
   const canBuildReceiptMemoryPreview = Boolean(user?.uid) && (total > 0 || hasStoredReceipts);
   const receiptSummaryDraftTrimmed = receiptSummaryDraft.trim();
   const autoReceiptSummaryKey = useMemo(() => {
@@ -394,6 +494,11 @@ export default function ProfileReceiptsPage() {
     total,
     user?.uid,
   ]);
+  const cachedReceipts = user?.uid ? getCachedGmailReceipts(user.uid) : null;
+  const receiptMemoryWatermarkCurrent = useMemo(
+    () => isReceiptMemoryWatermarkCurrent(receiptMemoryArtifact, cachedReceipts),
+    [cachedReceipts, receiptMemoryArtifact]
+  );
   const statusSummary = useMemo(
     () =>
       resolveGmailStatusSummary({
@@ -662,7 +767,7 @@ export default function ProfileReceiptsPage() {
       !autoReceiptSummaryKey ||
       loadingStatus ||
       loadingReceipts ||
-      syncing ||
+      isSyncingState ||
       receiptMemoryLoading
     ) {
       return;
@@ -672,15 +777,18 @@ export default function ProfileReceiptsPage() {
     }
 
     autoReceiptSummaryKeyRef.current = autoReceiptSummaryKey;
-    void handleBuildReceiptMemoryPreview(Boolean(receiptMemoryArtifact));
+    void handleBuildReceiptMemoryPreview(
+      Boolean(receiptMemoryArtifact) && !receiptMemoryWatermarkCurrent
+    );
   }, [
     autoReceiptSummaryKey,
     handleBuildReceiptMemoryPreview,
+    isSyncingState,
     loadingReceipts,
     loadingStatus,
     receiptMemoryArtifact,
+    receiptMemoryWatermarkCurrent,
     receiptMemoryLoading,
-    syncing,
   ]);
 
   const handleSaveReceiptMemory = useCallback(async () => {
@@ -856,13 +964,18 @@ export default function ProfileReceiptsPage() {
               </Badge>
             </div>
 
-            {isSyncingState && latestRunMetrics ? (
+            {isSyncingState && latestRunMetrics && !isPassiveBackfillState ? (
               <div className="space-y-2">
                 <Progress value={progressPercent} className="h-2" />
                 <p className="text-xs text-muted-foreground">
                   We’re still fetching your recent purchases in the background.
                 </p>
               </div>
+            ) : null}
+            {hasStaleBackgroundSync ? (
+              <p className="text-xs text-amber-600">
+                Gmail is still running in the background. This status may lag behind for a bit.
+              </p>
             ) : null}
 
             {!isConnected ? (
@@ -966,6 +1079,10 @@ export default function ProfileReceiptsPage() {
             {!canBuildReceiptMemoryPreview ? (
               <p className="text-xs text-muted-foreground">
                 Sync receipts first to create a shopping summary.
+              </p>
+            ) : isSyncingState ? (
+              <p className="text-xs text-muted-foreground">
+                We&apos;ll prepare your shopping summary after Gmail finishes syncing.
               </p>
             ) : null}
             {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (

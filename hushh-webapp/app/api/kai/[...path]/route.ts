@@ -15,6 +15,10 @@ const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(15_000, {
   developmentFloorMs: 15_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_TIMEOUT_MS",
 });
+const GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
+  developmentFloorMs: 45_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS",
+});
 const GMAIL_RECONCILE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_RECONCILE_TIMEOUT_MS",
@@ -97,6 +101,9 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 }
 
 function resolveKaiUpstreamTimeoutMs(path: string): number | null {
+  if (path === "gmail/receipts-memory/preview") {
+    return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
+  }
   if (path === "gmail/reconcile") {
     return GMAIL_RECONCILE_TIMEOUT_MS;
   }

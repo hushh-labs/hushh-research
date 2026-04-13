@@ -33,7 +33,7 @@ const vaultCheckCache = new Map<
 >();
 const vaultCheckInflight = new Map<
   string,
-  Promise<{ status: number; payload: { hasVault: boolean; cached?: boolean; degraded?: boolean; error?: string; code?: string } }>
+  Promise<{ status: number; payload: { hasVault: boolean; cached?: boolean; degraded?: boolean; error?: string; code?: string; hint?: string } }>
 >();
 
 function readFreshVaultCheck(userId: string): boolean | null {
@@ -146,6 +146,7 @@ export async function GET(request: NextRequest) {
                 : response.status === 401
                   ? "AUTH_INVALID"
                   : undefined,
+            hint: typeof payload?.hint === "string" ? payload.hint : undefined,
           },
         };
       }

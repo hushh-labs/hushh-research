@@ -42,6 +42,12 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     setAnalysisParams,
   } = input;
   const toolName = toolCall.tool_name;
+  const handledBuiltinTool =
+    toolName === "clarify" ||
+    toolName === "navigate_back" ||
+    toolName === "execute_kai_command" ||
+    toolName === "resume_active_analysis" ||
+    toolName === "cancel_active_analysis";
 
   const canonicalAction = getInvestorKaiActionByVoiceToolCall(toolCall);
   if (canonicalAction) {
@@ -53,8 +59,8 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     } else {
       console.info(`[KAI_ACTION_REGISTRY] resolved_voice_action id=${canonicalAction.id}`);
     }
-  } else {
-    console.warn(`[KAI_ACTION_REGISTRY] missing_action_for_voice_tool tool=${toolCall.tool_name}`);
+  } else if (!handledBuiltinTool) {
+    console.warn(`[KAI_ACTION_REGISTRY] missing_action_for_voice_tool tool=${toolName}`);
   }
 
   console.info("[VOICE_UI] dispatch_tool_call=", toolCall);

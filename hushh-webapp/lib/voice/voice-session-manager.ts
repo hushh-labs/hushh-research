@@ -42,6 +42,7 @@ export type VoiceSessionAcquireInput = {
   scopeId: string;
   userId: string;
   vaultOwnerToken: string;
+  getVaultOwnerToken?: () => string | null;
   voice?: string;
   activate?: boolean;
 };
@@ -145,6 +146,7 @@ class VoiceSessionManager {
 
   private userId: string | null = null;
   private vaultOwnerToken: string | null = null;
+  private vaultOwnerTokenProvider: (() => string | null) | null = null;
   private configuredVoice: string = "alloy";
 
   private muted = true;
@@ -243,16 +245,32 @@ class VoiceSessionManager {
     }
   }
 
+  private resolveVaultOwnerToken(): string | null {
+    if (!this.vaultOwnerTokenProvider) {
+      return this.vaultOwnerToken;
+    }
+    const nextToken = this.vaultOwnerTokenProvider();
+    this.vaultOwnerToken = typeof nextToken === "string" && nextToken.trim() ? nextToken.trim() : null;
+    return this.vaultOwnerToken;
+  }
+
   async acquire(input: VoiceSessionAcquireInput): Promise<void> {
     this.scopeIds.add(input.scopeId);
     if (input.activate) {
       this.activeScopeIds.add(input.scopeId);
     }
+    const nextVaultOwnerToken = input.getVaultOwnerToken
+      ? input.getVaultOwnerToken()
+      : input.vaultOwnerToken;
     const credentialsChanged =
-      this.userId !== input.userId || this.vaultOwnerToken !== input.vaultOwnerToken;
+      this.userId !== input.userId || this.vaultOwnerToken !== nextVaultOwnerToken;
 
     this.userId = input.userId;
-    this.vaultOwnerToken = input.vaultOwnerToken;
+    this.vaultOwnerTokenProvider = input.getVaultOwnerToken || null;
+    this.vaultOwnerToken =
+      typeof nextVaultOwnerToken === "string" && nextVaultOwnerToken.trim()
+        ? nextVaultOwnerToken.trim()
+        : null;
     this.configuredVoice = String(input.voice || this.configuredVoice || "alloy").trim() || "alloy";
 
     if (!this.visibilityHandlerRegistered) {
@@ -327,7 +345,7 @@ class VoiceSessionManager {
 
     try {
       await this.disconnect("transport_error_cleanup", { stopLocalStream: true });
-      if (this.activeScopeIds.size === 0 || !this.userId || !this.vaultOwnerToken) {
+      if (this.activeScopeIds.size === 0 || !this.userId || !this.resolveVaultOwnerToken()) {
         this.emitDebug("transport_recovery_skipped_no_scope", { reason });
         return;
       }
@@ -347,7 +365,8 @@ class VoiceSessionManager {
   }
 
   async ensureConnected(reason: string = "manual"): Promise<void> {
-    if (!this.userId || !this.vaultOwnerToken) {
+    const vaultOwnerToken = this.resolveVaultOwnerToken();
+    if (!this.userId || !vaultOwnerToken) {
       throw new Error("VOICE_SESSION_AUTH_REQUIRED");
     }
     if (this.connected()) {
@@ -393,7 +412,7 @@ class VoiceSessionManager {
         });
         const sessionResponsePromise = ApiService.createKaiRealtimeSession({
           userId: this.userId!,
-          vaultOwnerToken: this.vaultOwnerToken!,
+          vaultOwnerToken,
           voice: this.configuredVoice,
           voiceTurnId: sessionTurnId,
           signal: connectAbortController.signal,

@@ -2,6 +2,7 @@ export type InvestorMessageCode =
   | "ACCOUNT_STATE_UNAVAILABLE"
   | "ONBOARDING_STATE_UNAVAILABLE"
   | "VAULT_STATUS_UNAVAILABLE"
+  | "LOCAL_BACKEND_UNAVAILABLE"
   | "VAULT_UNLOCK_FAILED"
   | "VAULT_PASSKEY_ENROLL_REQUIRED"
   | "MARKET_DATA_UNAVAILABLE"
@@ -49,6 +50,8 @@ export function toInvestorMessage(
       return "We could not load your onboarding progress. Please try again.";
     case "VAULT_STATUS_UNAVAILABLE":
       return "We could not check your Vault status right now. Please try again.";
+    case "LOCAL_BACKEND_UNAVAILABLE":
+      return "Local backend data is unavailable right now. Start the local backend with the proxy-aware launcher, then try again.";
     case "VAULT_UNLOCK_FAILED":
       return "We could not unlock your Vault. Please confirm your details and try again.";
     case "VAULT_PASSKEY_ENROLL_REQUIRED":

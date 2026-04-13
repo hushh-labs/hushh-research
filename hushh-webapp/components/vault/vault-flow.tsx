@@ -200,7 +200,19 @@ export function VaultFlow({
         setStep("unlock");
       } catch (err) {
         console.error("Vault status check failed:", err);
-        setError(toInvestorMessage("VAULT_STATUS_UNAVAILABLE"));
+        const errorCode =
+          typeof (err as { code?: unknown } | null | undefined)?.code === "string"
+            ? (err as { code: string }).code
+            : null;
+        const errorHint =
+          typeof (err as { hint?: unknown } | null | undefined)?.hint === "string"
+            ? (err as { hint: string }).hint
+            : null;
+        if (errorCode === "DATABASE_UNAVAILABLE") {
+          setError(errorHint || toInvestorMessage("LOCAL_BACKEND_UNAVAILABLE"));
+        } else {
+          setError(toInvestorMessage("VAULT_STATUS_UNAVAILABLE"));
+        }
       }
     };
     checkStatus();

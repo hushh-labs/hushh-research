@@ -113,6 +113,8 @@ def _temporary_unavailable_message(operation: str) -> str:
         return "We couldn't load Gmail sync details right now. Please try again in a moment."
     if operation == "receipts_memory_artifact":
         return "We couldn't load your shopping summary right now. Please try again in a moment."
+    if operation == "webhook":
+        return "We couldn't process the Gmail webhook right now. Please try again in a moment."
     return "Gmail is temporarily unavailable. Please try again in a moment."
 
 
@@ -230,7 +232,10 @@ async def gmail_reconcile(
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
-        return await _service().reconcile_connection(user_id=payload.user_id)
+        return await _service().reconcile_connection(
+            user_id=payload.user_id,
+            allow_queue_catchup=True,
+        )
     except Exception as exc:
         logger.exception("kai.gmail.reconcile_failed user_id=%s", payload.user_id)
         raise _to_http_exception(exc, operation="reconcile") from exc
@@ -332,6 +337,7 @@ async def gmail_receipts_memory_artifact(
 
 @router.post("/gmail/webhook")
 async def gmail_webhook(request: Request):
+    headers = {key.lower(): value for key, value in request.headers.items()}
     try:
         payload = await request.json()
     except Exception as exc:
@@ -350,7 +356,7 @@ async def gmail_webhook(request: Request):
         )
 
     try:
-        return await _service().handle_push_notification(payload)
+        return await _service().handle_push_notification(payload, headers=headers)
     except Exception as exc:
         logger.exception("kai.gmail.webhook_failed")
-        raise _to_http_exception(exc) from exc
+        raise _to_http_exception(exc, operation="webhook") from exc

@@ -67,6 +67,49 @@ def test_state_token_invalid_signature_rejected():
     assert exc_info.value.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_verify_webhook_ingress_accepts_signed_pubsub_token(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "_webhook_auth_enabled", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_webhook_audience",
+        lambda: "https://example.com/api/kai/gmail/webhook",
+    )
+    monkeypatch.setattr(
+        service,
+        "_webhook_service_account_email",
+        lambda: "gmail-push@project.iam.gserviceaccount.com",
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service.google_id_token.verify_oauth2_token",
+        lambda token, request, audience=None: {
+            "aud": audience,
+            "email": "gmail-push@project.iam.gserviceaccount.com",
+            "email_verified": True,
+            "iss": "accounts.google.com",
+        },
+    )
+
+    claims = await service.verify_webhook_ingress(
+        headers={"Authorization": "Bearer signed-pubsub-token"}
+    )
+
+    assert claims["email"] == "gmail-push@project.iam.gserviceaccount.com"
+
+
+@pytest.mark.asyncio
+async def test_verify_webhook_ingress_rejects_missing_bearer_token(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "_webhook_auth_enabled", lambda: True)
+    monkeypatch.setattr(service, "_webhook_audience", lambda: "https://example.com/webhook")
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.verify_webhook_ingress(headers={})
+
+    assert exc_info.value.status_code == 401
+
+
 def test_build_receipt_query_contains_keywords_and_after_epoch():
     service = GmailReceiptsService()
     since = datetime(2025, 1, 15, tzinfo=timezone.utc)
@@ -324,7 +367,7 @@ class _FakePool:
 async def test_queue_sync_rejects_disconnected_user_before_queuing(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
     conn = _FakeConn(
         rows=[
             {
@@ -350,7 +393,7 @@ async def test_queue_sync_rejects_disconnected_user_before_queuing(monkeypatch):
 async def test_queue_sync_returns_existing_active_run_without_inserting_duplicate(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
     active_now = datetime(2026, 3, 1, tzinfo=timezone.utc)
     conn = _FakeConn(
         rows=[
@@ -400,7 +443,7 @@ async def test_queue_sync_returns_existing_active_run_without_inserting_duplicat
 async def test_queue_sync_recovers_stale_running_run_before_enqueuing_replacement(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
     monkeypatch.setenv("KAI_GMAIL_RECEIPTS_RUN_STALE_TTL_SECONDS", "60")
     conn = _FakeConn(
         rows=[
@@ -457,6 +500,130 @@ async def test_queue_sync_recovers_stale_running_run_before_enqueuing_replacemen
     )
 
 
+@pytest.mark.asyncio
+async def test_queue_sync_preempts_backfill_for_manual_request(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
+    active_now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    conn = _FakeConn(
+        rows=[
+            {
+                "user_id": "user_123",
+                "status": "connected",
+                "revoked": False,
+            },
+            {
+                "run_id": "gmail_sync_backfill",
+                "user_id": "user_123",
+                "trigger_source": "backfill",
+                "sync_mode": "backfill",
+                "status": "running",
+                "requested_at": active_now,
+                "started_at": active_now,
+                "updated_at": active_now,
+                "completed_at": None,
+                "listed_count": 12,
+                "filtered_count": 6,
+                "synced_count": 6,
+                "extracted_count": 5,
+                "duplicates_dropped": 0,
+                "extraction_success_rate": 0.83,
+                "error_message": None,
+                "metrics_json": {},
+            },
+            None,
+        ]
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service.get_pool",
+        lambda: asyncio.sleep(0, result=_FakePool(conn)),
+    )
+
+    canceled = {"value": False}
+
+    class _LiveTask:
+        def done(self):
+            return False
+
+        def cancel(self):
+            canceled["value"] = True
+
+    service._sync_tasks_by_run_id["gmail_sync_backfill"] = _LiveTask()
+
+    def _fake_create_task(coro):
+        coro.close()
+        return SimpleNamespace(add_done_callback=lambda cb: None)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service.asyncio.create_task",
+        _fake_create_task,
+    )
+
+    result = await service.queue_sync(user_id="user_123", trigger_source="manual")
+
+    assert result["accepted"] is True
+    assert conn.inserted is not None
+    assert canceled["value"] is True
+    assert any(
+        "UPDATE kai_gmail_sync_runs" in query and "status = 'canceled'" in query
+        for query, _ in conn.execute_calls
+    )
+
+
+def test_reconcile_active_runs_cancels_stale_live_task(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setenv("KAI_GMAIL_RECEIPTS_RUN_STALE_TTL_SECONDS", "60")
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service._utcnow",
+        lambda: datetime(2026, 3, 1, 0, 5, tzinfo=timezone.utc),
+    )
+
+    canceled = {"value": False}
+
+    class _LiveTask:
+        def done(self):
+            return False
+
+        def cancel(self):
+            canceled["value"] = True
+
+    service._sync_tasks_by_run_id["gmail_sync_live"] = _LiveTask()
+
+    class _CaptureDb:
+        def __init__(self):
+            self.calls: list[tuple[str, dict | None]] = []
+
+        def execute_raw(self, sql, params=None):
+            self.calls.append((sql, params))
+            if "SELECT run_id, user_id, status" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "run_id": "gmail_sync_live",
+                            "user_id": "user_123",
+                            "status": "running",
+                            "requested_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+                            "started_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+                            "updated_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+                            "completed_at": None,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    service._db = _CaptureDb()
+
+    service._reconcile_active_runs(user_id="user_123")
+
+    assert canceled["value"] is True
+    assert any(
+        "UPDATE kai_gmail_sync_runs" in sql and params.get("status") == "failed"
+        for sql, params in service._db.calls
+        if params
+    )
+
+
 def test_upsert_receipt_uses_sqlalchemy_safe_json_cast(monkeypatch):
     service = GmailReceiptsService()
     captured_sql: list[str] = []
@@ -474,7 +641,9 @@ def test_upsert_receipt_uses_sqlalchemy_safe_json_cast(monkeypatch):
         llm_payload=None,
     )
 
-    inserted = service._upsert_receipt(user_id="user_123", candidate=candidate, extracted=extracted)
+    inserted = asyncio.run(
+        service._upsert_receipt(user_id="user_123", candidate=candidate, extracted=extracted)
+    )
 
     assert inserted is True
     upsert_sql = next(sql for sql in captured_sql if "INSERT INTO kai_gmail_receipts" in sql)
@@ -506,6 +675,7 @@ async def test_run_sync_worker_uses_sqlalchemy_safe_json_cast_for_metrics(monkey
         lambda **kwargs: asyncio.sleep(0, result={"messages": [], "nextPageToken": None}),
     )
     monkeypatch.setattr(service, "_is_connection_sync_active", lambda user_id: True)
+    monkeypatch.setattr(service, "_is_run_sync_active", lambda run_id: True)
 
     await service._run_sync_worker(run_id="gmail_sync_test", user_id="user_123")
 
@@ -551,6 +721,7 @@ async def test_run_sync_worker_isolates_single_message_failures(monkeypatch):
         ),
     )
     monkeypatch.setattr(service, "_is_connection_sync_active", lambda user_id: True)
+    monkeypatch.setattr(service, "_is_run_sync_active", lambda run_id: True)
 
     async def _get_message_metadata(**kwargs):
         if kwargs["gmail_message_id"] == "bad_msg":
@@ -582,7 +753,11 @@ async def test_run_sync_worker_isolates_single_message_failures(monkeypatch):
             "receipt_checksum": "checksum",
         },
     )
-    monkeypatch.setattr(service, "_upsert_receipt", lambda **kwargs: True)
+
+    async def _upsert_receipt(**kwargs):
+        return True
+
+    monkeypatch.setattr(service, "_upsert_receipt", _upsert_receipt)
 
     await service._run_sync_worker(run_id="gmail_sync_test", user_id="user_123")
 
@@ -620,6 +795,7 @@ async def test_run_sync_worker_cancels_when_connection_becomes_disconnected(monk
     )
     state_iter = iter([True, False])
     monkeypatch.setattr(service, "_is_connection_sync_active", lambda user_id: next(state_iter))
+    monkeypatch.setattr(service, "_is_run_sync_active", lambda run_id: True)
 
     with pytest.raises(asyncio.CancelledError):
         await service._run_sync_worker(run_id="gmail_sync_test", user_id="user_123")
@@ -709,10 +885,15 @@ async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch)
             "watch_expiration_at": datetime(2030, 3, 2, tzinfo=timezone.utc),
             "status_refreshed_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
             "last_notification_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+            "receipt_total": 12,
         },
     )
     monkeypatch.setattr(service, "_latest_sync_run", lambda user_id: None)
-    monkeypatch.setattr(service, "_count_receipts", lambda user_id: 12)
+    monkeypatch.setattr(
+        service,
+        "_count_receipts",
+        lambda user_id: (_ for _ in ()).throw(AssertionError("status should use cached count")),
+    )
     monkeypatch.setattr(
         service,
         "_ensure_access_token",
@@ -789,6 +970,8 @@ async def test_reconcile_connection_renews_watch_without_listing_messages(monkey
 async def test_handle_push_notification_updates_snapshot_and_queues_incremental(monkeypatch):
     service = GmailReceiptsService()
     db_calls: list[tuple[str, dict | None]] = []
+    monkeypatch.setenv("GMAIL_WEBHOOK_AUTH_ENABLED", "false")
+    monkeypatch.setattr(service, "_watch_enabled", lambda: True)
 
     class _CaptureDb:
         def execute_raw(self, sql, params=None):
@@ -824,7 +1007,104 @@ async def test_handle_push_notification_updates_snapshot_and_queues_incremental(
     assert result["accepted"] is True
     assert queued[0]["sync_mode"] == "incremental"
     assert queued[0]["end_history_id"] == "210"
+    assert queued[0]["notification_history_id"] == "210"
+    assert db_calls == []
+
+
+@pytest.mark.asyncio
+async def test_handle_push_notification_rejects_unexpected_subscription(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setenv("GMAIL_WEBHOOK_AUTH_ENABLED", "false")
+    monkeypatch.setenv("GMAIL_WEBHOOK_SUBSCRIPTION", "projects/demo/subscriptions/expected")
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.handle_push_notification(
+            {
+                "subscription": "projects/demo/subscriptions/other",
+                "message": {
+                    "data": "eyJlbWFpbEFkZHJlc3MiOiAidXNlckBleGFtcGxlLmNvbSIsICJoaXN0b3J5SWQiOiAiMjEwIn0="
+                },
+            }
+        )
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_handle_push_notification_ignores_stale_history(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setenv("GMAIL_WEBHOOK_AUTH_ENABLED", "false")
+    monkeypatch.setattr(service, "_watch_enabled", lambda: True)
+    db_calls: list[tuple[str, dict | None]] = []
+
+    class _CaptureDb:
+        def execute_raw(self, sql, params=None):
+            db_calls.append((sql, params))
+            return SimpleNamespace(data=[])
+
+    service._db = _CaptureDb()
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row_by_email",
+        lambda google_email: {
+            "user_id": "user_123",
+            "status": "connected",
+            "revoked": False,
+            "history_id": "210",
+        },
+    )
+
+    result = await service.handle_push_notification(
+        {
+            "message": {
+                "data": "eyJlbWFpbEFkZHJlc3MiOiAidXNlckBleGFtcGxlLmNvbSIsICJoaXN0b3J5SWQiOiAiMjA5In0="
+            }
+        }
+    )
+
+    assert result == {"accepted": True, "handled": False, "reason": "stale_history"}
     assert any("last_notification_at = NOW()" in sql for sql, _ in db_calls)
+
+
+@pytest.mark.asyncio
+async def test_queue_sync_advances_webhook_history_atomically(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
+
+    conn = _FakeConn(
+        rows=[
+            {
+                "user_id": "user_123",
+                "status": "connected",
+                "auto_sync_enabled": True,
+                "revoked": False,
+                "history_id": "200",
+            },
+            None,
+        ]
+    )
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service.get_pool",
+        lambda: asyncio.sleep(0, result=_FakePool(conn)),
+    )
+    monkeypatch.setattr(service, "_dispatch_sync_run", lambda **kwargs: None)
+
+    result = await service.queue_sync(
+        user_id="user_123",
+        trigger_source="webhook",
+        sync_mode="incremental",
+        end_history_id="210",
+        notification_history_id="210",
+        notification_received_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
+    )
+
+    assert result["accepted"] is True
+    assert conn.inserted is not None
+    assert conn.execute_calls
+    assert "UPDATE kai_gmail_connections" in conn.execute_calls[0][0]
+    assert "last_notification_at = COALESCE($3, last_notification_at)" in conn.execute_calls[0][0]
 
 
 @pytest.mark.asyncio
@@ -856,6 +1136,7 @@ async def test_run_sync_worker_incremental_uses_history_list(monkeypatch):
         lambda user_id: asyncio.sleep(0, result=("token", {"history_id": "200"})),
     )
     monkeypatch.setattr(service, "_is_connection_sync_active", lambda user_id: True)
+    monkeypatch.setattr(service, "_is_run_sync_active", lambda run_id: True)
 
     async def _list_history(**kwargs):
         history_calls.append(kwargs)
@@ -895,7 +1176,11 @@ async def test_run_sync_worker_incremental_uses_history_list(monkeypatch):
             "receipt_checksum": "checksum",
         },
     )
-    monkeypatch.setattr(service, "_upsert_receipt", lambda **kwargs: True)
+
+    async def _upsert_receipt(**kwargs):
+        return True
+
+    monkeypatch.setattr(service, "_upsert_receipt", _upsert_receipt)
 
     await service._run_sync_worker(run_id="gmail_sync_test", user_id="user_123")
 
@@ -931,6 +1216,7 @@ async def test_run_sync_worker_history_gap_queues_recovery(monkeypatch):
         lambda user_id: asyncio.sleep(0, result=("token", {"history_id": "200"})),
     )
     monkeypatch.setattr(service, "_is_connection_sync_active", lambda user_id: True)
+    monkeypatch.setattr(service, "_is_run_sync_active", lambda run_id: True)
 
     async def _list_history(**kwargs):
         raise GmailApiError("history missing", status_code=404)

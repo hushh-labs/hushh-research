@@ -17,7 +17,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import RedirectResponse  # noqa: E402
+from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +35,13 @@ def _environment() -> str:
 
 def _is_production() -> bool:
     return _environment() == "production"
+
+
+def _require_database_on_startup() -> bool:
+    explicit = os.getenv("REQUIRE_DATABASE_ON_STARTUP")
+    if explicit is not None:
+        return _env_truthy("REQUIRE_DATABASE_ON_STARTUP")
+    return _is_production()
 
 
 REQUIRED_RUNTIME_TABLES = (
@@ -96,6 +103,8 @@ from api.routes import (  # noqa: E402
     session,
     sse,
 )
+from db.connection import DatabaseUnavailableError  # noqa: E402
+from db.db_client import DatabaseExecutionError  # noqa: E402
 
 # Dynamic root_path for Swagger docs in production
 # Set ROOT_PATH env var to your production URL to fix Swagger showing localhost
@@ -113,6 +122,49 @@ app.middleware("http")(observability_middleware)
 # Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
+
+def _database_error_payload(
+    *,
+    status_code: int,
+    code: str,
+    hint: str | None = None,
+) -> dict[str, str]:
+    payload = {
+        "error": "Database is temporarily unavailable."
+        if status_code == 503
+        else "Database request failed.",
+        "code": code,
+    }
+    if hint:
+        payload["hint"] = hint
+    return payload
+
+
+@app.exception_handler(DatabaseUnavailableError)
+async def database_unavailable_exception_handler(_request: Request, exc: DatabaseUnavailableError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_database_error_payload(
+            status_code=exc.status_code,
+            code=exc.code,
+            hint=exc.hint,
+        ),
+    )
+
+
+@app.exception_handler(DatabaseExecutionError)
+async def database_execution_exception_handler(_request: Request, exc: DatabaseExecutionError):
+    status_code = getattr(exc, "status_code", 500)
+    return JSONResponse(
+        status_code=status_code,
+        content=_database_error_payload(
+            status_code=status_code,
+            code=getattr(exc, "code", "DATABASE_EXECUTION_ERROR"),
+            hint=getattr(exc, "hint", None),
+        ),
+    )
+
 
 # CORS allowlist: explicit origins only (no wildcard regex).
 cors_origins = _parse_cors_allowed_origins()
@@ -191,6 +243,13 @@ else:
 from api.routes.kai import router as kai_router  # noqa: E402
 from api.routes.kai.market_insights import (  # noqa: E402
     start_market_insights_background_refresh,
+)
+from hushh_mcp.services.email_delivery_queue_service import (  # noqa: E402
+    shutdown_email_delivery_queue_service,
+)
+from hushh_mcp.services.gmail_receipts_service import (  # noqa: E402
+    shutdown_gmail_receipts_background_sync,
+    start_gmail_receipts_background_sync,
 )
 
 app.include_router(kai_router)
@@ -291,17 +350,32 @@ async def startup_required_schema_guard():
     """Fail fast when the runtime database is missing core contract tables."""
     from db.connection import get_pool
 
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'public'
-              AND table_name = ANY($1::text[])
-            """,
-            list(REQUIRED_RUNTIME_TABLES),
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = ANY($1::text[])
+                """,
+                list(REQUIRED_RUNTIME_TABLES),
+            )
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.required_schema_guard_db_unavailable environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.required_schema_guard_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
         )
+        return
 
     existing = {row["table_name"] for row in rows}
     missing = [table for table in REQUIRED_RUNTIME_TABLES if table not in existing]
@@ -331,6 +405,24 @@ async def shutdown_remote_mcp_transport():
 async def startup_market_insights_refresh():
     """Start background market cache refresh loop for public modules."""
     start_market_insights_background_refresh()
+
+
+@app.on_event("startup")
+async def startup_gmail_receipts_sync():
+    """Start Gmail catch-up/watch renewal loop for configured runtimes."""
+    start_gmail_receipts_background_sync()
+
+
+@app.on_event("shutdown")
+async def shutdown_gmail_receipts_sync():
+    """Stop Gmail catch-up/watch renewal loop."""
+    await shutdown_gmail_receipts_background_sync()
+
+
+@app.on_event("shutdown")
+async def shutdown_email_delivery_queue():
+    """Stop queued outbound email worker tasks."""
+    await shutdown_email_delivery_queue_service()
 
 
 # ============================================================================

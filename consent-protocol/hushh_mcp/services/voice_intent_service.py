@@ -4,6 +4,7 @@ import os
 import re
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Any
 
@@ -1257,6 +1258,53 @@ class VoiceServiceError(Exception):
         super().__init__(message)
 
 
+@dataclass(slots=True)
+class VoiceTTSStreamHandle:
+    response: httpx.Response
+    response_cm: Any
+    client: httpx.AsyncClient
+    meta: dict[str, Any]
+    trace_hook: Callable[[str, dict[str, Any]], None] | None = None
+    started_at: float = 0.0
+    _chunk_iter: Any = None
+    _closed: bool = False
+
+    async def read_next_chunk(self) -> bytes | None:
+        if self._closed:
+            return None
+        if self._chunk_iter is None:
+            self._chunk_iter = self.response.aiter_bytes().__aiter__()
+        try:
+            chunk = await self._chunk_iter.__anext__()
+        except StopAsyncIteration:
+            self.meta["completed"] = True
+            if self.trace_hook:
+                self.trace_hook(
+                    "tts_upstream_finished",
+                    {
+                        "model_used": self.meta.get("model"),
+                        "elapsed_ms": int((time.perf_counter() - self.started_at) * 1000),
+                        "status_code": self.response.status_code,
+                        "audio_bytes": int(self.meta.get("audio_bytes") or 0),
+                        "content_length": self.meta.get("content_length"),
+                    },
+                )
+            return None
+        if chunk:
+            self.meta["audio_bytes"] = int(self.meta.get("audio_bytes") or 0) + len(chunk)
+        return chunk
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            await self.response.aclose()
+        finally:
+            await self.response_cm.__aexit__(None, None, None)
+            await self.client.aclose()
+
+
 class VoiceIntentService:
     def __init__(self) -> None:
         self.api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
@@ -2398,131 +2446,166 @@ class VoiceIntentService:
         voice: str,
         trace_hook: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> tuple[bytes, str, dict[str, Any]]:
+        tts_stream, mime_type, tts_meta = await self.open_tts_stream(
+            text=text,
+            voice=voice,
+            trace_hook=trace_hook,
+        )
+        audio_chunks: list[bytes] = []
+        try:
+            while True:
+                chunk = await tts_stream.read_next_chunk()
+                if chunk is None:
+                    break
+                audio_chunks.append(chunk)
+        finally:
+            await tts_stream.aclose()
+        return b"".join(audio_chunks), mime_type, tts_meta
+
+    async def open_tts_stream(
+        self,
+        *,
+        text: str,
+        voice: str,
+        trace_hook: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> tuple[VoiceTTSStreamHandle, str, dict[str, Any]]:
         self._require_api_key()
         clean_text = str(text or "").strip()
         if not clean_text:
             raise VoiceServiceError(422, "Text is required for TTS")
         selected_voice = str(voice or self.tts_default_voice).strip() or self.tts_default_voice
-        response: httpx.Response | None = None
-        error_payload: dict[str, Any] = {}
         selected_model = self.tts_model or "gpt-4o-mini-tts"
         tts_attempts: list[dict[str, Any]] = []
-        upstream_http_ms = 0
+        started_at = time.perf_counter()
+        if trace_hook:
+            trace_hook(
+                "tts_upstream_started",
+                {
+                    "model_attempted": selected_model,
+                    "attempt_index": 1,
+                    "attempt_count": 1,
+                    "timeout_seconds": self.tts_timeout_seconds,
+                    "text_chars": len(clean_text),
+                },
+            )
 
-        async with httpx.AsyncClient(timeout=self.tts_timeout_seconds) as client:
-            attempt_started_at = time.perf_counter()
-            if trace_hook:
-                trace_hook(
-                    "tts_upstream_started",
-                    {
-                        "model_attempted": selected_model,
-                        "attempt_index": 1,
-                        "attempt_count": 1,
-                        "timeout_seconds": self.tts_timeout_seconds,
-                        "text_chars": len(clean_text),
-                    },
-                )
-            payload = {
+        client = httpx.AsyncClient(timeout=self.tts_timeout_seconds)
+        response_cm = client.stream(
+            "POST",
+            _OPENAI_TTS_URL,
+            headers={
+                **self._headers(),
+                "Content-Type": "application/json",
+            },
+            json={
                 "model": selected_model,
                 "input": clean_text,
                 "voice": selected_voice,
                 "format": self.tts_format,
-            }
-            candidate_response = await client.post(
-                _OPENAI_TTS_URL,
-                headers={
-                    **self._headers(),
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            attempt_elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
-            upstream_http_ms = attempt_elapsed_ms
-            if candidate_response.status_code < 400:
-                if trace_hook:
-                    trace_hook(
-                        "tts_upstream_finished",
-                        {
-                            "model_used": selected_model,
-                            "elapsed_ms": attempt_elapsed_ms,
-                            "status_code": candidate_response.status_code,
-                            "audio_bytes": len(candidate_response.content or b""),
-                        },
-                    )
-                response = candidate_response
-                tts_attempts.append(
-                    {
-                        "model": selected_model,
-                        "status_code": candidate_response.status_code,
-                        "elapsed_ms": attempt_elapsed_ms,
-                        "result": "success",
-                    }
-                )
-            else:
-                maybe_payload = candidate_response.json() if candidate_response.content else {}
-                extracted_error = _extract_openai_error(maybe_payload)
-                tts_attempts.append(
-                    {
-                        "model": selected_model,
-                        "status_code": candidate_response.status_code,
-                        "elapsed_ms": attempt_elapsed_ms,
-                        "result": "failed",
-                        "error": extracted_error or "",
-                    }
-                )
-                if trace_hook:
-                    trace_hook(
-                        "tts_upstream_failed",
-                        {
-                            "model_used": selected_model,
-                            "elapsed_ms": attempt_elapsed_ms,
-                            "status_code": candidate_response.status_code,
-                            "exception_type": None,
-                            "upstream_error_message": extracted_error,
-                            "upstream_error_payload": maybe_payload.get("error")
-                            if isinstance(maybe_payload, dict)
-                            else maybe_payload,
-                        },
-                    )
-                response = candidate_response
-                error_payload = maybe_payload
+            },
+        )
 
-        if response is None:
-            raise VoiceServiceError(502, "TTS request failed")
+        try:
+            response = await response_cm.__aenter__()
+        except Exception:
+            await client.aclose()
+            raise
+
+        attempt_elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        content_length_raw = str(response.headers.get("content-length") or "").strip()
+        content_length: int | None = None
+        if content_length_raw.isdigit():
+            content_length = int(content_length_raw)
 
         if response.status_code >= 400:
-            if not error_payload:
-                error_payload = response.json() if response.content else {}
-            detail = _extract_openai_error(error_payload) or "TTS request failed"
+            error_payload: dict[str, Any] = {}
+            if response.content:
+                try:
+                    error_payload = response.json()
+                except Exception:
+                    error_payload = {}
+            extracted_error = _extract_openai_error(error_payload)
+            tts_attempts.append(
+                {
+                    "model": selected_model,
+                    "status_code": response.status_code,
+                    "elapsed_ms": attempt_elapsed_ms,
+                    "result": "failed",
+                    "error": extracted_error or "",
+                }
+            )
+            if trace_hook:
+                trace_hook(
+                    "tts_upstream_failed",
+                    {
+                        "model_used": selected_model,
+                        "elapsed_ms": attempt_elapsed_ms,
+                        "status_code": response.status_code,
+                        "exception_type": None,
+                        "upstream_error_message": extracted_error,
+                        "upstream_error_payload": error_payload.get("error")
+                        if isinstance(error_payload, dict)
+                        else error_payload,
+                    },
+                )
+            detail = extracted_error or "TTS request failed"
+            await response.aclose()
+            await response_cm.__aexit__(None, None, None)
+            await client.aclose()
             raise VoiceServiceError(502, detail)
 
-        audio_bytes = response.content or b""
-        if not audio_bytes:
-            raise VoiceServiceError(502, "TTS response was empty")
+        tts_attempts.append(
+            {
+                "model": selected_model,
+                "status_code": response.status_code,
+                "elapsed_ms": attempt_elapsed_ms,
+                "result": "success",
+            }
+        )
+        if trace_hook:
+            trace_hook(
+                "tts_upstream_ready",
+                {
+                    "model_used": selected_model,
+                    "elapsed_ms": attempt_elapsed_ms,
+                    "status_code": response.status_code,
+                    "content_length": content_length,
+                },
+            )
         mime_type = "audio/mpeg" if self.tts_format == "mp3" else f"audio/{self.tts_format}"
+        meta = {
+            "model": selected_model,
+            "voice": selected_voice,
+            "format": self.tts_format,
+            "source": "backend_openai_audio",
+            "attempts": tts_attempts,
+            "openai_http_ms": attempt_elapsed_ms,
+            "audio_bytes": 0,
+            "content_length": content_length,
+            "completed": False,
+            "aborted": False,
+        }
         logger.info(
-            (
-                "[VOICE_TTS] status=ok source=backend_openai_audio model=%s voice=%s format=%s "
-                "text_chars=%s audio_bytes=%s attempts=%s"
-            ),
+            "[VOICE_TTS] status=ready source=backend_openai_audio model=%s voice=%s format=%s "
+            "text_chars=%s content_length=%s attempts=%s",
             selected_model,
             selected_voice,
             self.tts_format,
             len(clean_text),
-            len(audio_bytes),
+            content_length,
             tts_attempts,
         )
         return (
-            audio_bytes,
+            VoiceTTSStreamHandle(
+                response=response,
+                response_cm=response_cm,
+                client=client,
+                meta=meta,
+                trace_hook=trace_hook,
+                started_at=started_at,
+            ),
             mime_type,
-            {
-                "model": selected_model,
-                "voice": selected_voice,
-                "format": self.tts_format,
-                "source": "backend_openai_audio",
-                "attempts": tts_attempts,
-                "openai_http_ms": upstream_http_ms,
-            },
+            meta,
         )
 
 

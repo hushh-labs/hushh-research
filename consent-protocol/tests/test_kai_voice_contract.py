@@ -84,6 +84,44 @@ def _app_state(
     }
 
 
+class _FakeTTSStream:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = list(chunks)
+        self.closed = False
+        self.meta = {
+            "model": "gpt-4o-mini-tts",
+            "voice": "alloy",
+            "format": "mp3",
+            "source": "backend_openai_audio",
+            "attempts": [
+                {
+                    "model": "gpt-4o-mini-tts",
+                    "status_code": 200,
+                    "elapsed_ms": 11,
+                    "result": "success",
+                }
+            ],
+            "openai_http_ms": 11,
+            "audio_bytes": 0,
+            "content_length": 3,
+            "completed": False,
+            "aborted": False,
+        }
+
+    async def read_next_chunk(self) -> bytes | None:
+        if not self._chunks:
+            self.meta["completed"] = True
+            return None
+        chunk = self._chunks.pop(0)
+        self.meta["audio_bytes"] = int(self.meta.get("audio_bytes") or 0) + len(chunk)
+        if not self._chunks:
+            self.meta["completed"] = True
+        return chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
 @pytest.fixture
 def voice_service(monkeypatch: pytest.MonkeyPatch) -> VoiceIntentService:
     monkeypatch.setenv("OPENAI_API_KEY", "test_key")
@@ -1322,6 +1360,29 @@ async def test_plan_voice_response_memory_policy_by_kind(voice_service: VoiceInt
     assert clarify_stt["memory"]["allow_durable_write"] is False
     assert already_running["memory"]["allow_durable_write"] is True
     assert execute["memory"]["allow_durable_write"] is True
+
+
+@pytest.mark.anyio
+async def test_synthesize_speech_buffers_streaming_handle(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    stream = _FakeTTSStream([b"ab", b"c"])
+
+    async def _fake_open_tts_stream(*args, **kwargs):
+        return stream, "audio/mpeg", stream.meta
+
+    monkeypatch.setattr(voice_service, "open_tts_stream", _fake_open_tts_stream)
+
+    audio_bytes, mime_type, meta = await voice_service.synthesize_speech(
+        text="hello world",
+        voice="alloy",
+    )
+
+    assert audio_bytes == b"abc"
+    assert mime_type == "audio/mpeg"
+    assert meta["audio_bytes"] == 3
+    assert stream.closed is True
 
 
 def test_voice_tool_policy_whitelist_excludes_destructive_actions():

@@ -714,7 +714,8 @@ export function ConsentCenterPage() {
     [selectedEntry]
   );
   const consentVoiceSurfaceMetadata = useMemo(() => {
-    const tabTitle = tab === "pending" ? "Pending" : tab === "active" ? "Active" : "Previous";
+    const tabTitle =
+      tab === "requests" ? "Pending" : tab === "active" ? "Active" : "Previous";
     const actions = [
       {
         id: "consents.search",
@@ -846,7 +847,11 @@ export function ConsentCenterPage() {
       availableActions: actions.map((action) => action.label),
       activeControlId: activeVoiceControlId || (selectedEntry ? "consent_detail_panel" : null),
       lastInteractedControlId: lastVoiceControlId,
-      activeFilters: [actor, managerView].filter((value): value is string => Boolean(value)),
+      activeFilters: [actor, managerView].filter(
+        (
+          value
+        ): value is ConsentCenterActor | "incoming" | "outgoing" => Boolean(value)
+      ),
       selectedEntity: selectedEntry ? resolveCounterpartLabel(selectedEntry) : null,
       busyOperations: [
         ...(summaryResource.loading ? ["consent_summary_load"] : []),

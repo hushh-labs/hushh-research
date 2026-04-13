@@ -34,9 +34,73 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+_DB_CONNECTION_ERROR_PATTERNS = (
+    "connection refused",
+    "server closed the connection unexpectedly",
+    "could not connect to server",
+    "connection reset by peer",
+    "terminating connection due to administrator command",
+    "connection not open",
+    "timeout",
+    "timed out",
+    "ssl syscall error: eof detected",
+)
 
 # Database connection pool (singleton)
 _pool: Optional[asyncpg.Pool] = None
+
+
+class DatabaseUnavailableError(RuntimeError):
+    """Raised when the runtime database is temporarily unreachable."""
+
+    def __init__(self, message: str, *, hint: str | None = None):
+        self.message = message
+        self.hint = hint
+        self.code = "DATABASE_UNAVAILABLE"
+        self.status_code = 503
+        super().__init__(message)
+
+
+def _is_connection_unavailable_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (ConnectionError, OSError, TimeoutError)):
+            return True
+        message = str(current).strip().lower()
+        if message and any(pattern in message for pattern in _DB_CONNECTION_ERROR_PATTERNS):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def local_database_unavailable_hint() -> str | None:
+    environment = str(os.getenv("ENVIRONMENT", "development")).strip().lower()
+    db_host = str(os.getenv("DB_HOST", "")).strip().lower()
+    instance = str(os.getenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "")).strip()
+    proxy_port = str(os.getenv("CLOUDSQL_PROXY_PORT") or os.getenv("DB_PORT") or "5432").strip()
+    if environment == "production":
+        return None
+    if db_host not in {"127.0.0.1", "localhost"} or not instance:
+        return None
+    return (
+        "Local backend database tunnel is unavailable. Start the backend with "
+        "`./bin/hushh terminal backend --mode local --reload` or "
+        f"`bash scripts/runtime/run_backend_local.sh local --reload` so the Cloud SQL proxy "
+        f"binds `127.0.0.1:{proxy_port}`."
+    )
+
+
+def format_database_unavailable_details(details: str) -> str:
+    hint = local_database_unavailable_hint()
+    normalized = str(details).strip()
+    if not hint:
+        return normalized
+    if hint in normalized:
+        return normalized
+    suffix = f" Hint: {hint}"
+    return f"{normalized}{suffix}" if normalized else hint
 
 
 def _get_connect_timeout_seconds() -> float:
@@ -121,29 +185,37 @@ async def get_pool() -> asyncpg.Pool:
         logger.info(f"Connecting to PostgreSQL at {target}...")
         if ssl_config:
             logger.info("SSL enabled for Supabase pooler connection")
-        if db_unix_socket:
-            _pool = await asyncpg.create_pool(
-                user=db_user,
-                password=db_password,
-                database=db_name,
-                host=db_unix_socket,
-                port=db_port,
-                min_size=2,
-                max_size=10,
-                timeout=connect_timeout_seconds,
-                command_timeout=60,
-                max_inactive_connection_lifetime=300,
-            )
-        else:
-            _pool = await asyncpg.create_pool(
-                database_url,
-                min_size=2,
-                max_size=10,
-                timeout=connect_timeout_seconds,
-                command_timeout=60,
-                max_inactive_connection_lifetime=300,
-                ssl=ssl_config,
-            )
+        try:
+            if db_unix_socket:
+                _pool = await asyncpg.create_pool(
+                    user=db_user,
+                    password=db_password,
+                    database=db_name,
+                    host=db_unix_socket,
+                    port=db_port,
+                    min_size=2,
+                    max_size=10,
+                    timeout=connect_timeout_seconds,
+                    command_timeout=60,
+                    max_inactive_connection_lifetime=300,
+                )
+            else:
+                _pool = await asyncpg.create_pool(
+                    database_url,
+                    min_size=2,
+                    max_size=10,
+                    timeout=connect_timeout_seconds,
+                    command_timeout=60,
+                    max_inactive_connection_lifetime=300,
+                    ssl=ssl_config,
+                )
+        except Exception as exc:
+            if _is_connection_unavailable_error(exc):
+                raise DatabaseUnavailableError(
+                    "Database is temporarily unavailable.",
+                    hint=local_database_unavailable_hint(),
+                ) from exc
+            raise
         logger.info(
             f"PostgreSQL pool created: min={_pool.get_min_size()}, max={_pool.get_max_size()}"
         )

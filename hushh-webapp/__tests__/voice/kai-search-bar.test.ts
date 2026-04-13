@@ -96,6 +96,12 @@ vi.mock("@/lib/utils", () => ({
   cn: (...values: Array<string | boolean | null | undefined>) => values.filter(Boolean).join(" "),
 }));
 
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    getVaultOwnerToken: () => "vault_token",
+  }),
+}));
+
 vi.mock("@/lib/voice/use-amplitude-meter", () => ({
   useAmplitudeMeter: () => ({
     rawRms: 0,

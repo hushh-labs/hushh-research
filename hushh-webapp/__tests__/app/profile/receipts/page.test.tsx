@@ -130,6 +130,113 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 vi.mock("@/lib/services/gmail-receipt-memory-service", () => ({
   GmailReceiptMemoryService: {
     buildArtifact: vi.fn(),
+    preview: vi.fn().mockResolvedValue({
+      artifact_id: "artifact-1",
+      user_id: "user-123",
+      source_kind: "gmail_receipts",
+      artifact_version: 1,
+      status: "ready",
+      inference_window_days: 365,
+      highlights_window_days: 90,
+      source_watermark_hash: "watermark-1",
+      source_watermark: {
+        eligible_receipt_count: 1,
+        latest_receipt_updated_at: "2026-04-01T00:00:00Z",
+        latest_receipt_id: 1,
+        latest_receipt_date: "2026-04-01T00:00:00Z",
+        deterministic_config_version: "receipt_memory_v1",
+        inference_window_days: 365,
+        highlights_window_days: 90,
+      },
+      deterministic_schema_version: 1,
+      enrichment_schema_version: null,
+      enrichment_cache_key: "deterministic-only",
+      deterministic_projection_hash: "projection-1",
+      enrichment_hash: null,
+      candidate_pkm_payload_hash: "candidate-1",
+      deterministic_projection: {
+        schema_version: 1,
+        source: {
+          kind: "gmail_receipts",
+          inference_window_days: 365,
+          highlights_window_days: 90,
+          generated_at: "2026-04-01T00:00:00Z",
+          canonicalization_version: "receipt_memory_v1",
+          heuristic_version: "receipt_memory_v1",
+          source_watermark: {
+            eligible_receipt_count: 1,
+            latest_receipt_updated_at: "2026-04-01T00:00:00Z",
+            latest_receipt_id: 1,
+            latest_receipt_date: "2026-04-01T00:00:00Z",
+            deterministic_config_version: "receipt_memory_v1",
+            inference_window_days: 365,
+            highlights_window_days: 90,
+          },
+          source_watermark_hash: "watermark-1",
+          projection_hash: "projection-1",
+        },
+        observed_facts: {
+          merchant_affinity: [],
+          purchase_patterns: [],
+          recent_highlights: [],
+        },
+        inferred_preferences: [],
+        budget_stats: {
+          merchant_count: 0,
+          pattern_count: 0,
+          highlight_count: 0,
+          signal_count: 0,
+          eligible_receipt_count: 1,
+        },
+      },
+      enrichment: null,
+      candidate_pkm_payload: {
+        receipts_memory: {
+          schema_version: 1,
+          readable_summary: {
+            text: "Kai sees recent shopping activity.",
+            highlights: [],
+            updated_at: "2026-04-01T00:00:00Z",
+            source_label: "Gmail receipts",
+          },
+          observed_facts: {
+            merchant_affinity: [],
+            purchase_patterns: [],
+            recent_highlights: [],
+          },
+          inferred_preferences: {
+            preference_signals: [],
+          },
+          provenance: {
+            source_kind: "gmail_receipts",
+            artifact_id: "artifact-1",
+            deterministic_projection_hash: "projection-1",
+            enrichment_hash: null,
+            inference_window_days: 365,
+            highlights_window_days: 90,
+            receipt_count_used: 1,
+            latest_receipt_updated_at: "2026-04-01T00:00:00Z",
+            imported_at: "2026-04-01T00:00:00Z",
+          },
+        },
+      },
+      debug_stats: {
+        eligible_receipt_count: 1,
+        filtered_receipt_count: 1,
+        llm_input_token_budget_estimate: 10,
+        enrichment_mode: "deterministic_fallback",
+      },
+      created_at: "2026-04-01T00:00:00Z",
+      updated_at: "2026-04-01T00:00:00Z",
+      freshness: {
+        status: "fresh",
+        is_stale: false,
+        stale_after_days: 7,
+        reason: "watermark_current",
+      },
+      persisted_pkm_data_version: null,
+      persisted_at: null,
+    }),
   },
 }));
 
@@ -145,10 +252,15 @@ vi.mock("@/lib/profile/gmail-receipt-memory-pkm", () => ({
 }));
 
 import ProfileReceiptsPage from "@/app/profile/receipts/page";
-import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
+import {
+  clearCachedGmailReceipts,
+  primeCachedGmailReceipts,
+} from "@/lib/profile/gmail-receipts-cache";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GmailReceiptMemoryService } from "@/lib/services/gmail-receipt-memory-service";
 
 function makeReceipt(id: number, merchant: string) {
+  const timestamp = `2026-04-0${id}T00:00:00Z`;
   return {
     id,
     gmail_message_id: `gmail-${id}`,
@@ -157,6 +269,10 @@ function makeReceipt(id: number, merchant: string) {
     amount: 19.99,
     currency: "USD",
     classification_source: "deterministic" as const,
+    receipt_date: timestamp,
+    gmail_internal_date: timestamp,
+    created_at: timestamp,
+    updated_at: timestamp,
   };
 }
 
@@ -243,7 +359,7 @@ describe("ProfileReceiptsPage", () => {
   it("starts Gmail sync in the background", async () => {
     render(<ProfileReceiptsPage />);
 
-    const button = screen.getByRole("button", { name: /sync now/i });
+    const button = screen.getByRole("button", { name: /sync receipts/i });
     expect(button.disabled).toBe(false);
 
     fireEvent.click(button);
@@ -252,7 +368,7 @@ describe("ProfileReceiptsPage", () => {
       expect(gmailView.syncNow).toHaveBeenCalledTimes(1);
     });
 
-    expect(mocks.toast.message).toHaveBeenCalledWith("Gmail sync started in the background.");
+    expect(mocks.toast.message).toHaveBeenCalledWith("Syncing your receipts now.");
   });
 
   it("keeps older receipts appended after loading the next page", async () => {
@@ -311,28 +427,143 @@ describe("ProfileReceiptsPage", () => {
     });
   });
 
-  it("does not show the reconnect CTA while Gmail status is still loading", async () => {
+  it("keeps the receipt-memory preview cached when the existing watermark is still current", async () => {
+    const cachedResponse = {
+      items: [makeReceipt(1, "Current Watermark Shop")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    };
+    primeCachedGmailReceipts({
+      userId: "user-123",
+      response: cachedResponse,
+    });
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue(cachedResponse);
+
+    const renderResult = render(<ProfileReceiptsPage />);
+
+    expect(await screen.findByText("Current Watermark Shop")).toBeTruthy();
+    await waitFor(() => {
+      expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        forceRefresh: false,
+      })
+    );
+
+    gmailView = makeGmailView({
+      syncRun: {
+        run_id: "run-2",
+        user_id: "user-123",
+        trigger_source: "manual",
+        status: "completed",
+        completed_at: "2026-04-02T00:00:00Z",
+        listed_count: 1,
+        filtered_count: 1,
+        synced_count: 1,
+        extracted_count: 1,
+        duplicates_dropped: 0,
+        extraction_success_rate: 1,
+      },
+      status: {
+        ...buildGmailView().status,
+        last_sync_at: "2026-04-02T00:00:00Z",
+        last_sync_status: "completed",
+        latest_run: {
+          run_id: "run-2",
+          user_id: "user-123",
+          trigger_source: "manual",
+          status: "completed",
+          completed_at: "2026-04-02T00:00:00Z",
+          listed_count: 1,
+          filtered_count: 1,
+          synced_count: 1,
+          extracted_count: 1,
+          duplicates_dropped: 0,
+          extraction_success_rate: 1,
+        },
+      },
+    });
+    mocks.useGmailConnectorStatus.mockReturnValue(gmailView);
+
+    renderResult.rerender(<ProfileReceiptsPage />);
+
+    await waitFor(() => {
+      expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        forceRefresh: false,
+      })
+    );
+  });
+
+  it("waits until Gmail sync settles before building the receipt-memory preview", async () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
+        presentation: {
+          state: "connected_backfill_running",
+          badgeLabel: "Syncing",
+          description: "We’re fetching your recent purchases.",
+          latestSyncText: "Sync in progress.",
+          latestSyncBadge: null,
+          isConnected: true,
+        },
+        status: {
+          ...buildGmailView().status,
+          last_sync_status: "running",
+        },
+      })
+    );
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
+      items: [makeReceipt(1, "Backfill Shop")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    });
+
+    render(<ProfileReceiptsPage />);
+
+    expect(await screen.findByText("Backfill Shop")).toBeTruthy();
+    expect(
+      screen.getByText(/we'll prepare your shopping summary after gmail finishes syncing/i)
+    ).toBeTruthy();
+
+    await waitFor(() => {
+      expect(vi.mocked(GmailReceiptsService.listReceipts)).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
+  });
+
+  it("shows the loading summary while Gmail status is still loading", async () => {
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      {
+        ...buildGmailView(),
+        status: null,
         loadingStatus: true,
         presentation: {
           state: "loading",
           badgeLabel: "Checking",
-          description: "Checking Gmail connector status...",
+          description: "Checking your Gmail connection…",
           latestSyncText: "Loading the latest connection details.",
           latestSyncBadge: null,
           isConnected: false,
         },
-      })
+      } as ReturnType<typeof buildGmailView>
     );
 
     render(<ProfileReceiptsPage />);
 
-    expect(screen.queryByRole("button", { name: /open gmail connector/i })).toBeNull();
-    expect(screen.getByText(/loading gmail connector status/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /checking your gmail connection/i })).toBeTruthy();
+    expect(screen.getByText(/this should only take a moment/i)).toBeTruthy();
   });
 
-  it("keeps previously synced receipts visible after Gmail disconnects", async () => {
+  it("keeps previously synced receipts visible with reconnect guidance after Gmail disconnects", async () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
         status: {
@@ -367,9 +598,9 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(await screen.findByText("Stored Shop")).toBeTruthy();
+    expect(screen.getByText(/saved receipts are still available here/i)).toBeTruthy();
     expect(
-      screen.getByText(/your previously synced receipts stay available below/i)
+      screen.getByRole("heading", { name: /reconnect gmail to keep syncing receipts/i })
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /open gmail connector/i })).toBeNull();
   });
 });

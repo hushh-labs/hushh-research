@@ -22,6 +22,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
 import { cn } from "@/lib/utils";
+import { useVault } from "@/lib/vault/vault-context";
 import { useAmplitudeMeter } from "@/lib/voice/use-amplitude-meter";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import { createVoiceTurnId } from "@/lib/voice/voice-telemetry";
@@ -254,6 +255,7 @@ export function KaiSearchBar({
   voiceContext,
   portfolioTickers = [],
 }: KaiSearchBarProps) {
+  const { getVaultOwnerToken } = useVault();
   const [open, setOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
   const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(null);
@@ -668,6 +670,7 @@ export function KaiSearchBar({
         scopeId: sessionScopeId,
         userId,
         vaultOwnerToken,
+        getVaultOwnerToken,
         voice: DEFAULT_TTS_VOICE,
         activate: true,
       });
@@ -697,7 +700,7 @@ export function KaiSearchBar({
       setVoiceErrorMessage(message);
       return "failed";
     }
-  }, [sessionScopeId, setVoiceError, userId, vaultOwnerToken, voiceAvailable]);
+  }, [getVaultOwnerToken, sessionScopeId, setVoiceError, userId, vaultOwnerToken, voiceAvailable]);
 
   const startListening = useCallback(async () => {
     if (micDisabled) {

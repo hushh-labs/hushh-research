@@ -398,7 +398,7 @@ describe("ApiService voice planning contract", () => {
     );
   });
 
-  it("requires direct backend in development when backend URL is missing", async () => {
+  it("falls back to the Next.js proxy in development when backend URL is missing", async () => {
     process.env.NODE_ENV = "development";
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -408,18 +408,17 @@ describe("ApiService voice planning contract", () => {
       })
     );
 
-    await expect(
-      ApiService.planKaiVoiceIntent({
-        userId: "user_1",
-        vaultOwnerToken: "vault_token",
-        transcript: "Analyze NVDA",
-      })
-    ).rejects.toThrow("VOICE_DIRECT_BACKEND_REQUIRED:missing_backend_url");
+    await ApiService.planKaiVoiceIntent({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      transcript: "Analyze NVDA",
+    });
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("/api/kai/voice/plan");
   });
 
-  it("rejects proxy override for voice in development", async () => {
+  it("honors explicit proxy routing in development without forcing direct backend", async () => {
     process.env.NODE_ENV = "development";
     process.env.NEXT_PUBLIC_BACKEND_URL = "http://localhost:8000";
     process.env.NEXT_PUBLIC_VOICE_FORCE_PROXY = "true";
@@ -431,14 +430,13 @@ describe("ApiService voice planning contract", () => {
       })
     );
 
-    await expect(
-      ApiService.createKaiRealtimeSession({
-        userId: "user_1",
-        vaultOwnerToken: "vault_token",
-        voice: "alloy",
-      })
-    ).rejects.toThrow("VOICE_DIRECT_BACKEND_REQUIRED:explicit_proxy");
+    await ApiService.createKaiRealtimeSession({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      voice: "alloy",
+    });
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("/api/kai/voice/realtime/session");
   });
 });

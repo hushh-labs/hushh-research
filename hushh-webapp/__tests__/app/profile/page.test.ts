@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveGmailConnectionPresentation,
+  resolveGmailLastUpdatedLabel,
   resolveGmailStatusSummary,
   resolveGmailSyncFeedback,
   sanitizeGmailUserMessage,
@@ -123,6 +124,41 @@ describe("resolveGmailConnectionPresentation", () => {
       isConnected: false,
     });
   });
+
+  it("keeps passive backfill in the connected background state instead of blocking sync", () => {
+    expect(
+      resolveGmailConnectionPresentation({
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "dev@hushh.ai",
+          scope_csv: "gmail.readonly",
+          last_sync_status: "running",
+          auto_sync_enabled: true,
+          revoked: false,
+          sync_state: "backfill_running",
+          latest_run: {
+            run_id: "run-backfill",
+            user_id: "user-1",
+            trigger_source: "backfill",
+            sync_mode: "backfill",
+            status: "running",
+            listed_count: 1,
+            filtered_count: 1,
+            synced_count: 1,
+            extracted_count: 1,
+            duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        },
+      })
+    ).toMatchObject({
+      state: "connected_backfill_running",
+      badgeLabel: "Connected",
+      isConnected: true,
+    });
+  });
 });
 
 describe("sanitizeGmailUserMessage", () => {
@@ -167,5 +203,21 @@ describe("resolveGmailStatusSummary", () => {
       title: "Your receipts are up to date",
       detail: "Connected to dev@hushh.ai",
     });
+  });
+
+  it("formats last updated labels directly from raw timestamps", () => {
+    const label = resolveGmailLastUpdatedLabel({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "dev@hushh.ai",
+      scope_csv: "gmail.readonly",
+      last_sync_status: "completed",
+      last_sync_at: new Date(Date.now() - 60_000).toISOString(),
+      auto_sync_enabled: true,
+      revoked: false,
+    });
+
+    expect(label).toMatch(/^Last updated /);
   });
 });

@@ -209,6 +209,54 @@ describe("voice-session-manager visibility flow", () => {
     await voiceSessionManager.release("scope_1");
   });
 
+  it("refreshes the vault owner token from the live provider before reconnecting", async () => {
+    const tokenState = { current: "vault_token_initial" };
+    createKaiRealtimeSessionMock.mockImplementation(async (input: { vaultOwnerToken: string }) => ({
+      ok: true,
+      json: async () => ({
+        client_secret: `secret_${input.vaultOwnerToken}`,
+        model: "gpt-realtime",
+        voice: "alloy",
+        session_id: `sess_${createKaiRealtimeSessionMock.mock.calls.length}`,
+      }),
+    }));
+    connectMock.mockImplementation(async () => {
+      clientConnected = true;
+    });
+    closeMock.mockImplementation(async () => {
+      clientConnected = false;
+    });
+
+    const { voiceSessionManager } = await import("@/lib/voice/voice-session-manager");
+
+    await voiceSessionManager.acquire({
+      scopeId: "scope_1",
+      userId: "user_1",
+      vaultOwnerToken: tokenState.current,
+      getVaultOwnerToken: () => tokenState.current,
+      activate: true,
+    });
+
+    tokenState.current = "vault_token_refreshed";
+    (document as Document & { hidden: boolean }).hidden = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(5200);
+    await flushMicrotasks();
+
+    (document as Document & { hidden: boolean }).hidden = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await vi.waitFor(() => {
+      expect(createKaiRealtimeSessionMock).toHaveBeenCalledTimes(2);
+      expect(voiceSessionManager.getSnapshot().state).toBe("connected");
+    });
+    expect(createKaiRealtimeSessionMock.mock.calls[1]?.[0]).toMatchObject({
+      vaultOwnerToken: "vault_token_refreshed",
+    });
+
+    await voiceSessionManager.release("scope_1");
+  });
+
   it("resumes after a real background interrupts the initial connect", async () => {
     createKaiRealtimeSessionMock.mockImplementation(async () => ({
       ok: true,

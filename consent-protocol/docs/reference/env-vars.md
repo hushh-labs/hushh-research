@@ -29,6 +29,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `DB_HOST` | same | Yes | Supabase session pooler host. |
 | `DB_PORT` | same | No | Default: 5432. |
 | `DB_NAME` | same | No | Default: postgres. |
+| `REQUIRE_DATABASE_ON_STARTUP` | `server.py` | No | Optional startup strictness override. Defaults to `true` in production and `false` in development; when `false`, local startup warns instead of failing if the DB is offline, but schema mismatches still fail. |
 | `FRONTEND_URL` | `server.py` | Yes (prod) | Backend-owned app origin for CORS and user-facing links. Not part of the public MCP host setup. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `api/utils/firebase_admin.py` | Yes | Default Firebase Admin credential for server operations (FCM/admin). |
 | `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | `api/utils/firebase_admin.py`, `api/utils/firebase_auth.py` | Recommended | Optional auth-only Firebase Admin credential for ID token verification (falls back to `FIREBASE_SERVICE_ACCOUNT_JSON` if unset). |

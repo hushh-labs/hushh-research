@@ -30,6 +30,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from sqlalchemy.pool import NullPool, QueuePool
 
+from db.connection import format_database_unavailable_details, local_database_unavailable_hint
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -104,10 +106,16 @@ class DatabaseExecutionError(RuntimeError):
         table_name: str,
         operation: str,
         details: str,
+        status_code: int = 500,
+        code: str = "DATABASE_EXECUTION_ERROR",
+        hint: str | None = None,
     ):
         self.table_name = table_name
         self.operation = operation
         self.details = details
+        self.status_code = status_code
+        self.code = code
+        self.hint = hint
         super().__init__(f"DB operation failed [{table_name}.{operation}]: {details}")
 
 
@@ -489,10 +497,14 @@ class TableQuery:
             raise
         except Exception as e:
             logger.error(f"Database error: {e}")
+            is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name=self.table_name,
                 operation=self._operation,
-                details=str(e),
+                details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
+                status_code=503 if is_unavailable else 500,
+                code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
+                hint=local_database_unavailable_hint() if is_unavailable else None,
             ) from e
 
     def _execute_select(self, conn) -> QueryResult:
@@ -737,10 +749,14 @@ class DatabaseClient:
             raise
         except Exception as e:
             logger.error(f"Raw SQL error: {e}")
+            is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",
                 operation="execute_raw",
-                details=str(e),
+                details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
+                status_code=503 if is_unavailable else 500,
+                code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
+                hint=local_database_unavailable_hint() if is_unavailable else None,
             ) from e
 
     def rpc(self, function_name: str, params: Optional[dict] = None) -> QueryResult:
@@ -776,10 +792,14 @@ class DatabaseClient:
             raise
         except Exception as e:
             logger.error(f"RPC error: {e}")
+            is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<rpc>",
                 operation=function_name,
-                details=str(e),
+                details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
+                status_code=503 if is_unavailable else 500,
+                code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
+                hint=local_database_unavailable_hint() if is_unavailable else None,
             ) from e
 
 
