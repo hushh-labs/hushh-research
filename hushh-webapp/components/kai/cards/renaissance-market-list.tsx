@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, TrendingDown, TrendingUp } from "lucide-react";
+import { Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
 
+import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -17,7 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  SettingsDetailPanel,
   SettingsGroup,
   SettingsRow,
 } from "@/components/profile/settings-ui";
@@ -146,18 +146,22 @@ export function RiaPicksList({
   sources = [],
   activeSourceId = "default",
   onSourceChange,
+  controlMode = "inline",
 }: {
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
   activeSourceId?: string;
   onSourceChange?: (sourceId: string) => void;
+  controlMode?: "inline" | "adaptive-surface";
 }) {
   const isMobile = useIsMobile();
+  const useAdaptiveSurfaceControls = controlMode === "adaptive-surface" && isMobile;
   const pageSizeOptions: readonly number[] = isMobile
     ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
     : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
   const defaultPageSize = pageSizeOptions[0] ?? 6;
   const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(null);
+  const [controlsOpen, setControlsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
@@ -252,6 +256,11 @@ export function RiaPicksList({
 
   const visibleStart = filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const visibleEnd = Math.min(page * pageSize, filteredRows.length);
+  const activeFilterLabels = [
+    query.trim() ? `Search: ${query.trim()}` : null,
+    tierFilter !== ALL_FILTER ? `Tier ${tierFilter}` : null,
+    sectorFilter !== ALL_FILTER ? sectorFilter : null,
+  ].filter(Boolean) as string[];
 
   const goToPage = (nextPage: number) => {
     setPage(Math.max(1, Math.min(totalPages, nextPage)));
@@ -299,70 +308,119 @@ export function RiaPicksList({
           <SettingsRow
             title="List source"
             description={pickSourceSummary(displaySource)}
-            stackTrailingOnMobile
+            stackTrailingOnMobile={useAdaptiveSurfaceControls}
+            onClick={useAdaptiveSurfaceControls ? () => setControlsOpen(true) : undefined}
+            chevron={useAdaptiveSurfaceControls}
             trailing={
-              <Select
-                value={activeSource?.id || "default"}
-                onValueChange={(nextValue) => {
-                  if (!onSourceChange || nextValue === activeSource?.id) return;
-                  onSourceChange(nextValue);
-                }}
-              >
-                <SelectTrigger
-                  className={cn(
-                    "h-10 min-w-[176px] max-w-[240px] rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
-                    displaySource ? sourceStateTone(displaySource) : undefined
-                  )}
+              useAdaptiveSurfaceControls ? (
+                <div className="min-w-0 text-left sm:text-right">
+                  <p
+                    className={cn(
+                      "truncate text-sm font-semibold tracking-tight text-foreground",
+                      displaySource ? sourceStateTone(displaySource) : undefined,
+                      "inline-flex max-w-full items-center rounded-full border px-3 py-2"
+                    )}
+                  >
+                    {displaySource?.label || "Default list"}
+                  </p>
+                </div>
+              ) : (
+                <Select
+                  value={activeSource?.id || "default"}
+                  onValueChange={(nextValue) => {
+                    if (!onSourceChange || nextValue === activeSource?.id) return;
+                    onSourceChange(nextValue);
+                  }}
                 >
-                  <SelectValue placeholder="Default list" />
+                  <SelectTrigger
+                    className={cn(
+                      "h-10 min-w-[176px] max-w-[240px] rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
+                      displaySource ? sourceStateTone(displaySource) : undefined
+                    )}
+                  >
+                    <SelectValue placeholder="Default list" />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {availableSources.map((source) => (
+                      <SelectItem key={source.id} value={source.id}>
+                        {source.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )
+            }
+          />
+
+          {useAdaptiveSurfaceControls ? (
+            <SurfaceInset className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Search and filters
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {activeFilterLabels.length ? (
+                    activeFilterLabels.map((label) => (
+                      <Badge
+                        key={label}
+                        variant="outline"
+                        className="border-[color:var(--app-card-border-standard)] bg-background/75 text-muted-foreground"
+                      >
+                        {label}
+                      </Badge>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">All names in the active source.</p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setControlsOpen(true)}
+                className="inline-flex items-center gap-2 rounded-full border border-[color:var(--app-card-border-standard)] bg-background/80 px-3 py-2 text-sm font-medium text-foreground shadow-[var(--shadow-xs)] transition-colors hover:bg-background"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                Refine
+              </button>
+            </SurfaceInset>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1.35fr)_180px_180px]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search symbol, company, sector, or thesis"
+                  className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
+                />
+              </div>
+              <Select value={tierFilter} onValueChange={setTierFilter}>
+                <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                  <SelectValue placeholder="All tiers" />
                 </SelectTrigger>
-                <SelectContent align="end">
-                  {availableSources.map((source) => (
-                    <SelectItem key={source.id} value={source.id}>
-                      {source.label}
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
+                  <SelectItem value="ACE">ACE</SelectItem>
+                  <SelectItem value="KING">KING</SelectItem>
+                  <SelectItem value="QUEEN">QUEEN</SelectItem>
+                  <SelectItem value="JACK">JACK</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                  <SelectValue placeholder="All sectors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
+                  {sectors.map((sector) => (
+                    <SelectItem key={sector} value={sector}>
+                      {sector}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            }
-          />
-
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1.35fr)_180px_180px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search symbol, company, sector, or thesis"
-                className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
-              />
             </div>
-            <Select value={tierFilter} onValueChange={setTierFilter}>
-              <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                <SelectValue placeholder="All tiers" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
-                <SelectItem value="ACE">ACE</SelectItem>
-                <SelectItem value="KING">KING</SelectItem>
-                <SelectItem value="QUEEN">QUEEN</SelectItem>
-                <SelectItem value="JACK">JACK</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sectorFilter} onValueChange={setSectorFilter}>
-              <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                <SelectValue placeholder="All sectors" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
-                {sectors.map((sector) => (
-                  <SelectItem key={sector} value={sector}>
-                    {sector}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs leading-5 text-muted-foreground">
@@ -415,7 +473,7 @@ export function RiaPicksList({
           </div>
         ) : (
           <div
-            className="touch-pan-y"
+            className={cn("touch-pan-y", isMobile && "space-y-2 px-3 py-3", !isMobile && "")}
             data-no-route-swipe
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
@@ -442,7 +500,12 @@ export function RiaPicksList({
                   type="button"
                   data-no-route-swipe
                   onClick={() => setSelectedRow(row)}
-                  className="group relative isolate flex w-full items-center gap-3 overflow-hidden border-t border-border/55 px-4 py-2.5 text-left transition-colors hover:bg-foreground/[0.04] active:bg-foreground/[0.06] first:border-t-0"
+                  className={cn(
+                    "group relative isolate flex w-full gap-3 text-left transition-colors",
+                    isMobile
+                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
+                      : "items-center overflow-hidden border-t border-border/55 px-4 py-2.5 hover:bg-foreground/[0.04] active:bg-foreground/[0.06] first:border-t-0"
+                  )}
                 >
                   <div className="shrink-0">
                     <SymbolAvatar
@@ -484,11 +547,11 @@ export function RiaPicksList({
                         {row.company_name || row.symbol}
                       </p>
                     </div>
-                    <p className="mt-0.5 truncate text-[11px] leading-5 text-muted-foreground">
+                    <p className="mt-1 text-[11px] leading-5 text-muted-foreground sm:truncate">
                       {metadataLine || "Metadata is still syncing for this name."}
                     </p>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className={cn("shrink-0 text-right", isMobile ? "min-w-[5.25rem]" : "")}>
                     <p className="text-sm font-semibold tracking-tight text-foreground">
                       {formatCurrency(row.price)}
                     </p>
@@ -584,11 +647,12 @@ export function RiaPicksList({
         ) : null}
       </SettingsGroup>
 
-      <SettingsDetailPanel
+      <KaiControlSurface
         open={Boolean(selectedRow)}
         onOpenChange={(open) => {
           if (!open) setSelectedRow(null);
         }}
+        eyebrow="Advisor ideas"
         title={selectedRow ? `${selectedRow.symbol} · ${selectedRow.company_name}` : "Pick detail"}
         description={
           selectedRow
@@ -727,7 +791,124 @@ export function RiaPicksList({
             </div>
           </div>
         ) : null}
-      </SettingsDetailPanel>
+      </KaiControlSurface>
+
+      <KaiControlSurface
+        open={controlsOpen}
+        onOpenChange={setControlsOpen}
+        eyebrow="Advisor ideas"
+        title="Refine the active list"
+        description="Switch the active source and tighten the names shown in this market lane."
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              List Source
+            </p>
+            <Select
+              value={activeSource?.id || "default"}
+              onValueChange={(nextValue) => {
+                if (!onSourceChange || nextValue === activeSource?.id) return;
+                onSourceChange(nextValue);
+              }}
+            >
+              <SelectTrigger
+                className={cn(
+                  "h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
+                  displaySource ? sourceStateTone(displaySource) : undefined
+                )}
+              >
+                <SelectValue placeholder="Default list" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableSources.map((source) => (
+                  <SelectItem key={source.id} value={source.id}>
+                    {source.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Search
+            </p>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search symbol, company, sector, or thesis"
+                className="h-11 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Tier
+              </p>
+              <Select value={tierFilter} onValueChange={setTierFilter}>
+                <SelectTrigger className="h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                  <SelectValue placeholder="All tiers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
+                  <SelectItem value="ACE">ACE</SelectItem>
+                  <SelectItem value="KING">KING</SelectItem>
+                  <SelectItem value="QUEEN">QUEEN</SelectItem>
+                  <SelectItem value="JACK">JACK</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Sector
+              </p>
+              <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                <SelectTrigger className="h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                  <SelectValue placeholder="All sectors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
+                  {sectors.map((sector) => (
+                    <SelectItem key={sector} value={sector}>
+                      {sector}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Rows per page
+            </p>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                <SelectValue placeholder={`${defaultPageSize} per page`} />
+              </SelectTrigger>
+              <SelectContent>
+                {pageSizeOptions.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {option} per page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </KaiControlSurface>
     </div>
   );
 }

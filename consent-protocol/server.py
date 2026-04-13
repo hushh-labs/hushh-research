@@ -191,6 +191,7 @@ else:
 from api.routes.kai import router as kai_router  # noqa: E402
 from api.routes.kai.market_insights import (  # noqa: E402
     start_market_insights_background_refresh,
+    warm_market_insights_startup_once,
 )
 
 app.include_router(kai_router)
@@ -329,7 +330,8 @@ async def shutdown_remote_mcp_transport():
 
 @app.on_event("startup")
 async def startup_market_insights_refresh():
-    """Start background market cache refresh loop for public modules."""
+    """Warm shared market caches, then keep them refreshed in the background."""
+    await warm_market_insights_startup_once()
     start_market_insights_background_refresh()
 
 

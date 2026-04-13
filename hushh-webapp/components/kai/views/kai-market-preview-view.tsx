@@ -21,6 +21,7 @@ import {
 
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
+import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -29,7 +30,11 @@ import {
   surfaceInteractiveShellClassName,
 } from "@/components/app-ui/surfaces";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
-import { MarketOverviewGrid, type MarketOverviewMetric } from "@/components/kai/cards/market-overview-grid";
+import {
+  MarketOverviewGrid,
+  type MarketOverviewDetailPanel,
+  type MarketOverviewMetric,
+} from "@/components/kai/cards/market-overview-grid";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
@@ -604,6 +609,19 @@ function normalizeOverviewSource(source: string | null | undefined): string | nu
   return text;
 }
 
+function formatOverviewAsOf(value: string | null | undefined): string {
+  const text = String(value || "").trim();
+  if (!text) return "Timestamp unavailable";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "Timestamp unavailable";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function formatOverviewValue(
   value: string | number | null | undefined,
   {
@@ -693,6 +711,45 @@ function findOverviewRow(
   );
 }
 
+function buildIndexDetailPanel(
+  row: NonNullable<KaiHomeInsightsV2["market_overview"]>[number] | null,
+  label: string,
+  value: string,
+  delta: string,
+  tone: MarketOverviewMetric["tone"]
+): MarketOverviewDetailPanel {
+  const sourceLabel = normalizeOverviewSource(row?.source) || "Live benchmark feed";
+  const degraded = !row || Boolean(row.degraded);
+
+  return {
+    eyebrow: "Overview",
+    title: label,
+    summary: `${label} is one of the benchmark signals Kai uses to frame the current tape before you move into deeper analysis.`,
+    value,
+    delta,
+    statusLabel: degraded ? "Delayed snapshot" : "Live benchmark read",
+    statusTone: degraded ? "warning" : tone,
+    sections: [
+      {
+        title: "Snapshot context",
+        lines: [
+          degraded
+            ? "This tile is using delayed or incomplete benchmark context."
+            : "This benchmark is part of the live market overview feed.",
+          `Source: ${sourceLabel}`,
+          `As of ${formatOverviewAsOf(row?.as_of)}`,
+        ],
+      },
+      {
+        title: "Why it matters",
+        lines: [
+          "Use this benchmark to anchor the broad tape before moving into advisor ideas or deeper name-level work.",
+        ],
+      },
+    ],
+  };
+}
+
 function toIndexOverviewMetric(
   row: NonNullable<KaiHomeInsightsV2["market_overview"]>[number] | null,
   fallbackLabel: string
@@ -700,17 +757,20 @@ function toIndexOverviewMetric(
   const degraded = !row || Boolean(row.degraded);
   const label = String(row?.label || fallbackLabel);
   const tone = toOverviewTone(row?.delta_pct, degraded);
+  const value = formatOverviewValue(row?.value, { label, degraded });
+  const delta = formatOverviewDelta(row?.delta_pct, {
+    label,
+    source: row?.source,
+    degraded,
+  });
   return {
     id: label.toLowerCase().replace(/\s+/g, "-"),
     label,
-    value: formatOverviewValue(row?.value, { label, degraded }),
-    delta: formatOverviewDelta(row?.delta_pct, {
-      label,
-      source: row?.source,
-      degraded,
-    }),
+    value,
+    delta,
     tone,
     icon: iconForOverview(label, tone),
+    detailPanel: buildIndexDetailPanel(row, label, value, delta, tone),
   };
 }
 
@@ -754,6 +814,40 @@ function toBreadthMetric(payload: KaiHomeInsightsV2 | null): MarketOverviewMetri
           : "Awaiting breadth snapshot",
     tone,
     icon: tone === "negative" ? TrendingDown : TrendingUp,
+    detailPanel: {
+      eyebrow: "Overview",
+      title: "Advancers vs decliners",
+      summary: "Breadth shows whether participation is broad or concentrated across the names Kai is tracking right now.",
+      value,
+      delta:
+        trackedCount > 0
+          ? `${gainers} higher · ${losers} lower`
+          : degraded
+            ? "Breadth delayed"
+            : "Awaiting breadth snapshot",
+      statusLabel: degraded ? "Delayed breadth read" : "Breadth live",
+      statusTone: tone,
+      sections: [
+        {
+          title: "Participation",
+          lines: [
+            trackedCount > 0
+              ? `${gainers} of ${trackedCount} tracked names are advancing.`
+              : "Kai does not have a fresh breadth snapshot yet.",
+            trackedCount > 0
+              ? `${losers} tracked names are declining.`
+              : "The breadth feed is still warming.",
+          ],
+        },
+        {
+          title: "Leaders",
+          lines: [
+            _topHigher.length ? `Higher today: ${_topHigher.join(", ")}` : "Higher-today leaders are still populating.",
+            _topLower.length ? `Lower today: ${_topLower.join(", ")}` : "Lower-today names are still populating.",
+          ],
+        },
+      ],
+    },
   };
 }
 
@@ -769,6 +863,13 @@ function toSectorLeadershipMetric(payload: KaiHomeInsightsV2 | null): MarketOver
   )[0];
   const degraded = !leader || Boolean(leader.degraded);
   const tone = toOverviewTone(leader?.change_pct, degraded);
+  const sortedSectors = [...sectorRows]
+    .sort((left, right) => Number(right.change_pct || 0) - Number(left.change_pct || 0))
+    .slice(0, 3)
+    .map((row) => {
+      const changePct = Number(row.change_pct || 0);
+      return `${row.sector}: ${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`;
+    });
 
   return {
     id: "sector-leadership",
@@ -782,6 +883,37 @@ function toSectorLeadershipMetric(payload: KaiHomeInsightsV2 | null): MarketOver
           : "No clear leader",
     tone,
     icon: ChartColumnIncreasing,
+    detailPanel: {
+      eyebrow: "Overview",
+      title: "Sector leader",
+      summary: "Sector rotation highlights where leadership is concentrating in the current tape.",
+      value: leader?.sector || (degraded ? "Updating" : "Unavailable"),
+      delta:
+        typeof leader?.change_pct === "number" && Number.isFinite(leader.change_pct)
+          ? `${leader.change_pct >= 0 ? "+" : ""}${leader.change_pct.toFixed(2)}%`
+          : degraded
+            ? "Rotation delayed"
+            : "No clear leader",
+      statusLabel: degraded ? "Rotation delayed" : "Rotation live",
+      statusTone: tone,
+      sections: [
+        {
+          title: "Leader context",
+          lines: [
+            leader?.sector
+              ? `${leader.sector} is leading the current sector board.`
+              : "Kai has not resolved a clean sector leader yet.",
+            typeof leader?.change_pct === "number" && Number.isFinite(leader.change_pct)
+              ? `Move: ${leader.change_pct >= 0 ? "+" : ""}${leader.change_pct.toFixed(2)}%`
+              : "Rotation percentage is not available yet.",
+          ],
+        },
+        {
+          title: "Top rotation board",
+          lines: sortedSectors.length ? sortedSectors : ["Sector rankings are still populating."],
+        },
+      ],
+    },
   };
 }
 
@@ -1245,6 +1377,9 @@ export function KaiMarketPreviewView() {
     handlePickSourceChange,
   } = useKaiMarketHomeController();
   const [retainedPayload, setRetainedPayload] = useState<KaiHomeInsightsV2 | null>(payload);
+  const [selectedOverviewMetric, setSelectedOverviewMetric] = useState<MarketOverviewMetric | null>(
+    null
+  );
 
   useEffect(() => {
     if (payload) {
@@ -1342,12 +1477,19 @@ export function KaiMarketPreviewView() {
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
+        <div className="relative isolate">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(110%_90%_at_0%_0%,rgba(59,130,246,0.1)_0%,transparent_48%),radial-gradient(110%_90%_at_100%_0%,rgba(99,102,241,0.08)_0%,transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.08)_0%,transparent_100%)] dark:bg-[radial-gradient(110%_90%_at_0%_0%,rgba(56,189,248,0.12)_0%,transparent_48%),radial-gradient(110%_90%_at_100%_0%,rgba(96,165,250,0.1)_0%,transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.03)_0%,transparent_100%)]"
+          />
         <SurfaceStack>
       {loading && !hasPayload ? (
         <SurfaceCard tone="default" data-testid="page-primary-module">
-          <SurfaceCardContent className="flex items-center gap-3 text-sm text-muted-foreground">
+          <SurfaceCardContent className="flex min-h-32 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Preparing the market surface from your last available cache.
+            <p className="max-w-sm text-balance">
+              Preparing the market surface from your last available cache.
+            </p>
           </SurfaceCardContent>
         </SurfaceCard>
       ) : null}
@@ -1378,8 +1520,8 @@ export function KaiMarketPreviewView() {
         <div className="flex flex-col gap-12">
           <section className="space-y-4">
             <MarketSectionLead
-              title="Market overview"
-              description="A clean read of the current tape without extra chrome."
+              title="Overview"
+              description="Benchmarks, breadth, and leadership in one clean read."
               aside={
                 marketStatus ? (
                   <Badge variant="outline" className={cn("text-[10px] font-medium", marketStatus.className)}>
@@ -1388,7 +1530,10 @@ export function KaiMarketPreviewView() {
                 ) : null
               }
             />
-            <MarketOverviewGrid metrics={overviewMetrics} />
+            <MarketOverviewGrid
+              metrics={overviewMetrics}
+              onMetricSelect={(metric) => setSelectedOverviewMetric(metric)}
+            />
           </section>
 
           <section className="space-y-4">
@@ -1401,6 +1546,7 @@ export function KaiMarketPreviewView() {
               sources={pickSources}
               activeSourceId={activePickSource}
               onSourceChange={handlePickSourceChange}
+              controlMode="adaptive-surface"
             />
           </section>
 
@@ -1615,7 +1761,82 @@ export function KaiMarketPreviewView() {
         </div>
       ) : null}
         </SurfaceStack>
+        </div>
       </AppPageContentRegion>
+
+      <KaiControlSurface
+        open={Boolean(selectedOverviewMetric?.detailPanel)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedOverviewMetric(null);
+        }}
+        eyebrow={selectedOverviewMetric?.detailPanel?.eyebrow}
+        title={selectedOverviewMetric?.detailPanel?.title || "Overview detail"}
+        description={selectedOverviewMetric?.detailPanel?.summary}
+      >
+        {selectedOverviewMetric?.detailPanel ? (
+          <div className="space-y-4">
+            <SurfaceInset className="space-y-3 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">
+                    {selectedOverviewMetric.detailPanel.value || selectedOverviewMetric.value}
+                  </p>
+                  <p
+                    className={cn(
+                      "text-sm font-medium",
+                      selectedOverviewMetric.detailPanel.statusTone === "positive" &&
+                        "text-emerald-600 dark:text-emerald-400",
+                      selectedOverviewMetric.detailPanel.statusTone === "negative" &&
+                        "text-rose-600 dark:text-rose-400",
+                      selectedOverviewMetric.detailPanel.statusTone === "warning" &&
+                        "text-amber-700 dark:text-amber-300",
+                      (!selectedOverviewMetric.detailPanel.statusTone ||
+                        selectedOverviewMetric.detailPanel.statusTone === "neutral") &&
+                        "text-muted-foreground"
+                    )}
+                  >
+                    {selectedOverviewMetric.detailPanel.delta || selectedOverviewMetric.delta}
+                  </p>
+                </div>
+                {selectedOverviewMetric.detailPanel.statusLabel ? (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] font-semibold uppercase tracking-[0.16em]",
+                      selectedOverviewMetric.detailPanel.statusTone === "positive" &&
+                        "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+                      selectedOverviewMetric.detailPanel.statusTone === "negative" &&
+                        "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+                      selectedOverviewMetric.detailPanel.statusTone === "warning" &&
+                        "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                      (!selectedOverviewMetric.detailPanel.statusTone ||
+                        selectedOverviewMetric.detailPanel.statusTone === "neutral") &&
+                        "border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
+                    )}
+                  >
+                    {selectedOverviewMetric.detailPanel.statusLabel}
+                  </Badge>
+                ) : null}
+              </div>
+            </SurfaceInset>
+
+            {selectedOverviewMetric.detailPanel.sections?.map((section) => (
+              <SurfaceInset key={section.title} className="space-y-2 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {section.title}
+                </p>
+                <div className="space-y-2">
+                  {section.lines.map((line) => (
+                    <p key={line} className="text-sm leading-6 text-foreground/90">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </SurfaceInset>
+            ))}
+          </div>
+        ) : null}
+      </KaiControlSurface>
     </AppPageShell>
   );
 }
