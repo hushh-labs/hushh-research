@@ -4404,6 +4404,7 @@ class BrokerFundingService:
                 if row is not None:
                     webhook_type = _clean_text(payload.get("webhook_type")) or None
                     webhook_code = _clean_text(payload.get("webhook_code")) or None
+                    row_user_id = _clean_text(row.get("user_id")) or None
                     metadata = _json_load(row.get("latest_metadata_json"), fallback={})
                     merged = {
                         **metadata,
@@ -4425,6 +4426,22 @@ class BrokerFundingService:
                             "webhook_code": webhook_code,
                         },
                     )
+                    # Some Plaid transfer webhooks may omit transfer_id payload details.
+                    # Reconciliation keeps transfer + trade-intent state moving forward automatically.
+                    if row_user_id and _clean_text(webhook_type, default="").upper() == "TRANSFER":
+                        try:
+                            await self.run_reconciliation(
+                                user_id=row_user_id,
+                                trigger_source="plaid_webhook_transfer",
+                                max_rows=50,
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "funding.transfer_webhook_reconciliation_failed item_id=%s user_id=%s error=%s",
+                                item_id,
+                                row_user_id,
+                                exc,
+                            )
                     if webhook_id is not None:
                         self._update_webhook_event(webhook_id=webhook_id, status="accepted")
                     return {

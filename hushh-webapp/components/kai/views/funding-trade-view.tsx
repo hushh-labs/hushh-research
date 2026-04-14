@@ -49,6 +49,8 @@ const PENDING_TRADE_STATUSES = new Set([
   "order_submitted",
   "order_partially_filled",
 ]);
+const AUTO_REFRESH_INTERVAL_MS = 12_000;
+const AUTO_REFRESH_BATCH_SIZE = 3;
 
 function compactAccountId(value: string | null | undefined): string {
   const normalized = String(value || "").trim();
@@ -289,6 +291,74 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
       : [];
     setIntentRows(latest);
   }, [plaidFundingStatus?.latest_trade_intents]);
+
+  const pendingIntentIds = useMemo(
+    () =>
+      intentRows
+        .filter((row) => PENDING_TRADE_STATUSES.has(String(row.status || "").trim().toLowerCase()))
+        .map((row) => String(row.intent_id || "").trim())
+        .filter((intentId) => intentId.length > 0),
+    [intentRows]
+  );
+
+  useEffect(() => {
+    if (!vaultOwnerToken || pendingIntentIds.length === 0) return;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const tick = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const ids = pendingIntentIds.slice(0, AUTO_REFRESH_BATCH_SIZE);
+        const refreshed = await Promise.allSettled(
+          ids.map((intentId) =>
+            PlaidPortfolioService.refreshFundedTradeIntent({
+              userId,
+              intentId,
+              vaultOwnerToken,
+            })
+          )
+        );
+        if (cancelled) return;
+
+        const refreshedIntents = refreshed.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value.intent] : []
+        );
+        if (!refreshedIntents.length) return;
+
+        setIntentRows((current) => {
+          const next = [...current];
+          for (const refreshedIntent of refreshedIntents) {
+            const refreshedId = String(refreshedIntent.intent_id || "").trim();
+            if (!refreshedId) continue;
+            const index = next.findIndex(
+              (row) => String(row.intent_id || "").trim() === refreshedId
+            );
+            if (index >= 0) {
+              next[index] = refreshedIntent;
+            } else {
+              next.unshift(refreshedIntent);
+            }
+          }
+          return next;
+        });
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void tick();
+    const timer = window.setInterval(() => {
+      void tick();
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [pendingIntentIds, userId, vaultOwnerToken]);
 
   const openFundingLink = useCallback(async () => {
     if (!vaultOwnerToken) {
