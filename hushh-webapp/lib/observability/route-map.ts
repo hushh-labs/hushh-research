@@ -177,6 +177,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/alpaca/connect/start",
   },
   {
+    regex: /^\/api\/kai\/alpaca\/symbols(?:\?.*)?$/i,
+    template: "/api/kai/alpaca/symbols",
+  },
+  {
     regex: /^\/api\/kai\/alpaca\/connect\/complete(?:\?.*)?$/i,
     template: "/api/kai/alpaca/connect/complete",
   },

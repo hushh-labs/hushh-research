@@ -164,13 +164,23 @@ function formatStockStatus(detail: AlpacaStockDetail | null): string {
   return `${status} · ${tradable}`;
 }
 
-async function fetchAlpacaStockDetails(query: string, limit = 8): Promise<AlpacaStockDetail[]> {
+async function fetchAlpacaStockDetails(
+  query: string,
+  vaultOwnerToken: string,
+  limit = 8
+): Promise<AlpacaStockDetail[]> {
   const normalized = String(query || "").trim().toUpperCase();
   if (!normalized) return [];
+  if (!vaultOwnerToken) return [];
 
   const response = await ApiService.apiFetch(
-    `/api/alpaca/symbols?q=${encodeURIComponent(normalized)}&limit=${limit}`,
-    { method: "GET" }
+    `/api/kai/alpaca/symbols?q=${encodeURIComponent(normalized)}&limit=${limit}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${vaultOwnerToken}`,
+      },
+    }
   );
   const payload = (await response.json().catch(() => ({}))) as AlpacaSymbolsResponse;
   if (!response.ok) {
@@ -245,7 +255,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
     const handle = window.setTimeout(async () => {
       setIsLoadingSymbolDetails(true);
       try {
-        const details = await fetchAlpacaStockDetails(q, 8);
+        const details = await fetchAlpacaStockDetails(q, vaultOwnerToken, 8);
         if (cancelled) return;
 
         setSymbolSuggestions(details);
@@ -270,7 +280,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [symbolInput]);
+  }, [symbolInput, vaultOwnerToken]);
 
   useEffect(() => {
     if (selectedFundingDefault && selectedFundingDefault !== selectedFundingAccountId) {
@@ -541,7 +551,11 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
         selectedSymbolDetail?.symbol === normalizedSymbol ? selectedSymbolDetail : null;
 
       if (!resolvedSymbolDetail) {
-        const refreshedDetails = await fetchAlpacaStockDetails(normalizedSymbol, 8);
+        const refreshedDetails = await fetchAlpacaStockDetails(
+          normalizedSymbol,
+          vaultOwnerToken,
+          8
+        );
         resolvedSymbolDetail =
           refreshedDetails.find((item) => item.symbol === normalizedSymbol) || null;
       }

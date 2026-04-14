@@ -75,6 +75,7 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/plaid/funding/admin/transfers/{transfer_id}/refresh",
     "/plaid/funding/admin/escalations",
     "/plaid/funding/reconcile",
+    "/alpaca/symbols",
     "/alpaca/connect/start",
     "/alpaca/connect/complete",
     "/plaid/transfers/create",

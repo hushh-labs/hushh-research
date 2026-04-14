@@ -40,6 +40,9 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/kai/plaid/trades/funded/create")).toBe(
       "/api/kai/plaid/trades/funded/create"
     );
+    expect(normalizeApiPathToTemplate("/api/kai/alpaca/symbols?q=AAPL&limit=8")).toBe(
+      "/api/kai/alpaca/symbols"
+    );
     expect(normalizeApiPathToTemplate("/api/kai/plaid/trades/funded/intent_123/refresh")).toBe(
       "/api/kai/plaid/trades/funded/{intent_id}/refresh"
     );

@@ -401,6 +401,22 @@ async def set_plaid_funding_brokerage_account(
         )
 
 
+@router.get("/alpaca/symbols")
+async def lookup_alpaca_symbols(
+    q: str = "",
+    limit: int = 8,
+    token_data: dict = Depends(require_transfer_scope_token),
+):
+    user_id = str(token_data.get("user_id") or "").strip() or "unknown"
+    try:
+        return await get_broker_funding_service().lookup_stock_symbols(
+            query=q,
+            limit=limit,
+        )
+    except Exception as exc:
+        _raise_logged_http_exception("kai.alpaca.symbol_lookup_failed", user_id, exc)
+
+
 @router.post("/alpaca/connect/start")
 async def start_alpaca_connect(
     request: AlpacaConnectStartRequest,

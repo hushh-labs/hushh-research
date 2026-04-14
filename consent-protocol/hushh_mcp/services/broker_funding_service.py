@@ -53,6 +53,10 @@ _ALPACA_CONNECT_DEFAULT_TOKEN_URL = "https://api.alpaca.markets/oauth/token"  # 
 _ALPACA_CONNECT_DEFAULT_ACCOUNT_URL = "https://api.alpaca.markets/v2/account"
 _ALPACA_CONNECT_DEFAULT_SCOPES = "account:write trading"
 _ALPACA_CONNECT_SESSION_TTL_SECONDS_DEFAULT = 15 * 60
+_ALPACA_STOCK_LOOKUP_DEFAULT_LIMIT = 8
+_ALPACA_STOCK_LOOKUP_MAX_LIMIT = 20
+_ALPACA_STOCK_LOOKUP_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
+_ALPACA_ASSET_UNIVERSE_CACHE_TTL_SECONDS = 5 * 60
 
 _TRADE_INTENT_TERMINAL_STATUSES = {
     "order_filled",
@@ -267,6 +271,166 @@ def _normalize_https_url(value: str | None) -> str | None:
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
+def _first_non_empty(*values: Any) -> str:
+    for value in values:
+        text = _clean_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _strip_trailing_slashes(value: str | None) -> str:
+    return _clean_text(value).rstrip("/")
+
+
+def _to_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
+def _to_optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _normalize_alpaca_asset_meta(row: Any) -> dict[str, Any] | None:
+    data = _as_dict(row)
+    symbol = _clean_text(data.get("symbol")).upper()
+    if not symbol:
+        return None
+
+    raw_attributes = data.get("attributes")
+    attributes = (
+        [entry for entry in (_clean_text(item) for item in raw_attributes) if entry]
+        if isinstance(raw_attributes, list)
+        else []
+    )
+
+    return {
+        "id": _clean_text(data.get("id")) or None,
+        "symbol": symbol,
+        "name": _clean_text(data.get("name")) or None,
+        "exchange": _clean_text(data.get("exchange")) or None,
+        "assetClass": _clean_text(data.get("class") or data.get("asset_class")) or None,
+        "status": _clean_text(data.get("status")) or None,
+        "tradable": _to_optional_bool(data.get("tradable")),
+        "marginable": _to_optional_bool(data.get("marginable")),
+        "shortable": _to_optional_bool(data.get("shortable")),
+        "easyToBorrow": _to_optional_bool(data.get("easy_to_borrow")),
+        "fractionable": _to_optional_bool(data.get("fractionable")),
+        "maintenanceMarginRequirement": _to_number(data.get("maintenance_margin_requirement")),
+        "attributes": attributes,
+    }
+
+
+def _normalize_alpaca_bar(row: Any) -> dict[str, Any] | None:
+    data = _as_dict(row)
+    if not data:
+        return None
+    return {
+        "open": _to_number(data.get("o", data.get("open"))),
+        "high": _to_number(data.get("h", data.get("high"))),
+        "low": _to_number(data.get("l", data.get("low"))),
+        "close": _to_number(data.get("c", data.get("close"))),
+        "volume": _to_number(data.get("v", data.get("volume"))),
+        "vwap": _to_number(data.get("vw", data.get("vwap"))),
+        "tradeCount": _to_number(data.get("n", data.get("trade_count"))),
+        "timestamp": _clean_text(data.get("t", data.get("timestamp"))) or None,
+    }
+
+
+def _normalize_alpaca_trade(row: Any) -> dict[str, Any] | None:
+    data = _as_dict(row)
+    if not data:
+        return None
+    raw_conditions = data.get("c")
+    conditions = (
+        [entry for entry in (_clean_text(item) for item in raw_conditions) if entry]
+        if isinstance(raw_conditions, list)
+        else []
+    )
+    return {
+        "price": _to_number(data.get("p", data.get("price"))),
+        "size": _to_number(data.get("s", data.get("size"))),
+        "exchange": _clean_text(data.get("x", data.get("exchange"))) or None,
+        "tape": _clean_text(data.get("z", data.get("tape"))) or None,
+        "timestamp": _clean_text(data.get("t", data.get("timestamp"))) or None,
+        "conditions": conditions,
+    }
+
+
+def _normalize_alpaca_quote(row: Any) -> dict[str, Any] | None:
+    data = _as_dict(row)
+    if not data:
+        return None
+    return {
+        "bidPrice": _to_number(data.get("bp", data.get("bid_price"))),
+        "bidSize": _to_number(data.get("bs", data.get("bid_size"))),
+        "bidExchange": _clean_text(data.get("bx", data.get("bid_exchange"))) or None,
+        "askPrice": _to_number(data.get("ap", data.get("ask_price"))),
+        "askSize": _to_number(data.get("as", data.get("ask_size"))),
+        "askExchange": _clean_text(data.get("ax", data.get("ask_exchange"))) or None,
+        "timestamp": _clean_text(data.get("t", data.get("timestamp"))) or None,
+    }
+
+
+def _normalize_alpaca_snapshot(row: Any) -> dict[str, Any] | None:
+    data = _as_dict(row)
+    if not data:
+        return None
+    return {
+        "latestTrade": _normalize_alpaca_trade(data.get("latestTrade", data.get("latest_trade"))),
+        "latestQuote": _normalize_alpaca_quote(data.get("latestQuote", data.get("latest_quote"))),
+        "minuteBar": _normalize_alpaca_bar(data.get("minuteBar", data.get("minute_bar"))),
+        "dailyBar": _normalize_alpaca_bar(data.get("dailyBar", data.get("daily_bar"))),
+        "prevDailyBar": _normalize_alpaca_bar(data.get("prevDailyBar", data.get("prev_daily_bar"))),
+    }
+
+
+def _get_snapshot_rows(payload: Any) -> dict[str, Any]:
+    data = _as_dict(payload)
+    nested = _as_dict(data.get("snapshots"))
+    return nested or data
+
+
+def _rank_asset_for_query(asset: dict[str, Any], query: str) -> int:
+    symbol = _clean_text(asset.get("symbol")).upper()
+    name = _clean_text(asset.get("name")).upper()
+    if symbol == query:
+        return 0
+    if symbol.startswith(query):
+        return 1
+    if name.startswith(query):
+        return 2
+    if query in symbol:
+        return 3
+    if query in name:
+        return 4
+    return 10
+
+
+def _coerce_stock_lookup_limit(value: int | None) -> int:
+    try:
+        parsed = int(value or _ALPACA_STOCK_LOOKUP_DEFAULT_LIMIT)
+    except (TypeError, ValueError):
+        parsed = _ALPACA_STOCK_LOOKUP_DEFAULT_LIMIT
+    return max(1, min(_ALPACA_STOCK_LOOKUP_MAX_LIMIT, parsed))
+
+
 def _user_facing_transfer_status(status_value: str | None) -> str:
     normalized = _clean_text(status_value).upper()
     if normalized in _COMPLETED_TRANSFER_STATUSES:
@@ -289,6 +453,7 @@ class BrokerFundingService:
         self._plaid_client: PlaidHttpClient | None = None
         self._alpaca_runtime_config: AlpacaBrokerRuntimeConfig | None = None
         self._alpaca_client: AlpacaBrokerHttpClient | None = None
+        self._alpaca_asset_universe_cache: dict[str, Any] | None = None
         self._warned_fallback_encryption_key = False
 
     @property
@@ -350,6 +515,295 @@ class BrokerFundingService:
 
     async def _alpaca_delete(self, path: str) -> dict[str, Any] | list[Any]:
         return await self.alpaca_client.delete(path)
+
+    def _alpaca_stock_lookup_headers(self) -> dict[str, str]:
+        headers = {"Accept": "application/json"}
+        bearer_token = _first_non_empty(
+            os.getenv("ALPACA_BROKER_AUTH_TOKEN"),
+            os.getenv("BROKER_TOKEN"),
+            os.getenv("ALPACA_AUTH_TOKEN"),
+        )
+        if bearer_token:
+            lowered = bearer_token.lower()
+            if lowered.startswith("basic ") or lowered.startswith("bearer "):
+                headers["Authorization"] = bearer_token
+            else:
+                headers["Authorization"] = f"Bearer {bearer_token}"
+            return headers
+
+        key_id = _first_non_empty(
+            os.getenv("ALPACA_BROKER_KEY_ID"),
+            os.getenv("APCA_API_KEY_ID"),
+            os.getenv("ALPACA_API_KEY"),
+            os.getenv("ALPACA_KEY_ID"),
+        )
+        secret = _first_non_empty(
+            os.getenv("ALPACA_BROKER_SECRET"),
+            os.getenv("APCA_API_SECRET_KEY"),
+            os.getenv("ALPACA_API_SECRET"),
+            os.getenv("ALPACA_SECRET_KEY"),
+            os.getenv("ALPACA_API_SECRET_KEY"),
+        )
+        if key_id and secret:
+            headers["APCA-API-KEY-ID"] = key_id
+            headers["APCA-API-SECRET-KEY"] = secret
+            return headers
+
+        auth_header = _clean_text(self.alpaca_config.auth_header)
+        if auth_header:
+            headers["Authorization"] = auth_header
+            return headers
+
+        return {}
+
+    def _alpaca_stock_lookup_trading_base_urls(self) -> list[str]:
+        configured_url = _strip_trailing_slashes(
+            _first_non_empty(
+                os.getenv("ALPACA_TRADING_BASE_URL"),
+                os.getenv("ALPACA_API_BASE_URL"),
+                os.getenv("ALPACA_BROKER_BASE_URL"),
+            )
+        )
+        runtime_url = _strip_trailing_slashes(self.alpaca_config.base_url)
+        candidates = [
+            configured_url,
+            runtime_url,
+            "https://paper-api.alpaca.markets",
+            "https://api.alpaca.markets",
+        ]
+
+        unique: list[str] = []
+        seen: set[str] = set()
+        for value in candidates:
+            if not value:
+                continue
+            if value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    def _alpaca_stock_lookup_data_base_url(self) -> str:
+        data_base_url = _strip_trailing_slashes(os.getenv("ALPACA_DATA_BASE_URL"))
+        if data_base_url:
+            return data_base_url
+        return "https://data.alpaca.markets"
+
+    def _alpaca_asset_universe_cache_key(
+        self,
+        *,
+        headers: dict[str, str],
+        trading_base_urls: list[str],
+    ) -> str:
+        auth_key = (
+            headers.get("Authorization")
+            or headers.get("APCA-API-KEY-ID")
+            or headers.get("APCA-API-SECRET-KEY")
+            or "missing"
+        )
+        auth_hash = hashlib.sha256(auth_key.encode("utf-8")).hexdigest()
+        base_key = "|".join(trading_base_urls)
+        return f"{base_key}:{auth_hash}"
+
+    async def _fetch_alpaca_asset_universe(
+        self,
+        *,
+        headers: dict[str, str],
+        trading_base_urls: list[str],
+    ) -> list[dict[str, Any]]:
+        attempted_endpoints: set[str] = set()
+        candidates: list[str] = []
+        for base_url in trading_base_urls:
+            for path in (
+                "/v2/assets?status=active&asset_class=us_equity",
+                "/v1/assets?status=active&asset_class=us_equity",
+            ):
+                endpoint = f"{base_url}{path}"
+                if endpoint in attempted_endpoints:
+                    continue
+                attempted_endpoints.add(endpoint)
+                candidates.append(endpoint)
+
+        errors: list[str] = []
+        async with httpx.AsyncClient(timeout=_ALPACA_STOCK_LOOKUP_TIMEOUT) as client:
+            for endpoint in candidates:
+                try:
+                    response = await client.get(endpoint, headers=headers)
+                except Exception as exc:  # pragma: no cover - network failure branch
+                    errors.append(f"{endpoint} -> {exc.__class__.__name__}: {exc}")
+                    continue
+
+                if response.status_code >= 400:
+                    detail = _clean_text(response.text)
+                    if len(detail) > 160:
+                        detail = f"{detail[:157]}..."
+                    errors.append(f"{endpoint} -> {response.status_code} {detail}".strip())
+                    continue
+
+                try:
+                    payload = response.json()
+                except Exception:
+                    errors.append(f"{endpoint} -> invalid JSON payload")
+                    continue
+
+                if not isinstance(payload, list):
+                    errors.append(f"{endpoint} -> expected array payload")
+                    continue
+
+                normalized = [
+                    item
+                    for item in (_normalize_alpaca_asset_meta(row) for row in payload)
+                    if item is not None
+                ]
+                if normalized:
+                    return normalized
+
+                errors.append(f"{endpoint} -> empty asset list")
+
+        raise FundingOrchestrationError(
+            "Alpaca stock lookup failed.",
+            code="ALPACA_STOCK_LOOKUP_FAILED",
+            status_code=502,
+            details={"errors": errors[:8]},
+        )
+
+    async def _get_alpaca_asset_universe_cached(
+        self,
+        *,
+        headers: dict[str, str],
+        trading_base_urls: list[str],
+    ) -> list[dict[str, Any]]:
+        now_ts = _utcnow().timestamp()
+        cache_key = self._alpaca_asset_universe_cache_key(
+            headers=headers,
+            trading_base_urls=trading_base_urls,
+        )
+        cache = self._alpaca_asset_universe_cache
+        if (
+            isinstance(cache, dict)
+            and cache.get("cache_key") == cache_key
+            and isinstance(cache.get("fetched_at_ts"), (int, float))
+            and isinstance(cache.get("items"), list)
+            and (now_ts - float(cache.get("fetched_at_ts")))
+            < _ALPACA_ASSET_UNIVERSE_CACHE_TTL_SECONDS
+        ):
+            return [item for item in cache["items"] if isinstance(item, dict)]
+
+        items = await self._fetch_alpaca_asset_universe(
+            headers=headers,
+            trading_base_urls=trading_base_urls,
+        )
+        self._alpaca_asset_universe_cache = {
+            "cache_key": cache_key,
+            "fetched_at_ts": now_ts,
+            "items": items,
+        }
+        return items
+
+    async def lookup_stock_symbols(
+        self,
+        *,
+        query: str,
+        limit: int = _ALPACA_STOCK_LOOKUP_DEFAULT_LIMIT,
+    ) -> dict[str, Any]:
+        normalized_query = _clean_text(query).upper()
+        bounded_limit = _coerce_stock_lookup_limit(limit)
+        if not normalized_query:
+            return {"query": "", "itemCount": 0, "items": []}
+
+        headers = self._alpaca_stock_lookup_headers()
+        if not headers:
+            raise FundingOrchestrationError(
+                "Alpaca credentials are missing. Configure API key/secret or broker auth token.",
+                code="ALPACA_CREDENTIALS_MISSING",
+                status_code=500,
+            )
+
+        trading_base_urls = self._alpaca_stock_lookup_trading_base_urls()
+        assets = await self._get_alpaca_asset_universe_cached(
+            headers=headers,
+            trading_base_urls=trading_base_urls,
+        )
+
+        matches = [asset for asset in assets if _rank_asset_for_query(asset, normalized_query) < 10]
+        matches.sort(
+            key=lambda asset: (
+                _rank_asset_for_query(asset, normalized_query),
+                _clean_text(asset.get("symbol")),
+            )
+        )
+        matches = matches[:bounded_limit]
+
+        symbols = [
+            _clean_text(asset.get("symbol")).upper()
+            for asset in matches
+            if _clean_text(asset.get("symbol"))
+        ]
+
+        snapshot_rows: dict[str, Any] = {}
+        if symbols:
+            snapshots_url = f"{self._alpaca_stock_lookup_data_base_url()}/v2/stocks/snapshots"
+            try:
+                async with httpx.AsyncClient(timeout=_ALPACA_STOCK_LOOKUP_TIMEOUT) as client:
+                    snapshots_response = await client.get(
+                        snapshots_url,
+                        params={"symbols": ",".join(symbols)},
+                        headers=headers,
+                    )
+                if snapshots_response.status_code < 400:
+                    snapshot_rows = _get_snapshot_rows(snapshots_response.json())
+                else:
+                    logger.warning(
+                        "funding.alpaca_snapshot_lookup_failed status=%s",
+                        snapshots_response.status_code,
+                    )
+            except Exception as exc:  # pragma: no cover - non-deterministic network branch
+                logger.warning(
+                    "funding.alpaca_snapshot_lookup_failed error=%s",
+                    exc.__class__.__name__,
+                )
+
+        items: list[dict[str, Any]] = []
+        for asset in matches:
+            symbol = _clean_text(asset.get("symbol")).upper()
+            status_value = _clean_text(asset.get("status")) or None
+            active = status_value.lower() == "active" if status_value else None
+            snapshot = _normalize_alpaca_snapshot(
+                snapshot_rows.get(symbol) or snapshot_rows.get(symbol.upper())
+            )
+            item = {
+                "symbol": symbol,
+                "name": asset.get("name"),
+                "exchange": asset.get("exchange"),
+                "assetClass": asset.get("assetClass"),
+                "status": status_value,
+                "active": active,
+                "tradable": asset.get("tradable"),
+                "marginable": asset.get("marginable"),
+                "shortable": asset.get("shortable"),
+                "easyToBorrow": asset.get("easyToBorrow"),
+                "fractionable": asset.get("fractionable"),
+                "maintenanceMarginRequirement": asset.get("maintenanceMarginRequirement"),
+                "attributes": list(asset.get("attributes") or []),
+                "currency": "USD",
+                "market": snapshot,
+                "reference": {
+                    "symbol": symbol,
+                    "name": asset.get("name"),
+                    "exchange": asset.get("exchange"),
+                    "assetClass": asset.get("assetClass"),
+                    "status": status_value,
+                    "active": active,
+                },
+                "asset": asset,
+            }
+            items.append(item)
+
+        return {
+            "query": normalized_query,
+            "itemCount": len(items),
+            "items": items,
+        }
 
     def _resolve_secret_encryption_key(self) -> bytes:
         configured = _clean_text(

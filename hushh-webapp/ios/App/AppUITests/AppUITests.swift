@@ -78,6 +78,7 @@ final class AppUITests: XCTestCase {
             ),
             reviewerRoute(name: "kai-import", redirect: "/kai/import", marker: "native-route-kai-import"),
             reviewerRoute(name: "kai-investments", redirect: "/kai/investments", marker: "native-route-kai-investments"),
+            reviewerRoute(name: "kai-funding-trade", redirect: "/kai/funding-trade", marker: "native-route-kai-funding-trade"),
             reviewerRoute(name: "kai-onboarding", redirect: "/kai/onboarding", marker: "native-route-kai-onboarding"),
             reviewerRoute(name: "kai-optimize", redirect: "/kai/optimize", marker: "native-route-kai-optimize", allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]),
             reviewerRoute(name: "kai-portfolio", redirect: "/kai/portfolio", marker: "native-route-kai-portfolio", allowedDataStates: ["loaded"]),
