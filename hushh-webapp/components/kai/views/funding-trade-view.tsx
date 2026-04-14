@@ -33,6 +33,7 @@ import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri"
 import { usePortfolioSources } from "@/lib/kai/brokerage/use-portfolio-sources";
 import { ROUTES } from "@/lib/navigation/routes";
 import { Button } from "@/lib/morphy-ux/button";
+import { ApiService } from "@/lib/services/api-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 
@@ -79,6 +80,107 @@ function intentStatusTone(status: string | null | undefined): string {
   return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300 dark:border-sky-400/30 dark:bg-sky-400/10";
 }
 
+type AlpacaMarketTrade = {
+  price: number | null;
+  size: number | null;
+  exchange: string | null;
+  tape: string | null;
+  timestamp: string | null;
+};
+
+type AlpacaMarketQuote = {
+  bidPrice: number | null;
+  bidSize: number | null;
+  bidExchange: string | null;
+  askPrice: number | null;
+  askSize: number | null;
+  askExchange: string | null;
+  timestamp: string | null;
+};
+
+type AlpacaMarketBar = {
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+  vwap: number | null;
+  tradeCount: number | null;
+  timestamp: string | null;
+};
+
+type AlpacaMarketSnapshot = {
+  latestTrade: AlpacaMarketTrade | null;
+  latestQuote: AlpacaMarketQuote | null;
+  minuteBar: AlpacaMarketBar | null;
+  dailyBar: AlpacaMarketBar | null;
+  prevDailyBar: AlpacaMarketBar | null;
+};
+
+type AlpacaStockDetail = {
+  symbol: string;
+  name: string | null;
+  exchange: string | null;
+  assetClass: string | null;
+  status: string | null;
+  active: boolean | null;
+  tradable: boolean | null;
+  marginable: boolean | null;
+  shortable: boolean | null;
+  easyToBorrow: boolean | null;
+  fractionable: boolean | null;
+  maintenanceMarginRequirement: number | null;
+  attributes: string[];
+  currency: string | null;
+  market: AlpacaMarketSnapshot | null;
+};
+
+type AlpacaSymbolsResponse = {
+  items?: AlpacaStockDetail[];
+  error?: string;
+  details?: string;
+};
+
+function formatMoney(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
+function formatDecimal(value: number | null | undefined, maxDigits = 2): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: maxDigits }).format(value);
+}
+
+function formatStockStatus(detail: AlpacaStockDetail | null): string {
+  if (!detail) return "No stock selected";
+  const status = detail.status || (detail.active === true ? "active" : detail.active === false ? "inactive" : "unknown");
+  const tradable = detail.tradable === null ? "tradability unknown" : detail.tradable ? "tradable" : "not tradable";
+  return `${status} · ${tradable}`;
+}
+
+async function fetchAlpacaStockDetails(query: string, limit = 8): Promise<AlpacaStockDetail[]> {
+  const normalized = String(query || "").trim().toUpperCase();
+  if (!normalized) return [];
+
+  const response = await ApiService.apiFetch(
+    `/api/alpaca/symbols?q=${encodeURIComponent(normalized)}&limit=${limit}`,
+    { method: "GET" }
+  );
+  const payload = (await response.json().catch(() => ({}))) as AlpacaSymbolsResponse;
+  if (!response.ok) {
+    const errorMessage =
+      payload.error ||
+      (typeof payload.details === "string" && payload.details.trim().length ? payload.details : null) ||
+      "Alpaca stock lookup failed.";
+    throw new Error(errorMessage);
+  }
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
 export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewProps) {
   const router = useRouter();
   const { vaultKey } = useVault();
@@ -86,6 +188,10 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
   const [isLinkingBrokerage, setIsLinkingBrokerage] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [symbolInput, setSymbolInput] = useState("AAPL");
+  const [symbolSuggestions, setSymbolSuggestions] = useState<AlpacaStockDetail[]>([]);
+  const [selectedSymbolDetail, setSelectedSymbolDetail] = useState<AlpacaStockDetail | null>(null);
+  const [isLoadingSymbolDetails, setIsLoadingSymbolDetails] = useState(false);
+  const [symbolLookupError, setSymbolLookupError] = useState<string | null>(null);
   const [amountInput, setAmountInput] = useState("100.00");
   const [legalNameInput, setLegalNameInput] = useState("");
   const [selectedFundingAccountId, setSelectedFundingAccountId] = useState("");
@@ -122,6 +228,47 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
         .filter((row): row is { accountId: string; label: string } => row !== null),
     [plaidFundingStatus?.brokerage_accounts]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const q = String(symbolInput || "").trim().toUpperCase();
+    if (!q) {
+      setSymbolSuggestions([]);
+      setSelectedSymbolDetail(null);
+      setIsLoadingSymbolDetails(false);
+      setSymbolLookupError(null);
+      return;
+    }
+
+    const handle = window.setTimeout(async () => {
+      setIsLoadingSymbolDetails(true);
+      try {
+        const details = await fetchAlpacaStockDetails(q, 8);
+        if (cancelled) return;
+
+        setSymbolSuggestions(details);
+        const exactMatch = details.find((item) => item.symbol === q) || null;
+        setSelectedSymbolDetail(exactMatch || details[0] || null);
+        setSymbolLookupError(details.length ? null : `No Alpaca stock matches "${q}".`);
+      } catch (lookupError) {
+        if (cancelled) return;
+        setSymbolSuggestions([]);
+        setSelectedSymbolDetail(null);
+        setSymbolLookupError(
+          lookupError instanceof Error ? lookupError.message : "Could not load Alpaca stock details."
+        );
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSymbolDetails(false);
+        }
+      }
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [symbolInput]);
 
   useEffect(() => {
     if (selectedFundingDefault && selectedFundingDefault !== selectedFundingAccountId) {
@@ -312,9 +459,40 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
       toast.error("Enter a valid USD amount.");
       return;
     }
+    const normalizedSymbol = String(symbolInput || "").trim().toUpperCase();
+    if (!normalizedSymbol) {
+      toast.error("Stock ticker is required.");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
+      let resolvedSymbolDetail =
+        selectedSymbolDetail?.symbol === normalizedSymbol ? selectedSymbolDetail : null;
+
+      if (!resolvedSymbolDetail) {
+        const refreshedDetails = await fetchAlpacaStockDetails(normalizedSymbol, 8);
+        resolvedSymbolDetail =
+          refreshedDetails.find((item) => item.symbol === normalizedSymbol) || null;
+      }
+
+      if (!resolvedSymbolDetail) {
+        toast.error("Select a valid Alpaca stock symbol before trading.");
+        return;
+      }
+
+      if (resolvedSymbolDetail.active === false) {
+        toast.error(`${resolvedSymbolDetail.symbol} is inactive on Alpaca.`);
+        return;
+      }
+
+      if (resolvedSymbolDetail.tradable === false) {
+        toast.error(`${resolvedSymbolDetail.symbol} is not tradable on Alpaca.`);
+        return;
+      }
+
+      setSelectedSymbolDetail(resolvedSymbolDetail);
+
       const nonce =
         typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
@@ -324,7 +502,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
         vaultOwnerToken,
         fundingItemId: fundingItem.item_id,
         fundingAccountId: selectedFundingAccountId,
-        symbol: symbolInput.trim().toUpperCase(),
+        symbol: resolvedSymbolDetail.symbol,
         userLegalName: legalNameInput.trim(),
         notionalUsd: amount,
         side: "buy",
@@ -360,6 +538,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
     reload,
     selectedBrokerageAccountId,
     selectedFundingAccountId,
+    selectedSymbolDetail,
     symbolInput,
     userId,
     vaultOwnerToken,
@@ -462,12 +641,32 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
 
                 <label className="space-y-1 text-xs text-muted-foreground">
                   Stock ticker
-                  <input
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    value={symbolInput}
-                    onChange={(event) => setSymbolInput(event.target.value.toUpperCase())}
-                    placeholder="AAPL"
-                  />
+                  <div className="relative">
+                    <input
+                      list="alpaca-symbols"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 pr-10 text-sm text-foreground"
+                      value={symbolInput}
+                      onChange={(event) => {
+                        const nextValue = String(event.target.value || "")
+                          .toUpperCase()
+                          .replace(/[^A-Z0-9.\-]/g, "");
+                        setSymbolInput(nextValue);
+                        setSymbolLookupError(null);
+                      }}
+                      placeholder="AAPL"
+                      autoComplete="off"
+                    />
+                    {isLoadingSymbolDetails ? (
+                      <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                    ) : null}
+                  </div>
+                  <datalist id="alpaca-symbols">
+                    {symbolSuggestions.map((s) => (
+                      <option key={s.symbol} value={s.symbol}>
+                        {[s.symbol, s.name, s.exchange].filter(Boolean).join(" — ")}
+                      </option>
+                    ))}
+                  </datalist>
                 </label>
 
                 <label className="space-y-1 text-xs text-muted-foreground">
@@ -490,6 +689,83 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                     placeholder="Name on bank account"
                   />
                 </label>
+
+                <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground sm:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      {selectedSymbolDetail
+                        ? `${selectedSymbolDetail.symbol} — ${selectedSymbolDetail.name || "Unknown company"}`
+                        : "Type a ticker to fetch Alpaca stock details"}
+                    </p>
+                    <Badge variant="outline" className="rounded-full px-2 py-0.5 text-[11px]">
+                      {formatStockStatus(selectedSymbolDetail)}
+                    </Badge>
+                  </div>
+
+                  {selectedSymbolDetail ? (
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="rounded-lg border border-border/60 bg-background/80 p-2">
+                        <p className="text-[11px] text-muted-foreground">Last trade</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {formatMoney(selectedSymbolDetail.market?.latestTrade?.price)}
+                        </p>
+                        <p className="text-[11px]">
+                          {formatTimestamp(selectedSymbolDetail.market?.latestTrade?.timestamp)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-background/80 p-2">
+                        <p className="text-[11px] text-muted-foreground">Bid / Ask</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {formatMoney(selectedSymbolDetail.market?.latestQuote?.bidPrice)} /{" "}
+                          {formatMoney(selectedSymbolDetail.market?.latestQuote?.askPrice)}
+                        </p>
+                        <p className="text-[11px]">
+                          {formatTimestamp(selectedSymbolDetail.market?.latestQuote?.timestamp)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-background/80 p-2">
+                        <p className="text-[11px] text-muted-foreground">Day close / volume</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {formatMoney(selectedSymbolDetail.market?.dailyBar?.close)} /{" "}
+                          {formatDecimal(selectedSymbolDetail.market?.dailyBar?.volume, 0)}
+                        </p>
+                        <p className="text-[11px]">
+                          {formatTimestamp(selectedSymbolDetail.market?.dailyBar?.timestamp)}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p>Kai will fetch company, tradability, and live quote snapshot from Alpaca.</p>
+                  )}
+
+                  {symbolSuggestions.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {symbolSuggestions.slice(0, 8).map((detail) => (
+                        <button
+                          key={detail.symbol}
+                          type="button"
+                          className={cn(
+                            "rounded-full border px-2 py-0.5 text-[11px] transition",
+                            detail.symbol === selectedSymbolDetail?.symbol
+                              ? "border-sky-500/50 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                              : "border-border/70 bg-background text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => {
+                            setSymbolInput(detail.symbol);
+                            setSelectedSymbolDetail(detail);
+                            setSymbolLookupError(null);
+                          }}
+                        >
+                          {detail.symbol}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {symbolLookupError ? (
+                    <p className="text-xs text-rose-700 dark:text-rose-300">{symbolLookupError}</p>
+                  ) : null}
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
