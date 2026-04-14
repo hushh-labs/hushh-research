@@ -15,6 +15,15 @@ import {
 import { PopupTextEditorField } from "@/components/app-ui/command-fields";
 import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader, SurfaceInset } from "@/components/app-ui/surfaces";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { RiaCompatibilityState, RiaPageShell } from "@/components/ria/ria-page-shell";
@@ -131,6 +140,19 @@ function latestVerificationCopy(status: RiaOnboardingStatus | null): string {
   return checkedAt ? `${outcome} on ${checkedAt}` : outcome;
 }
 
+function isInvalidCrdVerificationMessage(message: string | null | undefined): boolean {
+  const normalized = String(message || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes("crd does not match") ||
+    normalized.includes("invalid crd") ||
+    normalized.includes("individual crd is required") ||
+    normalized.includes("no matching finra record") ||
+    normalized.includes("no confident finra or sec match") ||
+    (normalized.includes("finra") && normalized.includes("crd"))
+  );
+}
+
 function StepChoice({
   active,
   label,
@@ -227,6 +249,10 @@ export default function RiaOnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [invalidCrdDialogOpen, setInvalidCrdDialogOpen] = useState(false);
+  const [invalidCrdDialogMessage, setInvalidCrdDialogMessage] = useState(
+    "Please enter a valid CRD number and submit again."
+  );
   const [iamUnavailable, setIamUnavailable] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const [shouldPersistDraft, setShouldPersistDraft] = useState(false);
@@ -387,6 +413,7 @@ export default function RiaOnboardingPage() {
 
       const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
       const verificationOutcome = (result.verification_outcome || "").toLowerCase();
+      let nextStepAfterSubmit: RiaOnboardingStepId = "review";
       const canActivateDiscoverability =
         mode === "dev_activate" ||
         advisoryOutcome === "verified" ||
@@ -410,15 +437,21 @@ export default function RiaOnboardingPage() {
         });
         setNotice("Developer activation completed. The RIA workspace is ready in this environment.");
       } else if (advisoryOutcome === "rejected") {
-        toast.error("Verification failed", {
-          description:
-            result.verification_message ||
-            "The Individual CRD and Firm IAPD / IARD details did not verify.",
-        });
-        setNotice(
+        const rejectionMessage =
           result.verification_message ||
-            "Verification was rejected. Please verify legal name and CRD and submit again."
-        );
+          "The Individual CRD and Firm IAPD / IARD details did not verify.";
+        const invalidCrd = isInvalidCrdVerificationMessage(rejectionMessage);
+        toast.error("Verification failed", {
+          description: rejectionMessage,
+        });
+        if (invalidCrd) {
+          setInvalidCrdDialogMessage(rejectionMessage);
+          setInvalidCrdDialogOpen(true);
+          nextStepAfterSubmit = "legal_identity";
+          setNotice("Please enter a valid CRD number and submit again.");
+        } else {
+          setNotice(rejectionMessage);
+        }
       } else if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         toast.success("Credentials verified", {
           description:
@@ -456,17 +489,22 @@ export default function RiaOnboardingPage() {
           "Onboarding submitted. Kai will keep the verification lane fail-closed until trust clears."
         );
       }
-      moveToStep("review");
+      moveToStep(nextStepAfterSubmit);
     } catch (submitError) {
       if (isIAMSchemaNotReadyError(submitError)) {
         setIamUnavailable(true);
       }
-      setError(
-        submitError instanceof Error ? submitError.message : "Failed to submit onboarding."
-      );
+      const submitMessage =
+        submitError instanceof Error ? submitError.message : "Failed to submit onboarding.";
+      setError(submitMessage);
+      if (isInvalidCrdVerificationMessage(submitMessage)) {
+        setInvalidCrdDialogMessage(submitMessage);
+        setInvalidCrdDialogOpen(true);
+        moveToStep("legal_identity");
+        setNotice("Please enter a valid CRD number and submit again.");
+      }
       toast.error("Could not submit verification", {
-        description:
-          submitError instanceof Error ? submitError.message : "Failed to submit onboarding.",
+        description: submitMessage,
       });
     } finally {
       setSaving(false);
@@ -918,6 +956,28 @@ export default function RiaOnboardingPage() {
           </SurfaceInset>
         </div>
       ) : null}
+
+      <AlertDialog open={invalidCrdDialogOpen} onOpenChange={setInvalidCrdDialogOpen}>
+        <AlertDialogContent className="max-w-md rounded-[24px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Please enter a valid CRD number</AlertDialogTitle>
+            <AlertDialogDescription>
+              We could not verify this FINRA CRD. Update the CRD and submit again.
+              {invalidCrdDialogMessage ? ` ${invalidCrdDialogMessage}` : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                setInvalidCrdDialogOpen(false);
+                moveToStep("legal_identity");
+              }}
+            >
+              Edit CRD
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </RiaPageShell>
   );
 }

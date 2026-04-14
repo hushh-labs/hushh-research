@@ -78,23 +78,29 @@ def _normalize_crd(value: str | None) -> str:
 
 
 def _contains_official_regulator_source(payload: dict[str, Any]) -> bool:
+    source_groups: list[list[Any]] = []
     verified_profiles = payload.get("verified_profiles")
-    if not isinstance(verified_profiles, list):
-        return False
-    for item in verified_profiles:
-        if not isinstance(item, dict):
-            continue
-        url = str(item.get("url") or item.get("source_url") or "").lower()
-        label = str(item.get("label") or item.get("platform") or "").lower()
-        if (
-            "brokercheck.finra.org" in url
-            or "adviserinfo.sec.gov" in url
-            or "sec.gov" in url
-            or "finra" in label
-            or "sec" in label
-            or "brokercheck" in label
-        ):
-            return True
+    if isinstance(verified_profiles, list):
+        source_groups.append(verified_profiles)
+    stage1_sources = payload.get("sources")
+    if isinstance(stage1_sources, list):
+        source_groups.append(stage1_sources)
+
+    for group in source_groups:
+        for item in group:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or item.get("source_url") or "").lower()
+            label = str(item.get("label") or item.get("platform") or "").lower()
+            if (
+                "brokercheck.finra.org" in url
+                or "adviserinfo.sec.gov" in url
+                or "sec.gov" in url
+                or "finra" in label
+                or "sec" in label
+                or "brokercheck" in label
+            ):
+                return True
     return False
 
 
@@ -225,6 +231,31 @@ class RIAIntelligenceVerificationAdapter:
             subject_name = str(subject.get("full_name") or "").strip()
             subject_crd = _normalize_crd(subject.get("crd_number"))
 
+        stage1_profile = payload.get("profile")
+        stage1_exists_on_finra: bool | None = None
+        stage1_sec_number = ""
+        stage1_no_match_reason = ""
+        if isinstance(stage1_profile, dict):
+            if not subject_name:
+                subject_name = str(
+                    stage1_profile.get("fullName") or stage1_profile.get("full_name") or ""
+                ).strip()
+            if not subject_crd:
+                subject_crd = _normalize_crd(
+                    stage1_profile.get("crdNumber") or stage1_profile.get("crd_number")
+                )
+            stage1_sec_number = _normalize_crd(
+                stage1_profile.get("secNumber") or stage1_profile.get("sec_number")
+            )
+            stage1_no_match_reason = str(
+                stage1_profile.get("reasonIfNotExists")
+                or stage1_profile.get("reason_if_not_exists")
+                or ""
+            ).strip()
+            exists_value = stage1_profile.get("existsOnFinra")
+            if isinstance(exists_value, bool):
+                stage1_exists_on_finra = exists_value
+
         source_urls: list[str] = []
         verified_profiles = payload.get("verified_profiles")
         if isinstance(verified_profiles, list):
@@ -233,11 +264,24 @@ class RIAIntelligenceVerificationAdapter:
                     candidate_url = str(item.get("url") or item.get("source_url") or "").strip()
                     if candidate_url:
                         source_urls.append(candidate_url)
+        stage1_sources = payload.get("sources")
+        if isinstance(stage1_sources, list):
+            for item in stage1_sources:
+                if not isinstance(item, dict):
+                    continue
+                candidate_url = str(
+                    item.get("url") or item.get("source_url") or item.get("uri") or ""
+                ).strip()
+                if candidate_url:
+                    source_urls.append(candidate_url)
 
         official_source = _contains_official_regulator_source(payload)
         crd_matches = bool(subject_crd and subject_crd == normalized_crd)
-        payload_digits = _normalize_crd(json.dumps(payload, ensure_ascii=True))
-        iard_matches = bool(normalized_iard and normalized_iard in payload_digits)
+        if stage1_sec_number:
+            iard_matches = normalized_iard == stage1_sec_number
+        else:
+            payload_digits = _normalize_crd(json.dumps(payload, ensure_ascii=True))
+            iard_matches = bool(normalized_iard and normalized_iard in payload_digits)
 
         if subject_crd and subject_crd != normalized_crd:
             return VerificationResult(
@@ -250,6 +294,23 @@ class RIAIntelligenceVerificationAdapter:
                     "subject_full_name": subject_name,
                     "subject_crd_number": subject_crd,
                     "input_crd_number": normalized_crd,
+                    "source_urls": source_urls[:5],
+                },
+            )
+
+        if stage1_exists_on_finra is False:
+            return VerificationResult(
+                verified=False,
+                rejected=True,
+                outcome="rejected",
+                message=stage1_no_match_reason
+                or "No matching FINRA record was found for the provided CRD.",
+                metadata={
+                    "provider": "ria_intelligence",
+                    "subject_full_name": subject_name or None,
+                    "subject_crd_number": subject_crd or None,
+                    "input_crd_number": normalized_crd,
+                    "input_iard_number": normalized_iard,
                     "source_urls": source_urls[:5],
                 },
             )
@@ -269,7 +330,7 @@ class RIAIntelligenceVerificationAdapter:
                 },
             )
 
-        if official_source and crd_matches and iard_matches:
+        if (official_source or stage1_exists_on_finra is True) and crd_matches and iard_matches:
             return VerificationResult(
                 verified=True,
                 rejected=False,
@@ -294,6 +355,9 @@ class RIAIntelligenceVerificationAdapter:
                 if "no confident finra or sec match" in lowered:
                     no_match_message = text
                     break
+
+        if not no_match_message and stage1_no_match_reason:
+            no_match_message = stage1_no_match_reason
 
         if no_match_message:
             return VerificationResult(

@@ -105,6 +105,100 @@ def test_ria_intelligence_verifier_supports_full_verify_url_override(monkeypatch
     assert result.outcome == "verified"
 
 
+def test_ria_intelligence_verifier_accepts_stage1_payload_shape(monkeypatch):
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", raising=False)
+    monkeypatch.setenv(
+        "RIA_INTELLIGENCE_VERIFY_URL",
+        "https://hushh-ria-intelligence-api-53407187172.us-central1.run.app/v1/ria/profile/stage1",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == (
+            "https://hushh-ria-intelligence-api-53407187172.us-central1.run.app/v1/ria/profile/stage1"
+        )
+        return httpx.Response(
+            status_code=200,
+            json={
+                "profile": {
+                    "existsOnFinra": True,
+                    "crdNumber": "1234567",
+                    "secNumber": "80112345",
+                    "fullName": "Akash Katla",
+                    "reasonIfNotExists": None,
+                },
+                "sources": [
+                    {
+                        "label": "FINRA BrokerCheck",
+                        "url": "https://files.brokercheck.finra.org/individual/individual_1234567.pdf",
+                    }
+                ],
+                "model": {
+                    "primary": "gemini-3.1-pro-preview",
+                    "used": "gemini-3.1-pro-preview",
+                    "fallbackUsed": False,
+                },
+            },
+        )
+
+    adapter = RIAIntelligenceVerificationAdapter(transport=httpx.MockTransport(handler))
+
+    result = _run(
+        adapter.verify(
+            legal_name="",
+            finra_crd="1234567",
+            sec_iard="801-12345",
+        )
+    )
+
+    assert result.verified is True
+    assert result.rejected is False
+    assert result.outcome == "verified"
+
+
+def test_ria_intelligence_verifier_rejects_invalid_crd_from_stage1_payload(monkeypatch):
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", raising=False)
+    monkeypatch.setenv(
+        "RIA_INTELLIGENCE_VERIFY_URL",
+        "https://hushh-ria-intelligence-api-53407187172.us-central1.run.app/v1/ria/profile/stage1",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        _ = request
+        return httpx.Response(
+            status_code=200,
+            json={
+                "profile": {
+                    "existsOnFinra": False,
+                    "crdNumber": None,
+                    "secNumber": None,
+                    "fullName": None,
+                    "reasonIfNotExists": "No matching FINRA record found for CRD 1234567.",
+                },
+                "sources": [],
+                "model": {
+                    "primary": "gemini-3.1-pro-preview",
+                    "used": "gemini-3.1-pro-preview",
+                    "fallbackUsed": False,
+                },
+            },
+        )
+
+    adapter = RIAIntelligenceVerificationAdapter(transport=httpx.MockTransport(handler))
+
+    result = _run(
+        adapter.verify(
+            legal_name="",
+            finra_crd="1234567",
+            sec_iard="801-12345",
+        )
+    )
+
+    assert result.verified is False
+    assert result.rejected is True
+    assert result.outcome == "rejected"
+    assert "CRD" in result.message
+
+
 def test_ria_intelligence_verifier_rejects_crd_mismatch(monkeypatch):
     monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
 
