@@ -8,7 +8,7 @@ pyjwt[crypto]>=2.10.1
 pydantic>=2.0,<3.0
 
 # 🧬 Environment management
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 
 # 🚀 Web Server
 fastapi>=0.115.0
@@ -26,7 +26,7 @@ psycopg2-binary>=2.9.0
 # supabase==2.27.2
 
 # 📄 PDF parsing for brokerage statements
-pdfplumber==0.11.0
+pdfplumber==0.11.9
 
 # 🖼️ OCR for image-based portfolio documents (screenshots, scans)
 # Note: Tesseract binary must be installed separately:
@@ -51,11 +51,11 @@ requests>=2.32.4
 
 # 🔌 MCP Server SDK (Model Context Protocol)
 # Pinned to avoid resolution-too-deep with default pip resolver
-mcp==1.26.0
+mcp==1.27.0
 
 # 🔥 Firebase Admin SDK (Identity)
 # Pinned to avoid resolution-too-deep with default pip resolver
-firebase-admin==7.1.0
+firebase-admin==7.4.0
 
 # 🔧 Protocol Buffers & GRPC (Pinning to avoid resolution-too-deep errors)
 # These versions are known to work well with google-api-core and firebase-admin
@@ -64,17 +64,17 @@ firebase-admin==7.1.0
 # grpcio 1.76+ provides pre-built wheels for Python 3.13 (see https://pypi.org/project/grpcio/)
 # protobuf 6.x required by grpcio-status 1.76; compatible with firebase-admin and google-adk
 protobuf>=6.31.1,<7.0.0
-grpcio==1.76.0
-grpcio-status==1.76.0
+grpcio==1.80.0
+grpcio-status==1.80.0
 # 2.25.1+ required for protobuf 6.x; pinned to avoid resolution-too-deep
-google-api-core==2.29.0
+google-api-core==2.30.3
 # proto-plus 1.24+ supports protobuf 6; pinned to avoid resolution-too-deep
-proto-plus==1.27.0
+proto-plus==1.27.2
 
 # 🧠 Generative AI (ADK - Agent Development Kit)
 # google-adk includes google-genai SDK - no separate google-generativeai needed
 # Pinned to avoid resolution-too-deep with default pip resolver
-google-adk==1.23.0
+google-adk==1.30.0
 
 # 🔗 A2A Protocol (Agent-to-Agent)
 # Used by server_a2a.py and adk_bridge
