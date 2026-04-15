@@ -22,6 +22,34 @@ _revoked_tokens: set[str] = set()
 # ========== Token Generator ==========
 
 
+def _validate_token_inputs(
+    user_id: UserID,
+    agent_id: AgentID,
+    scope: Union[str, ConsentScope],
+    expires_in_ms: int,
+) -> None:
+    """Validate consent token inputs before issuance.
+
+    Raises ValueError for invalid or dangerous inputs.
+    """
+    if not user_id or not str(user_id).strip():
+        raise ValueError("user_id must be a non-empty string")
+    if not agent_id or not str(agent_id).strip():
+        raise ValueError("agent_id must be a non-empty string")
+    if not scope and not isinstance(scope, ConsentScope):
+        raise ValueError("scope must be a non-empty string or ConsentScope enum")
+    if not isinstance(expires_in_ms, int) or expires_in_ms <= 0:
+        raise ValueError("expires_in_ms must be a positive integer")
+    # Guard against unreasonably long expiry (> 1 year)
+    _MAX_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000
+    if expires_in_ms > _MAX_EXPIRY_MS:
+        raise ValueError("expires_in_ms exceeds maximum allowed (1 year)")
+    # Reject pipe characters in inputs to prevent token format injection
+    for field_name, value in [("user_id", str(user_id)), ("agent_id", str(agent_id))]:
+        if "|" in value:
+            raise ValueError(f"{field_name} must not contain pipe character '|'")
+
+
 def issue_token(
     user_id: UserID,
     agent_id: AgentID,
@@ -35,6 +63,7 @@ def issue_token(
     When a string is provided, it's preserved exactly in the token to maintain domain isolation.
     This ensures 'attr.financial.*' tokens can ONLY access financial data, not all attr.* domains.
     """
+    _validate_token_inputs(user_id, agent_id, scope, expires_in_ms)
     issued_at = int(time.time() * 1000)
     expires_at = issued_at + expires_in_ms
 

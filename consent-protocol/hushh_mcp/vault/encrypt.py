@@ -18,9 +18,27 @@ ALGORITHM_NAME = "aes-256-gcm"
 # ==================== Encrypt ====================
 
 
+def _validate_key_hex(key_hex: str) -> bytes:
+    """Validate and convert a hex-encoded AES-256 key to bytes.
+
+    Raises ValueError if the key is not a valid 64-character hex string (256-bit).
+    """
+    if not isinstance(key_hex, str):
+        raise ValueError("Vault key must be a hex string")
+    cleaned = key_hex.strip()
+    if len(cleaned) != 64:
+        raise ValueError(
+            f"Vault key must be exactly 64 hex characters (256-bit), got {len(cleaned)}"
+        )
+    try:
+        return bytes.fromhex(cleaned)
+    except ValueError:
+        raise ValueError("Vault key contains invalid hex characters")
+
+
 def encrypt_data(plaintext: str, key_hex: str) -> EncryptedPayload:
     try:
-        key = bytes.fromhex(key_hex)
+        key = _validate_key_hex(key_hex)
         iv = os.urandom(IV_LENGTH)
         backend = default_backend()
 
@@ -46,7 +64,7 @@ def encrypt_data(plaintext: str, key_hex: str) -> EncryptedPayload:
 
 def decrypt_data(payload: EncryptedPayload, key_hex: str) -> str:
     try:
-        key = bytes.fromhex(key_hex)
+        key = _validate_key_hex(key_hex)
         iv = base64.b64decode(payload.iv)
         tag = base64.b64decode(payload.tag)
         ciphertext = base64.b64decode(payload.ciphertext)

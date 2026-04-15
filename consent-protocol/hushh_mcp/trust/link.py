@@ -10,6 +10,37 @@ from hushh_mcp.types import AgentID, ConsentScope, TrustLink, UserID
 # ========== TrustLink Creator ==========
 
 
+def _validate_trust_link_inputs(
+    from_agent: AgentID,
+    to_agent: AgentID,
+    scope: ConsentScope,
+    signed_by_user: UserID,
+    expires_in_ms: int,
+) -> None:
+    """Validate trust link inputs before creation.
+
+    Raises ValueError for invalid or dangerous inputs.
+    """
+    if not from_agent or not str(from_agent).strip():
+        raise ValueError("from_agent must be a non-empty string")
+    if not to_agent or not str(to_agent).strip():
+        raise ValueError("to_agent must be a non-empty string")
+    if not isinstance(scope, ConsentScope):
+        raise ValueError("scope must be a ConsentScope enum value")
+    if not signed_by_user or not str(signed_by_user).strip():
+        raise ValueError("signed_by_user must be a non-empty string")
+    if not isinstance(expires_in_ms, int) or expires_in_ms <= 0:
+        raise ValueError("expires_in_ms must be a positive integer")
+    # Reject pipe characters to prevent signature format injection
+    for field_name, value in [
+        ("from_agent", str(from_agent)),
+        ("to_agent", str(to_agent)),
+        ("signed_by_user", str(signed_by_user)),
+    ]:
+        if "|" in value:
+            raise ValueError(f"{field_name} must not contain pipe character '|'")
+
+
 def create_trust_link(
     from_agent: AgentID,
     to_agent: AgentID,
@@ -17,6 +48,7 @@ def create_trust_link(
     signed_by_user: UserID,
     expires_in_ms: int = DEFAULT_TRUST_LINK_EXPIRY_MS,
 ) -> TrustLink:
+    _validate_trust_link_inputs(from_agent, to_agent, scope, signed_by_user, expires_in_ms)
     created_at = int(time.time() * 1000)
     expires_at = created_at + expires_in_ms
 

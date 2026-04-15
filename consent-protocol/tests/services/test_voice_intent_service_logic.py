@@ -20,11 +20,9 @@ from hushh_mcp.services.voice_intent_service import (
     _COMMAND_ALIASES,
     _COMPANY_ALIAS_TO_TICKER,
     _FILLER_WORDS,
-    _MIN_ACTIONABLE_CHARS,
     _env_bool,
     _parse_model_candidates,
 )
-
 
 # ============================================================================
 # _COMMAND_ALIASES

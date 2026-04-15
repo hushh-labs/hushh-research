@@ -31,8 +31,14 @@ def test_token_scope_mismatch():
     assert reason.startswith("Scope mismatch")
 
 
-def test_token_expiry():
-    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE, expires_in_ms=-1000)
+def test_token_expiry(monkeypatch):
+    # Issue with minimum valid expiry, then simulate time passing
+    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE, expires_in_ms=1)
+    # Advance time by 10 seconds so the token is expired
+    import time as _time
+
+    future = _time.time() + 10
+    monkeypatch.setattr("hushh_mcp.consent.token.time.time", lambda: future)
     valid, reason, _ = validate_token(token_obj.token, VALID_SCOPE)
     assert valid is False
     assert reason == "Token expired"

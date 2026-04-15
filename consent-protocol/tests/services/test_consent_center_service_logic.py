@@ -14,7 +14,6 @@ import pytest
 
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 
-
 # ============================================================================
 # _metadata
 # ============================================================================

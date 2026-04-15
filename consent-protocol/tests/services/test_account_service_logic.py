@@ -14,7 +14,6 @@ import pytest
 
 from hushh_mcp.services.account_service import AccountService
 
-
 # ============================================================================
 # _normalized_target
 # ============================================================================

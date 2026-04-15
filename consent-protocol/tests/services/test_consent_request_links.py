@@ -10,9 +10,7 @@ These are pure functions with no database dependency, making them ideal
 for fast, deterministic unit tests.
 """
 
-import os
 
-import pytest
 
 from hushh_mcp.services.consent_request_links import (
     build_connection_request_path,
@@ -21,7 +19,6 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_url,
     frontend_origin,
 )
-
 
 # ============================================================================
 # frontend_origin

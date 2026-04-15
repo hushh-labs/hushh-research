@@ -20,18 +20,23 @@ def test_create_and_verify_trust_link():
     assert is_trusted_for_scope(link, SCOPE_INVALID) is False
 
 
-def test_expired_trust_link():
-    # Expire immediately
-    expired = create_trust_link(
+def test_expired_trust_link(monkeypatch):
+    # Issue with minimum valid expiry, then simulate time passing
+    link = create_trust_link(
         from_agent=DELEGATOR,
         to_agent=DELEGATEE,
         scope=SCOPE_VALID,
         signed_by_user=USER_ID,
-        expires_in_ms=-1000,  # already expired
+        expires_in_ms=1,
     )
+    # Advance time by 10 seconds so the link is expired
+    import time as _time
 
-    assert verify_trust_link(expired) is False
-    assert is_trusted_for_scope(expired, SCOPE_VALID) is False
+    future = _time.time() + 10
+    monkeypatch.setattr("hushh_mcp.trust.link.time.time", lambda: future)
+
+    assert verify_trust_link(link) is False
+    assert is_trusted_for_scope(link, SCOPE_VALID) is False
 
 
 def test_signature_tampering():

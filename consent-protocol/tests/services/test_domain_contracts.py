@@ -10,22 +10,17 @@ These tests validate the source-of-truth domain registry that governs
 how user data is categorized across the entire Kai platform.
 """
 
-import pytest
 
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_KEYS,
     CANONICAL_DOMAIN_REGISTRY,
     CANONICAL_REGISTRY_KEYS,
     CANONICAL_SUBINTENT_KEYS,
-    CURRENT_PKM_MODEL_VERSION,
     FINANCIAL_DOMAIN_CONTRACT_VERSION,
-    FINANCIAL_DOMAIN_SCHEMA_VERSION,
     FINANCIAL_INTENT_MAP,
     FINANCIAL_SUBINTENT_REGISTRY,
     LEGACY_DOMAIN_ALIASES,
     RETIRED_DOMAIN_REGISTRY_KEYS,
-    DomainContractEntry,
-    DomainSubintentEntry,
     build_domain_intent,
     build_financial_summary_defaults,
     canonical_domain_metadata_map,
@@ -38,7 +33,6 @@ from hushh_mcp.services.domain_contracts import (
     normalize_domain_key,
     resolve_domain_alias,
 )
-
 
 # ============================================================================
 # normalize_domain_key
@@ -109,7 +103,7 @@ class TestResolveDomainAlias:
 
     def test_all_legacy_aliases_resolve(self):
         """Every registered legacy alias must resolve to a valid canonical domain."""
-        for alias_key, target in LEGACY_DOMAIN_ALIASES.items():
+        for alias_key, _target in LEGACY_DOMAIN_ALIASES.items():
             top_level, subpath = resolve_domain_alias(alias_key)
             assert top_level in CANONICAL_DOMAIN_KEYS, (
                 f"Legacy alias '{alias_key}' resolved to '{top_level}' "
@@ -365,7 +359,7 @@ class TestCanonicalDomainMetadataMap:
 
     def test_each_entry_has_required_fields(self):
         metadata_map = canonical_domain_metadata_map()
-        for domain_key, meta in metadata_map.items():
+        for _domain_key, meta in metadata_map.items():
             assert "display_name" in meta
             assert "icon_name" in meta
             assert "color_hex" in meta
