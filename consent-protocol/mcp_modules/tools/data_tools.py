@@ -16,6 +16,7 @@ from mcp.types import TextContent
 
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.redaction import token_fingerprint
 from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_request_query
 
@@ -374,7 +375,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                     "user_id": user_id,
                     "scope": "attr.financial.*",
                     "consent_verified": True,
-                    "consent_token_used": consent_token[:30] + "...",
+                    "consent_token_fingerprint": token_fingerprint(consent_token),
                     "data": financial_data,
                     "privacy_note": "This data was accessed with valid user consent.",
                     "zero_knowledge": True,
@@ -518,7 +519,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                     "scope": getattr(token_obj, "scope", "pkm.read"),
                     "compatibility_wrapper": "get_food_preferences",
                     "consent_verified": True,
-                    "consent_token_used": consent_token[:30] + "...",
+                    "consent_token_fingerprint": token_fingerprint(consent_token),
                     "data": food_data,
                     "privacy_note": "This data was accessed with valid user consent.",
                     "zero_knowledge": True,

@@ -54,3 +54,37 @@ def test_signature_tampering():
     valid, reason, _ = validate_token(tampered, VALID_SCOPE)
     assert valid is False
     assert "Malformed token" in reason or "Invalid token prefix" in reason
+
+
+def test_validate_token_rejects_empty():
+    valid, reason, token = validate_token("   ", VALID_SCOPE)
+    assert valid is False
+    assert token is None
+    assert reason == "Malformed token: empty"
+
+
+def test_validate_token_missing_delimiters():
+    valid, reason, _ = validate_token("HCT", VALID_SCOPE)
+    assert valid is False
+    assert reason == "Malformed token: missing prefix delimiter"
+
+    valid, reason, _ = validate_token("HCT:", VALID_SCOPE)
+    assert valid is False
+    assert reason == "Malformed token: missing signature delimiter"
+
+
+def test_validate_token_invalid_payload_encoding():
+    # invalid base64 payload should be rejected before signature compare
+    valid, reason, _ = validate_token("HCT:!!!.deadbeef", VALID_SCOPE)
+    assert valid is False
+    assert reason in {
+        "Malformed token: invalid payload encoding",
+        "Malformed token: invalid payload fields",
+    }
+
+
+def test_validate_token_extra_signature_dots_fails_signature():
+    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
+    valid, reason, _ = validate_token(token_obj.token + ".junk", VALID_SCOPE)
+    assert valid is False
+    assert reason == "Invalid signature"

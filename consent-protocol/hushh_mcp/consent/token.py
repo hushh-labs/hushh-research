@@ -10,6 +10,7 @@ from typing import Optional, Tuple, Union
 
 from hushh_mcp.config import DEFAULT_CONSENT_TOKEN_EXPIRY_MS, SECRET_KEY
 from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
+from hushh_mcp.redaction import token_fingerprint
 from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 
 logger = logging.getLogger(__name__)
@@ -106,19 +107,35 @@ def validate_token(
     Returns:
         Tuple of (valid, error_reason, token_object)
     """
+    token_str = (token_str or "").strip()
+    if not token_str:
+        return False, "Malformed token: empty", None
+
     # Check in-memory revocation first (fastest)
     if token_str in _revoked_tokens:
         return False, "Token has been revoked", None
 
     try:
+        if ":" not in token_str:
+            return False, "Malformed token: missing prefix delimiter", None
         prefix, signed_part = token_str.split(":", 1)
-        encoded, signature = signed_part.split(".")
-
         if prefix != CONSENT_TOKEN_PREFIX:
             return False, "Invalid token prefix", None
+        if "." not in signed_part:
+            return False, "Malformed token: missing signature delimiter", None
+        encoded, signature = signed_part.split(".", 1)
+        if not encoded or not signature:
+            return False, "Malformed token: missing token payload", None
 
-        decoded = base64.urlsafe_b64decode(encoded.encode()).decode()
-        user_id, agent_id, scope_str, issued_at_str, expires_at_str = decoded.split("|")
+        try:
+            decoded = base64.urlsafe_b64decode(encoded.encode()).decode()
+        except Exception:
+            return False, "Malformed token: invalid payload encoding", None
+
+        parts = decoded.split("|")
+        if len(parts) != 5:
+            return False, "Malformed token: invalid payload fields", None
+        user_id, agent_id, scope_str, issued_at_str, expires_at_str = parts
 
         # Map scope string to enum (for type alignment)
         # IMPORTANT: Don't fail for dynamic scopes - they're valid!
@@ -205,7 +222,10 @@ async def validate_token_with_db(
 
                 # Add to in-memory set for future fast checks
                 _revoked_tokens.add(token_str)
-                logger.warning(f"Token revoked in DB but not in memory: {token_str[:30]}...")
+                logger.warning(
+                    "Token revoked in DB but not in memory token=%s",
+                    token_fingerprint(token_str),
+                )
                 return False, "Token has been revoked (DB check)", None
     except Exception as e:
         # Log but don't fail - in-memory check is sufficient for single instance

@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
+from hushh_mcp.redaction import token_fingerprint
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 
 logger = logging.getLogger(__name__)
@@ -1660,7 +1661,7 @@ class ConsentDBService:
         if normalized_bundle is None:
             logger.error(
                 "Refusing to store consent export without a wrapped key bundle token=%s",
-                consent_token[:30],
+                token_fingerprint(consent_token),
             )
             return False
 
@@ -1689,7 +1690,7 @@ class ConsentDBService:
                 on_conflict="consent_token",
             ).execute()
 
-            logger.info(f"Stored consent export for token: {consent_token[:30]}...")
+            logger.info("Stored consent export token=%s", token_fingerprint(consent_token))
             return True
         except Exception as e:
             logger.error(f"Failed to store consent export: {e}")
@@ -1769,7 +1770,7 @@ class ConsentDBService:
         try:
             supabase.table("consent_exports").delete().eq("consent_token", consent_token).execute()
 
-            logger.info(f"Deleted consent export for token: {consent_token[:30]}...")
+            logger.info("Deleted consent export token=%s", token_fingerprint(consent_token))
             return True
         except Exception as e:
             logger.error(f"Failed to delete consent export: {e}")
