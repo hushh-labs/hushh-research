@@ -50,6 +50,7 @@ export type PkmAccessConnectionPresentation = {
 export type PkmProfileSummaryPresentation = {
   totalDomains: number;
   totalAttributes: number;
+  totalSourceCount: number;
   activeGrantCount: number;
   sharedDomainCount: number;
   staleDomainCount: number;
@@ -250,6 +251,9 @@ export function buildPkmProfileSummaryPresentation(params: {
   const staleDomainCount = params.domains.filter((domain) => domain.status === "stale").length;
   const missingDomainCount = params.domains.filter((domain) => domain.status === "missing").length;
   const sharedDomainCount = params.domains.filter((domain) => domain.accessCount > 0).length;
+  const totalSourceCount = new Set(
+    params.domains.flatMap((domain) => domain.sourceLabels.map((label) => label.trim())).filter(Boolean)
+  ).size;
   const attentionItems: string[] = [];
   if (missingDomainCount > 0) {
     attentionItems.push(`${missingDomainCount} domain${missingDomainCount === 1 ? "" : "s"} still need data.`);
@@ -268,6 +272,7 @@ export function buildPkmProfileSummaryPresentation(params: {
   return {
     totalDomains: params.metadata?.domains.length ?? 0,
     totalAttributes: params.metadata?.totalAttributes ?? 0,
+    totalSourceCount,
     activeGrantCount: params.activeGrants.length,
     sharedDomainCount,
     staleDomainCount,

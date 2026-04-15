@@ -35,9 +35,9 @@ function renderHostExample(example) {
   return [
     `### ${example.title}`,
     "",
-    `**Use this when:** ${example.whenToUse}`,
+    `Use when: ${example.whenToUse}`,
     "",
-    `**Keep local:** ${renderTemplate(example.secretNote)}`,
+    `Keep local: ${renderTemplate(example.secretNote)}`,
     "",
     `\`\`\`${language}`,
     code,
@@ -47,28 +47,24 @@ function renderHostExample(example) {
 
 const readme = `# \`${contract.packageName}\`
 
-Launch-friendly npm wrapper for the Hushh Consent MCP server.
+npm launcher for the Hushh Consent MCP server
 
-This package is the public onboarding surface for Hushh MCP. It supports any MCP-capable host:
+Use this package when your MCP host needs a local stdio process. If your host supports remote HTTP MCP, use the hosted endpoint directly.
 
-- use hosted remote MCP when the host supports HTTP MCP directly
-- use the npm bridge when the host expects a local stdio process
-- use the repo-local Python fallback only for contributor workflows
+## Hosted Hushh MCP
 
-## What Hushh MCP Is
-
-Hushh MCP exposes the public consent tool surface used by external apps and agents:
+Hushh MCP exposes the public consent tool surface for external apps and agents:
 
 - dynamic scope discovery
 - explicit consent requests
 - consent status polling
 - encrypted scoped export retrieval
 
-The npm package does not replace the Python implementation in this repo. It bootstraps the same MCP runtime and keeps the public install story simple for hosts that still expect stdio.
+This package bootstraps the same Python runtime that lives in this repo.
 
-## Public UAT Contract
+### Hosted UAT endpoint
 
-The promoted public developer environment is **${contract.promotedEnvironment.label}** for now.
+The promoted public developer environment is **${contract.promotedEnvironment.label}**.
 
 - app workspace: ${contract.promotedEnvironment.appUrl}/developers
 - consent API origin: ${contract.promotedEnvironment.apiOrigin}
@@ -76,16 +72,16 @@ The promoted public developer environment is **${contract.promotedEnvironment.la
 - npm package: \`${contract.packageName}\`
 - canonical token env var: \`${contract.tokenEnvVar}\`
 
-Use the trailing-slash mount form for remote MCP:
+Use the trailing-slash form for remote MCP:
 
 - \`${contract.promotedEnvironment.remoteUrlTemplate}\`
 - not \`${contract.promotedEnvironment.mcpUrl}?token=<developer-token>\`
 
-## Quick Start
+### Quick start
 
-### Remote MCP
+#### Remote MCP
 
-Use remote MCP when the host supports HTTP MCP directly.
+Use this when the host supports HTTP MCP directly.
 
 \`\`\`text
 ${contract.promotedEnvironment.remoteUrlTemplate}
@@ -93,7 +89,7 @@ ${contract.promotedEnvironment.remoteUrlTemplate}
 
 ### npm Bridge
 
-Use the npm bridge when the host still expects a local stdio MCP process.
+Use this when the host expects a local stdio MCP process.
 
 \`\`\`bash
 npx -y ${contract.packageName} --help
@@ -106,46 +102,54 @@ export CONSENT_API_URL=${contract.promotedEnvironment.apiOrigin}
 export ${contract.tokenEnvVar}=<developer-token>
 \`\`\`
 
-Or point the launcher at an existing \`consent-protocol/.env\`:
+To use an existing local runtime:
 
 \`\`\`bash
 export HUSHH_MCP_ENV_FILE=/absolute/path/to/consent-protocol/.env
 npx -y ${contract.packageName}
 \`\`\`
 
-## Host Setup Examples
+### Host setup examples
 
 ${contract.hostExamples.map(renderHostExample).join("\n\n")}
 
-## Public Tools And Resources
-
-Public tools:
+### Public tools
 
 ${contract.publicTools.map((tool) => `- \`${tool}\``).join("\n")}
 
-Read-only MCP resources:
+### Read-only resources
 
 ${contract.publicResources.map((uri) => `- \`${uri}\``).join("\n")}
 
-## End-To-End Consent Example
+### Consent flow
 
-1. Discover the user’s current scopes with \`discover_user_domains\`.
-2. Request one discovered scope with \`request_consent\`, including your X25519 connector public key bundle.
-3. Let the user approve the request inside Kai.
-4. Poll with \`check_consent_status\`, validate with \`validate_token\`, then read the ciphertext with \`get_encrypted_scoped_export\`.
+1. Call \`discover_user_domains\`.
+2. Request one returned scope with \`request_consent\`.
+3. Wait for user approval in Kai.
+4. Call \`check_consent_status\` and then \`get_encrypted_scoped_export\`.
 
-The public flow is always:
+The data flow is:
 
 - encrypted storage in Hushh
 - explicit user approval in Kai
 - encrypted export back to the external connector
 - local decryption on the connector side
 
-## Runtime Expectations
+## Self-hosted and contributor development
+
+This package can also bootstrap a generic \`consent-protocol\` runtime for local development or self-hosted use.
+
+Use this path when:
+
+- you are developing against localhost
+- you want to override the packaged runtime with a local checkout
+- you are contributing to \`consent-protocol\`
+
+### Runtime expectations
 
 - Python 3 must be available locally.
 - The first full stdio launch creates a local cache and installs the bundled Python requirements.
-- The runtime still needs the same backend configuration as \`consent-protocol\` when you are running contributor-local flows.
+- Contributor-local flows still need the same backend configuration as \`consent-protocol\`.
 
 Useful env vars:
 
@@ -155,20 +159,14 @@ Useful env vars:
 - \`HUSHH_MCP_PYTHON\`: choose a specific Python executable
 - \`HUSHH_MCP_SKIP_BOOTSTRAP=1\`: skip venv creation and dependency install
 
-## Contributor-Local Fallback
+### Repo-local fallback
 
-If you are working inside this repo and do not want the npm bootstrap path:
+Use repo-local Python only for contributor workflows:
 
 \`\`\`bash
 cd consent-protocol
 python mcp_server.py
 \`\`\`
-
-## More Docs
-
-- API reference: \`consent-protocol/docs/reference/developer-api.md\`
-- Technical companion: \`consent-protocol/docs/mcp-setup.md\`
-- Internal host operations: \`docs/reference/operations/coding-agent-mcp.md\`
 `;
 
 if (process.argv.includes("--check")) {

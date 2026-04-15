@@ -19,6 +19,7 @@ import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
+import { AuthService } from "./auth-service";
 import { ApiService } from "./api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
 import { DeviceResourceCacheService } from "./device-resource-cache-service";
@@ -1040,11 +1041,13 @@ export class PersonalKnowledgeModelService {
       let persistToDeviceCache = canUseDeviceCache;
 
       if (Capacitor.isNativePlatform()) {
+        const metadataToken =
+          vaultOwnerToken || (await AuthService.getIdToken().catch(() => null)) || undefined;
         // Use Capacitor plugin for native platforms
         // Native plugins return snake_case from backend - transform to camelCase
         const nativeResult = await HushhPersonalKnowledgeModel.getMetadata({
           userId,
-          vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
+          vaultOwnerToken: this.getVaultOwnerToken(metadataToken),
         });
          
         const raw = nativeResult as any;
@@ -1134,22 +1137,17 @@ export class PersonalKnowledgeModelService {
           lastUpdated: raw.last_updated || raw.lastUpdated || null,
         };
       } else {
-        // Without a VAULT_OWNER token, metadata endpoint is expected to reject with 401.
-        // Return empty metadata so first-time / locked-vault screens can render gracefully.
-        if (!vaultOwnerToken) {
-          result = this.emptyMetadata(userId);
-          persistToDeviceCache = false;
-          return result;
-        }
-
         // Web: Use ApiService.apiFetch() for tri-flow compliance
+        const metadataToken =
+          vaultOwnerToken || (await AuthService.getIdToken().catch(() => null)) || undefined;
         this.logMetadataRequest("network_fetch", {
           userId,
           cacheKey,
           resourceKey: deviceResourceKey,
+          authMode: metadataToken === vaultOwnerToken ? "vault_owner" : "firebase",
         });
         const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/metadata/${userId}`, {
-          headers: this.getAuthHeaders(vaultOwnerToken),
+          headers: this.getAuthHeaders(metadataToken),
         });
 
         // Handle 404 as valid "no data" response for new users

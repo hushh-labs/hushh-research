@@ -50,7 +50,11 @@ Non-owned surfaces:
 
 1. Start from the contract or user-facing behavior that needs proof, then select the smallest authoritative checks.
 2. Keep frontend and backend contract tests aligned with the same user-visible or policy-visible rule.
-3. Treat CI pipeline ownership as `repo-operations` work unless the task is primarily about what should be verified.
+3. For vault-protected signed-in routes, split browser verification into two separate contracts when relevant:
+   - same-session client navigation after unlock
+   - cold-entry or direct deep-link behavior that re-auths or re-unlocks
+4. Do not let a single Playwright script conflate these two contracts when the vault is memory-only.
+5. Treat CI pipeline ownership as `repo-operations` work unless the task is primarily about what should be verified.
 
 ## Handoff Rules
 
@@ -65,3 +69,5 @@ Non-owned surfaces:
 cd hushh-webapp && npm test
 cd consent-protocol && python3 -m pytest tests/quality -q
 ```
+
+When route/browser verification changes, require the test output to state which contract was proven: in-app navigation, cold deep link, or both.

@@ -68,6 +68,14 @@ Rules:
    - `developers`
    - `neutral`
 10. Success, warning, and critical accents are reserved for explicit status communication, not page identity.
+11. Standard route headers must use `PageHeader`'s `icon` slot for the leading visual by default.
+12. `leading` is reserved for semantic non-icon content such as badges, avatars, or endpoint method pills; it must not be used to recreate a custom route-header icon well.
+13. The chosen `accent` must match the surface identity, not the broader product parent. For example, a market workspace uses `marketplace`, not `kai`.
+14. Standard mobile route headers should default to a three-row composition when they include both description and actions:
+   - title block
+   - actions
+   - full-width description
+15. `actionsInlineMobile` is reserved for short utility headers; do not use it on primary route headers with full-width descriptive copy.
 
 ## Row and Card Interaction Contract
 
@@ -170,6 +178,7 @@ Use the `Subtle Apple` depth model:
 6. Default outer shells are borderless glass. Do not add visible outline borders to make cards pop.
 7. Do not tint outer card chrome to communicate state.
 8. If a surface needs more presence, move from `surface` to `surface-feature` or `hero`; do not invent a new route-local shadow recipe.
+9. Analysis/workspace sections should avoid duplicate summary chrome. Use one primary card for the main read and then secondary cards only when they add new information.
 
 ### Ripple Ownership and Clipping
 
@@ -253,6 +262,9 @@ Rules:
    - available scope metadata
    - current grants
 8. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
+9. Persona-facing profile copy should use plain-language terms such as `Personal Data`; keep `PKM` for developer-only surfaces.
+10. Profile-family vault actions should live in the shared top app bar instead of route-local hero chrome.
+11. Settings/menu group treatment should stay compositionally consistent from mobile through desktop rather than switching into a separate desktop card language.
 
 ## Documentation References
 

@@ -27,6 +27,33 @@ function normalizeInternalHref(value: string | null | undefined): string | null 
   return next;
 }
 
+function profilePanelLabel(panel: string | null): string | null {
+  if (panel === "my-data") return "My Data";
+  if (panel === "access") return "Access & sharing";
+  if (panel === "preferences") return "Preferences";
+  if (panel === "security") return "Security";
+  if (panel === "support") return "Support & feedback";
+  if (panel === "gmail") return "Gmail receipts";
+  return null;
+}
+
+function profileDetailLabel(detail: string | null): string | null {
+  if (!detail) return null;
+  if (detail.startsWith("domain:")) return "Domain detail";
+  if (detail.startsWith("connection:")) return "Connection detail";
+  if (detail === "appearance") return "Appearance";
+  if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "device") return "On-device first";
+  if (detail === "vault") return "Vault methods";
+  if (detail === "session") return "Session";
+  if (detail === "danger") return "Danger zone";
+  if (detail === "gmail-connection") return "Connection";
+  if (detail === "gmail-actions") return "Actions";
+  if (detail === "support-routing") return "Routing";
+  if (detail.startsWith("support-compose:")) return "Compose";
+  return null;
+}
+
 export function resolveTopShellBreadcrumb(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null
@@ -170,7 +197,28 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  if (pathname === ROUTES.PROFILE || !pathname.startsWith(`${ROUTES.PROFILE}/`)) {
+  if (pathname === ROUTES.PROFILE) {
+    const panel = String(searchParams?.get("panel") || "").trim();
+    const detail = String(searchParams?.get("detail") || "").trim();
+    const panelLabel = profilePanelLabel(panel);
+    if (!panelLabel) {
+      return null;
+    }
+
+    const detailLabel = profileDetailLabel(detail);
+    return {
+      backHref: detailLabel ? `${ROUTES.PROFILE}?panel=${encodeURIComponent(panel)}` : ROUTES.PROFILE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: panelLabel, href: detailLabel ? `${ROUTES.PROFILE}?panel=${encodeURIComponent(panel)}` : undefined },
+        ...(detailLabel ? [{ label: detailLabel }] : []),
+      ],
+    };
+  }
+
+  if (!pathname.startsWith(`${ROUTES.PROFILE}/`)) {
     return null;
   }
 

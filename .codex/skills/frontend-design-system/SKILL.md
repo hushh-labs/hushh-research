@@ -54,6 +54,13 @@ Non-owned surfaces:
 2. Decide the owning layer first: stock UI, Morphy UX, or app-ui.
 3. Keep route-container ownership with `AppPageShell` or `FullscreenFlowShell`.
 4. Update docs or verification commands in the same change when the rule itself changes.
+5. Keep persona-facing labels plain-language; internal platform terms such as `PKM` stay out of consumer-facing surfaces unless the route is explicitly developer-facing.
+6. Preserve one navigation language across breakpoints: grouped menu/list treatment should scale from mobile to desktop rather than switching to a separate desktop composition.
+7. Shared top-bar navigation and actions take precedence over inline route-local back/unlock chrome on signed-in surfaces.
+8. Standard route headers must use `PageHeader`'s `icon` slot by default; custom `leading` content is reserved for semantic non-icon content such as badges or avatars.
+9. `PageHeader` accent selection must match the actual surface identity, not the broader parent product area.
+10. Primary route headers with both actions and descriptive copy should default to the standard 3-row mobile layout; avoid `actionsInlineMobile` unless the header is intentionally utility-dense.
+11. Analysis/workspace sections should use one primary summary card per read and avoid adjacent duplicate mini-summary cards.
 
 ## Handoff Rules
 

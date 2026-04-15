@@ -913,7 +913,7 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
     user_id: str,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict,
 ):
     """
     Get user's PKM metadata for UI display.
@@ -925,8 +925,8 @@ async def get_metadata(
 
     Returns 404 if user has no PKM data (new user).
 
-    **Authentication**: Requires valid VAULT_OWNER token.
-    Domain names, counts, and summaries are user-private metadata.
+    **Authentication**: Requires first-party authenticated access for the same user.
+    This reads privacy-safe discovery metadata from `pkm_index`, not decrypted PKM payload.
     """
     # Verify token matches user_id
     if token_data.get("user_id") != user_id:

@@ -111,8 +111,7 @@ export function SettingsGroup({
     <div
       className={cn(
         "relative isolate [--settings-group-radius:24px] rounded-[var(--app-card-radius-feature)]",
-        "border border-transparent bg-transparent p-0 shadow-none",
-        "sm:border-[color:var(--app-card-border-standard)] sm:bg-[color:var(--app-card-surface-default-solid)] sm:p-px sm:shadow-[var(--app-card-shadow-standard)]",
+        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-px shadow-[var(--app-card-shadow-standard)]",
         !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
       )}
     >
@@ -121,7 +120,7 @@ export function SettingsGroup({
   );
 
   return (
-    <section className={cn("space-y-[var(--settings-group-stack-gap)]", className)}>
+    <section className={cn("w-full space-y-[var(--settings-group-stack-gap)]", className)}>
       {eyebrow || title || description ? (
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow ? (
@@ -418,7 +417,7 @@ export function SettingsDetailPanel({
             </DialogDescription>
           ) : null}
         </DialogHeader>
-        <div className="max-h-[calc(100dvh-9rem)] overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
           {children}
         </div>
       </DialogContent>

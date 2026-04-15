@@ -54,7 +54,12 @@ Non-owned surfaces:
 
 1. Confirm whether the change touches encrypted storage, upgrade flow, unlock behavior, or PKM domain data rules.
 2. Keep frontend and backend boundaries aligned around the same vault/PKM contract.
-3. Treat IAM, consent, and verification policy questions as `iam-consent-governance` work when they become primary.
+3. Treat the vault key and vault-owner token as memory-only runtime state, not route-persistent state.
+4. When testing protected routes, distinguish clearly between:
+   - same-session client navigation after unlock
+   - cold deep-link entry that must re-establish unlock state
+5. Do not treat `page.goto(...)` behavior as equivalent to Next client navigation for vault-protected flows.
+6. Treat IAM, consent, and verification policy questions as `iam-consent-governance` work when they become primary.
 
 ## Handoff Rules
 
@@ -68,3 +73,5 @@ Non-owned surfaces:
 cd consent-protocol && python3 -m pytest tests/test_vault.py -q
 cd hushh-webapp && npm run verify:cache
 ```
+
+If the request touches protected signed-in route behavior, include one browser proof that explicitly states whether it validated same-session navigation or cold-entry re-unlock.

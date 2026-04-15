@@ -22,6 +22,14 @@ const protocolEnvPath = path.join(repoRoot, "consent-protocol", ".env");
 dotenv.config({ path: webEnvPath });
 dotenv.config({ path: protocolEnvPath, override: false });
 
+function sanitizeConfiguredValue(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  if (/replace_with_/i.test(trimmed)) return "";
+  if (/your_[a-z0-9_]+_here/i.test(trimmed)) return "";
+  return trimmed;
+}
+
 const appOrigin = (
   process.env.HUSHH_APP_ORIGIN ||
   process.env.NEXT_PUBLIC_APP_URL ||
@@ -35,7 +43,8 @@ const reviewerPassphrase =
   process.env.KAI_TEST_PASSPHRASE ||
   "test#123";
 const kaiTestUserId =
-  process.env.NEXT_PUBLIC_KAI_TEST_USER_ID || "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
+  sanitizeConfiguredValue(process.env.NEXT_PUBLIC_KAI_TEST_USER_ID) ||
+  "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
 
 const VIEWPORTS = [
   { name: "phone", width: 390, height: 844, isMobile: true },
@@ -257,60 +266,82 @@ function routeSpec(route) {
   };
 }
 
-async function installNativeTestBootstrap(context) {
-  await context.addInitScript(
-    ({ expectedUserId, initialRoute, vaultPassphrase }) => {
-      window.__HUSHH_NATIVE_TEST__ = {
-        ...(window.__HUSHH_NATIVE_TEST__ || {}),
-        enabled: true,
-        autoReviewerLogin: true,
-        expectedUserId,
-        initialRoute,
-        expectedRoute: initialRoute,
-        vaultPassphrase,
-      };
-    },
-    {
-      expectedUserId: kaiTestUserId,
-      initialRoute: REVIEWER_BOOTSTRAP_ROUTE,
-      vaultPassphrase: reviewerPassphrase,
-    }
-  );
-}
-
 async function ensureReviewerSession(page) {
-  let lastDiagnostics = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await page.goto(
-      `${appOrigin}/login?redirect=${encodeURIComponent(REVIEWER_BOOTSTRAP_ROUTE)}`,
-      { waitUntil: "domcontentloaded" }
+  process.stdout.write(`→ bootstrap reviewer session\n`);
+  await page.goto(
+    `${appOrigin}/login?redirect=${encodeURIComponent(REVIEWER_BOOTSTRAP_ROUTE)}`,
+    { waitUntil: "domcontentloaded" }
+  );
+
+  const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
+  await page.waitForFunction(
+    () => {
+      if (window.location.pathname === "/ria") {
+        return true;
+      }
+      if (document.querySelector("#unlock-passphrase")) {
+        return true;
+      }
+      return Array.from(document.querySelectorAll("button")).some((button) =>
+        /continue as reviewer/i.test((button.textContent || "").trim())
+      );
+    },
+    {},
+    { timeout: 20_000 }
+  );
+
+  if (await reviewerButton.isVisible().catch(() => false)) {
+    process.stdout.write(`→ click reviewer login\n`);
+    await reviewerButton.click();
+  }
+
+  try {
+    await page.waitForURL(
+      (url) =>
+        url.pathname === REVIEWER_BOOTSTRAP_ROUTE ||
+        url.pathname.startsWith(`${REVIEWER_BOOTSTRAP_ROUTE}/`),
+      { timeout: NAVIGATION_TIMEOUT_MS }
     );
+  } catch (error) {
+    const diagnostics = await captureRouteDiagnostics(page);
+    throw new Error(
+      `Reviewer session login timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
+      { cause: error }
+    );
+  }
+
+  const unlockInput = page.locator("#unlock-passphrase");
+  await unlockInput.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  if (await unlockInput.isVisible().catch(() => false)) {
+    process.stdout.write(`→ unlock vault with passphrase\n`);
+    await unlockInput.click();
+    await unlockInput.fill(reviewerPassphrase);
+    await page.getByRole("button", { name: /unlock with passphrase/i }).click();
     try {
       await page.waitForFunction(
-        ({ routeId }) => {
-          const bridge = window.__HUSHH_NATIVE_TEST__;
-          return (
-            window.location.pathname === routeId &&
-            bridge?.bootstrapState === "vault_unlocked"
-          );
-        },
-        {
-          routeId: REVIEWER_BOOTSTRAP_ROUTE,
-        },
+        () => !document.querySelector("#unlock-passphrase"),
+        {},
         { timeout: NAVIGATION_TIMEOUT_MS }
       );
-      return;
     } catch (error) {
-      lastDiagnostics = await captureRouteDiagnostics(page);
-      if (attempt < 3 && lastDiagnostics?.bridge?.bootstrapState === "vault_error") {
-        continue;
-      }
+      const diagnostics = await captureRouteDiagnostics(page);
       throw new Error(
-        `Reviewer session bootstrap timed out.\n${JSON.stringify(lastDiagnostics, null, 2)}`,
+        `Reviewer vault unlock timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
         { cause: error }
       );
     }
   }
+
+  try {
+    await waitForRouteBeacon(page, [REVIEWER_BOOTSTRAP_ROUTE]);
+  } catch (error) {
+    const diagnostics = await captureRouteDiagnostics(page);
+    throw new Error(
+      `Reviewer session route did not stabilize.\n${JSON.stringify(diagnostics, null, 2)}`,
+      { cause: error }
+    );
+  }
+  process.stdout.write(`✓ reviewer session ready\n`);
 }
 
 async function ensurePersona(page, persona) {
@@ -592,7 +623,6 @@ async function runViewportSweep(viewport, contract) {
     let bootstrapError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       context = await browser.newContext({ viewport });
-      await installNativeTestBootstrap(context);
       page = await context.newPage();
       page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
       page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
@@ -614,6 +644,7 @@ async function runViewportSweep(viewport, contract) {
 
     for (const route of contract.filter(shouldIncludeRoute)) {
       const spec = routeSpec(route);
+      process.stdout.write(`→ [${viewport.name}] ${route.route}\n`);
       await verifyRoute(page, viewport.name, spec);
       process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
     }

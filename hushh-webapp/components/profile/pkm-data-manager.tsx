@@ -308,7 +308,7 @@ export function PkmDataManagerPanel({
             Unlock to manage your data
           </SurfaceCardTitle>
           <SurfaceCardDescription>
-            Your readable PKM manager appears after vault unlock. Access summaries stay permission-safe.
+            Your personal data manager appears after vault unlock. Access summaries stay permission-safe.
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent className="flex flex-wrap gap-3">
@@ -670,7 +670,7 @@ export function PkmAccessManagerPanel({
           <SurfaceCardHeader>
             <SurfaceCardTitle>No active access right now</SurfaceCardTitle>
             <SurfaceCardDescription>
-              Your PKM is not currently shared with connected apps or advisors.
+              Your personal data is not currently shared with connected apps or advisors.
             </SurfaceCardDescription>
           </SurfaceCardHeader>
         </SurfaceCard>

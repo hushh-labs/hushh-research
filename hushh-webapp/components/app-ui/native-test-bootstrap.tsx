@@ -41,6 +41,9 @@ function updateBootstrapStatus(
   bridge.bootstrapError = options?.error ?? "";
 }
 
+let nativeTestReviewerBootstrapInflight: Promise<void> | null = null;
+let nativeTestReviewerBootstrapCooldownUntil = 0;
+
 export function NativeTestBootstrap() {
   const config = useNativeTestConfig();
   const { loading: authLoading, user, setNativeUser } = useAuth();
@@ -71,10 +74,14 @@ export function NativeTestBootstrap() {
       return;
     }
 
+    if (Date.now() < nativeTestReviewerBootstrapCooldownUntil) {
+      return;
+    }
+
     authAttemptedRef.current = true;
     updateBootstrapStatus("authenticating");
 
-    void (async () => {
+    nativeTestReviewerBootstrapInflight ??= (async () => {
       try {
         const { token } = await ApiService.createAppReviewModeSession("reviewer");
         const authResult = await AuthService.signInWithCustomToken(token);
@@ -103,7 +110,12 @@ export function NativeTestBootstrap() {
         updateBootstrapStatus("auth_error", {
           error: message,
         });
+        if (/rate limit exceeded/i.test(message)) {
+          nativeTestReviewerBootstrapCooldownUntil = Date.now() + 60_000;
+        }
         console.error("[NativeTestBootstrap] Auth bootstrap failed:", error);
+      } finally {
+        nativeTestReviewerBootstrapInflight = null;
       }
     })();
   }, [

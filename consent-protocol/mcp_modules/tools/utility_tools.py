@@ -283,12 +283,19 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
         ]
 
     scopes = data.get("scopes") or []
-    domains = []
-    for s in scopes:
-        m = re.match(r"^attr\.([a-zA-Z0-9_]+)(?:\..*)?$", s)
-        if m:
-            domains.append(m.group(1))
-    domains = sorted(set(domains))
+    domains = [
+        str(domain).strip()
+        for domain in (data.get("available_domains") or [])
+        if str(domain).strip()
+    ]
+    if not domains:
+        derived_domains = []
+        for s in scopes:
+            scope_value = s.get("scope") if isinstance(s, dict) else s
+            m = re.match(r"^attr\.([a-zA-Z0-9_]+)(?:\..*)?$", str(scope_value or ""))
+            if m:
+                derived_domains.append(m.group(1))
+        domains = sorted(set(derived_domains))
 
     # Enrich each scope with display metadata (label, icon, color)
     enriched_scopes = []

@@ -70,3 +70,10 @@ def get_developer_request_query() -> dict[str, str]:
     if not raw_token:
         return {}
     return {"token": raw_token}
+
+
+def get_developer_request_headers() -> dict[str, str]:
+    raw_token = _current_developer_token.get() or _configured_token()
+    if not raw_token:
+        return {}
+    return {"X-MCP-Developer-Token": raw_token}

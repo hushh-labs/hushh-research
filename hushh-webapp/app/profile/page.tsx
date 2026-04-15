@@ -138,7 +138,6 @@ type ProfilePanel =
 type ProfileDetail =
   | `domain:${string}`
   | `connection:${string}`
-  | "appearance"
   | "kai-preferences"
   | "device"
   | "vault"
@@ -201,7 +200,7 @@ function normalizeProfileDetail(panel: ProfilePanel | null, value: string | null
   }
   if (
     panel === "preferences" &&
-    (detail === "appearance" || detail === "kai-preferences" || detail === "device")
+    (detail === "kai-preferences" || detail === "device")
   ) {
     return detail;
   }
@@ -228,6 +227,13 @@ function buildProfileHref(params: { panel?: ProfilePanel | null; detail?: Profil
   }
   const query = next.toString();
   return query ? `${ROUTES.PROFILE}?${query}` : ROUTES.PROFILE;
+}
+
+function formatProfileInventoryBadge(summary: ReturnType<typeof buildPkmProfileSummaryPresentation> | null, loading: boolean) {
+  if (loading && !summary) return "Loading";
+  const itemCount = summary?.totalAttributes ?? 0;
+  const sourceCount = summary?.totalSourceCount ?? 0;
+  return `${itemCount} items · ${sourceCount} sources`;
 }
 
 function getProvider(user: ReturnType<typeof useAuth>["user"]) {
@@ -319,6 +325,16 @@ function resolveProfileRouteState(searchParams: ReadonlyURLSearchParams): Profil
   };
 }
 
+function profileRouteRequiresUnlockedVault(
+  panel: ProfilePanel | null,
+  detail: ProfileDetail | null
+): boolean {
+  if (panel === "my-data" || panel === "access" || panel === "gmail") {
+    return true;
+  }
+  return panel === "preferences" && detail === "kai-preferences";
+}
+
 function ProfilePageContent() {
   const canShowPkmAgentLab = resolveAppEnvironment() !== "production";
   const router = useRouter();
@@ -376,6 +392,7 @@ function ProfilePageContent() {
   const profileRouteState = resolveProfileRouteState(searchParams);
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
+  const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
 
   const provider = getProvider(user);
   const gmailRouteHref = `${pathname}?${searchParamsString}`;
@@ -442,7 +459,7 @@ function ProfilePageContent() {
         detail: vaultAccess.needsVaultCreation
           ? "Create your vault to start managing readable data."
           : vaultAccess.needsUnlock
-            ? "Unlock to reveal private PKM data."
+            ? "Unlock to reveal private personal data."
             : "Readable data manager is active.",
         status: vaultAccess.needsVaultCreation
           ? "Not created"
@@ -639,16 +656,16 @@ function ProfilePageContent() {
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
-      if (!user?.uid || !vaultOwnerToken || !vaultAccess.canReadSecureData) return;
+      if (!user?.uid) return;
       const metadata = await PersonalKnowledgeModelService.getMetadata(
         user.uid,
         force,
-        vaultOwnerToken
+        vaultOwnerToken ?? undefined
       );
       setPkmMetadata(metadata);
       setPkmError(null);
     },
-    [user?.uid, vaultAccess.canReadSecureData, vaultOwnerToken]
+    [user?.uid, vaultOwnerToken]
   );
 
   const refreshConsentCenter = useCallback(
@@ -692,20 +709,13 @@ function ProfilePageContent() {
         setLoadingPkmMetadata(true);
         setLoadingConsentCenter(true);
 
-        if (hasVault !== true || !vaultAccess.canReadSecureData || !vaultOwnerToken) {
-          if (!cancelled) {
-            setPkmMetadata(null);
-            setConsentCenter(null);
-            setPkmError(null);
-            setConsentCenterError(null);
-            completeStep();
-          }
-          return;
-        }
-
         const idToken = await user.getIdToken();
         const [metadata, center] = await Promise.all([
-          PersonalKnowledgeModelService.getMetadata(user.uid, false, vaultOwnerToken),
+          PersonalKnowledgeModelService.getMetadata(
+            user.uid,
+            false,
+            vaultOwnerToken ?? undefined
+          ),
           ConsentCenterService.getCenter({
             idToken,
             userId: user.uid,
@@ -751,7 +761,6 @@ function ProfilePageContent() {
     registerSteps,
     reset,
     user,
-    vaultAccess.canReadSecureData,
     vaultOwnerToken,
   ]);
 
@@ -1197,13 +1206,6 @@ function ProfilePageContent() {
     user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData
   );
 
-  const kaiPreferencesDescription =
-    vaultAccess.needsVaultCreation
-      ? "Create your vault first so Kai preferences can be saved securely."
-      : vaultAccess.canMutateSecureData
-        ? "Adjust risk profile and horizon settings used throughout Kai."
-        : "Basic shell preferences stay available here. Unlock only when you want to edit encrypted Kai preferences.";
-
   const marketplaceStatusText =
     loadingMarketplaceOptIn
       ? "Checking visibility…"
@@ -1225,15 +1227,7 @@ function ProfilePageContent() {
   const gmailLastSyncText = gmailPresentation.latestSyncText;
   const profileManagerLoading = loadingPkmMetadata || loadingConsentCenter;
   const activeGrantCount = consentCenter?.active_grants.length || 0;
-  const myDataRootBadge = vaultAccess.needsVaultCreation
-    ? "Set up vault"
-    : vaultAccess.needsUnlock
-      ? "Locked"
-      : profileManagerLoading
-      ? "Loading"
-      : profileSummary.totalDomains > 0
-          ? `${profileSummary.totalDomains} domains`
-          : "Ready";
+  const myDataRootBadge = formatProfileInventoryBadge(profileSummary, profileManagerLoading);
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -1255,7 +1249,7 @@ function ProfilePageContent() {
       {
         id: "profile_my_data",
         label: "My Data",
-        purpose: "opens readable PKM and source-health details.",
+        purpose: "opens personal data and source-health details.",
         actionId: "nav.profile_my_data",
         role: "card",
         voiceAliases: ["my data", "pkm data"],
@@ -1381,7 +1375,7 @@ function ProfilePageContent() {
         purpose:
           "This surface manages profile data, access, preferences, Gmail receipts, support, and vault security.",
         sections: [
-          { id: "my-data", title: "My Data", purpose: "Readable PKM and source health." },
+          { id: "my-data", title: "My Data", purpose: "Personal data and source health." },
           { id: "access", title: "Access & sharing", purpose: "Consent-backed access and sharing." },
           { id: "preferences", title: "Preferences", purpose: "Shell and Kai preferences." },
           { id: "security", title: "Security", purpose: "Vault and destructive account actions." },
@@ -1396,17 +1390,17 @@ function ProfilePageContent() {
         controls,
         concepts: [
           {
-            id: "pkm",
-            label: "PKM",
+            id: "personal_data",
+            label: "Personal Data",
             explanation:
-              "PKM is your encrypted personal memory layer. Kai uses it to store durable user memory safely.",
-            aliases: ["pkm", "personal knowledge model"],
+              "Your personal data is encrypted before storage. Kai uses it as your durable memory layer.",
+            aliases: ["personal data", "pkm", "personal knowledge model"],
           },
           {
             id: "gmail_receipts",
             label: "Gmail receipts",
             explanation:
-              "Gmail receipts connects Gmail receipt sync and feeds receipt-memory imports into PKM.",
+              "Gmail receipts connects receipt sync and feeds receipt-memory imports into your personal data.",
             aliases: ["gmail receipts", "receipt sync"],
           },
         ],
@@ -1481,6 +1475,30 @@ function ProfilePageContent() {
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  useEffect(() => {
+    if (!shouldRequestVaultUnlock || authLoading || hasVault === null) {
+      return;
+    }
+
+    if (hasVault) {
+      requestVaultUnlock("profile_data");
+    } else {
+      toast.error("Create your vault first before unlocking secure profile data.");
+    }
+
+    router.replace(buildProfileHref({ panel: activePanel, detail: activeDetail }), { scroll: false });
+  }, [activeDetail, activePanel, authLoading, hasVault, router, shouldRequestVaultUnlock]);
+
+  useEffect(() => {
+    if (authLoading || !user?.uid || !hasVault || !vaultAccess.needsUnlock) {
+      return;
+    }
+    if (!profileRouteRequiresUnlockedVault(activePanel, activeDetail)) {
+      return;
+    }
+    requestVaultUnlock("profile_data");
+  }, [activeDetail, activePanel, authLoading, hasVault, user?.uid, vaultAccess.needsUnlock]);
 
   if (authLoading || !user) {
     return null;
@@ -1573,7 +1591,6 @@ function ProfilePageContent() {
       }
       onRevokeAccess={async (scope) => {
         await handleRevoke(scope);
-        await refreshConsentCenter(true);
       }}
     />
   );
@@ -1597,7 +1614,6 @@ function ProfilePageContent() {
         onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
         onRevokeAccess={async (scope) => {
           await handleRevoke(scope);
-          await refreshConsentCenter(true);
         }}
       />
 
@@ -1642,21 +1658,22 @@ function ProfilePageContent() {
   );
 
   const preferencesContent = (
-    <SettingsGroup
-      eyebrow="Preferences"
-      description="Personalize the shell, your Kai preferences, and device sync behavior."
-    >
+    <SettingsGroup title="Preferences">
       <SettingsRow
         icon={Monitor}
         title="Appearance"
-        description="Choose light, dark, or system mode for the signed-in shell."
-        chevron
-        onClick={() => updateProfileView({ panel: "preferences", detail: "appearance" }, "push")}
+        description="Light, dark, or system."
+        trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
+        stackTrailingOnMobile
       />
       <SettingsRow
         icon={RefreshCw}
         title="Kai preferences"
-        description={kaiPreferencesDescription}
+        description={
+          vaultAccess.canMutateSecureData
+            ? "Risk profile and horizon."
+            : "Unlock to edit secure Kai preferences."
+        }
         trailing={canEditKaiPreferences ? <Badge variant="secondary">Ready</Badge> : null}
         chevron
         stackTrailingOnMobile
@@ -1665,7 +1682,7 @@ function ProfilePageContent() {
       <SettingsRow
         icon={Cloud}
         title="On-device first"
-        description="BYOK for cloud models."
+        description="Device-first controls."
         trailing={<Badge variant="secondary">Coming soon</Badge>}
         chevron
         stackTrailingOnMobile
@@ -1675,14 +1692,11 @@ function ProfilePageContent() {
   );
 
   const securityContent = (
-    <SettingsGroup
-      eyebrow="Security"
-      description="Manage vault methods, current session, and destructive account actions."
-    >
+    <SettingsGroup title="Security">
       <SettingsRow
         icon={Fingerprint}
         title="Vault methods"
-        description="Passphrase, passkey, current unlock state, and preferred security method."
+        description="Passphrase, passkey, and unlock method."
         chevron
         onClick={() => updateProfileView({ panel: "security", detail: "vault" }, "push")}
       />
@@ -1699,7 +1713,7 @@ function ProfilePageContent() {
 
   const supportContent = (
     <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup eyebrow="Contact">
+      <SettingsGroup title="Support">
         {supportActions.map((action) => (
           <SettingsRow
             key={action.kind}
@@ -1712,11 +1726,11 @@ function ProfilePageContent() {
         ))}
       </SettingsGroup>
 
-      <SettingsGroup eyebrow="Routing">
+      <SettingsGroup title="Routing">
         <SettingsRow
           icon={SendHorizontal}
           title="Support routing"
-          description="See where messages go and which reply address we use."
+          description="Reply address and routing."
           chevron
           onClick={() => updateProfileView({ panel: "support", detail: "support-routing" }, "push")}
         />
@@ -1726,7 +1740,7 @@ function ProfilePageContent() {
 
   const gmailContent = (
     <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup eyebrow="Connector">
+      <SettingsGroup title="Gmail">
         <SettingsRow
           icon={Mail}
           title="Connection"
@@ -1739,7 +1753,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={RefreshCw}
           title="Actions"
-          description="Connect, sync, refresh status, open receipts, or disconnect."
+          description="Connect, sync, receipts, or disconnect."
           chevron
           onClick={() => updateProfileView({ panel: "gmail", detail: "gmail-actions" }, "push")}
         />
@@ -1749,10 +1763,7 @@ function ProfilePageContent() {
 
   const vaultMethodsContent = (
     <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup
-        eyebrow="Vault security"
-        description="Manage passphrase, passkey, and current unlock behavior without changing how your vault stays protected."
-      >
+      <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
             icon={Folder}
@@ -1873,7 +1884,7 @@ function ProfilePageContent() {
 
   const gmailConnectionContent = (
     <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup eyebrow="Connection">
+      <SettingsGroup title="Connection">
         <SettingsRow
           icon={Mail}
           title="Status"
@@ -1915,7 +1926,7 @@ function ProfilePageContent() {
   );
 
   const gmailActionsContent = (
-    <SettingsGroup eyebrow="Actions">
+    <SettingsGroup title="Actions">
       {gmailPresentation.isConnected ? (
         <SettingsRow
           icon={RefreshCw}
@@ -1972,7 +1983,7 @@ function ProfilePageContent() {
   );
 
   const supportRoutingContent = (
-    <SettingsGroup eyebrow="Routing">
+    <SettingsGroup title="Routing">
       <SettingsRow
         icon={SendHorizontal}
         title="Support inbox"
@@ -2048,7 +2059,7 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:my-data",
       title: "My Data",
-      description: "Readable PKM, freshness, source health, and access state.",
+      description: undefined,
       breadcrumb: ["Profile", "My Data"],
       content: myDataContent,
     });
@@ -2056,16 +2067,15 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: `detail:domain:${selectedDomain.key}`,
         title: selectedDomain.title,
-        description: selectedDomain.summary,
+        description: undefined,
         breadcrumb: ["Profile", "My Data", selectedDomain.title],
         content: (
           <PkmDomainDetailPanel
             domain={selectedDomain}
             onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
-            onRevokeAccess={async (scope) => {
-              await handleRevoke(scope);
-              await refreshConsentCenter(true);
-            }}
+              onRevokeAccess={async (scope) => {
+                await handleRevoke(scope);
+              }}
           />
         ),
       });
@@ -2074,7 +2084,7 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:access",
       title: "Access & sharing",
-      description: "Consent-backed access, marketplace visibility, and live grants.",
+      description: undefined,
       breadcrumb: ["Profile", "Access & sharing"],
       content: accessContent,
     });
@@ -2082,15 +2092,14 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: `detail:connection:${selectedConnection.id}`,
         title: selectedConnection.requesterLabel,
-        description: "Review active grants for this connected app or advisor.",
+        description: undefined,
         breadcrumb: ["Profile", "Access & sharing", selectedConnection.requesterLabel],
         content: (
           <PkmAccessConnectionDetailPanel
             connection={selectedConnection}
-            onRevokeAccess={async (scope) => {
-              await handleRevoke(scope);
-              await refreshConsentCenter(true);
-            }}
+              onRevokeAccess={async (scope) => {
+                await handleRevoke(scope);
+              }}
           />
         ),
       });
@@ -2099,33 +2108,15 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:preferences",
       title: "Preferences",
-      description: "Personalize the shell, Kai preferences, and device sync behavior.",
+      description: undefined,
       breadcrumb: ["Profile", "Preferences"],
       content: preferencesContent,
     });
-    if (activeDetail === "appearance") {
-      profileStackEntries.push({
-        key: "detail:appearance",
-        title: "Appearance",
-        description: "Choose light, dark, or system mode for the signed-in shell.",
-        breadcrumb: ["Profile", "Preferences", "Appearance"],
-        content: (
-          <SettingsGroup eyebrow="Appearance">
-            <SettingsRow
-              icon={Monitor}
-              title="Theme"
-              description="Choose light, dark, or system mode for the signed-in shell."
-              trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
-              stackTrailingOnMobile
-            />
-          </SettingsGroup>
-        ),
-      });
-    } else if (activeDetail === "kai-preferences") {
+    if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
         title: "Kai preferences",
-        description: kaiPreferencesDescription,
+        description: undefined,
         breadcrumb: ["Profile", "Preferences", "Kai preferences"],
         content: (
           <ProfileKaiPreferencesPanel
@@ -2141,14 +2132,14 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:device",
         title: "On-device first",
-        description: "BYOK and local-first controls for future device-aware experiences.",
+        description: undefined,
         breadcrumb: ["Profile", "Preferences", "On-device first"],
         content: (
-          <SettingsGroup eyebrow="Device">
+          <SettingsGroup title="Device">
             <SettingsRow
               icon={Cloud}
               title="Bring your own key"
-              description="This device-first control surface is planned but not available yet."
+              description="Planned."
               trailing={<Badge variant="secondary">Coming soon</Badge>}
               stackTrailingOnMobile
             />
@@ -2160,7 +2151,7 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:security",
       title: "Security",
-      description: "Vault, passphrase, passkey, session, and destructive account actions.",
+      description: undefined,
       breadcrumb: ["Profile", "Security"],
       content: securityContent,
     });
@@ -2168,7 +2159,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:vault",
         title: "Vault methods",
-        description: "Passphrase, passkey, current unlock state, and primary security method.",
+        description: undefined,
         breadcrumb: ["Profile", "Security", "Vault methods"],
         content: vaultMethodsContent,
       });
@@ -2176,10 +2167,10 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:session",
         title: "Session",
-        description: "Manage the current signed-in device session.",
+        description: undefined,
         breadcrumb: ["Profile", "Security", "Session"],
         content: (
-          <SettingsGroup eyebrow="Session">
+          <SettingsGroup title="Session">
             <SettingsRow
               icon={LogOut}
               title="Sign out"
@@ -2194,13 +2185,10 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:danger",
         title: "Danger zone",
-        description: "Deleting your account is permanent. This cannot be undone.",
+        description: undefined,
         breadcrumb: ["Profile", "Security", "Danger zone"],
         content: (
-          <SettingsGroup
-            eyebrow="Danger zone"
-            description="Deleting your account is permanent. All vault records and identity details will be erased."
-          >
+          <SettingsGroup title="Danger zone">
             <SettingsRow
               icon={Trash2}
               title={deleteButtonLabel}
@@ -2217,7 +2205,7 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:gmail",
       title: "Gmail receipts",
-      description: "Connect your Gmail account to sync receipt emails into a dedicated receipts view.",
+      description: undefined,
       breadcrumb: ["Profile", "Gmail receipts"],
       content: gmailContent,
     });
@@ -2225,7 +2213,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:gmail-connection",
         title: "Connection",
-        description: "Current inbox, connector status, and latest sync metadata.",
+        description: undefined,
         breadcrumb: ["Profile", "Gmail receipts", "Connection"],
         content: gmailConnectionContent,
       });
@@ -2233,7 +2221,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:gmail-actions",
         title: "Actions",
-        description: "Connect, sync, refresh, open receipts, or disconnect.",
+        description: undefined,
         breadcrumb: ["Profile", "Gmail receipts", "Actions"],
         content: gmailActionsContent,
       });
@@ -2242,7 +2230,7 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:support",
       title: "Support & feedback",
-      description: "Use support@hushh.ai for bugs, account help, or direct developer feedback.",
+      description: undefined,
       breadcrumb: ["Profile", "Support & feedback"],
       content: supportContent,
     });
@@ -2250,7 +2238,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:support-routing",
         title: "Support routing",
-        description: "See where support messages go and which reply address we use.",
+        description: undefined,
         breadcrumb: ["Profile", "Support & feedback", "Routing"],
         content: supportRoutingContent,
       });
@@ -2258,7 +2246,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: `detail:support-compose:${supportComposeKind}`,
         title: SUPPORT_KIND_COPY[supportComposeKind].title,
-        description: SUPPORT_KIND_COPY[supportComposeKind].description,
+        description: undefined,
         breadcrumb: ["Profile", "Support & feedback", SUPPORT_KIND_COPY[supportComposeKind].title],
         content: supportComposeContent,
       });
@@ -2278,7 +2266,7 @@ function ProfilePageContent() {
         dataState: authLoading ? "loading" : "loaded",
       }}
     >
-      <AppPageHeaderRegion>
+      <AppPageHeaderRegion className="pt-[calc(var(--top-fade-active)+0.35rem)] sm:pt-[calc(var(--top-fade-active)+0.55rem)]">
         <header className="flex flex-col items-center gap-3 text-center" data-slot="page-header" data-page-primary="true">
           <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/18 sm:h-20 sm:w-20">
             <AvatarImage
@@ -2311,6 +2299,18 @@ function ProfilePageContent() {
                 {user.email || "Not available"}
               </span>
             </div>
+            {vaultAccess.needsUnlock && hasVault ? (
+              <div className="pt-2">
+                <Button
+                  size="sm"
+                  className="min-w-[148px]"
+                  onClick={() => requestVaultUnlock("profile_data")}
+                >
+                  <Icon icon={KeyRound} size="sm" className="mr-2" />
+                  Unlock vault
+                </Button>
+              </div>
+            ) : null}
           </div>
         </header>
       </AppPageHeaderRegion>
@@ -2333,54 +2333,69 @@ function ProfilePageContent() {
               />
             ) : null}
 
-            <SettingsGroup
-              eyebrow="Data"
-              description="Readable PKM and connected memory sources."
-            >
+            <SettingsGroup title="Data">
               <SettingsRow
                 icon={Folder}
                 title="My Data"
-                description="Read what Kai knows, what is stale, and what is missing."
+                description={
+                  vaultAccess.needsVaultCreation
+                    ? "Create your vault first."
+                    : vaultAccess.needsUnlock
+                      ? "Unlock to review details."
+                      : "Items, sources, and freshness."
+                }
                 trailing={<Badge variant="secondary">{myDataRootBadge}</Badge>}
-                chevron
+                chevron={!vaultAccess.needsVaultCreation}
+                disabled={vaultAccess.needsVaultCreation}
                 stackTrailingOnMobile
                 onClick={openMyDataPanel}
               />
               <SettingsRow
                 icon={ShieldCheck}
                 title="Access & sharing"
-                description="See who can read your data and manage live permissions."
+                description={
+                  vaultAccess.needsVaultCreation
+                    ? "Create your vault first."
+                    : vaultAccess.needsUnlock
+                      ? "Unlock to review sharing."
+                      : "Permissions and sharing."
+                }
                 trailing={<Badge variant="secondary">{activeGrantCount} active</Badge>}
-                chevron
+                chevron={!vaultAccess.needsVaultCreation}
+                disabled={vaultAccess.needsVaultCreation}
                 stackTrailingOnMobile
                 onClick={openAccessPanel}
               />
               <SettingsRow
                 icon={Mail}
                 title="Gmail receipts"
-                description={gmailSettingsDescription}
+                description={
+                  vaultAccess.needsVaultCreation
+                    ? "Create your vault first."
+                    : vaultAccess.needsUnlock
+                      ? "Unlock to manage receipts."
+                      : gmailSettingsDescription
+                }
                 trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
-                chevron
+                chevron={!vaultAccess.needsVaultCreation}
+                disabled={vaultAccess.needsVaultCreation}
                 stackTrailingOnMobile
                 onClick={() => updateProfileView({ panel: "gmail", detail: null }, "push")}
               />
             </SettingsGroup>
 
-            <SettingsGroup
-              eyebrow="Account"
-              description="Preferences, security, support, and workspace tools."
-            >
+            <SettingsGroup title="Account">
               <SettingsRow
                 icon={RefreshCw}
                 title="Preferences"
-                description={kaiPreferencesDescription}
+                description="Theme, Kai preferences, and device behavior."
                 chevron
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
                 icon={Fingerprint}
                 title="Security"
-                description="Vault, passphrase, passkey, and account deletion."
+                description="Vault methods and account deletion."
                 chevron
                 onClick={openSecurityPanel}
               />
@@ -2394,7 +2409,7 @@ function ProfilePageContent() {
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={Code2}
-                  title="Advanced PKM tools"
+                  title="PKM Agent Lab"
                   description="Developer-only explorer and mutation lab."
                   trailing={<Badge variant="secondary">Dev / UAT</Badge>}
                   chevron
@@ -2404,7 +2419,7 @@ function ProfilePageContent() {
               ) : null}
             </SettingsGroup>
 
-            <SettingsGroup eyebrow="Session">
+            <SettingsGroup title="Session">
               <SettingsRow
                 icon={LogOut}
                 title="Sign out"
@@ -2415,14 +2430,10 @@ function ProfilePageContent() {
               />
             </SettingsGroup>
           </div>
-          <p className="text-center text-xs leading-5 text-muted-foreground">
-            Your records are protected before storage, and only your Vault credentials can unlock them.
-          </p>
         </SurfaceStack>
       </AppPageContentRegion>
 
-      <ProfileStackNavigator entries={profileStackEntries} onBack={popProfileStack} />
-      <ProfileStackNavigator entries={profileStackEntries} onBack={popProfileStack} />
+      <ProfileStackNavigator entries={profileStackEntries} />
 
       {hasVault === true && (
         <VaultUnlockDialog

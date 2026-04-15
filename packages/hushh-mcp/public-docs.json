@@ -25,49 +25,49 @@
     {
       "id": "generic-remote",
       "title": "Generic mcpServers JSON",
-      "whenToUse": "Use this when your host supports HTTP MCP directly.",
+      "whenToUse": "your host supports HTTP MCP directly.",
       "secretNote": "Keep the developer token machine-local and never commit host config with inline credentials.",
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"url\": \"{{REMOTE_URL}}\"\n    }\n  }\n}"
     },
     {
       "id": "codex-remote",
       "title": "Codex remote setup",
-      "whenToUse": "Use this when Codex should connect to the hosted UAT MCP endpoint directly.",
+      "whenToUse": "Codex should connect to the hosted UAT MCP endpoint directly.",
       "secretNote": "This writes a machine-local Codex config entry that contains the full query-token URL.",
       "template": "codex mcp add hushh_consent --url \"{{REMOTE_URL}}\""
     },
     {
       "id": "codex-stdio",
       "title": "Codex npm bridge",
-      "whenToUse": "Use this when Codex should launch a local stdio MCP bridge instead of remote HTTP MCP.",
+      "whenToUse": "Codex should launch a local stdio MCP bridge instead of remote HTTP MCP.",
       "secretNote": "Keep {{TOKEN_ENV_VAR}} local. The backend endpoint and token should not be committed.",
       "template": "[mcp_servers.hushh_consent]\ncommand = \"npx\"\nargs = [\"-y\", \"{{PACKAGE_NAME}}\"]\nenabled = true\n\n[mcp_servers.hushh_consent.env]\nCONSENT_API_URL = \"{{API_ORIGIN}}\"\n{{TOKEN_ENV_VAR}} = \"<developer-token>\""
     },
     {
       "id": "npm-bridge",
       "title": "npm bridge config",
-      "whenToUse": "Use this when your host expects a local stdio process but supports generic mcpServers JSON.",
+      "whenToUse": "your host expects a local stdio process but supports generic mcpServers JSON.",
       "secretNote": "Keep {{TOKEN_ENV_VAR}} local. This should match the same endpoint and token you use for remote MCP.",
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "claude-desktop",
       "title": "Claude Desktop stdio",
-      "whenToUse": "Use this when Claude Desktop is your MCP host and you need a local stdio bridge.",
+      "whenToUse": "Claude Desktop is your MCP host and you need a local stdio bridge.",
       "secretNote": "Claude Desktop stores this config locally. Do not commit the token value.",
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "cursor-vscode",
       "title": "Cursor / VS Code remote JSON",
-      "whenToUse": "Use this for editor hosts that understand mcpServers JSON and can call remote MCP directly.",
+      "whenToUse": "your editor host understands mcpServers JSON and can call remote MCP directly.",
       "secretNote": "The URL contains the token today, so keep the config file local.",
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent-remote\": {\n      \"url\": \"{{REMOTE_URL}}\"\n    }\n  }\n}"
     },
     {
       "id": "raw-remote-url",
       "title": "Raw remote MCP URL",
-      "whenToUse": "Use this for hosts that only ask for the MCP endpoint URL.",
+      "whenToUse": "your host only asks for the MCP endpoint URL.",
       "secretNote": "Use the exact slash-safe mount shape.",
       "template": "{{REMOTE_URL}}"
     }

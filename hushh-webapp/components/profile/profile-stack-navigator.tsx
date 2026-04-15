@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft } from "lucide-react";
 
 import {
   Breadcrumb,
@@ -58,30 +57,16 @@ function StackHeader({
   title,
   description,
   breadcrumb,
-  onBack,
 }: {
   title: ReactNode;
   description?: ReactNode;
   breadcrumb: ReactNode[];
-  onBack: () => void;
 }) {
   return (
-    <div className="border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]">
-      <div className="mx-auto flex w-full max-w-[54rem] items-start gap-3 px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-5">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back"
-          className={cn(
-            "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-background/80 text-foreground transition-[background-color,border-color]",
-            "hover:bg-muted/80 active:bg-muted"
-          )}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <div className="min-w-0 flex-1 space-y-2">
+    <div className="mx-auto flex w-full max-w-[54rem] items-start px-4 pb-2 pt-3 sm:px-6 sm:pb-3 sm:pt-4">
+        <div className="min-w-0 flex-1 space-y-1.5">
           <Breadcrumb>
-            <BreadcrumbList className="flex flex-wrap items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            <BreadcrumbList className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
               {breadcrumb.map((item, index) => (
                 <div key={`${String(item)}-${index}`} className="contents">
                   {index > 0 ? <BreadcrumbSeparator className="text-current/60" /> : null}
@@ -94,26 +79,23 @@ function StackHeader({
               ))}
             </BreadcrumbList>
           </Breadcrumb>
-          <div className="space-y-1">
-            <div className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
+          <div className="space-y-0.5">
+            <div className="text-base font-semibold tracking-tight text-foreground sm:text-[1.05rem]">
               {title}
             </div>
             {description ? (
-              <div className="text-sm leading-6 text-muted-foreground">{description}</div>
+              <div className="text-sm leading-5 text-muted-foreground">{description}</div>
             ) : null}
           </div>
         </div>
       </div>
-    </div>
   );
 }
 
 export function ProfileStackNavigator({
   entries,
-  onBack,
 }: {
   entries: ProfileStackEntry[];
-  onBack: () => void;
 }) {
   const reducedMotion = typeof window !== "undefined" ? prefersReducedMotion() : false;
   const [visible, setVisible] = useState(entries.length > 0);
@@ -222,19 +204,18 @@ export function ProfileStackNavigator({
       )}
       data-profile-stack="true"
     >
-      <div className="flex h-full min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] bg-background transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+      <div className="flex h-full w-full min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] bg-background transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         style={{ transform: `translateX(-${Math.max(activeIndex, 0) * 100}%)` }}
       >
         {renderedEntries.map((entry) => (
           <section
             key={entry.key}
-            className="flex min-h-full min-w-full flex-col bg-background"
+            className="flex min-h-full min-w-full w-full flex-col bg-background"
           >
             <StackHeader
               title={entry.title}
               description={entry.description}
               breadcrumb={entry.breadcrumb}
-              onBack={onBack}
             />
             <div className="flex-1 overflow-y-auto">
               <div className="mx-auto flex w-full max-w-[54rem] flex-col gap-4 px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-4 sm:px-6 sm:pb-10 sm:pt-5">

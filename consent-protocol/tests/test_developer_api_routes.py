@@ -174,8 +174,89 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     assert "attr.financial.*" in payload["scopes"]
     assert payload["scope_entries"][0]["source_kind"] == "pkm_index"
     assert payload["scope_entries"][1]["meta_reference"] == "manifest top-level scope path"
-    assert payload["scope_entries"][2]["path"] == "profile.risk_tolerance"
+    assert len(payload["scope_entries"]) == 2
     assert payload["app_display_name"] == "Demo App"
+
+
+def test_user_scopes_verbose_returns_path_level_entries(monkeypatch):
+    class _FakeScopeGenerator:
+        async def get_available_scopes(self, user_id: str) -> list[str]:
+            assert user_id == "user_123"
+            return [
+                "attr.financial.*",
+                "attr.financial.profile.*",
+                "attr.financial.profile.risk_tolerance",
+                "pkm.read",
+            ]
+
+        async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+            assert user_id == "user_123"
+            return [
+                {
+                    "scope": "attr.financial.*",
+                    "domain": "financial",
+                    "path": None,
+                    "wildcard": True,
+                    "source_kind": "pkm_index",
+                    "registry_handle": None,
+                    "label": "Financial Domain",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "domain wildcard derived from discovered PKM domains",
+                },
+                {
+                    "scope": "attr.financial.profile.*",
+                    "domain": "financial",
+                    "path": "profile",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_financial_profile",
+                    "label": "Profile",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest top-level scope path",
+                },
+                {
+                    "scope": "attr.financial.profile.risk_tolerance",
+                    "domain": "financial",
+                    "path": "profile.risk_tolerance",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "registry_handle": "s_financial_profile",
+                    "label": "Risk Tolerance",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest path row marked exposure eligible",
+                },
+            ]
+
+    class _FakeIndex:
+        available_domains = ["financial"]
+
+    class _FakePkmService:
+        scope_generator = _FakeScopeGenerator()
+
+        async def get_index_v2(self, user_id: str):
+            assert user_id == "user_123"
+            return _FakeIndex()
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/user-scopes/user_123?token=hdk_demo&detail=verbose",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available_domains"] == ["financial"]
+    assert payload["scope_entries"][2]["path"] == "profile.risk_tolerance"
+    assert "attr.financial.profile.risk_tolerance" in payload["scopes"]
 
 
 def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):

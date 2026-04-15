@@ -1828,24 +1828,16 @@ export function KaiMarketPreviewView() {
         <PageHeader
           eyebrow="Kai"
           title="Market"
-          leading={
-            <div className="flex h-[56px] w-10 items-center justify-center rounded-[var(--app-card-radius-feature)] border border-violet-500/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.82)_0%,rgba(226,232,255,0.74)_100%)] text-violet-700 shadow-[var(--shadow-xs)] dark:border-violet-400/16 dark:bg-violet-400/[0.08] dark:text-violet-200 sm:h-[64px] sm:w-12">
-              <ChartColumnIncreasing className="h-5 w-5" />
-            </div>
-          }
-          description={
-            "Track what matters now, advisor ideas, and your portfolio context without bouncing between separate screens."
-          }
-          accent="kai"
-          descriptionFullWidth
-          actionsInlineMobile
+          icon={ChartColumnIncreasing}
+          description={"Track the market, advisor ideas, and your portfolio context in one place."}
+          accent="marketplace"
           actions={
             <Button
               variant="none"
               effect="fade"
               disabled={refreshing}
               size="sm"
-              className="h-9 rounded-full px-3 self-start"
+              className="h-9 rounded-full px-3"
               onClick={() => void loadInsights({ manual: true })}
             >
               <span className="flex items-center gap-2">
@@ -1875,9 +1867,7 @@ export function KaiMarketPreviewView() {
         >
           <SurfaceCardContent className="flex min-h-32 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <p className="max-w-sm text-balance">
-              Preparing the market surface from your last available cache.
-            </p>
+            <p className="max-w-sm text-balance">Loading your market view.</p>
           </SurfaceCardContent>
         </SurfaceCard>
       ) : null}
@@ -1934,101 +1924,81 @@ export function KaiMarketPreviewView() {
           <section className="space-y-4">
             <MarketSectionLead
               title="Signals worth watching"
-              description="A tighter read of what the current tape is implying before you move into deeper analysis."
+              description="Strongest tape reads before deeper analysis."
             />
             {scenarioSignal ? (
               <div className="space-y-4">
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,0.9fr)]">
-                  <SignalBoardCard
-                    eyebrow={signalHeadlineLabel(scenarioSignal)}
-                    title={scenarioSignal.title}
-                    summary={scenarioSignal.summary}
-                    badge={
-                      <span
-                        className={cn(
-                          "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                          signalConfidenceTone(scenarioSignal)
-                        )}
-                      >
-                        {signalConfidenceLabel(scenarioSignal)}
-                      </span>
-                    }
-                  >
-                    <div className="flex flex-wrap gap-2">
-                      {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
-                        <Badge
-                          key={tag}
-                          variant="outline"
-                          className="border-[color:var(--app-card-border-standard)] bg-white/82 text-[10px] font-medium text-foreground/72 dark:bg-[var(--app-card-surface-compact)] dark:text-muted-foreground"
-                        >
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="grid gap-2">
-                      {primarySignalEvidence.length ? (
-                        primarySignalEvidence.map((line) => (
-                          <p
-                            key={line}
-                            className={cn(
-                              "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-sm leading-6 text-foreground/88",
-                              MARKET_SIGNAL_INSET_CLASSNAME
-                            )}
-                          >
-                            {line}
-                          </p>
-                        ))
-                      ) : (
-                        <p className={cn(
-                          "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-sm leading-6 text-foreground/72 dark:text-muted-foreground",
-                          MARKET_SIGNAL_INSET_CLASSNAME
-                        )}>
-                          Kai is summarizing the dominant tape posture from the active advisor lane.
-                        </p>
+                <SignalBoardCard
+                  eyebrow={signalHeadlineLabel(scenarioSignal)}
+                  title={scenarioSignal.title}
+                  summary={scenarioSignal.summary}
+                  badge={
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                        signalConfidenceTone(scenarioSignal)
                       )}
-                    </div>
-                  </SignalBoardCard>
-
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                    <SignalBoardCard
-                      eyebrow="Primary read"
-                      title={signalHeadlineLabel(scenarioSignal)}
-                      summary="Top-level framing for the current tape."
-                      compact
-                    />
-                    <SignalBoardCard
-                      eyebrow="Focus blocks"
-                      title={`${primarySignalGroups.length}`}
-                      summary={
-                        primarySignalGroups.length
-                          ? "Tap a block below to inspect the names driving this read."
-                          : "Focus groups are still populating."
-                      }
-                      compact
-                    />
-                    <SignalBoardCard
-                      eyebrow="Signal coverage"
-                      title={`${scenarioSignals.length}`}
-                      summary={
-                        scenarioSignals.length > 1
-                          ? "Additional signal cards continue below."
-                          : "This is the only active top-level signal right now."
-                      }
-                      compact
-                    />
+                    >
+                      {signalConfidenceLabel(scenarioSignal)}
+                    </span>
+                  }
+                >
+                  <div className="flex flex-wrap gap-2">
+                    {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant="outline"
+                        className="border-[color:var(--app-card-border-standard)] bg-white/82 text-[10px] font-medium text-foreground/72 dark:bg-[var(--app-card-surface-compact)] dark:text-muted-foreground"
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                    {primarySignalGroups.length ? (
+                      <Badge
+                        variant="outline"
+                        className="border-[color:var(--app-card-border-standard)] bg-white/82 text-[10px] font-medium text-foreground/72 dark:bg-[var(--app-card-surface-compact)] dark:text-muted-foreground"
+                      >
+                        {primarySignalGroups.length} focus block{primarySignalGroups.length === 1 ? "" : "s"}
+                      </Badge>
+                    ) : null}
+                    {scenarioSignals.length > 1 ? (
+                      <Badge
+                        variant="outline"
+                        className="border-[color:var(--app-card-border-standard)] bg-white/82 text-[10px] font-medium text-foreground/72 dark:bg-[var(--app-card-surface-compact)] dark:text-muted-foreground"
+                      >
+                        {scenarioSignals.length - 1} secondary read{scenarioSignals.length - 1 === 1 ? "" : "s"}
+                      </Badge>
+                    ) : null}
                   </div>
-                </div>
+                  <div className="grid gap-2">
+                    {primarySignalEvidence.length ? (
+                      primarySignalEvidence.map((line) => (
+                        <p
+                          key={line}
+                          className={cn(
+                            "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-sm leading-6 text-foreground/88",
+                            MARKET_SIGNAL_INSET_CLASSNAME
+                          )}
+                        >
+                          {line}
+                        </p>
+                      ))
+                    ) : (
+                      <p className={cn(
+                        "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-sm leading-6 text-foreground/72 dark:text-muted-foreground",
+                        MARKET_SIGNAL_INSET_CLASSNAME
+                      )}>
+                        Kai is summarizing the dominant tape posture from the active advisor lane.
+                      </p>
+                    )}
+                  </div>
+                </SignalBoardCard>
 
                 {primarySignalGroups.length ? (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold tracking-tight text-foreground">
-                        Focus blocks behind this read
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Tap a block to inspect the names
-                      </p>
-                    </div>
+                    <p className="text-sm font-semibold tracking-tight text-foreground">
+                      Focus blocks
+                    </p>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {primarySignalGroups.map((group) => (
                         <SignalGroupBlock
@@ -2054,14 +2024,9 @@ export function KaiMarketPreviewView() {
 
                 {scenarioSignals.length > 1 ? (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold tracking-tight text-foreground">
-                        Secondary reads
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Supporting signals that refine the same tape
-                      </p>
-                    </div>
+                    <p className="text-sm font-semibold tracking-tight text-foreground">
+                      Secondary reads
+                    </p>
                     <div className="grid gap-3 lg:grid-cols-2">
                       {scenarioSignals.slice(1).map((signal) => {
                         const evidence = signalEvidenceLines(signal, effectivePayload, pickRows);
@@ -2073,6 +2038,7 @@ export function KaiMarketPreviewView() {
                             eyebrow={signalHeadlineLabel(signal)}
                             title={signal.title}
                             summary={signal.summary}
+                            compact
                             badge={
                               <span
                                 className={cn(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, Literal, Optional, TypedDict, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -87,7 +87,7 @@ class DeveloperUserScopesResponse(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     scope_entries: list[dict] = Field(default_factory=list)
     scopes_are_dynamic: bool = True
-    source: str = "pkm_index + pkm_scope_registry"
+    source: str = "pkm_index + pkm_manifests.top_level_scope_paths + pkm_scope_registry"
     app_id: str | None = None
     app_display_name: str | None = None
 
@@ -474,7 +474,62 @@ def _resolve_principal(
     )
 
 
-async def _get_user_scope_snapshot(user_id: str) -> tuple[list[str], list[str], list[dict]]:
+def _compact_scope_entries(
+    *,
+    available_domains: list[str],
+    scope_entries: list[dict],
+    scopes: list[str],
+) -> tuple[list[str], list[str], list[dict]]:
+    compact_entries: list[dict] = []
+    seen_scopes: set[str] = set()
+    discovered_domains = {
+        str(domain).strip().lower() for domain in available_domains if str(domain).strip()
+    }
+
+    for entry in scope_entries:
+        if not isinstance(entry, dict):
+            continue
+        scope = str(entry.get("scope") or "").strip()
+        if not scope or scope in seen_scopes:
+            continue
+
+        source_kind = str(entry.get("source_kind") or "").strip()
+        wildcard = entry.get("wildcard") is True
+        domain = str(entry.get("domain") or "").strip().lower() or None
+        if domain:
+            discovered_domains.add(domain)
+
+        # Default developer discovery should expose requestable top-level consent
+        # surfaces only. Deep path-level manifest rows remain available via verbose
+        # mode for debugging and inspection.
+        if source_kind not in {"pkm_index", "pkm_manifests.top_level_scope_paths"}:
+            continue
+        if not wildcard:
+            continue
+
+        compact_entries.append(entry)
+        seen_scopes.add(scope)
+
+    compact_scopes = sorted(
+        {
+            "pkm.read",
+            *(
+                str(entry.get("scope") or "").strip()
+                for entry in compact_entries
+                if str(entry.get("scope") or "").strip()
+            ),
+            *(str(scope).strip() for scope in scopes if str(scope).strip() == "pkm.read"),
+        }
+    )
+    compact_domains = sorted(discovered_domains)
+    return compact_domains, compact_scopes, compact_entries
+
+
+async def _get_user_scope_snapshot(
+    user_id: str,
+    *,
+    detail: Literal["compact", "verbose"] = "compact",
+) -> tuple[list[str], list[str], list[dict]]:
     pkm_service = get_pkm_service()
     index = await pkm_service.get_index_v2(user_id)
     if index is None:
@@ -492,7 +547,23 @@ async def _get_user_scope_snapshot(user_id: str) -> tuple[list[str], list[str], 
         scope_entries = await scope_entries_getter(user_id)
     else:
         scope_entries = [{"scope": scope} for scope in scopes if scope.startswith("attr.")]
-    return available_domains, scopes, scope_entries
+
+    if detail == "verbose":
+        discovered_domains = {
+            *available_domains,
+            *(
+                str(entry.get("domain") or "").strip().lower()
+                for entry in scope_entries
+                if isinstance(entry, dict) and str(entry.get("domain") or "").strip()
+            ),
+        }
+        return sorted(discovered_domains), scopes, scope_entries
+
+    return _compact_scope_entries(
+        available_domains=available_domains,
+        scope_entries=scope_entries,
+        scopes=scopes,
+    )
 
 
 def _developer_root_payload() -> dict[str, object]:
@@ -665,6 +736,7 @@ async def get_user_scopes(
     request: Request,
     token: Optional[str] = Query(None),
     authorization: Optional[str] = Header(None),
+    detail: Literal["compact", "verbose"] = Query(default="compact"),
 ):
     principal = _resolve_principal(
         request=request,
@@ -672,7 +744,10 @@ async def get_user_scopes(
         authorization=authorization,
     )
 
-    available_domains, scopes, scope_entries = await _get_user_scope_snapshot(user_id)
+    available_domains, scopes, scope_entries = await _get_user_scope_snapshot(
+        user_id,
+        detail=detail,
+    )
     return DeveloperUserScopesResponse(
         user_id=user_id,
         available_domains=available_domains,
