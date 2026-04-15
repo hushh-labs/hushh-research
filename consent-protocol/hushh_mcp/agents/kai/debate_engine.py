@@ -1048,7 +1048,53 @@ class DebateEngine:
                     f"{agent_id.capitalize()} agent dissents: recommends {vote}"
                 )
 
-        # Generate final statement
+        # If no consensus and low confidence, trigger the tie-breaker
+        if not consensus_reached and confidence < 0.60:
+            logger.info("[Conflict Resolution] Low confidence detected. Triggering tie-breaker...")
+            
+            # Identify the two agents who disagree the most
+            scores = {
+                "fundamental": self._rec_to_score(fundamental.recommendation),
+                "sentiment": self._rec_to_score(sentiment.recommendation),
+                "valuation": self._rec_to_score(valuation.recommendation),
+            }
+            
+            #Find pair with max absolute difference
+            agent_ids = list(scores.keys())
+            max_gap = -1
+            pair = (agent_ids[0], agent_ids[1])
+            
+            for i in range(len(agent_ids)):
+                for j in range(i + 1, len(agent_ids)):
+                    gap = abs(scores[agent_ids[i]] - scores[agent_ids[j]])
+                    if gap > max_gap:
+                        max_gap = gap
+                        pair = (agent_ids[i], agent_ids[j])
+            
+            # If everyone has the same score, pick the one with the longest reasoning (more evidence)
+            if max_gap == 0:
+                agent_reasoning_lengths = {
+                    "fundamental": len(fundamental.summary),
+                    "sentiment": len(sentiment.summary),
+                    "valuation": len(valuation.summary)
+                }
+                # Sort by who has the more to say
+                sorted_agents = sorted(agent_reasoning_lengths, key=agent_reasoning_lengths.get, reverse=True)
+                pair = (sorted_agents[0], sorted_agents[1])
+            
+            #Run the 8-second conflict resolution
+            try:
+                # We limit this to 8 seconds to stay under the 45s total budget
+                resolution = await asyncio.wait_for(
+                    self._resolve_conflict(pair[0], pair[1]),
+                    timeout=8.0
+                )
+                if resolution:
+                    dissenting_opinions.append(f"Conflict Resolution: {resolution}")
+                    confidence += 0.05  # Slight boost for resolving the conflict
+            except asyncio.TimeoutError:
+                logger.warning("[Conflict Resolution] Tie-breaker timed out. Proceeding without resolution.")
+
         final_statement = self._generate_final_statement(
             decision, confidence, consensus_reached, dissenting_opinions
         )
@@ -1080,7 +1126,6 @@ class DebateEngine:
         valuation: ValuationInsight,
     ) -> tuple[DecisionType, float]:
         """Calculate weighted decision based on risk profile."""
-
         # Convert recommendations to numeric scores
         scores = {
             "fundamental": self._rec_to_score(fundamental.recommendation),
@@ -1185,3 +1230,26 @@ class DebateEngine:
             f"After {DEBATE_ROUNDS} rounds of analysis, the committee has reached a "
             f"{consensus_word} decision to {decision.upper()} with {confidence:.0%} confidence{dissent_note}."
         )
+    
+    async def _resolve_conflict(self, agent_a: str, agent_b: str) -> Optional[str]:
+        """A surgical, fast LLM call to explain the primary point of disagreement."""
+        
+        prompt = f"""
+        Two financial agents are in conflict.
+        Agent A ({agent_a}): {self.current_statements.get(agent_a, "N/A")}
+        Agent B ({agent_b}): {self.current_statements.get(agent_b, "N/A")}
+        
+        TASK: In ONE sentence, identify the core metric they disagree on and give a tie-breaking perspective.
+        Be extremely concise.
+        """
+        
+        response = ""
+        try:
+            # We use the existing streaming helper but collect it into one string
+            async for chunk in stream_gemini_response(prompt, agent_name="mediator"):
+                if chunk.get("type") == "token":
+                    response += chunk.get("text", "")
+            return response.strip()
+        except Exception as e:
+            logger.error(f"Error in conflict resolution: {e}")
+            return None
