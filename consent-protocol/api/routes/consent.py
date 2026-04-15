@@ -130,6 +130,37 @@ async def _hydrate_pending_requester_labels(pending_items: list[dict]) -> list[d
     return pending_items
 
 
+async def _fire_ria_sync(
+    user_id: str,
+    request_id: str | None,
+    action: str,
+    *,
+    agent_id: str | None = None,
+    scope: str | None = None,
+) -> None:
+    """
+    Fire RIA relationship sync as a non-critical side-effect.
+
+    Always swallows and logs exceptions so the primary consent action is
+    never blocked or rolled back due to RIA connectivity issues. The consent
+    event has already been persisted to the audit log before this is called.
+    """
+    try:
+        kwargs: dict = {}
+        if agent_id is not None:
+            kwargs["agent_id"] = agent_id
+        if scope is not None:
+            kwargs["scope"] = scope
+        await RIAIAMService().sync_relationship_from_consent_action(
+            user_id=user_id,
+            request_id=request_id,
+            action=action,
+            **kwargs,
+        )
+    except Exception:
+        logger.exception("ria.relationship_sync_failed action=%s", action)
+
+
 # ============================================================================
 # PENDING CONSENT MANAGEMENT
 # ============================================================================
@@ -341,16 +372,7 @@ async def approve_consent(
 
         # Log REUSE event for audit trail (optional, but good for tracking)
         # await consent_db.insert_event(..., action="TOKEN_REUSED", ...)
-        try:
-            await RIAIAMService().sync_relationship_from_consent_action(
-                user_id=userId,
-                request_id=requestId,
-                action="CONSENT_GRANTED",
-            )
-        except Exception:
-            logger.exception(
-                "ria.relationship_sync_failed action=CONSENT_GRANTED reused_token=true"
-            )
+        await _fire_ria_sync(userId, requestId, "CONSENT_GRANTED")
 
         return {
             "status": "approved",
@@ -499,14 +521,7 @@ async def approve_consent(
             requested_scope,
             superseded_scopes,
         )
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=userId,
-            request_id=requestId,
-            action="CONSENT_GRANTED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CONSENT_GRANTED")
+    await _fire_ria_sync(userId, requestId, "CONSENT_GRANTED")
 
     return {
         "status": "approved",
@@ -558,14 +573,7 @@ async def deny_consent(
         request_id=requestId,
     )
     logger.info("consent.denied_event_saved")
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=userId,
-            request_id=requestId,
-            action="CONSENT_DENIED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CONSENT_DENIED")
+    await _fire_ria_sync(userId, requestId, "CONSENT_DENIED")
 
     return {"status": "denied", "message": f"Consent denied to {developer_label}"}
 
@@ -602,14 +610,7 @@ async def cancel_consent(
         request_id=payload.requestId,
         scope_description=pending_request.get("scope_description"),
     )
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=payload.userId,
-            request_id=payload.requestId,
-            action="CANCELLED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CANCELLED")
+    await _fire_ria_sync(payload.userId, payload.requestId, "CANCELLED")
 
     return {"status": "cancelled", "requestId": payload.requestId}
 
@@ -826,8 +827,6 @@ async def revoke_consent(
     For VAULT_OWNER tokens, this effectively locks the vault.
     """
     try:
-        from hushh_mcp.consent.token import revoke_token
-
         body = await request.json()
         userId = body.get("userId")
         scope = body.get("scope")
@@ -874,8 +873,6 @@ async def revoke_consent(
 
         # Generate a NEW unique token_id for the REVOKED event
         # (Cannot reuse original token_id due to UNIQUE constraint on consent_audit table)
-        import time
-
         revoke_token_id = f"REVOKED_{int(time.time() * 1000)}_{scope}"
         agent_id = token_to_revoke.get("agent_id") or token_to_revoke.get("developer") or "Unknown"
         request_id = token_to_revoke.get("request_id")
@@ -893,16 +890,7 @@ async def revoke_consent(
             scope_description="Vault owner session" if agent_id == "self" else None,
         )
         logger.info("consent.revoked_event_saved scope=%s", scope)
-        try:
-            await RIAIAMService().sync_relationship_from_consent_action(
-                user_id=userId,
-                request_id=request_id,
-                action="REVOKED",
-                agent_id=agent_id,
-                scope=scope,
-            )
-        except Exception:
-            logger.exception("ria.relationship_sync_failed action=REVOKED")
+        await _fire_ria_sync(userId, request_id, "REVOKED", agent_id=agent_id, scope=scope)
 
         # Return special flag for VAULT_OWNER revocation so client knows to lock vault
         is_vault_owner = scope == "vault.owner" or scope == "VAULT_OWNER"

@@ -98,6 +98,22 @@ module = [
 ]
 follow_imports = "skip"
 
+[tool.coverage.run]
+source = ["hushh_mcp"]
+omit = [
+    "hushh_mcp/operons/*",
+    "hushh_mcp/hushh_adk/*",
+]
+
+[tool.coverage.report]
+# Consent engine modules must maintain high coverage — they are security-critical.
+# Other modules are excluded until coverage is incrementally improved.
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
 [tool.bandit]
 exclude_dirs = ["tests", "__pycache__"]
 skips = ["B101"]  # Skip assert warnings
