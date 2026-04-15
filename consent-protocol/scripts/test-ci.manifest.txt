@@ -1,6 +1,13 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# ── Core consent engine (pure crypto + HMAC, no DB required) ──────────────────
+tests/test_token.py
+tests/test_trust.py
+tests/test_vault.py
+tests/test_granular_scopes.py
+
+# ── Existing quality + route gates ────────────────────────────────────────────
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/quality/test_kai_route_auth_compliance.py

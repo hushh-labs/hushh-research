@@ -244,13 +244,19 @@ def sample_plaintext_data() -> dict:
 def mock_trust_link(test_user_id: str) -> dict:
     """
     Generate a mock TrustLink for A2A testing.
+
+    Uses ConsentScope.PKM_READ as the trust scope. TrustLinks operate at the
+    enum level (coarse-grained permission); fine-grained domain isolation
+    (attr.food.*, attr.financial.*) is enforced separately at the consent
+    token layer, not at the trust link layer.
     """
+    from hushh_mcp.constants import ConsentScope
     from hushh_mcp.trust.link import create_trust_link
 
     return create_trust_link(
         from_agent="orchestrator",
         to_agent="food_agent",
-        scope="attr.food.*",
+        scope=ConsentScope.PKM_READ,
         signed_by_user=test_user_id,
     )
 

@@ -106,13 +106,19 @@ def validate_token(
     Returns:
         Tuple of (valid, error_reason, token_object)
     """
+    # Reject empty/whitespace tokens immediately before any parsing
+    if not token_str or not token_str.strip():
+        return False, "Token cannot be empty", None
+
     # Check in-memory revocation first (fastest)
     if token_str in _revoked_tokens:
         return False, "Token has been revoked", None
 
     try:
         prefix, signed_part = token_str.split(":", 1)
-        encoded, signature = signed_part.split(".")
+        # Use maxsplit=1 so a crafted token with multiple dots doesn't
+        # silently discard extra segments — it gives "too many values" clearly.
+        encoded, signature = signed_part.split(".", 1)
 
         if prefix != CONSENT_TOKEN_PREFIX:
             return False, "Invalid token prefix", None
