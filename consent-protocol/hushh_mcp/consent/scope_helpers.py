@@ -52,9 +52,9 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     # Agent permissions
     _AGENT_SCOPE_MAP = {
         "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
-        "agent.kai.debate":  ConsentScope.AGENT_KAI_DEBATE,
-        "agent.kai.infer":   ConsentScope.AGENT_KAI_INFER,
-        "agent.kai.chat":    ConsentScope.AGENT_KAI_CHAT,
+        "agent.kai.debate": ConsentScope.AGENT_KAI_DEBATE,
+        "agent.kai.infer": ConsentScope.AGENT_KAI_INFER,
+        "agent.kai.chat": ConsentScope.AGENT_KAI_CHAT,
         "agent.kai.execute": ConsentScope.AGENT_KAI_EXECUTE,  # fix #408
     }
     if scope.startswith("agent."):
