@@ -24,8 +24,8 @@ async def _require_ria_verified(
     service = RIAIAMService()
     try:
         await service.require_ria_verified(firebase_uid)
-    except IAMSchemaNotReadyError:
-        pass  # let the downstream handler surface the 503
+    except IAMSchemaNotReadyError as exc:
+        raise HTTPException(status_code=503, detail="Verification service unavailable") from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return firebase_uid

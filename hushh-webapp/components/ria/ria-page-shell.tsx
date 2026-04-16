@@ -240,7 +240,7 @@ export function RiaStatusPanel({
   );
 }
 
-const _VERIFIED_STATUSES = new Set(["active", "verified", "bypassed"]);
+const _VERIFIED_STATUSES = new Set(["active", "verified", "bypassed", "finra_verified"]);
 
 export function isRiaVerified(status?: string | null): boolean {
   return _VERIFIED_STATUSES.has(String(status || "").toLowerCase());
