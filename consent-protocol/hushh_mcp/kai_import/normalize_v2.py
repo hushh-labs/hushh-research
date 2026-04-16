@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
 
 def _to_num(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
-        return float(value)
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
     if isinstance(value, str):
         cleaned = value.replace("$", "").replace(",", "").replace("%", "").strip()
         if not cleaned:
