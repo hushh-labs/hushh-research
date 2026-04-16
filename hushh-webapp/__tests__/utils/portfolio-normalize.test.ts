@@ -157,4 +157,17 @@ describe("mergeWithExistingHoldings", () => {
     const aapl = result.holdings[0];
     expect(aapl.cost_basis).toBe(1400);
   });
+
+  it("falls back to new cost basis when existing quantity is zero", () => {
+    const result = mergeWithExistingHoldings(
+      [{ symbol: "AAPL", name: "Apple", quantity: 0, market_value: 0, cost_basis: 500 }],
+      [{ symbol: "AAPL", name: "Apple", quantity: 10, market_value: 1700, cost_basis: 1400 }]
+    );
+
+    const aapl = result.holdings[0];
+    // existPerShare is 0 (qty=0), so avgPerShare falls through to newCostBasis
+    expect(aapl.cost_basis).toBe(1400);
+    expect(aapl.quantity).toBe(10);
+    expect(result.averaged).toEqual(["AAPL"]);
+  });
 });
