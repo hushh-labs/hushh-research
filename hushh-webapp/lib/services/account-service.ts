@@ -38,12 +38,7 @@ export class AccountServiceImpl {
       result: "success",
     });
 
-    console.log(
-      "[AccountService] Deleting account with target:",
-      target,
-      "token:",
-      vaultOwnerToken.substring(0, 30) + "..."
-    );
+    console.log("[AccountService] Deleting account with target:", target);
 
     try {
       if (Capacitor.isNativePlatform()) {
