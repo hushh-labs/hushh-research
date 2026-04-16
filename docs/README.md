@@ -11,6 +11,7 @@ flowchart TB
   architecture["architecture/<br/>trust boundaries + contracts"]
   operations["operations/<br/>governance + release"]
   vision["vision/<br/>product thesis"]
+  future["future/<br/>roadmap + R&D planning"]
   frontend["hushh-webapp/docs/<br/>frontend implementation"]
   backend["consent-protocol/docs/<br/>backend implementation"]
 
@@ -18,6 +19,7 @@ flowchart TB
   hub --> architecture
   hub --> operations
   hub --> vision
+  hub --> future
   hub --> frontend
   hub --> backend
 ```
@@ -49,6 +51,7 @@ Start here:
 - [reference/architecture/architecture.md](./reference/architecture/architecture.md): runtime and trust boundaries
 - [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model
 - [vision/README.md](./vision/README.md): product thesis and positioning
+- [future/README.md](./future/README.md): future roadmap and R&D planning home
 
 ## Domain Indexes
 
@@ -64,6 +67,7 @@ Start here:
 | Quality | [reference/quality/README.md](./reference/quality/README.md) |
 | Streaming | [reference/streaming/README.md](./reference/streaming/README.md) |
 | Vision | [vision/README.md](./vision/README.md) |
+| Future | [future/README.md](./future/README.md) |
 
 ## Implementation Indexes
 

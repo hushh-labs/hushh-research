@@ -915,7 +915,7 @@ export default function ProfileReceiptsPage() {
               onClick={() =>
                 isConnected
                   ? void handleSyncNow()
-                  : router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)
+                  : router.push(`${ROUTES.PROFILE}?panel=gmail`)
               }
               disabled={isConnected ? syncing : gmail.status?.configured === false}
               className="min-w-[140px]"
@@ -981,7 +981,7 @@ export default function ProfileReceiptsPage() {
             {!isConnected ? (
               <div className="pt-1">
                 <Button
-                  onClick={() => router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)}
+                  onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}
                   data-voice-control-id="open_gmail_connector"
                   data-voice-action-id="nav.profile_gmail_panel"
                   data-voice-label={primaryActionLabel}
@@ -1095,6 +1095,64 @@ export default function ProfileReceiptsPage() {
             ) : null}
           </SurfaceInset>
 
+          {loadingStatus ? (
+            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading Gmail connector status...
+            </SurfaceInset>
+          ) : null}
+
+          {isSyncingState && gmail.syncRun ? (
+            <SurfaceInset className="space-y-1 px-4 py-3 text-sm">
+              <p className="font-medium text-foreground">Latest sync</p>
+              <p className="text-muted-foreground">Run: {gmail.syncRun.run_id}</p>
+              <p className="text-muted-foreground">Status: {gmail.syncRun.status}</p>
+              <p className="text-muted-foreground">
+                Synced {gmail.syncRun.synced_count} / Filtered {gmail.syncRun.filtered_count} / Extracted {gmail.syncRun.extracted_count}
+              </p>
+              {latestRunMetrics ? (
+                <div className="space-y-2 pt-1">
+                  <Progress value={progressPercent} className="h-2" />
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+                    <span>Scanned: {latestRunMetrics.listed}</span>
+                    <span>Matched: {latestRunMetrics.filtered}</span>
+                    <span>Stored: {latestRunMetrics.synced}</span>
+                    <span>Extracted: {latestRunMetrics.extracted}</span>
+                    <span>Duplicates: {latestRunMetrics.duplicates}</span>
+                    <span>Extract %: {latestRunMetrics.extractionSuccessPercent}%</span>
+                  </div>
+                </div>
+              ) : null}
+              {gmail.syncRun.error_message ? (
+                <p className="text-destructive">{gmail.syncRun.error_message}</p>
+              ) : null}
+            </SurfaceInset>
+          ) : null}
+
+          {gmail.status?.configured === false && !loadingStatus ? (
+            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
+              Gmail receipts are not configured in this environment yet.
+            </SurfaceInset>
+          ) : null}
+
+          {showConnectPrompt ? (
+            <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-foreground">
+                <Mail className="h-4 w-4" />
+                Connect Gmail from Profile to start syncing receipts.
+              </div>
+              <Button onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}>
+                Open Gmail connector
+              </Button>
+            </SurfaceInset>
+          ) : null}
+
+          {showDisconnectedNotice ? (
+            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
+              Gmail is currently disconnected. Your previously synced receipts stay available below,
+              but Sync now is disabled until you reconnect.
+            </SurfaceInset>
+          ) : null}
           {isConnected && loadingReceipts && !loadingStatus ? (
             <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />

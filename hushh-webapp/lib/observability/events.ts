@@ -2,6 +2,36 @@ import type { ObservabilityEnvironment } from "@/lib/observability/env";
 import type { RouteId } from "@/lib/observability/route-map";
 
 export type ObservabilityPlatform = "web" | "ios" | "android";
+export type GrowthJourney = "investor" | "ria";
+export type GrowthEntrySurface =
+  | "login"
+  | "kai_home"
+  | "kai_onboarding"
+  | "kai_import"
+  | "marketplace"
+  | "ria_home"
+  | "ria_onboarding"
+  | "unknown";
+export type GrowthPortfolioSource = "statement" | "plaid";
+export type GrowthWorkspaceSource =
+  | "ria_home"
+  | "ria_client_workspace"
+  | "developer_activation"
+  | "unknown";
+export type GrowthInvestorStep =
+  | "entered"
+  | "auth_completed"
+  | "vault_ready"
+  | "onboarding_completed"
+  | "portfolio_ready"
+  | "activated";
+export type GrowthRiaStep =
+  | "entered"
+  | "auth_completed"
+  | "profile_submitted"
+  | "request_created"
+  | "workspace_ready"
+  | "activated";
 
 export type ObservabilityEventName =
   | "page_view"
@@ -42,6 +72,9 @@ export type ObservabilityEventName =
   | "gmail_sync_requested"
   | "gmail_sync_result"
   | "gmail_receipts_loaded"
+  | "growth_funnel_step_completed"
+  | "investor_activation_completed"
+  | "ria_activation_completed"
   | "api_request_completed";
 
 export type StatusBucket =
@@ -212,6 +245,29 @@ export interface EventPayloadMap {
   };
   gmail_receipts_loaded: {
     result: EventResult;
+  };
+  growth_funnel_step_completed: {
+    journey: GrowthJourney;
+    step: GrowthInvestorStep | GrowthRiaStep;
+    entry_surface?: GrowthEntrySurface;
+    auth_method?: AuthMethod;
+    portfolio_source?: GrowthPortfolioSource;
+    workspace_source?: GrowthWorkspaceSource;
+    app_version: string;
+  };
+  investor_activation_completed: {
+    journey: "investor";
+    entry_surface?: GrowthEntrySurface;
+    auth_method?: AuthMethod;
+    portfolio_source?: GrowthPortfolioSource;
+    app_version: string;
+  };
+  ria_activation_completed: {
+    journey: "ria";
+    entry_surface?: GrowthEntrySurface;
+    auth_method?: AuthMethod;
+    workspace_source?: GrowthWorkspaceSource;
+    app_version: string;
   };
   api_request_completed: {
     route_id?: RouteId;

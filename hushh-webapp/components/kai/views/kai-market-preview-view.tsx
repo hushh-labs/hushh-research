@@ -21,6 +21,7 @@ import {
 
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
+import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -29,13 +30,18 @@ import {
   surfaceInteractiveShellClassName,
 } from "@/components/app-ui/surfaces";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
-import { MarketOverviewGrid, type MarketOverviewMetric } from "@/components/kai/cards/market-overview-grid";
+import {
+  MarketOverviewGrid,
+  type MarketOverviewDetailPanel,
+  type MarketOverviewMetric,
+} from "@/components/kai/cards/market-overview-grid";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
   KaiFinancialResourceService,
@@ -64,10 +70,40 @@ import {
   useVoiceSurfaceControlTracking,
 } from "@/lib/voice/voice-surface-metadata";
 
+function useRetainedSurfaceSelection<T>(selection: T | null, delayMs = 180): T | null {
+  const [retained, setRetained] = useState<T | null>(selection);
+
+  useEffect(() => {
+    if (selection) {
+      setRetained(selection);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setRetained(null);
+    }, delayMs);
+
+    return () => window.clearTimeout(timeout);
+  }, [delayMs, selection]);
+
+  return retained;
+}
+
 function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
 }
+
+const MARKET_GLASS_CARD_CLASSNAME =
+  "bg-[linear-gradient(180deg,rgba(255,255,255,0.88)_0%,rgba(248,250,252,0.72)_52%,rgba(241,245,249,0.58)_100%)] dark:bg-[color:var(--app-card-surface-default-solid)]";
+
+const MARKET_SIGNAL_CARD_CLASSNAME = cn(
+  MARKET_GLASS_CARD_CLASSNAME,
+  "border-[color:color-mix(in_srgb,var(--app-card-border-strong)_74%,rgba(59,130,246,0.16)_26%)] shadow-[var(--app-card-shadow-standard)]"
+);
+
+const MARKET_SIGNAL_INSET_CLASSNAME =
+  "border-[color:color-mix(in_srgb,var(--app-card-border-standard)_74%,rgba(148,163,184,0.18)_26%)] bg-white/80 text-foreground dark:bg-[var(--app-card-surface-compact)]";
 
 function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
@@ -76,6 +112,14 @@ function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[]
     .filter(Boolean)
     .filter((symbol, index, arr) => arr.indexOf(symbol) === index)
     .slice(0, 8);
+}
+
+function normalizeAllSymbols(symbols: string[] | null | undefined): string[] {
+  if (!Array.isArray(symbols)) return [];
+  return symbols
+    .map((symbol) => String(symbol || "").trim().toUpperCase())
+    .filter(Boolean)
+    .filter((symbol, index, arr) => arr.indexOf(symbol) === index);
 }
 
 const THEME_ICON_MAP: Array<{ test: RegExp; icon: LucideIcon }> = [
@@ -371,37 +415,166 @@ function signalHeadlineLabel(signal: KaiHomeSignal | undefined): string {
   return "Signal";
 }
 
-function signalAccentClass(signal: KaiHomeSignal | undefined): string {
-  const signalId = String(signal?.id || "").trim().toLowerCase();
-  if (signalId === "breadth") return "text-muted-foreground";
-  if (signalId === "volatility-regime") return "text-amber-700 dark:text-amber-300";
-  if (signalId === "recommendation-consensus") return "text-emerald-700 dark:text-emerald-300";
-  return "text-muted-foreground";
+type SignalGroupDetailPanel = {
+  eyebrow: string;
+  title: string;
+  summary: string;
+  sections: MarketOverviewDetailPanel["sections"];
+};
+
+function signalGroupSummary(scopeLabel: string, label: string, count: number): string {
+  if (label.toLowerCase().includes("buy")) {
+    return `${count} names are currently supporting the ${scopeLabel.toLowerCase()} read on the buy side.`;
+  }
+  if (label.toLowerCase().includes("sell") || label.toLowerCase().includes("reduce")) {
+    return `${count} names are currently leaning defensive inside the ${scopeLabel.toLowerCase()} read.`;
+  }
+  return `${count} names are contributing to the ${scopeLabel.toLowerCase()} grouping right now.`;
+}
+
+function buildSignalGroupDetailPanel(params: {
+  scopeLabel: string;
+  label: string;
+  symbols: string[];
+  supportingLines?: string[];
+}): SignalGroupDetailPanel {
+  return {
+    eyebrow: "Signal detail",
+    title: `${params.label} · ${params.symbols.length} names`,
+    summary: signalGroupSummary(params.scopeLabel, params.label, params.symbols.length),
+    sections: [
+      {
+        title: "Names",
+        lines: params.symbols.length
+          ? [`${params.symbols.length} names are driving this read right now.`]
+          : ["No names are available yet."],
+        items: params.symbols,
+      },
+      ...(params.supportingLines?.length
+        ? [
+            {
+              title: "Context",
+              lines: params.supportingLines,
+            },
+          ]
+        : []),
+    ],
+  };
 }
 
 function SignalGroupBlock({
+  scopeLabel,
   label,
   symbols,
+  onOpen,
 }: {
-  scopeId: string;
+  scopeLabel: string;
   label: string;
   symbols: string[];
+  onOpen?: () => void;
 }) {
-  const top = symbols.slice(0, 5);
+  const top = symbols.slice(0, 4);
+  const actionable = Boolean(onOpen);
 
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5">
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="mt-1 text-sm font-semibold text-foreground">
-          {symbols.length} names
-          {top.length > 0 ? (
-            <span className="ml-2 font-normal text-muted-foreground">
-              {top.join(", ")}{symbols.length > 5 ? "..." : ""}
-            </span>
-          ) : null}
+  const content = (
+    <div className="rounded-[var(--app-card-radius-compact)] border border-[color:color-mix(in_srgb,var(--app-card-border-strong)_72%,rgba(99,102,241,0.12)_28%)] bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(244,247,252,0.82)_100%)] px-4 py-3.5 transition-[background-color,border-color,box-shadow,transform] duration-200 group-hover:border-[color:color-mix(in_srgb,var(--app-card-border-strong)_82%,rgba(99,102,241,0.2)_18%)] group-hover:bg-white/95 group-hover:shadow-[var(--shadow-xs)] dark:bg-[var(--app-card-surface-compact)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            {scopeLabel}
+          </p>
+          <p className="mt-1 text-sm font-semibold tracking-tight text-foreground">{label}</p>
+        </div>
+        {actionable ? (
+          <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/72 shadow-[var(--shadow-xs)] dark:bg-background/50 dark:text-muted-foreground">
+            Open
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 space-y-2">
+        <p className="text-xl font-semibold tracking-tight text-foreground">{symbols.length} names</p>
+        <p className="line-clamp-2 text-xs leading-5 text-foreground/72 dark:text-muted-foreground">
+          {top.length > 0 ? `${top.join(", ")}${symbols.length > 4 ? "..." : ""}` : "Names are still loading."}
         </p>
       </div>
+    </div>
+  );
+
+  if (!actionable) return content;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group relative isolate w-full rounded-[var(--app-card-radius-compact)] text-left outline-none focus-visible:ring-2 focus-visible:ring-foreground/15 focus-visible:ring-offset-2"
+    >
+      {content}
+      <MaterialRipple variant="none" effect="fade" className="z-10" />
+    </button>
+  );
+}
+
+function SignalBoardCard({
+  eyebrow,
+  title,
+  summary,
+  badge,
+  children,
+  className,
+  compact = false,
+}: {
+  eyebrow: string;
+  title: string;
+  summary?: string;
+  badge?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+  compact?: boolean;
+}) {
+  return (
+    <SurfaceCard
+      accent="none"
+      className={cn("h-full", MARKET_SIGNAL_CARD_CLASSNAME, className)}
+    >
+      <SurfaceCardContent className={cn("flex h-full flex-col gap-4 p-4 sm:p-5", compact && "gap-3 p-4")}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {eyebrow}
+            </p>
+            <p className={cn("text-base font-semibold tracking-tight text-foreground sm:text-lg", compact && "text-[15px] sm:text-base")}>
+              {title}
+            </p>
+          </div>
+          {badge ? <div className="shrink-0">{badge}</div> : null}
+        </div>
+        {summary ? (
+          <p className={cn("text-sm leading-6 text-foreground/72 dark:text-muted-foreground", compact && "text-xs leading-5")}>{summary}</p>
+        ) : null}
+        {children ? <div className="mt-auto space-y-3">{children}</div> : null}
+      </SurfaceCardContent>
+    </SurfaceCard>
+  );
+}
+
+function SignalStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5",
+        MARKET_SIGNAL_INSET_CLASSNAME
+      )}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold tracking-tight text-foreground">{value}</p>
     </div>
   );
 }
@@ -420,7 +593,7 @@ function MarketSectionLead({
       <div className="min-w-0 space-y-1">
         <h2 className="text-base font-semibold tracking-tight text-foreground">{title}</h2>
         {description ? (
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+          <p className="max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {aside ? <div className="flex shrink-0 items-center gap-2">{aside}</div> : null}
@@ -522,7 +695,7 @@ function SpotlightFeatureTile({
 function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   if (!rows.length) {
     return (
-      <SurfaceCard className="h-full">
+      <SurfaceCard className={cn("h-full", MARKET_GLASS_CARD_CLASSNAME)}>
         <SurfaceCardContent className="flex h-full min-h-[240px] items-center justify-center p-5 text-sm text-muted-foreground">
           No recent market headlines are available right now.
         </SurfaceCardContent>
@@ -531,7 +704,7 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   }
 
   return (
-    <SurfaceCard className="h-full overflow-hidden">
+    <SurfaceCard className={cn("h-full overflow-hidden", MARKET_GLASS_CARD_CLASSNAME)}>
       <SurfaceCardContent className="flex h-full min-h-[240px] flex-col p-0">
         <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3">
           <div className="space-y-1">
@@ -606,6 +779,19 @@ function normalizeOverviewSource(source: string | null | undefined): string | nu
   const text = source.trim();
   if (!text || isUnavailableText(text)) return null;
   return text;
+}
+
+function formatOverviewAsOf(value: string | null | undefined): string {
+  const text = String(value || "").trim();
+  if (!text) return "Timestamp unavailable";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "Timestamp unavailable";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function formatOverviewValue(
@@ -697,6 +883,45 @@ function findOverviewRow(
   );
 }
 
+function buildIndexDetailPanel(
+  row: NonNullable<KaiHomeInsightsV2["market_overview"]>[number] | null,
+  label: string,
+  value: string,
+  delta: string,
+  tone: MarketOverviewMetric["tone"]
+): MarketOverviewDetailPanel {
+  const sourceLabel = normalizeOverviewSource(row?.source) || "Live benchmark feed";
+  const degraded = !row || Boolean(row.degraded);
+
+  return {
+    eyebrow: "Overview",
+    title: label,
+    summary: `${label} is one of the benchmark signals Kai uses to frame the current tape before you move into deeper analysis.`,
+    value,
+    delta,
+    statusLabel: degraded ? "Delayed snapshot" : "Live benchmark read",
+    statusTone: degraded ? "warning" : tone,
+    sections: [
+      {
+        title: "Snapshot context",
+        lines: [
+          degraded
+            ? "This tile is using delayed or incomplete benchmark context."
+            : "This benchmark is part of the live market overview feed.",
+          `Source: ${sourceLabel}`,
+          `As of ${formatOverviewAsOf(row?.as_of)}`,
+        ],
+      },
+      {
+        title: "Why it matters",
+        lines: [
+          "Use this benchmark to anchor the broad tape before moving into advisor ideas or deeper name-level work.",
+        ],
+      },
+    ],
+  };
+}
+
 function toIndexOverviewMetric(
   row: NonNullable<KaiHomeInsightsV2["market_overview"]>[number] | null,
   fallbackLabel: string
@@ -704,21 +929,27 @@ function toIndexOverviewMetric(
   const degraded = !row || Boolean(row.degraded);
   const label = String(row?.label || fallbackLabel);
   const tone = toOverviewTone(row?.delta_pct, degraded);
+  const value = formatOverviewValue(row?.value, { label, degraded });
+  const delta = formatOverviewDelta(row?.delta_pct, {
+    label,
+    source: row?.source,
+    degraded,
+  });
   return {
     id: label.toLowerCase().replace(/\s+/g, "-"),
     label,
-    value: formatOverviewValue(row?.value, { label, degraded }),
-    delta: formatOverviewDelta(row?.delta_pct, {
-      label,
-      source: row?.source,
-      degraded,
-    }),
+    value,
+    delta,
     tone,
     icon: iconForOverview(label, tone),
+    detailPanel: buildIndexDetailPanel(row, label, value, delta, tone),
   };
 }
 
-function toBreadthMetric(payload: KaiHomeInsightsV2 | null): MarketOverviewMetric {
+function toBreadthMetric(
+  payload: KaiHomeInsightsV2 | null,
+  pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
+): MarketOverviewMetric {
   const movers = payload?.movers;
   const gainers = Array.isArray(movers?.gainers) ? movers.gainers.length : 0;
   const losers = Array.isArray(movers?.losers) ? movers.losers.length : 0;
@@ -733,6 +964,18 @@ function toBreadthMetric(payload: KaiHomeInsightsV2 | null): MarketOverviewMetri
   if (spread <= -4) value = "Narrow leadership";
   if (degraded && trackedCount === 0) value = "Updating";
 
+  const higherToday = normalizeAllSymbols(
+    pickRows
+      .filter((row) => typeof row.change_pct === "number" && row.change_pct > 0)
+      .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
+      .map((row) => String(row.symbol || "").trim().toUpperCase())
+  );
+  const lowerToday = normalizeAllSymbols(
+    pickRows
+      .filter((row) => typeof row.change_pct === "number" && row.change_pct < 0)
+      .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
+      .map((row) => String(row.symbol || "").trim().toUpperCase())
+  );
   const _topHigher = Array.isArray(movers?.gainers)
     ? movers.gainers
         .map((row) => String(row?.symbol || "").trim().toUpperCase())
@@ -752,12 +995,61 @@ function toBreadthMetric(payload: KaiHomeInsightsV2 | null): MarketOverviewMetri
     value,
     delta:
       trackedCount > 0
-        ? `${gainers} of ${trackedCount} tracked names are higher today`
+        ? `${gainers} higher · ${losers} lower`
         : degraded
           ? "Breadth snapshot delayed"
           : "Awaiting breadth snapshot",
     tone,
     icon: tone === "negative" ? TrendingDown : TrendingUp,
+    detailPanel: {
+      eyebrow: "Overview",
+      title: "Advancers vs decliners",
+      summary: "Breadth shows whether participation is broad or concentrated across the names Kai is tracking right now.",
+      value,
+      delta:
+        trackedCount > 0
+          ? `${gainers} higher · ${losers} lower`
+          : degraded
+            ? "Breadth delayed"
+            : "Awaiting breadth snapshot",
+      statusLabel: degraded ? "Delayed breadth read" : "Breadth live",
+      statusTone: tone,
+      sections: [
+        {
+          title: "Participation",
+          lines: [
+            trackedCount > 0
+              ? `${gainers} of ${trackedCount} tracked names are higher today.`
+              : "Kai does not have a fresh breadth snapshot yet.",
+            trackedCount > 0
+              ? `${losers} tracked names are lower today.`
+              : "The breadth feed is still warming.",
+          ],
+        },
+        {
+          title: "Higher today",
+          lines: [
+            higherToday.length
+              ? `${higherToday.length} names are higher across the active watchlist.`
+              : _topHigher.length
+                ? `Leaders: ${_topHigher.join(", ")}`
+                : "Higher-today names are still populating.",
+          ],
+          items: higherToday,
+        },
+        {
+          title: "Lower today",
+          lines: [
+            lowerToday.length
+              ? `${lowerToday.length} names are lower across the active watchlist.`
+              : _topLower.length
+                ? `Leaders: ${_topLower.join(", ")}`
+                : "Lower-today names are still populating.",
+          ],
+          items: lowerToday,
+        },
+      ],
+    },
   };
 }
 
@@ -773,6 +1065,13 @@ function toSectorLeadershipMetric(payload: KaiHomeInsightsV2 | null): MarketOver
   )[0];
   const degraded = !leader || Boolean(leader.degraded);
   const tone = toOverviewTone(leader?.change_pct, degraded);
+  const sortedSectors = [...sectorRows]
+    .sort((left, right) => Number(right.change_pct || 0) - Number(left.change_pct || 0))
+    .slice(0, 3)
+    .map((row) => {
+      const changePct = Number(row.change_pct || 0);
+      return `${row.sector}: ${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`;
+    });
 
   return {
     id: "sector-leadership",
@@ -786,10 +1085,44 @@ function toSectorLeadershipMetric(payload: KaiHomeInsightsV2 | null): MarketOver
           : "No clear leader",
     tone,
     icon: ChartColumnIncreasing,
+    detailPanel: {
+      eyebrow: "Overview",
+      title: "Sector leader",
+      summary: "Sector rotation highlights where leadership is concentrating in the current tape.",
+      value: leader?.sector || (degraded ? "Updating" : "Unavailable"),
+      delta:
+        typeof leader?.change_pct === "number" && Number.isFinite(leader.change_pct)
+          ? `${leader.change_pct >= 0 ? "+" : ""}${leader.change_pct.toFixed(2)}%`
+          : degraded
+            ? "Rotation delayed"
+            : "No clear leader",
+      statusLabel: degraded ? "Rotation delayed" : "Rotation live",
+      statusTone: tone,
+      sections: [
+        {
+          title: "Leader context",
+          lines: [
+            leader?.sector
+              ? `${leader.sector} is leading the current sector board.`
+              : "Kai has not resolved a clean sector leader yet.",
+            typeof leader?.change_pct === "number" && Number.isFinite(leader.change_pct)
+              ? `Move: ${leader.change_pct >= 0 ? "+" : ""}${leader.change_pct.toFixed(2)}%`
+              : "Rotation percentage is not available yet.",
+          ],
+        },
+        {
+          title: "Top rotation board",
+          lines: sortedSectors.length ? sortedSectors : ["Sector rankings are still populating."],
+        },
+      ],
+    },
   };
 }
 
-function toOverviewMetrics(payload: KaiHomeInsightsV2 | null): MarketOverviewMetric[] {
+function toOverviewMetrics(
+  payload: KaiHomeInsightsV2 | null,
+  pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
+): MarketOverviewMetric[] {
   return [
     toIndexOverviewMetric(
       findOverviewRow(payload, (row) => String(row.label || "").toLowerCase().includes("s&p")),
@@ -799,7 +1132,7 @@ function toOverviewMetrics(payload: KaiHomeInsightsV2 | null): MarketOverviewMet
       findOverviewRow(payload, (row) => String(row.label || "").toLowerCase().includes("nasdaq")),
       "NASDAQ 100"
     ),
-    toBreadthMetric(payload),
+    toBreadthMetric(payload, pickRows),
     toSectorLeadershipMetric(payload),
   ];
 }
@@ -871,6 +1204,47 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
   return {
     label: value,
     className: "border-border/70 bg-background/80 text-muted-foreground",
+  };
+}
+
+function formatCacheAgeLabel(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  if (safeSeconds < 10) return "Updated just now";
+  if (safeSeconds < 60) return `Updated ${safeSeconds}s ago`;
+  const minutes = Math.floor(safeSeconds / 60);
+  if (minutes < 60) return `Updated ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Updated ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `Updated ${days}d ago`;
+}
+
+function formatLocalTimestamp(value: string | null | undefined): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function marketCacheTimerMeta(payload: KaiHomeInsightsV2 | null): {
+  initialAgeSeconds: number;
+  cacheTier: string | null;
+  warmSource: string | null;
+  stale: boolean;
+} | null {
+  const meta = payload?.meta;
+  if (!meta) return null;
+  const cacheAgeSeconds = Number(meta.cache_age_seconds ?? payload?.cache_age_seconds ?? 0);
+  const initialAgeSeconds = Number.isFinite(cacheAgeSeconds) ? Math.max(0, cacheAgeSeconds) : 0;
+  return {
+    initialAgeSeconds,
+    cacheTier: typeof meta.cache_tier === "string" ? meta.cache_tier : null,
+    warmSource: typeof meta.warm_source === "string" ? meta.warm_source : null,
+    stale: Boolean(meta.stale ?? payload?.stale),
   };
 }
 
@@ -1249,6 +1623,11 @@ export function KaiMarketPreviewView() {
     handlePickSourceChange,
   } = useKaiMarketHomeController();
   const [retainedPayload, setRetainedPayload] = useState<KaiHomeInsightsV2 | null>(payload);
+  const [selectedOverviewMetric, setSelectedOverviewMetric] = useState<MarketOverviewMetric | null>(
+    null
+  );
+  const [selectedSignalGroup, setSelectedSignalGroup] = useState<SignalGroupDetailPanel | null>(null);
+  const [cacheTimerSeconds, setCacheTimerSeconds] = useState(0);
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -1262,22 +1641,28 @@ export function KaiMarketPreviewView() {
 
   const effectivePayload = payload ?? retainedPayload;
   const hasPayload = Boolean(effectivePayload);
-  const overviewMetrics = useMemo(() => toOverviewMetrics(effectivePayload), [effectivePayload]);
-  const marketStatus = useMemo(() => marketStatusBadge(effectivePayload), [effectivePayload]);
-  const themeItems = useMemo(() => toThemeItems(effectivePayload), [effectivePayload]);
-  const pickSources = useMemo<KaiHomePickSource[]>(
-    () =>
-      Array.isArray(effectivePayload?.pick_sources)
-        ? effectivePayload.pick_sources.filter((source) => Boolean(source?.id))
-        : [],
-    [effectivePayload]
-  );
+  const retainedOverviewMetric = useRetainedSurfaceSelection(selectedOverviewMetric);
+  const retainedSignalGroup = useRetainedSurfaceSelection(selectedSignalGroup);
+  const cacheTimerMeta = useMemo(() => marketCacheTimerMeta(effectivePayload), [effectivePayload]);
   const pickRows = useMemo(
     () =>
       Array.isArray(effectivePayload?.pick_rows)
         ? effectivePayload.pick_rows.filter((row) => Boolean(row?.symbol))
         : Array.isArray(effectivePayload?.renaissance_list)
           ? effectivePayload.renaissance_list.filter((row) => Boolean(row?.symbol))
+          : [],
+    [effectivePayload]
+  );
+  const overviewMetrics = useMemo(
+    () => toOverviewMetrics(effectivePayload, pickRows),
+    [effectivePayload, pickRows]
+  );
+  const marketStatus = useMemo(() => marketStatusBadge(effectivePayload), [effectivePayload]);
+  const themeItems = useMemo(() => toThemeItems(effectivePayload), [effectivePayload]);
+  const pickSources = useMemo<KaiHomePickSource[]>(
+    () =>
+      Array.isArray(effectivePayload?.pick_sources)
+        ? effectivePayload.pick_sources.filter((source) => Boolean(source?.id))
         : [],
     [effectivePayload]
   );
@@ -1483,50 +1868,97 @@ export function KaiMarketPreviewView() {
   ]);
   usePublishVoiceSurfaceMetadata(marketVoiceSurfaceMetadata);
 
+  useEffect(() => {
+    setCacheTimerSeconds(cacheTimerMeta?.initialAgeSeconds ?? 0);
+    if (!cacheTimerMeta) return;
+    const timer = window.setInterval(() => {
+      setCacheTimerSeconds((current) => current + 1);
+    }, 1000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [cacheTimerMeta]);
+
+  const marketFreshnessLabel = useMemo(() => {
+    if (!cacheTimerMeta) return null;
+    const localTimestamp = formatLocalTimestamp(effectivePayload?.generated_at);
+    return {
+      localTimestamp,
+      freshness: formatCacheAgeLabel(cacheTimerSeconds),
+    };
+  }, [cacheTimerMeta, cacheTimerSeconds, effectivePayload?.generated_at]);
+
+  const marketRefreshLabel = useMemo(() => {
+    const statusShort =
+      marketStatus?.label.toLowerCase().includes("open") ? "On" : marketStatus ? "Off" : null;
+    const timeShort = marketFreshnessLabel?.localTimestamp || marketFreshnessLabel?.freshness || null;
+    return [statusShort, timeShort].filter(Boolean).join(" · ");
+  }, [marketFreshnessLabel, marketStatus]);
+
   return (
     <AppPageShell
       as="div"
       width="expanded"
-      className="pb-8"
+      className="relative isolate pb-8"
     >
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-20 bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_36%,#f6f8fc_100%)] dark:bg-[linear-gradient(180deg,#050816_0%,#0a1324_38%,#0b1020_100%)]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[58vh] bg-[radial-gradient(72%_52%_at_0%_0%,rgba(56,189,248,0.12)_0%,transparent_58%),radial-gradient(68%_48%_at_100%_0%,rgba(99,102,241,0.14)_0%,transparent_52%),radial-gradient(48%_36%_at_50%_14%,rgba(255,255,255,0.62)_0%,transparent_78%)] dark:bg-[radial-gradient(72%_52%_at_0%_0%,rgba(56,189,248,0.16)_0%,transparent_58%),radial-gradient(68%_48%_at_100%_0%,rgba(99,102,241,0.18)_0%,transparent_52%),radial-gradient(48%_36%_at_50%_14%,rgba(148,163,184,0.08)_0%,transparent_78%)]"
+      />
       <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
           eyebrow="Kai"
           title="Market"
-          description="Track what matters now, advisor ideas, and your portfolio context without bouncing between separate screens."
-          accent="kai"
           icon={ChartColumnIncreasing}
+          description={"Track the market, advisor ideas, and your portfolio context in one place."}
+          accent="marketplace"
           actions={
             <Button
               variant="none"
               effect="fade"
               disabled={refreshing}
-              size="icon"
-              className="h-9 w-9 rounded-full"
+              size="sm"
+              className="h-9 rounded-full px-3"
               onClick={() => void loadInsights({ manual: true })}
             >
-              {refreshing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
+              <span className="flex items-center gap-2">
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                {marketRefreshLabel ? (
+                  <span className="text-[11px] font-semibold tracking-tight text-foreground/85">
+                    {marketRefreshLabel}
+                  </span>
+                ) : null}
+              </span>
             </Button>
           }
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
+        <div className="relative isolate">
         <SurfaceStack>
       {loading && !hasPayload ? (
-        <SurfaceCard tone="default" data-testid="page-primary-module">
-          <SurfaceCardContent className="flex items-center gap-3 text-sm text-muted-foreground">
+        <SurfaceCard
+          tone="default"
+          data-testid="page-primary-module"
+          className={MARKET_GLASS_CARD_CLASSNAME}
+        >
+          <SurfaceCardContent className="flex min-h-32 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Preparing the market surface from your last available cache.
+            <p className="max-w-sm text-balance">Loading your market view.</p>
           </SurfaceCardContent>
         </SurfaceCard>
       ) : null}
 
       {error ? (
-        <SurfaceCard tone="critical">
+        <SurfaceCard tone="critical" className={MARKET_GLASS_CARD_CLASSNAME}>
           <SurfaceCardContent className="space-y-3 text-left">
             <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
               <AlertTriangle className="h-4 w-4" />
@@ -1551,17 +1983,13 @@ export function KaiMarketPreviewView() {
         <div className="flex flex-col gap-12">
           <section className="space-y-4">
             <MarketSectionLead
-              title="Market overview"
-              description="A clean read of the current tape without extra chrome."
-              aside={
-                marketStatus ? (
-                  <Badge variant="outline" className={cn("text-[10px] font-medium", marketStatus.className)}>
-                    {marketStatus.label}
-                  </Badge>
-                ) : null
-              }
+              title="Overview"
+              description="Benchmarks, breadth, and leadership in one clean read."
             />
-            <MarketOverviewGrid metrics={overviewMetrics} />
+            <MarketOverviewGrid
+              metrics={overviewMetrics}
+              onMetricSelect={(metric) => setSelectedOverviewMetric(metric)}
+            />
           </section>
 
           <section className="space-y-4">
@@ -1574,160 +2002,175 @@ export function KaiMarketPreviewView() {
               sources={pickSources}
               activeSourceId={activePickSource}
               onSourceChange={handlePickSourceChange}
+              controlMode="adaptive-surface"
             />
           </section>
 
           <section className="space-y-4">
             <MarketSectionLead
-              title="Signals worth watching"
-              description="A tighter read of what the current tape is implying before you move into deeper analysis."
+              title="Signals in play"
+              description="Open a read to inspect the names behind it."
             />
             {scenarioSignal ? (
-              <SurfaceCard accent="none">
-                <SurfaceCardContent className="space-y-4 sm:space-y-5">
-                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.95fr)]">
-                    <SurfaceInset className="space-y-3">
-                      <div className="space-y-1.5">
-                        <p className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-                          {scenarioSignal.title}
-                        </p>
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          {scenarioSignal.summary}
-                        </p>
-                      </div>
-                      {primarySignalEvidence.length ? (
-                        <div className="grid gap-2">
-                          {primarySignalEvidence.map((line) => (
-                            <p key={line} className="text-sm leading-6 text-foreground/85">
-                              {line}
-                            </p>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          Kai is summarizing the dominant tape posture from the active advisor lane.
-                        </p>
-                      )}
-                    </SurfaceInset>
-
-                    <SurfaceInset className="space-y-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
+              <div className="space-y-4">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                  <SignalBoardCard
+                    eyebrow={signalHeadlineLabel(scenarioSignal)}
+                    title={scenarioSignal.title}
+                    summary={scenarioSignal.summary}
+                    badge={
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                          signalConfidenceTone(scenarioSignal)
+                        )}
+                      >
+                        {signalConfidenceLabel(scenarioSignal)}
+                      </span>
+                    }
+                  >
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <SignalStat
+                        label="Sources"
+                        value={String(Math.max(1, visibleSignalSourceTags(scenarioSignal).length))}
+                      />
+                      <SignalStat
+                        label="Focus blocks"
+                        value={String(primarySignalGroups.length)}
+                      />
+                      <SignalStat
+                        label="Secondary reads"
+                        value={String(Math.max(0, scenarioSignals.length - 1))}
+                      />
+                    </div>
+                    {primarySignalEvidence.length ? (
+                      <div className="grid gap-2">
+                        {primarySignalEvidence.map((line) => (
+                          <p
+                            key={line}
                             className={cn(
-                              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                              signalConfidenceTone(scenarioSignal)
+                              "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-sm leading-6 text-foreground/88",
+                              MARKET_SIGNAL_INSET_CLASSNAME
                             )}
-                        >
-                          {signalConfidenceLabel(scenarioSignal)}
-                        </span>
-                        <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Primary signal
-                        </span>
+                          >
+                            {line}
+                          </p>
+                        ))}
                       </div>
-                      {visibleSignalSourceTags(scenarioSignal).length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
-                            <Badge
-                              key={tag}
-                              variant="outline"
-                              className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-[10px] font-medium text-muted-foreground"
-                            >
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5 shadow-[var(--shadow-xs)]">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            Read
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-foreground">
-                            {signalHeadlineLabel(scenarioSignal)}
-                          </p>
-                        </div>
-                        <div className="rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-2.5 shadow-[var(--shadow-xs)]">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            Scope
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-foreground">
-                            {primarySignalGroups.length} focus blocks
-                          </p>
-                        </div>
+                    ) : null}
+                    {visibleSignalSourceTags(scenarioSignal).length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
+                          <Badge
+                            key={tag}
+                            variant="outline"
+                            className="border-[color:var(--app-card-border-standard)] bg-white/82 text-[10px] font-medium text-foreground/72 dark:bg-[var(--app-card-surface-compact)] dark:text-muted-foreground"
+                          >
+                            {tag}
+                          </Badge>
+                        ))}
                       </div>
-                    </SurfaceInset>
-                  </div>
+                    ) : null}
+                  </SignalBoardCard>
 
                   {primarySignalGroups.length ? (
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                       {primarySignalGroups.map((group) => (
                         <SignalGroupBlock
                           key={`${scenarioSignal.id}:${group.label}`}
-                          scopeId={scenarioSignal.id}
+                          scopeLabel={signalHeadlineLabel(scenarioSignal)}
                           label={group.label}
                           symbols={group.symbols}
+                          onOpen={() =>
+                            setSelectedSignalGroup(
+                              buildSignalGroupDetailPanel({
+                                scopeLabel: signalHeadlineLabel(scenarioSignal),
+                                label: group.label,
+                                symbols: group.symbols,
+                                supportingLines: primarySignalEvidence,
+                              })
+                            )
+                          }
                         />
                       ))}
                     </div>
                   ) : null}
+                </div>
 
-                  {scenarioSignals.length > 1 ? (
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      {scenarioSignals.slice(1).map((signal) => (
-                        <SurfaceInset
-                          key={signal.id}
-                          className="space-y-3"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-1">
-                              <p className={cn("text-[10px] font-semibold uppercase tracking-[0.16em]", signalAccentClass(signal))}>
-                                {signalHeadlineLabel(signal)}
-                              </p>
-                              <p className="text-sm font-semibold tracking-tight text-foreground">
-                              {signal.title}
-                            </p>
-                          </div>
-                            <span
-                              className={cn(
-                                "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                                signalConfidenceTone(signal)
-                              )}
-                            >
-                              {signalConfidenceLabel(signal)}
-                            </span>
-                          </div>
-                          <p className="text-sm leading-5 text-muted-foreground">
-                            {signal.summary}
-                          </p>
-                          {signalEvidenceLines(signal, effectivePayload, pickRows).length ? (
-                            <div className="space-y-1.5">
-                              {signalEvidenceLines(signal, effectivePayload, pickRows).map((line) => (
-                                <p key={line} className="text-xs leading-5 text-foreground/85">
-                                  {line}
-                                </p>
-                              ))}
-                            </div>
-                          ) : null}
-                          {signalDetailGroups(signal, effectivePayload, pickRows).length ? (
-                            <div className="space-y-1.5">
-                              {signalDetailGroups(signal, effectivePayload, pickRows).map((group) => (
-                                <SignalGroupBlock
-                                  key={`${signal.id}:${group.label}`}
-                                  scopeId={signal.id}
-                                  label={group.label}
-                                  symbols={group.symbols}
-                                />
-                              ))}
-                            </div>
-                          ) : null}
-                        </SurfaceInset>
-                      ))}
+                {scenarioSignals.length > 1 ? (
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold tracking-tight text-foreground">
+                      Secondary reads
+                    </p>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {scenarioSignals.slice(1).map((signal) => {
+                        const evidence = signalEvidenceLines(signal, effectivePayload, pickRows);
+                        const groups = signalDetailGroups(signal, effectivePayload, pickRows);
+
+                        return (
+                          <SignalBoardCard
+                            key={signal.id}
+                            eyebrow={signalHeadlineLabel(signal)}
+                            title={signal.title}
+                            summary={signal.summary}
+                            compact
+                            badge={
+                              <span
+                                className={cn(
+                                  "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                                  signalConfidenceTone(signal)
+                                )}
+                              >
+                                {signalConfidenceLabel(signal)}
+                              </span>
+                            }
+                          >
+                            {evidence.length ? (
+                              <div className="grid gap-2">
+                                {evidence.slice(0, 1).map((line) => (
+                                  <p
+                                    key={line}
+                                    className={cn(
+                                      "rounded-[calc(var(--app-card-radius-compact)-4px)] border px-3 py-2.5 text-xs leading-5 text-foreground/88",
+                                      MARKET_SIGNAL_INSET_CLASSNAME
+                                    )}
+                                  >
+                                    {line}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {groups.length ? (
+                              <div className="grid gap-3">
+                                {groups.map((group) => (
+                                  <SignalGroupBlock
+                                    key={`${signal.id}:${group.label}`}
+                                    scopeLabel={signalHeadlineLabel(signal)}
+                                    label={group.label}
+                                    symbols={group.symbols}
+                                    onOpen={() =>
+                                      setSelectedSignalGroup(
+                                        buildSignalGroupDetailPanel({
+                                          scopeLabel: signalHeadlineLabel(signal),
+                                          label: group.label,
+                                          symbols: group.symbols,
+                                          supportingLines: evidence,
+                                        })
+                                      )
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                          </SignalBoardCard>
+                        );
+                      })}
                     </div>
-                  ) : null}
-                </SurfaceCardContent>
-              </SurfaceCard>
-              ) : (
-                <SurfaceCard tone="warning">
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+                <SurfaceCard tone="warning" className={MARKET_GLASS_CARD_CLASSNAME}>
                   <SurfaceCardContent className="text-sm text-muted-foreground">
                   Scenario insight is unavailable at the moment.
                 </SurfaceCardContent>
@@ -1739,7 +2182,7 @@ export function KaiMarketPreviewView() {
             <section className="space-y-4">
               <MarketSectionLead
                 title="Themes in focus"
-                description="Compact narratives that can shape how the next debate or trade idea gets framed."
+                description="Themes shaping the next market read."
               />
               <ThemeFocusList themes={themeItems} />
             </section>
@@ -1788,7 +2231,141 @@ export function KaiMarketPreviewView() {
         </div>
       ) : null}
         </SurfaceStack>
+        </div>
       </AppPageContentRegion>
+
+      <KaiControlSurface
+        open={Boolean(selectedOverviewMetric?.detailPanel)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedOverviewMetric(null);
+        }}
+        eyebrow={retainedOverviewMetric?.detailPanel?.eyebrow}
+        title={retainedOverviewMetric?.detailPanel?.title || "Overview detail"}
+        description={retainedOverviewMetric?.detailPanel?.summary}
+        contentClassName="sm:max-w-[min(36rem,calc(100vw-5rem))] lg:max-w-[min(38rem,calc(100vw-8rem))]"
+        bodyClassName="px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 sm:px-6 sm:pt-5 lg:px-7"
+      >
+        {retainedOverviewMetric?.detailPanel ? (
+          <div className="space-y-4">
+            <SurfaceInset className="space-y-3 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">
+                    {retainedOverviewMetric.detailPanel.value || retainedOverviewMetric.value}
+                  </p>
+                  <p
+                    className={cn(
+                      "text-sm font-medium",
+                      retainedOverviewMetric.detailPanel.statusTone === "positive" &&
+                        "text-emerald-600 dark:text-emerald-400",
+                      retainedOverviewMetric.detailPanel.statusTone === "negative" &&
+                        "text-rose-600 dark:text-rose-400",
+                      retainedOverviewMetric.detailPanel.statusTone === "warning" &&
+                        "text-amber-700 dark:text-amber-300",
+                      (!retainedOverviewMetric.detailPanel.statusTone ||
+                        retainedOverviewMetric.detailPanel.statusTone === "neutral") &&
+                        "text-muted-foreground"
+                    )}
+                  >
+                    {retainedOverviewMetric.detailPanel.delta || retainedOverviewMetric.delta}
+                  </p>
+                </div>
+                {retainedOverviewMetric.detailPanel.statusLabel ? (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] font-semibold uppercase tracking-[0.16em]",
+                      retainedOverviewMetric.detailPanel.statusTone === "positive" &&
+                        "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+                      retainedOverviewMetric.detailPanel.statusTone === "negative" &&
+                        "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+                      retainedOverviewMetric.detailPanel.statusTone === "warning" &&
+                        "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                      (!retainedOverviewMetric.detailPanel.statusTone ||
+                        retainedOverviewMetric.detailPanel.statusTone === "neutral") &&
+                        "border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
+                    )}
+                  >
+                    {retainedOverviewMetric.detailPanel.statusLabel}
+                  </Badge>
+                ) : null}
+              </div>
+            </SurfaceInset>
+
+            {retainedOverviewMetric.detailPanel.sections?.map((section) => (
+              <SurfaceInset key={section.title} className="space-y-2 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {section.title}
+                </p>
+                <div className="space-y-2">
+                  {section.lines.map((line) => (
+                    <p key={line} className="text-sm leading-6 text-foreground/90">
+                      {line}
+                    </p>
+                  ))}
+                  {section.items?.length ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {section.items.map((item) => (
+                        <Badge
+                          key={`${section.title}:${item}`}
+                          variant="outline"
+                          className="max-w-full whitespace-normal rounded-full border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-1.5 text-xs leading-5 text-foreground/80"
+                        >
+                          {item}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </SurfaceInset>
+            ))}
+          </div>
+        ) : null}
+      </KaiControlSurface>
+
+      <KaiControlSurface
+        open={Boolean(selectedSignalGroup)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedSignalGroup(null);
+        }}
+        eyebrow={retainedSignalGroup?.eyebrow}
+        title={retainedSignalGroup?.title || "Signal detail"}
+        description={retainedSignalGroup?.summary}
+        contentClassName="sm:max-w-[min(36rem,calc(100vw-5rem))] lg:max-w-[min(38rem,calc(100vw-8rem))]"
+        bodyClassName="px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 sm:px-6 sm:pt-5 lg:px-7"
+      >
+        {retainedSignalGroup ? (
+          <div className="space-y-4">
+            {retainedSignalGroup.sections?.map((section) => (
+              <SurfaceInset key={section.title} className="space-y-2 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {section.title}
+                </p>
+                <div className="space-y-2">
+                  {section.lines.map((line) => (
+                    <p key={line} className="text-sm leading-6 text-foreground/90">
+                      {line}
+                    </p>
+                  ))}
+                  {section.items?.length ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {section.items.map((item) => (
+                        <Badge
+                          key={`${section.title}:${item}`}
+                          variant="outline"
+                          className="max-w-full whitespace-normal rounded-full border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-1.5 text-xs leading-5 text-foreground/80"
+                        >
+                          {item}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </SurfaceInset>
+            ))}
+          </div>
+        ) : null}
+      </KaiControlSurface>
     </AppPageShell>
   );
 }

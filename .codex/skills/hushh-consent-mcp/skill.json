@@ -1,0 +1,58 @@
+{
+  "id": "hushh-consent-mcp",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "hushh-consent-mcp-ops",
+  "description": "Use when operating the Hushh Consent MCP connector directly for domain discovery, consent request/status checks, token validation, or scoped export verification.",
+  "owned_paths": [
+    "packages/hushh-mcp",
+    "consent-protocol/docs/mcp-setup.md",
+    ".codex/skills/hushh-consent-mcp"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "security-audit",
+    "docs-governance"
+  ],
+  "task_types": [
+    "hushh-consent-mcp-ops"
+  ],
+  "required_reads": [
+    "packages/hushh-mcp/README.md",
+    "consent-protocol/docs/mcp-setup.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_commands": [
+    "cd packages/hushh-mcp && npm run print-config"
+  ],
+  "verification_bundles": [
+    {
+      "id": "hushh-consent-mcp",
+      "commands": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex audit",
+        "cd packages/hushh-mcp && npm run print-config"
+      ],
+      "tests": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex audit"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "mcp-developer-surface",
+    "security-audit",
+    "backend-api-contracts"
+  ],
+  "adjacent_skills": [
+    "mcp-developer-surface",
+    "security-audit",
+    "repo-operations"
+  ],
+  "risk_tags": [
+    "connector-config-drift",
+    "environment-mismatch",
+    "consent-surface-misread"
+  ]
+}

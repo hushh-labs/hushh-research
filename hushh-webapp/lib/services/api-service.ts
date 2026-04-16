@@ -1011,6 +1011,8 @@ export interface KaiDashboardProfilePicksResponse {
  * API Service for platform-aware API calls
  */
 export class ApiService {
+  private static appReviewModeSessionInflight: Promise<{ token: string }> | null = null;
+
   private static readonly dashboardProfilePicksInflight = new Map<
     string,
     Promise<KaiDashboardProfilePicksResponse>
@@ -1340,34 +1342,46 @@ export class ApiService {
    * Only available when app-review mode is enabled server-side.
    */
   static async createAppReviewModeSession(subject: "reviewer" = "reviewer"): Promise<{ token: string }> {
-    const response = await apiFetch("/api/app-config/review-mode/session", {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ subject }),
-    });
-
-    const payload = (await response.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-
-    if (!response.ok) {
-      const msg =
-        (typeof payload.error === "string" && payload.error) ||
-        (typeof payload.detail === "string" && payload.detail) ||
-        "Reviewer login unavailable";
-      throw new Error(msg);
+    if (this.appReviewModeSessionInflight) {
+      return this.appReviewModeSessionInflight;
     }
 
-    const token = payload.token;
-    if (typeof token !== "string" || token.length === 0) {
-      throw new Error("Invalid reviewer session token");
-    }
+    this.appReviewModeSessionInflight = (async () => {
+      const response = await apiFetch("/api/app-config/review-mode/session", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ subject }),
+      });
 
-    return { token };
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+
+      if (!response.ok) {
+        const msg =
+          (typeof payload.error === "string" && payload.error) ||
+          (typeof payload.detail === "string" && payload.detail) ||
+          "Reviewer login unavailable";
+        throw new Error(msg);
+      }
+
+      const token = payload.token;
+      if (typeof token !== "string" || token.length === 0) {
+        throw new Error("Invalid reviewer session token");
+      }
+
+      return { token };
+    })();
+
+    try {
+      return await this.appReviewModeSessionInflight;
+    } finally {
+      this.appReviewModeSessionInflight = null;
+    }
   }
 
   // ==================== Auth ====================

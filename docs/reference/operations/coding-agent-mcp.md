@@ -182,7 +182,8 @@ When working in this repo:
    - `.codex/skills/repo-operations/`
 9. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
 10. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-11. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+11. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
+12. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
 
 If a developer has not configured MCP yet:
 

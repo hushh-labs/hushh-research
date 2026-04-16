@@ -1,27 +1,23 @@
 # `@hushh/mcp`
 
-Launch-friendly npm wrapper for the Hushh Consent MCP server.
+npm launcher for the Hushh Consent MCP server
 
-This package is the public onboarding surface for Hushh MCP. It supports any MCP-capable host:
+Use this package when your MCP host needs a local stdio process. If your host supports remote HTTP MCP, use the hosted endpoint directly.
 
-- use hosted remote MCP when the host supports HTTP MCP directly
-- use the npm bridge when the host expects a local stdio process
-- use the repo-local Python fallback only for contributor workflows
+## Hosted Hushh MCP
 
-## What Hushh MCP Is
-
-Hushh MCP exposes the public consent tool surface used by external apps and agents:
+Hushh MCP exposes the public consent tool surface for external apps and agents:
 
 - dynamic scope discovery
 - explicit consent requests
 - consent status polling
 - encrypted scoped export retrieval
 
-The npm package does not replace the Python implementation in this repo. It bootstraps the same MCP runtime and keeps the public install story simple for hosts that still expect stdio.
+This package bootstraps the same Python runtime that lives in this repo.
 
-## Public UAT Contract
+### Hosted UAT endpoint
 
-The promoted public developer environment is **UAT** for now.
+The promoted public developer environment is **UAT**.
 
 - app workspace: https://uat.kai.hushh.ai/developers
 - consent API origin: https://api.uat.hushh.ai
@@ -29,16 +25,16 @@ The promoted public developer environment is **UAT** for now.
 - npm package: `@hushh/mcp`
 - canonical token env var: `HUSHH_DEVELOPER_TOKEN`
 
-Use the trailing-slash mount form for remote MCP:
+Use the trailing-slash form for remote MCP:
 
 - `https://api.uat.hushh.ai/mcp/?token=<developer-token>`
 - not `https://api.uat.hushh.ai/mcp?token=<developer-token>`
 
-## Quick Start
+### Quick start
 
-### Remote MCP
+#### Remote MCP
 
-Use remote MCP when the host supports HTTP MCP directly.
+Use this when the host supports HTTP MCP directly.
 
 ```text
 https://api.uat.hushh.ai/mcp/?token=<developer-token>
@@ -46,7 +42,7 @@ https://api.uat.hushh.ai/mcp/?token=<developer-token>
 
 ### npm Bridge
 
-Use the npm bridge when the host still expects a local stdio MCP process.
+Use this when the host expects a local stdio MCP process.
 
 ```bash
 npx -y @hushh/mcp --help
@@ -59,20 +55,20 @@ export CONSENT_API_URL=https://api.uat.hushh.ai
 export HUSHH_DEVELOPER_TOKEN=<developer-token>
 ```
 
-Or point the launcher at an existing `consent-protocol/.env`:
+To use an existing local runtime:
 
 ```bash
 export HUSHH_MCP_ENV_FILE=/absolute/path/to/consent-protocol/.env
 npx -y @hushh/mcp
 ```
 
-## Host Setup Examples
+### Host setup examples
 
 ### Generic mcpServers JSON
 
-**Use this when:** Use this when your host supports HTTP MCP directly.
+Use when: your host supports HTTP MCP directly.
 
-**Keep local:** Keep the developer token machine-local and never commit host config with inline credentials.
+Keep local: Keep the developer token machine-local and never commit host config with inline credentials.
 
 ```json
 {
@@ -86,9 +82,9 @@ npx -y @hushh/mcp
 
 ### Codex remote setup
 
-**Use this when:** Use this when Codex should connect to the hosted UAT MCP endpoint directly.
+Use when: Codex should connect to the hosted UAT MCP endpoint directly.
 
-**Keep local:** This writes a machine-local Codex config entry that contains the full query-token URL.
+Keep local: This writes a machine-local Codex config entry that contains the full query-token URL.
 
 ```bash
 codex mcp add hushh_consent --url "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
@@ -96,9 +92,9 @@ codex mcp add hushh_consent --url "https://api.uat.hushh.ai/mcp/?token=<develope
 
 ### Codex npm bridge
 
-**Use this when:** Use this when Codex should launch a local stdio MCP bridge instead of remote HTTP MCP.
+Use when: Codex should launch a local stdio MCP bridge instead of remote HTTP MCP.
 
-**Keep local:** Keep HUSHH_DEVELOPER_TOKEN local. The backend endpoint and token should not be committed.
+Keep local: Keep HUSHH_DEVELOPER_TOKEN local. The backend endpoint and token should not be committed.
 
 ```toml
 [mcp_servers.hushh_consent]
@@ -113,9 +109,9 @@ HUSHH_DEVELOPER_TOKEN = "<developer-token>"
 
 ### npm bridge config
 
-**Use this when:** Use this when your host expects a local stdio process but supports generic mcpServers JSON.
+Use when: your host expects a local stdio process but supports generic mcpServers JSON.
 
-**Keep local:** Keep HUSHH_DEVELOPER_TOKEN local. This should match the same endpoint and token you use for remote MCP.
+Keep local: Keep HUSHH_DEVELOPER_TOKEN local. This should match the same endpoint and token you use for remote MCP.
 
 ```json
 {
@@ -134,9 +130,9 @@ HUSHH_DEVELOPER_TOKEN = "<developer-token>"
 
 ### Claude Desktop stdio
 
-**Use this when:** Use this when Claude Desktop is your MCP host and you need a local stdio bridge.
+Use when: Claude Desktop is your MCP host and you need a local stdio bridge.
 
-**Keep local:** Claude Desktop stores this config locally. Do not commit the token value.
+Keep local: Claude Desktop stores this config locally. Do not commit the token value.
 
 ```json
 {
@@ -155,9 +151,9 @@ HUSHH_DEVELOPER_TOKEN = "<developer-token>"
 
 ### Cursor / VS Code remote JSON
 
-**Use this when:** Use this for editor hosts that understand mcpServers JSON and can call remote MCP directly.
+Use when: your editor host understands mcpServers JSON and can call remote MCP directly.
 
-**Keep local:** The URL contains the token today, so keep the config file local.
+Keep local: The URL contains the token today, so keep the config file local.
 
 ```json
 {
@@ -171,17 +167,15 @@ HUSHH_DEVELOPER_TOKEN = "<developer-token>"
 
 ### Raw remote MCP URL
 
-**Use this when:** Use this for hosts that only ask for the MCP endpoint URL.
+Use when: your host only asks for the MCP endpoint URL.
 
-**Keep local:** Use the exact slash-safe mount shape.
+Keep local: Use the exact slash-safe mount shape.
 
 ```text
 https://api.uat.hushh.ai/mcp/?token=<developer-token>
 ```
 
-## Public Tools And Resources
-
-Public tools:
+### Public tools
 
 - `discover_user_domains`
 - `request_consent`
@@ -190,31 +184,41 @@ Public tools:
 - `validate_token`
 - `list_scopes`
 
-Read-only MCP resources:
+### Read-only resources
 
 - `hushh://info/server`
 - `hushh://info/protocol`
 - `hushh://info/connector`
 
-## End-To-End Consent Example
+### Consent flow
 
-1. Discover the user’s current scopes with `discover_user_domains`.
-2. Request one discovered scope with `request_consent`, including your X25519 connector public key bundle.
-3. Let the user approve the request inside Kai.
-4. Poll with `check_consent_status`, validate with `validate_token`, then read the ciphertext with `get_encrypted_scoped_export`.
+1. Call `discover_user_domains`.
+2. Request one returned scope with `request_consent`.
+3. Wait for user approval in Kai.
+4. Call `check_consent_status` and then `get_encrypted_scoped_export`.
 
-The public flow is always:
+The data flow is:
 
 - encrypted storage in Hushh
 - explicit user approval in Kai
 - encrypted export back to the external connector
 - local decryption on the connector side
 
-## Runtime Expectations
+## Self-hosted and contributor development
+
+This package can also bootstrap a generic `consent-protocol` runtime for local development or self-hosted use.
+
+Use this path when:
+
+- you are developing against localhost
+- you want to override the packaged runtime with a local checkout
+- you are contributing to `consent-protocol`
+
+### Runtime expectations
 
 - Python 3 must be available locally.
 - The first full stdio launch creates a local cache and installs the bundled Python requirements.
-- The runtime still needs the same backend configuration as `consent-protocol` when you are running contributor-local flows.
+- Contributor-local flows still need the same backend configuration as `consent-protocol`.
 
 Useful env vars:
 
@@ -224,17 +228,11 @@ Useful env vars:
 - `HUSHH_MCP_PYTHON`: choose a specific Python executable
 - `HUSHH_MCP_SKIP_BOOTSTRAP=1`: skip venv creation and dependency install
 
-## Contributor-Local Fallback
+### Repo-local fallback
 
-If you are working inside this repo and do not want the npm bootstrap path:
+Use repo-local Python only for contributor workflows:
 
 ```bash
 cd consent-protocol
 python mcp_server.py
 ```
-
-## More Docs
-
-- API reference: `consent-protocol/docs/reference/developer-api.md`
-- Technical companion: `consent-protocol/docs/mcp-setup.md`
-- Internal host operations: `docs/reference/operations/coding-agent-mcp.md`

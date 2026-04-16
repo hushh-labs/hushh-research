@@ -1,6 +1,15 @@
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import {
+  trackEvent,
+  toEventResult,
+  toStatusBucket,
+} from "@/lib/observability/client";
+import {
+  resolveGrowthWorkspaceSource,
+  trackGrowthFunnelStepCompleted,
+} from "@/lib/observability/growth";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
@@ -1314,6 +1323,29 @@ export class RiaService {
       idToken,
       body: payload,
     });
+    const statusBucket = toStatusBucket(
+      response.status,
+      "POST",
+      "/api/ria/requests"
+    );
+    if (response.ok) {
+      trackEvent("ria_request_created", {
+        result: "success",
+        status_bucket: statusBucket,
+      });
+      trackGrowthFunnelStepCompleted({
+        journey: "ria",
+        step: "request_created",
+        workspaceSource: resolveGrowthWorkspaceSource(
+          typeof window !== "undefined" ? window.location.pathname : ""
+        ),
+      });
+    } else {
+      trackEvent("ria_request_created", {
+        result: toEventResult(statusBucket),
+        status_bucket: statusBucket,
+      });
+    }
     return toJsonOrThrow(response);
   }
 
@@ -1342,6 +1374,29 @@ export class RiaService {
       idToken,
       body: payload,
     });
+    const statusBucket = toStatusBucket(
+      response.status,
+      "POST",
+      "/api/ria/request-bundles"
+    );
+    if (response.ok) {
+      trackEvent("ria_request_created", {
+        result: "success",
+        status_bucket: statusBucket,
+      });
+      trackGrowthFunnelStepCompleted({
+        journey: "ria",
+        step: "request_created",
+        workspaceSource: resolveGrowthWorkspaceSource(
+          typeof window !== "undefined" ? window.location.pathname : ""
+        ),
+      });
+    } else {
+      trackEvent("ria_request_created", {
+        result: toEventResult(statusBucket),
+        status_bucket: statusBucket,
+      });
+    }
     return toJsonOrThrow(response);
   }
 

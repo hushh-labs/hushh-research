@@ -12,8 +12,9 @@ Use this reference after the initial scan to choose the correct owner skill firs
 6. `docs-governance`: documentation homes, consolidation, and docs verification policy.
 7. `repo-operations`: CI/CD, env parity, deploy, branch protection, and repo operational tooling.
 8. `planning-board`: GitHub board workflows.
-9. `comms-community`: public/community explanation workflows.
-10. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
+9. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
+10. `comms-community`: public/community explanation workflows.
+11. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
 
 ## Spoke skills by owner
 
@@ -55,4 +56,5 @@ Use this reference after the initial scan to choose the correct owner skill firs
 9. `skill-authoring`
 10. `board-update`
 11. `community-response`
-12. `mcp-surface-change`
+12. `future-roadmap-plan`
+13. `mcp-surface-change`

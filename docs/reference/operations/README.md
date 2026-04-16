@@ -57,6 +57,7 @@ Top-level owner skills:
 - `.codex/skills/docs-governance/`: documentation homes, consolidation, maps, and docs verification policy.
 - `.codex/skills/repo-operations/`: CI/CD, branch protection, deploys, env parity, and runtime operations.
 - `.codex/skills/planning-board/`: `Hushh Engineering Core` board workflows only.
+- `.codex/skills/future-planner/`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
 - `.codex/skills/comms-community/`: public/community explanation workflows.
 - `.codex/skills/codex-skill-authoring/`: repo-local skill creation, retrofit, linting, scaffolding, and taxonomy maintenance.
 

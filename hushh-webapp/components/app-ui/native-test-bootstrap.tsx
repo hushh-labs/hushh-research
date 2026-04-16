@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -41,6 +42,9 @@ function updateBootstrapStatus(
   bridge.bootstrapError = options?.error ?? "";
 }
 
+let nativeTestReviewerBootstrapInflight: Promise<void> | null = null;
+let nativeTestReviewerBootstrapCooldownUntil = 0;
+
 export function NativeTestBootstrap() {
   const config = useNativeTestConfig();
   const { loading: authLoading, user, setNativeUser } = useAuth();
@@ -71,13 +75,27 @@ export function NativeTestBootstrap() {
       return;
     }
 
+    if (Date.now() < nativeTestReviewerBootstrapCooldownUntil) {
+      return;
+    }
+
     authAttemptedRef.current = true;
     updateBootstrapStatus("authenticating");
 
-    void (async () => {
+    nativeTestReviewerBootstrapInflight ??= (async () => {
       try {
-        const { token } = await ApiService.createAppReviewModeSession("reviewer");
-        const authResult = await AuthService.signInWithCustomToken(token);
+        const localReviewerCredentials = resolveLocalReviewerCredentials(
+          typeof window !== "undefined" ? window.location.hostname : null
+        );
+        const authResult = localReviewerCredentials
+          ? await AuthService.signInWithEmailAndPassword(
+              localReviewerCredentials.email,
+              localReviewerCredentials.password
+            )
+          : await (async () => {
+              const { token } = await ApiService.createAppReviewModeSession("reviewer");
+              return AuthService.signInWithCustomToken(token);
+            })();
         const authenticatedUser = authResult.user;
 
         if (!authenticatedUser) {
@@ -103,7 +121,12 @@ export function NativeTestBootstrap() {
         updateBootstrapStatus("auth_error", {
           error: message,
         });
+        if (/rate limit exceeded/i.test(message)) {
+          nativeTestReviewerBootstrapCooldownUntil = Date.now() + 60_000;
+        }
         console.error("[NativeTestBootstrap] Auth bootstrap failed:", error);
+      } finally {
+        nativeTestReviewerBootstrapInflight = null;
       }
     })();
   }, [
