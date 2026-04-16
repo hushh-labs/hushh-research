@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 
 import {
   DecisionCard,
-  type DecisionCardProps,
   type PortfolioContext,
 } from "@/components/kai/decision-card";
 import type {

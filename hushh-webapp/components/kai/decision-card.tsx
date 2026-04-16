@@ -102,7 +102,9 @@ function verdictTone(decision: DecisionVerdict): string {
 }
 
 function relativeTime(iso: string): string {
-  const diff = Date.now() - Date.parse(iso);
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return "";
+  const diff = Date.now() - parsed;
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return "Just now";
   if (minutes < 60) return `${minutes}m ago`;
@@ -137,17 +139,15 @@ function extractKeyMetrics(
   const rawMetrics = card.key_metrics ?? card.keyMetrics;
   if (rawMetrics && typeof rawMetrics === "object") {
     const map = rawMetrics as Record<string, unknown>;
-    if (map.pe_ratio !== undefined)
-      metrics.push({ label: "P/E", value: String(Number(map.pe_ratio).toFixed(1)) });
+    const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const pe = num(map.pe_ratio);
+    if (pe !== null) metrics.push({ label: "P/E", value: pe.toFixed(1) });
     if (map.market_cap !== undefined)
       metrics.push({ label: "Mkt Cap", value: String(map.market_cap) });
-    if (map.dividend_yield !== undefined)
-      metrics.push({
-        label: "Div Yield",
-        value: `${Number(map.dividend_yield).toFixed(2)}%`,
-      });
-    if (map.beta !== undefined)
-      metrics.push({ label: "Beta", value: String(Number(map.beta).toFixed(2)) });
+    const divYield = num(map.dividend_yield);
+    if (divYield !== null) metrics.push({ label: "Div Yield", value: `${divYield.toFixed(2)}%` });
+    const beta = num(map.beta);
+    if (beta !== null) metrics.push({ label: "Beta", value: beta.toFixed(2) });
   }
   return metrics.slice(0, 4);
 }
