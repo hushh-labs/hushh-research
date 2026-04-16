@@ -50,8 +50,18 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         return ConsentScope.PKM_WRITE
 
     # Agent permissions
+    _AGENT_SCOPE_MAP = {
+        "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
+        "agent.kai.debate":  ConsentScope.AGENT_KAI_DEBATE,
+        "agent.kai.infer":   ConsentScope.AGENT_KAI_INFER,
+        "agent.kai.chat":    ConsentScope.AGENT_KAI_CHAT,
+        "agent.kai.execute": ConsentScope.AGENT_KAI_EXECUTE,  # fix #408
+    }
     if scope.startswith("agent."):
-        return ConsentScope.AGENT_EXECUTE
+        resolved = _AGENT_SCOPE_MAP.get(scope)
+        if resolved is None:
+            raise ValueError(f"Unknown agent scope: {scope!r}")
+        return resolved
 
     # Custom/temporary scopes
     if scope.startswith("custom."):

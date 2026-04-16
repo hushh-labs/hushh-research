@@ -51,6 +51,7 @@ class ConsentScope(str, Enum):
     AGENT_KAI_DEBATE = "agent.kai.debate"
     AGENT_KAI_INFER = "agent.kai.infer"
     AGENT_KAI_CHAT = "agent.kai.chat"
+    AGENT_KAI_EXECUTE = "agent.kai.execute"  # fix #408 — was missing, causing AttributeError
 
     # ==================== EXTERNAL DATA SOURCES ====================
     # Hybrid mode - per-request consent
