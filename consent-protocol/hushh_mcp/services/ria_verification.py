@@ -45,6 +45,9 @@ def validate_regulated_runtime_configuration() -> None:
             "ADVISORY_VERIFICATION_BYPASS_ENABLED / RIA_DEV_BYPASS_ENABLED must remain false in production."
         )
 
+    if str(os.getenv("RIA_DEV_ALLOWLIST", "")).strip():
+        raise RuntimeError("RIA_DEV_ALLOWLIST must not be set in production.")
+
     if _env_truthy("BROKER_VERIFICATION_BYPASS_ENABLED"):
         raise RuntimeError("BROKER_VERIFICATION_BYPASS_ENABLED must remain false in production.")
 

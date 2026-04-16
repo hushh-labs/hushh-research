@@ -196,8 +196,51 @@ class RIAIAMService:
         return self._runtime_environment() not in {"prod", "production"}
 
     def _is_dev_bypass_allowed(self, user_id: str) -> bool:
-        _ = user_id
-        return self._is_ria_dev_bypass_enabled()
+        if not self._is_ria_dev_bypass_enabled():
+            return False
+        allowlist_raw = str(os.getenv("RIA_DEV_ALLOWLIST", "")).strip()
+        if not allowlist_raw:
+            return True
+        allowed_ids = {uid.strip() for uid in allowlist_raw.split(",") if uid.strip()}
+        return user_id in allowed_ids
+
+    _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset(
+        {"active", "verified", "bypassed", "finra_verified"}
+    )
+
+    async def require_ria_verified(self, user_id: str) -> None:
+        """Fail-closed check: raises 403 if the RIA is not verified.
+
+        Checked before any endpoint that exposes investor data.
+        """
+        if self._is_dev_bypass_allowed(user_id):
+            return
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            status_val = await conn.fetchval(
+                """
+                SELECT COALESCE(advisory_status, verification_status, 'draft')
+                FROM ria_profiles
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedColumnError:
+            status_val = await conn.fetchval(
+                "SELECT verification_status FROM ria_profiles WHERE user_id = $1",
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        if str(status_val or "").strip().lower() not in self._RIA_VERIFIED_STATUSES:
+            raise RIAIAMPolicyError(
+                "RIA verification incomplete. Non-verified advisors cannot access investor data.",
+                status_code=403,
+            )
 
     @staticmethod
     def _normalize_persona(value: str) -> PersonaType:
