@@ -690,14 +690,7 @@ async def get_handshake_history(
     limit: int = Query(default=50, ge=1, le=200),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """
-    Return the consent handshake timeline between the authenticated user and a
-    counterpart (investor-RIA pair).  Both investor and RIA see the same
-    lifecycle reflected correctly.
-
-    This is the canonical read-model for Issue #122: every invite, request,
-    approval, denial, revocation, and timeout is surfaced in one timeline.
-    """
+    """Consent handshake timeline between the caller and a counterpart."""
     service = ConsentCenterService()
     return await service.get_handshake_history(
         firebase_uid,

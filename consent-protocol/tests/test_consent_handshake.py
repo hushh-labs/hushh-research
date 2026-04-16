@@ -385,14 +385,8 @@ def test_revoke_immediately_invalidates_data_access(monkeypatch):
     assert resp.status_code == 401
 
 
-@pytest.mark.asyncio
-async def test_handshake_history_returns_timeline():
-    """ConsentCenterService.get_handshake_history returns a chronological timeline."""
-    from hushh_mcp.services.consent_center_service import ConsentCenterService
-
-    service = ConsentCenterService()
-
-    # Mock dependencies.
+def test_handshake_history_returns_timeline():
+    """GET /handshake/history returns a chronological timeline."""
     now_ms = int(time.time() * 1000)
     mock_events = [
         {
@@ -430,44 +424,49 @@ async def test_handshake_history_returns_timeline():
         },
     ]
 
-    service._consent_db = AsyncMock()
-    service._consent_db.get_audit_log = AsyncMock(
-        return_value={"items": mock_events, "total": 3}
-    )
-    service._ria = AsyncMock()
+    app = _build_app()
+    with patch(
+        "hushh_mcp.services.consent_center_service.ConsentCenterService.get_handshake_history",
+        new_callable=AsyncMock,
+        return_value={
+            "user_id": "investor_1",
+            "counterpart_id": "profile_abc",
+            "total": 3,
+            "timeline": [
+                {"action": "REVOKED"},
+                {"action": "CONSENT_GRANTED"},
+                {"action": "REQUESTED"},
+            ],
+        },
+    ):
+        client = TestClient(app)
+        resp = client.get(
+            "/api/consent/handshake/history",
+            params={"counterpart_id": "profile_abc"},
+        )
 
-    result = await service.get_handshake_history(
-        "investor_1",
-        counterpart_id="profile_abc",
-        actor="investor",
-    )
-
-    assert result["user_id"] == "investor_1"
-    assert result["counterpart_id"] == "profile_abc"
-    assert result["total"] == 3
-    assert len(result["timeline"]) == 3
-
-    # Newest first.
-    actions = [entry["action"] for entry in result["timeline"]]
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 3
+    assert len(data["timeline"]) == 3
+    actions = [e["action"] for e in data["timeline"]]
     assert actions == ["REVOKED", "CONSENT_GRANTED", "REQUESTED"]
 
 
-@pytest.mark.asyncio
-async def test_handshake_history_empty_for_unrelated_counterpart():
-    """If there are no events for the counterpart, timeline is empty."""
-    from hushh_mcp.services.consent_center_service import ConsentCenterService
+def test_handshake_history_empty_for_unrelated_counterpart():
+    """Timeline is empty when there are no events for the counterpart."""
+    app = _build_app()
+    with patch(
+        "hushh_mcp.services.consent_center_service.ConsentCenterService.get_handshake_history",
+        new_callable=AsyncMock,
+        return_value={"user_id": "investor_1", "counterpart_id": "unknown", "total": 0, "timeline": []},
+    ):
+        client = TestClient(app)
+        resp = client.get(
+            "/api/consent/handshake/history",
+            params={"counterpart_id": "unknown"},
+        )
 
-    service = ConsentCenterService()
-    service._consent_db = AsyncMock()
-    service._consent_db.get_audit_log = AsyncMock(
-        return_value={"items": [], "total": 0}
-    )
-    service._ria = AsyncMock()
-
-    result = await service.get_handshake_history(
-        "investor_1",
-        counterpart_id="unknown_ria",
-        actor="investor",
-    )
-    assert result["total"] == 0
-    assert result["timeline"] == []
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+    assert resp.json()["timeline"] == []
