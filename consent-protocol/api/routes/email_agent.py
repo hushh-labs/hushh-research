@@ -8,11 +8,12 @@ Security:
 - No Firebase auth required (webhook from email provider).
 - Webhook authenticity should be verified via SENDGRID_WEBHOOK_SECRET when
   configured; otherwise the endpoint is open (suitable for dev/staging).
-- Rate-limited to prevent abuse.
+- Callers should apply rate limiting at the infrastructure level (e.g. WAF).
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -87,9 +88,18 @@ async def inbound_email_webhook(request: Request):
 
     Accepts both JSON bodies and form-data (SendGrid default).
     """
+    # Verify webhook signature before doing any body parsing.
+    raw_body = await request.body()
+    signature = request.headers.get("x-twilio-email-event-webhook-signature")
+    if not _verify_sendgrid_signature(raw_body, signature):
+        logger.warning("email_agent.inbound.invalid_signature")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid webhook signature.",
+        )
+
     content_type = request.headers.get("content-type", "")
 
-    # Parse the raw payload depending on content type.
     if "application/json" in content_type:
         raw_payload: dict[str, Any] = await request.json()
     elif "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
@@ -99,15 +109,6 @@ async def inbound_email_webhook(request: Request):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Expected JSON or form-data payload.",
-        )
-
-    # Optional webhook signature check.
-    signature = request.headers.get("x-twilio-email-event-webhook-signature")
-    if not _verify_sendgrid_signature(await request.body(), signature):
-        logger.warning("email_agent.inbound.invalid_signature")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid webhook signature.",
         )
 
     # Parse the email.
@@ -126,8 +127,7 @@ async def inbound_email_webhook(request: Request):
         parsed.subject,
     )
 
-    # Generate agent response (synchronous Kai call — lightweight for KYC).
-    agent_reply = generate_agent_response(parsed)
+    agent_reply = await asyncio.to_thread(generate_agent_response, parsed)
 
     # Queue the outbound reply via the existing email delivery queue.
     try:
