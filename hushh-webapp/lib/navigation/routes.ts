@@ -36,6 +36,7 @@ export const ROUTES = {
   KAI_DASHBOARD: "/kai/portfolio",
   KAI_ANALYSIS: "/kai/analysis",
   KAI_OPTIMIZE: "/kai/optimize",
+  PKM_EXPLORER: "/pkm-explorer",
 } as const;
 
 function withQuery(pathname: string, entries: Record<string, string | null | undefined>) {

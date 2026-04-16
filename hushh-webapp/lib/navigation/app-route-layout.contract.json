@@ -128,6 +128,14 @@
     }
   },
   {
+    "route": "/pkm-explorer",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/pkm-explorer/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "PageHeader"]
+    }
+  },
+  {
     "route": "/marketplace",
     "mode": "standard",
     "shellVerification": {

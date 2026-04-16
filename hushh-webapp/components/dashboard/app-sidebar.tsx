@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import {
+  Database,
   Shield,
   TrendingUp,
   Home,
@@ -90,6 +91,24 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Tools */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Tools</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  href="/pkm-explorer"
+                  isActive={pathname === "/pkm-explorer"}
+                >
+                  <Icon icon={Database} size="sm" />
+                  <span>PKM Explorer</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
