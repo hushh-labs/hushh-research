@@ -215,7 +215,10 @@ class RIAIAMService:
         """
         if self._is_dev_bypass_allowed(user_id):
             return
-        conn = await self._conn()
+        try:
+            conn = await self._conn()
+        except Exception as exc:
+            raise IAMSchemaNotReadyError() from exc
         try:
             await self._ensure_iam_schema_ready(conn)
             status_val = await conn.fetchval(
@@ -232,6 +235,10 @@ class RIAIAMService:
                 user_id,
             )
         except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        except IAMSchemaNotReadyError:
+            raise
+        except Exception as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
