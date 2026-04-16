@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from hushh_mcp.consent.scope_helpers import get_scope_description
@@ -10,6 +11,8 @@ from hushh_mcp.services.ria_iam_service import (
     RIAIAMPolicyError,
     RIAIAMService,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ConsentCenterService:
@@ -1345,4 +1348,124 @@ class ConsentCenterService:
             "total": paged["total"],
             "has_more": paged["has_more"],
             "items": paged["items"],
+        }
+
+    # =========================================================================
+    # Consent Handshake History (per investor-RIA pair)
+    # =========================================================================
+
+    async def get_handshake_history(
+        self,
+        user_id: str,
+        *,
+        counterpart_id: str,
+        actor: str = "investor",
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Return the consent handshake timeline between an investor and an RIA.
+
+        This aggregates consent_audit events, invite events, and relationship
+        state changes into a single chronological timeline so both the investor
+        and RIA see the same lifecycle reflected correctly.
+        """
+        normalized_actor = "ria" if actor == "ria" else "investor"
+
+        # 1) Consent audit events between user and the counterpart agent_id.
+        #    The agent_id in consent_audit for RIA requests is typically
+        #    "ria:<ria_profile_id>" or the ria_user_id.
+        audit_result = await self._consent_db.get_audit_log(user_id, page=1, limit=5000)
+        audit_items = audit_result.get("items", [])
+
+        # Filter to events involving the counterpart.
+        relevant_events: list[dict[str, Any]] = []
+        for item in audit_items:
+            metadata = self._metadata(item.get("metadata"))
+            agent_id = str(item.get("agent_id") or "").strip()
+            requester_entity_id = str(metadata.get("requester_entity_id") or "").strip()
+            subject_entity_id = str(metadata.get("subject_entity_id") or "").strip()
+
+            # Match on agent_id containing counterpart, or metadata entity IDs.
+            match = (
+                counterpart_id in agent_id
+                or requester_entity_id == counterpart_id
+                or subject_entity_id == counterpart_id
+            )
+            if match:
+                relevant_events.append(item)
+
+        # 2) Build timeline entries.
+        timeline: list[dict[str, Any]] = []
+        for item in relevant_events:
+            metadata = self._metadata(item.get("metadata"))
+            action = str(item.get("action") or "").strip()
+            status = self._map_action_to_status(action)
+            timeline.append(
+                {
+                    "id": str(item.get("id") or item.get("request_id") or ""),
+                    "action": action,
+                    "status": status,
+                    "scope": item.get("scope"),
+                    "scope_description": item.get("scope_description")
+                    or self._connection_scope_description(item.get("scope")),
+                    "issued_at": item.get("issued_at"),
+                    "expires_at": item.get("expires_at"),
+                    "request_id": item.get("request_id"),
+                    "actor": normalized_actor,
+                    "counterpart_id": counterpart_id,
+                    "metadata": metadata or None,
+                }
+            )
+
+        # 3) Also pull invite events if the actor is RIA.
+        if normalized_actor == "ria":
+            try:
+                invites = await self._ria.list_ria_invites(user_id)
+                for invite in invites:
+                    target_user_id = str(invite.get("target_investor_user_id") or "").strip()
+                    if target_user_id != counterpart_id:
+                        continue
+                    timeline.append(
+                        {
+                            "id": str(invite.get("invite_id") or invite.get("invite_token") or ""),
+                            "action": "INVITE_SENT",
+                            "status": str(invite.get("status") or "sent"),
+                            "scope": invite.get("scope_template_id"),
+                            "scope_description": None,
+                            "issued_at": invite.get("created_at"),
+                            "expires_at": invite.get("expires_at"),
+                            "request_id": invite.get("accepted_request_id"),
+                            "actor": "ria",
+                            "counterpart_id": counterpart_id,
+                            "metadata": {
+                                "delivery_channel": invite.get("delivery_channel"),
+                                "source": invite.get("source"),
+                            },
+                        }
+                    )
+            except (IAMSchemaNotReadyError, RIAIAMPolicyError):
+                pass
+
+        # Sort by issued_at descending (newest first).
+        timeline.sort(
+            key=lambda entry: int(entry.get("issued_at") or 0),
+            reverse=True,
+        )
+
+        # Paginate.
+        safe_page = max(1, page)
+        safe_limit = max(1, min(limit, 200))
+        total = len(timeline)
+        start = (safe_page - 1) * safe_limit
+        end = start + safe_limit
+
+        return {
+            "user_id": user_id,
+            "counterpart_id": counterpart_id,
+            "actor": normalized_actor,
+            "page": safe_page,
+            "limit": safe_limit,
+            "total": total,
+            "has_more": end < total,
+            "timeline": timeline[start:end],
         }
