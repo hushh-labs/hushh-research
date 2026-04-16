@@ -328,10 +328,10 @@ function ConsentEntryRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        "relative w-full overflow-hidden rounded-[var(--radius-md)] border px-4 py-3 text-left transition-colors",
+        "relative w-full overflow-hidden rounded-[var(--app-card-radius-compact)] border px-4 py-3 text-left transition-colors",
         selected
-          ? "border-sky-500/30 bg-sky-500/6"
-          : "border-transparent bg-transparent hover:border-border/60 hover:bg-muted/35"
+          ? "border-sky-500/24 bg-sky-500/7"
+          : "border-[color:var(--app-card-border-standard)]/50 bg-[color:var(--app-card-surface-compact)]/55 hover:bg-[color:var(--app-card-surface-compact)]"
       )}
     >
       <div className="flex items-start gap-3">

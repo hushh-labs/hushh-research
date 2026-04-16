@@ -169,6 +169,28 @@ export interface PkmPreparedDomainValidationResult {
   fullBlob: Record<string, unknown>;
 }
 
+export class PkmScopeExposureError extends Error {
+  status: number;
+  detail: string | null;
+  currentManifestVersion?: number;
+
+  constructor(params: {
+    status: number;
+    detail?: string | null;
+    currentManifestVersion?: number;
+  }) {
+    super(
+      params.detail
+        ? `Failed to update PKM scope exposure (${params.status}): ${params.detail}`
+        : `Failed to update PKM scope exposure: ${params.status}`
+    );
+    this.name = "PkmScopeExposureError";
+    this.status = params.status;
+    this.detail = params.detail ?? null;
+    this.currentManifestVersion = params.currentManifestVersion;
+  }
+}
+
 export class PkmDomainManifestError extends Error {
   status: number;
   detail: string | null;
@@ -220,6 +242,10 @@ export class PersonalKnowledgeModelService {
   private static tickerSyncLastAt = new Map<string, number>();
   private static migrationInflight = new Map<string, Promise<void>>();
   private static readonly TICKER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
+
+  private static async pause(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   private static inflightKey(
     keyParts: Array<string | number | boolean | undefined | null>
@@ -313,6 +339,28 @@ export class PersonalKnowledgeModelService {
     return null;
   }
 
+  private static async resolveMetadataAuthToken(
+    vaultOwnerToken?: string,
+    forceRefresh = false
+  ): Promise<string | undefined> {
+    if (vaultOwnerToken) {
+      return vaultOwnerToken;
+    }
+
+    const attempts = forceRefresh ? [true, true] : [false, false, true];
+    for (let index = 0; index < attempts.length; index += 1) {
+      const token = (await AuthService.getIdToken(attempts[index]).catch(() => null)) || undefined;
+      if (token) {
+        return token;
+      }
+      if (index < attempts.length - 1) {
+        await this.pause(200 * (index + 1));
+      }
+    }
+
+    return undefined;
+  }
+
   static emptyMetadata(userId: string): PersonalKnowledgeModelMetadata {
     return {
       userId,
@@ -329,6 +377,16 @@ export class PersonalKnowledgeModelService {
       suggestedDomains: [],
       lastUpdated: null,
     };
+  }
+
+  private static isAuthoritativeMetadataSnapshot(
+    metadata: PersonalKnowledgeModelMetadata | null | undefined
+  ): boolean {
+    if (!metadata) return false;
+    if ((metadata.domains || []).length > 0) return true;
+    if (Number(metadata.totalAttributes || 0) > 0) return true;
+    if (String(metadata.lastUpdated || "").trim()) return true;
+    return false;
   }
 
   private static deepMergeRecords(
@@ -987,16 +1045,17 @@ export class PersonalKnowledgeModelService {
     const cacheKey = CACHE_KEYS.PKM_METADATA(userId);
     const deviceResourceKey = this.metadataDeviceResourceKey(userId);
     const canUseDeviceCache = !Capacitor.isNativePlatform() && Boolean(vaultOwnerToken);
+    const staleMemorySnapshot = cache.peek<PersonalKnowledgeModelMetadata>(cacheKey);
+    let deviceFallback: PersonalKnowledgeModelMetadata | null = null;
 
     if (!forceRefresh) {
-      const snapshot = cache.peek<PersonalKnowledgeModelMetadata>(cacheKey);
-      if (snapshot?.isFresh) {
+      if (staleMemorySnapshot?.isFresh && this.isAuthoritativeMetadataSnapshot(staleMemorySnapshot.data)) {
         this.logMetadataRequest("cache_hit", {
           tier: "memory",
           userId,
           cacheKey,
         });
-        return snapshot.data;
+        return staleMemorySnapshot.data;
       }
 
       if (canUseDeviceCache) {
@@ -1004,15 +1063,18 @@ export class PersonalKnowledgeModelService {
           userId,
           resourceKey: deviceResourceKey,
         });
+        deviceFallback = stored;
         if (stored) {
-          cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
-          this.logMetadataRequest("device_hit", {
-            userId,
-            cacheKey,
-            resourceKey: deviceResourceKey,
-          });
-          void this.getMetadata(userId, true, vaultOwnerToken).catch(() => undefined);
-          return stored;
+          if (this.isAuthoritativeMetadataSnapshot(stored)) {
+            cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
+            this.logMetadataRequest("device_hit", {
+              userId,
+              cacheKey,
+              resourceKey: deviceResourceKey,
+            });
+            void this.getMetadata(userId, true, vaultOwnerToken).catch(() => undefined);
+            return stored;
+          }
         }
       }
     }
@@ -1039,10 +1101,11 @@ export class PersonalKnowledgeModelService {
       let result: PersonalKnowledgeModelMetadata;
       let cacheTtlMs = CACHE_TTL.MEDIUM;
       let persistToDeviceCache = canUseDeviceCache;
+      let shouldCacheResult = true;
+      const fallbackMetadata = staleMemorySnapshot?.data ?? deviceFallback;
 
       if (Capacitor.isNativePlatform()) {
-        const metadataToken =
-          vaultOwnerToken || (await AuthService.getIdToken().catch(() => null)) || undefined;
+        const metadataToken = await this.resolveMetadataAuthToken(vaultOwnerToken);
         // Use Capacitor plugin for native platforms
         // Native plugins return snake_case from backend - transform to camelCase
         const nativeResult = await HushhPersonalKnowledgeModel.getMetadata({
@@ -1138,48 +1201,60 @@ export class PersonalKnowledgeModelService {
         };
       } else {
         // Web: Use ApiService.apiFetch() for tri-flow compliance
-        const metadataToken =
-          vaultOwnerToken || (await AuthService.getIdToken().catch(() => null)) || undefined;
+        let metadataToken = await this.resolveMetadataAuthToken(vaultOwnerToken);
         this.logMetadataRequest("network_fetch", {
           userId,
           cacheKey,
           resourceKey: deviceResourceKey,
           authMode: metadataToken === vaultOwnerToken ? "vault_owner" : "firebase",
         });
-        const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/metadata/${userId}`, {
-          headers: this.getAuthHeaders(metadataToken),
-        });
+        const fetchMetadataResponse = async (token?: string) =>
+          ApiService.apiFetch(`${this.PKM_API_PREFIX}/metadata/${userId}`, {
+            headers: this.getAuthHeaders(token),
+          });
+
+        let response = await fetchMetadataResponse(metadataToken);
+        if ((response.status === 401 || response.status === 403) && !vaultOwnerToken) {
+          const refreshedToken = await this.resolveMetadataAuthToken(undefined, true);
+          if (refreshedToken) {
+            metadataToken = refreshedToken;
+            response = await fetchMetadataResponse(refreshedToken);
+          }
+        }
 
         // Handle 404 as valid "no data" response for new users
         if (response.status === 404) {
           result = this.emptyMetadata(userId);
         } else if (response.status === 401 || response.status === 403) {
           // Token may be missing/expired/revoked during startup transitions.
-          // Return empty metadata instead of throwing noisy runtime errors.
+          // Fall back to the last known good metadata and avoid caching a false empty state.
           console.warn(
-            `[PersonalKnowledgeModelService] Metadata unauthorized for ${userId}; returning empty state (${response.status})`
+            `[PersonalKnowledgeModelService] Metadata unauthorized for ${userId}; using fallback state when available (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
-          result = this.emptyMetadata(userId);
+          shouldCacheResult = false;
+          result = fallbackMetadata ?? this.emptyMetadata(userId);
         } else if (response.status === 408 || response.status === 429 || response.status >= 500) {
           // Upstream timeout / temporary backend issue.
-          // Return an empty shape so callers can apply local fallbacks (cache/blob) without hard crash.
+          // Fall back to the last known good metadata and avoid caching a false empty state.
           console.warn(
-            `[PersonalKnowledgeModelService] Metadata temporarily unavailable for ${userId}; returning empty state (${response.status})`
+            `[PersonalKnowledgeModelService] Metadata temporarily unavailable for ${userId}; using fallback state when available (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
-          result = this.emptyMetadata(userId);
+          shouldCacheResult = false;
+          result = fallbackMetadata ?? this.emptyMetadata(userId);
         } else if (!response.ok) {
           // Any remaining non-OK status should fail open for dashboard bootstrap.
-          // Callers already apply local cache/blob fallbacks.
+          // Preserve the last known good metadata instead of caching a false empty state.
           console.warn(
-            `[PersonalKnowledgeModelService] Metadata request failed for ${userId}; returning empty state (${response.status})`
+            `[PersonalKnowledgeModelService] Metadata request failed for ${userId}; using fallback state when available (${response.status})`
           );
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
-          result = this.emptyMetadata(userId);
+          shouldCacheResult = false;
+          result = fallbackMetadata ?? this.emptyMetadata(userId);
         } else {
           const data = await response.json();
 
@@ -1246,8 +1321,10 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      cache.set(cacheKey, result, cacheTtlMs);
-      if (persistToDeviceCache) {
+      if (shouldCacheResult) {
+        cache.set(cacheKey, result, cacheTtlMs);
+      }
+      if (persistToDeviceCache && shouldCacheResult) {
         await DeviceResourceCacheService.write({
           userId,
           resourceKey: deviceResourceKey,
@@ -1574,13 +1651,26 @@ export class PersonalKnowledgeModelService {
   static async getDomainManifest(
     userId: string,
     domain: string,
-    vaultOwnerToken?: string
+    vaultOwnerToken?: string,
+    force = false
   ): Promise<DomainManifest | null> {
+    const cache = CacheService.getInstance();
+    const cacheKey = CACHE_KEYS.DOMAIN_MANIFEST(userId, domain);
+    if (!force) {
+      const cachedSnapshot = cache.peek<DomainManifest | null>(cacheKey);
+      if (cachedSnapshot) {
+        return cachedSnapshot.data;
+      }
+    } else {
+      cache.invalidate(cacheKey);
+    }
+
     const dedupeKey = this.inflightKey([
       "domain_manifest",
       userId,
       domain,
       vaultOwnerToken ? "vault_owner" : "anonymous",
+      force ? "force" : "cached",
     ]);
     const existingRequest = this.domainManifestInflight.get(dedupeKey);
     if (existingRequest) {
@@ -1595,6 +1685,7 @@ export class PersonalKnowledgeModelService {
 
       if (!response.ok) {
         if (response.status === 404) {
+          cache.set(cacheKey, null, CACHE_TTL.SHORT);
           return null;
         }
         let detail: string | null = null;
@@ -1622,7 +1713,9 @@ export class PersonalKnowledgeModelService {
         });
       }
 
-      return (await response.json()) as DomainManifest;
+      const manifest = (await response.json()) as DomainManifest;
+      cache.set(cacheKey, manifest, CACHE_TTL.MEDIUM);
+      return manifest;
     })();
 
     this.domainManifestInflight.set(dedupeKey, request);
@@ -1763,10 +1856,35 @@ export class PersonalKnowledgeModelService {
     );
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Failed to update PKM scope exposure: ${response.status}${errorText ? ` - ${errorText}` : ""}`
-      );
+      let payload: unknown = null;
+      let detail: string | null = null;
+      let currentManifestVersion: number | undefined;
+      try {
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          payload = await response.json();
+          detail = this.extractResponseDetail(payload);
+          if (
+            payload &&
+            typeof payload === "object" &&
+            typeof (payload as Record<string, unknown>).detail === "object"
+          ) {
+            const nested = (payload as Record<string, unknown>).detail as Record<string, unknown>;
+            if (typeof nested.current_manifest_version === "number") {
+              currentManifestVersion = nested.current_manifest_version;
+            }
+          }
+        } else {
+          detail = await response.text();
+        }
+      } catch {
+        detail = null;
+      }
+      throw new PkmScopeExposureError({
+        status: response.status,
+        detail,
+        currentManifestVersion,
+      });
     }
 
     const payload = (await response.json()) as Record<string, unknown>;
@@ -1774,6 +1892,10 @@ export class PersonalKnowledgeModelService {
       payload.manifest && typeof payload.manifest === "object"
         ? (payload.manifest as DomainManifest)
         : null;
+    const cache = CacheService.getInstance();
+    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(params.userId, params.domain), manifest, CACHE_TTL.MEDIUM);
+    cache.invalidate(CACHE_KEYS.PKM_METADATA(params.userId));
+    CacheSyncService.onConsentMutated(params.userId);
     return {
       success: payload.success === true,
       message: typeof payload.message === "string" ? payload.message : undefined,

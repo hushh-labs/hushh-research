@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 import uuid
@@ -506,6 +507,8 @@ def _compact_scope_entries(
             continue
         if not wildcard:
             continue
+        if entry.get("consumer_visible") is False or entry.get("internal_only") is True:
+            continue
 
         compact_entries.append(entry)
         seen_scopes.add(scope)
@@ -531,7 +534,7 @@ async def _get_user_scope_snapshot(
     detail: Literal["compact", "verbose"] = "compact",
 ) -> tuple[list[str], list[str], list[dict]]:
     pkm_service = get_pkm_service()
-    index = await pkm_service.get_index_v2(user_id)
+    index = await pkm_service.resolve_metadata_index(user_id)
     if index is None:
         return [], [], []
     available_domains = sorted(
@@ -541,7 +544,14 @@ async def _get_user_scope_snapshot(
             if str(domain).strip()
         }
     )
-    scopes = sorted(await pkm_service.scope_generator.get_available_scopes(user_id))
+    get_available_scopes = pkm_service.scope_generator.get_available_scopes
+    scope_signature = inspect.signature(get_available_scopes)
+    scope_kwargs: dict[str, Any] = {}
+    if "include_internal" in scope_signature.parameters:
+        scope_kwargs["include_internal"] = detail == "verbose"
+    if "include_exact_paths" in scope_signature.parameters:
+        scope_kwargs["include_exact_paths"] = detail == "verbose"
+    scopes = sorted(await get_available_scopes(user_id, **scope_kwargs))
     scope_entries_getter = getattr(pkm_service.scope_generator, "get_available_scope_entries", None)
     if callable(scope_entries_getter):
         scope_entries = await scope_entries_getter(user_id)
@@ -930,8 +940,12 @@ async def request_consent(
         payload.approval_timeout_minutes
     )
 
+    # Keep default developer discovery compact, but validate requestable scopes
+    # against the full resolver output so explicitly requested leaf paths found via
+    # verbose/debug discovery remain valid.
     available_domains, discovered_scopes, _scope_entries = await _get_user_scope_snapshot(
-        payload.user_id
+        payload.user_id,
+        detail="verbose",
     )
     if normalized_scope.startswith("attr.") and normalized_scope not in set(discovered_scopes):
         raise HTTPException(

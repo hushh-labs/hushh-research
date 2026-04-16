@@ -915,7 +915,7 @@ export default function ProfileReceiptsPage() {
               onClick={() =>
                 isConnected
                   ? void handleSyncNow()
-                  : router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)
+                  : router.push(`${ROUTES.PROFILE}?panel=gmail`)
               }
               disabled={isConnected ? syncing : gmail.status?.configured === false}
               className="min-w-[140px]"
@@ -981,7 +981,7 @@ export default function ProfileReceiptsPage() {
             {!isConnected ? (
               <div className="pt-1">
                 <Button
-                  onClick={() => router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)}
+                  onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}
                   data-voice-control-id="open_gmail_connector"
                   data-voice-action-id="nav.profile_gmail_panel"
                   data-voice-label={primaryActionLabel}

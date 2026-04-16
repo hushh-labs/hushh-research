@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import {
@@ -50,7 +50,6 @@ import {
   PkmDataManagerPanel,
   PkmDomainDetailPanel,
   ProfileStateNotice,
-  type ProfileSourceHealthEntry,
 } from "@/components/profile/pkm-data-manager";
 import { ProfileStackNavigator, type ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
@@ -69,10 +68,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
-import { resolveAppEnvironment } from "@/lib/app-env";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
+import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -105,8 +104,15 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   buildPkmAccessConnections,
   buildPkmDomainPresentation,
+  buildPkmDomainPermissionPresentation,
+  buildPkmDomainUpgradePresentation,
   buildPkmProfileSummaryPresentation,
 } from "@/lib/profile/pkm-profile-presentation";
+import {
+  buildPkmSectionPreviewPresentation,
+  type PkmSectionPreviewPresentation,
+} from "@/lib/profile/pkm-section-preview";
+import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { VaultService } from "@/lib/services/vault-service";
@@ -122,7 +128,13 @@ import {
 import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
+  PkmScopeExposureError,
+  type PkmUpgradeDomainState,
 } from "@/lib/services/personal-knowledge-model-service";
+import {
+  PKM_UPGRADE_COMPLETED_EVENT,
+  type PkmUpgradeCompletedEventDetail,
+} from "@/lib/services/pkm-upgrade-orchestrator";
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
@@ -152,6 +164,56 @@ type ProfileRouteState = {
   panel: ProfilePanel | null;
   detail: ProfileDetail | null;
 };
+
+function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
+  if (!manifest) return null;
+  if (typeof globalThis.structuredClone === "function") {
+    try {
+      return globalThis.structuredClone(manifest) as DomainManifest;
+    } catch {
+      // Fall through to JSON clone.
+    }
+  }
+  return JSON.parse(JSON.stringify(manifest)) as DomainManifest;
+}
+
+function applyManifestExposureChange(
+  manifest: DomainManifest | null | undefined,
+  target: { scopeHandle?: string | null; topLevelScopePath: string },
+  exposureEnabled: boolean
+): DomainManifest | null | undefined {
+  if (!manifest) return manifest;
+  const nextManifest = cloneManifest(manifest);
+  if (!nextManifest) return nextManifest;
+
+  let updated = false;
+  if (Array.isArray(nextManifest.scope_registry)) {
+    nextManifest.scope_registry = nextManifest.scope_registry.map((entry) => {
+      const projection =
+        entry.summary_projection && typeof entry.summary_projection === "object"
+          ? entry.summary_projection
+          : {};
+      const matchesHandle =
+        target.scopeHandle && entry.scope_handle === target.scopeHandle;
+      const matchesPath =
+        String(projection.top_level_scope_path || "").trim() === target.topLevelScopePath;
+      if (!matchesHandle && !matchesPath) {
+        return entry;
+      }
+      updated = true;
+      return {
+        ...entry,
+        exposure_enabled: exposureEnabled,
+      };
+    });
+  }
+
+  if (!updated && Array.isArray(nextManifest.top_level_scope_paths)) {
+    updated = nextManifest.top_level_scope_paths.includes(target.topLevelScopePath);
+  }
+
+  return updated ? nextManifest : manifest;
+}
 
 const SUPPORT_KIND_COPY: Record<
   SupportMessageKind,
@@ -229,11 +291,30 @@ function buildProfileHref(params: { panel?: ProfilePanel | null; detail?: Profil
   return query ? `${ROUTES.PROFILE}?${query}` : ROUTES.PROFILE;
 }
 
-function formatProfileInventoryBadge(summary: ReturnType<typeof buildPkmProfileSummaryPresentation> | null, loading: boolean) {
-  if (loading && !summary) return "Loading";
+function formatProfileInventoryBadge(
+  summary: ReturnType<typeof buildPkmProfileSummaryPresentation> | null,
+  params: { loading: boolean; ready: boolean; failed: boolean }
+) {
+  if (!params.ready) {
+    if (params.failed) return "Unavailable";
+    return params.loading ? "Loading" : "Checking";
+  }
   const itemCount = summary?.totalAttributes ?? 0;
   const sourceCount = summary?.totalSourceCount ?? 0;
   return `${itemCount} items · ${sourceCount} sources`;
+}
+
+function formatProfileAccessBadge(params: {
+  activeGrantCount: number;
+  loading: boolean;
+  ready: boolean;
+  failed: boolean;
+}) {
+  if (!params.ready) {
+    if (params.failed) return "Unavailable";
+    return params.loading ? "Loading" : "Checking";
+  }
+  return `${params.activeGrantCount} active`;
 }
 
 function getProvider(user: ReturnType<typeof useAuth>["user"]) {
@@ -332,11 +413,14 @@ function profileRouteRequiresUnlockedVault(
   if (panel === "my-data" || panel === "access" || panel === "gmail") {
     return true;
   }
+  if (panel === "security") {
+    return true;
+  }
   return panel === "preferences" && detail === "kai-preferences";
 }
 
 function ProfilePageContent() {
-  const canShowPkmAgentLab = resolveAppEnvironment() !== "production";
+  const canShowPkmAgentLab = resolveDeveloperRuntime().environment === "local";
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -355,10 +439,36 @@ function ProfilePageContent() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AccountDeletionTarget>("both");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [pendingProfileTarget, setPendingProfileTarget] = useState<{
+    panel: ProfilePanel;
+    detail: ProfileDetail | null;
+    mode: "push" | "replace";
+  } | null>(null);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [pkmMetadata, setPkmMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [loadingPkmMetadata, setLoadingPkmMetadata] = useState(true);
   const [pkmError, setPkmError] = useState<string | null>(null);
+  const [domainManifests, setDomainManifests] = useState<Record<string, DomainManifest | null | undefined>>({});
+  const [loadingDomainManifests, setLoadingDomainManifests] = useState<Record<string, boolean>>({});
+  const [domainManifestErrors, setDomainManifestErrors] = useState<Record<string, string | null>>({});
+  const [pendingPermissionToggles, setPendingPermissionToggles] = useState<Record<string, boolean>>({});
+  const [domainPreview, setDomainPreview] = useState<{
+    open: boolean;
+    permissionKey: string | null;
+    title: string;
+    description: string;
+    presentation: PkmSectionPreviewPresentation | null;
+    loading: boolean;
+    error: string | null;
+  }>({
+    open: false,
+    permissionKey: null,
+    title: "",
+    description: "",
+    presentation: null,
+    loading: false,
+    error: null,
+  });
   const [consentCenter, setConsentCenter] = useState<ConsentCenterResponse | null>(null);
   const [loadingConsentCenter, setLoadingConsentCenter] = useState(true);
   const [consentCenterError, setConsentCenterError] = useState<string | null>(null);
@@ -388,6 +498,7 @@ function ProfilePageContent() {
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | "sync" | null
   >(null);
+  const vaultUnlockCompletingRef = useRef(false);
 
   const profileRouteState = resolveProfileRouteState(searchParams);
   const activePanel = profileRouteState.panel;
@@ -419,6 +530,10 @@ function ProfilePageContent() {
       }),
     [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
   );
+  const routeBlockedByVault =
+    hasVault === true &&
+    vaultAccess.needsUnlock &&
+    profileRouteRequiresUnlockedVault(activePanel, activeDetail);
   const gmailPresentation = useMemo(
     () =>
       resolveGmailConnectionPresentation({
@@ -429,16 +544,31 @@ function ProfilePageContent() {
       }),
     [gmail.loadingStatus, gmail.status, gmail.statusError, gmailActionBusy]
   );
+  const upgradeStatesByDomain = useMemo<Record<string, PkmUpgradeDomainState>>(
+    () =>
+      Object.fromEntries(
+        (pkmMetadata?.upgradableDomains || []).map((entry) => [entry.domain, entry])
+      ),
+    [pkmMetadata?.upgradableDomains]
+  );
+
   const domainPresentations = useMemo(
     () =>
       (pkmMetadata?.domains || []).map((domain) =>
         buildPkmDomainPresentation({
           domain,
           activeGrants: consentCenter?.active_grants || [],
+          manifest: domainManifests[domain.key],
+          upgradeState: upgradeStatesByDomain[domain.key] || null,
         })
       ),
-    [consentCenter?.active_grants, pkmMetadata?.domains]
+    [consentCenter?.active_grants, domainManifests, pkmMetadata?.domains, upgradeStatesByDomain]
   );
+
+  const pkmMetadataReady = pkmMetadata !== null;
+  const consentCenterReady = consentCenter !== null;
+  const pkmMetadataFailed = Boolean(pkmError) && !pkmMetadataReady;
+  const consentCenterFailed = Boolean(consentCenterError) && !consentCenterReady;
 
   const profileSummary = useMemo(
     () =>
@@ -447,72 +577,16 @@ function ProfilePageContent() {
         domains: domainPresentations,
         activeGrants: consentCenter?.active_grants || [],
         pendingRequestCount: pendingConsents,
+        metadataResolved: pkmMetadataReady,
+        sharingResolved: consentCenterReady,
       }),
-    [consentCenter?.active_grants, domainPresentations, pendingConsents, pkmMetadata]
-  );
-
-  const sourceHealthEntries = useMemo<ProfileSourceHealthEntry[]>(
-    () => [
-      {
-        id: "vault",
-        label: "Vault",
-        detail: vaultAccess.needsVaultCreation
-          ? "Create your vault to start managing readable data."
-          : vaultAccess.needsUnlock
-            ? "Unlock to reveal private personal data."
-            : "Readable data manager is active.",
-        status: vaultAccess.needsVaultCreation
-          ? "Not created"
-          : vaultAccess.needsUnlock
-            ? "Locked"
-            : "Ready",
-        tone: vaultAccess.needsVaultCreation
-          ? "warning"
-          : vaultAccess.needsUnlock
-            ? "warning"
-            : "success",
-      },
-      {
-        id: "gmail",
-        label: "Gmail receipts",
-        detail: gmailPresentation.description,
-        status: gmailPresentation.badgeLabel,
-        tone: gmailPresentation.isConnected
-          ? "success"
-          : gmailPresentation.state === "needs_reauthentication"
-            ? "warning"
-            : "default",
-      },
-      {
-        id: "access",
-        label: "Consent-backed access",
-        detail:
-          pendingConsents > 0
-            ? `${pendingConsents} request${pendingConsents === 1 ? "" : "s"} waiting for review.`
-            : `${consentCenter?.active_grants.length || 0} active grant${(consentCenter?.active_grants.length || 0) === 1 ? "" : "s"} currently live.`,
-        status: pendingConsents > 0 ? "Review needed" : "Stable",
-        tone: pendingConsents > 0 ? "warning" : "default",
-      },
-      {
-        id: "marketplace",
-        label: "Marketplace visibility",
-        detail: marketplaceOptIn
-          ? "Your investor profile is discoverable to RIAs."
-          : "Your investor profile is hidden from marketplace search.",
-        status: marketplaceOptIn ? "Visible" : "Hidden",
-        tone: marketplaceOptIn ? "success" : "default",
-      },
-    ],
     [
-      consentCenter?.active_grants.length,
-      gmailPresentation.badgeLabel,
-      gmailPresentation.description,
-      gmailPresentation.isConnected,
-      gmailPresentation.state,
-      marketplaceOptIn,
+      consentCenter?.active_grants,
+      consentCenterReady,
+      domainPresentations,
       pendingConsents,
-      vaultAccess.needsUnlock,
-      vaultAccess.needsVaultCreation,
+      pkmMetadata,
+      pkmMetadataReady,
     ]
   );
 
@@ -526,6 +600,70 @@ function ProfilePageContent() {
     const domainKey = activeDetail.slice("domain:".length);
     return domainPresentations.find((domain) => domain.key === domainKey) || null;
   }, [activeDetail, activePanel, domainPresentations]);
+
+  const selectedDomainMetadata = useMemo(() => {
+    if (!selectedDomain) return null;
+    return (pkmMetadata?.domains || []).find((domain) => domain.key === selectedDomain.key) || null;
+  }, [pkmMetadata?.domains, selectedDomain]);
+
+  const selectedDomainManifest = selectedDomain ? domainManifests[selectedDomain.key] ?? null : null;
+  const selectedDomainUpgrade = useMemo(() => {
+    if (!selectedDomain || !selectedDomainMetadata) return null;
+    if (vaultAccess.needsUnlock && hasVault) {
+      return {
+        status: "updating" as const,
+        label: "Unlock required",
+        description:
+          "This domain stays readable while locked. Unlock the vault to manage section-level sharing controls.",
+        canManagePermissions: false,
+      };
+    }
+    return buildPkmDomainUpgradePresentation({
+      domain: selectedDomainMetadata,
+      manifest: selectedDomainManifest,
+      upgradeState: upgradeStatesByDomain[selectedDomain.key] || null,
+    });
+  }, [
+    hasVault,
+    selectedDomain,
+    selectedDomainManifest,
+    selectedDomainMetadata,
+    upgradeStatesByDomain,
+    vaultAccess.needsUnlock,
+  ]);
+
+  const selectedDomainPermissions = useMemo(() => {
+    if (!selectedDomain || !selectedDomainMetadata) return [];
+    return buildPkmDomainPermissionPresentation({
+      domain: selectedDomainMetadata,
+      manifest: selectedDomainManifest,
+      activeGrants: consentCenter?.active_grants || [],
+      upgradeState: upgradeStatesByDomain[selectedDomain.key] || null,
+    });
+  }, [
+    consentCenter?.active_grants,
+    selectedDomain,
+    selectedDomainManifest,
+    selectedDomainMetadata,
+    upgradeStatesByDomain,
+  ]);
+
+  useEffect(() => {
+    setDomainPreview((current) => {
+      if (!current.open && current.permissionKey === null) {
+        return current;
+      }
+      return {
+        open: false,
+        permissionKey: null,
+        title: "",
+        description: "",
+        presentation: null,
+        loading: false,
+        error: null,
+      };
+    });
+  }, [selectedDomain?.key]);
 
   const selectedConnection = useMemo(() => {
     if (activePanel !== "access" || !activeDetail?.startsWith("connection:")) return null;
@@ -664,9 +802,84 @@ function ProfilePageContent() {
       );
       setPkmMetadata(metadata);
       setPkmError(null);
+      return metadata;
     },
     [user?.uid, vaultOwnerToken]
   );
+
+  const refreshDomainManifest = useCallback(
+    async (domainKey: string, force = false) => {
+      if (!user?.uid || !vaultOwnerToken) return null;
+      setLoadingDomainManifests((current) => ({ ...current, [domainKey]: true }));
+      try {
+        const manifest = await PersonalKnowledgeModelService.getDomainManifest(
+          user.uid,
+          domainKey,
+          vaultOwnerToken,
+          force
+        );
+        setDomainManifests((current) => ({ ...current, [domainKey]: manifest }));
+        setDomainManifestErrors((current) => ({ ...current, [domainKey]: null }));
+        return manifest;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Couldn't load sharing controls for this domain.";
+        setDomainManifestErrors((current) => ({ ...current, [domainKey]: message }));
+        return null;
+      } finally {
+        setLoadingDomainManifests((current) => ({ ...current, [domainKey]: false }));
+      }
+    },
+    [user?.uid, vaultOwnerToken]
+  );
+
+  const refreshVisibleDomainManifests = useCallback(
+    async (force = false) => {
+      if (!user?.uid || !vaultOwnerToken) return;
+      const domainKeys = (pkmMetadata?.domains || []).map((domain) => domain.key);
+      if (domainKeys.length === 0) return;
+      await Promise.all(domainKeys.map((domainKey) => refreshDomainManifest(domainKey, force)));
+    },
+    [pkmMetadata?.domains, refreshDomainManifest, user?.uid, vaultOwnerToken]
+  );
+
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const handleUpgradeCompleted = (event: Event) => {
+      const detail = (event as CustomEvent<PkmUpgradeCompletedEventDetail>).detail;
+      if (detail?.userId !== user.uid) {
+        return;
+      }
+
+      void (async () => {
+        setLoadingPkmMetadata(true);
+        try {
+          const nextMetadata = await refreshPkmMetadata(true);
+          if (vaultOwnerToken && !vaultAccess.needsVaultCreation && !vaultAccess.needsUnlock) {
+            const domainKeys = (nextMetadata?.domains || []).map((domain) => domain.key);
+            await Promise.all(domainKeys.map((domainKey) => refreshDomainManifest(domainKey, true)));
+          }
+        } catch (error) {
+          console.warn("[ProfilePage] Failed to refresh PKM after upgrade completion.", error);
+        } finally {
+          setLoadingPkmMetadata(false);
+        }
+      })();
+    };
+
+    window.addEventListener(PKM_UPGRADE_COMPLETED_EVENT, handleUpgradeCompleted);
+    return () => {
+      window.removeEventListener(PKM_UPGRADE_COMPLETED_EVENT, handleUpgradeCompleted);
+    };
+  }, [
+    refreshPkmMetadata,
+    refreshDomainManifest,
+    user?.uid,
+    vaultAccess.needsUnlock,
+    vaultAccess.needsVaultCreation,
+    vaultOwnerToken,
+  ]);
 
   const refreshConsentCenter = useCallback(
     async (force = false) => {
@@ -734,7 +947,7 @@ function ProfilePageContent() {
         console.error("Failed to load profile manager data:", error);
         if (!cancelled) {
           const message =
-            error instanceof Error ? error.message : "Failed to load profile data manager.";
+            error instanceof Error ? error.message : "Failed to load profile knowledge view.";
           setPkmError(message);
           setConsentCenterError(message);
           completeStep();
@@ -761,6 +974,28 @@ function ProfilePageContent() {
     registerSteps,
     reset,
     user,
+    vaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (
+      activePanel !== "my-data" ||
+      authLoading ||
+      !user?.uid ||
+      !vaultOwnerToken ||
+      vaultAccess.needsVaultCreation ||
+      vaultAccess.needsUnlock
+    ) {
+      return;
+    }
+    void refreshVisibleDomainManifests(false);
+  }, [
+    activePanel,
+    authLoading,
+    refreshVisibleDomainManifests,
+    user?.uid,
+    vaultAccess.needsUnlock,
+    vaultAccess.needsVaultCreation,
     vaultOwnerToken,
   ]);
 
@@ -905,6 +1140,19 @@ function ProfilePageContent() {
   function requestVaultUnlock(reason: "profile_data" | "delete_account" = "profile_data") {
     setVaultUnlockReason(reason);
     setShowVaultUnlock(true);
+  }
+
+  function openVaultBackedPanel(panel: Extract<ProfilePanel, "my-data" | "access" | "gmail" | "security">) {
+    if (vaultAccess.needsVaultCreation) {
+      router.push(ROUTES.KAI_IMPORT);
+      return;
+    }
+    if (hasVault && vaultAccess.needsUnlock) {
+      setPendingProfileTarget({ panel, detail: null, mode: "push" });
+      requestVaultUnlock("profile_data");
+      return;
+    }
+    updateProfileView({ panel, detail: null }, "push");
   }
 
   async function submitSupportMessage() {
@@ -1181,6 +1429,21 @@ function ProfilePageContent() {
         ? "This removes your advisor profile, client requests, picks uploads, and RIA marketplace presence. Your investor account stays."
         : "This action cannot be undone. This permanently deletes your account, both personas, and encrypted vault records.";
 
+  const handleVaultUnlockOpenChange = (open: boolean) => {
+    setShowVaultUnlock(open);
+    if (open) {
+      vaultUnlockCompletingRef.current = false;
+      return;
+    }
+    if (
+      !open &&
+      vaultUnlockReason === "profile_data" &&
+      !vaultUnlockCompletingRef.current
+    ) {
+      setPendingProfileTarget(null);
+    }
+  };
+
   const unlockDialogTitle =
     vaultUnlockReason === "delete_account"
       ? "Unlock Vault to Delete Account"
@@ -1227,7 +1490,17 @@ function ProfilePageContent() {
   const gmailLastSyncText = gmailPresentation.latestSyncText;
   const profileManagerLoading = loadingPkmMetadata || loadingConsentCenter;
   const activeGrantCount = consentCenter?.active_grants.length || 0;
-  const myDataRootBadge = formatProfileInventoryBadge(profileSummary, profileManagerLoading);
+  const myDataRootBadge = formatProfileInventoryBadge(profileSummary, {
+    loading: loadingPkmMetadata,
+    ready: pkmMetadataReady,
+    failed: pkmMetadataFailed,
+  });
+  const accessRootBadge = formatProfileAccessBadge({
+    activeGrantCount,
+    loading: loadingConsentCenter,
+    ready: consentCenterReady,
+    failed: consentCenterFailed,
+  });
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -1248,11 +1521,11 @@ function ProfilePageContent() {
     const controls = [
       {
         id: "profile_my_data",
-        label: "My Data",
-        purpose: "opens personal data and source-health details.",
+        label: "Personal Knowledge Model",
+        purpose: "opens your saved domains, source summaries, and sharing controls.",
         actionId: "nav.profile_my_data",
         role: "card",
-        voiceAliases: ["my data", "pkm data"],
+        voiceAliases: ["personal knowledge model", "my data", "pkm"],
       },
       {
         id: "profile_access",
@@ -1314,7 +1587,7 @@ function ProfilePageContent() {
     const visibleModules = activePanel
       ? [
           activePanel === "my-data"
-            ? "My Data"
+            ? "Personal Knowledge Model"
             : activePanel === "access"
               ? "Access & sharing"
               : activePanel === "preferences"
@@ -1327,7 +1600,7 @@ function ProfilePageContent() {
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
-          "My Data",
+          "Personal Knowledge Model",
           "Access & sharing",
           "Preferences",
           "Security",
@@ -1354,14 +1627,19 @@ function ProfilePageContent() {
                 "Change passphrase",
                 "Delete account",
               ]
-            : ["Open My Data", "Open Access & sharing", "Open Gmail receipts", "Open Support"];
+            : [
+                "Open Personal Knowledge Model",
+                "Open Access & sharing",
+                "Open Gmail receipts",
+                "Open Support",
+              ];
 
     return {
       surfaceDefinition: {
         screenId: activePanel ? `profile_${activePanel}` : "profile_home",
         title: activePanel
           ? activePanel === "my-data"
-            ? "My Data"
+            ? "Personal Knowledge Model"
             : activePanel === "access"
               ? "Access & sharing"
               : activePanel === "preferences"
@@ -1375,7 +1653,11 @@ function ProfilePageContent() {
         purpose:
           "This surface manages profile data, access, preferences, Gmail receipts, support, and vault security.",
         sections: [
-          { id: "my-data", title: "My Data", purpose: "Personal data and source health." },
+          {
+            id: "my-data",
+            title: "Personal Knowledge Model",
+            purpose: "Saved domains, source summaries, and sharing controls.",
+          },
           { id: "access", title: "Access & sharing", purpose: "Consent-backed access and sharing." },
           { id: "preferences", title: "Preferences", purpose: "Shell and Kai preferences." },
           { id: "security", title: "Security", purpose: "Vault and destructive account actions." },
@@ -1497,8 +1779,16 @@ function ProfilePageContent() {
     if (!profileRouteRequiresUnlockedVault(activePanel, activeDetail)) {
       return;
     }
+    if (activePanel) {
+      setPendingProfileTarget({
+        panel: activePanel,
+        detail: activeDetail ?? null,
+        mode: "replace",
+      });
+      router.replace(buildProfileHref({ panel: null, detail: null }), { scroll: false });
+    }
     requestVaultUnlock("profile_data");
-  }, [activeDetail, activePanel, authLoading, hasVault, user?.uid, vaultAccess.needsUnlock]);
+  }, [activeDetail, activePanel, authLoading, hasVault, router, user?.uid, vaultAccess.needsUnlock]);
 
   if (authLoading || !user) {
     return null;
@@ -1510,6 +1800,11 @@ function ProfilePageContent() {
       return;
     }
     if (!vaultAccess.canMutateSecureData) {
+      setPendingProfileTarget({
+        panel: "preferences",
+        detail: "kai-preferences",
+        mode: "push",
+      });
       requestVaultUnlock("profile_data");
       return;
     }
@@ -1529,10 +1824,164 @@ function ProfilePageContent() {
     }
     updateProfileView({ panel: null, detail: null }, "replace");
   };
-  const openMyDataPanel = () => updateProfileView({ panel: "my-data", detail: null }, "push");
-  const openAccessPanel = () => updateProfileView({ panel: "access", detail: null }, "push");
+  const openMyDataPanel = () => openVaultBackedPanel("my-data");
+  const openAccessPanel = () => openVaultBackedPanel("access");
+  const openGmailPanel = () => openVaultBackedPanel("gmail");
   const openPreferencesPanel = () => updateProfileView({ panel: "preferences", detail: null }, "push");
-  const openSecurityPanel = () => updateProfileView({ panel: "security", detail: null }, "push");
+  const openSecurityPanel = () => openVaultBackedPanel("security");
+
+  const handlePreviewDomainPermission = async (
+    domainKey: string,
+    permission: {
+      key: string;
+      label: string;
+      description: string;
+      topLevelScopePath: string;
+    }
+  ) => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+
+    setDomainPreview({
+      open: true,
+      permissionKey: permission.key,
+      title: permission.label,
+      description:
+        permission.description ||
+        `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+      presentation: null,
+      loading: true,
+      error: null,
+    });
+
+    try {
+      const data = await PersonalKnowledgeModelService.loadDomainData({
+        userId: user.uid,
+        domain: domainKey,
+        vaultKey,
+        vaultOwnerToken,
+        segmentIds: [permission.topLevelScopePath],
+      });
+      setDomainPreview((current) => ({
+        ...current,
+        open: true,
+        permissionKey: permission.key,
+        title: permission.label,
+        description:
+          permission.description ||
+          `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+        presentation: buildPkmSectionPreviewPresentation({
+          domain: domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permissionLabel: permission.label,
+          permissionDescription: permission.description,
+          topLevelScopePath: permission.topLevelScopePath,
+          value: data,
+        }),
+        loading: false,
+        error: null,
+      }));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Couldn't load saved values for this section.";
+      setDomainPreview((current) => ({
+        ...current,
+        open: true,
+        permissionKey: permission.key,
+        title: permission.label,
+        description:
+          permission.description ||
+          `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+        presentation: null,
+        loading: false,
+        error: message,
+      }));
+    }
+  };
+
+  const handleToggleDomainPermission = async (
+    domainKey: string,
+    permission: {
+      key: string;
+      scopeHandle: string | null;
+      topLevelScopePath: string;
+      exposureEnabled: boolean;
+    },
+    nextValue: boolean
+  ) => {
+    if (!user?.uid || !vaultOwnerToken) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+
+    const permissionKey = permission.key;
+    const previousManifest = cloneManifest(domainManifests[domainKey] ?? null);
+    if (!previousManifest) {
+      toast.error("This domain is still preparing sharing controls.");
+      return;
+    }
+
+    const optimisticManifest = applyManifestExposureChange(
+      previousManifest,
+      {
+        scopeHandle: permission.scopeHandle,
+        topLevelScopePath: permission.topLevelScopePath,
+      },
+      nextValue
+    );
+
+    setPendingPermissionToggles((current) => ({ ...current, [permissionKey]: true }));
+    setDomainManifests((current) => ({ ...current, [domainKey]: optimisticManifest ?? previousManifest }));
+    setDomainManifestErrors((current) => ({ ...current, [domainKey]: null }));
+
+    try {
+      const result = await PersonalKnowledgeModelService.updateScopeExposure({
+        userId: user.uid,
+        domain: domainKey,
+        expectedManifestVersion: previousManifest.manifest_version,
+        vaultOwnerToken,
+        changes: [
+          {
+            scopeHandle: permission.scopeHandle || undefined,
+            topLevelScopePath: permission.topLevelScopePath,
+            exposureEnabled: nextValue,
+          },
+        ],
+      });
+
+      setDomainManifests((current) => ({
+        ...current,
+        [domainKey]: result.manifest ?? optimisticManifest ?? previousManifest,
+      }));
+      await Promise.all([refreshConsentCenter(true), refreshPkmMetadata(true)]);
+      toast.success(
+        nextValue ? "Sharing section is available for future approvals." : "Sharing section is now hidden."
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Couldn't update sharing right now.";
+      setDomainManifests((current) => ({ ...current, [domainKey]: previousManifest }));
+
+      if (error instanceof PkmScopeExposureError && error.status === 409) {
+        await Promise.all([
+          refreshDomainManifest(domainKey, true),
+          refreshConsentCenter(true),
+          refreshPkmMetadata(true),
+        ]);
+        toast.error("Sharing changed elsewhere. The latest version has been reloaded.");
+      } else {
+        void refreshDomainManifest(domainKey, true);
+        toast.error(message || "Couldn't update sharing right now.");
+      }
+    } finally {
+      setPendingPermissionToggles((current) => {
+        const next = { ...current };
+        delete next[permissionKey];
+        return next;
+      });
+    }
+  };
 
   const supportActions: Array<{
     kind: SupportMessageKind;
@@ -1564,21 +2013,24 @@ function ProfilePageContent() {
     <PkmDataManagerPanel
       signedIn={Boolean(user)}
       loading={profileManagerLoading}
+      metadataReady={pkmMetadataReady}
+      metadataError={pkmError}
+      sharingReady={consentCenterReady}
+      sharingError={consentCenterError}
       needsVaultCreation={vaultAccess.needsVaultCreation}
       needsUnlock={vaultAccess.needsUnlock}
       summary={profileSummary}
       domains={domainPresentations}
-      sourceHealth={sourceHealthEntries}
-      canShowAdvancedTools={canShowPkmAgentLab}
-      onOpenAdvancedTools={
-        canShowPkmAgentLab ? () => router.push("/profile/pkm-agent-lab") : undefined
-      }
-      onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
+      manifestsByDomain={domainManifests}
+      loadingManifestsByDomain={loadingDomainManifests}
+      manifestErrorsByDomain={domainManifestErrors}
+      upgradeStatesByDomain={upgradeStatesByDomain}
+      onOpenSharing={() => updateProfileView({ panel: "access", detail: null }, "push")}
       onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-      onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
       onRefresh={() => {
         void refreshPkmMetadata(true);
         void refreshConsentCenter(true);
+        void refreshVisibleDomainManifests(true);
       }}
       onOpenDomain={(domain) =>
         updateProfileView(
@@ -1589,9 +2041,6 @@ function ProfilePageContent() {
           "push"
         )
       }
-      onRevokeAccess={async (scope) => {
-        await handleRevoke(scope);
-      }}
     />
   );
 
@@ -1600,8 +2049,11 @@ function ProfilePageContent() {
       <PkmAccessManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
+        sharingReady={consentCenterReady}
+        sharingError={consentCenterError}
         summary={profileSummary}
         domains={domainPresentations}
+        onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
         onOpenConnection={(connection) =>
           updateProfileView(
             {
@@ -1611,31 +2063,12 @@ function ProfilePageContent() {
             "push"
           )
         }
-        onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
         onRevokeAccess={async (scope) => {
           await handleRevoke(scope);
         }}
       />
 
-      <SettingsGroup
-        eyebrow="Access"
-        description="Account-level visibility and consent management outside individual data domains."
-      >
-        <SettingsRow
-          icon={ShieldCheck}
-          title="Consent center"
-          description={
-            pendingConsents > 0
-              ? `${pendingConsents} request${pendingConsents === 1 ? "" : "s"} waiting for review.`
-              : "Open the full consent center for history, pending approvals, and relationship-level actions."
-          }
-          trailing={
-            pendingConsents > 0 ? <Badge variant="secondary">{pendingConsents}</Badge> : null
-          }
-          chevron
-          stackTrailingOnMobile
-          onClick={() => router.push(ROUTES.CONSENTS)}
-        />
+      <SettingsGroup>
         <SettingsRow
           icon={RefreshCw}
           title="Marketplace visibility"
@@ -1658,62 +2091,81 @@ function ProfilePageContent() {
   );
 
   const preferencesContent = (
-    <SettingsGroup title="Preferences">
-      <SettingsRow
-        icon={Monitor}
-        title="Appearance"
-        description="Light, dark, or system."
-        trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
-        stackTrailingOnMobile
-      />
-      <SettingsRow
-        icon={RefreshCw}
-        title="Kai preferences"
-        description={
-          vaultAccess.canMutateSecureData
-            ? "Risk profile and horizon."
-            : "Unlock to edit secure Kai preferences."
-        }
-        trailing={canEditKaiPreferences ? <Badge variant="secondary">Ready</Badge> : null}
-        chevron
-        stackTrailingOnMobile
-        onClick={openKaiPreferences}
-      />
-      <SettingsRow
-        icon={Cloud}
-        title="On-device first"
-        description="Device-first controls."
-        trailing={<Badge variant="secondary">Coming soon</Badge>}
-        chevron
-        stackTrailingOnMobile
-        onClick={() => updateProfileView({ panel: "preferences", detail: "device" }, "push")}
-      />
-    </SettingsGroup>
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary">Appearance</Badge>
+        <Badge variant="secondary">
+          {canEditKaiPreferences ? "Secure preferences ready" : "Unlock required"}
+        </Badge>
+        <Badge variant="secondary">Device controls soon</Badge>
+      </div>
+      <SettingsGroup>
+        <SettingsRow
+          icon={Monitor}
+          title="Appearance"
+          description="Light, dark, or system."
+          trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
+          stackTrailingOnMobile
+        />
+        <SettingsRow
+          icon={RefreshCw}
+          title="Kai preferences"
+          description={
+            vaultAccess.canMutateSecureData
+              ? "Risk profile and horizon."
+              : "Unlock to edit secure Kai preferences."
+          }
+          trailing={canEditKaiPreferences ? <Badge variant="secondary">Ready</Badge> : null}
+          chevron
+          stackTrailingOnMobile
+          onClick={openKaiPreferences}
+        />
+        <SettingsRow
+          icon={Cloud}
+          title="On-device first"
+          description="Device-first controls."
+          trailing={<Badge variant="secondary">Coming soon</Badge>}
+          chevron
+          stackTrailingOnMobile
+          onClick={() => updateProfileView({ panel: "preferences", detail: "device" }, "push")}
+        />
+      </SettingsGroup>
+    </div>
   );
 
   const securityContent = (
-    <SettingsGroup title="Security">
-      <SettingsRow
-        icon={Fingerprint}
-        title="Vault methods"
-        description="Passphrase, passkey, and unlock method."
-        chevron
-        onClick={() => updateProfileView({ panel: "security", detail: "vault" }, "push")}
-      />
-      <SettingsRow
-        icon={Trash2}
-        title="Danger zone"
-        description="Delete Investor, RIA, or the full account."
-        chevron
-        tone="destructive"
-        onClick={() => updateProfileView({ panel: "security", detail: "danger" }, "push")}
-      />
-    </SettingsGroup>
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary">
+          {vaultAccess.hasVault ? (vaultAccess.needsUnlock ? "Vault locked" : "Vault unlocked") : "No vault"}
+        </Badge>
+        {displayedUnlockMethod ? (
+          <Badge variant="secondary">{readableMethod(displayedUnlockMethod)}</Badge>
+        ) : null}
+      </div>
+      <SettingsGroup>
+        <SettingsRow
+          icon={Fingerprint}
+          title="Vault methods"
+          description="Passphrase, passkey, and unlock method."
+          chevron
+          onClick={() => updateProfileView({ panel: "security", detail: "vault" }, "push")}
+        />
+        <SettingsRow
+          icon={Trash2}
+          title="Danger zone"
+          description="Delete Investor, RIA, or the full account."
+          chevron
+          tone="destructive"
+          onClick={() => updateProfileView({ panel: "security", detail: "danger" }, "push")}
+        />
+      </SettingsGroup>
+    </div>
   );
 
   const supportContent = (
     <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup title="Support">
+      <SettingsGroup>
         {supportActions.map((action) => (
           <SettingsRow
             key={action.kind}
@@ -1740,7 +2192,13 @@ function ProfilePageContent() {
 
   const gmailContent = (
     <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup title="Gmail">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary">{gmailStatusLabel}</Badge>
+        {gmailLastSyncText && gmailLastSyncText !== "Not synced yet" ? (
+          <Badge variant="secondary">{gmailLastSyncText}</Badge>
+        ) : null}
+      </div>
+      <SettingsGroup>
         <SettingsRow
           icon={Mail}
           title="Connection"
@@ -2055,45 +2513,70 @@ function ProfilePageContent() {
 
   const profileStackEntries: ProfileStackEntry[] = [];
 
-  if (activePanel === "my-data") {
+  if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
-      title: "My Data",
-      description: undefined,
-      breadcrumb: ["Profile", "My Data"],
+      title: "Personal Knowledge Model",
+      description: "Browse domains, counts, and sharing controls.",
       content: myDataContent,
     });
     if (selectedDomain) {
       profileStackEntries.push({
         key: `detail:domain:${selectedDomain.key}`,
         title: selectedDomain.title,
-        description: undefined,
-        breadcrumb: ["Profile", "My Data", selectedDomain.title],
+        description: "Review sections and sharing controls.",
         content: (
           <PkmDomainDetailPanel
             domain={selectedDomain}
-            onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
-              onRevokeAccess={async (scope) => {
-                await handleRevoke(scope);
-              }}
+            permissions={selectedDomainPermissions}
+            upgrade={
+              selectedDomainUpgrade || {
+                status: "missing_manifest",
+                label: "Updating structure",
+                description:
+                  "Sharing controls will appear here once this domain manifest is ready.",
+                canManagePermissions: false,
+              }
+            }
+            manifestLoading={Boolean(selectedDomain && loadingDomainManifests[selectedDomain.key])}
+            manifestError={selectedDomain ? domainManifestErrors[selectedDomain.key] : null}
+            pendingPermissionKeys={selectedDomainPermissions
+              .filter((permission) => pendingPermissionToggles[permission.key])
+              .map((permission) => permission.key)}
+            previewOpen={domainPreview.open}
+            previewTitle={domainPreview.title}
+            previewDescription={domainPreview.description}
+            previewPresentation={domainPreview.presentation}
+            previewLoading={domainPreview.loading}
+            previewError={domainPreview.error}
+            onPreviewOpenChange={(open) =>
+              setDomainPreview((current) => ({
+                ...current,
+                open,
+              }))
+            }
+            onPreviewPermission={(permission) =>
+              void handlePreviewDomainPermission(selectedDomain.key, permission)
+            }
+            onTogglePermission={(permission, nextValue) =>
+              void handleToggleDomainPermission(selectedDomain.key, permission, nextValue)
+            }
           />
         ),
       });
     }
-  } else if (activePanel === "access") {
+  } else if (!routeBlockedByVault && activePanel === "access") {
     profileStackEntries.push({
       key: "panel:access",
       title: "Access & sharing",
-      description: undefined,
-      breadcrumb: ["Profile", "Access & sharing"],
+      description: "Review who can read what and manage live grants.",
       content: accessContent,
     });
     if (selectedConnection) {
       profileStackEntries.push({
         key: `detail:connection:${selectedConnection.id}`,
         title: selectedConnection.requesterLabel,
-        description: undefined,
-        breadcrumb: ["Profile", "Access & sharing", selectedConnection.requesterLabel],
+        description: "Inspect exact scopes and revoke access inline.",
         content: (
           <PkmAccessConnectionDetailPanel
             connection={selectedConnection}
@@ -2104,20 +2587,18 @@ function ProfilePageContent() {
         ),
       });
     }
-  } else if (activePanel === "preferences") {
+  } else if (!routeBlockedByVault && activePanel === "preferences") {
     profileStackEntries.push({
       key: "panel:preferences",
       title: "Preferences",
-      description: undefined,
-      breadcrumb: ["Profile", "Preferences"],
+      description: "Appearance, Kai settings, and device behavior.",
       content: preferencesContent,
     });
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
         title: "Kai preferences",
-        description: undefined,
-        breadcrumb: ["Profile", "Preferences", "Kai preferences"],
+        description: "Secure personal settings for Kai.",
         content: (
           <ProfileKaiPreferencesPanel
             userId={user.uid}
@@ -2132,8 +2613,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:device",
         title: "On-device first",
-        description: undefined,
-        breadcrumb: ["Profile", "Preferences", "On-device first"],
+        description: "Local-device controls and upcoming options.",
         content: (
           <SettingsGroup title="Device">
             <SettingsRow
@@ -2147,28 +2627,25 @@ function ProfilePageContent() {
         ),
       });
     }
-  } else if (activePanel === "security") {
+  } else if (!routeBlockedByVault && activePanel === "security") {
     profileStackEntries.push({
       key: "panel:security",
       title: "Security",
-      description: undefined,
-      breadcrumb: ["Profile", "Security"],
+      description: "Vault methods, session controls, and account deletion.",
       content: securityContent,
     });
     if (activeDetail === "vault") {
       profileStackEntries.push({
         key: "detail:vault",
         title: "Vault methods",
-        description: undefined,
-        breadcrumb: ["Profile", "Security", "Vault methods"],
+        description: "Review unlock method and secure defaults.",
         content: vaultMethodsContent,
       });
     } else if (activeDetail === "session") {
       profileStackEntries.push({
         key: "detail:session",
         title: "Session",
-        description: undefined,
-        breadcrumb: ["Profile", "Security", "Session"],
+        description: "Manage the current session on this device.",
         content: (
           <SettingsGroup title="Session">
             <SettingsRow
@@ -2185,8 +2662,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:danger",
         title: "Danger zone",
-        description: undefined,
-        breadcrumb: ["Profile", "Security", "Danger zone"],
+        description: "Delete persona or account data.",
         content: (
           <SettingsGroup title="Danger zone">
             <SettingsRow
@@ -2201,79 +2677,68 @@ function ProfilePageContent() {
         ),
       });
     }
-  } else if (activePanel === "gmail") {
+  } else if (!routeBlockedByVault && activePanel === "gmail") {
     profileStackEntries.push({
       key: "panel:gmail",
       title: "Gmail receipts",
-      description: undefined,
-      breadcrumb: ["Profile", "Gmail receipts"],
+      description: "Connection state, sync health, and receipt actions.",
       content: gmailContent,
     });
     if (activeDetail === "gmail-connection") {
       profileStackEntries.push({
         key: "detail:gmail-connection",
         title: "Connection",
-        description: undefined,
-        breadcrumb: ["Profile", "Gmail receipts", "Connection"],
+        description: "Current inbox, status, and latest sync.",
         content: gmailConnectionContent,
       });
     } else if (activeDetail === "gmail-actions") {
       profileStackEntries.push({
         key: "detail:gmail-actions",
         title: "Actions",
-        description: undefined,
-        breadcrumb: ["Profile", "Gmail receipts", "Actions"],
+        description: "Connect, sync, open receipts, or disconnect.",
         content: gmailActionsContent,
       });
     }
-  } else if (activePanel === "support") {
+  } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
       key: "panel:support",
       title: "Support & feedback",
-      description: undefined,
-      breadcrumb: ["Profile", "Support & feedback"],
+      description: "Get help, report bugs, or send product feedback.",
       content: supportContent,
     });
     if (activeDetail === "support-routing") {
       profileStackEntries.push({
         key: "detail:support-routing",
         title: "Support routing",
-        description: undefined,
-        breadcrumb: ["Profile", "Support & feedback", "Routing"],
+        description: "Where support messages are routed and replied.",
         content: supportRoutingContent,
       });
     } else if (supportComposeKind && supportComposeContent) {
       profileStackEntries.push({
         key: `detail:support-compose:${supportComposeKind}`,
         title: SUPPORT_KIND_COPY[supportComposeKind].title,
-        description: undefined,
-        breadcrumb: ["Profile", "Support & feedback", SUPPORT_KIND_COPY[supportComposeKind].title],
+        description: "Write and send a concise support message.",
         content: supportComposeContent,
       });
     }
   }
 
-  return (
-    <AppPageShell
-      data-testid="profile-primary"
-      as="div"
-      width="reading"
-      className="relative isolate overflow-hidden pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
-      nativeTest={{
-        routeId: "/profile",
-        marker: "native-route-profile",
-        authState: user ? "authenticated" : "pending",
-        dataState: authLoading ? "loading" : "loaded",
-      }}
-    >
-      <AppPageHeaderRegion className="pt-[calc(var(--top-fade-active)+0.35rem)] sm:pt-[calc(var(--top-fade-active)+0.55rem)]">
-        <header className="flex flex-col items-center gap-3 text-center" data-slot="page-header" data-page-primary="true">
-          <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/18 sm:h-20 sm:w-20">
+  const profileRootContent = (
+    <>
+      <AppPageHeaderRegion
+        className="pt-[calc(var(--page-top-start)+5.35rem)] sm:pt-[calc(var(--page-top-start)+5.85rem)]"
+      >
+        <header
+          className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
+          data-slot="page-header"
+          data-page-primary="true"
+        >
+          <Avatar className="h-14 w-14 shrink-0 ring-4 ring-primary/18 sm:h-16 sm:w-16">
             <AvatarImage
               src={user.photoURL || undefined}
               alt={user.displayName || "Profile"}
             />
-            <AvatarFallback className="bg-muted text-lg font-semibold text-muted-foreground sm:text-xl">
+            <AvatarFallback className="bg-muted text-base font-semibold text-muted-foreground sm:text-lg">
               {user.displayName ? (
                 user.displayName
                   .split(" ")
@@ -2286,12 +2751,12 @@ function ProfilePageContent() {
               )}
             </AvatarFallback>
           </Avatar>
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+          <div className="min-w-0 max-w-full space-y-1.5">
+            <h1 className="text-2xl font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[2rem]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="inline-flex items-center gap-2 text-sm text-muted-foreground"
+              className="inline-flex max-w-full items-center justify-center gap-2 text-sm text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -2299,8 +2764,13 @@ function ProfilePageContent() {
                 {user.email || "Not available"}
               </span>
             </div>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <Badge variant="secondary">{myDataRootBadge}</Badge>
+              <Badge variant="secondary">{accessRootBadge}</Badge>
+              <Badge variant="secondary">{gmailStatusLabel}</Badge>
+            </div>
             {vaultAccess.needsUnlock && hasVault ? (
-              <div className="pt-2">
+              <div className="pt-1.5">
                 <Button
                   size="sm"
                   className="min-w-[148px]"
@@ -2321,14 +2791,14 @@ function ProfilePageContent() {
             {pkmError ? (
               <ProfileStateNotice
                 tone="warning"
-                title="Data manager loaded partially"
+                title="Data loaded partially"
                 description={pkmError}
               />
             ) : null}
             {consentCenterError ? (
               <ProfileStateNotice
                 tone="warning"
-                title="Access view loaded partially"
+                title="Access loaded partially"
                 description={consentCenterError}
               />
             ) : null}
@@ -2336,13 +2806,17 @@ function ProfilePageContent() {
             <SettingsGroup title="Data">
               <SettingsRow
                 icon={Folder}
-                title="My Data"
+                title="Personal Knowledge Model"
                 description={
                   vaultAccess.needsVaultCreation
                     ? "Create your vault first."
+                    : !pkmMetadataReady && !pkmMetadataFailed
+                      ? "Checking saved domains."
+                      : pkmMetadataFailed
+                        ? "Saved data is unavailable."
                     : vaultAccess.needsUnlock
-                      ? "Unlock to review details."
-                      : "Items, sources, and freshness."
+                      ? "Unlock to review domains and sharing."
+                      : "Domains, counts, and sharing."
                 }
                 trailing={<Badge variant="secondary">{myDataRootBadge}</Badge>}
                 chevron={!vaultAccess.needsVaultCreation}
@@ -2356,11 +2830,15 @@ function ProfilePageContent() {
                 description={
                   vaultAccess.needsVaultCreation
                     ? "Create your vault first."
+                    : !consentCenterReady && !consentCenterFailed
+                      ? "Checking current sharing state."
+                      : consentCenterFailed
+                        ? "Sharing is unavailable."
                     : vaultAccess.needsUnlock
-                      ? "Unlock to review sharing."
-                      : "Permissions and sharing."
+                      ? "Unlock to review live access."
+                      : "Who can read what."
                 }
-                trailing={<Badge variant="secondary">{activeGrantCount} active</Badge>}
+                trailing={<Badge variant="secondary">{accessRootBadge}</Badge>}
                 chevron={!vaultAccess.needsVaultCreation}
                 disabled={vaultAccess.needsVaultCreation}
                 stackTrailingOnMobile
@@ -2373,14 +2851,14 @@ function ProfilePageContent() {
                   vaultAccess.needsVaultCreation
                     ? "Create your vault first."
                     : vaultAccess.needsUnlock
-                      ? "Unlock to manage receipts."
-                      : gmailSettingsDescription
+                      ? "Unlock to review sync and receipts."
+                      : "Connection, sync, and receipts."
                 }
                 trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
                 chevron={!vaultAccess.needsVaultCreation}
                 disabled={vaultAccess.needsVaultCreation}
                 stackTrailingOnMobile
-                onClick={() => updateProfileView({ panel: "gmail", detail: null }, "push")}
+                onClick={openGmailPanel}
               />
             </SettingsGroup>
 
@@ -2388,21 +2866,21 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={RefreshCw}
                 title="Preferences"
-                description="Theme, Kai preferences, and device behavior."
+                description="Theme, Kai, and device behavior."
                 chevron
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
                 icon={Fingerprint}
                 title="Security"
-                description="Vault methods and account deletion."
+                description="Vault, session, and account deletion."
                 chevron
                 onClick={openSecurityPanel}
               />
               <SettingsRow
                 icon={LifeBuoy}
                 title="Support & feedback"
-                description="Report bugs, ask for help, or send product feedback."
+                description="Help, bugs, and product feedback."
                 chevron
                 onClick={() => updateProfileView({ panel: "support", detail: null }, "push")}
               />
@@ -2410,8 +2888,8 @@ function ProfilePageContent() {
                 <SettingsRow
                   icon={Code2}
                   title="PKM Agent Lab"
-                  description="Developer-only explorer and mutation lab."
-                  trailing={<Badge variant="secondary">Dev / UAT</Badge>}
+                  description="Local developer workspace."
+                  trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
                   stackTrailingOnMobile
                   onClick={() => router.push("/profile/pkm-agent-lab")}
@@ -2432,22 +2910,54 @@ function ProfilePageContent() {
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
+    </>
+  );
 
-      <ProfileStackNavigator entries={profileStackEntries} />
+  return (
+    <AppPageShell
+      data-testid="profile-primary"
+      as="div"
+      width="reading"
+      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      nativeTest={{
+        routeId: "/profile",
+        marker: "native-route-profile",
+        authState: user ? "authenticated" : "pending",
+        dataState: authLoading ? "loading" : "loaded",
+      }}
+    >
+      <ProfileStackNavigator rootContent={profileRootContent} entries={profileStackEntries} />
 
       {hasVault === true && (
         <VaultUnlockDialog
           user={user}
           open={showVaultUnlock}
-          onOpenChange={setShowVaultUnlock}
+          onOpenChange={handleVaultUnlockOpenChange}
           title={unlockDialogTitle}
           description={unlockDialogDescription}
           onSuccess={() => {
+            vaultUnlockCompletingRef.current = true;
             setShowVaultUnlock(false);
             if (vaultUnlockReason === "delete_account") {
               setTimeout(() => setShowDeleteConfirm(true), 300);
+              setTimeout(() => {
+                vaultUnlockCompletingRef.current = false;
+              }, 0);
               return;
             }
+            if (pendingProfileTarget) {
+              updateProfileView(
+                {
+                  panel: pendingProfileTarget.panel,
+                  detail: pendingProfileTarget.detail,
+                },
+                pendingProfileTarget.mode
+              );
+              setPendingProfileTarget(null);
+            }
+            setTimeout(() => {
+              vaultUnlockCompletingRef.current = false;
+            }, 0);
             toast.success("Vault unlocked.");
           }}
         />

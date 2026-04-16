@@ -1125,7 +1125,7 @@ export default function PkmAgentLabPageClient() {
             ) : !developerReady ? (
               <SettingsRow
                 title="Developer access required"
-                description="PKM Agent Lab stays non-production and developer-gated during this phase."
+                description="PKM Agent Lab is restricted to localhost developer runs during this phase."
                 leading={<Code2 className="h-4 w-4 text-amber-500" />}
                 trailing={
                   <Button variant="none" effect="fade" onClick={() => router.push("/developers")}>

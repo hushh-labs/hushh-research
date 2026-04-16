@@ -61,8 +61,10 @@ Non-owned surfaces:
    - connector failed to start
    - connector connected but returned an empty discovery result
    - environment mismatch between local, UAT, and production
-4. Report the raw connector result concisely before inferring causes.
-5. If the connector returns empty in multiple environments, treat that as a valid empty response until proven otherwise.
+4. Default discovery should stay compact: domains plus top-level requestable scopes. Deep leaf-path scope expansion is debug-only.
+5. When auditing PKM parity, compare connector output to the backend metadata route and manifest-backed domain truth for the same user before concluding discovery is wrong.
+6. Report the raw connector result concisely before inferring causes.
+7. If the connector returns empty in multiple environments, treat that as a valid empty response until proven otherwise.
 
 ## Handoff Rules
 

@@ -180,6 +180,25 @@ Use the `Subtle Apple` depth model:
 8. If a surface needs more presence, move from `surface` to `surface-feature` or `hero`; do not invent a new route-local shadow recipe.
 9. Analysis/workspace sections should avoid duplicate summary chrome. Use one primary card for the main read and then secondary cards only when they add new information.
 
+### Information Density And Evidence
+
+1. Concrete detail beats vague summary.
+2. If a surface says `44 names`, the detail state should reveal the names cleanly.
+3. Counts are only useful when they open into inspectable evidence.
+4. One idea per card. Do not mix primary read, secondary status, and supporting explanation in the same card unless the grouping is essential.
+5. Avoid stacked framing chrome:
+   - header inside header
+   - card inside card without semantic separation
+   - repeated helper copy above and inside the same module
+6. Text grouping must communicate meaning, not just fit data. Avoid arbitrary line-broken symbol dumps and vague “read” summaries when clearer structured presentation is available.
+7. Modals and control surfaces should be information-dense, focused, and interaction-smooth:
+   - narrower than full page shells by default
+   - content remains mounted through close animation
+   - close affordances stay tactile and reliable
+8. Responsive composition is not width-only responsiveness. Recompose boards for tablet and desktop instead of stretching mobile stacks.
+9. Persona-facing surfaces should bias toward shorter, clearer, more descriptive copy over decorative narrative.
+10. The design system should challenge poor UX proactively; weak hierarchy, vague detail, or obvious asymmetry should be treated as design defects, not stylistic preferences.
+
 ### Ripple Ownership and Clipping
 
 1. Every actionable shell should show Material ripple.

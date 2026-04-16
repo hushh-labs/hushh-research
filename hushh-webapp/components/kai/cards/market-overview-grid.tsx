@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 export interface MarketOverviewDetailSection {
   title: string;
   lines: string[];
+  items?: string[];
 }
 
 export interface MarketOverviewDetailPanel {

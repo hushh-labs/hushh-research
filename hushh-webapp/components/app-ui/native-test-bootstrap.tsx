@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -83,8 +84,18 @@ export function NativeTestBootstrap() {
 
     nativeTestReviewerBootstrapInflight ??= (async () => {
       try {
-        const { token } = await ApiService.createAppReviewModeSession("reviewer");
-        const authResult = await AuthService.signInWithCustomToken(token);
+        const localReviewerCredentials = resolveLocalReviewerCredentials(
+          typeof window !== "undefined" ? window.location.hostname : null
+        );
+        const authResult = localReviewerCredentials
+          ? await AuthService.signInWithEmailAndPassword(
+              localReviewerCredentials.email,
+              localReviewerCredentials.password
+            )
+          : await (async () => {
+              const { token } = await ApiService.createAppReviewModeSession("reviewer");
+              return AuthService.signInWithCustomToken(token);
+            })();
         const authenticatedUser = authResult.user;
 
         if (!authenticatedUser) {

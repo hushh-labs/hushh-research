@@ -148,8 +148,8 @@ describe("investor-kai-action-registry", () => {
   it("lists surface-specific actions for Gmail and PKM routes", () => {
     const gmailActions = listInvestorKaiActionsForSurface({
       screen: "profile_gmail_panel",
-      href: "/profile?tab=account&panel=gmail",
-      pathname: "/profile?tab=account&panel=gmail",
+      href: "/profile?panel=gmail",
+      pathname: "/profile?panel=gmail",
     }).map((action) => action.id);
 
     expect(gmailActions).toEqual(

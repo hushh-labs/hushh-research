@@ -101,21 +101,15 @@ export function SettingsGroup({
   embedded?: boolean;
   className?: string;
 }) {
-  const clipShell = (
-    <div className="relative isolate overflow-hidden rounded-[calc(var(--settings-group-radius)-1px)]">
-      <div className="relative isolate divide-y divide-border/60">{children}</div>
-    </div>
-  );
-
   const shell = (
     <div
       className={cn(
-        "relative isolate [--settings-group-radius:24px] rounded-[var(--app-card-radius-feature)]",
-        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-px shadow-[var(--app-card-shadow-standard)]",
+        "relative isolate [--settings-group-radius:30px] overflow-hidden rounded-[calc(var(--app-card-radius-feature)+6px)]",
+        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
         !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
       )}
     >
-      {clipShell}
+      <div className="relative isolate divide-y divide-border/60">{children}</div>
     </div>
   );
 

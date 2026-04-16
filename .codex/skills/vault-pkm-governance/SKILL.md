@@ -55,11 +55,19 @@ Non-owned surfaces:
 1. Confirm whether the change touches encrypted storage, upgrade flow, unlock behavior, or PKM domain data rules.
 2. Keep frontend and backend boundaries aligned around the same vault/PKM contract.
 3. Treat the vault key and vault-owner token as memory-only runtime state, not route-persistent state.
-4. When testing protected routes, distinguish clearly between:
+4. Do not default to Playwright when route/service tests or metadata proofs are sufficient.
+5. When testing protected routes, distinguish clearly between:
    - same-session client navigation after unlock
    - cold deep-link entry that must re-establish unlock state
-5. Do not treat `page.goto(...)` behavior as equivalent to Next client navigation for vault-protected flows.
-6. Treat IAM, consent, and verification policy questions as `iam-consent-governance` work when they become primary.
+6. When Playwright is required for a protected-route proof, use:
+   - reviewer-mode login
+   - vault unlock with the configured Kai/reviewer passphrase from env
+   - Next client navigation for same-session validation
+7. Do not treat `page.goto(...)` behavior as equivalent to Next client navigation for vault-protected flows.
+8. Treat PKM manifests as authoritative truth when present; `pkm_index` is a discovery cache that may need repair.
+9. Keep `manifest_version`, `domain_contract_version`, `readable_summary_version`, and whole-PKM `model_version` as separate concerns.
+10. Locked PKM summaries must remain truthful. Vault lock may hide decrypted detail, but it must not collapse existing PKM into a false empty state.
+11. Treat IAM, consent, and verification policy questions as `iam-consent-governance` work when they become primary.
 
 ## Handoff Rules
 

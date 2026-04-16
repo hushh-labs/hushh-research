@@ -133,6 +133,21 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
                     "meta_reference": "manifest top-level scope path",
                 },
                 {
+                    "scope": "attr.financial.schema_version.*",
+                    "domain": "financial",
+                    "path": "schema_version",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_financial_schema_version",
+                    "label": "Schema Version",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest top-level scope path",
+                    "consumer_visible": False,
+                    "internal_only": True,
+                    "visibility_reason": "structural_top_level_path",
+                },
+                {
                     "scope": "attr.financial.profile.risk_tolerance",
                     "domain": "financial",
                     "path": "profile.risk_tolerance",
@@ -152,7 +167,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -175,6 +190,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     assert payload["scope_entries"][0]["source_kind"] == "pkm_index"
     assert payload["scope_entries"][1]["meta_reference"] == "manifest top-level scope path"
     assert len(payload["scope_entries"]) == 2
+    assert all(entry["path"] != "schema_version" for entry in payload["scope_entries"])
     assert payload["app_display_name"] == "Demo App"
 
 
@@ -236,7 +252,7 @@ def test_user_scopes_verbose_returns_path_level_entries(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -304,7 +320,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -417,7 +433,7 @@ def test_request_consent_reuses_covering_active_token(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -509,7 +525,7 @@ def test_request_consent_reuses_exact_pending_request(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -591,7 +607,7 @@ def test_request_consent_marks_scope_upgrade_metadata(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -874,7 +890,7 @@ def test_request_consent_rejects_legacy_scope_alias(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 

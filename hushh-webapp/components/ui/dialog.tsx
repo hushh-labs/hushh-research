@@ -6,6 +6,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
 
 function Dialog({
   modal = false,
@@ -75,9 +76,10 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="ring-offset-background focus:ring-ring group absolute top-4 right-4 z-30 isolate overflow-hidden rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-[opacity,transform] duration-200 hover:opacity-100 active:scale-[0.97] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
+            <MaterialRipple variant="none" effect="fade" className="z-10" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}

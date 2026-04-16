@@ -30,6 +30,7 @@ export function KaiControlSurface({
   children,
   footer,
   bodyClassName,
+  contentClassName,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -39,6 +40,7 @@ export function KaiControlSurface({
   children: ReactNode;
   footer?: ReactNode;
   bodyClassName?: string;
+  contentClassName?: string;
 }) {
   const isMobile = useIsMobile();
 
@@ -87,7 +89,10 @@ export function KaiControlSurface({
     <Dialog open={open} onOpenChange={onOpenChange} modal>
       <DialogContent
         showCloseButton
-        className="max-h-[calc(100dvh-3rem)] gap-0 overflow-hidden border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0 sm:max-w-[560px]"
+        className={cn(
+          "max-h-[calc(100dvh-3rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0 sm:max-w-[min(42rem,calc(100vw-4.5rem))] lg:max-w-[min(46rem,calc(100vw-8rem))]",
+          contentClassName
+        )}
       >
         <div
           aria-hidden

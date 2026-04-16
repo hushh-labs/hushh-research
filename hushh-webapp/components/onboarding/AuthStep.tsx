@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getRedirectResult } from "firebase/auth";
 import { Phone, Shield } from "lucide-react";
@@ -25,7 +25,13 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
 import { trackEvent } from "@/lib/observability/client";
+import {
+  resolveGrowthEntrySurface,
+  resolveGrowthJourneyForPath,
+  trackGrowthFunnelStepCompleted,
+} from "@/lib/observability/growth";
 import { getNativeTestConfig, useNativeTestConfig } from "@/lib/testing/native-test";
+import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 
 export function AuthStep({
   redirectPath,
@@ -63,6 +69,11 @@ export function AuthStep({
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING &&
     redirectPath === ROUTES.KAI_ONBOARDING;
+  const growthJourney = useMemo(() => resolveGrowthJourneyForPath(redirectPath), [redirectPath]);
+  const growthEntrySurface = useMemo(
+    () => resolveGrowthEntrySurface(redirectPath),
+    [redirectPath]
+  );
   const [activeLegalDoc, setActiveLegalDoc] = useState<KaiLegalDocumentType | null>(
     null
   );
@@ -136,6 +147,17 @@ export function AuthStep({
   }, [registerSteps, reset]);
 
   useEffect(() => {
+    if (!growthJourney || authLoading || user) return;
+    trackGrowthFunnelStepCompleted({
+      journey: growthJourney,
+      step: "entered",
+      entrySurface: growthEntrySurface,
+      dedupeKey: `growth:${growthJourney}:entered:${growthEntrySurface}`,
+      dedupeWindowMs: 5_000,
+    });
+  }, [authLoading, growthEntrySurface, growthJourney, user]);
+
+  useEffect(() => {
     if (authLoading) return;
     completeStep();
 
@@ -146,6 +168,16 @@ export function AuthStep({
             action: "redirect",
             result: "success",
           });
+          if (growthJourney) {
+            trackGrowthFunnelStepCompleted({
+              journey: growthJourney,
+              step: "auth_completed",
+              entrySurface: growthEntrySurface,
+              authMethod: "redirect",
+              dedupeKey: `growth:${growthJourney}:auth_completed:redirect`,
+              dedupeWindowMs: 5_000,
+            });
+          }
           debugLog("[AuthStep] Redirect result found, navigating to:", redirectPath);
           setNativeUser(result.user);
           void resolveAndNavigate(result.user.uid, await result.user.getIdToken());
@@ -160,6 +192,16 @@ export function AuthStep({
         action: "redirect",
         result: "success",
       });
+      if (growthJourney) {
+        trackGrowthFunnelStepCompleted({
+          journey: growthJourney,
+          step: "auth_completed",
+          entrySurface: growthEntrySurface,
+          authMethod: "redirect",
+          dedupeKey: `growth:${growthJourney}:auth_completed:redirect`,
+          dedupeWindowMs: 5_000,
+        });
+      }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
       void resolveAndNavigate(user.uid, undefined);
     }
@@ -168,6 +210,8 @@ export function AuthStep({
     user,
     authLoading,
     completeStep,
+    growthEntrySurface,
+    growthJourney,
     setNativeUser,
     resolveAndNavigate,
   ]);
@@ -188,12 +232,27 @@ export function AuthStep({
       action: "reviewer",
     });
     try {
-      if (!reviewModeConfig.enabled && !nativeTestConfig.autoReviewerLogin) {
+      const localReviewerCredentials = resolveLocalReviewerCredentials(
+        typeof window !== "undefined" ? window.location.hostname : null
+      );
+
+      if (
+        !reviewModeConfig.enabled &&
+        !nativeTestConfig.autoReviewerLogin &&
+        !localReviewerCredentials
+      ) {
         throw new Error("Reviewer mode is not enabled");
       }
 
-      const { token } = await ApiService.createAppReviewModeSession("reviewer");
-      const authResult = await AuthService.signInWithCustomToken(token);
+      const authResult = localReviewerCredentials
+        ? await AuthService.signInWithEmailAndPassword(
+            localReviewerCredentials.email,
+            localReviewerCredentials.password
+          )
+        : await (async () => {
+            const { token } = await ApiService.createAppReviewModeSession("reviewer");
+            return AuthService.signInWithCustomToken(token);
+          })();
       const authenticatedUser = authResult.user;
 
       if (authenticatedUser) {
@@ -204,6 +263,16 @@ export function AuthStep({
           action: "reviewer",
           result: "success",
         });
+        if (growthJourney) {
+          trackGrowthFunnelStepCompleted({
+            journey: growthJourney,
+            step: "auth_completed",
+            entrySurface: growthEntrySurface,
+            authMethod: "reviewer",
+            dedupeKey: `growth:${growthJourney}:auth_completed:reviewer`,
+            dedupeWindowMs: 5_000,
+          });
+        }
         setNativeUser(authenticatedUser);
         await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
       } else {
@@ -227,6 +296,8 @@ export function AuthStep({
       morphyToast.error(err.message || "Failed to sign in as reviewer");
     }
   }, [
+    growthEntrySurface,
+    growthJourney,
     nativeTestConfig.autoReviewerLogin,
     resolveAndNavigate,
     reviewModeConfig.enabled,
@@ -299,6 +370,16 @@ export function AuthStep({
           action: "google",
           result: "success",
         });
+        if (growthJourney) {
+          trackGrowthFunnelStepCompleted({
+            journey: growthJourney,
+            step: "auth_completed",
+            entrySurface: growthEntrySurface,
+            authMethod: "google",
+            dedupeKey: `growth:${growthJourney}:auth_completed:google`,
+            dedupeWindowMs: 5_000,
+          });
+        }
         setNativeUser(authenticatedUser);
         await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
       } else {
@@ -337,6 +418,16 @@ export function AuthStep({
           action: "apple",
           result: "success",
         });
+        if (growthJourney) {
+          trackGrowthFunnelStepCompleted({
+            journey: growthJourney,
+            step: "auth_completed",
+            entrySurface: growthEntrySurface,
+            authMethod: "apple",
+            dedupeKey: `growth:${growthJourney}:auth_completed:apple`,
+            dedupeWindowMs: 5_000,
+          });
+        }
         setNativeUser(authenticatedUser);
         await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
       } else {

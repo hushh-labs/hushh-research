@@ -27,6 +27,7 @@ import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
+import { trackInvestorActivationCompleted } from "@/lib/observability/growth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
 import { RoundTabsCard } from "@/components/kai/views/round-tabs-card";
@@ -412,6 +413,11 @@ function KaiAnalysisPageContent() {
 
   const handleLiveDecisionReady = useCallback(
     (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => {
+      trackInvestorActivationCompleted({
+        portfolioSource: analysisParams?.portfolioSource,
+        dedupeKey: `growth:investor:activation:${meta.runId || entry.ticker.toUpperCase()}`,
+        dedupeWindowMs: 10_000,
+      });
       if (summaryLoadingToastIdRef.current === null) {
         summaryLoadingToastIdRef.current = toast.info("Saving to history…", {
           duration: Infinity,
@@ -428,7 +434,7 @@ function KaiAnalysisPageContent() {
         workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       });
     },
-    [setAnalysisParams]
+    [analysisParams?.portfolioSource, setAnalysisParams]
   );
 
   const handleLiveDecisionPersisted = useCallback((entry: AnalysisHistoryEntry) => {
