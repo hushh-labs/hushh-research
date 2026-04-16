@@ -291,6 +291,11 @@ app.include_router(marketplace.router)
 app.include_router(invites.router)
 logger.info("ria.routes_enabled")
 
+# askkai@hushh.ai email agent routes (/api/email/...)
+from api.routes.email_agent import router as email_agent_router  # noqa: E402
+
+app.include_router(email_agent_router)
+
 logger.info(
     "🚀 Hushh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
 )
