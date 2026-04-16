@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import {
-  TrendingUp,
-  TrendingDown,
   ChevronDown,
   ChevronUp,
   Bookmark,
@@ -101,13 +99,6 @@ function verdictTone(decision: DecisionVerdict): string {
   if (label === "REDUCE")
     return "bg-orange-500/10 text-orange-700 dark:text-orange-300";
   return "bg-blue-500/10 text-blue-700 dark:text-blue-300";
-}
-
-function confidenceTone(confidence: number): "default" | "success" | "warning" | "danger" {
-  const normalized = confidence > 1 ? confidence : confidence * 100;
-  if (normalized >= 75) return "success";
-  if (normalized >= 50) return "warning";
-  return "danger";
 }
 
 function relativeTime(iso: string): string {

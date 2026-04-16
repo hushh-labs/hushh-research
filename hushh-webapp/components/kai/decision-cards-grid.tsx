@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  SlidersHorizontal,
   Search,
   FileQuestion,
 } from "lucide-react";
