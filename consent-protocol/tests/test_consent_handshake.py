@@ -7,15 +7,20 @@ reflected consistently in both the investor and RIA consent surfaces.
 
 from __future__ import annotations
 
-import time
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+import os
 
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+os.environ.setdefault("SECRET_KEY", "a" * 32)
+os.environ.setdefault("VAULT_ENCRYPTION_KEY", "b" * 64)
 
-from api.routes import consent
+import time  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import AsyncMock, patch  # noqa: E402
+
+import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from api.routes import consent  # noqa: E402
 
 
 # ============================================================================
