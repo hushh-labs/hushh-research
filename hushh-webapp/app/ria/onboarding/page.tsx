@@ -153,6 +153,26 @@ function isInvalidCrdVerificationMessage(message: string | null | undefined): bo
   );
 }
 
+function isTimeoutLikeMessage(message: string | null | undefined): boolean {
+  const normalized = String(message || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes("timed out") ||
+    normalized.includes("timeouterror") ||
+    normalized.includes("aborted due to timeout") ||
+    normalized.includes("request timed out")
+  );
+}
+
+function presentOnboardingErrorMessage(message: string | null | undefined): string {
+  const raw = String(message || "").trim();
+  if (!raw) return "Failed to submit onboarding.";
+  if (isTimeoutLikeMessage(raw)) {
+    return "Request timed out while waiting for verification. Please retry in a few seconds.";
+  }
+  return raw;
+}
+
 function StepChoice({
   active,
   label,
@@ -299,9 +319,11 @@ export default function RiaOnboardingPage() {
             setIamUnavailable(true);
           } else {
             setError(
-              loadError instanceof Error
-                ? loadError.message
-                : "Failed to load RIA onboarding."
+              presentOnboardingErrorMessage(
+                loadError instanceof Error
+                  ? loadError.message
+                  : "Failed to load RIA onboarding."
+              )
             );
           }
         }
@@ -425,7 +447,10 @@ export default function RiaOnboardingPage() {
         headline: draft.headline.trim() || undefined,
         strategy_summary: draft.strategySummary.trim() || undefined,
       }).catch(() => null);
-      await refreshPersonaState({ force: true });
+      await refreshPersonaState({ force: true }).catch((refreshError) => {
+        // Avoid blocking successful onboarding submit on post-submit refresh latency.
+        console.warn("[RIA Onboarding] Persona refresh failed after submit", refreshError);
+      });
       if (canActivateDiscoverability) {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
@@ -494,11 +519,12 @@ export default function RiaOnboardingPage() {
       if (isIAMSchemaNotReadyError(submitError)) {
         setIamUnavailable(true);
       }
-      const submitMessage =
+      const rawSubmitMessage =
         submitError instanceof Error ? submitError.message : "Failed to submit onboarding.";
+      const submitMessage = presentOnboardingErrorMessage(rawSubmitMessage);
       setError(submitMessage);
-      if (isInvalidCrdVerificationMessage(submitMessage)) {
-        setInvalidCrdDialogMessage(submitMessage);
+      if (isInvalidCrdVerificationMessage(rawSubmitMessage)) {
+        setInvalidCrdDialogMessage(rawSubmitMessage);
         setInvalidCrdDialogOpen(true);
         moveToStep("legal_identity");
         setNotice("Please enter a valid CRD number and submit again.");

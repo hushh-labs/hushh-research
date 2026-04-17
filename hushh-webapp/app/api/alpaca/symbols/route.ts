@@ -9,6 +9,21 @@ export const dynamic = "force-dynamic";
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 20;
 const ASSET_UNIVERSE_TTL_MS = 1000 * 60 * 5;
+const ALPACA_TRADING_BASE_URLS = {
+  sandbox: "https://paper-api.alpaca.markets",
+  production: "https://api.alpaca.markets",
+} as const;
+const ALPACA_ENV_ALIASES: Record<string, "sandbox" | "production"> = {
+  sandbox: "sandbox",
+  paper: "sandbox",
+  test: "sandbox",
+  uat: "sandbox",
+  development: "sandbox",
+  dev: "sandbox",
+  production: "production",
+  prod: "production",
+  live: "production",
+};
 
 type AlpacaAssetMeta = {
   id: string | null;
@@ -27,6 +42,7 @@ type AlpacaAssetMeta = {
 };
 
 type CachedAssetUniverse = {
+  cacheKey: string;
   fetchedAt: number;
   items: AlpacaAssetMeta[];
 };
@@ -62,6 +78,27 @@ function clampLimit(rawValue: string | null): number {
   const parsed = Number(rawValue);
   if (!Number.isFinite(parsed)) return DEFAULT_LIMIT;
   return Math.max(1, Math.min(MAX_LIMIT, Math.floor(parsed)));
+}
+
+function normalizeAlpacaEnvironment(
+  rawValue: string | null,
+  defaultValue: "sandbox" | "production" = "sandbox"
+): "sandbox" | "production" {
+  const fallback = ALPACA_ENV_ALIASES[defaultValue] || "sandbox";
+  const cleaned = String(rawValue || fallback).trim().toLowerCase();
+  return ALPACA_ENV_ALIASES[cleaned] || fallback;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
 }
 
 function getLocalBackendEnv(): Record<string, string> {
@@ -111,7 +148,11 @@ function getAuthHeaders(): Record<string, string> | null {
   };
 
   if (bearer) {
-    headers.Authorization = `Bearer ${bearer}`;
+    const lowered = bearer.toLowerCase();
+    headers.Authorization =
+      lowered.startsWith("basic ") || lowered.startsWith("bearer ")
+        ? bearer
+        : `Bearer ${bearer}`;
     return headers;
   }
 
@@ -233,19 +274,19 @@ function rankAssetForQuery(asset: AlpacaAssetMeta, query: string): number {
 
 async function fetchAssetUniverse(
   headers: Record<string, string>,
-  tradingBaseUrl: string
+  tradingBaseUrls: string[]
 ): Promise<AlpacaAssetMeta[]> {
   const attempted = new Set<string>();
-  const candidates = [
-    `${tradingBaseUrl}/v2/assets?status=active&asset_class=us_equity`,
-    `${tradingBaseUrl}/v1/assets?status=active&asset_class=us_equity`,
-    "https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",
-    "https://api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",
-  ].filter((url) => {
-    if (attempted.has(url)) return false;
-    attempted.add(url);
-    return true;
-  });
+  const candidates = tradingBaseUrls
+    .flatMap((baseUrl) => [
+      `${baseUrl}/v2/assets?status=active&asset_class=us_equity`,
+      `${baseUrl}/v1/assets?status=active&asset_class=us_equity`,
+    ])
+    .filter((url) => {
+      if (attempted.has(url)) return false;
+      attempted.add(url);
+      return true;
+    });
 
   const errors: string[] = [];
   for (const endpoint of candidates) {
@@ -283,17 +324,20 @@ async function fetchAssetUniverse(
 
 async function getAssetUniverseCached(
   headers: Record<string, string>,
-  tradingBaseUrl: string
+  tradingBaseUrls: string[]
 ): Promise<AlpacaAssetMeta[]> {
+  const cacheKey = tradingBaseUrls.join("|");
   if (
     assetUniverseCache &&
+    assetUniverseCache.cacheKey === cacheKey &&
     Date.now() - assetUniverseCache.fetchedAt < ASSET_UNIVERSE_TTL_MS
   ) {
     return assetUniverseCache.items;
   }
 
-  const items = await fetchAssetUniverse(headers, tradingBaseUrl);
+  const items = await fetchAssetUniverse(headers, tradingBaseUrls);
   assetUniverseCache = {
+    cacheKey,
     fetchedAt: Date.now(),
     items,
   };
@@ -323,23 +367,32 @@ export async function GET(request: NextRequest) {
   }
 
   const localEnv = getLocalBackendEnv();
+  const alpacaEnvironment = normalizeAlpacaEnvironment(
+    process.env.ALPACA_ENV ||
+      process.env.ALPACA_BROKER_ENV ||
+      localEnv.ALPACA_ENV ||
+      localEnv.ALPACA_BROKER_ENV ||
+      null
+  );
   const dataBaseUrl = String(
     process.env.ALPACA_DATA_BASE_URL ||
       localEnv.ALPACA_DATA_BASE_URL ||
       "https://data.alpaca.markets"
   ).replace(/\/+$/, "");
-  const tradingBaseUrl = String(
+  const configuredTradingBaseUrl = String(
     process.env.ALPACA_TRADING_BASE_URL ||
       process.env.ALPACA_API_BASE_URL ||
       process.env.ALPACA_BROKER_BASE_URL ||
       localEnv.ALPACA_TRADING_BASE_URL ||
       localEnv.ALPACA_API_BASE_URL ||
       localEnv.ALPACA_BROKER_BASE_URL ||
-      "https://paper-api.alpaca.markets"
+      ""
   ).replace(/\/+$/, "");
+  const defaultTradingBaseUrl = ALPACA_TRADING_BASE_URLS[alpacaEnvironment];
+  const tradingBaseUrls = uniqueStrings([configuredTradingBaseUrl, defaultTradingBaseUrl]);
 
   try {
-    const assetUniverse = await getAssetUniverseCached(headers, tradingBaseUrl);
+    const assetUniverse = await getAssetUniverseCached(headers, tradingBaseUrls);
     const matches = assetUniverse
       .filter((asset) => rankAssetForQuery(asset, q) < 10)
       .sort((a, b) => {

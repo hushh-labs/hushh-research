@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 
 from hushh_mcp.services.ria_verification import (
+    DEFAULT_RIA_INTELLIGENCE_VERIFY_URL,
     FinraVerificationAdapter,
     IapdVerificationAdapter,
     RIAIntelligenceVerificationAdapter,
@@ -11,6 +12,8 @@ from hushh_mcp.services.ria_verification import (
 
 def test_ria_intelligence_verifier_accepts_matching_crd_and_iard(monkeypatch):
     monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH", "/v1/ria/profile")
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/ria/profile"
@@ -314,10 +317,16 @@ def test_ria_intelligence_verifier_rejects_no_confident_match(monkeypatch):
     assert result.outcome == "rejected"
 
 
-def test_ria_intelligence_verifier_returns_provider_unavailable_when_not_configured(monkeypatch):
+def test_ria_intelligence_verifier_uses_stage1_default_url_when_not_configured(monkeypatch):
     monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", raising=False)
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH", raising=False)
 
-    adapter = RIAIntelligenceVerificationAdapter()
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == DEFAULT_RIA_INTELLIGENCE_VERIFY_URL
+        return httpx.Response(status_code=503)
+
+    adapter = RIAIntelligenceVerificationAdapter(transport=httpx.MockTransport(handler))
     result = _run(
         adapter.verify(
             legal_name="Akash Katla",
@@ -329,6 +338,32 @@ def test_ria_intelligence_verifier_returns_provider_unavailable_when_not_configu
     assert result.verified is False
     assert result.rejected is False
     assert result.outcome == "provider_unavailable"
+
+
+def test_ria_intelligence_verifier_reports_timeout_with_retry_message(monkeypatch):
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", raising=False)
+    monkeypatch.setenv(
+        "RIA_INTELLIGENCE_VERIFY_URL",
+        "https://hushh-ria-intelligence-api-53407187172.us-central1.run.app/v1/ria/profile/stage1",
+    )
+
+    def handler(request: httpx.Request):
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    adapter = RIAIntelligenceVerificationAdapter(transport=httpx.MockTransport(handler))
+    result = _run(
+        adapter.verify(
+            legal_name="Akash Katla",
+            finra_crd="1234567",
+            sec_iard="801-12345",
+        )
+    )
+
+    assert result.verified is False
+    assert result.rejected is False
+    assert result.outcome == "provider_unavailable"
+    assert result.message == "RIA intelligence verification timed out. Please retry."
+    assert result.metadata.get("reason") == "timeout"
 
 
 def test_ria_intelligence_verifier_requires_iard(monkeypatch):
@@ -351,15 +386,21 @@ def test_ria_intelligence_verifier_requires_iard(monkeypatch):
     assert "IAPD" in result.message or "IARD" in result.message
 
 
-def test_finra_adapter_reports_configuration_gap_when_providers_unconfigured(monkeypatch):
+def test_finra_adapter_surfaces_ria_provider_unavailable_message_when_iapd_unconfigured(
+    monkeypatch,
+):
     monkeypatch.delenv("ADVISORY_VERIFICATION_BYPASS_ENABLED", raising=False)
     monkeypatch.delenv("RIA_DEV_BYPASS_ENABLED", raising=False)
     monkeypatch.delenv("IAPD_VERIFY_BASE_URL", raising=False)
     monkeypatch.delenv("IAPD_VERIFY_API_KEY", raising=False)
     monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", raising=False)
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
     monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_API_KEY", raising=False)
 
     adapter = FinraVerificationAdapter()
+    adapter._ria_intelligence_provider = RIAIntelligenceVerificationAdapter(
+        transport=httpx.MockTransport(lambda request: httpx.Response(status_code=503))
+    )
     result = _run(
         adapter.verify(
             legal_name="Akash Katla",
@@ -371,7 +412,7 @@ def test_finra_adapter_reports_configuration_gap_when_providers_unconfigured(mon
     assert result.verified is False
     assert result.rejected is False
     assert result.outcome == "provider_unavailable"
-    assert "not configured" in result.message.lower()
+    assert result.message == "RIA intelligence verification provider unavailable"
 
 
 def test_iapd_adapter_honors_advisory_bypass_in_non_production(monkeypatch):

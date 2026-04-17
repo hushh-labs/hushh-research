@@ -58,6 +58,11 @@ _ALPACA_STOCK_LOOKUP_MAX_LIMIT = 20
 _ALPACA_STOCK_LOOKUP_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 _ALPACA_ASSET_UNIVERSE_CACHE_TTL_SECONDS = 5 * 60
 
+_ALPACA_TRADING_BASE_URLS = {
+    "sandbox": "https://paper-api.alpaca.markets",
+    "production": "https://api.alpaca.markets",
+}
+
 _TRADE_INTENT_TERMINAL_STATUSES = {
     "order_filled",
     "order_canceled",
@@ -561,15 +566,15 @@ class BrokerFundingService:
             _first_non_empty(
                 os.getenv("ALPACA_TRADING_BASE_URL"),
                 os.getenv("ALPACA_API_BASE_URL"),
-                os.getenv("ALPACA_BROKER_BASE_URL"),
             )
         )
-        runtime_url = _strip_trailing_slashes(self.alpaca_config.base_url)
+        default_trading_url = _ALPACA_TRADING_BASE_URLS.get(
+            self.alpaca_config.environment,
+            _ALPACA_TRADING_BASE_URLS["sandbox"],
+        )
         candidates = [
             configured_url,
-            runtime_url,
-            "https://paper-api.alpaca.markets",
-            "https://api.alpaca.markets",
+            default_trading_url,
         ]
 
         unique: list[str] = []

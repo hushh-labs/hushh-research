@@ -12,6 +12,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_RIA_INTELLIGENCE_VERIFY_URL = (
+    "https://hushh-ria-intelligence-api-53407187172.us-central1.run.app/v1/ria/profile/stage1"
+)
+
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
     raw = str(os.getenv(name, fallback)).strip().lower()
@@ -121,7 +125,7 @@ class RIAIntelligenceVerificationAdapter:
             endpoint_path = f"/{endpoint_path}"
         self._endpoint_path = endpoint_path or "/v1/ria/profile"
         self._api_key = str(os.getenv("RIA_INTELLIGENCE_VERIFY_API_KEY", "")).strip()
-        self._timeout_seconds = float(os.getenv("RIA_INTELLIGENCE_VERIFY_TIMEOUT_SECONDS", "25"))
+        self._timeout_seconds = float(os.getenv("RIA_INTELLIGENCE_VERIFY_TIMEOUT_SECONDS", "45"))
         self._transport = transport
 
     async def verify(
@@ -133,7 +137,9 @@ class RIAIntelligenceVerificationAdapter:
     ) -> VerificationResult:
         _ = legal_name
         request_url = self._verify_url or (
-            f"{self._base_url}{self._endpoint_path}" if self._base_url else ""
+            f"{self._base_url}{self._endpoint_path}"
+            if self._base_url
+            else DEFAULT_RIA_INTELLIGENCE_VERIFY_URL
         )
         if not request_url:
             return VerificationResult(
@@ -195,14 +201,39 @@ class RIAIntelligenceVerificationAdapter:
                     request_url,
                     json={"query": query},
                 )
+        except httpx.TimeoutException as exc:
+            logger.warning(
+                "ria.intelligence_verification_request_timeout type=%s detail=%r",
+                type(exc).__name__,
+                exc,
+            )
+            return VerificationResult(
+                verified=False,
+                rejected=False,
+                outcome="provider_unavailable",
+                message="RIA intelligence verification timed out. Please retry.",
+                metadata={
+                    "provider": "ria_intelligence",
+                    "reason": "timeout",
+                    "error": type(exc).__name__,
+                },
+            )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("ria.intelligence_verification_request_failed: %s", exc)
+            logger.warning(
+                "ria.intelligence_verification_request_failed type=%s detail=%r",
+                type(exc).__name__,
+                exc,
+            )
             return VerificationResult(
                 verified=False,
                 rejected=False,
                 outcome="provider_unavailable",
                 message="RIA intelligence verification request failed",
-                metadata={"provider": "ria_intelligence", "error": type(exc).__name__},
+                metadata={
+                    "provider": "ria_intelligence",
+                    "reason": "request_failed",
+                    "error": type(exc).__name__,
+                },
             )
 
         if response.status_code >= 500:
@@ -734,6 +765,10 @@ class FinraVerificationAdapter:
                 "Verification providers are not configured in this environment. "
                 "Configure IAPD_VERIFY_* or RIA_INTELLIGENCE_VERIFY_* variables."
             )
+        elif intelligence_result.outcome == "provider_unavailable" and intelligence_result.message:
+            message = intelligence_result.message
+        elif advisory_result.outcome == "provider_unavailable" and advisory_result.message:
+            message = advisory_result.message
 
         return VerificationResult(
             verified=False,

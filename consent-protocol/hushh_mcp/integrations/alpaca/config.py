@@ -12,6 +12,18 @@ _ALPACA_BASE_URLS = {
     "production": "https://broker-api.alpaca.markets",
 }
 
+_ALPACA_ENV_ALIASES = {
+    "sandbox": "sandbox",
+    "paper": "sandbox",
+    "test": "sandbox",
+    "uat": "sandbox",
+    "development": "sandbox",
+    "dev": "sandbox",
+    "production": "production",
+    "prod": "production",
+    "live": "production",
+}
+
 
 def _clean_text(value: Any, *, default: str = "") -> str:
     if not isinstance(value, str):
@@ -26,6 +38,12 @@ def _first_non_empty(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def _normalize_alpaca_environment(raw_value: str | None, *, default: str = "sandbox") -> str:
+    normalized_default = _ALPACA_ENV_ALIASES.get(_clean_text(default).lower(), "sandbox")
+    cleaned = _clean_text(raw_value, default=normalized_default).lower()
+    return _ALPACA_ENV_ALIASES.get(cleaned, normalized_default)
 
 
 def _normalize_auth_header(
@@ -61,10 +79,10 @@ class AlpacaBrokerRuntimeConfig:
 
     @classmethod
     def from_env(cls) -> "AlpacaBrokerRuntimeConfig":
-        environment = _clean_text(
+        environment = _normalize_alpaca_environment(
             os.getenv("ALPACA_ENV") or os.getenv("ALPACA_BROKER_ENV"),
             default="sandbox",
-        ).lower()
+        )
 
         explicit_base_url = _clean_text(
             os.getenv("ALPACA_BROKER_BASE_URL") or os.getenv("BROKER_API_BASE")

@@ -67,7 +67,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `PLAID_TX_HISTORY_DAYS` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Investment transaction lookback window. Default `730`. |
 | `PLAID_WEBHOOK_VERIFICATION_ENABLED` | `hushh_mcp/services/broker_funding_service.py` | Recommended | Enables Plaid webhook JWT signature verification (default `true`). |
 | `PLAID_WEBHOOK_MAX_SKEW_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Max allowed clock skew for Plaid webhook `iat` claim. Default `300`. |
-| `ALPACA_ENV` / `ALPACA_BROKER_ENV` | `hushh_mcp/integrations/alpaca/config.py` | No | Alpaca Broker environment. Defaults to `sandbox`. |
+| `ALPACA_ENV` / `ALPACA_BROKER_ENV` | `hushh_mcp/integrations/alpaca/config.py` | No | Alpaca Broker environment switch. Canonical values are `sandbox` and `production`; aliases `paper`→`sandbox` and `live`→`production` are also accepted. Defaults to `sandbox`. |
 | `ALPACA_BROKER_BASE_URL` / `BROKER_API_BASE` | `hushh_mcp/integrations/alpaca/config.py` | Optional | Override Alpaca Broker API base URL. |
 | `ALPACA_BROKER_AUTH_TOKEN` / `BROKER_TOKEN` / `ALPACA_AUTH_TOKEN` | `hushh_mcp/integrations/alpaca/config.py` | Optional | Pre-built Authorization header token (Basic or Bearer). |
 | `ALPACA_BROKER_KEY_ID` / `APCA_API_KEY_ID` / `ALPACA_API_KEY` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Alpaca API key ID for Basic auth generation. |
@@ -155,6 +155,7 @@ Professional verification providers:
 - `RIA_INTELLIGENCE_VERIFY_URL`
 - `RIA_INTELLIGENCE_VERIFY_API_KEY`
 - `RIA_INTELLIGENCE_VERIFY_TIMEOUT_SECONDS`
+  - default is `45` seconds
 - `IAPD_VERIFY_BASE_URL`
 - `IAPD_VERIFY_API_KEY`
 - `IAPD_VERIFY_TIMEOUT_SECONDS`

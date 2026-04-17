@@ -6,12 +6,29 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 const HOT_GET_CACHE_TTL_MS = 30 * 1000;
-const DEFAULT_PROXY_TIMEOUT_MS = 12_000;
-const ONBOARDING_PROXY_TIMEOUT_MS = Number(
-  process.env.RIA_ONBOARDING_PROXY_TIMEOUT_MS || 90_000
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const DEFAULT_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(
+  parsePositiveInteger(process.env.RIA_PROXY_TIMEOUT_MS, 30_000),
+  {
+    developmentFloorMs: 90_000,
+    overrideEnvKey: "RIA_PROXY_TIMEOUT_MS",
+  }
+);
+const ONBOARDING_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(
+  parsePositiveInteger(process.env.RIA_ONBOARDING_PROXY_TIMEOUT_MS, 120_000),
+  {
+    developmentFloorMs: 120_000,
+    overrideEnvKey: "RIA_ONBOARDING_PROXY_TIMEOUT_MS",
+  }
 );
 const hotGetCache = new Map<string, { status: number; payload: unknown; cachedAt: number }>();
 const hotGetInflight = new Map<string, Promise<{ status: number; payload: unknown }>>();

@@ -2103,6 +2103,38 @@ class RIAIAMService:
                 status_code=400,
             )
 
+        # Keep external verification outside the DB transaction so row locks are not held
+        # while waiting on network latency from verification providers.
+        verification_result: VerificationResult = await self._verification_gateway.verify(
+            legal_name=effective_legal_name,
+            finra_crd=effective_finra_crd,
+            sec_iard=effective_sec_iard,
+            force_live=force_live_verification,
+        )
+        verification_provider = self._verification_provider_label(verification_result)
+
+        next_status = "submitted"
+        if verification_result.outcome == "bypassed":
+            next_status = "bypassed"
+        elif verification_result.verified:
+            next_status = "finra_verified"
+        elif verification_result.rejected:
+            next_status = "rejected"
+
+        advisory_status = self._normalize_legacy_verification_status(next_status)
+        brokerage_status = "draft" if "brokerage" in normalized_requested_capabilities else "draft"
+        professional_access_granted = advisory_status in {"verified", "active", "bypassed"}
+        brokerage_outcome = (
+            "not_requested"
+            if "brokerage" not in normalized_requested_capabilities
+            else "unsupported"
+        )
+        brokerage_message = (
+            "Brokerage capability was not requested."
+            if "brokerage" not in normalized_requested_capabilities
+            else "Brokerage verification is not yet enabled in this onboarding path."
+        )
+
         conn = await self._conn()
         try:
             async with conn.transaction():
@@ -2218,22 +2250,6 @@ class RIAIAMService:
                             (primary_firm_role or "").strip(),
                         )
 
-                verification_result: VerificationResult = await self._verification_gateway.verify(
-                    legal_name=effective_legal_name,
-                    finra_crd=effective_finra_crd,
-                    sec_iard=effective_sec_iard,
-                    force_live=force_live_verification,
-                )
-                verification_provider = self._verification_provider_label(verification_result)
-
-                next_status = "submitted"
-                if verification_result.outcome == "bypassed":
-                    next_status = "bypassed"
-                elif verification_result.verified:
-                    next_status = "finra_verified"
-                elif verification_result.rejected:
-                    next_status = "rejected"
-
                 await conn.execute(
                     """
                     UPDATE ria_profiles
@@ -2321,22 +2337,6 @@ class RIAIAMService:
                     (bio or "").strip(),
                     (strategy or "").strip(),
                     next_status,
-                )
-
-                advisory_status = self._normalize_legacy_verification_status(next_status)
-                brokerage_status = (
-                    "draft" if "brokerage" in normalized_requested_capabilities else "draft"
-                )
-                professional_access_granted = advisory_status in {"verified", "active", "bypassed"}
-                brokerage_outcome = (
-                    "not_requested"
-                    if "brokerage" not in normalized_requested_capabilities
-                    else "unsupported"
-                )
-                brokerage_message = (
-                    "Brokerage capability was not requested."
-                    if "brokerage" not in normalized_requested_capabilities
-                    else "Brokerage verification is not yet enabled in this onboarding path."
                 )
 
                 return {

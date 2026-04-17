@@ -174,6 +174,46 @@ def test_ria_onboarding_submit_maps_professional_capabilities(monkeypatch):
     assert payload["requested_capabilities"] == ["advisory", "brokerage"]
 
 
+def test_ria_onboarding_submit_timeout_returns_503(monkeypatch):
+    async def _mock_submit(self, user_id: str, **kwargs):  # noqa: ANN003
+        _ = (self, user_id, kwargs)
+        raise TimeoutError()
+
+    monkeypatch.setattr(RIAIAMService, "submit_ria_onboarding", _mock_submit)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/onboarding/submit",
+        json={
+            "display_name": "Advisor Alpha",
+            "requested_capabilities": ["advisory"],
+            "individual_legal_name": "Advisor Alpha",
+            "individual_crd": "12345",
+            "advisory_firm_legal_name": "Advisor Alpha LLC",
+            "advisory_firm_iapd_number": "801-12345",
+        },
+    )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["code"] == "RIA_BACKEND_TEMP_UNAVAILABLE"
+
+
+def test_ria_onboarding_status_connection_error_returns_503(monkeypatch):
+    async def _mock_status(self, user_id: str):
+        _ = (self, user_id)
+        raise ConnectionError("connection lost")
+
+    monkeypatch.setattr(RIAIAMService, "get_ria_onboarding_status", _mock_status)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/ria/onboarding/status")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["code"] == "RIA_BACKEND_TEMP_UNAVAILABLE"
+
+
 def test_marketplace_schema_not_ready_returns_503(monkeypatch):
     async def _mock_search(self, **kwargs):  # noqa: ANN003
         _ = kwargs

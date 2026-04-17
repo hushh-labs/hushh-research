@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -151,6 +152,18 @@ def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
     )
 
 
+def _ria_backend_temporarily_unavailable_response(message: str | None = None) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": message
+            or "RIA onboarding is temporarily unavailable due to backend timeout. Please retry.",
+            "code": "RIA_BACKEND_TEMP_UNAVAILABLE",
+            "hint": "Retry in a few seconds. If the issue persists, check backend database connectivity.",
+        },
+    )
+
+
 @router.post("/onboarding/submit")
 async def submit_onboarding(
     payload: RIAOnboardingSubmitRequest,
@@ -178,6 +191,8 @@ async def submit_onboarding(
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (TimeoutError, ConnectionError, asyncpg.exceptions.PostgresConnectionError):
+        return _ria_backend_temporarily_unavailable_response()
 
 
 @router.post("/onboarding/dev-activate")
@@ -206,6 +221,8 @@ async def dev_activate_onboarding(
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (TimeoutError, ConnectionError, asyncpg.exceptions.PostgresConnectionError):
+        return _ria_backend_temporarily_unavailable_response()
 
 
 @router.get("/onboarding/status")
@@ -215,6 +232,10 @@ async def onboarding_status(firebase_uid: str = Depends(require_firebase_auth)):
         return await service.get_ria_onboarding_status(firebase_uid)
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
+    except (TimeoutError, ConnectionError, asyncpg.exceptions.PostgresConnectionError):
+        return _ria_backend_temporarily_unavailable_response(
+            "RIA onboarding status is temporarily unavailable due to backend timeout. Please retry."
+        )
 
 
 @router.get("/home")
