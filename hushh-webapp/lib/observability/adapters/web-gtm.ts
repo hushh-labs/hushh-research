@@ -26,7 +26,7 @@ export const webGtmAdapter: ObservabilityAdapter = {
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({
       event: eventName,
-      event_source: "observability_v1",
+      event_source: "observability_v2",
       ...payload,
     });
   },

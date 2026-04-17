@@ -2,11 +2,11 @@
 
 ## Visual Context
 
-Canonical visual owner: [consent-protocol](README.md). Use that map for the top-down system view. This page is the narrower technical companion beneath the public npm onboarding surface.
+Canonical visual owner: [consent-protocol](README.md). This page is the technical companion to the public npm package page.
 
 ## Public Onboarding Source
 
-Public MCP setup should start from the npm package page:
+Start public MCP setup from the npm package page:
 
 - npm package: [`@hushh/mcp`](https://www.npmjs.com/package/@hushh/mcp)
 
@@ -18,7 +18,7 @@ That page is the canonical public source for:
 - host setup examples
 - public tools and resources
 
-This repo doc is intentionally narrower. It covers runtime details, contributor-local fallback, and operational notes that should stay close to the codebase.
+This doc covers runtime details, contributor-local fallback, and operational notes.
 
 ## Runtime Model
 
@@ -26,7 +26,7 @@ Hushh MCP supports three runtime shapes:
 
 1. Hosted remote MCP for hosts that support HTTP MCP directly.
 2. The npm bridge (`npx -y @hushh/mcp`) for hosts that still expect a local stdio process.
-3. Repo-local Python fallback for contributors working inside this monorepo.
+3. Repo-local Python fallback for contributors.
 
 The public promoted environment is **UAT**:
 
@@ -34,14 +34,14 @@ The public promoted environment is **UAT**:
 - API origin: `https://api.uat.hushh.ai`
 - MCP endpoint: `https://api.uat.hushh.ai/mcp/?token=<developer-token>`
 
-Use the trailing-slash endpoint shape for remote MCP:
+Use the trailing-slash endpoint shape:
 
 - `https://api.uat.hushh.ai/mcp/?token=<developer-token>`
 - not `https://api.uat.hushh.ai/mcp?token=<developer-token>`
 
 ## Public Tool Surface
 
-The hosted public developer lane exposes the scalable consent core only:
+The hosted public developer lane exposes the consent core only:
 
 - `discover_user_domains`
 - `request_consent`
@@ -67,13 +67,13 @@ cd consent-protocol
 python mcp_server.py
 ```
 
-Typical contributor-local cases:
+Typical cases:
 
 - you are changing the MCP server itself
 - you want to bypass npm bootstrap during local development
 - you need to test against a local backend revision before publishing or deploying
 
-If you want the same public install shape external developers should use, prefer:
+If you want the same install shape external developers use, prefer:
 
 ```bash
 npx -y @hushh/mcp --help
@@ -81,7 +81,7 @@ npx -y @hushh/mcp --help
 
 ## Environment Notes
 
-Public stdio hosts should treat these as the canonical local variables:
+Canonical env vars for stdio hosts:
 
 - `CONSENT_API_URL`
 - `HUSHH_DEVELOPER_TOKEN`
@@ -98,7 +98,7 @@ Repo-local fallback still relies on the normal `consent-protocol` backend/runtim
 
 ## Operational Notes
 
-- The public onboarding story is UAT-first until production developer access is intentionally promoted.
+- Public onboarding is UAT-first until production developer access is promoted.
 - The npm package is the public install surface; this repo doc should not reintroduce a second public quickstart.
 - Keep credentials machine-local. Do not commit host config files with inline developer tokens.
 - The remote MCP contract is query-token based today, so treat the full URL as secret material.

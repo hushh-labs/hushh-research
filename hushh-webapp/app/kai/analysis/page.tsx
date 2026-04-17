@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, BarChart3, X } from "lucide-react";
+import { BarChart3, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
@@ -27,6 +27,7 @@ import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
+import { trackInvestorActivationCompleted } from "@/lib/observability/growth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
 import { RoundTabsCard } from "@/components/kai/views/round-tabs-card";
@@ -212,12 +213,6 @@ function KaiAnalysisPageContent() {
       setWorkspaceTab(routeIntent.workspaceTab);
     }
 
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("tab");
-    params.delete("focus");
-    params.delete("run_id");
-    const query = params.toString();
-    router.replace(query ? `/kai/analysis?${query}` : "/kai/analysis");
   }, [router, searchParams]);
 
   useEffect(() => {
@@ -386,16 +381,6 @@ function KaiAnalysisPageContent() {
     setDebateIdParam(null);
   }, [activeRunTask, setAnalysisParams, setDebateIdParam, vaultOwnerToken]);
 
-  const handleBackToHistory = useCallback(() => {
-    setAnalysisParams(null);
-    setLiveEntry(null);
-    setResolvedEntry(null);
-    setFocusedRunId(null);
-    setFocusedRunTask(null);
-    setShowHistoryWhileActive(true);
-    setDebateIdParam(null);
-  }, [setAnalysisParams, setDebateIdParam]);
-
   const handleReanalyze = useCallback(
     (ticker: string) => {
       const normalizedTicker = String(ticker || "").trim().toUpperCase();
@@ -428,6 +413,11 @@ function KaiAnalysisPageContent() {
 
   const handleLiveDecisionReady = useCallback(
     (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => {
+      trackInvestorActivationCompleted({
+        portfolioSource: analysisParams?.portfolioSource,
+        dedupeKey: `growth:investor:activation:${meta.runId || entry.ticker.toUpperCase()}`,
+        dedupeWindowMs: 10_000,
+      });
       if (summaryLoadingToastIdRef.current === null) {
         summaryLoadingToastIdRef.current = toast.info("Saving to history…", {
           duration: Infinity,
@@ -444,7 +434,7 @@ function KaiAnalysisPageContent() {
         workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       });
     },
-    [setAnalysisParams]
+    [analysisParams?.portfolioSource, setAnalysisParams]
   );
 
   const handleLiveDecisionPersisted = useCallback((entry: AnalysisHistoryEntry) => {
@@ -453,12 +443,13 @@ function KaiAnalysisPageContent() {
     setHistoryFallbackEntry(entry);
     setShowHistoryWhileActive(false);
     setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
+    setDebateIdParam(extractDebateId(entry));
     if (summaryLoadingToastIdRef.current !== null) {
       toast.dismiss(summaryLoadingToastIdRef.current);
       summaryLoadingToastIdRef.current = null;
     }
     toast.success("Analysis saved to history.");
-  }, []);
+  }, [setDebateIdParam]);
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
   const activeEntry = liveEntry || resolvedEntry;
@@ -782,7 +773,11 @@ function KaiAnalysisPageContent() {
         });
         setShowHistoryWhileActive(false);
         setWorkspaceTab("debate");
-        router.replace(ROUTES.KAI_ANALYSIS);
+        router.replace(
+          `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=${encodeURIComponent(
+            currentPreviewTicker
+          )}`
+        );
       })
       .catch((error) => {
         toast.error("Could not start debate.", {
@@ -1008,16 +1003,6 @@ function KaiAnalysisPageContent() {
               accent="kai"
               actions={
                 <>
-                  <MorphyButton
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    onClick={handleBackToHistory}
-                    data-voice-control-id="analysis_back_to_history"
-                  >
-                    <Icon icon={ArrowLeft} size="sm" className="mr-1" />
-                    Back to history
-                  </MorphyButton>
                   {liveIntentReady ? (
                     <MorphyButton
                       variant="none"

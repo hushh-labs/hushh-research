@@ -73,6 +73,7 @@ EXPECTED_WORKFLOW_IDS = [
     "skill-authoring",
     "board-update",
     "community-response",
+    "future-roadmap-plan",
     "mcp-surface-change",
     "security-posture-maintenance",
 ]

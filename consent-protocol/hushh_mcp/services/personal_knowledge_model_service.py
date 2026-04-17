@@ -186,6 +186,13 @@ class PersonalKnowledgeModelService:
     _ALLOWED_DISCOVERY_LITERAL_KEYS = {
         "domain_contract_version",
         "storage_mode",
+        "source_local_time",
+        "source_timezone",
+    }
+    _STRUCTURAL_TOP_LEVEL_SCOPE_PATHS = {
+        "domain_intent",
+        "schema_version",
+        "updated_at",
     }
 
     @property
@@ -231,8 +238,9 @@ class PersonalKnowledgeModelService:
                 break
         return normalized
 
-    def _canonicalize_domain_key(self, domain: str) -> str:
-        raw_domain = self._clean_text(domain).lower()
+    @classmethod
+    def _canonicalize_domain_key(cls, domain: str) -> str:
+        raw_domain = cls._clean_text(domain).lower()
         if not raw_domain:
             return ""
         canonical_domain = canonical_top_level_domain(raw_domain)
@@ -637,6 +645,179 @@ class PersonalKnowledgeModelService:
         digest = hashlib.sha256(f"{user_id}:{domain}:{path}".encode("utf-8")).hexdigest()
         return f"s_{digest[:12]}"
 
+    @classmethod
+    def _is_consumer_visible_scope_path(cls, top_level_scope_path: str | None) -> bool:
+        normalized = cls._normalize_manifest_path(top_level_scope_path)
+        return bool(normalized) and normalized not in cls._STRUCTURAL_TOP_LEVEL_SCOPE_PATHS
+
+    @classmethod
+    def _scope_visibility_projection(cls, top_level_scope_path: str | None) -> dict[str, object]:
+        normalized = cls._normalize_manifest_path(top_level_scope_path)
+        consumer_visible = cls._is_consumer_visible_scope_path(normalized)
+        return {
+            "top_level_scope_path": normalized,
+            "consumer_visible": consumer_visible,
+            "internal_only": not consumer_visible,
+            "visibility_reason": (
+                "consumer_shareable" if consumer_visible else "structural_top_level_path"
+            ),
+        }
+
+    @classmethod
+    def _normalize_scope_registry_row(
+        cls,
+        *,
+        domain: str,
+        row: dict | ScopeRegistryEntry,
+    ) -> Optional[dict[str, object]]:
+        if isinstance(row, ScopeRegistryEntry):
+            raw_row: dict[str, object] = {
+                "domain": domain,
+                "scope_handle": row.scope_handle,
+                "scope_label": row.scope_label,
+                "segment_ids": list(row.segment_ids or []),
+                "sensitivity_tier": row.sensitivity_tier,
+                "scope_kind": row.scope_kind,
+                "exposure_enabled": row.exposure_enabled,
+                "summary_projection": dict(row.summary_projection or {}),
+            }
+        elif isinstance(row, dict):
+            raw_row = dict(row)
+        else:
+            return None
+
+        summary_projection_raw = raw_row.get("summary_projection")
+        if isinstance(summary_projection_raw, str):
+            try:
+                parsed_projection = json.loads(summary_projection_raw)
+            except Exception:
+                parsed_projection = {}
+            summary_projection = parsed_projection if isinstance(parsed_projection, dict) else {}
+        elif isinstance(summary_projection_raw, dict):
+            summary_projection = dict(summary_projection_raw)
+        else:
+            summary_projection = {}
+
+        top_level_scope_path = cls._normalize_manifest_path(
+            summary_projection.get("top_level_scope_path") or raw_row.get("top_level_scope_path")
+        )
+        if not top_level_scope_path:
+            top_level_scope_path = cls._normalize_manifest_path(raw_row.get("scope_label"))
+        if not top_level_scope_path:
+            return None
+
+        visibility_projection = cls._scope_visibility_projection(top_level_scope_path)
+        summary_projection = {
+            **summary_projection,
+            **visibility_projection,
+            "storage_mode": cls._clean_text(
+                str(summary_projection.get("storage_mode") or ""),
+                allow_none=True,
+            )
+            or (
+                "manifest"
+                if cls._to_non_negative_int(raw_row.get("manifest_version")) is not None
+                else "root"
+            ),
+        }
+
+        segment_ids = raw_row.get("segment_ids")
+        if not isinstance(segment_ids, list):
+            segment_ids = []
+
+        return {
+            "domain": cls._canonicalize_domain_key(domain),
+            "scope_handle": cls._clean_text(
+                str(raw_row.get("scope_handle") or ""),
+                allow_none=True,
+            ),
+            "scope_label": cls._clean_text(
+                str(raw_row.get("scope_label") or ""),
+                allow_none=True,
+            )
+            or top_level_scope_path.replace(".", " ").replace("_", " ").title(),
+            "segment_ids": [
+                cls._clean_text(str(segment_id), default="root") or "root"
+                for segment_id in segment_ids
+                if cls._clean_text(str(segment_id), allow_none=True)
+            ],
+            "sensitivity_tier": cls._clean_text(
+                str(raw_row.get("sensitivity_tier") or ""),
+                allow_none=True,
+            )
+            or "confidential",
+            "scope_kind": cls._clean_text(
+                str(raw_row.get("scope_kind") or ""),
+                allow_none=True,
+            )
+            or "subtree",
+            "exposure_enabled": raw_row.get("exposure_enabled") is not False,
+            "summary_projection": summary_projection,
+            "manifest_version": cls._to_non_negative_int(raw_row.get("manifest_version")),
+        }
+
+    @classmethod
+    def _scope_registry_row_rank(
+        cls,
+        row: dict[str, object],
+        *,
+        expected_manifest_version: int | None = None,
+    ) -> tuple[int, int, int, int, int]:
+        projection = (
+            row.get("summary_projection") if isinstance(row.get("summary_projection"), dict) else {}
+        )
+        row_manifest_version = cls._to_non_negative_int(row.get("manifest_version")) or 0
+        storage_mode = (
+            cls._clean_text(
+                str(projection.get("storage_mode") or ""),
+                allow_none=True,
+            )
+            or "root"
+        )
+        return (
+            1
+            if expected_manifest_version and row_manifest_version == expected_manifest_version
+            else 0,
+            1 if storage_mode == "manifest" else 0,
+            1 if row.get("scope_handle") else 0,
+            row_manifest_version,
+            1 if row.get("exposure_enabled") is not False else 0,
+        )
+
+    @classmethod
+    def _normalize_scope_registry_rows(
+        cls,
+        *,
+        domain: str,
+        scope_rows: list[dict] | list[ScopeRegistryEntry] | None,
+        expected_manifest_version: int | None = None,
+    ) -> list[dict[str, object]]:
+        normalized_rows: dict[str, dict[str, object]] = {}
+        for raw_row in scope_rows or []:
+            normalized = cls._normalize_scope_registry_row(domain=domain, row=raw_row)
+            if not normalized:
+                continue
+            projection = (
+                normalized.get("summary_projection")
+                if isinstance(normalized.get("summary_projection"), dict)
+                else {}
+            )
+            top_level_scope_path = cls._normalize_manifest_path(
+                projection.get("top_level_scope_path")
+            )
+            if not top_level_scope_path:
+                continue
+            existing = normalized_rows.get(top_level_scope_path)
+            if existing is None or cls._scope_registry_row_rank(
+                normalized,
+                expected_manifest_version=expected_manifest_version,
+            ) >= cls._scope_registry_row_rank(
+                existing,
+                expected_manifest_version=expected_manifest_version,
+            ):
+                normalized_rows[top_level_scope_path] = normalized
+        return [normalized_rows[path] for path in sorted(normalized_rows)]
+
     def _build_scope_registry_entries(
         self,
         *,
@@ -686,8 +867,9 @@ class PersonalKnowledgeModelService:
                     scope_kind="subtree",
                     exposure_enabled=True,
                     summary_projection={
-                        "top_level_scope_path": normalized_path,
+                        **self._scope_visibility_projection(normalized_path),
                         "manifest_version": manifest_version,
+                        "storage_mode": "manifest",
                     },
                 )
             )
@@ -973,6 +1155,150 @@ class PersonalKnowledgeModelService:
             total += self._normalized_summary_count(summary if isinstance(summary, dict) else {})
         return total
 
+    async def _list_manifest_rows(self, user_id: str) -> list[dict]:
+        try:
+            result = await self._execute_query(
+                self.supabase.table("pkm_manifests").select("*").eq("user_id", user_id)
+            )
+            return result.data or []
+        except Exception as e:
+            logger.warning("Manifest header lookup failed for %s: %s", user_id, e)
+            return []
+
+    def _merge_manifest_summary(
+        self,
+        domain: str,
+        summary: dict | None,
+        manifest_row: dict,
+    ) -> dict:
+        base_summary = summary if isinstance(summary, dict) else {}
+        summary_projection = (
+            manifest_row.get("summary_projection")
+            if isinstance(manifest_row.get("summary_projection"), dict)
+            else {}
+        )
+        merged = {
+            **summary_projection,
+            **base_summary,
+            "storage_mode": "per_domain_blob",
+            "manifest_version": manifest_row.get("manifest_version"),
+            "path_count": manifest_row.get("path_count"),
+            "externalizable_path_count": manifest_row.get("externalizable_path_count"),
+            "last_structured_at": manifest_row.get("last_structured_at"),
+            "last_content_at": manifest_row.get("last_content_at"),
+            "domain_contract_version": manifest_row.get("domain_contract_version")
+            or current_domain_contract_version(domain),
+            "readable_summary_version": manifest_row.get("readable_summary_version") or 0,
+            "upgraded_at": manifest_row.get("upgraded_at"),
+        }
+        return self._normalize_domain_summary(domain, merged)
+
+    def _resolved_index_needs_reconcile(
+        self,
+        current_index: Optional[PersonalKnowledgeModelIndex],
+        *,
+        resolved_domains: list[str],
+        resolved_summaries: dict[str, dict],
+        resolved_total_attributes: int,
+    ) -> bool:
+        if current_index is None:
+            return bool(resolved_domains or resolved_summaries)
+        current_domains = sorted(
+            {
+                normalized
+                for domain in (current_index.available_domains or [])
+                if (normalized := self._canonicalize_domain_key(domain))
+            }
+        )
+        if current_domains != resolved_domains:
+            return True
+        if int(current_index.total_attributes or 0) != resolved_total_attributes:
+            return True
+        normalized_current_summaries = {
+            normalized: self._normalize_domain_summary(normalized, summary)
+            for domain, summary in (current_index.domain_summaries or {}).items()
+            if isinstance(summary, dict)
+            if (normalized := self._canonicalize_domain_key(str(domain)))
+        }
+        return normalized_current_summaries != resolved_summaries
+
+    def _schedule_index_reconcile(self, user_id: str) -> None:
+        try:
+            asyncio.create_task(self.reconcile_user_index_domains(user_id))
+        except RuntimeError:
+            logger.debug("Skipping background reconcile schedule for %s; no active loop", user_id)
+
+    async def resolve_metadata_index(
+        self,
+        user_id: str,
+        *,
+        schedule_self_heal: bool = True,
+    ) -> Optional[PersonalKnowledgeModelIndex]:
+        current_index = await self.get_index_v2(user_id)
+        manifest_rows = await self._list_manifest_rows(user_id)
+
+        if current_index is None and not manifest_rows:
+            return None
+
+        normalized_summaries: dict[str, dict] = {}
+        resolved_domains: set[str] = set()
+
+        if current_index is not None:
+            for existing_domain in current_index.available_domains or []:
+                normalized_domain = self._canonicalize_domain_key(existing_domain)
+                if normalized_domain and normalized_domain not in self._RETIRED_DOMAIN_KEYS:
+                    resolved_domains.add(normalized_domain)
+
+            for raw_domain, raw_summary in (current_index.domain_summaries or {}).items():
+                domain = self._canonicalize_domain_key(str(raw_domain))
+                if not domain or domain in self._RETIRED_DOMAIN_KEYS:
+                    continue
+                normalized_summaries[domain] = self._normalize_domain_summary(
+                    domain,
+                    raw_summary if isinstance(raw_summary, dict) else {},
+                )
+                resolved_domains.add(domain)
+
+        for manifest_row in manifest_rows:
+            manifest_domain = self._canonicalize_domain_key(manifest_row.get("domain"))
+            if not manifest_domain or manifest_domain in self._RETIRED_DOMAIN_KEYS:
+                continue
+            resolved_domains.add(manifest_domain)
+            normalized_summaries[manifest_domain] = self._merge_manifest_summary(
+                manifest_domain,
+                normalized_summaries.get(manifest_domain),
+                manifest_row,
+            )
+
+        resolved_domain_list = sorted(resolved_domains)
+        resolved_total_attributes = self._recalculate_total_attributes(normalized_summaries)
+        resolved_index = PersonalKnowledgeModelIndex(
+            user_id=user_id,
+            domain_summaries=normalized_summaries,
+            available_domains=resolved_domain_list,
+            computed_tags=current_index.computed_tags if current_index else [],
+            activity_score=current_index.activity_score if current_index else None,
+            last_active_at=current_index.last_active_at if current_index else None,
+            total_attributes=resolved_total_attributes,
+            model_version=(
+                current_index.model_version if current_index else CURRENT_PKM_MODEL_VERSION
+            ),
+            last_upgraded_at=current_index.last_upgraded_at if current_index else None,
+        )
+
+        if (
+            self._resolved_index_needs_reconcile(
+                current_index,
+                resolved_domains=resolved_domain_list,
+                resolved_summaries=normalized_summaries,
+                resolved_total_attributes=resolved_total_attributes,
+            )
+            and schedule_self_heal
+        ):
+            self._schedule_index_reconcile(user_id)
+
+        return resolved_index
+
     @property
     def domain_registry(self):
         if self._domain_registry is None:
@@ -1227,7 +1553,13 @@ class PersonalKnowledgeModelService:
             )
             scope_rows = await self._execute_query(scope_query)
             manifest_row["paths"] = path_rows.data or []
-            manifest_row["scope_registry"] = scope_rows.data or []
+            manifest_row["scope_registry"] = self._normalize_scope_registry_rows(
+                domain=canonical_domain,
+                scope_rows=scope_rows.data or [],
+                expected_manifest_version=self._to_non_negative_int(
+                    manifest_row.get("manifest_version")
+                ),
+            )
             return manifest_row
         except Exception as e:
             logger.error(
@@ -1825,70 +2157,70 @@ class PersonalKnowledgeModelService:
         This is the primary method for frontend to fetch user profile data.
         """
         try:
-            # Try RPC function first (more efficient)
-            try:
-                result = await self._run_rpc("get_user_pkm_metadata", {"p_user_id": user_id})
-
-                if result.data:
-                    data = result.data[0] if isinstance(result.data, list) else result.data
-                    domains = []
-                    for d in data.get("domains") or []:
-                        domains.append(
-                            DomainSummary(
-                                domain_key=d["key"],
-                                display_name=d["display_name"],
-                                icon=d["icon"],
-                                color=d["color"],
-                                attribute_count=d["attribute_count"],
-                                summary=(d.get("summary") or {})
-                                if isinstance(d.get("summary"), dict)
-                                else {},
-                                available_scopes=d.get("available_scopes") or [],
-                                last_updated=d.get("last_updated"),
-                                readable_summary=d.get("readable_summary"),
-                                readable_highlights=self._normalize_string_list(
-                                    d.get("readable_highlights")
-                                ),
-                                readable_updated_at=d.get("readable_updated_at"),
-                                readable_source_label=d.get("readable_source_label"),
-                                domain_contract_version=self._to_non_negative_int(
-                                    d.get("domain_contract_version")
-                                )
-                                or current_domain_contract_version(d["key"]),
-                                readable_summary_version=self._to_non_negative_int(
-                                    d.get("readable_summary_version")
-                                )
-                                or 0,
-                                upgraded_at=self._clean_text(
-                                    str(d.get("upgraded_at") or ""),
-                                    allow_none=True,
-                                ),
-                            )
-                        )
-
-                    return UserPersonalKnowledgeModelMetadata(
-                        user_id=user_id,
-                        domains=domains,
-                        total_attributes=data.get("total_attributes", 0),
-                        last_updated=data.get("last_updated"),
-                    )
-            except Exception as rpc_error:
-                logger.warning(f"RPC get_user_pkm_metadata failed, using fallback: {rpc_error}")
-
-            # Fallback: derive from PKM index and manifests rather than domain_registry.
-            index = await self.get_index_v2(user_id)
-            scopes = await self.scope_generator.get_available_scopes(user_id)
+            index = await self.resolve_metadata_index(user_id)
+            if index is None:
+                return UserPersonalKnowledgeModelMetadata(user_id=user_id)
+            scope_entries_getter = getattr(
+                self.scope_generator, "get_available_scope_entries", None
+            )
+            if callable(scope_entries_getter):
+                scope_entries = await scope_entries_getter(user_id)
+            else:
+                scope_entries = []
+            scopes = sorted(
+                {
+                    "pkm.read",
+                    *(
+                        str(entry.get("scope") or "").strip()
+                        for entry in scope_entries
+                        if isinstance(entry, dict)
+                        and str(entry.get("scope") or "").strip()
+                        and entry.get("consumer_visible") is not False
+                        and entry.get("internal_only") is not True
+                        and bool(entry.get("wildcard"))
+                        and str(entry.get("source_kind") or "").strip()
+                        in {"pkm_index", "pkm_manifests.top_level_scope_paths"}
+                    ),
+                }
+            )
             contract_map = {entry.domain_key: entry for entry in CANONICAL_DOMAIN_REGISTRY}
 
             domains = []
-            for domain_key in sorted(index.available_domains if index else []):
+            for domain_key in sorted(index.available_domains):
                 summary = (
                     index.domain_summaries.get(domain_key)
-                    if index and isinstance(index.domain_summaries.get(domain_key), dict)
+                    if isinstance(index.domain_summaries.get(domain_key), dict)
                     else {}
                 )
                 contract = contract_map.get(domain_key)
-                domain_scopes = [s for s in scopes if s.startswith(f"attr.{domain_key}.")]
+                domain_prefix = f"attr.{domain_key}."
+                compact_domain_scopes = sorted(
+                    {
+                        str(entry.get("scope") or "").strip()
+                        for entry in scope_entries
+                        if isinstance(entry, dict)
+                        and str(entry.get("scope") or "").strip()
+                        and str(entry.get("domain") or "").strip().lower() == domain_key
+                        and entry.get("consumer_visible") is not False
+                        and entry.get("internal_only") is not True
+                        and bool(entry.get("wildcard"))
+                        and str(entry.get("source_kind") or "").strip()
+                        in {"pkm_index", "pkm_manifests.top_level_scope_paths"}
+                    }
+                )
+                if not compact_domain_scopes:
+                    compact_domain_scopes = sorted(
+                        {
+                            scope
+                            for scope in scopes
+                            if isinstance(scope, str)
+                            and (
+                                scope == f"attr.{domain_key}.*"
+                                or scope.startswith(domain_prefix)
+                                and scope.endswith(".*")
+                            )
+                        }
+                    )
                 domains.append(
                     DomainSummary(
                         domain_key=domain_key,
@@ -1910,7 +2242,7 @@ class PersonalKnowledgeModelService:
                         ),
                         attribute_count=self._normalized_summary_count(summary),
                         summary=summary,
-                        available_scopes=domain_scopes,
+                        available_scopes=compact_domain_scopes,
                         readable_summary=self._clean_text(
                             str(summary.get("readable_summary") or ""),
                             allow_none=True,
@@ -1962,10 +2294,10 @@ class PersonalKnowledgeModelService:
             return UserPersonalKnowledgeModelMetadata(
                 user_id=user_id,
                 domains=domains,
-                total_attributes=total,
+                total_attributes=index.total_attributes or total,
                 model_completeness=completeness,
                 suggested_domains=suggested,
-                last_updated=datetime.now(UTC),
+                last_updated=index.last_active_at or datetime.now(UTC),
             )
         except Exception as e:
             logger.error(f"Error getting user metadata: {e}")
@@ -2638,8 +2970,11 @@ class PersonalKnowledgeModelService:
         """
         try:
             index = await self.get_index_v2(user_id)
+            manifest_rows = await self._list_manifest_rows(user_id)
             if index is None:
-                return True
+                if not manifest_rows:
+                    return True
+                index = PersonalKnowledgeModelIndex(user_id=user_id)
 
             normalized_summaries: dict[str, dict] = {}
             available_domains: set[str] = set()
@@ -2671,57 +3006,41 @@ class PersonalKnowledgeModelService:
                     normalized_summaries[domain] = normalized_summary
                 available_domains.add(domain)
 
+            for manifest_row in manifest_rows:
+                manifest_domain = self._canonicalize_domain_key(manifest_row.get("domain"))
+                if not manifest_domain or manifest_domain in self._RETIRED_DOMAIN_KEYS:
+                    continue
+                available_domains.add(manifest_domain)
+                normalized_summaries[manifest_domain] = self._merge_manifest_summary(
+                    manifest_domain,
+                    normalized_summaries.get(manifest_domain),
+                    manifest_row,
+                )
+
             financial_summary = (
                 normalized_summaries.get("financial")
                 if isinstance(normalized_summaries.get("financial"), dict)
                 else {}
             )
-            normalized_summaries["financial"] = self._normalize_domain_summary(
-                "financial",
-                self._merge_financial_summary_from_retired_contracts(
-                    financial_summary or {},
-                    retired_summaries,
-                ),
+            has_financial_signal = (
+                bool(financial_summary)
+                or "financial" in available_domains
+                or bool(
+                    retired_summaries.get("financial")
+                    or retired_summaries.get("portfolio")
+                    or retired_summaries.get("documents")
+                    or retired_summaries.get("kai_analysis_history")
+                )
             )
-            available_domains.add("financial")
-
-            try:
-                manifest_rows = (
-                    self.supabase.table("pkm_manifests")
-                    .select("*")
-                    .eq("user_id", user_id)
-                    .execute()
-                    .data
-                    or []
+            if has_financial_signal:
+                normalized_summaries["financial"] = self._normalize_domain_summary(
+                    "financial",
+                    self._merge_financial_summary_from_retired_contracts(
+                        financial_summary or {},
+                        retired_summaries,
+                    ),
                 )
-                for manifest_row in manifest_rows:
-                    manifest_domain = self._canonicalize_domain_key(manifest_row.get("domain"))
-                    if not manifest_domain:
-                        continue
-                    available_domains.add(manifest_domain)
-                    existing_summary = (
-                        normalized_summaries.get(manifest_domain)
-                        if isinstance(normalized_summaries.get(manifest_domain), dict)
-                        else {}
-                    )
-                    normalized_summaries[manifest_domain] = self._normalize_domain_summary(
-                        manifest_domain,
-                        {
-                            **existing_summary,
-                            "storage_mode": "per_domain_blob",
-                            "manifest_version": manifest_row.get("manifest_version"),
-                            "path_count": manifest_row.get("path_count"),
-                            "externalizable_path_count": manifest_row.get(
-                                "externalizable_path_count"
-                            ),
-                            "last_structured_at": manifest_row.get("last_structured_at"),
-                            "last_content_at": manifest_row.get("last_content_at"),
-                        },
-                    )
-            except Exception as manifest_error:
-                logger.warning(
-                    "Manifest reconciliation lookup failed for %s: %s", user_id, manifest_error
-                )
+                available_domains.add("financial")
 
             if register_missing_registry:
                 logger.info(

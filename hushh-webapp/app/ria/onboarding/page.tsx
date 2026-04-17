@@ -51,6 +51,11 @@ import {
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { trackEvent } from "@/lib/observability/client";
+import {
+  trackGrowthFunnelStepCompleted,
+  trackRiaActivationCompleted,
+} from "@/lib/observability/growth";
 
 function formatVerificationStatus(
   status?: string | null,
@@ -432,6 +437,16 @@ export default function RiaOnboardingPage() {
         brokerage_status: result.brokerage_status,
         dev_ria_bypass_allowed: mode === "dev_activate" ? true : current?.dev_ria_bypass_allowed,
       }));
+      trackEvent("ria_onboarding_submitted", {
+        result: "success",
+      });
+      trackGrowthFunnelStepCompleted({
+        journey: "ria",
+        step: "profile_submitted",
+        entrySurface: "ria_onboarding",
+        dedupeKey: "growth:ria:profile_submitted",
+        dedupeWindowMs: 5_000,
+      });
 
       const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
       const verificationOutcome = (result.verification_outcome || "").toLowerCase();
@@ -457,11 +472,33 @@ export default function RiaOnboardingPage() {
       }
 
       if (mode === "dev_activate") {
+        trackEvent("ria_verification_status_changed", {
+          action: "bypassed",
+          result: "success",
+        });
+        trackGrowthFunnelStepCompleted({
+          journey: "ria",
+          step: "workspace_ready",
+          entrySurface: "ria_onboarding",
+          workspaceSource: "developer_activation",
+          dedupeKey: "growth:ria:workspace_ready:developer_activation",
+          dedupeWindowMs: 5_000,
+        });
+        trackRiaActivationCompleted({
+          entrySurface: "ria_onboarding",
+          workspaceSource: "developer_activation",
+          dedupeKey: "growth:ria:activation:developer_activation",
+          dedupeWindowMs: 10_000,
+        });
         toast.success("Developer activation completed", {
           description: "The RIA workspace is ready in this environment.",
         });
         setNotice("Developer activation completed. The RIA workspace is ready in this environment.");
       } else if (advisoryOutcome === "rejected") {
+        trackEvent("ria_verification_status_changed", {
+          action: "rejected",
+          result: "error",
+        });
         const rejectionMessage =
           result.verification_message ||
           "The Individual CRD and Firm IAPD / IARD details did not verify.";
@@ -478,6 +515,10 @@ export default function RiaOnboardingPage() {
           setNotice(rejectionMessage);
         }
       } else if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
+        trackEvent("ria_verification_status_changed", {
+          action: advisoryOutcome === "active" ? "active" : "verified",
+          result: "success",
+        });
         toast.success("Credentials verified", {
           description:
             result.verification_message ||
@@ -485,6 +526,10 @@ export default function RiaOnboardingPage() {
         });
         setNotice("Verification passed. Your RIA workspace is ready.");
       } else if (advisoryOutcome === "bypassed") {
+        trackEvent("ria_verification_status_changed", {
+          action: "bypassed",
+          result: "success",
+        });
         toast.warning("Verification bypass active", {
           description:
             result.verification_message ||
@@ -495,6 +540,10 @@ export default function RiaOnboardingPage() {
             "Verification bypass is active in this environment. Your RIA workspace is ready for flow testing."
         );
       } else if (verificationOutcome === "provider_unavailable") {
+        trackEvent("ria_verification_status_changed", {
+          action: "submitted",
+          result: "error",
+        });
         toast.error("Verification service unavailable", {
           description:
             result.verification_message ||
@@ -505,6 +554,10 @@ export default function RiaOnboardingPage() {
             "Regulatory verification is unavailable in this environment. Onboarding stays blocked until the verification provider is healthy."
         );
       } else {
+        trackEvent("ria_verification_status_changed", {
+          action: "submitted",
+          result: "success",
+        });
         toast.info("Verification submitted", {
           description:
             result.verification_message ||
@@ -519,6 +572,9 @@ export default function RiaOnboardingPage() {
       if (isIAMSchemaNotReadyError(submitError)) {
         setIamUnavailable(true);
       }
+      trackEvent("ria_onboarding_submitted", {
+        result: "error",
+      });
       const rawSubmitMessage =
         submitError instanceof Error ? submitError.message : "Failed to submit onboarding.";
       const submitMessage = presentOnboardingErrorMessage(rawSubmitMessage);

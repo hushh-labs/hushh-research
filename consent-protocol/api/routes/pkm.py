@@ -5,10 +5,10 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes.pkm_routes_shared import (
     DeleteDomainResponse,
     DomainDataResponse,
@@ -80,6 +80,26 @@ from api.routes.pkm_routes_shared import (
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
+
+
+async def require_pkm_metadata_access(
+    authorization: str | None = Header(
+        None,
+        description="Bearer Firebase ID token or VAULT_OWNER token for PKM metadata access",
+    ),
+) -> dict:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization header",
+        )
+
+    if authorization.startswith("Bearer HCT:"):
+        token_data = await require_vault_owner_token(authorization)
+        return {"user_id": token_data.get("user_id"), "auth_type": "vault_owner"}
+
+    firebase_uid = await require_firebase_auth(authorization)
+    return {"user_id": firebase_uid, "auth_type": "firebase"}
 
 
 class PKMAgentLabStructureRequest(BaseModel):
@@ -176,7 +196,7 @@ async def reconcile_pkm_index(
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
     user_id: str,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(require_pkm_metadata_access),
 ):
     return await _get_metadata(user_id, token_data)
 

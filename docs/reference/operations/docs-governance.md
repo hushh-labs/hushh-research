@@ -11,6 +11,7 @@ Define one durable documentation model across:
 
 - root markdown entrypoints
 - `docs/` (cross-cutting)
+- `docs/future/` (future roadmap and R&D planning)
 - `consent-protocol/docs/` (backend)
 - `hushh-webapp/docs/` (frontend/native)
 
@@ -28,9 +29,10 @@ Define one durable documentation model across:
 2. Put frontend/native implementation docs in `hushh-webapp/docs/`.
 3. Keep cross-cutting architecture/ops/policy docs in root `docs/`.
 4. Do not duplicate source-of-truth content across homes; link instead.
-5. Put AI strategy/runtime planning in `docs/reference/ai/` unless it is backend- or frontend-only.
-6. Keep root markdowns thin and contributor-facing; do not let them become detailed setup or architecture specs.
-7. Keep `consent-protocol/docs/README.md` and `hushh-webapp/docs/README.md` as package docs indexes, not second package READMEs.
+5. Put planning-only future-state concepts and R&D assessments in `docs/future/`.
+6. Put execution-owned AI strategy/runtime contracts in `docs/reference/ai/` unless they are backend- or frontend-only.
+7. Keep root markdowns thin and contributor-facing; do not let them become detailed setup or architecture specs.
+8. Keep `consent-protocol/docs/README.md` and `hushh-webapp/docs/README.md` as package docs indexes, not second package READMEs.
 
 ## Visual Coverage Rules
 

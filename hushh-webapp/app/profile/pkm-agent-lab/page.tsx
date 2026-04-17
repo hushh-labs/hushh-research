@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 
-import { resolveAppEnvironment } from "@/lib/app-env";
+import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
 
 import PkmAgentLabPageClient from "./page-client";
 
 export default function PkmAgentLabPage() {
-  if (resolveAppEnvironment() === "production") {
-    redirect("/profile?tab=account");
+  if (resolveDeveloperRuntime().environment !== "local") {
+    redirect("/profile?panel=my-data");
   }
 
   return <PkmAgentLabPageClient />;

@@ -23,7 +23,7 @@ from mcp_modules.config import (
     PRODUCTION_MODE,
     resolve_scope_api,
 )
-from mcp_modules.developer_context import get_developer_request_query
+from mcp_modules.developer_context import get_developer_request_headers, get_developer_request_query
 
 logger = logging.getLogger("hushh-mcp-server")
 
@@ -36,8 +36,8 @@ async def resolve_email_to_uid(user_id: str) -> tuple[Optional[str], str | None,
     if not user_id or "@" not in user_id:
         return user_id, None, None
 
-    token_query = get_developer_request_query()
-    if not token_query:
+    token_headers = get_developer_request_headers()
+    if not token_headers:
         logger.warning("Email-to-UID lookup skipped: developer token not configured")
         return user_id, None, None
 
@@ -45,7 +45,8 @@ async def resolve_email_to_uid(user_id: str) -> tuple[Optional[str], str | None,
         async with httpx.AsyncClient() as client:
             lookup_response = await client.get(
                 f"{FASTAPI_URL}/api/user/lookup",
-                params={"email": user_id, **token_query},
+                params={"email": user_id},
+                headers=token_headers,
                 timeout=10.0,
             )
 

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run",
+    "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts",
     "verify:design-system": "node ./scripts/architecture/verify-design-system.mjs",
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:routes": "node ./scripts/testing/verify-signed-in-routes.mjs",
@@ -26,6 +27,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
+    "@capacitor-firebase/analytics": "^8.2.0",
     "@capacitor-firebase/authentication": "^8.0.1",
     "@capacitor-firebase/messaging": "^8.0.1",
     "@capacitor/android": "^8.2.0",

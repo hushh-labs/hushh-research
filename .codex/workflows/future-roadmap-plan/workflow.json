@@ -1,0 +1,65 @@
+{
+  "id": "future-roadmap-plan",
+  "title": "Future Roadmap Plan",
+  "goal": "Turn future-state product or architecture ideas into planning-only docs grounded in Hushh north stars, trust boundaries, and current repo reality.",
+  "owner_skill": "future-planner",
+  "default_spoke": null,
+  "task_type": "future-roadmap-plan",
+  "affected_surfaces": [
+    "docs/future",
+    "docs/vision",
+    "docs/reference/operations",
+    ".codex/skills/future-planner"
+  ],
+  "required_reads": [
+    "docs/vision/README.md",
+    "docs/future/README.md",
+    "docs/reference/operations/documentation-architecture-map.md",
+    "consent-protocol/docs/reference/personal-knowledge-model.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task future-roadmap-plan"
+  ],
+  "verification_bundle": {
+    "id": "future-roadmap-plan",
+    "commands": [
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh docs verify",
+      "./bin/hushh codex audit"
+    ],
+    "tests": [
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh codex audit"
+    ]
+  },
+  "deliverables": [
+    "planning-only future-state doc",
+    "north-star vs future vs execution classification",
+    "promotion criteria and risk summary"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "future-planner",
+    "docs-governance",
+    "planning-board",
+    "repo-context"
+  ],
+  "common_failures": [
+    "mixing future-roadmap concepts into vision docs",
+    "writing speculative implementation detail as if it is already approved",
+    "ignoring trust, PKM, or consent edge cases"
+  ],
+  "scheduled_safe": false,
+  "maintenance_cadence": "manual",
+  "maintenance_runner": [],
+  "maintenance_owner": "future-planner",
+  "maintenance_issue_section": "future-roadmap-plan",
+  "maintenance_blockers": [
+    "planning doc has no status or promotion rule",
+    "future skill or workflow manifests drift from docs-home rules"
+  ],
+  "maintenance_prerequisites": []
+}

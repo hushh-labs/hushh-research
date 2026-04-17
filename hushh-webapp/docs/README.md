@@ -10,6 +10,8 @@ flowchart TD
   root --> n1
   n2["Plugin Api Reference"]
   root --> n2
+  n3["Profile Management Design Rules"]
+  root --> n3
 ```
 
 Frontend and native-client implementation references for the webapp package.
@@ -22,6 +24,7 @@ This docs home is package-local. It should stay focused on frontend/native imple
 | -------- | ----- |
 | [plugin-api-reference.md](./plugin-api-reference.md) | Capacitor plugin contracts and parameter parity |
 | [kai-analysis-layout-and-review-mode.md](./kai-analysis-layout-and-review-mode.md) | Kai analysis UI layout and app-review runtime behavior |
+| [profile-management-design-rules.md](./profile-management-design-rules.md) | Guardrails for Profile IA, page navigation, and non-analytical summary usage |
 
 ## Source Tree Indexes
 

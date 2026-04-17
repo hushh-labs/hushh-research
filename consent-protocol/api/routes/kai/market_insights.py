@@ -1567,6 +1567,15 @@ def _market_refresh_interval_seconds() -> int:
         return 600
 
 
+def _market_startup_warm_timeout_seconds() -> float:
+    raw = str(os.getenv("KAI_MARKET_STARTUP_WARM_TIMEOUT_SECONDS", "20")).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 20.0
+    return min(120.0, max(1.0, value))
+
+
 async def _refresh_public_market_modules_once() -> None:
     refresh_summary: list[str] = []
 
@@ -1637,6 +1646,27 @@ async def _run_refresh_with_advisory_lock() -> None:
         await _refresh_public_market_modules_once()
 
 
+async def _warm_shared_baseline_market_home_once() -> None:
+    payload = await _get_market_insights_payload(
+        user_id="startup",
+        requested_watchlist_symbols=list(DEFAULT_SYMBOLS),
+        filtered_symbols=[],
+        watchlist_symbols=list(DEFAULT_SYMBOLS),
+        days_back=7,
+        active_pick_source=DEFAULT_PICK_SOURCE_ID,
+        consent_token=None,
+        personalized=False,
+        warm_source="startup",
+    )
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    logger.debug(
+        "[Kai Market] shared baseline warm tier=%s stale=%s age=%ss",
+        meta.get("cache_tier") or "unknown",
+        meta.get("stale"),
+        meta.get("cache_age_seconds"),
+    )
+
+
 async def _market_refresh_loop() -> None:
     interval = _market_refresh_interval_seconds()
     logger.info("[Kai Market] background refresh loop started (interval=%ss)", interval)
@@ -1658,6 +1688,30 @@ def start_market_insights_background_refresh() -> None:
     _MARKET_REFRESH_TASK = asyncio.create_task(_market_refresh_loop())
 
 
+async def warm_market_insights_startup_once() -> None:
+    if not _market_refresh_enabled():
+        logger.info("[Kai Market] startup warm disabled by env")
+        return
+    timeout_seconds = _market_startup_warm_timeout_seconds()
+    try:
+        await asyncio.wait_for(_run_refresh_with_advisory_lock(), timeout=timeout_seconds)
+    except TimeoutError:
+        logger.warning(
+            "[Kai Market] startup public module warm timed out after %ss", timeout_seconds
+        )
+    except Exception as exc:
+        logger.warning("[Kai Market] startup public module warm failed: %s", exc)
+
+    try:
+        await asyncio.wait_for(_warm_shared_baseline_market_home_once(), timeout=timeout_seconds)
+    except TimeoutError:
+        logger.warning(
+            "[Kai Market] startup baseline home warm timed out after %ss", timeout_seconds
+        )
+    except Exception as exc:
+        logger.warning("[Kai Market] startup baseline home warm failed: %s", exc)
+
+
 async def _get_market_insights_payload(
     *,
     user_id: str,
@@ -1668,6 +1722,7 @@ async def _get_market_insights_payload(
     active_pick_source: str,
     consent_token: str | None,
     personalized: bool,
+    warm_source: str = "request",
 ) -> dict[str, Any]:
     effective_pick_source = active_pick_source if personalized else DEFAULT_PICK_SOURCE_ID
     canonical_watchlist_key = ",".join(sorted(set(watchlist_symbols)))
@@ -2358,7 +2413,7 @@ async def _get_market_insights_payload(
                 "cache_age_seconds": 0,
                 "cache_tier": aggregated_cache_tier,
                 "cache_hit": aggregated_cache_hit,
-                "warm_source": "request",
+                "warm_source": warm_source,
                 "market_mode": "personalized" if personalized else "baseline",
                 "baseline_cache_tier": None if personalized else aggregated_cache_tier,
                 "personalized_cache_tier": aggregated_cache_tier if personalized else None,
@@ -2389,7 +2444,7 @@ async def _get_market_insights_payload(
             fresh_ttl_seconds=HOME_FRESH_TTL_SECONDS,
             stale_ttl_seconds=HOME_STALE_TTL_SECONDS,
             fetcher=build_payload,
-            warm_source="request",
+            warm_source=warm_source,
             serve_stale_while_revalidate=True,
         )
     except Exception as exc:
@@ -2414,7 +2469,7 @@ async def _get_market_insights_payload(
     meta["cache_age_seconds"] = home_age_seconds
     meta["cache_tier"] = str(meta.get("cache_tier") or home_cache_tier)
     meta["cache_hit"] = bool(meta.get("cache_hit")) or home_cache_hit
-    meta["warm_source"] = str(meta.get("warm_source") or "request")
+    meta["warm_source"] = str(meta.get("warm_source") or warm_source)
     meta["market_mode"] = str(
         meta.get("market_mode") or ("personalized" if personalized else "baseline")
     )

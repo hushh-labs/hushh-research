@@ -50,7 +50,31 @@ Non-owned surfaces:
 
 1. Start from the contract or user-facing behavior that needs proof, then select the smallest authoritative checks.
 2. Keep frontend and backend contract tests aligned with the same user-visible or policy-visible rule.
-3. Treat CI pipeline ownership as `repo-operations` work unless the task is primarily about what should be verified.
+3. Do not default to Playwright when a cheaper proof is authoritative:
+   - use unit/integration tests for data and component logic
+   - use Next devtools `get_errors` / runtime diagnostics for render and build faults
+   - use targeted service or route contract tests for API/state rules
+4. Use Playwright only when the behavior depends on a real browser:
+   - auth/bootstrap and reviewer-mode flows
+   - vault unlock and protected-route gating
+   - Next client navigation behavior
+   - responsive layout, animation, interaction, or browser-only runtime issues
+5. For vault-protected signed-in routes, split browser verification into two separate contracts when relevant:
+   - same-session client navigation after unlock
+   - cold-entry or direct deep-link behavior that re-auths or re-unlocks
+6. Do not let a single Playwright script conflate these two contracts when the vault is memory-only.
+7. When Playwright is required for a signed-in protected route, the default browser contract is:
+   - reviewer-mode login
+   - vault unlock using the configured Kai/reviewer passphrase from env
+   - Next client navigation for same-session proof
+8. Treat raw `page.goto(...)` to a protected route as cold-entry proof only, not same-session proof.
+9. For PKM work, verify the same user across all truth surfaces that matter:
+   - manifest-backed backend metadata
+   - helper/service metadata path
+   - MCP discovery payload
+   - user-visible profile PKM rendering
+10. Treat a locked summary that renders as empty PKM as a regression unless the stored PKM is actually empty.
+11. Treat CI pipeline ownership as `repo-operations` work unless the task is primarily about what should be verified.
 
 ## Handoff Rules
 
@@ -65,3 +89,5 @@ Non-owned surfaces:
 cd hushh-webapp && npm test
 cd consent-protocol && python3 -m pytest tests/quality -q
 ```
+
+When route/browser verification changes, require the test output to state which contract was proven: in-app navigation, cold deep link, or both.
