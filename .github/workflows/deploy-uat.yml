@@ -306,6 +306,43 @@ jobs:
         continue-on-error: true
         run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.CLOUD_RUN_REVISION_RETENTION }}"
 
+      - name: Resolve deployed candidate revisions
+        id: candidate-state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestCreatedRevisionName)')"
+          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestCreatedRevisionName)')"
+
+          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
+          echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Promote deployed revisions to UAT traffic
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-revisions="${{ steps.candidate-state.outputs.backend_revision }}=100"
+          fi
+
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"
+          fi
+
       - name: Resolve current deployed Cloud Run state
         id: current-state
         shell: bash
@@ -709,8 +746,10 @@ jobs:
                   "frontend_url": "${{ steps.predeploy-state.outputs.frontend_url }}",
               },
               "current": {
+                  "backend_candidate_revision": "${{ steps.candidate-state.outputs.backend_revision }}",
                   "backend_revision": "${{ steps.current-state.outputs.backend_revision }}",
                   "backend_url": "${{ steps.current-state.outputs.backend_url }}",
+                  "frontend_candidate_revision": "${{ steps.candidate-state.outputs.frontend_revision }}",
                   "frontend_revision": "${{ steps.current-state.outputs.frontend_revision }}",
                   "frontend_url": "${{ steps.current-state.outputs.frontend_url }}",
               },
