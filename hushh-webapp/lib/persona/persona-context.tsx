@@ -14,6 +14,7 @@ import { usePathname } from "next/navigation";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
+import { getRouteScope, routePersonaForScope } from "@/lib/navigation/route-scope";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import {
   RiaService,
@@ -30,6 +31,7 @@ interface PersonaContextValue {
   riaOnboardingStatus: RiaOnboardingStatus | null;
   loading: boolean;
   refreshing: boolean;
+  personaTransitionTarget: Persona | null;
   activePersona: Persona;
   primaryNavPersona: Persona;
   riaCapability: RiaCapability;
@@ -42,6 +44,7 @@ interface PersonaContextValue {
 }
 
 const PersonaContext = createContext<PersonaContextValue | null>(null);
+const PERSONA_TRANSITION_TIMEOUT_MS = 4_000;
 
 function readCachedPersona(userId: string) {
   const cache = CacheService.getInstance();
@@ -75,6 +78,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const [riaOnboardingStatus, setRiaOnboardingStatus] = useState<RiaOnboardingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [personaTransitionTarget, setPersonaTransitionTarget] = useState<Persona | null>(null);
   const pathnameRef = useRef(pathname);
 
   useEffect(() => {
@@ -89,6 +93,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         setRiaOnboardingStatus(null);
         setLoading(false);
         setRefreshing(false);
+        setPersonaTransitionTarget(null);
         return;
       }
 
@@ -169,14 +174,20 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const switchPersona = useCallback(
     async (target: Persona) => {
       if (!user || !isAuthenticated) return null;
-      const idToken = await user.getIdToken();
-      const next = await RiaService.switchPersona(idToken, target);
-      const cache = CacheService.getInstance();
-      CacheSyncService.onPersonaStateChanged(user.uid, { preservePersonaState: true });
-      cache.set(CACHE_KEYS.PERSONA_STATE(user.uid), next, CACHE_TTL.SESSION);
-      setPersonaState(next);
-      void refresh({ force: true });
-      return next;
+      setPersonaTransitionTarget(target);
+      try {
+        const idToken = await user.getIdToken();
+        const next = await RiaService.switchPersona(idToken, target);
+        const cache = CacheService.getInstance();
+        CacheSyncService.onPersonaStateChanged(user.uid, { preservePersonaState: true });
+        cache.set(CACHE_KEYS.PERSONA_STATE(user.uid), next, CACHE_TTL.SESSION);
+        setPersonaState(next);
+        void refresh({ force: true });
+        return next;
+      } catch (error) {
+        setPersonaTransitionTarget(null);
+        throw error;
+      }
     },
     [isAuthenticated, refresh, user]
   );
@@ -192,6 +203,34 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const activePersona: Persona = useMemo(() => {
     return personaState?.active_persona || personaState?.last_active_persona || "investor";
   }, [personaState]);
+
+  const routePersona = useMemo(() => {
+    return routePersonaForScope(getRouteScope(pathname));
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!personaTransitionTarget) {
+      return;
+    }
+
+    if (
+      activePersona === personaTransitionTarget &&
+      (!routePersona || routePersona === personaTransitionTarget)
+    ) {
+      setPersonaTransitionTarget(null);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPersonaTransitionTarget((current) =>
+        current === personaTransitionTarget ? null : current
+      );
+    }, PERSONA_TRANSITION_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activePersona, personaTransitionTarget, routePersona]);
 
   const primaryNavPersona: Persona = useMemo(() => {
     return personaState?.primary_nav_persona || activePersona;
@@ -226,6 +265,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       riaOnboardingStatus,
       loading,
       refreshing,
+      personaTransitionTarget,
       activePersona,
       primaryNavPersona,
       riaCapability,
@@ -240,6 +280,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       activePersona,
       devRiaBypassAllowed,
       loading,
+      personaTransitionTarget,
       personaState,
       primaryNavPersona,
       refresh,
