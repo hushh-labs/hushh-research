@@ -39,9 +39,9 @@ python3 - <<'PY'
 import os
 
 os.environ.setdefault("TESTING", "true")
-os.environ.setdefault("SECRET_KEY", "test_secret_key_for_ci_only_32chars_min")
+os.environ.setdefault("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_min")
 os.environ.setdefault(
-    "VAULT_ENCRYPTION_KEY",
+    "VAULT_DATA_KEY",
     "0000000000000000000000000000000000000000000000000000000000000000",
 )
 os.environ.setdefault("HUSHH_DEVELOPER_TOKEN", "test_hushh_developer_token_for_ci")

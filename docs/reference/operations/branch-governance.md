@@ -27,10 +27,13 @@ This repo now runs on one integration branch plus SHA-based environment deployme
 
 1. Start all development branches from `main`.
 2. Merge all feature/fix/docs work back into `main`.
-3. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-4. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses that exact commit SHA.
-5. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
-6. Do not open release PRs into environment branches; the deployment source of truth is `main`.
+3. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
+4. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
+5. After an isolated hotfix lands, return local work to the normal development branch or `main` and delete the temporary branch after rollout validation.
+6. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
+7. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses that exact commit SHA.
+8. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
+9. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
 ## Branch Types and Retention
 
@@ -79,16 +82,18 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Require pull requests before merge.
 2. Require the `CI Status Gate` status check.
-3. Keep classic branch protection non-strict; freshness is enforced through merge queue, not per-PR rebasing churn.
-4. Enable merge queue for `main`.
-5. Block force-pushes.
-6. Block branch deletion.
-7. Use review bypass plus the dedicated `main-bypass-queue` team for the 3 core owners only; do not rely on overlapping push restrictions.
-8. Keep ordinary development off `main`; use PRs from developer branches.
+3. Require strict/up-to-date checks.
+4. Require conversation resolution before merge.
+5. Enable merge queue for `main`.
+6. Block force-pushes.
+7. Block branch deletion.
+8. Use review bypass plus the dedicated `main-bypass-queue` team for the 3 core owners only; do not rely on overlapping push restrictions.
+9. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
 
 - `enforce_admins` should stay enabled
+- DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 - admin ownership does not count as an independent PR approval
 - a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges

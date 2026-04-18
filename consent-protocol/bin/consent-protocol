@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hushh
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +34,10 @@ python_bin() {
     printf '%s\n' ".venv/bin/python"
     return 0
   fi
+  if command -v uv >/dev/null 2>&1; then
+    uv python find
+    return 0
+  fi
   if command -v python3 >/dev/null 2>&1; then
     command -v python3
     return 0
@@ -43,8 +50,8 @@ PYTHON_BIN="$(python_bin)"
 run_test_env() {
   env \
     TESTING=true \
-    SECRET_KEY="test_secret_key_for_ci_only_32chars_min" \
-    VAULT_ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
+    APP_SIGNING_KEY="test_secret_key_for_ci_only_32chars_min" \
+    VAULT_DATA_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
     HUSHH_DEVELOPER_TOKEN="test_hushh_developer_token_for_ci" \
     PYTHONPATH=. \
     "$@"
@@ -62,37 +69,70 @@ case "$COMMAND" in
     usage
     ;;
   dev)
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run uvicorn server:app --reload --port 8000 "$@"
+    fi
     exec "$PYTHON_BIN" -m uvicorn server:app --reload --port 8000 "$@"
     ;;
   lint)
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run ruff check . "$@"
+    fi
     exec "$PYTHON_BIN" -m ruff check . "$@"
     ;;
   format)
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run ruff format . "$@"
+    fi
     exec "$PYTHON_BIN" -m ruff format . "$@"
     ;;
   format-check)
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run ruff format --check . "$@"
+    fi
     exec "$PYTHON_BIN" -m ruff format --check . "$@"
     ;;
   fix)
+    if command -v uv >/dev/null 2>&1; then
+      uv run ruff format . "$@"
+      exec uv run ruff check . --fix "$@"
+    fi
     "$PYTHON_BIN" -m ruff format . "$@"
     exec "$PYTHON_BIN" -m ruff check . --fix "$@"
     ;;
   typecheck)
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run mypy --config-file pyproject.toml --ignore-missing-imports "$@"
+    fi
     exec "$PYTHON_BIN" -m mypy --config-file pyproject.toml --ignore-missing-imports "$@"
     ;;
   test)
-    run_test_env "$PYTHON_BIN" -m pytest tests/ -v --tb=short "$@"
+    if command -v uv >/dev/null 2>&1; then
+      run_test_env uv run pytest tests/ -v --tb=short "$@"
+    else
+      run_test_env "$PYTHON_BIN" -m pytest tests/ -v --tb=short "$@"
+    fi
     ;;
   test-ci)
     run_test_env bash scripts/run-test-ci.sh "$@"
     ;;
   security)
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll "$@"
+    fi
     exec "$PYTHON_BIN" -m bandit -r hushh_mcp/ api/ -c pyproject.toml -ll "$@"
     ;;
   accuracy)
+    if command -v uv >/dev/null 2>&1; then
+      exec uv run python scripts/run_kai_accuracy_suite.py "$@"
+    fi
     exec "$PYTHON_BIN" scripts/run_kai_accuracy_suite.py "$@"
     ;;
   ci)
+    if command -v uv >/dev/null 2>&1; then
+      uv sync --frozen --group dev
+      bash scripts/sync_runtime_requirements.sh --check
+    fi
     "$0" lint
     "$0" format-check
     "$0" typecheck

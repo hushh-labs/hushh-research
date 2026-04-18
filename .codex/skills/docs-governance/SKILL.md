@@ -52,6 +52,8 @@ Non-owned surfaces:
 2. Choose the correct docs home before editing content.
 3. Keep root docs thin and package-specific docs package-local.
 4. Update diagrams, inbound links, and verification references in the same change when a canonical doc changes.
+5. For contributor and setup docs, keep one blessed monorepo path and one aligned standalone upstream path; do not let legacy bootstrap instructions coexist.
+6. For command docs, verify the documented command against the real CLI or script surface after editing, then rerun docs verification once more from the canonical repo entrypoint.
 
 ## Handoff Rules
 
@@ -59,6 +61,7 @@ Non-owned surfaces:
 2. If the work is primarily frontend structure, use `frontend`.
 3. If the work is primarily backend runtime or package behavior, use `backend`.
 4. If the work is operational policy rather than docs policy, use `repo-operations`.
+5. If the work is primarily contributor-first-run experience or bootstrap contract ownership, use `contributor-onboarding`.
 
 ## Required Checks
 

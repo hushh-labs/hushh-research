@@ -37,6 +37,12 @@ import {
   REQUEST_ID_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
+import {
+  resolveRuntimeBackendUrl,
+  resolveVoiceDirectBackendPreference,
+  resolveVoiceFailFastPolicy,
+  resolveVoiceForceProxyPreference,
+} from "@/lib/runtime/settings";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
@@ -48,7 +54,7 @@ type VaultOwnerAuthFailure = {
 };
 
 const getEnvBackendUrl = (): string => {
-  return (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim().replace(/\/$/, "");
+  return resolveRuntimeBackendUrl();
 };
 
 const LOCAL_NATIVE_HOSTS = new Set(["localhost", "127.0.0.1", "10.0.2.2"]);
@@ -146,13 +152,11 @@ function getVoiceTransportMode(): VoiceTransportMode {
   if (!backend) {
     return { mode: "nextjs_proxy", reason: "missing_backend_url" };
   }
-  const explicitProxy =
-    String(process.env.NEXT_PUBLIC_VOICE_FORCE_PROXY || "").toLowerCase() === "true";
+  const explicitProxy = resolveVoiceForceProxyPreference();
   if (explicitProxy) {
     return { mode: "nextjs_proxy", reason: "explicit_proxy", backendUrl: backend };
   }
-  const explicitDirect =
-    String(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND || "").toLowerCase() === "true";
+  const explicitDirect = resolveVoiceDirectBackendPreference();
   if (explicitDirect) {
     return { mode: "direct_backend", reason: "explicit_direct", backendUrl: backend };
   }
@@ -177,26 +181,13 @@ function getVoiceTransportMode(): VoiceTransportMode {
   return { mode: "nextjs_proxy", reason: "proxy_default", backendUrl: backend };
 }
 
-function isTruthyEnvFlag(raw: string | undefined): boolean {
-  return ["1", "true", "yes", "on", "enabled"].includes(String(raw || "").trim().toLowerCase());
-}
-
 function isVoiceFailFastEnabled(): boolean {
-  const disableFallbacks =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_DISABLE_VOICE_FALLBACKS) ||
-    isTruthyEnvFlag(process.env.DISABLE_VOICE_FALLBACKS);
-  const failFast =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FAIL_FAST_VOICE) ||
-    isTruthyEnvFlag(process.env.FAIL_FAST_VOICE);
-  const forceRealtime =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE) ||
-    isTruthyEnvFlag(process.env.FORCE_REALTIME_VOICE);
-  return disableFallbacks || failFast || forceRealtime;
+  return resolveVoiceFailFastPolicy();
 }
 
 function isVoiceDirectBackendRequired(): boolean {
   if (Capacitor.isNativePlatform()) return false;
-  const explicitDirect = isTruthyEnvFlag(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND);
+  const explicitDirect = resolveVoiceDirectBackendPreference();
   return explicitDirect || isVoiceFailFastEnabled();
 }
 

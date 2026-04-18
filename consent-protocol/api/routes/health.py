@@ -24,7 +24,7 @@ def _env_truthy(name: str, fallback: str = "false") -> bool:
 
 
 def _is_app_review_mode_enabled() -> bool:
-    return _env_truthy("APP_REVIEW_MODE") or _env_truthy("HUSHH_APP_REVIEW_MODE")
+    return _env_truthy("APP_REVIEW_MODE")
 
 
 @router.get("/")
@@ -52,7 +52,7 @@ async def issue_app_review_mode_session(request: Request):
     Mint a Firebase custom token for app-review login.
 
     Security:
-    - Enabled only when APP_REVIEW_MODE/HUSHH_APP_REVIEW_MODE is true
+    - Enabled only when APP_REVIEW_MODE is true
     - Uses fixed REVIEWER_UID from server env
     - Never returns reviewer password to clients
     """
@@ -63,9 +63,7 @@ async def issue_app_review_mode_session(request: Request):
             headers=NO_STORE_HEADERS,
         )
 
-    reviewer_uid = (
-        str(os.getenv("REVIEWER_UID", "")).strip() or str(os.getenv("KAI_TEST_USER_ID", "")).strip()
-    )
+    reviewer_uid = str(os.getenv("REVIEWER_UID", "")).strip()
     failure_reason = "missing_reviewer_uid"
 
     if not reviewer_uid:

@@ -15,8 +15,7 @@ Description:
   - verifies required local tools
   - installs/refreshes frontend and backend dependencies
   - hydrates the three canonical frontend runtime modes plus the local backend env
-  - hydrates native secret values into the frontend profile files when available
-  - activates the selected frontend profile and materializes .env.local.d
+  - activates the selected frontend profile
   - runs the environment doctor for the selected profile
 
 Notes:
@@ -129,6 +128,7 @@ require_cmd node
 require_cmd npm
 require_cmd python3
 require_cmd jq
+require_cmd uv
 
 NODE_VERSION="$(node -v | sed 's/^v//')"
 NPM_VERSION="$(npm -v)"
@@ -147,6 +147,7 @@ echo "  - node >= 20 (found ${NODE_VERSION})"
 echo "  - npm >= 10 (found ${NPM_VERSION})"
 echo "  - python3 >= 3.13 (found ${PYTHON_VERSION})"
 echo "  - jq"
+echo "  - uv"
 echo "Optional but recommended:"
 optional_tool_note gcloud "needed to hydrate profiles from GCP and run live parity checks"
 optional_tool_note cloud-sql-proxy "needed only for local backend work"
@@ -165,14 +166,11 @@ echo "Installing frontend dependencies..."
 echo ""
 
 echo "Preparing backend virtual environment..."
-if [ ! -d "$REPO_ROOT/consent-protocol/.venv" ]; then
-  python3 -m venv "$REPO_ROOT/consent-protocol/.venv"
-fi
-"$REPO_ROOT/consent-protocol/.venv/bin/pip" install --disable-pip-version-check -r "$REPO_ROOT/consent-protocol/requirements.txt" -r "$REPO_ROOT/consent-protocol/requirements-dev.txt"
+(cd "$REPO_ROOT/consent-protocol" && uv sync --frozen --group dev && bash scripts/sync_runtime_requirements.sh --check)
 echo ""
 
 echo "Hydrating canonical frontend modes and the local backend runtime..."
-bash "$REPO_ROOT/scripts/env/bootstrap_profiles.sh"
+BOOTSTRAP_FOCUS_PROFILE="$PROFILE" bash "$REPO_ROOT/scripts/env/bootstrap_profiles.sh"
 echo ""
 
 echo "Activating selected runtime mode..."

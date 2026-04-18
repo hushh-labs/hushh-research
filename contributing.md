@@ -13,6 +13,13 @@ cd hushh-research
 
 If you can run that flow and understand the trust model below, you have enough context to contribute.
 
+Choose the narrowest lane that matches the work:
+
+- app contributor: stay in the monorepo root and use `./bin/hushh web --mode uat`
+- backend contributor: stay in the monorepo root and use `./bin/hushh terminal backend --mode local --reload`
+- standalone backend contributor: use the aligned path in [consent-protocol/README.md](./consent-protocol/README.md)
+- maintainer/operator: use [docs/reference/operations/README.md](./docs/reference/operations/README.md)
+
 ## The Product Contract
 
 Hushh is built around four invariants:
@@ -42,6 +49,21 @@ Use these first:
 ```
 
 Repo-level workflows should go through `./bin/hushh`. Do not teach alternate root task surfaces in contributor docs.
+
+The only setup truth surfaces are:
+
+- `./bin/hushh bootstrap`
+- `./bin/hushh doctor --mode <mode>`
+
+## Contributor Contract
+
+- First-party code in this repo is Apache-2.0.
+- Every PR commit must be signed off with `git commit -s`.
+- `uv` is the canonical Python toolchain for `consent-protocol`.
+- `consent-protocol/requirements*.txt` remain generated runtime artifacts only; do not teach them as the install path.
+- release migrations are authoritative only from `consent-protocol/db/migrations` + `consent-protocol/db/release_migration_manifest.json`
+
+If you want a zero-setup editor path, use `.devcontainer/devcontainer.json`.
 
 ## Branch and Release Model
 
@@ -85,6 +107,12 @@ Common checks:
 ./bin/hushh ci
 ./bin/hushh docs verify
 cd hushh-webapp && npm run verify:docs
+```
+
+Commit signoff:
+
+```bash
+git commit -s
 ```
 
 ## Naming Policy

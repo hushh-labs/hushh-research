@@ -25,18 +25,18 @@
     "docs/reference/kai/kai-runtime-smoke-checklist.md"
   ],
   "required_commands": [
-    "cd hushh-webapp && npm test",
+    "cd hushh-webapp && npm run test:ci",
     "cd consent-protocol && python3 -m pytest tests/quality -q"
   ],
   "verification_bundles": [
     {
       "id": "quality-contracts",
       "commands": [
-        "cd hushh-webapp && npm test",
+        "cd hushh-webapp && npm run test:ci",
         "cd consent-protocol && python3 -m pytest tests/quality -q"
       ],
       "tests": [
-        "cd hushh-webapp && npm test",
+        "cd hushh-webapp && npm run test:ci",
         "cd consent-protocol && python3 -m pytest tests/quality -q"
       ]
     }

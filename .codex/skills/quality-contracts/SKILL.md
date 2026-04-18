@@ -75,6 +75,11 @@ Non-owned surfaces:
    - user-visible profile PKM rendering
 10. Treat a locked summary that renders as empty PKM as a regression unless the stored PKM is actually empty.
 11. Treat CI pipeline ownership as `repo-operations` work unless the task is primarily about what should be verified.
+12. Keep required verification lean:
+   - prefer changed-surface checks over broad suites
+   - protect contributor setup, route/API contracts, and release-critical behavior first
+13. When changing a required test set or gate policy, rerun the selected authoritative checks once after the edit and once again from the canonical repo entrypoint before closing the work.
+14. Treat helper-only skill/docs drift as advisory by default. It becomes blocking only when it hides or weakens a core runtime/deploy/test authority surface that the RCA loop depends on.
 
 ## Handoff Rules
 
@@ -86,7 +91,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-cd hushh-webapp && npm test
+cd hushh-webapp && npm run test:ci
 cd consent-protocol && python3 -m pytest tests/quality -q
 ```
 

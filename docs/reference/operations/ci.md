@@ -64,6 +64,16 @@ Codex-first PR watcher:
 
 Use this command first for active pull-request checks because it classifies failing jobs into the right owner skill and points to the next workflow pack before dropping to raw `gh run` inspection.
 
+Codex-first RCA surface:
+
+```bash
+./bin/hushh codex rca --surface uat --text
+./bin/hushh codex rca --surface runtime --text
+./bin/hushh codex rca --surface ci --text
+```
+
+Use this command when the failure is already on a core authority surface and the next step is classification, not generic monitoring. It preserves structured artifacts and keeps helper-only drift advisory unless it masks a runtime, deploy, DB, or semantic verification failure.
+
 Canonical watcher:
 
 ```bash
@@ -160,7 +170,8 @@ Protected branches are expected to enforce the same CI contract documented here:
 - `main`
   - at least `1` approving review
   - required status checks: `CI Status Gate`
-  - strict/up-to-date checks disabled at classic branch protection level
+  - strict/up-to-date checks enabled
+  - conversation resolution required
   - merge queue enabled for `main`
 - force-pushes disabled
 - branch deletion disabled
@@ -173,7 +184,7 @@ The live GitHub setting can drift from the docs, so verify it directly:
 
 Current live nuance:
 
-- the repo currently relies on classic branch protection for review/check requirements and a branch-attached merge queue rule for freshness-at-merge-time
+- the repo uses branch protection for review, freshness, and conversation-resolution requirements
 - bypass actors should be limited to the 3 core owners, without overlapping push-restriction lists
 
 ### GitHub Alert Parity
@@ -187,43 +198,6 @@ The secret gate is intentionally stricter than raw regex scanning:
   - GitHub still reports any open secret-scanning alerts
 - open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 
-## Scheduled Codex Maintenance
-
-Merge-time CI stays event-driven. Time-driven maintenance runs beside it through three scheduled workflows:
-
-1. `Codex Maintenance Daily`
-2. `Codex Maintenance Weekly`
-3. `Codex Maintenance Monthly`
-
-Canonical entrypoint:
-
-```bash
-./bin/hushh codex maintenance daily
-./bin/hushh codex maintenance weekly
-./bin/hushh codex maintenance monthly
-```
-
-These runs:
-
-1. execute only workflow packs marked `scheduled_safe=true`
-2. respect each workflow pack's `maintenance_cadence`
-3. snapshot live GitHub Dependabot and code-scanning alerts
-4. run Codex audit and skill lint checks
-5. update one rolling GitHub issue: `Codex Maintenance Radar`
-
-Cadence contract:
-
-1. `daily`
-   - security posture and Codex-system integrity
-   - fails on open `high` or `critical` GitHub security alerts
-2. `weekly`
-   - repo-health workflow packs: `repo-orientation`, `docs-sync`, `security-consent-audit`, `release-readiness`, `skill-authoring`
-3. `monthly`
-   - environment-sensitive workflow packs: `mobile-parity-check`, `mcp-surface-change`
-   - unmet prerequisites are recorded as `skipped`, not `passed`
-
-Dependency-update cadence is repo-tracked in [`.github/dependabot.yml`](../../../.github/dependabot.yml).
-
 ## Advisory Checks (Non-Blocking By Default)
 
 1. `scripts/ci/docs-parity-check.sh`
@@ -234,6 +208,19 @@ Dependency-update cadence is repo-tracked in [`.github/dependabot.yml`](../../..
 6. Broad full-suite pytest runs and Kai accuracy/compliance suites
 
 Do not add new CI/parity scripts without replacing or consolidating an existing check.
+
+## Lean Required Gate Model
+
+The required pre-merge lane stays intentionally small:
+
+1. secret scan
+2. DCO signoff
+3. governance drift (`docs verify`, Apache/license surface, skill lint)
+4. release contract alignment (`./bin/hushh db verify-release-contract`)
+5. changed-surface web/backend checks
+6. cross-surface integration checks
+
+Post-merge smoke remains the deployment eligibility gate for `main`.
 
 ### Script Lifecycle Policy
 
@@ -251,6 +238,16 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
 7. Feature or hotfix branches never deploy directly; they merge through `main`.
 
+Deploy to UAT is expected to behave as a closed-loop release lane:
+
+1. sync canonical secrets
+2. capture last healthy revisions
+3. deploy changed surfaces
+4. verify runtime mounts and semantic behavior
+5. retry once on transient readiness
+6. roll back only the failing changed surface
+7. publish release artifacts with revisions, reports, and final status
+
 See [Branch Governance](./branch-governance.md).
 
 ---
@@ -262,7 +259,7 @@ See [Branch Governance](./branch-governance.md).
 | Node.js | 20 | 20+ (run `./bin/hushh ci`) |
 | Python | 3.13 | 3.13 (CI asserts exactly 3.13) |
 | npm | latest | Use latest (script upgrades before run) |
-| pip | latest | Use latest (script upgrades before run) |
+| uv | pinned by workflow | install `uv` locally and use `uv sync --frozen --group dev` |
 
 Using a different Node or Python locally can cause “pass locally, fail in CI” if behavior or dependencies differ.
 
@@ -301,11 +298,11 @@ Using a different Node or Python locally can cause “pass locally, fail in CI�
 
 | Step | Command / behavior | Fails CI? |
 |------|--------------------|-----------|
-| Validate files | `requirements.txt` exists; optional `requirements-dev.txt`, `tests/` | No (warnings only) |
-| Install | `pip install -r requirements.txt` then `requirements-dev.txt` or pytest/mypy/ruff | Yes |
-| Lint | `python -m ruff check .` | Yes |
-| Type check | `python -m mypy --config-file pyproject.toml --ignore-missing-imports` | Yes |
-| Security | `python -m bandit -r hushh_mcp/ api/ -c pyproject.toml -ll` | Yes |
+| Validate files | `pyproject.toml`, `uv.lock`, generated `requirements*.txt`, and `tests/` | Yes |
+| Install | `uv sync --frozen --group dev` plus `bash scripts/sync_runtime_requirements.sh --check` | Yes |
+| Lint | `uv run ruff check .` | Yes |
+| Type check | `uv run mypy --config-file pyproject.toml --ignore-missing-imports` | Yes |
+| Security | `uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll` | Yes |
 | Tests | `bash scripts/run-test-ci.sh` (manifest-driven curated suites) | Yes |
 
 Blocking backend manifest:
@@ -316,7 +313,7 @@ Blocking backend manifest:
 4. Kai accuracy/compliance remains manual through `./bin/hushh protocol accuracy`.
 
 **Test env (CI):**  
-`TESTING=true`, `SECRET_KEY`, and `VAULT_ENCRYPTION_KEY` are set in the workflow (see [ci.yml](../../../.github/workflows/ci.yml)).
+`TESTING=true`, `APP_SIGNING_KEY`, and `VAULT_DATA_KEY` are set in the workflow (see [ci.yml](../../../.github/workflows/ci.yml)).
 
 **Consent-token rule for automated tests:** Use fixture-issued VAULT_OWNER tokens from `consent-protocol/tests/conftest.py`. `consent-protocol/tests/dev_test_token.py` is debug-only and must not be required by CI.
 
@@ -372,8 +369,8 @@ Minimum checks for streaming changes:
 
 This script:
 
-1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `requirements.txt`, test files).
-2. Checks Node (20+) and Python (3.13) and upgrades npm/pip.
+1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `pyproject.toml`, `uv.lock`, generated runtime artifacts, test files).
+2. Checks Node (20+) and Python (3.13) and uses `uv` as the canonical backend toolchain.
 3. Runs **frontend** checks: install, `tsc`, lint, Next build, audit-budget gate, curated test suite.
 4. Runs **backend** checks: shared parity verification, install, Ruff, mypy, Bandit, curated test suite.
 5. Runs **integration**: route/runtime contract verification.
@@ -410,7 +407,7 @@ Secret-scan note:
 | Area | Commands (from repo root) |
 |------|----------------------------|
 | Frontend | `cd hushh-webapp && npm ci && npm run typecheck && npm run lint -- --max-warnings=0 && npm run build && npm run test:ci` |
-| Backend | `cd consent-protocol && pip install -r requirements.txt -r requirements-dev.txt && ruff check . && mypy --config-file pyproject.toml --ignore-missing-imports && bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
+| Backend | `cd consent-protocol && uv sync --frozen --group dev && bash scripts/sync_runtime_requirements.sh --check && uv run ruff check . && uv run mypy --config-file pyproject.toml --ignore-missing-imports && uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
 | Integration | `bash scripts/ci/docs-parity-check.sh` |
 | All | `./bin/hushh ci` |
 
@@ -445,7 +442,7 @@ The production deploy workflow (`.github/workflows/deploy-production.yml`) enfor
 
 2. Migration governance + drift gate:
 - checks migration filename monotonicity (`consent-protocol/db/migrations`)
-- checks the production-pinned schema contract (`consent-protocol/db/schema_contract/prod_core_schema.json`)
+- checks the production-pinned schema contract (`consent-protocol/db/contracts/prod_core_schema.json`)
 - allows the repo to be ahead of production while production stays pinned to its approved migration floor
 - checks live DB schema contract in read-only mode
 
@@ -454,7 +451,7 @@ The production deploy workflow (`.github/workflows/deploy-production.yml`) enfor
 
 UAT deploys use a separate latest-integrated contract:
 
-- `consent-protocol/db/schema_contract/uat_integrated_schema.json`
+- `consent-protocol/db/contracts/uat_integrated_schema.json`
 
 The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
 
