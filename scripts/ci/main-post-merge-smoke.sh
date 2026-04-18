@@ -5,6 +5,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 WEB_DIR="$REPO_ROOT/hushh-webapp"
 PROTOCOL_DIR="$REPO_ROOT/consent-protocol"
 NODE_VERSION_MIN="${NODE_VERSION_MIN:-20}"
+PROTOCOL_PYTHON="${PROTOCOL_PYTHON:-$PROTOCOL_DIR/.venv/bin/python}"
 
 cd "$WEB_DIR"
 
@@ -35,7 +36,7 @@ bash "$REPO_ROOT/scripts/ci/runtime-contract-check.sh"
 bash "$REPO_ROOT/scripts/ci/pkm-upgrade-gate.sh"
 
 cd "$PROTOCOL_DIR"
-python3 - <<'PY'
+"$PROTOCOL_PYTHON" - <<'PY'
 import os
 
 os.environ.setdefault("TESTING", "true")
