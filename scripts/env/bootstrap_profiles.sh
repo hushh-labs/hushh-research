@@ -107,9 +107,9 @@ require_cmd() {
 require_cmd jq
 require_cmd python3
 
-declare -a SUMMARY
-declare -a WARNINGS
-declare -a MISSING_REQUIRED
+declare -a SUMMARY=()
+declare -a WARNINGS=()
+declare -a MISSING_REQUIRED=()
 
 GCLOUD_AVAILABLE=false
 GCLOUD_ACCOUNT=""
