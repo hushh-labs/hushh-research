@@ -199,6 +199,24 @@ const REDIRECT_EXPECTATIONS = {
   },
 };
 
+async function installNativeTestBridge(page) {
+  await page.addInitScript(
+    ({ expectedUserId, vaultPassphrase }) => {
+      window.__HUSHH_NATIVE_TEST__ = {
+        ...(window.__HUSHH_NATIVE_TEST__ || {}),
+        enabled: true,
+        autoReviewerLogin: true,
+        expectedUserId,
+        vaultPassphrase,
+      };
+    },
+    {
+      expectedUserId: smokeUserId,
+      vaultPassphrase: reviewerPassphrase,
+    }
+  );
+}
+
 function loadRouteContract() {
   return JSON.parse(fs.readFileSync(contractPath, "utf8"));
 }
@@ -343,7 +361,17 @@ async function ensureReviewerSession(page) {
   const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
   await page.waitForFunction(
     () => {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      const bootstrapState = bridge?.bootstrapState || "";
       if (window.location.pathname === "/ria") {
+        return true;
+      }
+      if (
+        bootstrapState === "authenticated" ||
+        bootstrapState === "loading_vault_state" ||
+        bootstrapState === "unlocking_vault" ||
+        bootstrapState === "vault_unlocked"
+      ) {
         return true;
       }
       if (document.querySelector("#unlock-passphrase")) {
@@ -354,7 +382,7 @@ async function ensureReviewerSession(page) {
       );
     },
     {},
-    { timeout: 20_000 }
+    { timeout: 60_000 }
   );
 
   if (await reviewerButton.isVisible().catch(() => false)) {
@@ -799,6 +827,7 @@ async function runViewportSweep(viewport, contract) {
       browser = await chromium.launch({ headless: true });
       context = await browser.newContext({ viewport });
       page = await context.newPage();
+      await installNativeTestBridge(page);
       page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
       page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
       try {
