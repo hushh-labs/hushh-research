@@ -493,6 +493,19 @@ set_if_non_empty() {
   fi
 }
 
+profile_is_in_focus() {
+  local profile="$1"
+  [ -z "$FOCUS_PROFILE" ] || [ "$profile" = "$FOCUS_PROFILE" ]
+}
+
+append_missing_required() {
+  local profile="$1"
+  local message="$2"
+  if profile_is_in_focus "$profile"; then
+    MISSING_REQUIRED+=("${profile}: ${message}")
+  fi
+}
+
 is_placeholder_value() {
   local value="${1:-}"
   case "$value" in
@@ -526,7 +539,7 @@ set_secret_key() {
     return 0
   fi
   if [ "$required" = "true" ]; then
-    MISSING_REQUIRED+=("${profile}: missing secret ${key} in ${project}")
+    append_missing_required "$profile" "missing secret ${key} in ${project}"
   elif [ -z "$FOCUS_PROFILE" ] || [ "$profile" = "$FOCUS_PROFILE" ]; then
     WARNINGS+=("${profile}: optional secret ${key} missing in ${project}")
   fi
@@ -609,7 +622,7 @@ set_secret_key_or_cached() {
     return 0
   fi
   if [ "$required" = "true" ]; then
-    MISSING_REQUIRED+=("${profile}: missing secret ${key} in ${project} and no cached fallback in ${cache_file#$REPO_ROOT/}")
+    append_missing_required "$profile" "missing secret ${key} in ${project} and no cached fallback in ${cache_file#$REPO_ROOT/}"
   elif [ -z "$FOCUS_PROFILE" ] || [ "$profile" = "$FOCUS_PROFILE" ]; then
     WARNINGS+=("${profile}: optional secret ${key} missing in ${project} and no cached fallback in ${cache_file#$REPO_ROOT/}")
   fi
@@ -632,7 +645,7 @@ set_mapped_secret_key_or_cached() {
     fi
   done
   if [ "$required" = "true" ]; then
-    MISSING_REQUIRED+=("${profile}: missing secret ${target_key} in ${project} and no mapped fallback in ${cache_file#$REPO_ROOT/}")
+    append_missing_required "$profile" "missing secret ${target_key} in ${project} and no mapped fallback in ${cache_file#$REPO_ROOT/}"
   elif [ -z "$FOCUS_PROFILE" ] || [ "$profile" = "$FOCUS_PROFILE" ]; then
     WARNINGS+=("${profile}: optional secret ${target_key} missing in ${project} and no mapped fallback in ${cache_file#$REPO_ROOT/}")
   fi
@@ -815,7 +828,7 @@ hydrate_backend_cloud_reference() {
      front_secret="$(resolve_cloud_or_cached_secret_value "$project" "FRONTEND_URL" "$cache_file")"; then
     upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "$front_secret"
   else
-    MISSING_REQUIRED+=("${profile}: missing secret APP_FRONTEND_ORIGIN in ${project}")
+    append_missing_required "$profile" "missing secret APP_FRONTEND_ORIGIN in ${project}"
   fi
 
   for key in PORT CORS_ALLOWED_ORIGINS GOOGLE_GENAI_USE_VERTEXAI OTEL_ENABLED DB_HOST DB_PORT DB_NAME DB_UNIX_SOCKET CONSENT_SSE_ENABLED SYNC_REMOTE_ENABLED DEVELOPER_API_ENABLED OBS_DATA_STALE_RATIO_THRESHOLD; do
@@ -899,7 +912,7 @@ hydrate_backend_local_uatdb() {
       upsert_env_value "$file" "CLOUDSQL_INSTANCE_CONNECTION_NAME" "$instance_name"
       upsert_env_value "$file" "CLOUDSQL_PROXY_PORT" "$LOCAL_UATDB_PROXY_PORT"
     else
-      MISSING_REQUIRED+=("${profile}: UAT backend uses Cloud SQL socket but no instance connection name could be discovered")
+      append_missing_required "$profile" "UAT backend uses Cloud SQL socket but no instance connection name could be discovered"
     fi
   else
     set_if_non_empty "$file" "DB_HOST" "$runtime_db_host"
@@ -928,7 +941,7 @@ hydrate_frontend_cloud() {
   if backend_url="$(resolve_cloud_or_cached_secret_value "$project" "BACKEND_URL" "$cache_file")"; then
     upsert_env_value "$file" "NEXT_PUBLIC_BACKEND_URL" "$backend_url"
   else
-    MISSING_REQUIRED+=("${profile}: missing secret BACKEND_URL in ${project}")
+    append_missing_required "$profile" "missing secret BACKEND_URL in ${project}"
   fi
 
   if frontend_url="$(resolve_cloud_or_cached_secret_value "$project" "APP_FRONTEND_ORIGIN" "$cache_file")"; then
@@ -942,7 +955,7 @@ hydrate_frontend_cloud() {
       upsert_env_value "$file" "NEXT_PUBLIC_APP_URL" "$run_url"
       WARNINGS+=("${profile}: APP_FRONTEND_ORIGIN secret missing in ${project}; used Cloud Run URL")
     else
-      MISSING_REQUIRED+=("${profile}: missing secret APP_FRONTEND_ORIGIN in ${project}")
+      append_missing_required "$profile" "missing secret APP_FRONTEND_ORIGIN in ${project}"
     fi
   fi
 
@@ -1021,18 +1034,22 @@ validate_canonical_keys() {
   local expected_backend="$4"
   local expected_frontend="$5"
 
+  if ! profile_is_in_focus "$profile"; then
+    return 0
+  fi
+
   local backend_env frontend_env
   backend_env="$(read_env_value "$backend_file" "ENVIRONMENT")"
   frontend_env="$(read_env_value "$frontend_file" "NEXT_PUBLIC_APP_ENV")"
 
   if [ -z "$backend_env" ]; then
-    MISSING_REQUIRED+=("${profile}: missing ENVIRONMENT in ${backend_file#$REPO_ROOT/}")
+    append_missing_required "$profile" "missing ENVIRONMENT in ${backend_file#$REPO_ROOT/}"
   elif [ "$backend_env" != "$expected_backend" ]; then
     WARNINGS+=("${profile}: ENVIRONMENT expected ${expected_backend} but found ${backend_env}")
   fi
 
   if [ -z "$frontend_env" ]; then
-    MISSING_REQUIRED+=("${profile}: missing NEXT_PUBLIC_APP_ENV in ${frontend_file#$REPO_ROOT/}")
+    append_missing_required "$profile" "missing NEXT_PUBLIC_APP_ENV in ${frontend_file#$REPO_ROOT/}"
   elif [ "$frontend_env" != "$expected_frontend" ]; then
     WARNINGS+=("${profile}: NEXT_PUBLIC_APP_ENV expected ${expected_frontend} but found ${frontend_env}")
   fi
