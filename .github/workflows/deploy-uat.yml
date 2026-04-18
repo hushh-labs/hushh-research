@@ -441,6 +441,14 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+      - name: Install signed-in route verification dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd hushh-webapp
+          npm ci
+          npx playwright install chromium
+
       - name: Semantic UAT verification
         id: verify-uat-1
         continue-on-error: true
@@ -683,12 +691,14 @@ jobs:
             fi
           fi
 
+          export STATUS
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           payload = {
-              "status": "${STATUS}",
+              "status": os.environ["STATUS"],
               "sha": "${{ steps.resolve-sha.outputs.sha }}",
               "scope": "${{ steps.scope.outputs.scope }}",
               "app_frontend_origin": "${{ env.APP_FRONTEND_ORIGIN }}",
