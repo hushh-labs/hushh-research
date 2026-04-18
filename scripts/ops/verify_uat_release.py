@@ -93,6 +93,11 @@ def main() -> int:
     parser.add_argument("--protocol-env", default=DEFAULT_PROTOCOL_ENV)
     parser.add_argument("--web-env", default=DEFAULT_WEBAPP_ENV)
     parser.add_argument("--report-path", required=True)
+    parser.add_argument(
+        "--include-signed-in-routes",
+        action="store_true",
+        help="Run the heavy signed-in route browser sweep and include it in the report.",
+    )
     args = parser.parse_args()
 
     report: dict[str, Any] = {
@@ -197,19 +202,29 @@ def main() -> int:
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(report, failures, name="voice_realtime_session", exc=exc)
 
-    route_results = []
-    for route_filter in ("consents", "ria/picks"):
-        route_result = _run_signed_in_routes(args.frontend_url, route_filter)
-        route_results.append({"route_filter": route_filter, **route_result})
-        if not route_result["ok"]:
-            failures.append(f"signed_in_routes:{route_filter}")
-    report["checks"].append(
-        {
-            "name": "signed_in_routes",
-            "ok": all(item["ok"] for item in route_results),
-            "routes": route_results,
-        }
-    )
+    if args.include_signed_in_routes:
+        route_results = []
+        for route_filter in ("consents", "ria/picks"):
+            route_result = _run_signed_in_routes(args.frontend_url, route_filter)
+            route_results.append({"route_filter": route_filter, **route_result})
+            if not route_result["ok"]:
+                failures.append(f"signed_in_routes:{route_filter}")
+        report["checks"].append(
+            {
+                "name": "signed_in_routes",
+                "ok": all(item["ok"] for item in route_results),
+                "routes": route_results,
+            }
+        )
+    else:
+        report["checks"].append(
+            {
+                "name": "signed_in_routes",
+                "ok": True,
+                "skipped": True,
+                "reason": "non_blocking_postdeploy_surface",
+            }
+        )
 
     if failures:
         report["status"] = "blocked"

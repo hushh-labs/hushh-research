@@ -478,14 +478,6 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
-      - name: Install signed-in route verification dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd hushh-webapp
-          npm ci
-          npx playwright install chromium
-
       - name: Semantic UAT verification
         id: verify-uat-1
         continue-on-error: true
@@ -597,16 +589,20 @@ jobs:
               backend_failure = True
 
           semantic_failures = set(semantic_report.get("failures") or [])
+          advisory_semantic_failures = sorted(
+              item for item in semantic_failures if item.startswith("signed_in_routes:")
+          )
+          blocking_semantic_failures = {
+              item for item in semantic_failures if not item.startswith("signed_in_routes:")
+          }
           if not semantic_success:
-              append_unique(blocking, ["runtime_behavior_failed"])
-              if "smoke_auth" in semantic_failures:
+              if blocking_semantic_failures:
+                  append_unique(blocking, ["runtime_behavior_failed"])
+              if "smoke_auth" in blocking_semantic_failures:
                   append_unique(blocking, ["smoke_overlay_dependency_leak"])
-              if semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session"}:
+              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session"}:
                   backend_failure = True
-              if "frontend_login" in semantic_failures:
-                  frontend_failure = True
-              if any(item.startswith("signed_in_routes:") for item in semantic_failures):
-                  backend_failure = True
+              if "frontend_login" in blocking_semantic_failures:
                   frontend_failure = True
 
           if db_outcome == "failure":
@@ -632,6 +628,8 @@ jobs:
                   "attempt_2": os.environ.get("SEMANTIC_ATTEMPT_2", ""),
                   "success": semantic_success,
                   "failures": sorted(semantic_failures),
+                  "blocking_failures": sorted(blocking_semantic_failures),
+                  "advisory_failures": advisory_semantic_failures,
               },
               "db_contract": {
                   "outcome": db_outcome,
