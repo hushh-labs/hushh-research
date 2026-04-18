@@ -21,10 +21,6 @@ runs:
     - uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
-        cache: uv
-        cache-dependency-path: |
-          ${{ inputs.protocol-dir }}/pyproject.toml
-          ${{ inputs.protocol-dir }}/uv.lock
 
     - uses: astral-sh/setup-uv@v6
       with:
