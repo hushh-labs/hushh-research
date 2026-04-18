@@ -31,23 +31,28 @@
     "docs/project_context_map.md"
   ],
   "required_commands": [
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py summary",
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills",
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills --verbose",
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py summary --text",
+    "./bin/hushh codex scan summary",
+    "./bin/hushh codex list-workflows",
+    "./bin/hushh codex route-task repo-orientation",
+    "./bin/hushh codex impact repo-orientation",
+    "./bin/hushh codex audit",
     "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
   ],
   "verification_bundles": [
     {
       "id": "repo-context-core",
       "commands": [
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py summary",
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills",
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills --verbose",
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py summary --text",
+        "./bin/hushh codex scan summary",
+        "./bin/hushh codex list-workflows",
+        "./bin/hushh codex route-task repo-orientation",
+        "./bin/hushh codex impact repo-orientation",
+        "./bin/hushh codex audit",
         "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
       ],
-      "tests": []
+      "tests": [
+        "./bin/hushh codex audit",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
+      ]
     }
   ],
   "handoff_targets": [

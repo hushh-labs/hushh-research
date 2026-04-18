@@ -101,7 +101,7 @@ EOF
 }
 
 run_web() {
-  local mode="uat"
+  local mode="local"
   local next_args=()
 
   while [ "$#" -gt 0 ]; do
@@ -119,6 +119,8 @@ run_web() {
         cat <<'EOF'
 Usage:
   ./bin/hushh web [--mode <local|uat|prod>] [-- <next-dev args>]
+
+Defaults to: --mode local
 EOF
         exit 0
         ;;
@@ -179,7 +181,7 @@ EOF
       fi
       ;;
     web)
-      local mode="uat"
+      local mode="local"
       local next_args=()
       while [ "$#" -gt 0 ]; do
         case "${1:-}" in
@@ -196,6 +198,8 @@ EOF
             cat <<'EOF'
 Usage:
   ./bin/hushh terminal web [--mode <local|uat|prod>] [-- <next-dev args>]
+
+Defaults to: --mode local
 EOF
             exit 0
             ;;

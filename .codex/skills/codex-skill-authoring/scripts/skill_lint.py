@@ -178,6 +178,21 @@ def extract_code_paths(text: str) -> list[str]:
     return paths
 
 
+def parse_required_checks(section_text: str) -> list[str]:
+    lines: list[str] = []
+    in_block = False
+    for raw_line in section_text.splitlines():
+        stripped = raw_line.strip()
+        if stripped == "```bash":
+            in_block = True
+            continue
+        if in_block and stripped == "```":
+            break
+        if in_block and stripped:
+            lines.append(stripped)
+    return lines
+
+
 def path_exists(candidate: str) -> bool:
     normalized = candidate.rstrip("/")
     return (REPO_ROOT / normalized).exists()
@@ -255,6 +270,7 @@ def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
                 "owner_family": coverage["owner_family"],
                 "owned_surfaces": [value.rstrip("/") for value in coverage["owned_surfaces"]],
                 "non_owned_surfaces": [value.rstrip("/") for value in coverage["non_owned_surfaces"]],
+                "required_checks": parse_required_checks(sections["Required Checks"]),
             }
         )
     return skills, errors
@@ -292,6 +308,8 @@ def validate_skill_manifests(skills: list[dict[str, Any]], errors: list[str]) ->
             errors.append(f"{manifest_path.relative_to(REPO_ROOT)}: owned_paths must match SKILL.md")
         if manifest.get("required_reads", []) != [value.rstrip("/") for value in extract_backticks(skill["sections"]["Read First"])]:
             errors.append(f"{manifest_path.relative_to(REPO_ROOT)}: required_reads must match SKILL.md Read First")
+        if manifest.get("required_commands", []) != skill["required_checks"]:
+            errors.append(f"{manifest_path.relative_to(REPO_ROOT)}: required_commands must match SKILL.md Required Checks")
 
         primary_scope = manifest.get("primary_scope", "")
         if primary_scope:

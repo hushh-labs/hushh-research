@@ -25,8 +25,9 @@
     "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task future-roadmap-plan",
-    "./bin/hushh docs verify"
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "./bin/hushh docs verify",
+    "./bin/hushh codex audit"
   ],
   "verification_bundles": [
     {

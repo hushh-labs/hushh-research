@@ -22,7 +22,8 @@
   ],
   "required_commands": [
     "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
-    "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --dry-run",
+    "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run",
+    "./bin/hushh codex audit",
     "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
   ],
   "verification_bundles": [
@@ -30,11 +31,13 @@
       "id": "codex-skill-authoring",
       "commands": [
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --dry-run",
+        "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run",
+        "./bin/hushh codex audit",
         "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
       ],
       "tests": [
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex audit",
         "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
       ]
     }

@@ -53,18 +53,31 @@ def load_service_account_json(args: argparse.Namespace) -> str:
     if env_path and Path(env_path).exists():
         return Path(env_path).read_text(encoding="utf-8")
 
-    return subprocess.check_output(
-        [
-            "gcloud",
-            "secrets",
-            "versions",
-            "access",
-            "latest",
-            f"--secret={args.secret_name}",
-            f"--project={args.secret_project}",
-        ],
-        text=True,
-    )
+    secret_names = [args.secret_name]
+    if "FIREBASE_ADMIN_CREDENTIALS_JSON" not in secret_names:
+        secret_names.append("FIREBASE_ADMIN_CREDENTIALS_JSON")
+
+    last_error: subprocess.CalledProcessError | None = None
+    for secret_name in secret_names:
+        try:
+            return subprocess.check_output(
+                [
+                    "gcloud",
+                    "secrets",
+                    "versions",
+                    "access",
+                    "latest",
+                    f"--secret={secret_name}",
+                    f"--project={args.secret_project}",
+                ],
+                text=True,
+            )
+        except subprocess.CalledProcessError as error:
+            last_error = error
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("unable to load analytics service account secret")
 
 
 def build_session(args: argparse.Namespace) -> AuthorizedSession:
