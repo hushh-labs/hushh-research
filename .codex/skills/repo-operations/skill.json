@@ -14,7 +14,11 @@
     "docs-governance",
     "planning-board",
     "frontend",
-    "backend"
+    "backend",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
   ],
   "task_types": [
     "ci-watch-and-heal",
@@ -61,6 +65,10 @@
     "repo-context",
     "planning-board",
     "docs-governance",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
     "backend",
     "security-audit"
   ],
@@ -68,10 +76,15 @@
     "repo-context",
     "backend",
     "security-audit",
-    "docs-governance"
+    "docs-governance",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
   ],
   "risk_tags": [
     "ci-drift",
+    "branch-protection-drift",
     "env-parity-drift",
     "release-drift"
   ]

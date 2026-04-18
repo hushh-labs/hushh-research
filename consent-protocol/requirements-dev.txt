@@ -1,11 +1,27 @@
-# Development Dependencies
-# These are used by CI and local test scripts
-# Linting & Type Checking
-ruff>=0.8.0
-mypy>=1.8.0
-bandit>=1.7.6
+# Generated from pyproject.toml + uv.lock via scripts/sync_runtime_requirements.sh
+# Contributor and CI installs must use: uv sync --frozen --group dev
 
-# Testing
-pytest>=8.2.2
-pytest-cov>=4.1.0
-pytest-asyncio>=0.23.0
+bandit==1.9.4
+colorama==0.4.6 ; sys_platform == 'win32'
+coverage==7.13.5
+iniconfig==2.3.0
+librt==0.9.0 ; platform_python_implementation != 'PyPy'
+markdown-it-py==4.0.0
+mdurl==0.1.2
+mypy==1.20.1
+mypy-extensions==1.1.0
+packaging==26.1
+pathspec==1.0.4
+pip-licenses==5.5.5
+pluggy==1.6.0
+prettytable==3.17.0
+pygments==2.20.0
+pytest==9.0.3
+pytest-asyncio==1.3.0
+pytest-cov==7.1.0
+pyyaml==6.0.3
+rich==15.0.0
+ruff==0.15.11
+stevedore==5.7.0
+typing-extensions==4.15.0
+wcwidth==0.6.0

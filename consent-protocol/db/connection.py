@@ -31,7 +31,10 @@ from urllib.parse import quote_plus
 import asyncpg
 from dotenv import load_dotenv
 
+from hushh_mcp.runtime_settings import hydrate_runtime_environment
+
 load_dotenv()
+hydrate_runtime_environment()
 
 logger = logging.getLogger(__name__)
 _DB_CONNECTION_ERROR_PATTERNS = (

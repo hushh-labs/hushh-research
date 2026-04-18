@@ -176,6 +176,7 @@ export default function RiaClientsPage() {
                 <button
                   key={client.id}
                   type="button"
+                  data-testid={client.isTestProfile ? "ria-client-test-profile" : undefined}
                   onClick={() =>
                     router.push(
                       buildRiaClientWorkspaceRoute(client.investor_user_id || "", {

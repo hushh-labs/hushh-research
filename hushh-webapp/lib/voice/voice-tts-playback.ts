@@ -1,6 +1,10 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import {
+  resolveLegacyLocalTtsCompatEnabled,
+  resolveVoiceFailFastPolicy,
+} from "@/lib/runtime/settings";
 
 export type VoiceTtsPlaybackState = "idle" | "loading" | "playing";
 
@@ -35,28 +39,12 @@ export type VoicePlaybackSource =
   | "browser_speech_synthesis"
   | "realtime_stream_tts";
 
-function isTruthyEnvFlag(raw: string | undefined): boolean {
-  return ["1", "true", "yes", "on", "enabled"].includes(String(raw || "").trim().toLowerCase());
-}
-
 function isVoiceFailFastEnabled(): boolean {
-  const disableFallbacks =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_DISABLE_VOICE_FALLBACKS) ||
-    isTruthyEnvFlag(process.env.DISABLE_VOICE_FALLBACKS);
-  const failFast =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FAIL_FAST_VOICE) ||
-    isTruthyEnvFlag(process.env.FAIL_FAST_VOICE);
-  const forceRealtime =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE) ||
-    isTruthyEnvFlag(process.env.FORCE_REALTIME_VOICE);
-  return disableFallbacks || failFast || forceRealtime;
+  return resolveVoiceFailFastPolicy();
 }
 
 function isLegacyLocalSpeechCompatEnabled(): boolean {
-  return (
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_ENABLE_LEGACY_LOCAL_TTS_COMPAT) ||
-    isTruthyEnvFlag(process.env.ENABLE_LEGACY_LOCAL_TTS_COMPAT)
-  );
+  return resolveLegacyLocalTtsCompatEnabled();
 }
 
 type VoiceTtsLifecycleHandlers = {
@@ -127,7 +115,7 @@ function resolveTtsTimeoutMs(explicitTimeout?: number): number {
 }
 
 function isRealtimeBackendFallbackEnabled(): boolean {
-  return isTruthyEnvFlag(process.env.NEXT_PUBLIC_VOICE_V2_TTS_BACKEND_FALLBACK_ENABLED);
+  return false;
 }
 
 function isStreamBackedAudioPlaybackSupported(mimeType: string): boolean {

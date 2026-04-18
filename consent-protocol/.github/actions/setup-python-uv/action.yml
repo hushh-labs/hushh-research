@@ -1,0 +1,44 @@
+name: setup-python-uv
+description: Set up Python 3.13, install uv, and sync the consent-protocol environment.
+
+inputs:
+  python-version:
+    description: Python version to install.
+    required: false
+    default: "3.13"
+  protocol-dir:
+    description: Path to the consent-protocol project root.
+    required: false
+    default: "."
+  sync-dev-group:
+    description: Include the dev dependency group during sync.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: uv
+        cache-dependency-path: |
+          ${{ inputs.protocol-dir }}/pyproject.toml
+          ${{ inputs.protocol-dir }}/uv.lock
+
+    - uses: astral-sh/setup-uv@v6
+      with:
+        version: "0.10.10"
+
+    - shell: bash
+      run: |
+        set -euo pipefail
+        cd "${{ inputs.protocol-dir }}"
+        if [ "${{ inputs.sync-dev-group }}" = "true" ]; then
+          uv sync --frozen --group dev
+        else
+          uv sync --frozen
+        fi
+        if [ -x scripts/sync_runtime_requirements.sh ]; then
+          bash scripts/sync_runtime_requirements.sh --check
+        fi

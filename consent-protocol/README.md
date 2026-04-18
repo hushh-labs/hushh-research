@@ -73,7 +73,7 @@ If you are working inside the `hushh-research` monorepo, use the repo-root boots
 ```bash
 cd ..
 ./bin/hushh bootstrap
-./bin/hushh backend
+./bin/hushh terminal backend --mode local --reload
 ```
 
 Standalone subtree/backend-only setup:
@@ -83,25 +83,20 @@ Standalone subtree/backend-only setup:
 git clone https://github.com/hushh-labs/consent-protocol.git
 cd consent-protocol
 
-# Virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt  # For linting, testing
+# Install backend toolchain
+uv sync --frozen --group dev
 
 # Configure environment
 cp .env.example .env
 # Edit .env with your Supabase, Gemini, and Firebase credentials
 
 # Run server
-./bin/hushh backend
+./bin/consent-protocol dev
 ```
 
 Health check: `curl http://localhost:8000/health`
 
-**Available commands:** Run `./bin/consent-protocol --help` to see the supported backend commands.
+**Available commands:** Run `./bin/consent-protocol --help` to see the supported standalone backend commands.
 
 ## Using This In a Host Monorepo
 
@@ -155,9 +150,10 @@ PostgreSQL (Supabase)
 consent-protocol/
 ├── server.py                     # FastAPI app, CORS, rate limiting
 ├── consent_db.py                 # DatabaseClient singleton
-├── pyproject.toml                # Tooling config (ruff, mypy, bandit, pytest)
-├── requirements.txt              # Runtime dependencies
-├── requirements-dev.txt          # Dev dependencies (ruff, mypy, pytest, bandit)
+├── pyproject.toml                # Canonical dependency + tooling contract
+├── uv.lock                       # Canonical locked Python dependency graph
+├── requirements.txt              # Generated runtime artifact for MCP packaging
+├── requirements-dev.txt          # Generated compatibility artifact
 ├── Dockerfile                    # Cloud Run container
 ├── .env.example                  # Environment variable template
 │
@@ -184,7 +180,13 @@ consent-protocol/
 │   └── config.py                  # Environment config
 │
 ├── mcp_modules/                   # MCP server tools and resources
-├── db/migrations/                 # SQL migration files
+├── db/migrations/                 # Authoritative numbered release migrations
+├── db/contracts/                  # Frozen vs integrated schema contracts
+├── db/legacy/                     # Legacy/bootstrap SQL, never release authority
+├── db/verify/                     # Read-only DB contract verification helpers
+├── db/seeds/                      # Disposable local/UAT seed utilities
+├── db/repair/                     # Historical repair scripts, not contributor setup
+├── db/release_migration_manifest.json  # Authoritative ordered release lane
 ├── tests/                         # pytest test suite
 │
 └── docs/                          # Documentation
@@ -218,6 +220,24 @@ consent-protocol/
 ---
 
 ## Linting and Testing
+
+Standalone contributor contract:
+
+- License: Apache-2.0
+- Signoff: use `git commit -s`
+- Python installs: `uv sync --frozen --group dev`
+
+Checks:
+
+```bash
+./bin/consent-protocol ci
+```
+
+Migration authority:
+
+- authoritative release lane: `db/migrations/` + `db/release_migration_manifest.json`
+- legacy/bootstrap SQL and one-off maintenance scripts are not release authority
+- see [`../docs/reference/operations/migration-governance.md`](../docs/reference/operations/migration-governance.md) when you need the cross-repo governance view
 
 ```bash
 ./bin/consent-protocol lint         # Lint with ruff
@@ -268,4 +288,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. The short version:
 
 ## License
 
-MIT
+Apache-2.0

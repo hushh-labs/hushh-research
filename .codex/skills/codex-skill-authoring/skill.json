@@ -41,14 +41,21 @@
   ],
   "handoff_targets": [
     "repo-context",
-    "docs-governance"
+    "docs-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
   ],
   "adjacent_skills": [
     "repo-context",
-    "docs-governance"
+    "docs-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
   ],
   "risk_tags": [
     "skill-taxonomy-drift",
-    "manifest-drift"
+    "manifest-drift",
+    "workflow-routing-drift"
   ]
 }

@@ -2,6 +2,8 @@
   "main": {
     "required_status_check": "CI Status Gate",
     "required_approving_reviews": 1,
+    "require_strict_status_checks": true,
+    "require_conversation_resolution": true,
     "review_bypass_users": [
       "kushaltrivedi5",
       "Akash-292",

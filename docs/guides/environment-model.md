@@ -37,6 +37,13 @@ The active runtime files remain:
 - `consent-protocol/.env`
 - `hushh-webapp/.env.local`
 
+Seeded contributor files:
+
+- `consent-protocol/.env`
+- `hushh-webapp/.env.local.local`
+- `hushh-webapp/.env.uat.local`
+- `hushh-webapp/.env.prod.local`
+
 Activate a profile with:
 
 ```bash
@@ -66,6 +73,12 @@ Every profile must keep these keys aligned:
 - both: `APP_RUNTIME_PROFILE=<profile>`
 
 `./bin/hushh doctor --mode <mode>` is the quickest way to verify that alignment.
+
+Doctor status meanings:
+
+- `ready`: source contract and active profile both match the selected mode
+- `activation_required`: source contract is valid, but the active frontend runtime is not switched to the selected mode yet
+- `blocked`: the selected mode is missing required runtime values or targets
 
 ## Runtime Resolution Rules
 

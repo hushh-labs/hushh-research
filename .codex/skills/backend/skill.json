@@ -21,7 +21,8 @@
     "api-contract-change",
     "new-feature-tri-flow",
     "bug-triage",
-    "mcp-surface-change"
+    "mcp-surface-change",
+    "hushh-consent-mcp-ops"
   ],
   "required_reads": [
     "consent-protocol/README.md",

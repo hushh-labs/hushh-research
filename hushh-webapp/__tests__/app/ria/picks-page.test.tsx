@@ -463,6 +463,46 @@ describe("RiaPicksPage", () => {
     expect(screen.getByRole("button", { name: /discard/i })).toBeTruthy();
   });
 
+  it("copies top picks, avoid rows, and screening rules from Kai into My list", async () => {
+    mocks.riaService.getRenaissanceAvoid.mockResolvedValue({
+      items: [
+        {
+          ticker: "TSLA",
+          company_name: "Tesla",
+          sector: "Automotive",
+          category: "valuation",
+          why_avoid: "Valuation remains disconnected from our discipline.",
+        },
+      ],
+    });
+    mocks.riaService.getRenaissanceScreening.mockResolvedValue({
+      items: [
+        {
+          section: "investable_requirements",
+          rule_index: 0,
+          title: "Positive free cash flow",
+          detail: "The business must already convert demand into durable free cash flow.",
+          value_text: "> 0",
+        },
+      ],
+    });
+
+    render(<RiaPicksPage />);
+
+    await screen.findByText("NVDA");
+    fireEvent.click(screen.getByRole("button", { name: /my list/i }));
+    fireEvent.click(screen.getByRole("button", { name: /copy from kai/i }));
+
+    expect(await screen.findByText("SEC-backed tickers only. Company and sector map from the maintained symbol master.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^avoid$/i }));
+    expect(screen.getAllByText(/valuation remains disconnected from our discipline/i).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /^screening$/i }));
+    expect(await screen.findByDisplayValue("Positive free cash flow")).toBeTruthy();
+    expect(screen.getAllByText(/convert demand into durable free cash flow/i).length).toBeGreaterThan(0);
+  });
+
   it("lets My list save in-app edits through the validated upload flow", async () => {
     mocks.useStaleResource.mockReturnValue(
       buildResource({

@@ -48,7 +48,6 @@ function sanitizeConfiguredValue(value) {
 const appOrigin = (
   process.env.HUSHH_APP_ORIGIN ||
   process.env.NEXT_PUBLIC_APP_URL ||
-  process.env.NEXT_PUBLIC_FRONTEND_URL ||
   "http://localhost:3000"
 ).replace(/\/$/, "");
 const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "").trim().toLowerCase();
@@ -489,7 +488,12 @@ async function openRiaWorkspace(page) {
   await ensurePersona(page, "ria");
   await clickBottomNav(page, "Clients");
   await waitForRouteBeacon(page, ["/ria/clients"]);
-  await page.getByRole("button", { name: /kai test user/i }).click();
+  const explicitTestProfile = page.getByTestId("ria-client-test-profile").first();
+  if (await explicitTestProfile.isVisible().catch(() => false)) {
+    await explicitTestProfile.click();
+  } else {
+    await page.getByRole("button", { name: /kai test user|kushal trivedi/i }).click();
+  }
   await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
 }
 
@@ -518,9 +522,10 @@ async function navigateViaShell(page, spec) {
       await page.getByRole("button", { name: /pkm agent lab/i }).click();
       return true;
     case "/consents":
-      await openRiaWorkspace(page);
-      await page.getByRole("button", { name: /^access$/i }).click();
-      await page.getByRole("link", { name: /open access manager/i }).first().click();
+      await clickBottomNav(page, "Profile");
+      await waitForRouteBeacon(page, ["/profile"]);
+      await page.getByRole("button", { name: /access & sharing/i }).click();
+      await page.getByRole("button", { name: /consent center/i }).click();
       return true;
     case "/ria/clients/[userId]":
       await openRiaWorkspace(page);
@@ -718,7 +723,12 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
   try {
     await page.goto(`${appOrigin}/ria/clients`, { waitUntil: "domcontentloaded" });
     await waitForRouteBeacon(page, ["/ria/clients"]);
-    await page.getByRole("button", { name: /kai test user/i }).click();
+    const explicitTestProfile = page.getByTestId("ria-client-test-profile").first();
+    if (await explicitTestProfile.isVisible().catch(() => false)) {
+      await explicitTestProfile.click();
+    } else {
+      await page.getByRole("button", { name: /kai test user|kushal trivedi/i }).click();
+    }
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
 
     await page.getByRole("button", { name: /taxable brokerage/i }).click();
@@ -728,7 +738,7 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
 
     await page.getByRole("button", { name: /^access$/i }).click();
     await page.getByTestId("ria-client-workspace-access").waitFor({ state: "visible", timeout: 15000 });
-    await page.getByRole("link", { name: /open access manager/i }).first().click();
+    await page.getByRole("link", { name: /open access/i }).first().click();
     await waitForRouteBeacon(page, ["/consents"]);
 
     assertNoIssues("ria-workspace-flow", viewport, issues);

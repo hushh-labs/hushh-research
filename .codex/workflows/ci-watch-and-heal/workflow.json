@@ -60,14 +60,5 @@
     "not routing the failed job to the correct owner skill",
     "not distinguishing PR feedback from queue authority or post-merge deploy authority",
     "stopping after rerun without monitoring terminal state"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "repo-operations",
-  "maintenance_issue_section": "ci-watch-and-heal",
-  "maintenance_blockers": [
-    "workflow is manual-only and should not run unattended"
-  ],
-  "maintenance_prerequisites": []
+  ]
 }

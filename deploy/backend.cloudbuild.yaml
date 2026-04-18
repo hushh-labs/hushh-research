@@ -43,42 +43,6 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-        env_file="$(mktemp)"
-        trap 'rm -f "${env_file}"' EXIT
-
-        append_env_var() {
-          local key="$1"
-          local value="${2-}"
-          if [[ -z "${value}" ]]; then
-            return
-          fi
-          python3 -c 'import json, sys; print(f"{sys.argv[1]}: {json.dumps(sys.argv[2])}")' \
-            "${key}" \
-            "${value}" >>"${env_file}"
-        }
-
-        append_env_var "ENVIRONMENT" "${_ENVIRONMENT}"
-        append_env_var "GOOGLE_GENAI_USE_VERTEXAI" "True"
-        append_env_var "DB_HOST" "${_DB_HOST}"
-        append_env_var "DB_PORT" "${_DB_PORT}"
-        append_env_var "DB_NAME" "${_DB_NAME}"
-        append_env_var "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
-        append_env_var "SYNC_REMOTE_ENABLED" "${_SYNC_REMOTE_ENABLED}"
-        append_env_var "DEVELOPER_API_ENABLED" "${_DEVELOPER_API_ENABLED}"
-        append_env_var "REMOTE_MCP_ENABLED" "${_REMOTE_MCP_ENABLED}"
-        append_env_var "CORS_ALLOWED_ORIGINS" "${_CORS_ALLOWED_ORIGINS}"
-        append_env_var "OBS_DATA_STALE_RATIO_THRESHOLD" "${_OBS_DATA_STALE_RATIO_THRESHOLD}"
-        append_env_var "PASSKEY_ALLOWED_RP_IDS" "${_PASSKEY_ALLOWED_RP_IDS}"
-        append_env_var "DB_UNIX_SOCKET" "${_DB_UNIX_SOCKET}"
-        append_env_var "PLAID_ENV" "${_PLAID_ENV}"
-        append_env_var "PLAID_CLIENT_NAME" "${_PLAID_CLIENT_NAME}"
-        append_env_var "PLAID_COUNTRY_CODES" "${_PLAID_COUNTRY_CODES}"
-        append_env_var "PLAID_WEBHOOK_URL" "${_PLAID_WEBHOOK_URL}"
-        append_env_var "PLAID_REDIRECT_PATH" "${_PLAID_REDIRECT_PATH}"
-        append_env_var "PLAID_REDIRECT_URI" "${_PLAID_REDIRECT_URI}"
-        append_env_var "PLAID_TX_HISTORY_DAYS" "${_PLAID_TX_HISTORY_DAYS}"
-        append_env_var "RIA_DEV_BYPASS_ENABLED" "${_RIA_DEV_BYPASS_ENABLED}"
-
         append_optional_secret() {
           local secret_name="$1"
           local env_name="$2"
@@ -92,19 +56,26 @@ steps:
           fi
         }
 
-        secrets="SECRET_KEY=SECRET_KEY:latest,VAULT_ENCRYPTION_KEY=VAULT_ENCRYPTION_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,FIREBASE_SERVICE_ACCOUNT_JSON=${_FIREBASE_SERVICE_ACCOUNT_SECRET}:latest,FRONTEND_URL=FRONTEND_URL:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_REVIEW_MODE=APP_REVIEW_MODE:latest,REVIEWER_UID=REVIEWER_UID:latest"
+        secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
         if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
           secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
         fi
         if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
           secrets="${secrets},PLAID_SECRET=${_PLAID_SECRET_SECRET}:latest"
         fi
-        if [[ -n "${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}" ]]; then
-          secrets="${secrets},PLAID_TOKEN_ENCRYPTION_KEY=${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}:latest"
+        if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
+          secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
         fi
         append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
         append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
         append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
+        append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}" "GMAIL_OAUTH_CLIENT_ID"
+        append_optional_secret "${_GMAIL_OAUTH_CLIENT_SECRET_SECRET}" "GMAIL_OAUTH_CLIENT_SECRET"
+        append_optional_secret "${_GMAIL_OAUTH_REDIRECT_URI_SECRET}" "GMAIL_OAUTH_REDIRECT_URI"
+        append_optional_secret "${_GMAIL_OAUTH_TOKEN_KEY_SECRET}" "GMAIL_OAUTH_TOKEN_KEY"
+        append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
+        append_optional_secret "${_VOICE_RUNTIME_CONFIG_JSON_SECRET}" "VOICE_RUNTIME_CONFIG_JSON"
+        append_optional_secret "${_HUSHH_DEVELOPER_TOKEN_SECRET}" "HUSHH_DEVELOPER_TOKEN"
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
@@ -118,7 +89,6 @@ steps:
           "--timeout=300"
           "--max-instances=10"
           "--min-instances=1"
-          "--env-vars-file=${env_file}"
           "--set-secrets=${secrets}"
         )
 
@@ -164,11 +134,22 @@ substitutions:
   _RIA_DEV_BYPASS_ENABLED: ""
   _PLAID_CLIENT_ID_SECRET: ""
   _PLAID_SECRET_SECRET: ""
-  _PLAID_TOKEN_ENCRYPTION_KEY_SECRET: ""
+  _APP_SIGNING_KEY_SECRET: APP_SIGNING_KEY
+  _VAULT_DATA_KEY_SECRET: VAULT_DATA_KEY
+  _APP_FRONTEND_ORIGIN_SECRET: APP_FRONTEND_ORIGIN
+  _FIREBASE_ADMIN_CREDENTIALS_SECRET: FIREBASE_ADMIN_CREDENTIALS_JSON
+  _BACKEND_RUNTIME_CONFIG_JSON_SECRET: BACKEND_RUNTIME_CONFIG_JSON
+  _PLAID_ACCESS_TOKEN_KEY_SECRET: ""
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
-  _FIREBASE_SERVICE_ACCOUNT_SECRET: FIREBASE_SERVICE_ACCOUNT_JSON
+  _GMAIL_OAUTH_CLIENT_ID_SECRET: ""
+  _GMAIL_OAUTH_CLIENT_SECRET_SECRET: ""
+  _GMAIL_OAUTH_REDIRECT_URI_SECRET: ""
+  _GMAIL_OAUTH_TOKEN_KEY_SECRET: ""
+  _OPENAI_API_KEY_SECRET: ""
+  _VOICE_RUNTIME_CONFIG_JSON_SECRET: ""
+  _HUSHH_DEVELOPER_TOKEN_SECRET: ""
   _IMAGE_TAG: v2.1.0
 
 # Options

@@ -52,6 +52,7 @@ LOCAL_UATDB_PROXY_PORT="${LOCAL_UATDB_PROXY_PORT:-6543}"
 DEFAULT_LOCAL_CLOUDSQL_INSTANCE="${DEFAULT_LOCAL_CLOUDSQL_INSTANCE:-hushh-pda-uat:us-central1:hushh-uat-pg}"
 GCLOUD_TIMEOUT_SECONDS="${GCLOUD_TIMEOUT_SECONDS:-5}"
 LEGACY_CACHE_FIRST="${LEGACY_CACHE_FIRST:-false}"
+FOCUS_PROFILE="${BOOTSTRAP_FOCUS_PROFILE:-}"
 
 while [ "$#" -gt 0 ]; do
   case "${1:-}" in
@@ -144,8 +145,10 @@ import sys
 path = pathlib.Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8").splitlines()
 keys = {
-    "FIREBASE_SERVICE_ACCOUNT_JSON",
-    "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON",
+    "FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON",
+    "BACKEND_RUNTIME_CONFIG_JSON",
+    "VOICE_RUNTIME_CONFIG_JSON",
 }
 assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 decoder = json.JSONDecoder()
@@ -288,6 +291,30 @@ path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 }
 
+remove_env_keys() {
+  local file="$1"
+  shift || true
+  [ -f "$file" ] || return 0
+  python3 - "$file" "$@" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+keys = set(sys.argv[2:])
+if not keys:
+    raise SystemExit(0)
+
+lines = path.read_text(encoding="utf-8").splitlines()
+filtered = []
+for line in lines:
+    if "=" in line and line.split("=", 1)[0] in keys:
+        continue
+    filtered.append(line)
+
+path.write_text("\n".join(filtered) + "\n", encoding="utf-8")
+PY
+}
+
 delete_env_key() {
   local file="$1"
   local key="$2"
@@ -312,9 +339,42 @@ copy_template_if_needed() {
     echo "Missing template: $template" >&2
     exit 1
   fi
-  if [ ! -f "$target" ] || [ "$FORCE" = "true" ]; then
+  local needs_refresh=false
+  if [ -f "$target" ] && [ "$FORCE" != "true" ]; then
+    if ! python3 - "$template" "$target" <<'PY'
+import pathlib
+import re
+import sys
+
+template_path = pathlib.Path(sys.argv[1])
+target_path = pathlib.Path(sys.argv[2])
+assign_re = re.compile(r"^([A-Z0-9_]+)=")
+
+template_keys = {
+    match.group(1)
+    for line in template_path.read_text(encoding="utf-8").splitlines()
+    if (match := assign_re.match(line))
+}
+target_keys = {
+    match.group(1)
+    for line in target_path.read_text(encoding="utf-8").splitlines()
+    if (match := assign_re.match(line))
+}
+
+raise SystemExit(0 if template_keys == target_keys else 1)
+PY
+    then
+      needs_refresh=true
+    fi
+  fi
+
+  if [ ! -f "$target" ] || [ "$FORCE" = "true" ] || [ "$needs_refresh" = "true" ]; then
     cp "$template" "$target"
-    SUMMARY+=("copied template -> ${target#$REPO_ROOT/}")
+    if [ "$needs_refresh" = "true" ] && [ "$FORCE" != "true" ]; then
+      SUMMARY+=("refreshed stale template shape -> ${target#$REPO_ROOT/}")
+    else
+      SUMMARY+=("copied template -> ${target#$REPO_ROOT/}")
+    fi
   fi
 }
 
@@ -439,6 +499,9 @@ is_placeholder_value() {
     "" )
       return 1
       ;;
+    __*__)
+      return 0
+      ;;
     replace_with_*|REPLACE_WITH_*|dummy-*|changeme|CHANGEME)
       return 0
       ;;
@@ -464,7 +527,7 @@ set_secret_key() {
   fi
   if [ "$required" = "true" ]; then
     MISSING_REQUIRED+=("${profile}: missing secret ${key} in ${project}")
-  else
+  elif [ -z "$FOCUS_PROFILE" ] || [ "$profile" = "$FOCUS_PROFILE" ]; then
     WARNINGS+=("${profile}: optional secret ${key} missing in ${project}")
   fi
 }
@@ -547,9 +610,176 @@ set_secret_key_or_cached() {
   fi
   if [ "$required" = "true" ]; then
     MISSING_REQUIRED+=("${profile}: missing secret ${key} in ${project} and no cached fallback in ${cache_file#$REPO_ROOT/}")
-  else
+  elif [ -z "$FOCUS_PROFILE" ] || [ "$profile" = "$FOCUS_PROFILE" ]; then
     WARNINGS+=("${profile}: optional secret ${key} missing in ${project} and no cached fallback in ${cache_file#$REPO_ROOT/}")
   fi
+}
+
+set_mapped_secret_key_or_cached() {
+  local file="$1"
+  local profile="$2"
+  local project="$3"
+  local target_key="$4"
+  local required="$5"
+  local cache_file="$6"
+  shift 6
+  local source_key=""
+  local value=""
+  for source_key in "$@"; do
+    if value="$(resolve_cloud_or_cached_secret_value "$project" "$source_key" "$cache_file")"; then
+      upsert_env_value "$file" "$target_key" "$value"
+      return 0
+    fi
+  done
+  if [ "$required" = "true" ]; then
+    MISSING_REQUIRED+=("${profile}: missing secret ${target_key} in ${project} and no mapped fallback in ${cache_file#$REPO_ROOT/}")
+  elif [ -z "$FOCUS_PROFILE" ] || [ "$profile" = "$FOCUS_PROFILE" ]; then
+    WARNINGS+=("${profile}: optional secret ${target_key} missing in ${project} and no mapped fallback in ${cache_file#$REPO_ROOT/}")
+  fi
+}
+
+compose_backend_runtime_config_json() {
+  local file="$1"
+  python3 - "$file" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = {}
+mapping = {
+    "ENVIRONMENT": "environment",
+    "GOOGLE_GENAI_USE_VERTEXAI": "google_genai_use_vertexai",
+    "DB_HOST": "db_host",
+    "DB_PORT": "db_port",
+    "DB_NAME": "db_name",
+    "DB_UNIX_SOCKET": "db_unix_socket",
+    "CLOUDSQL_INSTANCE_CONNECTION_NAME": "cloudsql_instance_connection_name",
+    "CLOUDSQL_PROXY_PORT": "cloudsql_proxy_port",
+    "CONSENT_SSE_ENABLED": "consent_sse_enabled",
+    "SYNC_REMOTE_ENABLED": "sync_remote_enabled",
+    "DEVELOPER_API_ENABLED": "developer_api_enabled",
+    "REMOTE_MCP_ENABLED": "remote_mcp_enabled",
+    "CORS_ALLOWED_ORIGINS": "cors_allowed_origins",
+    "OBS_DATA_STALE_RATIO_THRESHOLD": "obs_data_stale_ratio_threshold",
+    "PASSKEY_ALLOWED_RP_IDS": "passkey_allowed_rp_ids",
+    "PLAID_ENV": "plaid_env",
+    "PLAID_CLIENT_NAME": "plaid_client_name",
+    "PLAID_COUNTRY_CODES": "plaid_country_codes",
+    "PLAID_WEBHOOK_URL": "plaid_webhook_url",
+    "PLAID_REDIRECT_PATH": "plaid_redirect_path",
+    "PLAID_REDIRECT_URI": "plaid_redirect_uri",
+    "PLAID_TX_HISTORY_DAYS": "plaid_tx_history_days",
+    "RIA_DEV_BYPASS_ENABLED": "ria_dev_bypass_enabled",
+}
+
+values = {}
+for line in path.read_text(encoding="utf-8").splitlines():
+    if "=" not in line or line.lstrip().startswith("#"):
+        continue
+    key, value = line.split("=", 1)
+    values[key] = value
+
+for source_key, target_key in mapping.items():
+    value = str(values.get(source_key, "")).strip()
+    if value:
+        payload[target_key] = value
+
+needle = "BACKEND_RUNTIME_CONFIG_JSON="
+lines = path.read_text(encoding="utf-8").splitlines()
+rendered = json.dumps(payload, separators=(",", ":"))
+for idx, line in enumerate(lines):
+    if line.startswith(needle):
+        lines[idx] = needle + rendered
+        break
+else:
+    if lines and lines[-1].strip():
+        lines.append("")
+    lines.append(needle + rendered)
+
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+}
+
+compose_voice_runtime_config_json() {
+  local file="$1"
+  python3 - "$file" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+values = {}
+for line in path.read_text(encoding="utf-8").splitlines():
+    if "=" not in line or line.lstrip().startswith("#"):
+        continue
+    key, value = line.split("=", 1)
+    values[key] = value
+
+payload = {}
+
+def maybe_bool(key: str, target: str) -> None:
+    value = str(values.get(key, "")).strip()
+    if value:
+        payload[target] = value.lower() in {"1", "true", "yes", "on", "enabled"}
+
+def maybe_int(key: str, target: str) -> None:
+    value = str(values.get(key, "")).strip()
+    if value:
+        try:
+            payload[target] = int(value)
+        except ValueError:
+            pass
+
+def maybe_csv(key: str, target: str) -> None:
+    value = [item.strip() for item in str(values.get(key, "")).split(",") if item.strip()]
+    if value:
+        payload[target] = value
+
+def maybe_string(key: str, target: str) -> None:
+    value = str(values.get(key, "")).strip()
+    if value:
+        payload[target] = value
+
+maybe_bool("KAI_VOICE_REALTIME_ENABLED", "realtime_enabled")
+maybe_bool("KAI_VOICE_V1_ENABLED", "hosted_voice_enabled")
+maybe_int("KAI_VOICE_V1_CANARY_PERCENT", "canary_percent")
+maybe_bool("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "tool_execution_disabled")
+maybe_csv("KAI_VOICE_V1_ALLOWED_USERS", "allowed_users")
+maybe_bool("FORCE_REALTIME_VOICE", "force_realtime")
+maybe_bool("FAIL_FAST_VOICE", "fail_fast")
+maybe_bool("DISABLE_VOICE_FALLBACKS", "disable_fallbacks")
+maybe_string("OPENAI_VOICE_REALTIME_MODEL", "realtime_model")
+if str(values.get("OPENAI_VOICE_STT_MODELS", "")).strip():
+    maybe_csv("OPENAI_VOICE_STT_MODELS", "stt_models")
+elif str(values.get("OPENAI_VOICE_STT_MODEL", "")).strip():
+    maybe_string("OPENAI_VOICE_STT_MODEL", "stt_models")
+if str(values.get("OPENAI_VOICE_INTENT_MODELS", "")).strip():
+    maybe_csv("OPENAI_VOICE_INTENT_MODELS", "intent_models")
+elif str(values.get("OPENAI_VOICE_INTENT_MODEL", "")).strip():
+    maybe_string("OPENAI_VOICE_INTENT_MODEL", "intent_models")
+if str(values.get("OPENAI_VOICE_TTS_MODELS", "")).strip():
+    maybe_csv("OPENAI_VOICE_TTS_MODELS", "tts_models")
+elif str(values.get("OPENAI_VOICE_TTS_MODEL", "")).strip():
+    maybe_string("OPENAI_VOICE_TTS_MODEL", "tts_models")
+maybe_string("OPENAI_VOICE_TTS_DEFAULT_VOICE", "tts_default_voice")
+maybe_string("OPENAI_VOICE_TTS_FORMAT", "tts_format")
+maybe_bool("OPENAI_VOICE_TTS_PREFER_QUALITY", "tts_prefer_quality")
+
+needle = "VOICE_RUNTIME_CONFIG_JSON="
+lines = path.read_text(encoding="utf-8").splitlines()
+rendered = json.dumps(payload, separators=(",", ":"))
+for idx, line in enumerate(lines):
+    if line.startswith(needle):
+        lines[idx] = needle + rendered
+        break
+else:
+    if lines and lines[-1].strip():
+        lines.append("")
+    lines.append(needle + rendered)
+
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
 }
 
 cloudsql_instance_for_backend() {
@@ -577,19 +807,15 @@ hydrate_backend_cloud_reference() {
   local env_name="$4"
   local cache_file="$file"
 
-  upsert_env_value "$file" "APP_RUNTIME_MODE" "$profile"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "ENVIRONMENT" "$env_name"
-  upsert_env_value "$file" "RESOURCE_TARGET" "$(runtime_profile_resource_target "$profile")"
-  if [ "$profile" = "local" ]; then
-    upsert_env_value "$file" "DB_RESOURCE_TARGET" "uat"
-  fi
 
   local front_secret=""
-  if front_secret="$(resolve_cloud_or_cached_secret_value "$project" "FRONTEND_URL" "$cache_file")"; then
-    upsert_env_value "$file" "FRONTEND_URL" "$front_secret"
+  if front_secret="$(resolve_cloud_or_cached_secret_value "$project" "APP_FRONTEND_ORIGIN" "$cache_file")" || \
+     front_secret="$(resolve_cloud_or_cached_secret_value "$project" "FRONTEND_URL" "$cache_file")"; then
+    upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "$front_secret"
   else
-    MISSING_REQUIRED+=("${profile}: missing secret FRONTEND_URL in ${project}")
+    MISSING_REQUIRED+=("${profile}: missing secret APP_FRONTEND_ORIGIN in ${project}")
   fi
 
   for key in PORT CORS_ALLOWED_ORIGINS GOOGLE_GENAI_USE_VERTEXAI OTEL_ENABLED DB_HOST DB_PORT DB_NAME DB_UNIX_SOCKET CONSENT_SSE_ENABLED SYNC_REMOTE_ENABLED DEVELOPER_API_ENABLED OBS_DATA_STALE_RATIO_THRESHOLD; do
@@ -600,30 +826,40 @@ hydrate_backend_cloud_reference() {
     upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "$front_secret"
   fi
 
-  set_secret_key_or_cached "$file" "$profile" "$project" "SECRET_KEY" "true" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "VAULT_ENCRYPTION_KEY" "true" "$cache_file"
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "APP_SIGNING_KEY" "true" "$cache_file" APP_SIGNING_KEY SECRET_KEY
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "VAULT_DATA_KEY" "true" "$cache_file" VAULT_DATA_KEY VAULT_ENCRYPTION_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_API_KEY" "true" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_SERVICE_ACCOUNT_JSON" "true" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON" "false" "$cache_file"
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_ADMIN_CREDENTIALS_JSON" "true" "$cache_file" FIREBASE_ADMIN_CREDENTIALS_JSON FIREBASE_SERVICE_ACCOUNT_JSON
   set_secret_key_or_cached "$file" "$profile" "$project" "DB_USER" "true" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "DB_PASSWORD" "true" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "APP_REVIEW_MODE" "false" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "REVIEWER_UID" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "HUSHH_DEVELOPER_TOKEN" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "FINNHUB_API_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PMP_API_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "NEWSAPI_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_CLIENT_ID" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_SECRET" "false" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_TOKEN_ENCRYPTION_KEY" "false" "$cache_file"
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "PLAID_ACCESS_TOKEN_KEY" "false" "$cache_file" PLAID_ACCESS_TOKEN_KEY PLAID_TOKEN_ENCRYPTION_KEY
+  set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_CLIENT_ID" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_CLIENT_SECRET" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_REDIRECT_URI" "false" "$cache_file"
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_TOKEN_KEY" "false" "$cache_file" GMAIL_OAUTH_TOKEN_KEY GMAIL_TOKEN_ENCRYPTION_KEY
+  set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "VOICE_RUNTIME_CONFIG_JSON" "false" "$cache_file"
+  remove_env_keys "$file" FINRA_VERIFY_BASE_URL FINRA_VERIFY_API_KEY FINRA_VERIFY_TIMEOUT_SECONDS
 
   for key in PLAID_ENV PLAID_CLIENT_NAME PLAID_COUNTRY_CODES PLAID_WEBHOOK_URL PLAID_REDIRECT_PATH PLAID_REDIRECT_URI PLAID_TX_HISTORY_DAYS; do
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
-  if [ -z "$(read_env_value "$file" "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON")" ]; then
-    set_if_non_empty "$file" "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON" "$(read_env_value "$file" "FIREBASE_SERVICE_ACCOUNT_JSON")"
-  fi
+  compose_backend_runtime_config_json "$file"
+  remove_env_keys "$file" \
+    SECRET_KEY VAULT_ENCRYPTION_KEY FRONTEND_URL FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON \
+    GMAIL_TOKEN_ENCRYPTION_KEY PLAID_TOKEN_ENCRYPTION_KEY \
+    APCA_API_SECRET_KEY ALPACA_SECRET_KEY ALPACA_API_SECRET_KEY \
+    KAI_VOICE_REALTIME_ENABLED KAI_VOICE_V1_ENABLED KAI_VOICE_V1_ALLOWED_USERS KAI_VOICE_V1_CANARY_PERCENT KAI_VOICE_V1_DISABLE_TOOL_EXECUTION \
+    FORCE_REALTIME_VOICE FAIL_FAST_VOICE DISABLE_VOICE_FALLBACKS \
+    OPENAI_VOICE_REALTIME_MODEL OPENAI_VOICE_STT_MODEL OPENAI_VOICE_STT_MODELS OPENAI_VOICE_INTENT_MODEL OPENAI_VOICE_INTENT_MODELS \
+    OPENAI_VOICE_TTS_MODEL OPENAI_VOICE_TTS_MODELS OPENAI_VOICE_TTS_DEFAULT_VOICE OPENAI_VOICE_TTS_FORMAT OPENAI_VOICE_TTS_PREFER_QUALITY
 }
 
 hydrate_backend_local_uatdb() {
@@ -635,13 +871,10 @@ hydrate_backend_local_uatdb() {
   existing_local_plaid_webhook="$(read_env_value "$file" "PLAID_WEBHOOK_URL")"
 
   hydrate_backend_cloud_reference "$file" "$profile" "$project" "development"
-  upsert_env_value "$file" "FRONTEND_URL" "http://localhost:3000"
+  upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "http://localhost:3000"
   upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "http://localhost:3000"
-  upsert_env_value "$file" "APP_RUNTIME_MODE" "local"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
-  upsert_env_value "$file" "RESOURCE_TARGET" "uat"
-  upsert_env_value "$file" "DB_RESOURCE_TARGET" "uat"
   upsert_env_value "$file" "PORT" "8000"
   upsert_env_value "$file" "PLAID_WEBHOOK_URL" "$existing_local_plaid_webhook"
 
@@ -661,7 +894,7 @@ hydrate_backend_local_uatdb() {
   if [[ "$runtime_db_host" == "cloudsql-socket" || "$runtime_socket" == /cloudsql/* || -n "$instance_name" ]]; then
     upsert_env_value "$file" "DB_HOST" "127.0.0.1"
     upsert_env_value "$file" "DB_PORT" "$LOCAL_UATDB_PROXY_PORT"
-    delete_env_key "$file" "DB_UNIX_SOCKET"
+    upsert_env_value "$file" "DB_UNIX_SOCKET" ""
     if [ -n "$instance_name" ]; then
       upsert_env_value "$file" "CLOUDSQL_INSTANCE_CONNECTION_NAME" "$instance_name"
       upsert_env_value "$file" "CLOUDSQL_PROXY_PORT" "$LOCAL_UATDB_PROXY_PORT"
@@ -673,10 +906,11 @@ hydrate_backend_local_uatdb() {
     if [ -n "$runtime_db_port" ]; then
       upsert_env_value "$file" "DB_PORT" "$runtime_db_port"
     fi
-    delete_env_key "$file" "DB_UNIX_SOCKET"
-    delete_env_key "$file" "CLOUDSQL_INSTANCE_CONNECTION_NAME"
-    delete_env_key "$file" "CLOUDSQL_PROXY_PORT"
+    upsert_env_value "$file" "DB_UNIX_SOCKET" ""
+    upsert_env_value "$file" "CLOUDSQL_INSTANCE_CONNECTION_NAME" ""
+    upsert_env_value "$file" "CLOUDSQL_PROXY_PORT" ""
   fi
+  compose_backend_runtime_config_json "$file"
 }
 
 hydrate_frontend_cloud() {
@@ -686,7 +920,6 @@ hydrate_frontend_cloud() {
   local env_name="$4"
   local cache_file="$file"
 
-  upsert_env_value "$file" "APP_RUNTIME_MODE" "$profile"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_ENV" "$env_name"
 
@@ -698,60 +931,75 @@ hydrate_frontend_cloud() {
     MISSING_REQUIRED+=("${profile}: missing secret BACKEND_URL in ${project}")
   fi
 
-  if frontend_url="$(resolve_cloud_or_cached_secret_value "$project" "FRONTEND_URL" "$cache_file")"; then
+  if frontend_url="$(resolve_cloud_or_cached_secret_value "$project" "APP_FRONTEND_ORIGIN" "$cache_file")"; then
     upsert_env_value "$file" "NEXT_PUBLIC_APP_URL" "$frontend_url"
-    upsert_env_value "$file" "NEXT_PUBLIC_FRONTEND_URL" "$frontend_url"
+  elif frontend_url="$(resolve_cloud_or_cached_secret_value "$project" "FRONTEND_URL" "$cache_file")"; then
+    upsert_env_value "$file" "NEXT_PUBLIC_APP_URL" "$frontend_url"
   else
     local run_url
     run_url="$(run_service_url "$project" "$FRONTEND_SERVICE")"
     if [ -n "$run_url" ]; then
       upsert_env_value "$file" "NEXT_PUBLIC_APP_URL" "$run_url"
-      upsert_env_value "$file" "NEXT_PUBLIC_FRONTEND_URL" "$run_url"
-      WARNINGS+=("${profile}: FRONTEND_URL secret missing in ${project}; used Cloud Run URL")
+      WARNINGS+=("${profile}: APP_FRONTEND_ORIGIN secret missing in ${project}; used Cloud Run URL")
     else
-      MISSING_REQUIRED+=("${profile}: missing secret FRONTEND_URL in ${project}")
+      MISSING_REQUIRED+=("${profile}: missing secret APP_FRONTEND_ORIGIN in ${project}")
     fi
   fi
 
   for key in \
     NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_FIREBASE_PROJECT_ID \
     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID NEXT_PUBLIC_FIREBASE_APP_ID \
-    NEXT_PUBLIC_FIREBASE_VAPID_KEY \
-    NEXT_PUBLIC_AUTH_FIREBASE_API_KEY NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID NEXT_PUBLIC_AUTH_FIREBASE_APP_ID
+    NEXT_PUBLIC_FIREBASE_VAPID_KEY
   do
     set_secret_key_or_cached "$file" "$profile" "$project" "$key" "true" "$cache_file"
   done
 
-  set_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_SERVICE_ACCOUNT_JSON" "true" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON" "false" "$cache_file"
-  if [ -z "$(read_env_value "$file" "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON")" ]; then
-    set_if_non_empty "$file" "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON" "$(read_env_value "$file" "FIREBASE_SERVICE_ACCOUNT_JSON")"
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_ADMIN_CREDENTIALS_JSON" "true" "$cache_file" FIREBASE_ADMIN_CREDENTIALS_JSON FIREBASE_SERVICE_ACCOUNT_JSON
+
+  local measurement_id=""
+  local gtm_id=""
+  measurement_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID" "$cache_file" || true)"
+  gtm_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GTM_ID" "$cache_file" || true)"
+  if [ -z "$measurement_id" ]; then
+    if [ "$profile" = "prod" ]; then
+      measurement_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION" "$cache_file" || true)"
+    else
+      measurement_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT" "$cache_file" || true)"
+      if [ -z "$measurement_id" ]; then
+        measurement_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING" "$cache_file" || true)"
+      fi
+    fi
   fi
+  if [ -z "$gtm_id" ]; then
+    if [ "$profile" = "prod" ]; then
+      gtm_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GTM_ID_PRODUCTION" "$cache_file" || true)"
+    else
+      gtm_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GTM_ID_UAT" "$cache_file" || true)"
+      if [ -z "$gtm_id" ]; then
+        gtm_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GTM_ID_STAGING" "$cache_file" || true)"
+      fi
+    fi
+  fi
+  set_if_non_empty "$file" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID" "$measurement_id"
+  set_if_non_empty "$file" "NEXT_PUBLIC_GTM_ID" "$gtm_id"
 
   for key in \
-    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION \
-    NEXT_PUBLIC_GTM_ID_UAT NEXT_PUBLIC_GTM_ID_STAGING NEXT_PUBLIC_GTM_ID_PRODUCTION \
     NEXT_PUBLIC_OBSERVABILITY_ENABLED NEXT_PUBLIC_OBSERVABILITY_DEBUG NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE
   do
     set_secret_key_or_cached "$file" "$profile" "$project" "$key" "false" "$cache_file"
   done
 
-  for key in \
+  remove_env_keys "$file" \
+    FIREBASE_SERVICE_ACCOUNT_JSON NEXT_PUBLIC_FRONTEND_URL \
+    FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON \
+    NEXT_PUBLIC_AUTH_FIREBASE_API_KEY NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID NEXT_PUBLIC_AUTH_FIREBASE_APP_ID \
+    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION \
+    NEXT_PUBLIC_GTM_ID_UAT NEXT_PUBLIC_GTM_ID_STAGING NEXT_PUBLIC_GTM_ID_PRODUCTION \
     IOS_GOOGLESERVICE_INFO_PLIST_B64 ANDROID_GOOGLE_SERVICES_JSON_B64 \
     APPLE_TEAM_ID IOS_DEV_CERT_P12_B64 IOS_DEV_CERT_PASSWORD IOS_DEV_PROFILE_B64 \
     IOS_DIST_CERT_P12_B64 IOS_DIST_CERT_PASSWORD IOS_APPSTORE_PROFILE_B64 \
     APPSTORE_CONNECT_API_KEY_P8_B64 APPSTORE_CONNECT_KEY_ID APPSTORE_CONNECT_ISSUER_ID \
     ANDROID_RELEASE_KEYSTORE_B64 ANDROID_RELEASE_KEYSTORE_PASSWORD ANDROID_RELEASE_KEY_ALIAS ANDROID_RELEASE_KEY_PASSWORD
-  do
-    set_secret_key_or_cached "$file" "$profile" "$project" "$key" "false" "$cache_file"
-  done
-
-  if [ -z "$(read_env_value "$file" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT")" ]; then
-    set_if_non_empty "$file" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT" "$(read_env_value "$file" "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING")"
-  fi
-  if [ -z "$(read_env_value "$file" "NEXT_PUBLIC_GTM_ID_UAT")" ]; then
-    set_if_non_empty "$file" "NEXT_PUBLIC_GTM_ID_UAT" "$(read_env_value "$file" "NEXT_PUBLIC_GTM_ID_STAGING")"
-  fi
 }
 
 hydrate_frontend_local_uatdb() {
@@ -762,9 +1010,7 @@ hydrate_frontend_local_uatdb() {
   hydrate_frontend_cloud "$file" "$profile" "$project" "development"
   upsert_env_value "$file" "NEXT_PUBLIC_BACKEND_URL" "http://localhost:8000"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_URL" "http://localhost:3000"
-  upsert_env_value "$file" "NEXT_PUBLIC_FRONTEND_URL" "http://localhost:3000"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_ENV" "development"
-  upsert_env_value "$file" "APP_RUNTIME_MODE" "local"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
 }
 
@@ -790,6 +1036,29 @@ validate_canonical_keys() {
   elif [ "$frontend_env" != "$expected_frontend" ]; then
     WARNINGS+=("${profile}: NEXT_PUBLIC_APP_ENV expected ${expected_frontend} but found ${frontend_env}")
   fi
+}
+
+sync_active_frontend_profile_if_present() {
+  local active_file="$FRONTEND_DIR/.env.local"
+  [ -f "$active_file" ] || return 0
+
+  local active_profile raw_profile source_file
+  raw_profile="$(read_env_value "$active_file" "APP_RUNTIME_PROFILE")"
+  if ! active_profile="$(normalize_runtime_profile "$raw_profile")"; then
+    WARNINGS+=(".env.local has unsupported APP_RUNTIME_PROFILE=${raw_profile:-\"(unset)\"}; skipped active profile sync")
+    return 0
+  fi
+
+  source_file="$FRONTEND_DIR/$(runtime_profile_frontend_source "$active_profile")"
+  if [ ! -f "$source_file" ]; then
+    WARNINGS+=(".env.local expected source ${source_file#$REPO_ROOT/} for profile ${active_profile}, but it was missing")
+    return 0
+  fi
+
+  cp "$source_file" "$active_file"
+  chmod 600 "$active_file"
+  normalize_env_json_values "$active_file"
+  SUMMARY+=("synced hushh-webapp/.env.local from ${source_file#$REPO_ROOT/}")
 }
 
 profiles=(local uat prod)
@@ -822,6 +1091,8 @@ for path in \
 do
   normalize_env_json_values "$path"
 done
+
+sync_active_frontend_profile_if_present
 
 validate_canonical_keys "local" \
   "$BACKEND_DIR/.env" \

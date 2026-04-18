@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live regression smoke for the Kai test user.
+"""Live regression smoke for the UAT maintainer smoke user.
 
 Runs against the hosted UAT backend using the real Firebase/Kai auth path and
 verifies the recent consent/PKM/RIA integration lanes together:
@@ -10,8 +10,8 @@ verifies the recent consent/PKM/RIA integration lanes together:
 - consent export refresh queue + refresh upload
 - RIA implicit picks-share relationship gating
 
-The full and connection_portfolio scenarios mutate Kai test-user state and should
-stay on local/UAT test users. The MCP transport scenario is safe for any
+The full and connection_portfolio scenarios mutate smoke-user state and should
+stay on local/UAT maintainer overlays. The MCP transport scenario is safe for any
 environment that has a valid developer token.
 """
 
@@ -56,6 +56,8 @@ DEFAULT_WEBAPP_ENV = os.path.expanduser(
     "~/Documents/GitHub/hushh-research/hushh-webapp/.env.uat.local"
 )
 DEFAULT_TIMEOUT = 45
+UAT_SMOKE_USER_ID_KEY = "UAT_SMOKE_USER_ID"
+UAT_SMOKE_PASSPHRASE_KEY = "UAT_SMOKE_PASSPHRASE"  # noqa: S105
 
 
 def _b64encode(value: bytes) -> str:
@@ -195,20 +197,20 @@ class UatKaiSmoke:
     ):
         protocol_cfg = dotenv_values(protocol_env)
         web_cfg = dotenv_values(web_env)
-        self.config = {**protocol_cfg, **web_cfg}
+        overlay_cfg = {
+            UAT_SMOKE_USER_ID_KEY: str(os.getenv(UAT_SMOKE_USER_ID_KEY) or "").strip(),
+            UAT_SMOKE_PASSPHRASE_KEY: str(os.getenv(UAT_SMOKE_PASSPHRASE_KEY) or "").strip(),
+        }
+        self.config = {**protocol_cfg, **web_cfg, **overlay_cfg}
         self.backend_url = backend_url.rstrip("/")
         self.timeout = timeout
-        self.user_id = _require(self.config, "KAI_TEST_USER_ID")
-        self.passphrase = _require(self.config, "KAI_TEST_PASSPHRASE")
-        self.developer_token = (
-            str(self.config.get("HUSHH_DEVELOPER_TOKEN") or "").strip()
-            or str(self.config.get("MCP_DEVELOPER_TOKEN") or "").strip()
-            or None
-        )
+        self.user_id = _require(self.config, UAT_SMOKE_USER_ID_KEY)
+        self.passphrase = _require(self.config, UAT_SMOKE_PASSPHRASE_KEY)
+        self.developer_token = str(self.config.get("HUSHH_DEVELOPER_TOKEN") or "").strip() or None
         self.firebase_auth_service_account = json.loads(
-            _require(self.config, "FIREBASE_SERVICE_ACCOUNT_JSON")
+            _require(self.config, "FIREBASE_ADMIN_CREDENTIALS_JSON")
         )
-        self.firebase_api_key = _require(self.config, "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY")
+        self.firebase_api_key = _require(self.config, "NEXT_PUBLIC_FIREBASE_API_KEY")
         self.session = requests.Session()
         self.auth: AuthSession | None = None
         self.vault_key_hex: str | None = None
@@ -514,7 +516,7 @@ class UatKaiSmoke:
             email=email,
             passphrase=self.passphrase,
         )
-        self.log("Authenticated as Kai and issued a real VAULT_OWNER token.")
+        self.log("Authenticated as the maintainer smoke user and issued a real VAULT_OWNER token.")
         self.ensure_developer_token()
 
     def ensure_developer_token(self) -> None:
@@ -534,7 +536,7 @@ class UatKaiSmoke:
         if not active_token:
             raise RuntimeError(f"Developer portal did not return an active token: {payload}")
         self.developer_token = active_token
-        self.log("Ensured an active self-serve developer token for the Kai test user.")
+        self.log("Ensured an active self-serve developer token for the maintainer smoke user.")
 
     def fetch_latest_push_token(self, *, platform: str = "web") -> dict[str, Any]:
         engine = self._get_db_engine()

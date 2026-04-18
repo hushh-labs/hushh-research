@@ -29,6 +29,7 @@ Non-owned surfaces:
 2. `planning-board`
 3. `frontend`
 4. `backend`
+5. `analytics-observability-governance`
 
 ## Do Use
 
@@ -64,20 +65,33 @@ Non-owned surfaces:
 9. For local app work, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands unless the user explicitly asks for something else.
 10. Use hidden long-lived Codex sessions only for background monitoring, one-off debugging, or when a visible terminal is not desired.
 11. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
-12. Prefer `./bin/hushh codex maintenance <daily|weekly|monthly>` for unattended repo-health runs so the workflow metadata, GitHub schedules, and rolling maintenance issue stay aligned.
+12. Default branch policy: continue work on the user's active development branch. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
+13. Create a new branch only when one of these is true:
+   - the fix is a post-merge blocker and must start from the latest `main`
+   - the repo workflow requires an isolated hotfix from `main`
+   - the current branch contains unrelated in-flight work that would make the fix unsafe to ship
+14. After a merge-driven hotfix is complete, return local state to the user's normal working branch or `main`; do not leave Codex parked on a temporary branch.
+15. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
+16. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
+17. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
+18. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
 
 ## Handoff Rules
 
 1. If the task is broad repo orientation, start with `repo-context`.
 2. If the task is board/project work, use `planning-board`.
 3. If the task is docs-home governance, use `docs-governance`.
-4. If the task is domain-specific backend or security implementation beyond repo operations, use `backend` or `security-audit`.
+4. If the task is GA4/Firebase/BigQuery observability topology or growth dashboard verification, use `analytics-observability-governance`.
+5. If the task is licensing or third-party notice governance, use `oss-license-governance`.
+6. If the task is contributor bootstrap, devcontainer, or first-run onboarding drift, use `contributor-onboarding`.
+7. If the task is subtree/upstream coordination policy, use `subtree-upstream-governance`.
+8. If the task is domain-specific backend or security implementation beyond repo operations, use `backend` or `security-audit`.
 
 ## Required Checks
 
 ```bash
 ./bin/hushh codex ci-status
-./bin/hushh codex maintenance daily --no-issue-update --text
+./bin/hushh codex rca --surface uat --text
 ./bin/hushh docs verify
 ./bin/hushh ci
 ./scripts/ci/verify-main-branch-protection.sh

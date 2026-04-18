@@ -8,7 +8,7 @@ import os
 import time
 from typing import Optional, Tuple, Union
 
-from hushh_mcp.config import DEFAULT_CONSENT_TOKEN_EXPIRY_MS, SECRET_KEY
+from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_CONSENT_TOKEN_EXPIRY_MS
 from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
 from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 
@@ -229,4 +229,4 @@ def is_token_revoked(token_str: str) -> bool:
 
 
 def _sign(input_string: str) -> str:
-    return hmac.new(SECRET_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()
+    return hmac.new(APP_SIGNING_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()

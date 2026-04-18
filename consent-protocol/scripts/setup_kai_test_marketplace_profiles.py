@@ -47,8 +47,8 @@ def authenticate(
 ) -> dict[str, str]:
     """Authenticate as the Kai test user and return auth headers."""
     user_id = _require(config, "KAI_TEST_USER_ID")
-    firebase_auth_sa = json.loads(_require(config, "FIREBASE_SERVICE_ACCOUNT_JSON"))
-    firebase_api_key = _require(config, "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY")
+    firebase_auth_sa = json.loads(_require(config, "FIREBASE_ADMIN_CREDENTIALS_JSON"))
+    firebase_api_key = _require(config, "NEXT_PUBLIC_FIREBASE_API_KEY")
 
     now = int(time.time())
     custom_token = jwt.encode(

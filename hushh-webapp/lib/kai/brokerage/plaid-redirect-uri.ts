@@ -2,7 +2,7 @@
 
 import { Capacitor } from "@capacitor/core";
 
-import { FRONTEND_URL } from "@/lib/config";
+import { APP_FRONTEND_ORIGIN } from "@/lib/config";
 import { ROUTES } from "@/lib/navigation/routes";
 
 function normalizeOrigin(value: string | null | undefined): string {
@@ -37,7 +37,7 @@ function toHttpsRedirectUrl(origin: string, path: string): string | undefined {
 export function resolvePlaidRedirectUri(
   path: string = ROUTES.KAI_PLAID_OAUTH_RETURN
 ): string | undefined {
-  const configuredOrigin = normalizeOrigin(FRONTEND_URL);
+  const configuredOrigin = normalizeOrigin(APP_FRONTEND_ORIGIN);
   if (Capacitor.isNativePlatform()) {
     return toHttpsRedirectUrl(configuredOrigin, path);
   }

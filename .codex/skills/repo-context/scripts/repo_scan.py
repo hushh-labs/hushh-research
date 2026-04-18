@@ -57,6 +57,10 @@ REQUIRED_OWNER_SKILLS = [
     "security-audit",
     "docs-governance",
     "repo-operations",
+    "autonomous-rca-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
     "planning-board",
     "comms-community",
     "codex-skill-authoring",
@@ -65,6 +69,7 @@ REQUIRED_WORKFLOWS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "api-contract-change",
+    "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
     "security-consent-audit",
@@ -74,6 +79,11 @@ REQUIRED_WORKFLOWS = [
     "skill-authoring",
     "board-update",
     "community-response",
+    "autonomous-rca-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
+    "hushh-consent-mcp-ops",
     "mcp-surface-change",
     "security-posture-maintenance",
 ]
@@ -93,17 +103,16 @@ PATH_PREFIXES = (
 COMMAND_PATTERNS = [
     r"^\./bin/hushh\s+",
     r"^\./scripts/ci/",
+    r"^python3 scripts/licenses/",
     r"^cd hushh-webapp && npm run ",
     r"^cd hushh-webapp && npm test",
     r"^cd consent-protocol && python3 ",
     r"^cd consent-protocol && pytest ",
     r"^cd packages/hushh-mcp && npm run ",
-    r"^python3 scripts/ops/codex_maintenance.py ",
     r"^python3 \.codex/",
     r"^python3 -m py_compile ",
     r"^# TODO$",
 ]
-MAINTENANCE_CADENCES = {"daily", "weekly", "monthly", "manual"}
 
 
 def _load_text(path: Path) -> str:
@@ -421,7 +430,6 @@ def build_commands_section() -> dict[str, Any]:
             "./bin/hushh codex onboard",
             "./bin/hushh codex route-task <workflow-id>",
             "./bin/hushh codex impact <workflow-id> [--path <repo-path>]",
-            "./bin/hushh codex maintenance <daily|weekly|monthly>",
             "./bin/hushh codex audit",
         ],
         package_commands=OrderedDict(
@@ -470,8 +478,6 @@ def build_workflow_list(verbose: bool = False) -> dict[str, Any]:
                 owner_skill=workflow["owner_skill"],
                 default_spoke=workflow["default_spoke"],
                 task_type=workflow["task_type"],
-                scheduled_safe=workflow.get("scheduled_safe"),
-                maintenance_cadence=workflow.get("maintenance_cadence"),
                 playbook=workflow["playbook"],
             )
         )
@@ -644,36 +650,12 @@ def build_audit() -> dict[str, Any]:
     for workflow in workflows:
         if not workflow.get("verification_bundle"):
             findings["medium"].append(f"Missing verification_bundle for workflow {workflow['id']}")
-        if not isinstance(workflow.get("scheduled_safe"), bool):
-            findings["high"].append(f"Workflow {workflow['id']} missing scheduled_safe boolean")
-        cadence = workflow.get("maintenance_cadence")
-        if cadence not in MAINTENANCE_CADENCES:
-            findings["high"].append(f"Workflow {workflow['id']} has invalid maintenance_cadence: {cadence}")
-        if workflow.get("maintenance_owner") not in skills_by_id:
-            findings["high"].append(f"Workflow {workflow['id']} maintenance_owner is missing or unknown")
-        if not isinstance(workflow.get("maintenance_issue_section"), str) or not workflow.get("maintenance_issue_section", "").strip():
-            findings["medium"].append(f"Workflow {workflow['id']} missing maintenance_issue_section")
-        else:
-            other = issue_sections.get(workflow["maintenance_issue_section"])
-            if other:
-                findings["high"].append(
-                    f"Workflow {workflow['id']} shares maintenance_issue_section `{workflow['maintenance_issue_section']}` with {other}"
-                )
-            else:
-                issue_sections[workflow["maintenance_issue_section"]] = workflow["id"]
-        if workflow.get("scheduled_safe") and not workflow.get("maintenance_runner"):
-            findings["high"].append(f"Workflow {workflow['id']} is scheduled-safe but has no maintenance_runner")
-        if not workflow.get("scheduled_safe") and cadence != "manual":
-            findings["high"].append(f"Workflow {workflow['id']} is manual-only but does not use manual maintenance cadence")
-        if cadence == "monthly" and workflow.get("scheduled_safe") and not workflow.get("maintenance_prerequisites"):
-            findings["medium"].append(f"Workflow {workflow['id']} is monthly but missing maintenance_prerequisites")
         for candidate in workflow.get("required_reads", []):
             if candidate.startswith(PATH_PREFIXES) and not _path_exists(candidate):
                 findings["medium"].append(f"Stale required_read in workflow {workflow['id']}: {candidate}")
         for command in (
             workflow.get("required_commands", [])
             + workflow.get("verification_bundle", {}).get("commands", [])
-            + workflow.get("maintenance_runner", [])
         ):
             if not _validate_command_string(command):
                 findings["medium"].append(f"Stale or unknown command shape in workflow {workflow['id']}: {command}")
@@ -797,27 +779,6 @@ def validate_index() -> dict[str, Any]:
             errors.append(f"Workflow owner_skill not found: {workflow['id']} -> {workflow['owner_skill']}")
         if workflow.get("default_spoke") and workflow["default_spoke"] not in skill_ids:
             errors.append(f"Workflow default_spoke not found: {workflow['id']} -> {workflow['default_spoke']}")
-        if workflow.get("maintenance_owner") not in skill_ids:
-            errors.append(f"Workflow maintenance_owner not found: {workflow['id']} -> {workflow.get('maintenance_owner')}")
-        if workflow.get("maintenance_cadence") not in MAINTENANCE_CADENCES:
-            errors.append(f"Workflow has invalid maintenance_cadence: {workflow['id']} -> {workflow.get('maintenance_cadence')}")
-        if not isinstance(workflow.get("scheduled_safe"), bool):
-            errors.append(f"Workflow scheduled_safe must be boolean: {workflow['id']}")
-        if workflow.get("scheduled_safe") and workflow.get("maintenance_cadence") == "manual":
-            errors.append(f"Workflow scheduled_safe cannot use manual maintenance cadence: {workflow['id']}")
-        if not workflow.get("scheduled_safe") and workflow.get("maintenance_cadence") != "manual":
-            errors.append(f"Workflow manual-only cadence mismatch: {workflow['id']}")
-        if workflow.get("maintenance_cadence") == "monthly" and workflow.get("scheduled_safe") and not workflow.get("maintenance_prerequisites"):
-            errors.append(f"Workflow monthly maintenance prerequisites missing: {workflow['id']}")
-        section = workflow.get("maintenance_issue_section")
-        if not isinstance(section, str) or not section.strip():
-            errors.append(f"Workflow maintenance_issue_section missing: {workflow['id']}")
-        else:
-            other = issue_sections.get(section)
-            if other:
-                errors.append(f"Workflow maintenance_issue_section duplicated: {workflow['id']} and {other} -> {section}")
-            else:
-                issue_sections[section] = workflow["id"]
         for value in workflow.get("affected_surfaces", []) + workflow.get("required_reads", []):
             if value.startswith(PATH_PREFIXES) and not _path_exists(value):
                 errors.append(f"Workflow path not found: {workflow['id']} -> {value}")
@@ -904,8 +865,7 @@ def _render_validation_text(payload: dict[str, Any]) -> str:
 def _render_workflows_text(payload: dict[str, Any]) -> str:
     lines = ["Codex Workflows"]
     for workflow in payload["data"]["workflows"]:
-        cadence = workflow.get("maintenance_cadence", "manual")
-        lines.append(f"- {workflow['id']}: {workflow['title']} [{workflow['owner_skill']}] cadence={cadence}")
+        lines.append(f"- {workflow['id']}: {workflow['title']} [{workflow['owner_skill']}]")
     lines.append(f"Recommended entrypoint: {payload['data']['recommended_entrypoint']}")
     return "\n".join(lines)
 

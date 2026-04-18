@@ -55,22 +55,5 @@
     "treating advisory findings as invisible",
     "shipping without docs parity",
     "skipping native checks when mobile surfaces changed"
-  ],
-  "scheduled_safe": true,
-  "maintenance_cadence": "weekly",
-  "maintenance_runner": [
-    "./bin/hushh ci --include-advisory",
-    "./bin/hushh docs verify"
-  ],
-  "maintenance_owner": "repo-operations",
-  "maintenance_issue_section": "release-readiness",
-  "maintenance_blockers": [
-    "ci advisory bundle fails",
-    "docs verification fails",
-    "release readiness audit reports blocking drift"
-  ],
-  "maintenance_prerequisites": [
-    "command:gh",
-    "gh-auth"
   ]
 }

@@ -1,7 +1,7 @@
 {
   "name": "hushh-webapp",
   "version": "1.1.0",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run",
-    "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts",
+    "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts __tests__/services/observability-web-transport.test.ts",
     "verify:design-system": "node ./scripts/architecture/verify-design-system.mjs",
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:routes": "node ./scripts/testing/verify-signed-in-routes.mjs",
@@ -57,7 +57,7 @@
     "jose": "^6.1.3",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.561.0",
-    "next": "^16.2.1",
+    "next": "^16.2.4",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",
@@ -79,13 +79,13 @@
     "@vitejs/plugin-react": "^6.0.1",
     "cross-env": "^10.1.0",
     "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.1",
+    "eslint-config-next": "^16.2.4",
     "jsdom": "^25.0.0",
     "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
     "typescript": "5.9.3",
-    "vite": "^8.0.0",
+    "vite": "^8.0.8",
     "vitest": "^4.1.0"
   },
   "overrides": {
@@ -115,6 +115,7 @@
     "firebase-admin": {
       "node-forge": "1.4.0"
     },
+    "dompurify": "3.4.0",
     "fast-xml-parser": "5.5.9",
     "flatted": "3.4.2",
     "@capacitor/cli": {
@@ -150,6 +151,7 @@
     "google-gax": "4.6.1",
     "hono": "4.12.8",
     "http-proxy-agent": "7.0.2",
+    "protobufjs": "7.5.5",
     "retry-request": "8.0.2",
     "tar": "7.5.11",
     "teeny-request": "10.1.0",

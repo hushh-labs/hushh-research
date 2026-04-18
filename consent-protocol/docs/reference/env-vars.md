@@ -22,36 +22,39 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 
 | Variable | Where Read | Required | Notes |
 |----------|------------|----------|-------|
-| `SECRET_KEY` | `hushh_mcp/config.py` | Yes | Min 32 chars (64-char hex recommended). HMAC signing. |
-| `VAULT_ENCRYPTION_KEY` | `hushh_mcp/config.py` | Yes | Exactly 64-char hex. |
+| `APP_SIGNING_KEY` | `hushh_mcp/config.py` | Yes | Min 32 chars (64-char hex recommended). HMAC signing and state integrity only. |
+| `VAULT_DATA_KEY` | `hushh_mcp/config.py` | Yes | Exactly 64-char hex. Vault/PKM data encryption only. |
 | `DB_USER` | `db/connection.py`, `db/db_client.py` | Yes | Supabase pooler username. |
 | `DB_PASSWORD` | same | Yes | Database password. |
 | `DB_HOST` | same | Yes | Supabase session pooler host. |
 | `DB_PORT` | same | No | Default: 5432. |
 | `DB_NAME` | same | No | Default: postgres. |
 | `REQUIRE_DATABASE_ON_STARTUP` | `server.py` | No | Optional startup strictness override. Defaults to `true` in production and `false` in development; when `false`, local startup warns instead of failing if the DB is offline, but schema mismatches still fail. |
-| `FRONTEND_URL` | `server.py` | Yes (prod) | Backend-owned app origin for CORS and user-facing links. Not part of the public MCP host setup. |
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | `api/utils/firebase_admin.py` | Yes | Default Firebase Admin credential for server operations (FCM/admin). |
-| `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | `api/utils/firebase_admin.py`, `api/utils/firebase_auth.py` | Recommended | Optional auth-only Firebase Admin credential for ID token verification (falls back to `FIREBASE_SERVICE_ACCOUNT_JSON` if unset). |
+| `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod) | Backend-owned app origin for CORS and user-facing links. Not part of the public MCP host setup. |
+| `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py` | Yes | Default Firebase Admin credential for server operations (FCM/admin). |
 | `GOOGLE_API_KEY` | `hushh_mcp/config.py`, services | Yes | Gemini / Vertex AI API key. |
-| `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/support_email_service.py` | Optional | Dedicated service account JSON for support mail. If unset, support mail falls back to `FIREBASE_SERVICE_ACCOUNT_JSON`. |
+| `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/support_email_service.py` | Optional | Dedicated service account JSON for support mail. If unset, support mail falls back to `FIREBASE_ADMIN_CREDENTIALS_JSON`. |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Recommended | Workspace mailbox to impersonate for Gmail send. Default: `support@hushh.ai`. |
 | `SUPPORT_EMAIL_FROM` | `hushh_mcp/services/support_email_service.py` | Optional | Visible `From` address for outgoing support mail. Defaults to `SUPPORT_EMAIL_DELEGATED_USER`. |
 | `SUPPORT_EMAIL_TO` | `hushh_mcp/services/support_email_service.py` | Recommended | Live support inbox recipient. Default: `support@hushh.ai`. |
 | `SUPPORT_EMAIL_TEST_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Test-mode recipient override for non-production verification. |
 | `SUPPORT_EMAIL_MODE` | `hushh_mcp/services/support_email_service.py` | Optional | `live` or `test`. If unset, non-production defaults to `test` when `SUPPORT_EMAIL_TEST_TO` exists. |
+| `GMAIL_OAUTH_CLIENT_ID` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client id. Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth redirect URI. Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
+| `OPENAI_API_KEY` | `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Required for voice STT, planning, TTS, and realtime session creation. |
+| `VOICE_RUNTIME_CONFIG_JSON` | `hushh_mcp/runtime_settings.py`, `api/routes/kai/voice.py`, `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Structured runtime config for rollout, allowlists/canary, fail-fast policy, and model defaults. |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
 | `ENVIRONMENT` | `hushh_mcp/config.py` | No | `production` or `development` (default). |
 | `AGENT_ID` | `hushh_mcp/config.py` | No | Default: `agent_hushh_default`. |
 | `HUSHH_HACKATHON` | `hushh_mcp/config.py` | No | Feature flag (default: disabled). |
 | `CONSENT_TIMEOUT_SECONDS` | `api/routes/sse.py`, `developer.py` | No | Consent wait timeout. |
-| `APP_REVIEW_MODE` / `HUSHH_APP_REVIEW_MODE` | `api/routes/health.py` | No | App review mode toggle. |
-| `REVIEWER_UID` | `api/routes/health.py` | If app review | Firebase UID used for custom token minting. |
 | `CONSENT_SSE_ENABLED` | `api/routes/sse.py` | No | Defaults off in production. |
 | `DEVELOPER_API_ENABLED` | `api/routes/developer.py`, `server.py` | No | Enables `/api/v1/*`; defaults false in production unless explicitly enabled. |
 | `REMOTE_MCP_ENABLED` | `api/developer_auth.py`, `mcp_remote.py` | No | Enables hosted remote MCP transport at `/mcp`. |
-| `SYNC_REMOTE_ENABLED` | `api/routes/sync.py` | No | Defaults false; sync endpoints return 501 when disabled. |
+| `SYNC_REMOTE_ENABLED` | deploy/runtime env contract | No | Legacy deploy flag; keep false unless the runtime reintroduces an active reader. |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py`, `mcp_server.py` | Optional | Self-serve developer token used by stdio MCP and token-auth `/api/user/lookup`. It is not part of the normal hosted runtime contract. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | No | Set `True` for Vertex AI in production. |
@@ -61,9 +64,9 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `PLAID_CLIENT_NAME` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Link display name. Defaults to `Hushh Kai`. |
 | `PLAID_COUNTRY_CODES` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Comma-separated country codes, default `US`. |
 | `PLAID_WEBHOOK_URL` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Public webhook URL for `/api/kai/plaid/webhook`. Localhost must use a tunnel. Plaid webhook URLs are provided during Link token creation; they are not dashboard-allowlisted. |
-| `PLAID_REDIRECT_PATH` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended for OAuth | Relative callback path used with `FRONTEND_URL`. Default: `/kai/plaid/oauth/return`. |
-| `PLAID_REDIRECT_URI` / `PLAID_OAUTH_REDIRECT_URI` | `hushh_mcp/services/plaid_portfolio_service.py` | Optional override | Full allowlisted redirect URI, including path. Use only when overriding `FRONTEND_URL + PLAID_REDIRECT_PATH`. |
-| `PLAID_TOKEN_ENCRYPTION_KEY` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Encryption key for stored Plaid access tokens. Keep the same value anywhere that must read/write the same Plaid item records, especially `local` and UAT when they share a DB. If omitted, backend derives a fallback key from Plaid credentials. |
+| `PLAID_REDIRECT_PATH` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended for OAuth | Relative callback path used with `APP_FRONTEND_ORIGIN`. Default: `/kai/plaid/oauth/return`. |
+| `PLAID_REDIRECT_URI` / `PLAID_OAUTH_REDIRECT_URI` | `hushh_mcp/services/plaid_portfolio_service.py` | Optional override | Full allowlisted redirect URI, including path. Use only when overriding `APP_FRONTEND_ORIGIN + PLAID_REDIRECT_PATH`. |
+| `PLAID_ACCESS_TOKEN_KEY` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Encryption key for stored Plaid access tokens. Keep the same value anywhere that must read/write the same Plaid item records, especially `local` and UAT when they share a DB. If omitted, backend derives a fallback key from Plaid credentials. |
 | `PLAID_TX_HISTORY_DAYS` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Investment transaction lookback window. Default `730`. |
 | `PLAID_WEBHOOK_VERIFICATION_ENABLED` | `hushh_mcp/services/broker_funding_service.py` | Recommended | Enables Plaid webhook JWT signature verification (default `true`). |
 | `PLAID_WEBHOOK_MAX_SKEW_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Max allowed clock skew for Plaid webhook `iat` claim. Default `300`. |
@@ -98,7 +101,7 @@ These are read by `mcp_server.py` (separate from the main FastAPI server):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CONSENT_API_URL` | `http://127.0.0.1:8000` | FastAPI backend URL. Defaults to loopback + `PORT` when unset. |
-| `FRONTEND_URL` | `http://localhost:3000` | Backend-owned app origin for user-facing links. Do not add this to public MCP host configs. |
+| `APP_FRONTEND_ORIGIN` | `http://localhost:3000` | Backend-owned app origin for user-facing links. Do not add this to public MCP host configs. |
 | `PRODUCTION_MODE` | `true` | Require real user approval via Hushh app. |
 | `HUSHH_DEVELOPER_TOKEN` | _(none)_ | Self-serve developer token for stdio MCP. |
 | `CONSENT_TIMEOUT_SECONDS` | `120` | Max wait for user consent approval. |
@@ -126,17 +129,19 @@ Kai generation behavior for import/optimize/debate is also constants-driven (not
 - `KAI_LLM_STREAM_INCLUDE_THOUGHTS`
 - `KAI_OPTIMIZE_STREAM_TIMEOUT_SECONDS`
 
-Optional local-only vars used by migration/reset utilities:
+Maintainer-only overlay vars used by release verification, migration/reset utilities, and review flows:
 
-- `KAI_TEST_USER_ID`
-- `KAI_TEST_PASSPHRASE`
+- `UAT_SMOKE_USER_ID`
+- `UAT_SMOKE_PASSPHRASE`
+- `APP_REVIEW_MODE`
+- `REVIEWER_UID`
 
 Notes:
 
-- These test-user vars are loaded by backend scripts and local tooling at process start.
+- These maintainer-only overlay vars are loaded by backend scripts and release verification at process start.
 - Changing them requires restarting the backend or rerunning the script; they are not hot-reloaded into an already running process.
 
-Professional verification bypass:
+Maintainer-only non-production bypass overlay:
 
 - `ADVISORY_VERIFICATION_BYPASS_ENABLED`
   - enables non-production advisory bypass for the professional onboarding flow
@@ -188,7 +193,7 @@ Profile support / bug-report emails are sent through Gmail API using a delegated
 Workspace mailbox. The service account source is:
 
 - `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON`, if provided
-- otherwise `FIREBASE_SERVICE_ACCOUNT_JSON`
+- otherwise `FIREBASE_ADMIN_CREDENTIALS_JSON`
 
 - delegated sender: `SUPPORT_EMAIL_DELEGATED_USER` (must be a real mailbox user)
 - visible From address: `SUPPORT_EMAIL_FROM` (default matches delegated user)
@@ -213,20 +218,32 @@ This path requires Workspace domain-wide delegation for the chosen service accou
 
 `SUPPORT_EMAIL_DELEGATED_USER` cannot be a Google Group. A group like `support@hushh.ai` can be the visible sender or recipient inbox, but it cannot be the delegated Gmail user.
 
+Local runtime bootstrap:
+
+- `bash scripts/env/bootstrap_profiles.sh` hydrates Gmail and voice backend secrets into `consent-protocol/.env` from the selected cloud project when those secrets are available.
+- The key names are identical across local, UAT, and production. Only the secret values differ by project.
+- Missing Gmail/voice values are warnings by default and become failures only when bootstrap is run with `--strict`.
+
 ---
 
 ## Secrets in Production
 
 | Variable | Secret | Where Set |
 |----------|--------|-----------|
-| `SECRET_KEY` | Yes | GCP Secret Manager |
-| `VAULT_ENCRYPTION_KEY` | Yes | GCP Secret Manager |
+| `APP_SIGNING_KEY` | Yes | GCP Secret Manager |
+| `VAULT_DATA_KEY` | Yes | GCP Secret Manager |
 | `DB_USER` | Yes | GCP Secret Manager |
 | `DB_PASSWORD` | Yes | GCP Secret Manager |
-| `FRONTEND_URL` | Yes | GCP Secret Manager |
+| `APP_FRONTEND_ORIGIN` | Yes | GCP Secret Manager |
 | `GOOGLE_API_KEY` | Yes | GCP Secret Manager |
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | Yes | GCP Secret Manager |
-| `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | Yes | GCP Secret Manager |
+| `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes | GCP Secret Manager |
+| `GMAIL_OAUTH_CLIENT_ID` | Yes | GCP Secret Manager |
+| `GMAIL_OAUTH_CLIENT_SECRET` | Yes | GCP Secret Manager |
+| `GMAIL_OAUTH_REDIRECT_URI` | Yes | GCP Secret Manager |
+| `GMAIL_OAUTH_TOKEN_KEY` | Yes | GCP Secret Manager |
+| `OPENAI_API_KEY` | Yes | GCP Secret Manager |
+| `BACKEND_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |
+| `VOICE_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |
 | `DB_HOST` | No | Cloud Run env var |
 | `DB_PORT` | No | Cloud Run env var |
 | `DB_NAME` | No | Cloud Run env var |

@@ -70,14 +70,5 @@
     "adding fetch calls directly in components",
     "forgetting API/route-contract doc updates",
     "missing service-layer or proxy alignment"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "frontend",
-  "maintenance_issue_section": "new-feature-tri-flow",
-  "maintenance_blockers": [
-    "workflow is manual-only and should not run unattended"
-  ],
-  "maintenance_prerequisites": []
+  ]
 }

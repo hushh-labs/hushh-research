@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { marketCardClassName } from "@/components/kai/shared/market-surface-theme";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
@@ -50,11 +51,8 @@ const FALLBACK_ICON: Record<MarketOverviewMetric["tone"], LucideIcon> = {
   warning: Activity,
 };
 
-const MARKET_GLASS_CARD_CLASSNAME =
-  "bg-[linear-gradient(180deg,rgba(255,255,255,0.88)_0%,rgba(248,250,252,0.72)_52%,rgba(241,245,249,0.58)_100%)] dark:bg-[color:var(--app-card-surface-default-solid)]";
-
 const MARKET_ACTION_CARD_CLASSNAME =
-  "border-[color:color-mix(in_srgb,var(--app-card-border-strong)_68%,rgba(99,102,241,0.22)_32%)] shadow-[var(--app-card-shadow-standard)]";
+  "shadow-[var(--app-card-shadow-standard)]";
 
 export function MarketOverviewGrid({
   metrics = [],
@@ -83,10 +81,10 @@ export function MarketOverviewGrid({
             accent="none"
             className={cn(
               "h-full",
-              MARKET_GLASS_CARD_CLASSNAME,
+              marketCardClassName,
               actionable && MARKET_ACTION_CARD_CLASSNAME,
               actionable &&
-                "transition-[transform,box-shadow,background-color,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-[color:color-mix(in_srgb,var(--app-card-border-strong)_82%,rgba(99,102,241,0.35)_18%)] group-hover:shadow-[var(--app-card-shadow-feature)]"
+                "transition-[transform,box-shadow,background-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:bg-[color:var(--app-card-surface-hero)] group-hover:shadow-[var(--app-card-shadow-feature)]"
             )}
           >
             <SurfaceCardContent className="flex h-full min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
@@ -148,7 +146,7 @@ export function MarketOverviewGrid({
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/72">
                     View detail
                   </p>
-                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-white/75 text-foreground/72 transition-colors group-hover:text-foreground dark:bg-[var(--app-card-surface-compact)]">
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground/72 shadow-[var(--shadow-xs)] transition-colors group-hover:text-foreground">
                     <ArrowUpRight className="h-3.5 w-3.5" />
                   </span>
                 </div>
