@@ -45,16 +45,15 @@ from mcp.client.streamable_http import streamablehttp_client
 from sqlalchemy import create_engine, text
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PROJECT_ROOT.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from api.utils.fcm_messages import build_push_message  # noqa: E402
 
 DEFAULT_BACKEND_URL = "https://api.uat.hushh.ai"
-DEFAULT_PROTOCOL_ENV = os.path.expanduser("~/Documents/GitHub/hushh-research/consent-protocol/.env")
-DEFAULT_WEBAPP_ENV = os.path.expanduser(
-    "~/Documents/GitHub/hushh-research/hushh-webapp/.env.uat.local"
-)
+DEFAULT_PROTOCOL_ENV = str(PROJECT_ROOT / ".env")
+DEFAULT_WEBAPP_ENV = str(REPO_ROOT / "hushh-webapp" / ".env.uat.local")
 DEFAULT_TIMEOUT = 45
 UAT_SMOKE_USER_ID_KEY = "UAT_SMOKE_USER_ID"
 UAT_SMOKE_PASSPHRASE_KEY = "UAT_SMOKE_PASSPHRASE"  # noqa: S105

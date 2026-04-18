@@ -450,6 +450,8 @@ jobs:
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --protocol-env consent-protocol/.env \
+            --web-env hushh-webapp/.env.local \
             --report-path /tmp/uat-release-verify-attempt-1.json
 
       - name: Semantic UAT verification retry
@@ -463,6 +465,8 @@ jobs:
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --protocol-env consent-protocol/.env \
+            --web-env hushh-webapp/.env.local \
             --report-path /tmp/uat-release-verify-attempt-2.json
 
       - name: Classify UAT release outcome

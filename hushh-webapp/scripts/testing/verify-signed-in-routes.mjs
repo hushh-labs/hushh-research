@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import process from "node:process";
 
-import dotenv from "dotenv";
 import { chromium } from "playwright";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,14 +18,40 @@ const contractPath = path.join(webDir, "lib", "navigation", "app-route-layout.co
 const webEnvPath = path.join(webDir, ".env.local");
 const protocolEnvPath = path.join(repoRoot, "consent-protocol", ".env");
 
-dotenv.config({ path: webEnvPath });
-dotenv.config({ path: protocolEnvPath, override: false });
-const parsedWebEnv = fs.existsSync(webEnvPath)
-  ? dotenv.parse(fs.readFileSync(webEnvPath))
-  : {};
-const parsedProtocolEnv = fs.existsSync(protocolEnvPath)
-  ? dotenv.parse(fs.readFileSync(protocolEnvPath))
-  : {};
+function parseEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  const parsed = {};
+  const content = fs.readFileSync(filePath, "utf8");
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    let value = line.slice(separatorIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    parsed[key] = value;
+  }
+  return parsed;
+}
+
+function seedProcessEnv(parsed) {
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!process.env[key] && value) {
+      process.env[key] = value;
+    }
+  }
+}
+
+const parsedWebEnv = parseEnvFile(webEnvPath);
+const parsedProtocolEnv = parseEnvFile(protocolEnvPath);
+seedProcessEnv(parsedProtocolEnv);
+seedProcessEnv(parsedWebEnv);
 
 function readRawEnvLiteral(filePath, key) {
   if (!fs.existsSync(filePath)) return "";
@@ -52,17 +77,17 @@ const appOrigin = (
 ).replace(/\/$/, "");
 const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "").trim().toLowerCase();
 const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "").trim().toLowerCase();
-const rawProtocolReviewerPassphrase = readRawEnvLiteral(protocolEnvPath, "KAI_TEST_PASSPHRASE");
+const rawProtocolReviewerPassphrase = readRawEnvLiteral(protocolEnvPath, "UAT_SMOKE_PASSPHRASE");
 const reviewerPassphrase =
   sanitizeConfiguredValue(process.env.HUSHH_REVIEWER_PASSPHRASE) ||
+  sanitizeConfiguredValue(process.env.UAT_SMOKE_PASSPHRASE) ||
+  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_PASSPHRASE) ||
   sanitizeConfiguredValue(rawProtocolReviewerPassphrase) ||
-  sanitizeConfiguredValue(parsedProtocolEnv.KAI_TEST_PASSPHRASE) ||
-  sanitizeConfiguredValue(process.env.HUSHH_KAI_TEST_PASSPHRASE) ||
-  sanitizeConfiguredValue(process.env.KAI_TEST_PASSPHRASE) ||
   "test#123";
-const kaiTestUserId =
-  sanitizeConfiguredValue(process.env.NEXT_PUBLIC_KAI_TEST_USER_ID) ||
-  sanitizeConfiguredValue(parsedWebEnv.NEXT_PUBLIC_KAI_TEST_USER_ID) ||
+const smokeUserId =
+  sanitizeConfiguredValue(process.env.HUSHH_SMOKE_USER_ID) ||
+  sanitizeConfiguredValue(process.env.UAT_SMOKE_USER_ID) ||
+  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_USER_ID) ||
   "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
 
 const VIEWPORTS = [
@@ -96,22 +121,22 @@ const TERMINAL_DATA_STATES = new Set([
 
 const DYNAMIC_ROUTE_FIXTURES = {
   "/ria/clients/[userId]": {
-    path: `/ria/clients/${kaiTestUserId}?tab=overview&test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}`,
+    path: `/ria/clients/${smokeUserId}?tab=overview&test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}`,
     expectedQueryIncludes: ["tab=overview", "test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]"],
     requireBackButton: false,
   },
   "/ria/clients/[userId]/accounts/[accountId]": {
-    path: `/ria/clients/${kaiTestUserId}/accounts/acct_demo_taxable_main?test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}/accounts/acct_demo_taxable_main`,
+    path: `/ria/clients/${smokeUserId}/accounts/acct_demo_taxable_main?test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}/accounts/acct_demo_taxable_main`,
     expectedQueryIncludes: ["test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]/accounts/[accountId]"],
     requireBackButton: true,
   },
   "/ria/clients/[userId]/requests/[requestId]": {
-    path: `/ria/clients/${kaiTestUserId}/requests/request_demo_kai_specialized_bundle?test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}/requests/request_demo_kai_specialized_bundle`,
+    path: `/ria/clients/${smokeUserId}/requests/request_demo_kai_specialized_bundle?test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}/requests/request_demo_kai_specialized_bundle`,
     expectedQueryIncludes: ["test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]/requests/[requestId]"],
     requireBackButton: true,
@@ -167,8 +192,8 @@ const REDIRECT_EXPECTATIONS = {
     requiresColdEntry: true,
   },
   "/ria/workspace": {
-    path: `/ria/workspace?clientId=${encodeURIComponent(kaiTestUserId)}&tab=overview&test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}`,
+    path: `/ria/workspace?clientId=${encodeURIComponent(smokeUserId)}&tab=overview&test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}`,
     expectedQueryIncludes: ["tab=overview", "test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]"],
   },
