@@ -43,7 +43,8 @@ Optional, depending on the work:
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 ./bin/hushh bootstrap
-./bin/hushh web --mode uat
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh web
 ```
 
 `./bin/hushh bootstrap` is the only supported onboarding entrypoint. It:
@@ -59,7 +60,15 @@ Seeded files:
 - generated frontend profile files beside the tracked examples in `hushh-webapp/`
 - active frontend runtime in `hushh-webapp/.env.local`
 
-The default recommended mode is `uat` because it gives you the fastest working app:
+`./bin/hushh bootstrap` and `./bin/hushh web` now both default to `local`.
+
+That local-first path is the recommended maintainer and contributor baseline:
+
+- local frontend
+- local backend
+- fewer hidden differences from the actual development contract
+
+Use `./bin/hushh web --mode uat` when you want the fastest frontend-only path:
 
 - local frontend
 - deployed UAT backend
@@ -72,7 +81,7 @@ If you want a reproducible containerized setup, open the repo through `.devconta
 ## Choose Your Lane
 
 - App contributor:
-  `./bin/hushh web --mode uat`
+  `./bin/hushh terminal backend --mode local --reload` then `./bin/hushh web`
 - Backend contributor in the monorepo:
   `./bin/hushh terminal backend --mode local --reload`
 - Standalone backend contributor:
@@ -88,6 +97,7 @@ If you want a reproducible containerized setup, open the repo through `.devconta
 ./bin/hushh doctor --mode uat
 ./bin/hushh doctor --mode prod
 
+./bin/hushh web
 ./bin/hushh terminal backend --mode local --reload
 ./bin/hushh terminal web --mode local
 ./bin/hushh web --mode uat

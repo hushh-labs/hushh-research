@@ -135,6 +135,12 @@ The data flow is:
 - encrypted export back to the external connector
 - local decryption on the connector side
 
+## License
+
+This package is licensed under \`${contract.license}\`.
+
+The published npm tarball includes package-local \`LICENSE\` and \`NOTICE\` files for Apache redistribution.
+
 ## Self-hosted and contributor development
 
 This package can also bootstrap a generic \`consent-protocol\` runtime for local development or self-hosted use.

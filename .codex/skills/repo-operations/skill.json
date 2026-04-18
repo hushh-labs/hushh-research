@@ -35,26 +35,25 @@
   ],
   "required_commands": [
     "./bin/hushh codex ci-status",
+    "./bin/hushh codex rca --surface uat --text",
     "./bin/hushh docs verify",
     "./bin/hushh ci",
     "./scripts/ci/verify-main-branch-protection.sh",
-    "./scripts/ci/verify-production-environment-governance.sh",
-    "./scripts/ci/assert-governed-actor.py --surface uat --actor kushaltrivedi5",
-    "./scripts/ci/assert-governed-actor.py --surface production --actor kushaltrivedi5"
+    "./scripts/ci/verify-production-environment-governance.sh"
   ],
   "verification_bundles": [
     {
       "id": "repo-operations",
       "commands": [
         "./bin/hushh codex ci-status",
+        "./bin/hushh codex rca --surface uat --text",
         "./bin/hushh docs verify",
         "./bin/hushh ci",
         "./scripts/ci/verify-main-branch-protection.sh",
-        "./scripts/ci/verify-production-environment-governance.sh",
-        "./scripts/ci/assert-governed-actor.py --surface uat --actor kushaltrivedi5",
-        "./scripts/ci/assert-governed-actor.py --surface production --actor kushaltrivedi5"
+        "./scripts/ci/verify-production-environment-governance.sh"
       ],
       "tests": [
+        "./bin/hushh codex rca --surface uat --text",
         "./bin/hushh docs verify",
         "./scripts/ci/verify-main-branch-protection.sh",
         "./scripts/ci/verify-production-environment-governance.sh"

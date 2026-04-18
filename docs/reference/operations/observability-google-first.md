@@ -260,8 +260,16 @@ Minimum repo verification:
 ```bash
 cd hushh-webapp
 npm run verify:analytics
+npm run audit:analytics-sandbox
 ./bin/hushh docs verify
 ```
+
+Sandbox audit policy:
+
+1. `npm run audit:analytics-sandbox` is the non-reporting validation path for web transport.
+2. It validates representative investor and RIA journeys locally, captures client-side dispatch latency for `dataLayer` and direct `gtag`, and writes report artifacts into `tmp/`.
+3. It must be used before declaring local or pre-release analytics wiring healthy when the current build has not yet been deployed.
+4. It does not replace DebugView or BigQuery checks after deployment; it only proves the pre-release transport contract without polluting GA4 numbers.
 
 Maintained query surface:
 

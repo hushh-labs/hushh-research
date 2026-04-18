@@ -35,6 +35,7 @@ Required commands:
 ```bash
 cd hushh-webapp
 npm run verify:analytics
+npm run audit:analytics-sandbox
 ./bin/hushh docs verify
 ```
 
@@ -45,12 +46,20 @@ What this proves:
 3. native Firebase adapter still exists and is wired
 4. web transport still supports direct GA delivery without GTM being mandatory
 5. docs and the implementation references remain aligned
+6. sandbox audit emits a local report for representative investor and RIA journeys without affecting GA4 numbers
 
 Repo verification fails if:
 
 1. `verify:analytics` fails
-2. docs verification fails
-3. the event schema drifts from the declared contract
+2. `audit:analytics-sandbox` fails or does not emit a report
+3. docs verification fails
+4. the event schema drifts from the declared contract
+
+Sandbox audit note:
+
+- `audit:analytics-sandbox` is the pre-release proof rung for local transport correctness
+- it exercises representative web flows, captures `dataLayer` and direct `gtag` handoff latency, writes a report to `tmp/`, and never sends events to GA4
+- use it when the build is not deployed yet or when testing must not pollute reporting
 
 ## 2. Web Validation
 

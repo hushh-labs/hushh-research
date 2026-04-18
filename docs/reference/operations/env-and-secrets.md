@@ -45,6 +45,7 @@ For backend Gmail and voice, bootstrap hydrates `consent-protocol/.env` using th
 
 ```bash
 ./bin/hushh doctor --mode local
+./bin/hushh web
 ./bin/hushh web --mode uat
 ./bin/hushh web --mode prod
 ./bin/hushh native ios --mode uat

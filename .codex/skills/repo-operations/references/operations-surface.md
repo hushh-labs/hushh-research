@@ -19,8 +19,8 @@ Use this reference to orient DevOps work in `hushh-research`.
 ./bin/hushh ci
 ./bin/hushh docs verify
 ./bin/hushh sync main
-./bin/hushh doctor --mode uat
-./bin/hushh env use --mode uat
+./bin/hushh doctor --mode local
+./bin/hushh env use --mode local
 ```
 
 ## Live-state verification surfaces

@@ -16,6 +16,7 @@
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:routes": "node ./scripts/testing/verify-signed-in-routes.mjs",
     "verify:cache": "vitest run __tests__/services/cache-sync-mutation-cascade.test.ts __tests__/services/cache-service.test.ts __tests__/services/pkm-cache.test.ts",
+    "audit:analytics-sandbox": "node ./scripts/testing/run-observability-sandbox-audit.mjs",
     "audit:ui-surfaces": "node ./scripts/architecture/audit-ui-surfaces.mjs",
     "cap:build": "npx cross-env CAPACITOR_BUILD=true next build",
     "cap:sync:android": "npx cross-env CAPACITOR_PLATFORM=android npx cap sync android",
