@@ -93,7 +93,9 @@ export function NativeTestBootstrap() {
               localReviewerCredentials.password
             )
           : await (async () => {
-              const { token } = await ApiService.createAppReviewModeSession("reviewer");
+              const { token } = await ApiService.createAppReviewModeSession("reviewer", {
+                smokePassphrase: config.vaultPassphrase,
+              });
               return AuthService.signInWithCustomToken(token);
             })();
         const authenticatedUser = authResult.user;
@@ -134,6 +136,7 @@ export function NativeTestBootstrap() {
     config.autoReviewerLogin,
     config.enabled,
     config.expectedUserId,
+    config.vaultPassphrase,
     setNativeUser,
     user,
   ]);

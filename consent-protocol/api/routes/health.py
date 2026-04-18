@@ -3,6 +3,7 @@
 Health check endpoints.
 """
 
+import hmac
 import logging
 import os
 
@@ -25,6 +26,23 @@ def _env_truthy(name: str, fallback: str = "false") -> bool:
 
 def _is_app_review_mode_enabled() -> bool:
     return _env_truthy("APP_REVIEW_MODE")
+
+
+def _runtime_profile() -> str:
+    return str(os.getenv("APP_RUNTIME_PROFILE", "")).strip().lower()
+
+
+def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, str] | None:
+    configured_uid = str(os.getenv("UAT_SMOKE_USER_ID", "")).strip()
+    configured_passphrase = str(os.getenv("UAT_SMOKE_PASSPHRASE", "")).strip()
+    provided_passphrase = str(smoke_passphrase or "").strip()
+    if _runtime_profile() == "production":
+        return None
+    if not configured_uid or not configured_passphrase or not provided_passphrase:
+        return None
+    if not hmac.compare_digest(provided_passphrase, configured_passphrase):
+        return None
+    return configured_uid, "uat_smoke"
 
 
 @router.get("/")
@@ -56,15 +74,30 @@ async def issue_app_review_mode_session(request: Request):
     - Uses fixed REVIEWER_UID from server env
     - Never returns reviewer password to clients
     """
-    if not _is_app_review_mode_enabled():
-        raise HTTPException(
-            status_code=403,
-            detail="App review mode is disabled",
-            headers=NO_STORE_HEADERS,
-        )
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
 
-    reviewer_uid = str(os.getenv("REVIEWER_UID", "")).strip()
+    session_subject = "reviewer"
+    reviewer_uid = ""
     failure_reason = "missing_reviewer_uid"
+
+    if _is_app_review_mode_enabled():
+        reviewer_uid = str(os.getenv("REVIEWER_UID", "")).strip()
+    else:
+        smoke_overlay = _resolve_smoke_overlay_identity(payload.get("smoke_passphrase"))
+        if smoke_overlay:
+            reviewer_uid, session_subject = smoke_overlay
+            failure_reason = "missing_uat_smoke_user_id"
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail="App review mode is disabled",
+                headers=NO_STORE_HEADERS,
+            )
 
     if not reviewer_uid:
         logger.error("app_review_mode.session_failed reason=%s", failure_reason)
@@ -105,7 +138,7 @@ async def issue_app_review_mode_session(request: Request):
     logger.info(
         "app_review_mode.session_issued reviewer_uid=%s subject=%s project_id=%s client_ip=%s",
         reviewer_uid,
-        "reviewer",
+        session_subject,
         project_id or "unknown",
         client_ip,
     )

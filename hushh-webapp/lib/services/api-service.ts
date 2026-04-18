@@ -1332,7 +1332,10 @@ export class ApiService {
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side.
    */
-  static async createAppReviewModeSession(subject: "reviewer" = "reviewer"): Promise<{ token: string }> {
+  static async createAppReviewModeSession(
+    subject: "reviewer" = "reviewer",
+    options?: { smokePassphrase?: string | null }
+  ): Promise<{ token: string }> {
     if (this.appReviewModeSessionInflight) {
       return this.appReviewModeSessionInflight;
     }
@@ -1344,7 +1347,13 @@ export class ApiService {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ subject }),
+        body: JSON.stringify({
+          subject,
+          smoke_passphrase:
+            typeof options?.smokePassphrase === "string" && options.smokePassphrase.trim().length > 0
+              ? options.smokePassphrase
+              : undefined,
+        }),
       });
 
       const payload = (await response.json().catch(() => ({}))) as Record<
