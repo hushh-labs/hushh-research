@@ -63,7 +63,7 @@ class ValuationAgent(HushhAgent):
         self,
         ticker: str,
         user_id: str,
-        consent_token: Optional[str] = None,
+        consent_token: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> ValuationInsight:
         """
