@@ -56,9 +56,7 @@ cd hushh-research
 Seeded files:
 
 - `consent-protocol/.env`
-- `hushh-webapp/.env.local.local`
-- `hushh-webapp/.env.uat.local`
-- `hushh-webapp/.env.prod.local`
+- generated frontend profile files beside the tracked examples in `hushh-webapp/`
 - active frontend runtime in `hushh-webapp/.env.local`
 
 The default recommended mode is `uat` because it gives you the fastest working app:

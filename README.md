@@ -107,9 +107,7 @@ The only supported repo-level command surface is `./bin/hushh`.
 `./bin/hushh bootstrap` is the only supported repo bootstrap path. It seeds:
 
 - `consent-protocol/.env`
-- `hushh-webapp/.env.local.local`
-- `hushh-webapp/.env.uat.local`
-- `hushh-webapp/.env.prod.local`
+- generated frontend profile files beside the tracked examples in `hushh-webapp/`
 - active frontend profile into `hushh-webapp/.env.local`
 
 When `gcloud` access is available, hydration uses live cloud-backed values. Without it, bootstrap falls back to the cached/template-safe path and `./bin/hushh doctor --mode <mode>` tells you exactly what is still missing.

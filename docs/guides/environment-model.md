@@ -40,9 +40,10 @@ The active runtime files remain:
 Seeded contributor files:
 
 - `consent-protocol/.env`
-- `hushh-webapp/.env.local.local`
-- `hushh-webapp/.env.uat.local`
-- `hushh-webapp/.env.prod.local`
+- generated frontend profile files beside:
+  `hushh-webapp/.env.local.local.example`
+  `hushh-webapp/.env.uat.local.example`
+  `hushh-webapp/.env.prod.local.example`
 
 Activate a profile with:
 
