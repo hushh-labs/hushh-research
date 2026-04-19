@@ -21,6 +21,7 @@ Use package-local commands only when you are working inside a package on purpose
 <repo-root>/bin/hushh codex route-task repo-orientation
 <repo-root>/bin/hushh codex impact repo-orientation
 <repo-root>/bin/hushh codex ci-status --watch
+<repo-root>/bin/hushh web
 <repo-root>/bin/hushh web --mode uat
 <repo-root>/bin/hushh stack --mode local
 <repo-root>/bin/hushh terminal backend --mode local --reload
@@ -64,6 +65,7 @@ Use package-local commands only when you are working inside a package on purpose
 - Do not document `make`.
 - Keep helper output and runbooks aligned with this CLI.
 - Contributor and agent onboarding should start with `./bin/hushh codex onboard`, not direct internal script paths.
+- `./bin/hushh web` defaults to `local`; use `--mode uat` or `--mode prod` only when you explicitly want a hosted backend target.
 - Use `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` as the preferred visible-terminal dev flow.
 - Use `./bin/hushh terminal stack --mode local` only when you explicitly want one combined terminal window to own both processes.
 - Use `uv` as the canonical Python install surface for `consent-protocol`; `requirements*.txt` are generated compatibility artifacts, not contributor commands.

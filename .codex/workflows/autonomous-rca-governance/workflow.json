@@ -1,7 +1,7 @@
 {
   "id": "autonomous-rca-governance",
   "title": "Autonomous RCA Governance",
-  "goal": "Classify core runtime and release failures into a small RCA taxonomy, run the smallest authoritative checks, and keep machine-readable artifacts that let later agents resume without rediscovering the same blocker.",
+  "goal": "Classify core runtime and release failures into a small RCA taxonomy, run the smallest authoritative checks, keep machine-readable artifacts that let later agents resume without rediscovering the same blocker, and continue monitoring until the relevant core run chain reaches terminal green or a concrete blocker.",
   "owner_skill": "autonomous-rca-governance",
   "default_spoke": null,
   "task_type": "autonomous-rca-governance",
@@ -40,7 +40,8 @@
     "blocking RCA classifications",
     "resume-safe RCA artifact",
     "smallest safe remediation direction",
-    "authoritative rerun record"
+    "authoritative rerun record",
+    "terminal release outcome or blocker note"
   ],
   "impact_fields": [
     "Surface",
@@ -60,6 +61,7 @@
     "treating secret drift and runtime-mount drift as the same class of problem",
     "declaring success when the semantic verifier never wrote an artifact",
     "rerunning checks once and trusting the first green pass",
-    "blocking on helper drift instead of core runtime authority"
+    "blocking on helper drift instead of core runtime authority",
+    "declaring success while the relevant deploy or UAT run is still active"
   ]
 }

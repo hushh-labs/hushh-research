@@ -1,0 +1,8 @@
+Hushh MCP
+Copyright 2026 Hushh
+
+This npm package includes the Hushh Consent MCP launcher and a vendored
+consent-protocol runtime snapshot, distributed under the Apache License 2.0.
+
+Third-party dependency attributions and license summaries for the repository are
+documented at the repo root in THIRD_PARTY_NOTICES.md.

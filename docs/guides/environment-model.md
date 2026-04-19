@@ -54,6 +54,7 @@ bash scripts/env/use_profile.sh local
 or use the public command surface:
 
 ```bash
+./bin/hushh web
 ./bin/hushh web --mode uat
 ./bin/hushh native ios --mode uat
 ./bin/hushh native android --mode uat

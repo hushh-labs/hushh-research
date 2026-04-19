@@ -421,10 +421,10 @@ def build_commands_section() -> dict[str, Any]:
     return OrderedDict(
         repo_commands=[
             "./bin/hushh bootstrap",
-            "./bin/hushh doctor --mode uat",
+            "./bin/hushh doctor --mode local",
             "./bin/hushh terminal backend --mode local --reload",
-            "./bin/hushh terminal web --mode uat",
-            "./bin/hushh web --mode uat",
+            "./bin/hushh terminal web --mode local",
+            "./bin/hushh web --mode local",
             "./bin/hushh docs verify",
             "./bin/hushh ci",
             "./bin/hushh codex onboard",

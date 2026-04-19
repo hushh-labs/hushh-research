@@ -19,15 +19,17 @@ Description:
   - runs the environment doctor for the selected profile
 
 Notes:
-  - Default mode is uat so a first-time contributor can get the app
-    running against deployed UAT without local backend/proxy setup.
+  - Default mode is local so contributor bootstrap aligns with the
+    local-first runtime contract.
+  - Use --mode uat when you intentionally want the fastest frontend-only
+    path against the deployed UAT backend.
   - If gcloud is unavailable, runtime files are created from templates and
     cached local values where possible.
   - This command does not print secrets.
 USAGE
 }
 
-PROFILE="uat"
+PROFILE="local"
 while [ "$#" -gt 0 ]; do
   case "${1:-}" in
     --mode)
@@ -183,6 +185,7 @@ echo ""
 
 echo "Bootstrap complete."
 echo "Next steps:"
-echo "  ./bin/hushh web --mode uat"
+echo "  ./bin/hushh terminal backend --mode local --reload"
+echo "  ./bin/hushh web               # defaults to local"
+echo "  ./bin/hushh web --mode uat    # explicit hosted-backend frontend path"
 echo "  ./bin/hushh doctor --mode local"
-echo "  ./bin/hushh backend   # when you need local backend work"

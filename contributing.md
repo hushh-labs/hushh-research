@@ -8,14 +8,15 @@ The public contributor model is intentionally small:
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 ./bin/hushh bootstrap
-./bin/hushh web --mode uat
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh web
 ```
 
 If you can run that flow and understand the trust model below, you have enough context to contribute.
 
 Choose the narrowest lane that matches the work:
 
-- app contributor: stay in the monorepo root and use `./bin/hushh web --mode uat`
+- app contributor: stay in the monorepo root and use `./bin/hushh web` with `./bin/hushh terminal backend --mode local --reload`
 - backend contributor: stay in the monorepo root and use `./bin/hushh terminal backend --mode local --reload`
 - standalone backend contributor: use the aligned path in [consent-protocol/README.md](./consent-protocol/README.md)
 - maintainer/operator: use [docs/reference/operations/README.md](./docs/reference/operations/README.md)
@@ -42,11 +43,15 @@ Use these first:
 
 ```bash
 ./bin/hushh bootstrap
-./bin/hushh doctor --mode uat
+./bin/hushh doctor --mode local
+./bin/hushh web
 ./bin/hushh web --mode uat
 ./bin/hushh native ios --mode uat
 ./bin/hushh native android --mode uat
 ```
+
+`./bin/hushh web` defaults to `local`. Use `--mode uat` only when you explicitly want the local frontend against the deployed UAT backend.
+`./bin/hushh bootstrap` also defaults to `local`.
 
 Repo-level workflows should go through `./bin/hushh`. Do not teach alternate root task surfaces in contributor docs.
 

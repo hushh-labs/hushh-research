@@ -168,7 +168,7 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. Merge 
 Protected branches are expected to enforce the same CI contract documented here:
 
 - `main`
-  - at least `1` approving review
+  - `0` blanket approving reviews
   - required status checks: `CI Status Gate`
   - strict/up-to-date checks enabled
   - conversation resolution required
@@ -185,7 +185,8 @@ The live GitHub setting can drift from the docs, so verify it directly:
 Current live nuance:
 
 - the repo uses branch protection for review, freshness, and conversation-resolution requirements
-- bypass actors should be limited to the 3 core owners, without overlapping push-restriction lists
+- the sanctioned bypass trio should be limited to the 3 core owners, without overlapping push-restriction lists
+- that sanctioned trio is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
 
 ### GitHub Alert Parity
 

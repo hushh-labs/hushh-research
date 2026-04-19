@@ -50,7 +50,7 @@ jobs:
 
       - name: Upload backup posture artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-backup-posture-${{ github.run_id }}
           if-no-files-found: ignore

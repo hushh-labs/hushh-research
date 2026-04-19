@@ -65,19 +65,32 @@ flowchart TB
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 ./bin/hushh bootstrap
-./bin/hushh web --mode uat
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh web
 ```
 
-That is the canonical first-run path:
+That is the local-first default contributor path:
 
 - local frontend
-- deployed UAT backend
-- no local backend or Cloud SQL setup required for first contribution
+- local backend
+- default repo/runtime contract with fewer hidden differences
+
+Command default note:
+
+- `./bin/hushh web` now defaults to `local`
+- use `./bin/hushh web --mode uat` only when you intentionally want the deployed UAT backend
+
+Fastest frontend-only hosted shortcut:
+
+```bash
+./bin/hushh bootstrap --mode uat
+./bin/hushh web --mode uat
+```
 
 ## Choose Your Lane
 
 - Monorepo app contributor:
-  `./bin/hushh bootstrap` then `./bin/hushh web --mode uat`
+  `./bin/hushh bootstrap` then `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh web`
 - Backend/protocol contributor inside the monorepo:
   `./bin/hushh bootstrap` then `./bin/hushh terminal backend --mode local --reload`
 - Standalone `consent-protocol` contributor:
@@ -91,10 +104,11 @@ The `consent-protocol` subtree relationship still exists, but it is maintainer-o
 
 ```bash
 ./bin/hushh bootstrap
-./bin/hushh doctor --mode uat
+./bin/hushh doctor --mode local
 ./bin/hushh codex onboard
 ./bin/hushh codex ci-status --watch
 ./bin/hushh codex route-task repo-orientation
+./bin/hushh web
 ./bin/hushh web --mode uat
 ./bin/hushh native ios --mode uat
 ./bin/hushh native android --mode uat
