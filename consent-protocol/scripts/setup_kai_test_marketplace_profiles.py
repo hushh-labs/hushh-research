@@ -245,7 +245,7 @@ def main() -> int:
 
     # ─── Step 6: Verify persona state ───
     log("Step 6: Checking persona state...")
-    persona = api("GET", backend_url, "/api/iam/persona-state", auth_headers)
+    persona = api("GET", backend_url, "/api/iam/persona", auth_headers)
     log(f"  personas={persona.get('personas')}")
     log(f"  active_persona={persona.get('active_persona')}")
     log(f"  ria_switch_available={persona.get('ria_switch_available')}")
