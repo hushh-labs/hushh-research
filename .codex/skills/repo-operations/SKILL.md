@@ -60,22 +60,23 @@ Non-owned surfaces:
 4. Use `./bin/hushh codex ci-status` for PR-check status and `scripts/ci/watch-gh-workflow-chain.sh` for long-running post-merge or deploy workflow chains.
 5. Treat the delivery model as three stages: PR feedback lane, queue authority lane, and post-merge deploy-authority lane.
 6. Treat GitHub approval and GitHub bypass as separate states: a PR author still cannot self-approve, but a bypass-listed actor may waive the review gate and, when configured, use the dedicated queue-bypass owner path.
-7. Monitor the resulting workflow chain until terminal success or a concrete blocker.
-8. Default runtime launch behavior must be visible separate OS terminal windows, not hidden Codex sessions.
-9. For local app work, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands unless the user explicitly asks for something else.
-10. Use hidden long-lived Codex sessions only for background monitoring, one-off debugging, or when a visible terminal is not desired.
-11. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
-12. Default branch policy: continue work on the user's active development branch. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
-13. Create a new branch only when one of these is true:
+7. Do not flag the sanctioned `main` owner-bypass trio as governance drift when the live review-bypass allowlist exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`.
+8. Monitor the resulting workflow chain until terminal success or a concrete blocker.
+9. Default runtime launch behavior must be visible separate OS terminal windows, not hidden Codex sessions.
+10. For local app work, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands unless the user explicitly asks for something else.
+11. Use hidden long-lived Codex sessions only for background monitoring, one-off debugging, or when a visible terminal is not desired.
+12. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
+13. Default branch policy: continue work on the user's active development branch. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
+14. Create a new branch only when one of these is true:
    - the fix is a post-merge blocker and must start from the latest `main`
    - the repo workflow requires an isolated hotfix from `main`
    - the current branch contains unrelated in-flight work that would make the fix unsafe to ship
-14. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's normal working branch or `main`; do not leave Codex parked on a temporary branch.
-15. If the user has an active development branch, back-sync merged hotfixes into that branch before closing the task so the real working branch does not drift behind `main`.
-16. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
-17. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
-18. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
-19. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
+15. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's normal working branch or `main`; do not leave Codex parked on a temporary branch.
+16. If the user has an active development branch, back-sync merged hotfixes into that branch before closing the task so the real working branch does not drift behind `main`.
+17. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
+18. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
+19. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
+20. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
 
 ## Handoff Rules
 

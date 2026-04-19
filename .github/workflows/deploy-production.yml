@@ -251,7 +251,7 @@ jobs:
 
       - name: Upload production DB governance artifacts
         if: always() && steps.scope.outputs.deploy_backend == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-db-governance-${{ github.run_id }}
           if-no-files-found: ignore
