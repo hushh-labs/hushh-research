@@ -74,7 +74,7 @@ tools:
 inputs:
   - name: user_id
     type: string
-  - name: vault_token
+  - name: consent_token
     type: string
 
 outputs:
