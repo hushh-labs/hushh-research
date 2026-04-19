@@ -1,13 +1,6 @@
 name: Deploy to UAT
 
 on:
-  workflow_run:
-    workflows:
-      - "Main Post-Merge Smoke"
-    types:
-      - completed
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       scope:
@@ -40,18 +33,16 @@ env:
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
-  group: deploy-uat-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.run_id }}
+  group: deploy-uat-${{ github.event.inputs.sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     name: Deploy UAT Scope
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
 
     steps:
       - name: Assert manual dispatch originates from main
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -67,7 +58,6 @@ jobs:
           ref: main
 
       - name: Assert manual UAT dispatch actor policy
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -78,9 +68,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
-            DEPLOY_SHA="${{ github.event.workflow_run.head_sha }}"
-          elif [ -n "${{ github.event.inputs.sha }}" ]; then
+          if [ -n "${{ github.event.inputs.sha }}" ]; then
             DEPLOY_SHA="${{ github.event.inputs.sha }}"
           else
             git fetch --no-tags origin main
@@ -127,11 +115,7 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            SCOPE="${{ github.event.inputs.scope }}"
-          else
-            SCOPE="all"
-          fi
+          SCOPE="${{ github.event.inputs.scope }}"
 
           case "$SCOPE" in
             backend)

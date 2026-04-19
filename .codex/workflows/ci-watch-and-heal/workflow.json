@@ -1,7 +1,7 @@
 {
   "id": "ci-watch-and-heal",
   "title": "CI Watch And Heal",
-  "goal": "Monitor PR, merge-queue, post-merge smoke, and downstream UAT release checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until the full core workflow chain reaches a terminal state or a hard blocker is identified.",
+  "goal": "Monitor PR, merge-queue, post-merge smoke, and explicitly dispatched UAT release checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until the relevant core workflow chain reaches a terminal state or a hard blocker is identified.",
   "owner_skill": "repo-operations",
   "default_spoke": null,
   "task_type": "ci-watch-and-heal",
@@ -60,6 +60,6 @@
     "not routing the failed job to the correct owner skill",
     "not distinguishing PR feedback from queue authority or post-merge deploy authority",
     "stopping after rerun without monitoring terminal state",
-    "calling the task complete while post-merge smoke or downstream UAT is still running"
+    "treating every merge as an implicit downstream UAT deploy instead of a separate explicit dispatch"
   ]
 }
