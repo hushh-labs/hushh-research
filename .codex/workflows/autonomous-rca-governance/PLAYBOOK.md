@@ -13,7 +13,8 @@ Classify core runtime and release failures into a small RCA taxonomy, run the sm
    `secret_missing`, `runtime_mount_missing`, `runtime_mount_legacy`, `runtime_behavior_failed`, `smoke_overlay_dependency_leak`, `db_contract_drift`.
 3. Route the fix to the smallest owner skill that can actually remediate the blocking class.
 4. Rerun the authoritative checks twice after the remediation instead of trusting the first green pass.
-5. Keep advisory doc/skill drift recorded, but do not let it block the loop unless it masks a core runtime failure.
+5. Do not call the task complete while the relevant deploy or UAT run for the touched SHA is still queued or in progress; keep monitoring until the release chain is terminal.
+6. Keep advisory doc/skill drift recorded, but do not let it block the loop unless it masks a core runtime failure.
 
 ## Common Drift Risks
 

@@ -210,6 +210,7 @@ def _overall_status(checks: list[dict[str, Any]]) -> str:
 def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
     checks = _normalize_checks(pr_payload)
     review_policy = _review_policy()
+    overall_status = _overall_status(checks)
     status_counts = Counter(
         "failing"
         if (check["conclusion"] or "").upper() in FAILURE_CONCLUSIONS
@@ -228,9 +229,30 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
         for check in checks
         if (check["status"] or "").upper() not in TERMINAL_STATUSES
     ]
+    if failing_checks:
+        completion_gate = OrderedDict(
+            task_complete=False,
+            reason="Core checks are failing. Repair the failing workflow chain or emit a concrete blocker with workflow, job, and step context.",
+        )
+    elif pending_checks:
+        completion_gate = OrderedDict(
+            task_complete=False,
+            reason="Core checks are still active. Keep monitoring until GitHub reaches a terminal state; after merge, continue through Main Post-Merge Smoke and Deploy to UAT.",
+        )
+    elif overall_status == "booting":
+        completion_gate = OrderedDict(
+            task_complete=False,
+            reason="GitHub has not reported checks yet. The task is still in progress until the core check set becomes terminal.",
+        )
+    else:
+        completion_gate = OrderedDict(
+            task_complete=True,
+            reason="Core PR checks are terminal green. If the change has landed on main, continue monitoring post-merge smoke and downstream UAT before closing the task.",
+        )
     next_actions = OrderedDict()
     next_actions["route_task"] = "./bin/hushh codex route-task ci-watch-and-heal"
     next_actions["impact"] = "./bin/hushh codex impact ci-watch-and-heal"
+    next_actions["completion_gate"] = completion_gate["reason"]
     if review_policy["current_actor_can_bypass_review"]:
         next_actions["review_gate"] = "Current actor may waive the review gate on main; this is not the same as self-approval."
     else:
@@ -265,7 +287,8 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
             head_ref=pr_payload["headRefName"],
         ),
         review_policy=review_policy,
-        overall_status=_overall_status(checks),
+        overall_status=overall_status,
+        completion_gate=completion_gate,
         status_counts=OrderedDict(
             passing=status_counts["passing"],
             pending=status_counts["pending"],
@@ -318,6 +341,8 @@ def _render_text(payload: OrderedDict[str, Any]) -> str:
             f"merge_queue_required={payload['review_policy']['merge_queue_required']}"
         ),
         f"Overall status: {payload['overall_status']}",
+        f"Task complete: {payload['completion_gate']['task_complete']}",
+        f"Completion gate: {payload['completion_gate']['reason']}",
         (
             "Counts: "
             f"passing={payload['status_counts']['passing']}, "
@@ -369,6 +394,8 @@ def main() -> int:
         print(json.dumps(payload, indent=2))
     else:
         print(_render_text(payload))
+    if args.watch:
+        return 0 if payload["overall_status"] == "passing" else 1
     return 0 if payload["overall_status"] in {"passing", "pending", "booting"} else 1
 
 
