@@ -8,16 +8,13 @@ asyncpg connection that records which queries were issued so we can assert
 that exactly ONE query is fired instead of 11.
 """
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 import hushh_mcp.services.ria_iam_service as _mod
-from hushh_mcp.services.ria_iam_service import RIAIAMService, _IAM_REQUIRED_TABLES
-
+from hushh_mcp.services.ria_iam_service import _IAM_REQUIRED_TABLES, RIAIAMService
 
 # ---------------------------------------------------------------------------
 # Helpers
