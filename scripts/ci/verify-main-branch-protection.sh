@@ -33,14 +33,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-required_checks_arg, min_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo = sys.argv[1:]
+required_checks_arg, expected_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo = sys.argv[1:]
 policy = json.loads(Path(os.environ["POLICY_FILE"]).read_text(encoding="utf-8"))
 required_checks = [
     item.strip()
     for item in (required_checks_arg or policy["main"]["required_status_check"]).split(",")
     if item.strip()
 ]
-min_approvals = int(min_approvals_arg or policy["main"]["required_approving_reviews"])
+expected_approvals = int(expected_approvals_arg or policy["main"]["required_approving_reviews"])
 require_strict = (
     require_strict_arg.lower() == "true"
     if require_strict_arg
@@ -154,8 +154,8 @@ errors = []
 for required_check in required_checks:
     if required_check not in checks:
         errors.append(f"required status check missing: {required_check}")
-if approvals < min_approvals:
-    errors.append(f"required approvals too low: {approvals} < {min_approvals}")
+if approvals != expected_approvals:
+    errors.append(f"required approvals drifted: expected {expected_approvals}, got {approvals}")
 if require_strict and not strict_checks:
     errors.append("required status checks are not strict/up-to-date")
 if require_conversation_resolution and not conversation_resolution:

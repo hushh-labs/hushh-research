@@ -1,23 +1,23 @@
 # CODEOWNERS - Automatic PR Review Assignment
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
-# Global owners (fallback)
-* @hushh-labs/maintainers
+# Global owner of record (fallback)
+* @kushaltrivedi5
 
 # Backend (Python/FastAPI) -- GIT SUBTREE: upstream at hushh-labs/consent-protocol
-/consent-protocol/ @hushh-labs/maintainers
+/consent-protocol/ @kushaltrivedi5
 
 # Frontend (Next.js/Capacitor)
-/hushh-webapp/ @hushh-labs/maintainers
+/hushh-webapp/ @kushaltrivedi5
 
 # Documentation
-/docs/ @hushh-labs/maintainers
+/docs/ @kushaltrivedi5
 
 # CI/CD and workflows
-/.github/ @hushh-labs/maintainers
+/.github/ @kushaltrivedi5
 
 # Deployment configs
-/deploy/ @hushh-labs/maintainers
+/deploy/ @kushaltrivedi5
 
 # Scripts and utilities
-/scripts/ @hushh-labs/maintainers
+/scripts/ @kushaltrivedi5

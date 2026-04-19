@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
@@ -210,10 +210,11 @@ jobs:
 
       - name: Upload security audit artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-npm-audit-report
           path: hushh-webapp/npm-audit-report.json
+          if-no-files-found: ignore
 
   # ============================================================================
   # Backend (Python FastAPI) -- same shared script as upstream consent-protocol CI
