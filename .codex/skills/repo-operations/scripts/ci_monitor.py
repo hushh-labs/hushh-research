@@ -237,7 +237,7 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
     elif pending_checks:
         completion_gate = OrderedDict(
             task_complete=False,
-            reason="Core checks are still active. Keep monitoring until GitHub reaches a terminal state; after merge, continue through Main Post-Merge Smoke and Deploy to UAT.",
+            reason="Core checks are still active. Keep monitoring until GitHub reaches a terminal state; after merge, continue through Main Post-Merge Smoke, and only continue into Deploy to UAT if a UAT deployment was explicitly requested or already dispatched.",
         )
     elif overall_status == "booting":
         completion_gate = OrderedDict(
@@ -247,7 +247,7 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
     else:
         completion_gate = OrderedDict(
             task_complete=True,
-            reason="Core PR checks are terminal green. If the change has landed on main, continue monitoring post-merge smoke and downstream UAT before closing the task.",
+            reason="Core PR checks are terminal green. If the change has landed on main, continue monitoring post-merge smoke before closing the task; proceed to Deploy to UAT only when that deployment was explicitly requested.",
         )
     next_actions = OrderedDict()
     next_actions["route_task"] = "./bin/hushh codex route-task ci-watch-and-heal"

@@ -22,7 +22,7 @@ flowchart TB
   subgraph release["Environment deployment lanes"]
     green["Green main SHA"]
     smoke["Main Post-Merge Smoke<br/>deploy-authority on main"]
-    uat["Deploy to UAT<br/>auto from workflow_run"]
+    uat["Deploy to UAT<br/>manual exact-SHA dispatch"]
     prod["Deploy to Production<br/>manual SHA dispatch"]
   end
 
@@ -36,11 +36,20 @@ flowchart TB
   green --> prod
 ```
 
-This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run local checks before every commit.
+This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run the local mirror before opening or updating a pull request, and before commits that touch core authority surfaces.
 
 **Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)  
-**Local mirror:** [`./bin/hushh ci`](./cli.md)  
+**Pre-PR mirror:** [`./bin/hushh codex pre-pr`](./cli.md)  
+**Underlying local lane:** [`./bin/hushh ci`](./cli.md)  
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
+
+Canonical pre-PR command:
+
+```bash
+./bin/hushh codex pre-pr
+```
+
+This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
 
 ## Monitoring Rule
 
@@ -50,7 +59,7 @@ Minimum expectation:
 
 1. watch the immediate `PR Validation`, `Queue Validation`, or dispatched workflow
 2. if `main` goes green, watch `Main Post-Merge Smoke`
-3. if post-merge smoke goes green, watch downstream `Deploy to UAT`
+3. if a UAT deployment was explicitly requested, dispatch `Deploy to UAT` for that same green `main` SHA and watch it to terminal state
 4. report the exact failing workflow, job, and step if anything fails
 5. do not stop at "triggered" or "queued"
 6. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
@@ -77,13 +86,13 @@ Use this command when the failure is already on a core authority surface and the
 Canonical watcher:
 
 ```bash
-scripts/ci/watch-gh-workflow-chain.sh --run-id <ci-run-id> --follow-workflow "Main Post-Merge Smoke" --follow-workflow "Deploy to UAT"
+scripts/ci/watch-gh-workflow-chain.sh --run-id <ci-run-id> --follow-workflow "Main Post-Merge Smoke"
 ```
 
 Local daemon form:
 
 ```bash
-scripts/ci/watch-gh-workflow-chain.sh --run-id <ci-run-id> --follow-workflow "Main Post-Merge Smoke" --follow-workflow "Deploy to UAT" --daemonize
+scripts/ci/watch-gh-workflow-chain.sh --run-id <ci-run-id> --follow-workflow "Main Post-Merge Smoke" --daemonize
 ```
 
 For deploy-only monitoring:
@@ -233,7 +242,7 @@ Post-merge smoke remains the deployment eligibility gate for `main`.
 
 1. `main` is the only integration branch for day-to-day development.
 2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
-3. UAT auto-deploys from that green `main` SHA through `.github/workflows/deploy-uat.yml`.
+3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
 4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only `kushaltrivedi5` may trigger it.
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
@@ -241,13 +250,14 @@ Post-merge smoke remains the deployment eligibility gate for `main`.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
-1. sync canonical secrets
-2. capture last healthy revisions
-3. deploy changed surfaces
-4. verify runtime mounts and semantic behavior
-5. retry once on transient readiness
-6. roll back only the failing changed surface
-7. publish release artifacts with revisions, reports, and final status
+1. start from an explicitly chosen green `main` SHA
+2. sync canonical secrets
+3. capture last healthy revisions
+4. deploy changed surfaces
+5. verify runtime mounts and semantic behavior
+6. retry once on transient readiness
+7. roll back only the failing changed surface
+8. publish release artifacts with revisions, reports, and final status
 
 See [Branch Governance](./branch-governance.md).
 
@@ -368,10 +378,10 @@ Minimum checks for streaming changes:
 ./bin/hushh ci
 ```
 
-This script:
+This script, which also powers `./bin/hushh codex pre-pr`:
 
 1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `pyproject.toml`, `uv.lock`, generated runtime artifacts, test files).
-2. Checks Node (20+) and Python (3.13) and uses `uv` as the canonical backend toolchain.
+2. Checks Node (24+) and Python (3.13) and uses `uv` as the canonical backend toolchain.
 3. Runs **frontend** checks: install, `tsc`, lint, Next build, audit-budget gate, curated test suite.
 4. Runs **backend** checks: shared parity verification, install, Ruff, mypy, Bandit, curated test suite.
 5. Runs **integration**: route/runtime contract verification.
@@ -410,6 +420,7 @@ Secret-scan note:
 | Frontend | `cd hushh-webapp && npm ci && npm run typecheck && npm run lint -- --max-warnings=0 && npm run build && npm run test:ci` |
 | Backend | `cd consent-protocol && uv sync --frozen --group dev && bash scripts/sync_runtime_requirements.sh --check && uv run ruff check . && uv run mypy --config-file pyproject.toml --ignore-missing-imports && uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
 | Integration | `bash scripts/ci/docs-parity-check.sh` |
+| Pre-PR mirror | `./bin/hushh codex pre-pr` |
 | All | `./bin/hushh ci` |
 
 ---

@@ -8,7 +8,7 @@ flowchart LR
   feature["feature / fix / dev branches"]
   main["main"]
   green["Green main SHA"]
-  uat["UAT deploy<br/>auto from exact SHA"]
+  uat["UAT deploy<br/>manual exact SHA"]
   prod["Production deploy<br/>manual chosen SHA"]
   feature --> main --> green
   green --> uat
@@ -20,7 +20,7 @@ This repo now runs on one integration branch plus SHA-based environment deployme
 | Lane | Purpose | Default policy |
 |---|---|---|
 | `main` | Team integration branch | Every feature PR targets `main` |
-| UAT | Hosted validation environment | Auto-deploys the exact green `main` SHA |
+| UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
@@ -31,7 +31,7 @@ This repo now runs on one integration branch plus SHA-based environment deployme
 4. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 5. After an isolated hotfix lands, return local work to the normal development branch or `main` and delete the temporary branch after rollout validation.
 6. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-7. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses that exact commit SHA.
+7. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
 8. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
 9. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
@@ -54,9 +54,9 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### UAT
 
-1. Auto-deploys only after a successful `Main Post-Merge Smoke` push run on `main`.
-2. The workflow checks out the exact green `main` SHA from that CI run.
-3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat` for redeploying a chosen green `main` SHA.
+1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
+2. The workflow checks out that exact chosen green `main` SHA.
+3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 
@@ -72,7 +72,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Create the hotfix branch from the latest `main`.
 2. Merge the hotfix into `main`.
-3. Let UAT auto-deploy the new green `main` SHA, or manually redeploy that same SHA to UAT if needed.
+3. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
 4. If another blocker appears after that rollout, create a new hotfix branch from the updated `main`.
 5. Do not reuse an already-merged hotfix branch for a second fix.
 

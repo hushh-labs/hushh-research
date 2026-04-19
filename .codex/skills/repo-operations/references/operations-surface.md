@@ -16,6 +16,7 @@ Use this reference to orient DevOps work in `hushh-research`.
 
 ```bash
 ./bin/hushh codex ci-status
+./bin/hushh codex pre-pr
 ./bin/hushh ci
 ./bin/hushh docs verify
 ./bin/hushh sync main
@@ -30,6 +31,7 @@ Use this reference to orient DevOps work in `hushh-research`.
 3. deploy workflow state via repository Actions runs
 4. Cloud Run and Cloud Build only after verifying the repo workflow and env contract
 5. Codex PR check routing via `./bin/hushh codex ci-status`
+6. UAT workflow dispatch from `main` only after the exact green `main` SHA is known
 
 ## Repo invariants
 
@@ -38,7 +40,7 @@ Use this reference to orient DevOps work in `hushh-research`.
 3. `CI Status Gate` is the blocking queue/PR check on pre-merge commits.
 4. `Main Freshness Gate` is advisory on PRs and blocking on `merge_group`.
 5. `Main Post-Merge Smoke Gate` is the deploy-authority check on the real `main` SHA.
-6. UAT deploys from a green `main` SHA that passed post-merge smoke.
+6. UAT deploys only from an explicitly chosen green `main` SHA that passed post-merge smoke.
 7. Production deploys from an approved green `main` SHA that passed post-merge smoke.
 
 ## Review bypass semantics
