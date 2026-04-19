@@ -11,9 +11,7 @@ function pickForwardedHeaderValue(value: string | null): string | null {
 
 function resolvePublicAppBaseUrl(request: NextRequest): string {
   const configuredBaseUrl =
-    (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_FRONTEND_URL || "")
-      .trim()
-      .replace(/\/$/, "");
+    (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
   if (configuredBaseUrl) return configuredBaseUrl;
 
   const forwardedProto = pickForwardedHeaderValue(request.headers.get("x-forwarded-proto"));

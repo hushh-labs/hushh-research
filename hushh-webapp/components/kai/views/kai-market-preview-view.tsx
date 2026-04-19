@@ -25,8 +25,11 @@ import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import {
   SurfaceCard,
   SurfaceCardContent,
+  SurfaceCardDescription,
+  SurfaceCardHeader,
   SurfaceInset,
   SurfaceStack,
+  SurfaceCardTitle,
   surfaceInteractiveShellClassName,
 } from "@/components/app-ui/surfaces";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
@@ -37,6 +40,13 @@ import {
 } from "@/components/kai/cards/market-overview-grid";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import {
+  marketAmbientBackgroundClassName,
+  marketAmbientGlowClassName,
+  marketCardClassName,
+  marketInsetClassName,
+  marketMicroSurfaceClassName,
+} from "@/components/kai/shared/market-surface-theme";
 import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
@@ -94,16 +104,12 @@ function toSymbolsKey(symbols: string[]): string {
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
 }
 
-const MARKET_GLASS_CARD_CLASSNAME =
-  "bg-[linear-gradient(180deg,rgba(255,255,255,0.88)_0%,rgba(248,250,252,0.72)_52%,rgba(241,245,249,0.58)_100%)] dark:bg-[color:var(--app-card-surface-default-solid)]";
-
 const MARKET_SIGNAL_CARD_CLASSNAME = cn(
-  MARKET_GLASS_CARD_CLASSNAME,
-  "border-[color:color-mix(in_srgb,var(--app-card-border-strong)_74%,rgba(59,130,246,0.16)_26%)] shadow-[var(--app-card-shadow-standard)]"
+  marketCardClassName,
+  "shadow-[var(--app-card-shadow-standard)]"
 );
 
-const MARKET_SIGNAL_INSET_CLASSNAME =
-  "border-[color:color-mix(in_srgb,var(--app-card-border-standard)_74%,rgba(148,163,184,0.18)_26%)] bg-white/80 text-foreground dark:bg-[var(--app-card-surface-compact)]";
+const MARKET_SIGNAL_INSET_CLASSNAME = marketInsetClassName;
 
 function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
@@ -477,7 +483,7 @@ function SignalGroupBlock({
   const actionable = Boolean(onOpen);
 
   const content = (
-    <div className="rounded-[var(--app-card-radius-compact)] border border-[color:color-mix(in_srgb,var(--app-card-border-strong)_72%,rgba(99,102,241,0.12)_28%)] bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(244,247,252,0.82)_100%)] px-4 py-3.5 transition-[background-color,border-color,box-shadow,transform] duration-200 group-hover:border-[color:color-mix(in_srgb,var(--app-card-border-strong)_82%,rgba(99,102,241,0.2)_18%)] group-hover:bg-white/95 group-hover:shadow-[var(--shadow-xs)] dark:bg-[var(--app-card-surface-compact)]">
+    <div className={cn("rounded-[var(--app-card-radius-compact)] px-4 py-3.5", marketMicroSurfaceClassName)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -486,7 +492,7 @@ function SignalGroupBlock({
           <p className="mt-1 text-sm font-semibold tracking-tight text-foreground">{label}</p>
         </div>
         {actionable ? (
-          <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/72 shadow-[var(--shadow-xs)] dark:bg-background/50 dark:text-muted-foreground">
+          <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/72 shadow-[var(--shadow-xs)]">
             Open
           </span>
         ) : null}
@@ -695,7 +701,7 @@ function SpotlightFeatureTile({
 function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   if (!rows.length) {
     return (
-      <SurfaceCard className={cn("h-full", MARKET_GLASS_CARD_CLASSNAME)}>
+      <SurfaceCard className={cn("h-full", marketCardClassName)}>
         <SurfaceCardContent className="flex h-full min-h-[240px] items-center justify-center p-5 text-sm text-muted-foreground">
           No recent market headlines are available right now.
         </SurfaceCardContent>
@@ -704,21 +710,22 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   }
 
   return (
-    <SurfaceCard className={cn("h-full overflow-hidden", MARKET_GLASS_CARD_CLASSNAME)}>
+    <SurfaceCard className={cn("h-full overflow-hidden", marketCardClassName)}>
       <SurfaceCardContent className="flex h-full min-h-[240px] flex-col p-0">
-        <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3">
-          <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Latest coverage
-            </p>
-            <h3 className="text-[15px] font-semibold tracking-tight text-foreground">
-              Fast reads from the tape
-            </h3>
-          </div>
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]">
+        <SurfaceCardHeader className="gap-1 border-b border-[color:var(--app-card-border-standard)] [--surface-card-header-px:1rem] [--surface-card-header-pt:0.75rem] [--surface-card-header-pb:0.75rem]">
+          <SurfaceCardDescription className="text-[10px] font-semibold uppercase tracking-[0.2em]">
+            Latest coverage
+          </SurfaceCardDescription>
+          <SurfaceCardTitle className="text-[15px] font-semibold tracking-tight">
+            Fast reads from the tape
+          </SurfaceCardTitle>
+          <div
+            data-slot="card-action"
+            className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
+          >
             <Newspaper className="h-4 w-4" />
-          </span>
-        </div>
+          </div>
+        </SurfaceCardHeader>
         <div className="max-h-[520px] overflow-y-auto">
           <div className="divide-y divide-border/40">
             {rows.slice(0, 8).map((row, index) => (
@@ -1903,11 +1910,11 @@ export function KaiMarketPreviewView() {
     >
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0 -z-20 bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_36%,#f6f8fc_100%)] dark:bg-[linear-gradient(180deg,#050816_0%,#0a1324_38%,#0b1020_100%)]"
+        className={cn("pointer-events-none fixed inset-0 -z-20", marketAmbientBackgroundClassName)}
       />
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[58vh] bg-[radial-gradient(72%_52%_at_0%_0%,rgba(56,189,248,0.12)_0%,transparent_58%),radial-gradient(68%_48%_at_100%_0%,rgba(99,102,241,0.14)_0%,transparent_52%),radial-gradient(48%_36%_at_50%_14%,rgba(255,255,255,0.62)_0%,transparent_78%)] dark:bg-[radial-gradient(72%_52%_at_0%_0%,rgba(56,189,248,0.16)_0%,transparent_58%),radial-gradient(68%_48%_at_100%_0%,rgba(99,102,241,0.18)_0%,transparent_52%),radial-gradient(48%_36%_at_50%_14%,rgba(148,163,184,0.08)_0%,transparent_78%)]"
+        className={cn("pointer-events-none fixed inset-x-0 top-0 -z-10 h-[58vh]", marketAmbientGlowClassName)}
       />
       <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
@@ -1948,7 +1955,7 @@ export function KaiMarketPreviewView() {
         <SurfaceCard
           tone="default"
           data-testid="page-primary-module"
-          className={MARKET_GLASS_CARD_CLASSNAME}
+          className={marketCardClassName}
         >
           <SurfaceCardContent className="flex min-h-32 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1958,7 +1965,7 @@ export function KaiMarketPreviewView() {
       ) : null}
 
       {error ? (
-        <SurfaceCard tone="critical" className={MARKET_GLASS_CARD_CLASSNAME}>
+        <SurfaceCard tone="critical" className={marketCardClassName}>
           <SurfaceCardContent className="space-y-3 text-left">
             <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
               <AlertTriangle className="h-4 w-4" />
@@ -2064,7 +2071,7 @@ export function KaiMarketPreviewView() {
                           <Badge
                             key={tag}
                             variant="outline"
-                            className="border-[color:var(--app-card-border-standard)] bg-white/82 text-[10px] font-medium text-foreground/72 dark:bg-[var(--app-card-surface-compact)] dark:text-muted-foreground"
+                            className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-[10px] font-medium text-foreground/72"
                           >
                             {tag}
                           </Badge>
@@ -2170,7 +2177,7 @@ export function KaiMarketPreviewView() {
                 ) : null}
               </div>
             ) : (
-                <SurfaceCard tone="warning" className={MARKET_GLASS_CARD_CLASSNAME}>
+                <SurfaceCard tone="warning" className={marketCardClassName}>
                   <SurfaceCardContent className="text-sm text-muted-foreground">
                   Scenario insight is unavailable at the moment.
                 </SurfaceCardContent>

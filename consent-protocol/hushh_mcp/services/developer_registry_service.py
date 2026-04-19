@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from db.db_client import get_db
+from hushh_mcp.runtime_settings import get_core_security_settings
 
 TOOL_GROUP_CORE_CONSENT = "core_consent"
 TOOL_GROUP_RIA_READ = "ria_read"
@@ -194,11 +195,13 @@ class DeveloperRegistryService:
 
     @staticmethod
     def _pepper() -> str:
-        return (
-            str(os.getenv("DEVELOPER_TOKEN_PEPPER", "")).strip()
-            or str(os.getenv("SECRET_KEY", "")).strip()
-            or "hushh-developer-token-pepper"
-        )
+        configured_pepper = str(os.getenv("DEVELOPER_TOKEN_PEPPER", "")).strip()
+        if configured_pepper:
+            return configured_pepper
+        try:
+            return get_core_security_settings().app_signing_key
+        except ValueError:
+            return "hushh-developer-token-pepper"
 
     @classmethod
     def _hash_token(cls, raw_token: str) -> str:

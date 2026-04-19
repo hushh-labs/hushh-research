@@ -23,6 +23,8 @@
     "docs/reference/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "./bin/hushh codex audit",
     "cd packages/hushh-mcp && npm run print-config"
   ],
   "verification_bundles": [

@@ -10,18 +10,16 @@ import logging
 import os
 import time
 
-from dotenv import load_dotenv
-
-# Load .env file before any other imports that might depend on it
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
-
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
+from hushh_mcp.runtime_settings import get_app_runtime_settings  # noqa: E402
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+_APP_RUNTIME_SETTINGS = get_app_runtime_settings()
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -30,7 +28,7 @@ def _env_truthy(name: str, fallback: str = "false") -> bool:
 
 
 def _environment() -> str:
-    return str(os.getenv("ENVIRONMENT", "development")).strip().lower()
+    return _APP_RUNTIME_SETTINGS.environment
 
 
 def _is_production() -> bool:
@@ -57,14 +55,14 @@ REQUIRED_RUNTIME_TABLES = (
 
 
 def _is_app_review_mode_enabled() -> bool:
-    return _env_truthy("APP_REVIEW_MODE") or _env_truthy("HUSHH_APP_REVIEW_MODE")
+    return _env_truthy("APP_REVIEW_MODE")
 
 
 def _parse_cors_allowed_origins() -> list[str]:
     explicit = str(os.getenv("CORS_ALLOWED_ORIGINS", "")).strip()
     origins = [item.strip() for item in explicit.split(",") if item.strip()]
 
-    frontend_url = str(os.getenv("FRONTEND_URL", "")).strip()
+    frontend_url = _APP_RUNTIME_SETTINGS.app_frontend_origin
     if frontend_url and frontend_url not in origins:
         origins.append(frontend_url)
 

@@ -30,6 +30,7 @@ Non-owned surfaces:
 1. Summarizing board activity by date window or repository slice.
 2. Creating issue-backed board work in `hushh-labs/hushh-research`.
 3. Updating required board metadata and verifying the resulting project-item state.
+4. Normalizing or updating issue labels when the user asks for label hygiene.
 
 ## Do Not Use
 
@@ -48,6 +49,10 @@ Non-owned surfaces:
 1. Resolve the issue and project-item state dynamically instead of assuming cached IDs.
 2. Create the GitHub issue first, then attach and update the board item.
 3. Re-read the issue and board state after editing to confirm the change stuck.
+4. When reporting work back to the user, always use the stable task shape `#<number> <title>`.
+5. When the user asks for labels, treat labels as a first-class part of the task update instead of leaving them implicit.
+6. Do not move sprint or reset dates on existing tasks unless the user explicitly asks for that metadata change.
+7. Do not use bare issue numbers in summaries, status lists, overdue lists, or change logs when the title is available.
 
 ## Handoff Rules
 

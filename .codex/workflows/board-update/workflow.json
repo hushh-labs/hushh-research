@@ -39,14 +39,5 @@
   "common_failures": [
     "creating draft work without issue backing",
     "updating board without status and date hygiene"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "planning-board",
-  "maintenance_issue_section": "board-update",
-  "maintenance_blockers": [
-    "workflow is manual-only and should not run unattended"
-  ],
-  "maintenance_prerequisites": []
+  ]
 }

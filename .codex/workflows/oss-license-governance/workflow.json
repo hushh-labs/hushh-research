@@ -1,0 +1,65 @@
+{
+  "id": "oss-license-governance",
+  "title": "OSS License Governance",
+  "goal": "Keep Apache-2.0 licensing, SPDX/REUSE coverage, package metadata, and third-party notices aligned across hushh-research and consent-protocol.",
+  "owner_skill": "oss-license-governance",
+  "default_spoke": null,
+  "task_type": "oss-license-governance",
+  "affected_surfaces": [
+    "LICENSE",
+    "LICENSES",
+    "NOTICE",
+    "REUSE.toml",
+    "THIRD_PARTY_NOTICES.md",
+    "consent-protocol/LICENSE",
+    "consent-protocol/NOTICE",
+    "consent-protocol/THIRD_PARTY_NOTICES.md",
+    "scripts/licenses"
+  ],
+  "required_reads": [
+    "LICENSE",
+    "NOTICE",
+    "REUSE.toml",
+    "consent-protocol/pyproject.toml",
+    "hushh-webapp/package.json",
+    "packages/hushh-mcp/package.json"
+  ],
+  "required_commands": [
+    "python3 scripts/licenses/verify_apache_surface.py",
+    "python3 scripts/licenses/generate_third_party_notices.py",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "oss-license-governance",
+    "commands": [
+      "python3 scripts/licenses/verify_apache_surface.py",
+      "python3 scripts/licenses/generate_third_party_notices.py",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "python3 scripts/licenses/verify_apache_surface.py",
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "Apache surface summary",
+    "package license metadata confirmation",
+    "third-party notice refresh"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed",
+    "Package metadata updated"
+  ],
+  "handoff_chain": [
+    "oss-license-governance",
+    "repo-operations",
+    "docs-governance",
+    "subtree-upstream-governance"
+  ],
+  "common_failures": [
+    "changing package metadata without regenerating notice artifacts",
+    "updating root licensing while leaving subtree surfaces behind",
+    "treating generated third-party notices as hand-maintained docs"
+  ]
+}

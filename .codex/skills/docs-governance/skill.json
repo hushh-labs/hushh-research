@@ -12,7 +12,8 @@
   "non_owned_paths": [
     "frontend",
     "backend",
-    "repo-operations"
+    "repo-operations",
+    "contributor-onboarding"
   ],
   "task_types": [
     "docs-sync",
@@ -44,16 +45,19 @@
     "repo-context",
     "frontend",
     "backend",
-    "repo-operations"
+    "repo-operations",
+    "contributor-onboarding"
   ],
   "adjacent_skills": [
     "repo-context",
     "frontend",
     "backend",
-    "repo-operations"
+    "repo-operations",
+    "contributor-onboarding"
   ],
   "risk_tags": [
     "docs-home-drift",
-    "reference-drift"
+    "reference-drift",
+    "onboarding-doc-drift"
   ]
 }

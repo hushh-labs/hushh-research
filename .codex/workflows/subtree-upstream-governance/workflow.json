@@ -1,0 +1,59 @@
+{
+  "id": "subtree-upstream-governance",
+  "title": "Subtree Upstream Governance",
+  "goal": "Keep upstream-first sync rules, maintainer-only subtree policy, and cross-repo metadata alignment stable between consent-protocol and hushh-research.",
+  "owner_skill": "subtree-upstream-governance",
+  "default_spoke": null,
+  "task_type": "subtree-upstream-governance",
+  "affected_surfaces": [
+    "docs/reference/operations/subtree-maintainers.md",
+    "scripts/ci/subtree-sync-check.sh",
+    "consent-protocol/README.md",
+    "contributing.md"
+  ],
+  "required_reads": [
+    "docs/reference/operations/subtree-maintainers.md",
+    "scripts/ci/subtree-sync-check.sh",
+    "consent-protocol/README.md",
+    "contributing.md"
+  ],
+  "required_commands": [
+    "./scripts/ci/subtree-sync-check.sh",
+    "python3 scripts/licenses/verify_apache_surface.py",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "subtree-upstream-governance",
+    "commands": [
+      "./scripts/ci/subtree-sync-check.sh",
+      "python3 scripts/licenses/verify_apache_surface.py",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "./scripts/ci/subtree-sync-check.sh",
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "upstream-first routing note",
+    "subtree policy update",
+    "root/subtree parity verification note"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed",
+    "Subtree metadata updated"
+  ],
+  "handoff_chain": [
+    "subtree-upstream-governance",
+    "repo-operations",
+    "docs-governance",
+    "oss-license-governance",
+    "contributor-onboarding"
+  ],
+  "common_failures": [
+    "teaching subtree mechanics in normal contributor onboarding",
+    "syncing code without syncing policy docs",
+    "fixing root or subtree only when both are part of the same contract"
+  ]
+}

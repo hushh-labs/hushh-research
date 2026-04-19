@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import html
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -13,6 +12,7 @@ from email.message import EmailMessage
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
+from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.support_email_service import (
     SupportEmailConfig,
     SupportEmailNotConfiguredError,
@@ -46,7 +46,7 @@ def _format_expiry(expires_at: datetime | str | None) -> str | None:
 
 
 def _frontend_url() -> str:
-    return _clean_text(os.getenv("FRONTEND_URL")) or "http://localhost:3000"
+    return get_app_runtime_settings().app_frontend_origin or "http://localhost:3000"
 
 
 @dataclass(frozen=True)

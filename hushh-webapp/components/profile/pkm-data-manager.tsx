@@ -573,9 +573,9 @@ export function PkmDomainDetailPanel({
       <Dialog open={previewOpen} onOpenChange={onPreviewOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="w-[calc(100%-2rem)] max-h-[calc(100svh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(28rem,calc(100vw-7rem))] lg:max-w-[min(29rem,calc(100vw-9rem))]"
+          className="w-[calc(100%-2.5rem)] max-h-[calc(100svh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(26rem,calc(100vw-8rem))] lg:max-w-[min(27rem,calc(100vw-12rem))]"
         >
-          <div className="sticky top-0 z-20 flex items-start justify-between gap-4 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-7 pb-4 pt-5 sm:px-8">
+          <div className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_2.5rem] items-start gap-4 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-8 pb-4 pt-5 sm:px-9">
             <DialogHeader className="min-w-0 flex-1 text-left">
               <DialogTitle>{previewTitle}</DialogTitle>
               <DialogDescription>
@@ -592,7 +592,7 @@ export function PkmDomainDetailPanel({
               </button>
             </DialogClose>
           </div>
-          <div className="min-h-0 overflow-y-auto px-7 pb-6 pt-4 sm:px-8">
+          <div className="min-h-0 overflow-y-auto px-8 pb-7 pt-4 sm:px-9">
             {previewLoading ? (
               <SurfaceInset className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
                 <RefreshCw className="h-4 w-4 animate-spin" />
@@ -624,7 +624,6 @@ export function PkmAccessManagerPanel({
   sharingError,
   summary,
   domains,
-  onOpenConsentCenter,
   onOpenConnection,
   onRevokeAccess: _onRevokeAccess,
 }: {
@@ -634,7 +633,6 @@ export function PkmAccessManagerPanel({
   sharingError?: string | null;
   summary: PkmProfileSummaryPresentation | null;
   domains: PkmDomainPresentation[];
-  onOpenConsentCenter: () => void;
   onOpenConnection: (connection: PkmAccessConnectionPresentation) => void;
   onRevokeAccess: (scope: string) => Promise<void>;
 }) {
@@ -659,18 +657,12 @@ export function PkmAccessManagerPanel({
 
   return (
     <div className="space-y-4">
-      {summary ? (
+      {summary && sharingReady ? (
         <div className="flex flex-wrap items-center gap-2">
-          {sharingReady ? (
-            <>
-              <Badge variant="secondary">{summary.activeGrantCount} active grants</Badge>
-              <Badge variant="secondary">{summary.sharedDomainCount} shared domains</Badge>
-              {connections.length > 0 ? (
-                <Badge variant="secondary">{connections.length} connections</Badge>
-              ) : null}
-            </>
-          ) : sharingError ? (
-            <Badge variant="outline">Sharing unavailable</Badge>
+          <Badge variant="secondary">{summary.activeGrantCount} active grants</Badge>
+          <Badge variant="secondary">{summary.sharedDomainCount} shared domains</Badge>
+          {connections.length > 0 ? (
+            <Badge variant="secondary">{connections.length} connections</Badge>
           ) : null}
         </div>
       ) : null}
@@ -690,16 +682,9 @@ export function PkmAccessManagerPanel({
         </SurfaceInset>
       ) : connections.length === 0 ? (
         <SurfaceInset className="p-4 text-sm text-muted-foreground">
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <p className="font-medium text-foreground">No active access right now</p>
-              <p>Your personal data is not currently shared with connected apps or advisors.</p>
-            </div>
-            <div>
-              <Button variant="none" effect="fade" size="sm" onClick={onOpenConsentCenter}>
-                Open consent center
-              </Button>
-            </div>
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">No active access right now</p>
+            <p>Your personal data is not currently shared with connected apps or advisors.</p>
           </div>
         </SurfaceInset>
       ) : (
@@ -714,11 +699,6 @@ export function PkmAccessManagerPanel({
                 />
               ))}
             </div>
-          </div>
-          <div className="flex justify-start">
-            <Button variant="none" effect="fade" size="sm" onClick={onOpenConsentCenter}>
-              Open consent center
-            </Button>
           </div>
         </div>
       )}

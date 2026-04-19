@@ -93,7 +93,7 @@ class IAMSchemaNotReadyError(Exception):
         self,
         message: str = (
             "IAM schema is not ready. Run `python db/migrate.py --iam` and "
-            "`python scripts/verify_iam_schema.py`."
+            "`python db/verify/verify_iam_schema.py`."
         ),
     ):
         super().__init__(message)
@@ -5255,7 +5255,7 @@ class RIAIAMService:
         if not cfg.configured:
             error_message = (
                 "Kai invite email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_SERVICE_ACCOUNT_JSON, plus SUPPORT_EMAIL_* variables."
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON, plus SUPPORT_EMAIL_* variables."
             )
             logger.warning("ria.invite_email.not_configured invite_id=%s", invite_id)
             created_item["delivery_status"] = "failed"

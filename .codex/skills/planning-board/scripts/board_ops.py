@@ -47,6 +47,21 @@ def graphql(query: str) -> Any:
     return run_gh_json(["api", "graphql", "-f", f"query={query}"])
 
 
+def parse_labels(raw: str | None) -> list[str] | None:
+    if raw is None:
+        return None
+    labels = [label.strip() for label in raw.split(",") if label.strip()]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for label in labels:
+        normalized = label.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(label)
+    return deduped
+
+
 def today_iso() -> str:
     return dt.date.today().isoformat()
 
@@ -122,7 +137,7 @@ def get_issue_node_id(repo: str, issue_number: int) -> str:
 
 
 def get_issue_json(repo: str, issue_number: int) -> Any:
-    return run_gh_json(
+    payload = run_gh_json(
         [
             "issue",
             "view",
@@ -130,9 +145,12 @@ def get_issue_json(repo: str, issue_number: int) -> Any:
             "--repo",
             repo,
             "--json",
-            "number,title,url,assignees,projectItems,createdAt",
+            "number,title,url,state,labels,assignees,projectItems,createdAt",
         ]
     )
+    payload["displayTitle"] = f'#{payload["number"]} {payload["title"]}'
+    payload["labelNames"] = [label["name"] for label in payload.get("labels", [])]
+    return payload
 
 
 def get_project_item_id_for_issue(repo: str, issue_number: int) -> str | None:
@@ -206,7 +224,42 @@ def set_project_field(
     run_gh(cmd)
 
 
+def sync_issue_labels(*, repo: str, issue_number: int, labels: list[str]) -> None:
+    issue = get_issue_json(repo, issue_number)
+    current = {label["name"] for label in issue.get("labels", [])}
+    desired = set(labels)
+
+    to_add = sorted(desired - current)
+    to_remove = sorted(current - desired)
+
+    if to_add:
+        run_gh(
+            [
+                "issue",
+                "edit",
+                str(issue_number),
+                "--repo",
+                repo,
+                "--add-label",
+                ",".join(to_add),
+            ]
+        )
+    if to_remove:
+        run_gh(
+            [
+                "issue",
+                "edit",
+                str(issue_number),
+                "--repo",
+                repo,
+                "--remove-label",
+                ",".join(to_remove),
+            ]
+        )
+
+
 def issue_create(args: argparse.Namespace) -> None:
+    parsed_labels = parse_labels(args.labels)
     cmd = [
         "issue",
         "create",
@@ -221,6 +274,8 @@ def issue_create(args: argparse.Namespace) -> None:
     ]
     if args.assignee:
         cmd += ["--assignee", args.assignee]
+    for label in parsed_labels or []:
+        cmd += ["--label", label]
     url = run_gh(cmd).strip()
     issue_number = int(url.rstrip("/").split("/")[-1])
     update_task(
@@ -229,6 +284,8 @@ def issue_create(args: argparse.Namespace) -> None:
         status=args.status,
         start_date=args.start_date,
         target_date=args.target_date,
+        labels=parsed_labels,
+        sync_current_sprint=True,
     )
     print(json.dumps(get_issue_json(args.repo, issue_number), indent=2))
 
@@ -240,10 +297,11 @@ def update_task(
     status: str | None,
     start_date: str | None,
     target_date: str | None,
+    labels: list[str] | None,
+    sync_current_sprint: bool,
 ) -> None:
     project_id = get_project_id()
     fields = get_field_catalog()
-    sprint_id, _sprint_title = get_current_sprint_iteration_id()
     item_id = ensure_issue_on_project(repo, issue_number)
 
     if status:
@@ -258,24 +316,31 @@ def update_task(
             single_select_option_id=options[status],
         )
 
-    set_project_field(
-        item_id=item_id,
-        project_id=project_id,
-        field_id=fields["Start date"]["id"],
-        date=start_date or today_iso(),
-    )
-    set_project_field(
-        item_id=item_id,
-        project_id=project_id,
-        field_id=fields["Target date"]["id"],
-        date=target_date or next_day_iso(),
-    )
-    set_project_field(
-        item_id=item_id,
-        project_id=project_id,
-        field_id=fields["Sprint"]["id"],
-        iteration_id=sprint_id,
-    )
+    if start_date is not None:
+        set_project_field(
+            item_id=item_id,
+            project_id=project_id,
+            field_id=fields["Start date"]["id"],
+            date=start_date,
+        )
+    if target_date is not None:
+        set_project_field(
+            item_id=item_id,
+            project_id=project_id,
+            field_id=fields["Target date"]["id"],
+            date=target_date,
+        )
+    if sync_current_sprint:
+        sprint_id, _sprint_title = get_current_sprint_iteration_id()
+        set_project_field(
+            item_id=item_id,
+            project_id=project_id,
+            field_id=fields["Sprint"]["id"],
+            iteration_id=sprint_id,
+        )
+
+    if labels is not None:
+        sync_issue_labels(repo=repo, issue_number=issue_number, labels=labels)
 
 
 def cmd_update_task(args: argparse.Namespace) -> None:
@@ -285,6 +350,8 @@ def cmd_update_task(args: argparse.Namespace) -> None:
         status=args.status,
         start_date=args.start_date,
         target_date=args.target_date,
+        labels=parse_labels(args.labels),
+        sync_current_sprint=args.sync_current_sprint,
     )
     print(json.dumps(get_issue_json(args.repo, args.issue), indent=2))
 
@@ -366,6 +433,11 @@ def normalize_items(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         entry: dict[str, Any] = {
             "number": content.get("number"),
             "title": content.get("title"),
+            "displayTitle": (
+                f'#{content.get("number")} {content.get("title")}'
+                if content.get("number") and content.get("title")
+                else content.get("title")
+            ),
             "url": content.get("url"),
             "repo": content.get("repository", {}).get("nameWithOwner"),
             "contentCreatedAt": content.get("createdAt"),
@@ -431,7 +503,7 @@ def cmd_show_open_work(args: argparse.Namespace) -> None:
         "--limit",
         str(args.limit),
         "--json",
-        "number,title,createdAt,assignees,projectItems,url",
+        "number,title,createdAt,assignees,projectItems,url,labels,state",
     ]
     if args.assignee:
         query = f"assignee:{args.assignee}"
@@ -447,12 +519,14 @@ def cmd_show_open_work(args: argparse.Namespace) -> None:
             "--limit",
             str(args.limit),
             "--json",
-            "number,title,createdAt,assignees,projectItems,url",
+            "number,title,createdAt,assignees,projectItems,url,labels,state",
         ]
     issues = run_gh_json(issue_args)
     filtered = []
     for issue in issues:
         if any(item.get("title") == PROJECT_TITLE for item in issue.get("projectItems", [])):
+            issue["displayTitle"] = f'#{issue["number"]} {issue["title"]}'
+            issue["labelNames"] = [label["name"] for label in issue.get("labels", [])]
             filtered.append(issue)
     print(json.dumps(filtered, indent=2))
 
@@ -475,14 +549,17 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--status", default=DEFAULT_STATUS)
     create.add_argument("--start-date", default=today_iso())
     create.add_argument("--target-date", default=next_day_iso())
+    create.add_argument("--labels")
     create.set_defaults(func=issue_create)
 
     update = sub.add_parser("update-task")
     update.add_argument("--repo", default=DEFAULT_REPO)
     update.add_argument("--issue", type=int, required=True)
-    update.add_argument("--status", default=DEFAULT_STATUS)
+    update.add_argument("--status")
     update.add_argument("--start-date")
     update.add_argument("--target-date")
+    update.add_argument("--labels")
+    update.add_argument("--sync-current-sprint", action="store_true")
     update.set_defaults(func=cmd_update_task)
 
     open_work = sub.add_parser("show-open-work")

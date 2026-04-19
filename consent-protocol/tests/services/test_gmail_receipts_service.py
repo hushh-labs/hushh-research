@@ -213,8 +213,8 @@ def test_parse_iso_normalizes_datetime_and_date_values_to_utc():
 
 
 def test_state_and_token_key_require_explicit_config_outside_local_dev(monkeypatch):
-    monkeypatch.delenv("SECRET_KEY", raising=False)
-    monkeypatch.delenv("GMAIL_TOKEN_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("APP_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("GMAIL_OAUTH_TOKEN_KEY", raising=False)
     monkeypatch.delenv("GMAIL_ALLOW_LOCAL_DEV_FALLBACK", raising=False)
     monkeypatch.setenv("ENVIRONMENT", "production")
 
@@ -367,7 +367,7 @@ class _FakePool:
 async def test_queue_sync_rejects_disconnected_user_before_queuing(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
+    monkeypatch.setenv("GMAIL_OAUTH_TOKEN_KEY", "fixture-" + "tokenkey")
     conn = _FakeConn(
         rows=[
             {
@@ -393,7 +393,7 @@ async def test_queue_sync_rejects_disconnected_user_before_queuing(monkeypatch):
 async def test_queue_sync_returns_existing_active_run_without_inserting_duplicate(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
+    monkeypatch.setenv("GMAIL_OAUTH_TOKEN_KEY", "fixture-" + "tokenkey")
     active_now = datetime(2026, 3, 1, tzinfo=timezone.utc)
     conn = _FakeConn(
         rows=[
@@ -443,7 +443,7 @@ async def test_queue_sync_returns_existing_active_run_without_inserting_duplicat
 async def test_queue_sync_recovers_stale_running_run_before_enqueuing_replacement(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
+    monkeypatch.setenv("GMAIL_OAUTH_TOKEN_KEY", "fixture-" + "tokenkey")
     monkeypatch.setenv("KAI_GMAIL_RECEIPTS_RUN_STALE_TTL_SECONDS", "60")
     conn = _FakeConn(
         rows=[
@@ -504,7 +504,7 @@ async def test_queue_sync_recovers_stale_running_run_before_enqueuing_replacemen
 async def test_queue_sync_preempts_backfill_for_manual_request(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
+    monkeypatch.setenv("GMAIL_OAUTH_TOKEN_KEY", "fixture-" + "tokenkey")
     active_now = datetime(2026, 3, 1, tzinfo=timezone.utc)
     conn = _FakeConn(
         rows=[
@@ -1070,7 +1070,7 @@ async def test_handle_push_notification_ignores_stale_history(monkeypatch):
 async def test_queue_sync_advances_webhook_history_atomically(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
-    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", "fixture-" + "tokenkey")
+    monkeypatch.setenv("GMAIL_OAUTH_TOKEN_KEY", "fixture-" + "tokenkey")
 
     conn = _FakeConn(
         rows=[

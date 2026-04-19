@@ -5,12 +5,65 @@ name = "hushh-consent-protocol"
 version = "1.0.0"
 description = "Consent-first backend for Hushh Personal Data Agents"
 requires-python = ">=3.13"
-license = { text = "MIT" }
+license = "Apache-2.0"
 readme = "README.md"
+dependencies = [
+    "asyncpg>=0.29.0",
+    "cryptography>=44.0.0",
+    "defusedxml>=0.7.1",
+    "fastapi>=0.115.0",
+    "firebase-admin==7.1.0",
+    "flask>=3.0.0",
+    "google-adk==1.28.1",
+    "google-api-core==2.29.0",
+    "google-auth>=2.14.1",
+    "google-cloud-storage>=2.18.2",
+    "grpcio==1.76.0",
+    "grpcio-status==1.76.0",
+    "httpx>=0.27.1,<0.29",
+    "mcp==1.26.0",
+    "opentelemetry-api>=1.33.0",
+    "opentelemetry-exporter-gcp-trace>=1.8.0",
+    "opentelemetry-instrumentation-fastapi>=0.54b0",
+    "opentelemetry-instrumentation-httpx>=0.54b0",
+    "opentelemetry-sdk>=1.33.0",
+    "pdfplumber==0.11.0",
+    "pillow>=10.0.0",
+    "proto-plus==1.27.0",
+    "protobuf>=6.31.1,<7.0.0",
+    "psycopg2-binary>=2.9.0",
+    "pyjwt[crypto]>=2.10.1",
+    "pydantic>=2.0,<3.0",
+    "python-a2a>=0.4.0",
+    "python-dotenv==1.0.1",
+    "pytesseract>=0.3.10",
+    "requests>=2.32.4",
+    "rsa>=4.9",
+    "slowapi>=0.1.9",
+    "sqlalchemy>=2.0.0",
+    "sse-starlette>=2.1.0",
+    "uvicorn>=0.34.0",
+    "wrapt>=1.14.0",
+    "yfinance>=0.2.36",
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.7.6",
+    "mypy>=1.8.0",
+    "pip-licenses>=5.0.0",
+    "pytest>=8.2.2",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.8.0",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = false
 
 [tool.ruff]
 # Python 3.13 - aligned with CI and Dockerfile

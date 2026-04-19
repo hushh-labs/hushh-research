@@ -33,6 +33,12 @@ from google.oauth2 import id_token as google_id_token
 
 from db.connection import get_pool
 from db.db_client import get_db
+from hushh_mcp.runtime_settings import (
+    APP_SIGNING_KEY_ENV,
+    GMAIL_OAUTH_TOKEN_KEY_ENV,
+    get_core_security_settings,
+    get_optional_gmail_oauth_token_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -285,15 +291,16 @@ class GmailReceiptsService:
         return _clean_text(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
 
     def _state_secret(self) -> str:
-        configured = _clean_text(os.getenv("SECRET_KEY"))
-        if configured:
-            return configured
+        try:
+            return get_core_security_settings().app_signing_key
+        except ValueError:
+            pass
         if self._allow_local_dev_fallback():
             logger.warning("gmail.receipts.state_secret_local_dev_fallback_enabled")
             return "gmail-receipts-local-dev-secret"
         raise RuntimeError(
-            "SECRET_KEY is required for Gmail OAuth state signing. "
-            "Set SECRET_KEY or enable GMAIL_ALLOW_LOCAL_DEV_FALLBACK only in local development."
+            f"{APP_SIGNING_KEY_ENV} is required for Gmail OAuth state signing. "
+            f"Set {APP_SIGNING_KEY_ENV} or enable GMAIL_ALLOW_LOCAL_DEV_FALLBACK only in local development."
         )
 
     def _allow_local_dev_fallback(self) -> bool:
@@ -382,7 +389,7 @@ class GmailReceiptsService:
         return await asyncio.to_thread(self._verify_webhook_ingress_sync, headers=headers)
 
     def _token_key(self) -> bytes:
-        configured = _clean_text(os.getenv("GMAIL_TOKEN_ENCRYPTION_KEY"))
+        configured = _clean_text(get_optional_gmail_oauth_token_key())
         if configured:
             try:
                 decoded = base64.urlsafe_b64decode(configured.encode("utf-8"))
@@ -398,7 +405,7 @@ class GmailReceiptsService:
             logger.warning("gmail.receipts.token_key_local_dev_fallback_enabled")
             return hashlib.sha256(f"{fallback_secret}::gmail-token-dev".encode("utf-8")).digest()
         raise RuntimeError(
-            "GMAIL_TOKEN_ENCRYPTION_KEY is required for Gmail token storage. "
+            f"{GMAIL_OAUTH_TOKEN_KEY_ENV} is required for Gmail token storage. "
             "Set a 16/24/32-byte key or enable GMAIL_ALLOW_LOCAL_DEV_FALLBACK only in local development."
         )
 

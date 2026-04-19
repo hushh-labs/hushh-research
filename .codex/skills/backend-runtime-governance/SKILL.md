@@ -52,6 +52,9 @@ Non-owned surfaces:
 1. Confirm the runtime boundary before moving code between routes, services, or integrations.
 2. Keep backend tests and backend docs aligned with runtime changes.
 3. Treat consent validation, trust, and audit rules as `security-audit` concerns when they become the primary boundary.
+4. Treat `uv` as the canonical Python toolchain for contributor and CI flows; `requirements*.txt` are generated runtime artifacts, not the source of dependency truth.
+5. For backend bootstrap, packaging, or runtime-governance changes, rerun the authoritative service checks once directly and once again through the canonical repo entrypoint.
+6. When a backend runtime failure is visible in UAT or CI, use `./bin/hushh codex rca --surface runtime --text` or `--surface uat --text` first so service fixes are anchored to the blocking runtime classification instead of log-chasing.
 
 ## Handoff Rules
 

@@ -45,7 +45,7 @@ def _log(message: str) -> None:
 def _init_firebase_admin(config: dict[str, str | None]) -> None:
     if firebase_admin._apps:  # type: ignore[attr-defined]
         return
-    service_account_json = _require(config, "FIREBASE_SERVICE_ACCOUNT_JSON")
+    service_account_json = _require(config, "FIREBASE_ADMIN_CREDENTIALS_JSON")
     firebase_admin.initialize_app(credentials.Certificate(json.loads(service_account_json)))
 
 
