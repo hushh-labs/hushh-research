@@ -6,6 +6,8 @@ import {
   BarChart3,
   Compass,
   History,
+  Mic,
+  MicOff,
   Search,
   ShieldCheck,
   UserRound,
@@ -28,6 +30,7 @@ import {
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { useVoiceDictation } from "@/lib/voice/use-voice-dictation";
 
 export type KaiCommandAction =
   | "analyze"
@@ -153,6 +156,16 @@ export function KaiCommandPalette({
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
   const [query, setQuery] = useState("");
+
+  const { status: dictationStatus, start: startDictation, supported: dictationSupported } =
+    useVoiceDictation({
+      onResult: (transcript) => {
+        setQuery(transcript);
+      },
+    });
+
+  const isDictating = dictationStatus === "listening";
+
   const [universe, setUniverse] = useState<TickerUniverseRow[] | null>(
     getTickerUniverseSnapshot()
   );
@@ -380,11 +393,28 @@ export function KaiCommandPalette({
       onOpenChange={onOpenChange}
       className="top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 sm:top-1/2 sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
-      <CommandInput
-        value={query}
-        onValueChange={setQuery}
-        placeholder="Run Kai command or search ticker..."
-      />
+      <div className="relative flex items-center">
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Run Kai command or search ticker..."
+          className="pr-10"
+        />
+        {dictationSupported ? (
+          <button
+            type="button"
+            aria-label={isDictating ? "Stop dictation" : "Start voice dictation"}
+            onClick={startDictation}
+            className={`absolute right-2 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full transition-colors ${
+              isDictating
+                ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Icon icon={isDictating ? MicOff : Mic} size="sm" />
+          </button>
+        ) : null}
+      </div>
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty>{commandEmptyMessage}</CommandEmpty>
 
