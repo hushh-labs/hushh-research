@@ -7,21 +7,14 @@ reflected consistently in both the investor and RIA consent surfaces.
 
 from __future__ import annotations
 
-import os
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-os.environ.setdefault("SECRET_KEY", "a" * 32)
-os.environ.setdefault("VAULT_ENCRYPTION_KEY", "b" * 64)
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-import time  # noqa: E402
-from types import SimpleNamespace  # noqa: E402
-from unittest.mock import AsyncMock, patch  # noqa: E402
-
-import pytest  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from api.routes import consent  # noqa: E402
-
+from api.routes import consent
 
 # ============================================================================
 # Helpers
@@ -174,7 +167,7 @@ def test_full_handshake_lifecycle(monkeypatch):
     Verify events are recorded at each step.
     """
     fake_db = _FakeConsentDBService()
-    issued_token = "token_handshake_granted"
+    issued_token = "token_handshake_granted"  # noqa: S105
 
     monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
     monkeypatch.setattr(
@@ -364,7 +357,7 @@ def test_revoke_immediately_invalidates_data_access(monkeypatch):
     monkeypatch.setattr(consent, "validate_token", mock_validate)
     monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
 
-    token_id = "token_to_revoke"
+    token_id = "token_to_revoke"  # noqa: S105
     fake_db.active[("ria:profile_abc", "attr.financial.*")] = {
         "user_id": "investor_1",
         "agent_id": "ria:profile_abc",
@@ -392,43 +385,6 @@ def test_revoke_immediately_invalidates_data_access(monkeypatch):
 
 def test_handshake_history_returns_timeline():
     """GET /handshake/history returns a chronological timeline."""
-    now_ms = int(time.time() * 1000)
-    mock_events = [
-        {
-            "id": "1",
-            "agent_id": "ria:profile_abc",
-            "scope": "attr.financial.*",
-            "action": "REQUESTED",
-            "issued_at": now_ms - 3000,
-            "expires_at": now_ms + 86400000,
-            "request_id": "req_1",
-            "scope_description": "Financial data",
-            "metadata": {"requester_entity_id": "profile_abc", "requester_actor_type": "ria"},
-        },
-        {
-            "id": "2",
-            "agent_id": "ria:profile_abc",
-            "scope": "attr.financial.*",
-            "action": "CONSENT_GRANTED",
-            "issued_at": now_ms - 2000,
-            "expires_at": now_ms + 86400000,
-            "request_id": "req_1",
-            "scope_description": "Financial data",
-            "metadata": {"requester_entity_id": "profile_abc", "requester_actor_type": "ria"},
-        },
-        {
-            "id": "3",
-            "agent_id": "ria:profile_abc",
-            "scope": "attr.financial.*",
-            "action": "REVOKED",
-            "issued_at": now_ms - 1000,
-            "expires_at": None,
-            "request_id": "req_1",
-            "scope_description": "Financial data",
-            "metadata": {"requester_entity_id": "profile_abc", "requester_actor_type": "ria"},
-        },
-    ]
-
     app = _build_app()
     with patch(
         "hushh_mcp.services.consent_center_service.ConsentCenterService.get_handshake_history",

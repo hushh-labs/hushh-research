@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building2, ExternalLink, History, Search, ShieldCheck, UserRound } from "lucide-react";
+import { Building2, ExternalLink, Search, ShieldCheck, UserRound } from "lucide-react";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 import {
