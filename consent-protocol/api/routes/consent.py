@@ -29,7 +29,11 @@ from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.ria_iam_service import IAMSchemaNotReadyError, RIAIAMPolicyError, RIAIAMService
+from hushh_mcp.services.ria_iam_service import (
+    IAMSchemaNotReadyError,
+    RIAIAMPolicyError,
+    RIAIAMService,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,17 +1,13 @@
 """Tests for RIA verification hardening and dev allowlist (issue #123)."""
 from __future__ import annotations
 
-import os
-
 import pytest
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth
 from api.routes import ria
 from hushh_mcp.services.ria_iam_service import (
-    IAMSchemaNotReadyError,
     RIAIAMPolicyError,
     RIAIAMService,
 )

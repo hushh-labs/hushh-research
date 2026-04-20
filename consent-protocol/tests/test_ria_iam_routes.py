@@ -544,11 +544,15 @@ def test_consent_center_list_route_supports_top_preview(monkeypatch):
 
 
 def test_generic_consent_request_routes_to_ria_request_creation(monkeypatch):
+    async def _mock_require(self, user_id: str):
+        return
+
     async def _mock_create(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"
         assert kwargs["scope_template_id"] == "ria_financial_summary_v1"
         return {"request_id": "req_generic_1", "status": "REQUESTED"}
 
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
     monkeypatch.setattr(RIAIAMService, "create_ria_consent_request", _mock_create)
 
     client = TestClient(_build_app())
