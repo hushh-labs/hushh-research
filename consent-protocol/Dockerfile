@@ -19,7 +19,7 @@ RUN pip install uv
 
 # Copy requirements and install Python dependencies using uv with bytecode compilation
 COPY requirements.txt .
-RUN uv pip install --no-cache-dir --system --compile-bytecode gunicorn -r requirements.txt
+RUN uv pip install --no-cache-dir --system --compile-bytecode -r requirements.txt
 
 # Stage 2: Production runtime
 FROM python:3.13-slim

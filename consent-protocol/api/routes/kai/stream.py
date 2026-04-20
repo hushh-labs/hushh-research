@@ -1355,6 +1355,42 @@ async def analyze_stream_generator(
         )
         await asyncio.sleep(0.05)
 
+        # Emit agent starts before the concurrent provider work begins so the stream
+        # contract still reflects real analysis start, not work that already completed.
+        yield create_event(
+            "agent_start",
+            {
+                "agent": "fundamental",
+                "agent_name": "Fundamental Agent",
+                "color": "#3b82f6",
+                "message": f"Analyzing SEC filings for {ticker}...",
+                "round": 1,
+                "phase": "analysis",
+            },
+        )
+        yield create_event(
+            "agent_start",
+            {
+                "agent": "sentiment",
+                "agent_name": "Sentiment Agent",
+                "color": "#8b5cf6",
+                "message": f"Analyzing market sentiment for {ticker}...",
+                "round": 1,
+                "phase": "analysis",
+            },
+        )
+        yield create_event(
+            "agent_start",
+            {
+                "agent": "valuation",
+                "agent_name": "Valuation Agent",
+                "color": "#10b981",
+                "message": f"Calculating valuation metrics for {ticker}...",
+                "round": 1,
+                "phase": "analysis",
+            },
+        )
+
         # Parallelize the sequential agent calls to reduce 'Time-To-First-Token' for the debate engine.
         concurrent_results = await asyncio.gather(
             asyncio.wait_for(
@@ -1387,19 +1423,6 @@ async def analyze_stream_generator(
             return_exceptions=True,
         )
         fundamental_first_res, sentiment_first_res, valuation_first_res = concurrent_results
-
-        # Signal start of fundamental analysis
-        yield create_event(
-            "agent_start",
-            {
-                "agent": "fundamental",
-                "agent_name": "Fundamental Agent",
-                "color": "#3b82f6",
-                "message": f"Analyzing SEC filings for {ticker}...",
-                "round": 1,
-                "phase": "analysis",
-            },
-        )
 
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
@@ -1546,19 +1569,6 @@ async def analyze_stream_generator(
         if await request.is_disconnected():
             return
 
-        # Signal start of sentiment analysis
-        yield create_event(
-            "agent_start",
-            {
-                "agent": "sentiment",
-                "agent_name": "Sentiment Agent",
-                "color": "#8b5cf6",
-                "message": f"Analyzing market sentiment for {ticker}...",
-                "round": 1,
-                "phase": "analysis",
-            },
-        )
-
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
             # Optional pre-analysis thinking stream for debug visibility.
@@ -1692,19 +1702,6 @@ async def analyze_stream_generator(
 
         if await request.is_disconnected():
             return
-
-        # Signal start of valuation analysis
-        yield create_event(
-            "agent_start",
-            {
-                "agent": "valuation",
-                "agent_name": "Valuation Agent",
-                "color": "#10b981",
-                "message": f"Calculating valuation metrics for {ticker}...",
-                "round": 1,
-                "phase": "analysis",
-            },
-        )
 
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
