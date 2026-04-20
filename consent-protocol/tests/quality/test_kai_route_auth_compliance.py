@@ -47,6 +47,21 @@ KAI_AUTH_EXPECTATIONS = [
         '@router.get("/chat/initial-state/{user_id}"',
         "require_vault_owner_token",
     ),
+    (
+        "api/routes/kai/gmail.py",
+        '@router.get("/gmail/receipts/{user_id}")',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/gmail.py",
+        '@router.post("/gmail/receipts-memory/preview")',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/gmail.py",
+        '@router.get("/gmail/receipts-memory/artifacts/{artifact_id}")',
+        "require_vault_owner_token",
+    ),
 ]
 
 
