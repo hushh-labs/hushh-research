@@ -41,9 +41,9 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_pkm_agent_lab",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/profile?tab=account&panel=gmail")).toEqual({
+    expect(deriveVoiceRouteScreen("/profile?panel=gmail")).toEqual({
       screen: "profile_gmail_panel",
-      subview: "account",
+      subview: null,
     });
     expect(deriveVoiceRouteScreen("/profile?tab=account&panel=support")).toEqual({
       screen: "profile_support_panel",
@@ -60,9 +60,9 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("accepts search params passed separately from the pathname", () => {
-    expect(deriveVoiceRouteScreen("/profile", "tab=account&panel=gmail")).toEqual({
+    expect(deriveVoiceRouteScreen("/profile", "panel=gmail")).toEqual({
       screen: "profile_gmail_panel",
-      subview: "account",
+      subview: null,
     });
     expect(deriveVoiceRouteScreen("/profile", "tab=privacy")).toEqual({
       screen: "profile_privacy",

@@ -20,7 +20,8 @@ Normal contributors should use the monorepo-first flow:
 
 ```bash
 ./bin/hushh bootstrap
-./bin/hushh web --mode uat
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh web
 ```
 
 If you are coordinating the `consent-protocol` upstream relationship, use:

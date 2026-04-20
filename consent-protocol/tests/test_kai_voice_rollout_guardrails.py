@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -104,6 +106,20 @@ VOICE_ROUTES = sys.modules["api.routes.kai.voice"]
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _set_voice_runtime_config(monkeypatch: pytest.MonkeyPatch, **overrides) -> None:
+    raw = os.getenv("VOICE_RUNTIME_CONFIG_JSON", "").strip()
+    payload = {}
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            payload = dict(parsed)
+    payload.update(overrides)
+    monkeypatch.setenv("VOICE_RUNTIME_CONFIG_JSON", json.dumps(payload))
 
 
 @pytest.fixture
@@ -252,10 +268,13 @@ def test_voice_plan_respects_rollout_allowlist(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
-    monkeypatch.setenv("KAI_VOICE_V1_CANARY_PERCENT", "100")
-    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "false")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_b"],
+        canary_percent=100,
+        tool_execution_disabled=False,
+    )
 
     called = {"value": False}
 
@@ -297,9 +316,12 @@ def test_voice_realtime_session_respects_rollout_allowlist(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
-    monkeypatch.setenv("KAI_VOICE_V1_CANARY_PERCENT", "100")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_b"],
+        canary_percent=100,
+    )
 
     called = {"value": False}
 
@@ -326,8 +348,11 @@ def test_voice_realtime_session_allows_rollout_included_user(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+    )
 
     async def _fake_session(*args, **kwargs):
         return {
@@ -365,9 +390,12 @@ def test_voice_capability_reports_rollout_and_execution_state(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "true")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        tool_execution_disabled=True,
+    )
 
     response = client.post(
         "/api/kai/voice/capability",
@@ -390,10 +418,13 @@ def test_voice_plan_respects_canary_percent(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "")
-    monkeypatch.setenv("KAI_VOICE_V1_CANARY_PERCENT", "0")
-    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "false")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=[],
+        canary_percent=0,
+        tool_execution_disabled=False,
+    )
 
     async def _should_not_run(*args, **kwargs):
         raise AssertionError("planner should not run when user is excluded by canary")
@@ -416,8 +447,11 @@ def test_voice_plan_respects_canary_percent(
 
 @pytest.mark.anyio
 async def test_voice_stt_rollout_blocks_before_audio_read(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_b"],
+    )
     guarded_upload = _GuardedUploadFile()
 
     async def _never_transcribe(*args, **kwargs):  # pragma: no cover - safety assertion
@@ -442,8 +476,11 @@ async def test_voice_stt_rollout_blocks_before_audio_read(monkeypatch: pytest.Mo
 
 @pytest.mark.anyio
 async def test_voice_understand_rollout_blocks_before_audio_read(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_b"],
+    )
     guarded_upload = _GuardedUploadFile()
 
     async def _never_transcribe(*args, **kwargs):  # pragma: no cover - safety assertion
@@ -482,8 +519,11 @@ def test_voice_tts_rollout_blocks_before_upstream_call(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_b")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_b"],
+    )
 
     async def _never_tts(*args, **kwargs):
         raise AssertionError("open_tts_stream should not run for rollout-blocked TTS requests")
@@ -504,8 +544,11 @@ def test_voice_tts_rollout_blocks_before_upstream_call(
 async def test_voice_understand_sanitizes_debug_message_in_error_response(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+    )
     upload = _ChunkedUploadFile(chunks=[b"\x1a\x45\xdf\xa3voice-bytes"])
 
     async def _raise_stt_error(*args, **kwargs):
@@ -536,9 +579,12 @@ async def test_voice_understand_sanitizes_debug_message_in_error_response(
 async def test_voice_understand_kill_switch_downgrades_execute_to_speak_only(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "true")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        tool_execution_disabled=True,
+    )
     upload = _ChunkedUploadFile(chunks=[b"\x1a\x45\xdf\xa3voice-bytes"])
 
     async def _fake_transcribe(*args, **kwargs):
@@ -583,12 +629,12 @@ async def test_voice_understand_kill_switch_downgrades_execute_to_speak_only(
 async def test_voice_stt_rejects_oversized_content_length_before_audio_read(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("KAI_VOICE_UPLOAD_MAX_BYTES", "8")
+    _set_voice_runtime_config(monkeypatch, upload_max_bytes=1024 * 1024)
     guarded_upload = _GuardedUploadFile()
 
     with pytest.raises(HTTPException) as exc_info:
         await VOICE_ROUTES.kai_voice_stt(
-            request=_FakeRequest(headers={"content-length": "70000"}),
+            request=_FakeRequest(headers={"content-length": str(2 * 1024 * 1024)}),
             http_response=Response(),
             user_id="user_a",
             audio_file=guarded_upload,
@@ -607,10 +653,13 @@ async def test_voice_stt_rejects_oversized_content_length_before_audio_read(
 async def test_voice_understand_rejects_oversized_audio_during_read(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
-    monkeypatch.setenv("KAI_VOICE_UPLOAD_MAX_BYTES", "8")
-    upload = _ChunkedUploadFile(chunks=[b"1234", b"5678", b"9"])
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        upload_max_bytes=1024 * 1024,
+    )
+    upload = _ChunkedUploadFile(chunks=[b"1" * 600000, b"2" * 600000])
 
     async def _never_transcribe(*args, **kwargs):  # pragma: no cover - safety assertion
         raise AssertionError("transcribe_audio should not run after upload size rejection")
@@ -642,8 +691,11 @@ def test_voice_plan_prefers_run_manager_truth_over_stale_runtime_flag(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+    )
 
     async def _no_active_run(run_id: str):
         return None
@@ -686,9 +738,12 @@ def test_voice_plan_kill_switch_downgrades_execute_to_speak_only(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "true")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        tool_execution_disabled=True,
+    )
 
     async def _fake_plan(*args, **kwargs):
         return (
@@ -730,9 +785,12 @@ def test_voice_plan_echoes_voice_turn_id_header(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "false")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        tool_execution_disabled=False,
+    )
 
     async def _fake_plan(*args, **kwargs):
         return (
@@ -764,8 +822,11 @@ def test_voice_tts_echoes_voice_turn_id_header(
     vault_owner_token_for_user,
 ):
     token = vault_owner_token_for_user("user_a")
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+    )
 
     async def _fake_tts(*args, **kwargs):
         stream = _FakeTTSStream([b"abc"], content_length=3, openai_http_ms=12)
@@ -791,8 +852,11 @@ def test_voice_tts_echoes_voice_turn_id_header(
 async def test_voice_tts_stops_streaming_after_client_disconnect(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("KAI_VOICE_V1_ENABLED", "true")
-    monkeypatch.setenv("KAI_VOICE_V1_ALLOWED_USERS", "user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+    )
 
     stream = _FakeTTSStream([b"ab", b"c"], content_length=3, openai_http_ms=12)
 

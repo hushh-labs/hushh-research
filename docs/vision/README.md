@@ -69,6 +69,16 @@ What changes is the clarity of the story:
 - **BYOK**
 - **zero-knowledge**
 
+## Planning Boundary
+
+`docs/vision/` is for durable north stars only:
+
+- product thesis
+- trust invariants
+- enduring assistant philosophy
+
+Speculative workflow architecture, R&D options, and future-roadmap concepts belong in [../future/README.md](../future/README.md), not in `docs/vision/`.
+
 ## Monorepo Philosophy
 
 The platform may need a large integrated backbone, but the contributor experience should feel smaller:

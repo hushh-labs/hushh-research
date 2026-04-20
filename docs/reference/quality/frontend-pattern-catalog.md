@@ -87,6 +87,55 @@ Rules:
 1. Nested routes should navigate back through the top shell, not through feature-local inline buttons.
 2. Preserve the parent workspace context in the back target, including route params or query state when that context is part of the flow.
 3. Only use inline back controls when the surface is outside the normal shell, such as a modal, sheet, or fullscreen flow.
+4. Query-state workspaces such as `/profile?panel=...` still count as nested navigation and must resolve their back affordance through the shared top bar.
+
+## Pattern: Standard Route Header Leading
+Use `PageHeader icon={...}` for normal signed-in route headers.
+
+Rules:
+1. The `icon` slot is the default route-header leading treatment.
+2. Do not recreate custom route-header icon wells with `leading`.
+3. Reserve `leading` for semantic non-icon content such as badges, avatars, or endpoint method pills.
+4. Match `PageHeader accent` to the actual surface identity, not the broader product area.
+5. When a primary route header has both actions and descriptive copy, prefer the standard 3-row mobile layout instead of forcing actions inline.
+
+## Pattern: Primary Read Sections
+Use one primary summary card for the main read in analysis/workspace sections.
+
+Rules:
+1. Do not add adjacent mini-summary cards that restate the same status, count, or framing.
+2. Secondary cards should only exist when they introduce new evidence, alternate reads, or drill-down actions.
+3. Counts such as focus-block totals or secondary-read totals should usually sit as small badges inside the main card, not as separate cards.
+
+## Pattern: Inspectable Evidence
+Use when a surface exposes counts, grouped objects, leaders/laggards, tracked names, or any other summary that implies underlying data.
+
+Rules:
+1. If the UI says `44 names`, the detail state should expose the 44 names cleanly.
+2. Prefer the component density that preserves meaning:
+   - badges for short symbol or keyword sets
+   - rows for richer objects with context
+   - grouped semantic sections when the data needs explanation
+3. Avoid arbitrary line-broken symbol dumps or comma-group text walls with no framing.
+4. The detail state must answer why the count matters, not just repeat the count in prose.
+5. Do not open a modal or detail card unless it adds new inspectable evidence beyond the source card.
+
+## Pattern: Responsive Composition Review
+Use when a section has multiple cards, supporting modules, or a board-like layout.
+
+Rules:
+1. Rebalance composition for tablet and desktop instead of stretching the mobile stack.
+2. One oversized summary slab plus several small fragments is usually a hierarchy failure.
+3. Check symmetry, scan path, and evidence density before adding more cards or more copy.
+4. Remove repeated headers, repeated helper text, and repeated framing chrome before polishing visuals.
+
+## Pattern: Persona Copy
+Use plain-language labels on persona-facing surfaces. Internal architecture terms stay in developer-only routes and docs.
+
+Rules:
+1. Do not surface abbreviations such as `PKM` in consumer-facing profile, privacy, or settings copy.
+2. Prefer descriptive labels such as `Personal Data` when the surface is user-facing.
+3. Developer-only routes such as `PKM Agent Lab` may keep internal product terms when the audience is explicitly technical.
 
 ## Pattern: Signed-In Route Dogfooding
 Use the route-contract Playwright sweep for signed-in route families.
@@ -98,8 +147,12 @@ npm run verify:routes
 
 Rules:
 1. The route contract in `lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth.
-2. The sweep must use the real reviewer login and vault unlock path when the route family is signed-in.
-3. Route-specific one-off scripts are for debugging; they do not replace the contract-driven sweep.
+2. Do not reach for Playwright when unit, integration, service, or Next runtime diagnostics can prove the behavior more cheaply.
+3. Use the sweep when the proof requires a real browser:
+   auth/bootstrap, vault unlock, Next navigation, responsive layout, animation, or browser-only interaction.
+4. The sweep must use the real reviewer login and vault unlock path when the route family is signed-in.
+5. Same-session proof must use in-app Next client navigation after unlock; direct `page.goto(...)` is cold-entry proof, not same-session proof.
+6. Route-specific one-off scripts are for debugging; they do not replace the contract-driven sweep.
 
 ## Pattern: Stock Chart Primitives
 Use stock chart infrastructure for all chart surfaces.

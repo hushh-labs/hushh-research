@@ -307,7 +307,7 @@ describe("executeVoiceResponse", () => {
           steps: [
             {
               type: "navigate",
-              href: "/profile?tab=account&panel=gmail",
+              href: "/profile?panel=gmail",
               reason: "route_bound_action",
             },
           ],
@@ -315,7 +315,7 @@ describe("executeVoiceResponse", () => {
       },
     });
 
-    expect(input.router.push).toHaveBeenCalledWith("/profile?tab=account&panel=gmail");
+    expect(input.router.push).toHaveBeenCalledWith("/profile?panel=gmail");
     expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       shortTermMemoryWrite: true,

@@ -586,10 +586,10 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     label: "Open Gmail Connector Panel",
     meaning: "Navigates to hidden Gmail detail panel in Profile > Account.",
     scope: {
-      routes: [`${ROUTES.PROFILE}?tab=account&panel=gmail`],
+      routes: [`${ROUTES.PROFILE}?panel=gmail`],
       screens: ["profile_gmail_panel"],
       hiddenNavigable: true,
-      navigationPrerequisites: ["profile route must be active", "query params tab=account & panel=gmail"],
+      navigationPrerequisites: ["profile route must be active", "query param panel=gmail"],
     },
     trigger: {
       primary: "voice",
@@ -609,7 +609,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       handler: "router.push",
       binding: {
         kind: "route",
-        href: `${ROUTES.PROFILE}?tab=account&panel=gmail`,
+        href: `${ROUTES.PROFILE}?panel=gmail`,
       },
     },
     mapReferences: ["app/profile/page.tsx"],
@@ -688,7 +688,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       routes: [ROUTES.PROFILE_PKM_AGENT_LAB],
       screens: ["profile_pkm_agent_lab"],
       hiddenNavigable: true,
-      navigationPrerequisites: ["development or UAT access to PKM Agent Lab must be enabled"],
+      navigationPrerequisites: ["localhost developer access to PKM Agent Lab must be enabled"],
     },
     trigger: {
       primary: "voice",
@@ -718,7 +718,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     label: "Connect Gmail",
     meaning: "Starts OAuth flow for Gmail receipts connector.",
     scope: {
-      routes: [ROUTES.PROFILE, `${ROUTES.PROFILE}?tab=account&panel=gmail`],
+      routes: [ROUTES.PROFILE, `${ROUTES.PROFILE}?panel=gmail`],
       screens: ["profile_gmail_panel"],
       hiddenNavigable: false,
       navigationPrerequisites: [],
@@ -758,7 +758,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     label: "Sync Gmail Receipts Now",
     meaning: "Queues and polls Gmail receipt sync run.",
     scope: {
-      routes: [ROUTES.PROFILE_RECEIPTS, `${ROUTES.PROFILE}?tab=account&panel=gmail`],
+      routes: [ROUTES.PROFILE_RECEIPTS, `${ROUTES.PROFILE}?panel=gmail`],
       screens: ["profile_receipts", "profile_gmail_panel"],
       hiddenNavigable: false,
       navigationPrerequisites: [],
@@ -888,7 +888,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     label: "Disconnect Gmail",
     meaning: "Disconnects Gmail OAuth credentials for future syncs.",
     scope: {
-      routes: [`${ROUTES.PROFILE}?tab=account&panel=gmail`],
+      routes: [`${ROUTES.PROFILE}?panel=gmail`],
       screens: ["profile_gmail_panel"],
       hiddenNavigable: false,
       navigationPrerequisites: [],

@@ -8,11 +8,11 @@
 ```mermaid
 flowchart TD
   root["Agent Kai — Your Explainable Investing Copilot"]
-  n1["Broker Execution Future State"]
+  n1["North-star assistant thesis"]
   root --> n1
 ```
 
-See also: [broker-execution-future-state.md](./broker-execution-future-state.md) for the planned broker-adapter execution model that sits beyond today’s read-only Plaid connectivity.
+Forward-looking Kai roadmap and R&D planning now belong under [../../future/kai/README.md](../../future/kai/README.md). `docs/vision/kai/` stays north-star oriented; speculative execution-model docs should not start here.
 
 ---
 

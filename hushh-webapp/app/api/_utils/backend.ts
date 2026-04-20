@@ -52,7 +52,6 @@ function resolveEnvironment(): CanonicalEnvironment {
   return (
     normalizeEnvironment(process.env.NEXT_PUBLIC_APP_ENV) ||
     normalizeEnvironment(process.env.ENVIRONMENT) ||
-    normalizeEnvironment(process.env.APP_RUNTIME_MODE) ||
     normalizeEnvironment(process.env.APP_RUNTIME_PROFILE) ||
     (process.env.NODE_ENV === "production" ? "production" : "development")
   );

@@ -14,12 +14,12 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -101,27 +101,20 @@ export function SettingsGroup({
   embedded?: boolean;
   className?: string;
 }) {
-  const clipShell = (
-    <div className="relative isolate overflow-hidden rounded-[calc(var(--settings-group-radius)-1px)]">
+  const shell = (
+    <div
+      className={cn(
+        "relative isolate [--settings-group-radius:30px] overflow-hidden rounded-[calc(var(--app-card-radius-feature)+6px)]",
+        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
+        !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
+      )}
+    >
       <div className="relative isolate divide-y divide-border/60">{children}</div>
     </div>
   );
 
-  const shell = (
-    <div
-      className={cn(
-        "relative isolate [--settings-group-radius:24px] rounded-[var(--app-card-radius-feature)]",
-        "border border-transparent bg-transparent p-0 shadow-none",
-        "sm:border-[color:var(--app-card-border-standard)] sm:bg-[color:var(--app-card-surface-default-solid)] sm:p-px sm:shadow-[var(--app-card-shadow-standard)]",
-        !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
-      )}
-    >
-      {clipShell}
-    </div>
-  );
-
   return (
-    <section className={cn("space-y-[var(--settings-group-stack-gap)]", className)}>
+    <section className={cn("w-full space-y-[var(--settings-group-stack-gap)]", className)}>
       {eyebrow || title || description ? (
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow ? (
@@ -383,7 +376,6 @@ export function SettingsDetailPanel({
   children: ReactNode;
 }) {
   const isMobile = useIsMobile();
-
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
@@ -407,25 +399,22 @@ export function SettingsDetailPanel({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal>
-      <SheetContent
-        side="right"
-        className="w-full border-l border-[color:var(--app-card-border-standard)] !bg-[color:var(--app-card-surface-default-solid)] p-0 sm:max-w-[480px] sm:rounded-l-[var(--app-card-radius-feature)]"
-      >
-        <SheetHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4">
-          <SheetTitle className="text-base font-semibold tracking-tight">
+    <Dialog open={open} onOpenChange={onOpenChange} modal>
+      <DialogContent className="w-[calc(100%-1.5rem)] max-w-[720px] overflow-hidden p-0">
+        <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 text-left">
+          <DialogTitle className="text-base font-semibold tracking-tight">
             {title}
-          </SheetTitle>
+          </DialogTitle>
           {description ? (
-            <SheetDescription className="text-sm leading-6">
+            <DialogDescription className="text-sm leading-6">
               {description}
-            </SheetDescription>
+            </DialogDescription>
           ) : null}
-        </SheetHeader>
-        <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
           {children}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

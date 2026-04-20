@@ -13,8 +13,12 @@
 import * as admin from "firebase-admin";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
+  resolveServerFirebaseAdminCredentialsJson,
+} from "@/lib/runtime/settings";
 
-const DEFAULT_SERVICE_ACCOUNT_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON";
+const DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV;
 
 // Initialize Firebase Admin (only once)
 function initializeFirebaseAdmin() {
@@ -38,7 +42,7 @@ function initializeFirebaseAdmin() {
   }
 
   // Fallback: Check for service account JSON in environment
-  const serviceAccountEnv = process.env[DEFAULT_SERVICE_ACCOUNT_ENV];
+  const serviceAccountEnv = resolveServerFirebaseAdminCredentialsJson();
 
   if (serviceAccountEnv) {
     try {
@@ -48,7 +52,7 @@ function initializeFirebaseAdmin() {
         credential: admin.credential.cert(parsedServiceAccount),
       });
     } catch (e) {
-      console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", e);
+      console.warn(`Failed to parse ${DEFAULT_SERVICE_ACCOUNT_ENV}:`, e);
     }
   }
 

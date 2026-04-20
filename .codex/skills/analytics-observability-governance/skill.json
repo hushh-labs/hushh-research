@@ -1,0 +1,82 @@
+{
+  "id": "analytics-observability-governance",
+  "role": "owner",
+  "owner_family": "analytics-observability-governance",
+  "primary_scope": "analytics-observability-governance-intake",
+  "description": "Use when changing or verifying Kai analytics observability across GA4, Firebase Analytics, BigQuery export, growth dashboard contracts, property and stream topology, or shared-auth versus analytics-plane boundaries.",
+  "owned_paths": [
+    "docs/reference/operations/observability-architecture-map.md",
+    "docs/reference/operations/observability-google-first.md",
+    "docs/reference/operations/observability-event-matrix.md",
+    "docs/reference/quality/analytics-verification-contract.md",
+    "hushh-webapp/lib/observability",
+    "hushh-webapp/__tests__/services",
+    "consent-protocol/scripts/observability",
+    ".codex/skills/analytics-observability-governance"
+  ],
+  "non_owned_paths": [
+    "repo-operations",
+    "docs-governance",
+    "frontend",
+    "mobile-native",
+    "backend"
+  ],
+  "task_types": [
+    "analytics-observability-review"
+  ],
+  "required_reads": [
+    "docs/reference/operations/observability-architecture-map.md",
+    "docs/reference/operations/observability-google-first.md",
+    "docs/reference/operations/observability-event-matrix.md",
+    "docs/reference/quality/analytics-verification-contract.md",
+    ".codex/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md",
+    ".codex/skills/analytics-observability-governance/references/event-taxonomy-and-validation.md",
+    "consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql"
+  ],
+  "required_commands": [
+    "python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py",
+    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py summary",
+    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+    "cd hushh-webapp && npm run verify:analytics",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "analytics-observability-review",
+      "commands": [
+        "python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py",
+        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py summary",
+        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+        "cd hushh-webapp && npm run verify:analytics",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:analytics",
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "docs-governance",
+    "frontend",
+    "mobile-native",
+    "backend",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "repo-operations",
+    "docs-governance",
+    "quality-contracts",
+    "frontend",
+    "mobile-native",
+    "backend",
+    "repo-context"
+  ],
+  "risk_tags": [
+    "analytics-sink-drift",
+    "dashboard-drift",
+    "environment-pollution",
+    "export-materialization-drift"
+  ]
+}

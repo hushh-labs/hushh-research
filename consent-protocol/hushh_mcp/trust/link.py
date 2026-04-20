@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import time
 
-from hushh_mcp.config import DEFAULT_TRUST_LINK_EXPIRY_MS, SECRET_KEY
+from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_TRUST_LINK_EXPIRY_MS
 from hushh_mcp.types import AgentID, ConsentScope, TrustLink, UserID
 
 # ========== TrustLink Creator ==========
@@ -59,4 +59,4 @@ def is_trusted_for_scope(link: TrustLink, required_scope: ConsentScope) -> bool:
 
 
 def _sign(input_string: str) -> str:
-    return hmac.new(SECRET_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()
+    return hmac.new(APP_SIGNING_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()

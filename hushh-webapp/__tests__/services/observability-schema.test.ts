@@ -42,4 +42,23 @@ describe("observability schema", () => {
     expect(result.sanitized.action).toBe("google");
     expect(result.sanitized.result).toBe("error");
   });
+
+  it("accepts growth funnel payloads with the bounded growth params", () => {
+    const result = validateAndSanitizeEvent("growth_funnel_step_completed", {
+      env: "uat",
+      platform: "web",
+      journey: "investor",
+      step: "portfolio_ready",
+      entry_surface: "kai_import",
+      auth_method: "google",
+      portfolio_source: "statement",
+      app_version: "2.1.0",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.droppedKeys).toEqual([]);
+    expect(result.sanitized.journey).toBe("investor");
+    expect(result.sanitized.step).toBe("portfolio_ready");
+    expect(result.sanitized.entry_surface).toBe("kai_import");
+  });
 });

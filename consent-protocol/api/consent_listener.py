@@ -376,11 +376,13 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
             logger.info("FCM skipped: no push tokens for user_id=%s", user_id)
             return
         from api.utils.firebase_admin import ensure_firebase_admin
+        from hushh_mcp.runtime_settings import FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
 
         configured, _ = ensure_firebase_admin()
         if not configured:
             logger.warning(
-                "FCM skipped: Firebase Admin not configured (set FIREBASE_SERVICE_ACCOUNT_JSON)"
+                "FCM skipped: Firebase Admin not configured (set %s)",
+                FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
             )
             return
         from firebase_admin import messaging
