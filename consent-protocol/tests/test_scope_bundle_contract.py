@@ -8,24 +8,18 @@ valid dynamic scope that the scope matching system recognizes.
 
 from __future__ import annotations
 
-import os
 import re
 
-os.environ.setdefault("SECRET_KEY", "a" * 32)
-os.environ.setdefault("VAULT_ENCRYPTION_KEY", "b" * 64)
+import pytest
 
-import pytest  # noqa: E402
-
-from hushh_mcp.consent.scope_bundles import (  # noqa: E402
+from hushh_mcp.consent.scope_bundles import (
     CANONICAL_BUNDLES,
-    ScopeBundle,
     expand_bundle,
     get_bundle_display_info,
     list_bundles,
 )
-from hushh_mcp.consent.scope_generator import get_scope_generator  # noqa: E402
-from hushh_mcp.consent.scope_helpers import scope_matches  # noqa: E402
-
+from hushh_mcp.consent.scope_generator import get_scope_generator
+from hushh_mcp.consent.scope_helpers import scope_matches
 
 # ---------------------------------------------------------------------------
 # Structural invariants
