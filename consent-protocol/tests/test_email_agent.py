@@ -12,12 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
-
-# Set env vars BEFORE any hushh_mcp imports (config.py validates at import time).
-os.environ.setdefault("SECRET_KEY", "a" * 32)
-os.environ.setdefault("VAULT_ENCRYPTION_KEY", "b" * 64)
-
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,7 +25,6 @@ from hushh_mcp.services.email_agent_service import (
     _strip_quoted_reply,
     parse_sendgrid_inbound,
 )
-
 
 # ==========================================================================
 # Email address extraction
@@ -264,7 +257,7 @@ class TestWebhookSignatureVerification:
         assert _verify_sendgrid_signature(b"body", None) is True
 
     def test_valid_signature_passes(self, monkeypatch):
-        secret = "test-webhook-secret"
+        secret = "test-webhook-secret"  # noqa: S105
         monkeypatch.setenv("SENDGRID_WEBHOOK_SECRET", secret)
         body = b'{"from":"a@b.com"}'
         sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
