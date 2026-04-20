@@ -62,8 +62,9 @@ Non-owned surfaces:
    - `db_contract_drift`
 3. Apply the smallest safe remediation for the highest-signal blocking class first.
 4. Rerun the authoritative checks twice after the remediation instead of trusting the first green pass.
-5. Stop only when the blocking classifications are empty or a real permissions/product boundary is explicit.
-6. Advisory doc/skill drift should be recorded, but it must not block the loop unless it masks a core runtime failure.
+5. Do not call the RCA task complete while a relevant core run for the touched SHA is still `queued`, `in_progress`, or `requested`; keep monitoring until GitHub reaches a terminal state.
+6. Stop only when the blocking classifications are empty and the relevant core run chain is terminal green, or a real permissions/product boundary is explicit.
+7. Advisory doc/skill drift should be recorded, but it must not block the loop unless it masks a core runtime failure.
 
 ## Handoff Rules
 

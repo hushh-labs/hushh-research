@@ -20,6 +20,7 @@ Use package-local commands only when you are working inside a package on purpose
 <repo-root>/bin/hushh codex onboard
 <repo-root>/bin/hushh codex route-task repo-orientation
 <repo-root>/bin/hushh codex impact repo-orientation
+<repo-root>/bin/hushh codex pre-pr
 <repo-root>/bin/hushh codex ci-status --watch
 <repo-root>/bin/hushh web
 <repo-root>/bin/hushh web --mode uat
@@ -41,6 +42,7 @@ Use package-local commands only when you are working inside a package on purpose
 <repo-root>/bin/hushh codex scan summary
 <repo-root>/bin/hushh codex scan section skills
 <repo-root>/bin/hushh codex list-workflows
+<repo-root>/bin/hushh codex pre-pr --include-advisory
 <repo-root>/bin/hushh codex ci-status
 <repo-root>/bin/hushh codex audit
 <repo-root>/bin/hushh codex rca --surface runtime
@@ -71,3 +73,4 @@ Use package-local commands only when you are working inside a package on purpose
 - Use `uv` as the canonical Python install surface for `consent-protocol`; `requirements*.txt` are generated compatibility artifacts, not contributor commands.
 - Treat `./bin/hushh db verify-release-contract`, `./bin/hushh db verify-uat-schema`, and `./bin/hushh db report-prod-posture` as the authoritative DB governance surface.
 - Use `./bin/hushh codex rca --surface runtime|uat|ci` as the canonical machine-readable RCA surface for core runtime, CI, and UAT release failures.
+- Use `./bin/hushh codex pre-pr` as the canonical pre-PR local mirror of `PR Validation` and `CI Status Gate`; add `--include-advisory` only when you intentionally want the wider readiness lane.

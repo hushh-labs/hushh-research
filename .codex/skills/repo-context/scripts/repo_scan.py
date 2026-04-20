@@ -72,6 +72,7 @@ REQUIRED_WORKFLOWS = [
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
     "release-readiness",

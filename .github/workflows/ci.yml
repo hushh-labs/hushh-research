@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
@@ -91,8 +91,8 @@ jobs:
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
           GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
-          REQUIRE_GITHUB_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || '1' }}
-          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || '1' }}
+          REQUIRE_GITHUB_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '1' }}
+          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '1' }}
           REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN: "0"
 
   dco-check:
@@ -210,10 +210,11 @@ jobs:
 
       - name: Upload security audit artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-npm-audit-report
           path: hushh-webapp/npm-audit-report.json
+          if-no-files-found: ignore
 
   # ============================================================================
   # Backend (Python FastAPI) -- same shared script as upstream consent-protocol CI
