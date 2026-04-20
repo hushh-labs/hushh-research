@@ -133,7 +133,7 @@ function toSelectedProfile(item: DiscoveryCard): SelectedProfile {
 export default function MarketplacePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { personaState, activePersona } = usePersonaState();
+  const { activePersona } = usePersonaState();
   const environment = resolveAppEnvironment();
   const allowTestProfiles = environment !== "production";
   const allowKaiTestInvestor = canShowKaiTestProfile();
