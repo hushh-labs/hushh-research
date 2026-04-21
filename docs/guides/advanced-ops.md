@@ -108,7 +108,7 @@ Deploy workflows already validate:
 - runtime env/secret parity
 - backend/frontend runtime contract injection
 
-Production is no longer an auto-deploy branch lane. It is a manual dispatch of an approved green `main` SHA via [`.github/workflows/deploy-production.yml`](../../.github/workflows/deploy-production.yml), recorded under the canonical `production-owner-bypass` environment.
+Production is no longer an auto-deploy branch lane. It is a manual dispatch of an approved green `main` SHA via [`.github/workflows/deploy-production.yml`](../../.github/workflows/deploy-production.yml), recorded under the canonical `production` environment.
 
 Reference docs:
 
