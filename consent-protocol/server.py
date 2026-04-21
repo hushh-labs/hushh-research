@@ -96,6 +96,7 @@ from api.routes import (  # noqa: E402
     db_proxy,
     debug_firebase,
     developer,
+    feedback,
     health,
     notifications,
     session,
@@ -228,6 +229,9 @@ app.include_router(sse.router)
 
 # Push notification token registration (/api/notifications/register)
 app.include_router(notifications.router)
+
+# Feedback reactions for AI-generated insight cards (/api/feedback)
+app.include_router(feedback.router)
 
 # Dev-only debug routes (/api/_debug/...)
 if not _is_production():
