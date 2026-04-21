@@ -10,6 +10,19 @@
       "RGlodAkshat",
       "ankitkumarsingh1702"
     ],
+    "protected_pipeline_edit_users": [
+      "kushaltrivedi5",
+      "Akash-292",
+      "RGlodAkshat",
+      "ankitkumarsingh1702"
+    ],
+    "protected_pipeline_paths": [
+      ".github/workflows/",
+      ".github/actions/",
+      "scripts/ci/",
+      "deploy/",
+      "config/ci-governance.json"
+    ],
     "merge_queue_required": true,
     "merge_queue_bypass_team_slug": "main-bypass-queue",
     "merge_queue_bypass_users": [
