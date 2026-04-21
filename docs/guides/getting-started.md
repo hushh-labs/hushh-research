@@ -29,6 +29,7 @@ Required:
 - `npm >= 10`
 - `python3 >= 3.13`
 - `jq`
+- `uv`
 
 Optional, depending on the work:
 
@@ -42,7 +43,8 @@ Optional, depending on the work:
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 ./bin/hushh bootstrap
-./bin/hushh web --mode uat
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh web
 ```
 
 `./bin/hushh bootstrap` is the only supported onboarding entrypoint. It:
@@ -50,16 +52,42 @@ cd hushh-research
 - installs frontend and backend dependencies
 - hydrates the three canonical runtime profiles when cloud access is available
 - activates the selected profile into `hushh-webapp/.env.local` and `consent-protocol/.env`
-- materializes generated native artifacts under `hushh-webapp/.env.local.d/`
 - runs the environment doctor
 
-The default recommended mode is `uat` because it gives you the fastest working app:
+Seeded files:
+
+- `consent-protocol/.env`
+- generated frontend profile files beside the tracked examples in `hushh-webapp/`
+- active frontend runtime in `hushh-webapp/.env.local`
+
+`./bin/hushh bootstrap` and `./bin/hushh web` now both default to `local`.
+
+That local-first path is the recommended maintainer and contributor baseline:
+
+- local frontend
+- local backend
+- fewer hidden differences from the actual development contract
+
+Use `./bin/hushh web --mode uat` when you want the fastest frontend-only path:
 
 - local frontend
 - deployed UAT backend
 - no local backend boot required
 
 If you are not doing backend work, stop there. Do not start the local backend or Cloud SQL proxy just to work on the app locally.
+
+If you want a reproducible containerized setup, open the repo through `.devcontainer/devcontainer.json`.
+
+## Choose Your Lane
+
+- App contributor:
+  `./bin/hushh terminal backend --mode local --reload` then `./bin/hushh web`
+- Backend contributor in the monorepo:
+  `./bin/hushh terminal backend --mode local --reload`
+- Standalone backend contributor:
+  `cd consent-protocol && uv sync --frozen --group dev && ./bin/consent-protocol dev`
+- Operator or release maintainer:
+  continue into `docs/reference/operations/`
 
 ## Canonical Commands
 
@@ -69,6 +97,7 @@ If you are not doing backend work, stop there. Do not start the local backend or
 ./bin/hushh doctor --mode uat
 ./bin/hushh doctor --mode prod
 
+./bin/hushh web
 ./bin/hushh terminal backend --mode local --reload
 ./bin/hushh terminal web --mode local
 ./bin/hushh web --mode uat
@@ -80,6 +109,12 @@ If you are not doing backend work, stop there. Do not start the local backend or
 
 Public docs should not teach legacy root task surfaces or ad hoc env assembly as the normal first-run path.
 
+Contributor contract:
+
+- first-party repo code is Apache-2.0
+- PR commits require `Signed-off-by` (`git commit -s`)
+- `uv` is the canonical Python install path for `consent-protocol`
+
 ## Runtime Profiles
 
 Supported modes:
@@ -89,6 +124,20 @@ Supported modes:
 - `prod`: local frontend against deployed production backend
 
 See [environment-model.md](./environment-model.md) for the exact rules.
+
+## Doctor Output
+
+`./bin/hushh doctor --mode <mode>` now separates three states:
+
+- `source contract`: the seeded files and profile values are coherent
+- `active profile`: the currently active frontend runtime actually matches the mode you asked for
+- `app ready now`: the selected mode can be run immediately without another profile switch
+
+Typical outcomes:
+
+- `ready`: seeded files are valid and the active profile already matches
+- `activation_required`: seeded files are valid, but you still need `./bin/hushh env use --mode <mode>`
+- `blocked`: the selected mode is missing required files, targets, or secrets
 
 ## If You Need the Local Backend
 

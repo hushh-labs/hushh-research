@@ -61,6 +61,7 @@ export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
   verification_status: string;
+  verification_provider?: string;
   advisory_status?: string;
   brokerage_status?: string;
   requested_capabilities?: string[];
@@ -93,6 +94,18 @@ export interface RiaOnboardingStatus {
     expires_at?: string | null;
     reference_metadata?: Record<string, unknown>;
   } | null;
+}
+
+export interface RiaNameVerificationResult {
+  status: "verified" | "not_verified" | "provider_unavailable";
+  matched_name?: string | null;
+  crd_number?: string | null;
+  current_firm?: string | null;
+  sec_number?: string | null;
+  reason?: string | null;
+  reason_code?: "query_too_broad" | "no_confident_match";
+  suggested_names?: string[];
+  provider: string;
 }
 
 export interface RiaFirmMembership {
@@ -488,6 +501,7 @@ interface FetchOptions {
   method: "GET" | "POST";
   body?: Record<string, unknown>;
   idToken?: string;
+  signal?: AbortSignal;
 }
 
 interface CachedReadOptions {
@@ -766,6 +780,7 @@ async function authFetch(path: string, options: FetchOptions): Promise<Response>
     method: options.method,
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
   });
 }
 
@@ -1018,6 +1033,12 @@ export class RiaService {
     brokerage_outcome: string;
     brokerage_message: string;
     professional_access_granted: boolean;
+    individual_legal_name?: string | null;
+    individual_crd?: string | null;
+    advisory_firm_legal_name?: string | null;
+    advisory_firm_iapd_number?: string | null;
+    broker_firm_legal_name?: string | null;
+    broker_firm_crd?: string | null;
   }> {
     const response = await authFetch("/api/ria/onboarding/submit", {
       method: "POST",
@@ -1025,6 +1046,20 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow(response);
+  }
+
+  static async verifyOnboardingName(
+    idToken: string,
+    payload: { query: string },
+    options?: { signal?: AbortSignal }
+  ): Promise<RiaNameVerificationResult> {
+    const response = await authFetch("/api/ria/onboarding/verify-name", {
+      method: "POST",
+      idToken,
+      body: payload,
+      signal: options?.signal,
+    });
+    return toJsonOrThrow<RiaNameVerificationResult>(response);
   }
 
   static async getOnboardingStatus(
@@ -1080,6 +1115,12 @@ export class RiaService {
     brokerage_outcome: string;
     brokerage_message: string;
     professional_access_granted: boolean;
+    individual_legal_name?: string | null;
+    individual_crd?: string | null;
+    advisory_firm_legal_name?: string | null;
+    advisory_firm_iapd_number?: string | null;
+    broker_firm_legal_name?: string | null;
+    broker_firm_crd?: string | null;
   }> {
     const response = await authFetch("/api/ria/onboarding/dev-activate", {
       method: "POST",

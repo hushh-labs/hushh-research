@@ -130,12 +130,6 @@ function deferred<T>() {
 describe("VoiceTtsPlaybackManager", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
-    delete process.env.NEXT_PUBLIC_DISABLE_VOICE_FALLBACKS;
-    delete process.env.NEXT_PUBLIC_FAIL_FAST_VOICE;
-    delete process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE;
-    delete process.env.DISABLE_VOICE_FALLBACKS;
-    delete process.env.FAIL_FAST_VOICE;
-    delete process.env.FORCE_REALTIME_VOICE;
     synthesizeKaiVoiceMock.mockReset();
     FakeAudio.instances = [];
     FakeAudio.autoEnd = true;
@@ -331,8 +325,7 @@ describe("VoiceTtsPlaybackManager", () => {
     expect(states[states.length - 1]).toBe("idle");
   });
 
-  it("does not use browser speech synthesis fallback when fail-fast voice is enabled", async () => {
-    process.env.NEXT_PUBLIC_FAIL_FAST_VOICE = "true";
+  it("does not use browser speech synthesis fallback when backend TTS fails", async () => {
     const speechSynthesisSpeak = vi.fn();
     const speechSynthesisCancel = vi.fn();
     Object.defineProperty(window, "speechSynthesis", {
@@ -360,7 +353,7 @@ describe("VoiceTtsPlaybackManager", () => {
         userId: "user_1",
         vaultOwnerToken: "token_1",
         text: "Hello world",
-        voiceTurnId: "vturn_fail_fast_tts",
+        voiceTurnId: "vturn_backend_tts_failure",
       })
     ).rejects.toThrow("VOICE_TTS_HTTP_502");
 
@@ -368,8 +361,7 @@ describe("VoiceTtsPlaybackManager", () => {
     expect(playbackFailures).toContain("VOICE_TTS_HTTP_502");
   });
 
-  it("does not use browser speech synthesis fallback when force realtime voice is enabled", async () => {
-    process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE = "true";
+  it("does not use browser speech synthesis fallback on repeated backend failure paths", async () => {
     const speechSynthesisSpeak = vi.fn();
     const speechSynthesisCancel = vi.fn();
     Object.defineProperty(window, "speechSynthesis", {
@@ -397,7 +389,7 @@ describe("VoiceTtsPlaybackManager", () => {
         userId: "user_1",
         vaultOwnerToken: "token_1",
         text: "Hello world",
-        voiceTurnId: "vturn_force_realtime_tts",
+        voiceTurnId: "vturn_backend_tts_failure_repeat",
       })
     ).rejects.toThrow("VOICE_TTS_HTTP_502");
 
@@ -441,10 +433,8 @@ describe("VoiceTtsPlaybackManager", () => {
     expect(playbackFailures).toContain("VOICE_TTS_HTTP_502");
   });
 
-  it("falls back from realtime stream TTS to backend TTS when enabled", async () => {
-    process.env.NEXT_PUBLIC_VOICE_V2_TTS_BACKEND_FALLBACK_ENABLED = "true";
-    const states: string[] = [];
-    const manager = new VoiceTtsPlaybackManager((state) => states.push(state));
+  it("does not fallback from realtime stream TTS to backend TTS", async () => {
+    const manager = new VoiceTtsPlaybackManager();
     const realtimeSpeak = vi.fn().mockRejectedValue(new Error("VOICE_STREAM_TTS_PLAYBACK_FAILED"));
 
     synthesizeKaiVoiceMock.mockResolvedValue(
@@ -460,20 +450,21 @@ describe("VoiceTtsPlaybackManager", () => {
       })
     );
 
-    await manager.speak({
-      userId: "user_1",
-      vaultOwnerToken: "token_1",
-      text: "Hello world",
-      voiceTurnId: "vturn_realtime_fallback",
-      adapter: "realtime_stream_tts",
-      realtimeAdapter: {
-        speak: realtimeSpeak,
-      },
-    });
+    await expect(
+      manager.speak({
+        userId: "user_1",
+        vaultOwnerToken: "token_1",
+        text: "Hello world",
+        voiceTurnId: "vturn_realtime_fallback",
+        adapter: "realtime_stream_tts",
+        realtimeAdapter: {
+          speak: realtimeSpeak,
+        },
+      })
+    ).rejects.toThrow("VOICE_STREAM_TTS_PLAYBACK_FAILED");
 
     expect(realtimeSpeak).toHaveBeenCalledTimes(1);
-    expect(synthesizeKaiVoiceMock).toHaveBeenCalledTimes(1);
-    expect(states).toEqual(["loading", "idle", "loading", "playing", "idle"]);
+    expect(synthesizeKaiVoiceMock).not.toHaveBeenCalled();
   });
 
   it("rejects realtime stream TTS when playback never starts and fallback is disabled", async () => {

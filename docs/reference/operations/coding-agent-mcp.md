@@ -118,7 +118,7 @@ enabled = true
 [mcp_servers.hushh_consent.env]
 PYTHONPATH = "/absolute/path/to/consent-protocol"
 CONSENT_API_URL = "http://localhost:8000"
-FRONTEND_URL = "http://localhost:3000"
+APP_FRONTEND_ORIGIN = "http://localhost:3000"
 ```
 
 ## Where to configure MCP servers
@@ -172,18 +172,23 @@ When working in this repo:
 4. Start with `./bin/hushh codex onboard` for first-run contributor or agent orientation.
 5. Use `./bin/hushh codex list-workflows`, `route-task <workflow-id>`, and `impact <workflow-id>` for recurring repo workflows before improvising a route.
 6. Use `./bin/hushh codex ci-status --watch` when the task depends on live PR checks or GitHub Actions state.
-7. Use the repo-owned skill `.codex/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
-8. Use owner skills for broad domain intake:
+7. Use `./bin/hushh codex rca --surface <uat|runtime|ci>` when the task starts from a core runtime, deploy, or semantic verification failure and needs a resume-safe RCA artifact.
+8. Use the repo-owned skill `.codex/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
+9. Use owner skills for broad domain intake:
    - `.codex/skills/frontend/`
    - `.codex/skills/mobile-native/`
    - `.codex/skills/backend/`
    - `.codex/skills/security-audit/`
    - `.codex/skills/docs-governance/`
    - `.codex/skills/repo-operations/`
-9. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
-10. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-11. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
-12. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+   - `.codex/skills/autonomous-rca-governance/`
+   - `.codex/skills/oss-license-governance/`
+   - `.codex/skills/contributor-onboarding/`
+   - `.codex/skills/subtree-upstream-governance/`
+10. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
+11. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+12. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
+13. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
 
 If a developer has not configured MCP yet:
 

@@ -14,9 +14,14 @@
     "docs-governance",
     "planning-board",
     "frontend",
-    "backend"
+    "backend",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
   ],
   "task_types": [
+    "pre-pr-readiness",
     "ci-watch-and-heal",
     "release-readiness",
     "mobile-parity-check",
@@ -31,26 +36,27 @@
   ],
   "required_commands": [
     "./bin/hushh codex ci-status",
+    "./bin/hushh codex pre-pr",
+    "./bin/hushh codex rca --surface uat --text",
     "./bin/hushh docs verify",
     "./bin/hushh ci",
     "./scripts/ci/verify-main-branch-protection.sh",
-    "./scripts/ci/verify-production-environment-governance.sh",
-    "./scripts/ci/assert-governed-actor.py --surface uat --actor kushaltrivedi5",
-    "./scripts/ci/assert-governed-actor.py --surface production --actor kushaltrivedi5"
+    "./scripts/ci/verify-production-environment-governance.sh"
   ],
   "verification_bundles": [
     {
       "id": "repo-operations",
       "commands": [
         "./bin/hushh codex ci-status",
+        "./bin/hushh codex pre-pr",
+        "./bin/hushh codex rca --surface uat --text",
         "./bin/hushh docs verify",
         "./bin/hushh ci",
         "./scripts/ci/verify-main-branch-protection.sh",
-        "./scripts/ci/verify-production-environment-governance.sh",
-        "./scripts/ci/assert-governed-actor.py --surface uat --actor kushaltrivedi5",
-        "./scripts/ci/assert-governed-actor.py --surface production --actor kushaltrivedi5"
+        "./scripts/ci/verify-production-environment-governance.sh"
       ],
       "tests": [
+        "./bin/hushh codex rca --surface uat --text",
         "./bin/hushh docs verify",
         "./scripts/ci/verify-main-branch-protection.sh",
         "./scripts/ci/verify-production-environment-governance.sh"
@@ -61,6 +67,10 @@
     "repo-context",
     "planning-board",
     "docs-governance",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
     "backend",
     "security-audit"
   ],
@@ -68,10 +78,15 @@
     "repo-context",
     "backend",
     "security-audit",
-    "docs-governance"
+    "docs-governance",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
   ],
   "risk_tags": [
     "ci-drift",
+    "branch-protection-drift",
     "env-parity-drift",
     "release-drift"
   ]

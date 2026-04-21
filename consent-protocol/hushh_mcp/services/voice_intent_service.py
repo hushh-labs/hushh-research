@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from hushh_mcp.runtime_settings import get_voice_runtime_settings
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 from hushh_mcp.services.ticker_cache import ticker_cache
 from hushh_mcp.services.voice_app_knowledge import (
@@ -1307,44 +1308,20 @@ class VoiceTTSStreamHandle:
 
 class VoiceIntentService:
     def __init__(self) -> None:
+        voice_settings = get_voice_runtime_settings()
         self.api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-        self.force_realtime_voice = _env_bool("FORCE_REALTIME_VOICE", default=False)
-        self.fail_fast_voice = _env_bool("FAIL_FAST_VOICE", default=False)
-        self.disable_voice_fallbacks = (
-            _env_bool("DISABLE_VOICE_FALLBACKS", default=False)
-            or self.fail_fast_voice
-            or self.force_realtime_voice
+        self.force_realtime_voice = voice_settings.force_realtime
+        self.fail_fast_voice = voice_settings.fail_fast
+        self.disable_voice_fallbacks = voice_settings.disable_fallbacks
+        self.realtime_enabled = voice_settings.realtime_enabled
+        self.realtime_model = voice_settings.realtime_model
+        self.stt_models = list(voice_settings.stt_models)
+        self.intent_models = list(voice_settings.intent_models)
+        configured_tts_model = str(
+            voice_settings.tts_models[0] if voice_settings.tts_models else ""
         )
-        self.realtime_enabled = _env_bool(
-            "KAI_VOICE_REALTIME_ENABLED", default=self.force_realtime_voice
-        )
-        self.realtime_model = (
-            os.getenv("OPENAI_VOICE_REALTIME_MODEL") or "gpt-realtime"
-        ).strip() or "gpt-realtime"
-        self.stt_models = _parse_model_candidates(
-            os.getenv("OPENAI_VOICE_STT_MODELS"),
-            default_models=[
-                os.getenv("OPENAI_VOICE_STT_MODEL") or "gpt-4o-mini-transcribe",
-                "whisper-1",
-            ],
-        )
-        self.intent_models = _parse_model_candidates(
-            os.getenv("OPENAI_VOICE_INTENT_MODELS"),
-            default_models=[
-                os.getenv("OPENAI_VOICE_INTENT_MODEL") or "gpt-4.1-nano",
-                "gpt-4o-mini",
-                "gpt-4.1-mini",
-            ],
-        )
-        configured_tts_model = (os.getenv("OPENAI_VOICE_TTS_MODEL") or "").strip()
-        parsed_tts_models = _parse_model_candidates(
-            os.getenv("OPENAI_VOICE_TTS_MODELS"),
-            default_models=[
-                configured_tts_model or "gpt-4o-mini-tts",
-                "gpt-4o-mini-tts",
-            ],
-        )
-        self.tts_prefer_quality = _env_bool("OPENAI_VOICE_TTS_PREFER_QUALITY", default=False)
+        parsed_tts_models = list(voice_settings.tts_models)
+        self.tts_prefer_quality = voice_settings.tts_prefer_quality
         self.tts_models = _prioritize_tts_models(
             parsed_tts_models,
             configured_model=configured_tts_model,
@@ -1352,10 +1329,8 @@ class VoiceIntentService:
         )
         self.tts_model = self.tts_models[0]
         self.tts_models = [self.tts_model]
-        self.tts_default_voice = (
-            os.getenv("OPENAI_VOICE_TTS_DEFAULT_VOICE") or "alloy"
-        ).strip() or "alloy"
-        self.tts_format = (os.getenv("OPENAI_VOICE_TTS_FORMAT") or "mp3").strip() or "mp3"
+        self.tts_default_voice = voice_settings.tts_default_voice
+        self.tts_format = voice_settings.tts_format
         self.upstream_http_timeout_seconds = _OPENAI_HTTP_TIMEOUT_SECONDS
         self.tts_timeout_seconds = _OPENAI_TTS_TIMEOUT_SECONDS
         logger.info(
@@ -1381,7 +1356,7 @@ class VoiceIntentService:
         )
         if self.disable_voice_fallbacks:
             logger.warning(
-                "[VOICE_FAIL_FAST] model fallback chains are disabled (DISABLE_VOICE_FALLBACKS/FAIL_FAST_VOICE)."
+                "[VOICE_FAIL_FAST] model fallback chains are disabled by VOICE_RUNTIME_CONFIG_JSON."
             )
 
     def _ordered_tts_model_candidates(self) -> list[str]:

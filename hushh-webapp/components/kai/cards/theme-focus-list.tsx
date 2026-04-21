@@ -4,6 +4,7 @@ import { Cpu, Percent, Zap, type LucideIcon } from "lucide-react";
 
 import { Icon } from "@/lib/morphy-ux/ui";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { marketCardClassName } from "@/components/kai/shared/market-surface-theme";
 import { cn } from "@/lib/utils";
 
 export interface ThemeFocusItem {
@@ -32,7 +33,7 @@ export function ThemeFocusList({ themes = [] }: { themes?: ThemeFocusItem[] }) {
         <SurfaceCard
           key={theme.id || theme.title}
           accent="none"
-          className="h-full border-[color:color-mix(in_srgb,var(--app-card-border-strong)_72%,rgba(59,130,246,0.14)_28%)] bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(244,247,252,0.82)_100%)] dark:bg-[color:var(--app-card-surface-default-solid)]"
+          className={cn("h-full", marketCardClassName)}
         >
           <SurfaceCardContent className="flex h-full min-w-0 items-start gap-3 p-4">
             <div

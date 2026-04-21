@@ -163,7 +163,7 @@ describe("PkmDomainDetailPanel", () => {
     expect(screen.getByText("$412,000")).toBeTruthy();
     expect(screen.queryByText("saved_data")).toBeNull();
     const dialogContent = document.querySelector('[data-slot="dialog-content"]');
-    expect(dialogContent?.className).toContain("sm:max-w-[min(28rem,calc(100vw-7rem))]");
+    expect(dialogContent?.className).toContain("sm:max-w-[min(26rem,calc(100vw-8rem))]");
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 });

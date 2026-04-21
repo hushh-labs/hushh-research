@@ -52,20 +52,16 @@ REQUIRED_WORKFLOW_KEYS = [
     "impact_fields",
     "handoff_chain",
     "common_failures",
-    "scheduled_safe",
-    "maintenance_cadence",
-    "maintenance_runner",
-    "maintenance_owner",
-    "maintenance_issue_section",
-    "maintenance_blockers",
-    "maintenance_prerequisites",
 ]
 EXPECTED_WORKFLOW_IDS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "api-contract-change",
+    "pr-governance-review",
+    "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
     "release-readiness",
@@ -73,12 +69,16 @@ EXPECTED_WORKFLOW_IDS = [
     "skill-authoring",
     "board-update",
     "community-response",
+    "autonomous-rca-governance",
     "future-roadmap-plan",
     "mcp-surface-change",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
+    "hushh-consent-mcp-ops",
     "security-posture-maintenance",
 ]
 SPECIAL_HANDOFF_TOKENS = {"selected-owner-skill"}
-MAINTENANCE_CADENCES = {"daily", "weekly", "monthly", "manual"}
 MEANINGFUL_SURFACES = [
     "README.md",
     "bin",
@@ -180,6 +180,21 @@ def extract_code_paths(text: str) -> list[str]:
     return paths
 
 
+def parse_required_checks(section_text: str) -> list[str]:
+    lines: list[str] = []
+    in_block = False
+    for raw_line in section_text.splitlines():
+        stripped = raw_line.strip()
+        if stripped == "```bash":
+            in_block = True
+            continue
+        if in_block and stripped == "```":
+            break
+        if in_block and stripped:
+            lines.append(stripped)
+    return lines
+
+
 def path_exists(candidate: str) -> bool:
     normalized = candidate.rstrip("/")
     return (REPO_ROOT / normalized).exists()
@@ -257,6 +272,7 @@ def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
                 "owner_family": coverage["owner_family"],
                 "owned_surfaces": [value.rstrip("/") for value in coverage["owned_surfaces"]],
                 "non_owned_surfaces": [value.rstrip("/") for value in coverage["non_owned_surfaces"]],
+                "required_checks": parse_required_checks(sections["Required Checks"]),
             }
         )
     return skills, errors
@@ -294,6 +310,8 @@ def validate_skill_manifests(skills: list[dict[str, Any]], errors: list[str]) ->
             errors.append(f"{manifest_path.relative_to(REPO_ROOT)}: owned_paths must match SKILL.md")
         if manifest.get("required_reads", []) != [value.rstrip("/") for value in extract_backticks(skill["sections"]["Read First"])]:
             errors.append(f"{manifest_path.relative_to(REPO_ROOT)}: required_reads must match SKILL.md Read First")
+        if manifest.get("required_commands", []) != skill["required_checks"]:
+            errors.append(f"{manifest_path.relative_to(REPO_ROOT)}: required_commands must match SKILL.md Required Checks")
 
         primary_scope = manifest.get("primary_scope", "")
         if primary_scope:
@@ -428,50 +446,12 @@ def validate_workflows(skill_manifests: dict[str, dict[str, Any]], errors: list[
             if not isinstance(value, list) or not value:
                 errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: `{field}` must be a non-empty list")
 
-        if not isinstance(workflow.get("scheduled_safe"), bool):
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: `scheduled_safe` must be a boolean")
-        cadence = workflow.get("maintenance_cadence")
-        if cadence not in MAINTENANCE_CADENCES:
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_cadence must be one of {sorted(MAINTENANCE_CADENCES)}")
-        maintenance_owner = workflow.get("maintenance_owner")
-        if maintenance_owner not in skill_manifests:
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_owner `{maintenance_owner}` does not exist")
-        issue_section = workflow.get("maintenance_issue_section")
-        if not isinstance(issue_section, str) or not issue_section.strip():
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_issue_section must be a non-empty string")
-        else:
-            other = issue_sections.get(issue_section)
-            if other:
-                errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_issue_section `{issue_section}` already used by {other}")
-            else:
-                issue_sections[issue_section] = str(workflow_path.relative_to(REPO_ROOT))
-        runner = workflow.get("maintenance_runner")
-        if not isinstance(runner, list) or not all(isinstance(item, str) and item for item in runner):
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_runner must be a string list")
-        blockers = workflow.get("maintenance_blockers")
-        if not isinstance(blockers, list) or not all(isinstance(item, str) and item for item in blockers):
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_blockers must be a string list")
-        prerequisites = workflow.get("maintenance_prerequisites")
-        if not isinstance(prerequisites, list) or not all(isinstance(item, str) and item for item in prerequisites):
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_prerequisites must be a string list")
-        if workflow.get("scheduled_safe") and cadence == "manual":
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: scheduled_safe workflows cannot use manual cadence")
-        if not workflow.get("scheduled_safe") and cadence != "manual":
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: manual-only workflows must use maintenance_cadence `manual`")
-        if workflow.get("scheduled_safe") and not runner:
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: scheduled_safe workflow must declare maintenance_runner commands")
-        if cadence == "monthly" and workflow.get("scheduled_safe") and not prerequisites:
-            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: monthly scheduled workflow must declare maintenance_prerequisites")
-
         for candidate in workflow.get("affected_surfaces", []):
             if candidate.startswith(PATH_PREFIXES) and not path_exists(candidate):
                 errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: affected surface does not exist: {candidate}")
         for candidate in workflow.get("required_reads", []):
             if candidate.startswith(PATH_PREFIXES) and not path_exists(candidate):
                 errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: required read does not exist: {candidate}")
-        for command in workflow.get("maintenance_runner", []):
-            if not re.search(r"^\./bin/hushh\s+|^python3\s+|^cd ", command):
-                errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: maintenance_runner command has unsupported shape: {command}")
 
         validate_verification_bundle(workflow.get("verification_bundle"), str(workflow_path.relative_to(REPO_ROOT)), errors)
 

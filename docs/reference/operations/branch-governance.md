@@ -8,7 +8,7 @@ flowchart LR
   feature["feature / fix / dev branches"]
   main["main"]
   green["Green main SHA"]
-  uat["UAT deploy<br/>auto from exact SHA"]
+  uat["UAT deploy<br/>manual exact SHA"]
   prod["Production deploy<br/>manual chosen SHA"]
   feature --> main --> green
   green --> uat
@@ -20,17 +20,20 @@ This repo now runs on one integration branch plus SHA-based environment deployme
 | Lane | Purpose | Default policy |
 |---|---|---|
 | `main` | Team integration branch | Every feature PR targets `main` |
-| UAT | Hosted validation environment | Auto-deploys the exact green `main` SHA |
+| UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
 
 1. Start all development branches from `main`.
 2. Merge all feature/fix/docs work back into `main`.
-3. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-4. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses that exact commit SHA.
-5. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
-6. Do not open release PRs into environment branches; the deployment source of truth is `main`.
+3. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
+4. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
+5. After an isolated hotfix lands, return local work to the normal development branch or `main` and delete the temporary branch after rollout validation.
+6. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
+7. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
+8. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
+9. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
 ## Branch Types and Retention
 
@@ -51,9 +54,9 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### UAT
 
-1. Auto-deploys only after a successful `Main Post-Merge Smoke` push run on `main`.
-2. The workflow checks out the exact green `main` SHA from that CI run.
-3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat` for redeploying a chosen green `main` SHA.
+1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
+2. The workflow checks out that exact chosen green `main` SHA.
+3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 
@@ -69,7 +72,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Create the hotfix branch from the latest `main`.
 2. Merge the hotfix into `main`.
-3. Let UAT auto-deploy the new green `main` SHA, or manually redeploy that same SHA to UAT if needed.
+3. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
 4. If another blocker appears after that rollout, create a new hotfix branch from the updated `main`.
 5. Do not reuse an already-merged hotfix branch for a second fix.
 
@@ -79,21 +82,26 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Require pull requests before merge.
 2. Require the `CI Status Gate` status check.
-3. Keep classic branch protection non-strict; freshness is enforced through merge queue, not per-PR rebasing churn.
-4. Enable merge queue for `main`.
-5. Block force-pushes.
-6. Block branch deletion.
-7. Use review bypass plus the dedicated `main-bypass-queue` team for the 3 core owners only; do not rely on overlapping push restrictions.
-8. Keep ordinary development off `main`; use PRs from developer branches.
+3. Require strict/up-to-date checks.
+4. Require conversation resolution before merge.
+5. Enable merge queue for `main`.
+6. Block force-pushes.
+7. Block branch deletion.
+8. Do not require blanket PR approvals on `main`; CI status plus merge queue are the default merge gates.
+9. Use review bypass plus the dedicated `main-bypass-queue` team for the sanctioned `main` bypass cohort only; do not rely on overlapping push restrictions.
+10. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
 
 - `enforce_admins` should stay enabled
+- DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
+- `main` intentionally requires `0` blanket approvals; the external community still goes through PR + CI + queue
 - admin ownership does not count as an independent PR approval
 - a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges
-- the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`
-- the current live merge-queue bypass team is `main-bypass-queue`, containing those same 3 users only
+- the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`
+- the current live merge-queue bypass team is `main-bypass-queue`, containing those same 4 users only
+- the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
 - direct pushes to `main` are not the default bypass model; the preferred path is a green PR plus bypass merge

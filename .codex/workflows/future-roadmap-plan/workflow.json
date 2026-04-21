@@ -51,15 +51,5 @@
     "mixing future-roadmap concepts into vision docs",
     "writing speculative implementation detail as if it is already approved",
     "ignoring trust, PKM, or consent edge cases"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "future-planner",
-  "maintenance_issue_section": "future-roadmap-plan",
-  "maintenance_blockers": [
-    "planning doc has no status or promotion rule",
-    "future skill or workflow manifests drift from docs-home rules"
-  ],
-  "maintenance_prerequisites": []
+  ]
 }

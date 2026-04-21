@@ -27,6 +27,7 @@ from hushh_mcp.integrations.alpaca import (
     AlpacaBrokerRuntimeConfig,
 )
 from hushh_mcp.integrations.plaid import PlaidHttpClient, PlaidRuntimeConfig
+from hushh_mcp.runtime_settings import get_optional_plaid_access_token_key
 
 logger = logging.getLogger(__name__)
 
@@ -353,7 +354,7 @@ class BrokerFundingService:
 
     def _resolve_secret_encryption_key(self) -> bytes:
         configured = _clean_text(
-            os.getenv("FUNDING_SECRET_ENCRYPTION_KEY") or os.getenv("PLAID_TOKEN_ENCRYPTION_KEY")
+            os.getenv("FUNDING_SECRET_ENCRYPTION_KEY") or get_optional_plaid_access_token_key()
         )
         if configured:
             try:

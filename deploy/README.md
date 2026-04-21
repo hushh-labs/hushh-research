@@ -26,6 +26,7 @@ The green `main` SHA triggers [`.github/workflows/deploy-uat.yml`](../.github/wo
 4. deploys backend/frontend
 5. reruns the read-only UAT schema contract gate after deploy
 6. runs the hosted runtime parity check
+7. loads the maintainer-only `UAT_SMOKE_*` overlay and runs semantic release verification with bounded retry/rollback
 
 ### Backend Deployment
 
@@ -70,7 +71,7 @@ Runtime profile source templates and activation behavior are documented in the g
 - Do not start local UAT DB access with bare `python`/`uvicorn` unless the
   proxy is already running.
 - The launcher starts `cloud-sql-proxy` automatically for the UAT Cloud SQL
-  instance and authenticates it from `FIREBASE_SERVICE_ACCOUNT_JSON` in the
+  instance and authenticates it from `FIREBASE_ADMIN_CREDENTIALS_JSON` in the
   active backend env, or `CLOUDSQL_PROXY_CREDENTIALS_FILE` if explicitly set.
 - The launcher refuses to fall back to local `gcloud`/ADC credentials for this
   path.
@@ -101,10 +102,13 @@ Local full run with advisory checks:
 ./bin/hushh ci --include-advisory
 ```
 
-### UAT analytics divergence note
+### UAT analytics note
 
-UAT currently includes newer analytics/auth-split expectations (`NEXT_PUBLIC_AUTH_FIREBASE_*`, measurement IDs, GTM IDs).
-Production analytics key migration is deferred intentionally and should be handled as a separate release task.
+UAT and production now use the same frontend runtime contract shape:
+
+- one Firebase web config set
+- one active measurement ID: `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
+- one active GTM ID: `NEXT_PUBLIC_GTM_ID`
 
 ---
 
@@ -149,24 +153,22 @@ Production analytics key migration is deferred intentionally and should be handl
      --require-plaid
    ```
 
-   Required backend secrets (11):
+   Required backend secrets (8):
 
-   - `SECRET_KEY`
-   - `VAULT_ENCRYPTION_KEY`
+   - `APP_SIGNING_KEY`
+   - `VAULT_DATA_KEY`
    - `GOOGLE_API_KEY`
-   - `FIREBASE_SERVICE_ACCOUNT_JSON`
-   - `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON`
-   - `FRONTEND_URL`
+   - `FIREBASE_ADMIN_CREDENTIALS_JSON`
+   - `APP_FRONTEND_ORIGIN`
+   - `BACKEND_RUNTIME_CONFIG_JSON`
    - `DB_USER`
    - `DB_PASSWORD`
-   - `APP_REVIEW_MODE`
-   - `REVIEWER_UID`
 
    Optional when Plaid brokerage is enabled (3):
 
    - `PLAID_CLIENT_ID`
    - `PLAID_SECRET`
-   - `PLAID_TOKEN_ENCRYPTION_KEY`
+   - `PLAID_ACCESS_TOKEN_KEY`
 
    **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
    Plaid webhook and callback settings are runtime env vars, not dashboard secrets:
@@ -300,9 +302,10 @@ gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
 
 All required secrets must exist in Google Cloud Secret Manager before deployment. Run the parity audit script, then create any missing secrets manually.
 
-**Backend (10 baseline secrets):** `SECRET_KEY`, `VAULT_ENCRYPTION_KEY`, `GOOGLE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON`, `FRONTEND_URL`, `DB_USER`, `DB_PASSWORD`, `APP_REVIEW_MODE`, `REVIEWER_UID`
+**Backend (8 baseline secrets):** `APP_SIGNING_KEY`, `VAULT_DATA_KEY`, `GOOGLE_API_KEY`, `FIREBASE_ADMIN_CREDENTIALS_JSON`, `APP_FRONTEND_ORIGIN`, `BACKEND_RUNTIME_CONFIG_JSON`, `DB_USER`, `DB_PASSWORD`
+**Backend voice secrets when voice is enabled (2):** `OPENAI_API_KEY`, `VOICE_RUNTIME_CONFIG_JSON`
 **Backend market-data secrets when Kai market home is enabled (2):** `FINNHUB_API_KEY`, `PMP_API_KEY`
-**Backend Plaid secrets when brokerage is enabled (3):** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_TOKEN_ENCRYPTION_KEY`
+**Backend Plaid secrets when brokerage is enabled (3):** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ACCESS_TOKEN_KEY`
 
 **Note:** 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets) in `backend.cloudbuild.yaml`
@@ -314,8 +317,9 @@ All required secrets must exist in Google Cloud Secret Manager before deployment
   echo "your-db-password" | gcloud secrets create DB_PASSWORD --data-file=-
   ```
 
-**Frontend build-time (16 centrally-managed values):**
+**Frontend build-time (11 centrally-managed values):**
 - `BACKEND_URL`
+- `APP_FRONTEND_ORIGIN`
 - `NEXT_PUBLIC_FIREBASE_API_KEY`
 - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
 - `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
@@ -323,20 +327,13 @@ All required secrets must exist in Google Cloud Secret Manager before deployment
 - `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
 - `NEXT_PUBLIC_FIREBASE_APP_ID`
 - `NEXT_PUBLIC_FIREBASE_VAPID_KEY` (web push / FCM)
-- `NEXT_PUBLIC_AUTH_FIREBASE_API_KEY`
-- `NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN`
-- `NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID`
-- `NEXT_PUBLIC_AUTH_FIREBASE_APP_ID`
-- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING`
-- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION`
-- `NEXT_PUBLIC_GTM_ID_STAGING`
-- `NEXT_PUBLIC_GTM_ID_PRODUCTION`
+- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
+- `NEXT_PUBLIC_GTM_ID`
 
 These Firebase values are public client config, but are still centrally injected from Secret Manager to avoid hardcoded deploy YAML values.
 
 **Frontend runtime (server-only Next.js API handlers):**
-- `FIREBASE_SERVICE_ACCOUNT_JSON`
-- `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` (required for auth-split setups, e.g., UAT web using prod Firebase Auth)
+- `FIREBASE_ADMIN_CREDENTIALS_JSON`
 
 See [docs/reference/operations/env-and-secrets.md](../docs/reference/operations/env-and-secrets.md) for full reference.
 
@@ -465,12 +462,12 @@ After deploying frontend, update backend's CORS:
 
 ```bash
 # Get frontend URL
-FRONTEND_URL=$(gcloud run services describe hushh-webapp --region=us-central1 --format="value(status.url)")
+APP_FRONTEND_ORIGIN=$(gcloud run services describe hushh-webapp --region=us-central1 --format="value(status.url)")
 
 # Update backend
 gcloud run services update consent-protocol \
   --region=us-central1 \
-  --update-env-vars=FRONTEND_URL=$FRONTEND_URL
+  --update-env-vars=APP_FRONTEND_ORIGIN=$APP_FRONTEND_ORIGIN
 ```
 
 ---
@@ -571,7 +568,7 @@ gcloud run services logs read SERVICE_NAME --region=us-central1 --limit=20
 ### CORS Errors
 
 ```bash
-# Verify FRONTEND_URL is set
+# Verify APP_FRONTEND_ORIGIN is set
 gcloud run services describe consent-protocol --region=us-central1 --format="value(spec.template.spec.containers[0].env)"
 ```
 

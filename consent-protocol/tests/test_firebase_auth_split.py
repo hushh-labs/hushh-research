@@ -6,7 +6,6 @@ import pytest
 from fastapi import HTTPException
 
 from api.utils.firebase_admin import (
-    AUTH_APP_NAME,
     ensure_firebase_admin,
     ensure_firebase_auth_admin,
     get_firebase_auth_app,
@@ -60,7 +59,7 @@ def test_ensure_firebase_admin_uses_default_service_account(monkeypatch):
         "private_key": "test-default-private-key-material",
     }
 
-    monkeypatch.setenv("FIREBASE_SERVICE_ACCOUNT_JSON", json.dumps(default_sa))
+    monkeypatch.setenv("FIREBASE_ADMIN_CREDENTIALS_JSON", json.dumps(default_sa))
     monkeypatch.setattr("api.utils.firebase_admin._get_existing_app", lambda name=None: None)
 
     captured: dict[str, object] = {}
@@ -89,69 +88,13 @@ def test_ensure_firebase_admin_uses_default_service_account(monkeypatch):
     assert captured["name"] is None
 
 
-def test_ensure_firebase_auth_admin_uses_dedicated_service_account(monkeypatch):
-    import firebase_admin
-    from firebase_admin import credentials
-
-    auth_sa = {
-        "type": "service_account",
-        "project_id": "hushh-pda",
-        "client_email": "auth@example.com",
-        "private_key": "test-auth-private-key-material",
-    }
-
-    monkeypatch.setenv("FIREBASE_AUTH_SERVICE_ACCOUNT_JSON", json.dumps(auth_sa))
-    monkeypatch.setattr("api.utils.firebase_admin._get_existing_app", lambda name=None: None)
-
-    captured: dict[str, object] = {}
-
-    def fake_certificate(service_account):
-        captured["service_account"] = service_account
-        return {"service_account": service_account}
-
-    def fake_initialize_app(cred, name=None):
-        captured["cred"] = cred
-        captured["name"] = name
-
-        class FakeApp:
-            project_id = cred["service_account"]["project_id"]
-
-        return FakeApp()
-
-    monkeypatch.setattr(credentials, "Certificate", fake_certificate)
-    monkeypatch.setattr(firebase_admin, "initialize_app", fake_initialize_app)
-
-    configured, project_id = ensure_firebase_auth_admin()
-
-    assert configured is True
-    assert project_id == "hushh-pda"
-    assert captured["service_account"] == auth_sa
-    assert captured["name"] == AUTH_APP_NAME
-
-
 def test_ensure_firebase_auth_admin_falls_back_to_default_admin(monkeypatch):
-    monkeypatch.delenv("FIREBASE_AUTH_SERVICE_ACCOUNT_JSON", raising=False)
     monkeypatch.setattr(
         "api.utils.firebase_admin.ensure_firebase_admin",
         lambda: (True, "hushh-pda-uat"),
     )
 
     assert ensure_firebase_auth_admin() == (True, "hushh-pda-uat")
-
-
-def test_get_firebase_auth_app_prefers_dedicated_auth_app(monkeypatch):
-    default_app = object()
-    auth_app = object()
-
-    monkeypatch.setattr(
-        "api.utils.firebase_admin.ensure_firebase_auth_admin", lambda: (True, "hushh-pda")
-    )
-    monkeypatch.setattr(
-        "api.utils.firebase_admin._get_existing_app",
-        lambda name=None: auth_app if name == AUTH_APP_NAME else default_app,
-    )
-
-    assert get_firebase_auth_app() is auth_app
 
 
 def test_get_firebase_auth_app_falls_back_to_default_app(monkeypatch):
@@ -162,7 +105,7 @@ def test_get_firebase_auth_app_falls_back_to_default_app(monkeypatch):
     )
     monkeypatch.setattr(
         "api.utils.firebase_admin._get_existing_app",
-        lambda name=None: None if name == AUTH_APP_NAME else default_app,
+        lambda name=None: default_app if name is None else None,
     )
 
     assert get_firebase_auth_app() is default_app

@@ -84,7 +84,7 @@ require_contains_any "$MONO_PROTOCOL_BLOCK" \
 require_contains "run: bash scripts/ci/backend-check.sh" "$UPSTREAM_BACKEND_BLOCK" \
   "Upstream backend-check workflow job runs shared backend-check script"
 
-for env_key in TESTING SECRET_KEY VAULT_ENCRYPTION_KEY HUSHH_DEVELOPER_TOKEN; do
+for env_key in TESTING APP_SIGNING_KEY VAULT_DATA_KEY HUSHH_DEVELOPER_TOKEN; do
   require_contains "${env_key}:" "$MONO_PROTOCOL_BLOCK" \
     "Monorepo protocol-check exports ${env_key}"
   require_contains "${env_key}:" "$UPSTREAM_BACKEND_BLOCK" \

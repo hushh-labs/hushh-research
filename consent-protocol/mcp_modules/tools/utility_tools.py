@@ -253,7 +253,7 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                             {
                                 "error": "developer_token_missing",
                                 "message": "HUSHH_DEVELOPER_TOKEN is required for discover_user_domains",
-                                "hint": "Set HUSHH_DEVELOPER_TOKEN in MCP environment to call /api/v1/user-scopes/{user_id}. MCP_DEVELOPER_TOKEN remains a compatibility alias.",
+                                "hint": "Set HUSHH_DEVELOPER_TOKEN in the MCP environment to call /api/v1/user-scopes/{user_id}.",
                             }
                         ),
                     )

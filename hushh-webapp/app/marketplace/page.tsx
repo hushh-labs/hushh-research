@@ -12,6 +12,7 @@ import {
   MapPin,
   RotateCcw,
   Search,
+  ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
@@ -59,6 +60,7 @@ type DiscoveryCard = {
   metaLine: string;
   canConnect: boolean;
   isTestProfile?: boolean;
+  verificationStatus?: string | null;
   profile: MarketplaceRia | MarketplaceInvestor;
 };
 
@@ -475,6 +477,7 @@ export default function MarketplacePage() {
             : "Public advisory profile",
         canConnect,
         isTestProfile: false,
+        verificationStatus: ria.verification_status,
         profile: ria,
       };
     }).filter((item) => item.canConnect);
@@ -810,6 +813,12 @@ export default function MarketplacePage() {
                               Test
                             </span>
                           ) : null}
+                          {swipeCard.kind === "ria" && swipeCard.verificationStatus && !swipeCard.isTestProfile ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                              <ShieldCheck className="h-3 w-3" />
+                              Verified
+                            </span>
+                          ) : null}
                         </div>
                         <p className="text-sm leading-6 text-foreground/86 sm:text-base">{swipeCard.headline}</p>
                       </div>
@@ -883,7 +892,9 @@ export default function MarketplacePage() {
                             : "Demo"
                           : actionLoadingUserId === swipeCard.profile.user_id
                             ? "Connecting..."
-                            : "Connect"}
+                            : currentPersona === "investor"
+                              ? "Request advisory"
+                              : "Send request"}
                       </span>
                     </Button>
                   </div>
@@ -934,6 +945,12 @@ export default function MarketplacePage() {
                           Test
                         </span>
                       ) : null}
+                      {item.kind === "ria" && item.verificationStatus && !item.isTestProfile ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                          <ShieldCheck className="h-3 w-3" />
+                          Verified
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-sm leading-6 text-foreground/84">{item.headline}</p>
                   </div>
@@ -972,7 +989,9 @@ export default function MarketplacePage() {
                         : "Demo"
                       : actionLoadingUserId === userId
                         ? "Connecting..."
-                        : "Connect"}
+                        : currentPersona === "investor"
+                          ? "Request advisory"
+                          : "Send request"}
                   </Button>
                   <Button
                     variant="none"
@@ -1057,19 +1076,21 @@ export default function MarketplacePage() {
               </RiaSurface>
 
               <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="blue-gradient"
-                  effect="fill"
-                  size="sm"
-                  onClick={() => void createConnectionToAdvisor(selectedAdvisor)}
-                  disabled={actionLoadingUserId === selectedAdvisor.user_id || Boolean(selectedInjectedRia)}
-                >
-                  {selectedInjectedRia
-                    ? "Demo"
-                    : actionLoadingUserId === selectedAdvisor.user_id
-                      ? "Connecting..."
-                      : "Connect"}
-                </Button>
+                {currentPersona === "investor" ? (
+                  <Button
+                    variant="blue-gradient"
+                    effect="fill"
+                    size="sm"
+                    onClick={() => void createConnectionToAdvisor(selectedAdvisor)}
+                    disabled={actionLoadingUserId === selectedAdvisor.user_id || Boolean(selectedInjectedRia)}
+                  >
+                    {selectedInjectedRia
+                      ? "Demo"
+                      : actionLoadingUserId === selectedAdvisor.user_id
+                        ? "Connecting..."
+                        : "Request advisory"}
+                  </Button>
+                ) : null}
                 {selectedAdvisor.disclosures_url ? (
                   <Button asChild variant="none" effect="fade" size="sm">
                     <a href={selectedAdvisor.disclosures_url} target="_blank" rel="noreferrer">
@@ -1140,7 +1161,7 @@ export default function MarketplacePage() {
                     ? "Open workspace"
                     : actionLoadingUserId === selectedInvestor.user_id
                       ? "Connecting..."
-                      : "Connect"}
+                      : "Send request"}
                 </Button>
                 <Button
                   variant="none"

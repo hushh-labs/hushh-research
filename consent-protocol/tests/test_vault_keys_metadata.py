@@ -396,7 +396,7 @@ async def test_setup_vault_state_allows_multiple_wrappers_for_same_method(monkey
 
 def test_allowed_passkey_rp_ids_derive_from_frontend_and_cors(monkeypatch):
     monkeypatch.delenv("PASSKEY_ALLOWED_RP_IDS", raising=False)
-    monkeypatch.setenv("FRONTEND_URL", "https://kai.hushh.ai")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://kai.hushh.ai")
     monkeypatch.setenv(
         "CORS_ALLOWED_ORIGINS",
         "https://kai.hushh.ai,https://hushh-webapp-rpphvsc3tq-uc.a.run.app",
@@ -414,7 +414,7 @@ def test_allowed_passkey_rp_ids_prefer_explicit_allowlist(monkeypatch):
         "PASSKEY_ALLOWED_RP_IDS",
         "localhost,127.0.0.1,kai.hushh.ai,uat.kai.hushh.ai",
     )
-    monkeypatch.setenv("FRONTEND_URL", "https://uat.kai.hushh.ai")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://uat.kai.hushh.ai")
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.kai.hushh.ai")
 
     allowed = VaultKeysService._get_allowed_passkey_rp_ids()

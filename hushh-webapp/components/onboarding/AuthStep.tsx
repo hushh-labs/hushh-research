@@ -250,7 +250,11 @@ export function AuthStep({
             localReviewerCredentials.password
           )
         : await (async () => {
-            const { token } = await ApiService.createAppReviewModeSession("reviewer");
+            const { token } = await ApiService.createAppReviewModeSession("reviewer", {
+              smokePassphrase: nativeTestConfig.autoReviewerLogin
+                ? nativeTestConfig.vaultPassphrase
+                : null,
+            });
             return AuthService.signInWithCustomToken(token);
           })();
       const authenticatedUser = authResult.user;
@@ -299,6 +303,7 @@ export function AuthStep({
     growthEntrySurface,
     growthJourney,
     nativeTestConfig.autoReviewerLogin,
+    nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
     setNativeUser,

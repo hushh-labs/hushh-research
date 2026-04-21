@@ -92,6 +92,8 @@ Required configuration:
 - `NEXT_PUBLIC_ANDROID_APP_ID` (default `com.hushh.app`)
 - Backend allowlist: `PASSKEY_ALLOWED_RP_IDS` in `consent-protocol/.env`
 
+These are deploy/native configuration inputs, not part of the canonical frontend runtime profile files under `hushh-webapp/.env.local*`.
+
 Notes:
 
 - For dual-domain migration, keep both production hosts in `PASSKEY_ALLOWED_RP_IDS`.
@@ -131,8 +133,8 @@ Accepted parity exceptions currently documented in the registry:
 
 - `hushh-webapp/ios/App/App/GoogleService-Info-README.md` documents the untracked iOS Firebase plist workflow.
 - Android Firebase config is treated as generated build input, not a committed source artifact.
-- `./bin/hushh bootstrap` hydrates the active profile and materializes native Firebase artifacts under `hushh-webapp/.env.local.d/`.
-- Native build wrappers apply the generated sidecar for the build and then restore tracked templates.
+- `./bin/hushh bootstrap` only hydrates the runtime profiles. It does not materialize native Firebase artifacts into the active frontend env files.
+- Native build/release flows should handle platform Firebase artifacts explicitly and keep them out of git.
 - Root-level local Firebase artifacts must remain untracked.
 
 ```

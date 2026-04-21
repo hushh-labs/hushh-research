@@ -10,6 +10,13 @@ If you are new to the repo, start at the monorepo root with:
 
 Use the scripts here only when you are working on backend verification, migrations, or operator maintenance.
 
+Release authority stays outside this folder:
+
+- authoritative numbered migrations: `db/migrations/`
+- authoritative release order: `db/release_migration_manifest.json`
+
+Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
+
 ## Keep In Mind
 
 - Runtime and deploy entrypoints live outside this folder.
@@ -24,9 +31,9 @@ Use the scripts here only when you are working on backend verification, migratio
 - `run-test-ci.sh`: canonical backend CI executor for the Python subtree.
 - `test-ci.manifest.txt`: backend CI file manifest.
 - `verify_adk_a2a_compliance.py`: protocol compliance verification.
-- `verify_consent_audit_schema.py`: consent audit schema validation.
-- `verify_iam_schema.py`: IAM schema validation.
-- `verify_vault_schema.py`: vault schema validation.
+- `../db/verify/verify_consent_audit_schema.py`: consent audit schema validation.
+- `../db/verify/verify_iam_schema.py`: IAM schema validation.
+- `../db/verify/verify_vault_schema.py`: vault schema validation.
 - `uat_kai_regression_smoke.py`: UAT-focused Kai smoke coverage for maintainers.
 
 ### Inspection and Evaluation
@@ -42,11 +49,11 @@ Use the scripts here only when you are working on backend verification, migratio
 - `import_tickers.py`: ticker reference import.
 - `normalize_user_data_format.py`: normalize legacy user payloads.
 - `migrate_financial_v2.py`: deterministic financial model migration support.
-- `init_supabase_schema.sql`: schema bootstrap for controlled maintenance scenarios.
+- `../db/legacy/init_supabase_schema.sql`: schema bootstrap for controlled maintenance scenarios only; not release authority.
 
 ### Reset, Seed, and Repair
 
-- `seed_investors.py`: local/UAT investor seed flow.
+- `../db/seeds/seed_investors.py`: local/UAT investor seed flow.
 - `reset_dev_user_data.py`: reset a developer/test user state.
 - `reset_finance_root_user.py`: reset the finance-root testing user.
 - `fix_partial_vault_rows.py`: targeted repair for partial vault rows.
