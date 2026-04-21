@@ -47,6 +47,7 @@ Use the root CLI for agent-first onboarding and deterministic workflow routing:
 - `./bin/hushh codex list-workflows`
 - `./bin/hushh codex route-task <workflow-id>`
 - `./bin/hushh codex impact <workflow-id> [--path <repo-path>]`
+- `./bin/hushh codex pre-pr`
 - `./bin/hushh codex ci-status [--watch]`
 - `./bin/hushh codex audit`
 

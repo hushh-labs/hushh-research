@@ -67,11 +67,10 @@ def test_iam_persona_schema_not_ready_returns_compat_payload(monkeypatch):
 
 
 def test_ria_request_enforces_verification_policy(monkeypatch):
-    async def _mock_create(self, user_id: str, **kwargs):  # noqa: ANN003
-        assert user_id == "user_test_123"
+    async def _mock_require(self, user_id: str):
         raise RIAIAMPolicyError("RIA verification incomplete", status_code=403)
 
-    monkeypatch.setattr(RIAIAMService, "create_ria_consent_request", _mock_create)
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
 
     client = TestClient(_build_app())
     response = client.post(
@@ -91,10 +90,14 @@ def test_ria_request_enforces_verification_policy(monkeypatch):
 
 
 def test_ria_clients_schema_not_ready_returns_503(monkeypatch):
+    async def _mock_require(self, user_id: str):
+        return
+
     async def _mock_clients(self, user_id: str):
         assert user_id == "user_test_123"
         raise IAMSchemaNotReadyError("IAM schema is not ready")
 
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
     monkeypatch.setattr(RIAIAMService, "list_ria_clients", _mock_clients)
 
     client = TestClient(_build_app())
@@ -272,12 +275,16 @@ def test_ria_picks_parse_requires_csv(monkeypatch):
 
 
 def test_ria_client_picks_share_toggle(monkeypatch):
+    async def _mock_require(self, user_id: str):
+        return
+
     async def _mock_toggle(self, user_id: str, *, investor_user_id: str, enabled: bool):
         assert user_id == "user_test_123"
         assert investor_user_id == "investor_1"
         assert enabled is False
         return {"enabled": False, "status": "revoked", "grant_key": "ria_active_picks_feed_v1"}
 
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
     monkeypatch.setattr(RIAIAMService, "set_ria_pick_share_state", _mock_toggle)
 
     client = TestClient(_build_app())
@@ -314,6 +321,9 @@ def test_ria_home_omits_pick_history_fields(monkeypatch):
 
 
 def test_ria_invites_create(monkeypatch):
+    async def _mock_require(self, user_id: str):
+        return
+
     async def _mock_create(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"
         assert kwargs["scope_template_id"] == "ria_financial_summary_v1"
@@ -327,6 +337,7 @@ def test_ria_invites_create(monkeypatch):
             ]
         }
 
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
     monkeypatch.setattr(RIAIAMService, "create_ria_invites", _mock_create)
 
     client = TestClient(_build_app())
@@ -533,11 +544,15 @@ def test_consent_center_list_route_supports_top_preview(monkeypatch):
 
 
 def test_generic_consent_request_routes_to_ria_request_creation(monkeypatch):
+    async def _mock_require(self, user_id: str):
+        return
+
     async def _mock_create(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"
         assert kwargs["scope_template_id"] == "ria_financial_summary_v1"
         return {"request_id": "req_generic_1", "status": "REQUESTED"}
 
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
     monkeypatch.setattr(RIAIAMService, "create_ria_consent_request", _mock_create)
 
     client = TestClient(_build_app())
@@ -558,6 +573,11 @@ def test_generic_consent_request_routes_to_ria_request_creation(monkeypatch):
 
 
 def test_ria_client_detail_route_exposes_relationship_share_fields(monkeypatch):
+    async def _mock_require(self, user_id: str):
+        return
+
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
+
     async def _mock_detail(self, user_id: str, investor_user_id: str):
         assert user_id == "user_test_123"
         assert investor_user_id == "investor_1"

@@ -56,13 +56,13 @@ The blocking CI surface stays intentionally small:
 Canonical local parity run:
 
 ```bash
-./bin/hushh ci
+./bin/hushh codex pre-pr
 ```
 
 Advisory checks remain opt-in:
 
 ```bash
-./bin/hushh ci --include-advisory
+./bin/hushh codex pre-pr --include-advisory
 ```
 
 ## Deploy
@@ -78,7 +78,7 @@ Recommended sequence:
 bash scripts/ci/orchestrate.sh all
 
 # merge the approved change into main
-# UAT auto-deploys the successful main SHA
+# trigger UAT manually only when you explicitly want hosted validation on that green main SHA
 ```
 
 That workflow is wired through [`.github/workflows/deploy-uat.yml`](../../.github/workflows/deploy-uat.yml), which now checks:

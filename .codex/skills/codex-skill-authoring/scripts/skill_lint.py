@@ -60,6 +60,7 @@ EXPECTED_WORKFLOW_IDS = [
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
     "release-readiness",

@@ -64,23 +64,25 @@ Non-owned surfaces:
 8. Monitor the resulting workflow chain until terminal success or a concrete blocker.
 9. For core authority surfaces, the task is not complete while GitHub still shows any relevant run for the touched SHA as `queued`, `in_progress`, or `requested`.
 10. Core authority surfaces are `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`, `Deploy to UAT`, and any RCA-triggered release-authority rerun for the same SHA.
-11. After a merge to `main`, continue monitoring through `Main Post-Merge Smoke` and downstream `Deploy to UAT`; a merged PR with an active post-merge or UAT chain is still in progress.
-12. If a core run fails, default to the smallest safe repair and rerun loop before declaring a blocker. Only stop early for a real permissions, product, or platform boundary.
-13. Default runtime launch behavior must be visible separate OS terminal windows, not hidden Codex sessions.
-14. For local app work, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands unless the user explicitly asks for something else.
-15. Use hidden long-lived Codex sessions only for background monitoring, one-off debugging, or when a visible terminal is not desired.
-16. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
-17. Default branch policy: continue work on the user's active development branch. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
-18. Create a new branch only when one of these is true:
+11. Before opening or updating a pull request, run `./bin/hushh codex pre-pr` as the canonical local mirror of `PR Validation` and `CI Status Gate`.
+12. Treat user intent literally: `merge to main` means land the change and monitor through `Main Post-Merge Smoke` only; do not dispatch UAT unless the user explicitly asks to deploy to UAT.
+13. Treat `deploy to UAT` as a separate cadence: land the change on `main`, identify the exact green `main` SHA, manually dispatch `Deploy to UAT` for that SHA, then monitor the deploy chain to terminal state.
+14. If a core run fails, default to the smallest safe repair and rerun loop before declaring a blocker. Only stop early for a real permissions, product, or platform boundary.
+15. Default runtime launch behavior must be visible separate OS terminal windows, not hidden Codex sessions.
+16. For local app work, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands unless the user explicitly asks for something else.
+17. Use hidden long-lived Codex sessions only for background monitoring, one-off debugging, or when a visible terminal is not desired.
+18. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
+19. Default branch policy: continue work on the user's active development branch. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
+20. Create a new branch only when one of these is true:
    - the fix is a post-merge blocker and must start from the latest `main`
    - the repo workflow requires an isolated hotfix from `main`
    - the current branch contains unrelated in-flight work that would make the fix unsafe to ship
-19. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's normal working branch or `main`; do not leave Codex parked on a temporary branch.
-20. If the user has an active development branch, back-sync merged hotfixes into that branch before closing the task so the real working branch does not drift behind `main`.
-21. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
-22. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
-23. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
-24. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
+21. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's normal working branch or `main`; do not leave Codex parked on a temporary branch.
+22. If the user has an active development branch, back-sync merged hotfixes into that branch before closing the task so the real working branch does not drift behind `main`.
+23. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
+24. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
+25. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
+26. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
 
 ## Handoff Rules
 
@@ -97,6 +99,7 @@ Non-owned surfaces:
 
 ```bash
 ./bin/hushh codex ci-status
+./bin/hushh codex pre-pr
 ./bin/hushh codex rca --surface uat --text
 ./bin/hushh docs verify
 ./bin/hushh ci

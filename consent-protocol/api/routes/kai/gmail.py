@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
-from api.middleware import require_firebase_auth, verify_user_id_match
+from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
 from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
@@ -273,8 +273,15 @@ async def gmail_receipts(
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
+    """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
     verify_user_id_match(firebase_uid, user_id)
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
     try:
         return await _service().list_receipts(
             user_id=user_id,
@@ -290,8 +297,15 @@ async def gmail_receipts(
 async def gmail_receipts_memory_preview(
     payload: GmailReceiptMemoryPreviewRequest,
     firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
+    """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
     verify_user_id_match(firebase_uid, payload.user_id)
+    if token_data["user_id"] != payload.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
     try:
         return await _receipt_memory_service().build_preview(
             user_id=payload.user_id,
@@ -307,8 +321,15 @@ async def gmail_receipts_memory_artifact(
     artifact_id: str,
     user_id: str = Query(..., min_length=1),
     firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
+    """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
     verify_user_id_match(firebase_uid, user_id)
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
     try:
         artifact = _receipt_memory_service().get_artifact(
             artifact_id=artifact_id,
