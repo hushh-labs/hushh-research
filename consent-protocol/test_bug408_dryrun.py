@@ -3,8 +3,13 @@ Dry-run verification for Bug #408 fix.
 Mirrors the 5 tests shown in the GitHub issue screenshots.
 Writes results to bug408_results.log (UTF-8).
 """
-import sys
 import os
+import sys
+import types
+import builtins
+
+
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 # Minimal env setup BEFORE any hushh_mcp imports
@@ -13,7 +18,8 @@ os.environ["VAULT_DATA_KEY"] = "a" * 64  # 64-char hex string (256-bit AES key)
 os.environ["TESTING"] = "true"
 
 # Mock DB drivers so tests work without real DB infrastructure
-import types
+
+
 for mod_name in ["asyncpg", "psycopg2", "psycopg2.extras", "psycopg2.extensions", "psycopg"]:
     if mod_name not in sys.modules:
         mock = types.ModuleType(mod_name)
@@ -128,5 +134,5 @@ out("=" * 60)
 log.close()
 
 # Also print the log file path so the user knows where to look
-import builtins
+
 builtins.print(f"Results written to: {LOG_FILE}")
