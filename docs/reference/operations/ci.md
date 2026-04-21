@@ -178,9 +178,15 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. Merge 
 | Gate | Purpose | Behavior |
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
-| Upstream Sync | Detect monorepo/subtree drift | Advisory only; warnings are non-blocking |
+| Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
 | Main Freshness Gate | Show branch freshness before merge | Advisory on pull requests, blocking on `merge_group` |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs |
+
+Operational note:
+
+- `Upstream Sync` and `Main Freshness Gate` are different surfaces.
+- `Upstream Sync` must summarize the actual `consent-protocol/` subtree state from `scripts/ci/subtree-sync-check.sh`.
+- `Main Freshness Gate` only describes branch currency relative to `main`.
 
 ## Live GitHub Enforcement
 

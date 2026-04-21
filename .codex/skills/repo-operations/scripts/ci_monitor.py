@@ -26,8 +26,13 @@ CHECK_ROUTES: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"protocol|python|fastapi|backend", re.I), "backend", "bug-triage"),
     (re.compile(r"integration|pkm|parity|playwright", re.I), "quality-contracts", "bug-triage"),
     (re.compile(r"publish\s+@hushh/mcp|mcp", re.I), "mcp-developer-surface", "mcp-surface-change"),
-    (re.compile(r"deploy to uat|deploy to production|freshness|secret scan|status gate|upstream sync", re.I), "repo-operations", "ci-watch-and-heal"),
+    (re.compile(r"upstream sync", re.I), "subtree-upstream-governance", "subtree-upstream-governance"),
+    (re.compile(r"deploy to uat|deploy to production|freshness|secret scan|status gate", re.I), "repo-operations", "ci-watch-and-heal"),
 ]
+UPSTREAM_SYNC_CHECK_NAMES = {"Upstream Sync"}
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+SUBTREE_SYNC_SUMMARY_COMMAND = "./scripts/ci/subtree-sync-check.sh"
+_SUBTREE_STATUS_CACHE: OrderedDict[str, Any] | None = None
 
 
 def _run(command: list[str]) -> str:
@@ -118,6 +123,66 @@ def _workflow_stage(workflow_name: str | None) -> str:
     return "unknown"
 
 
+def _classify_subtree_status(output: str) -> str:
+    haystack = output.lower()
+    if "behind upstream by" in haystack:
+        return "behind_upstream"
+    if "ahead of upstream by" in haystack:
+        return "ahead_of_upstream"
+    if "diverged from upstream" in haystack:
+        return "diverged"
+    if "tree-level sync detected" in haystack or "content matches upstream" in haystack or "in sync with upstream" in haystack:
+        return "in_sync"
+    if "metadata was stale" in haystack:
+        return "metadata_healed"
+    if "could not fetch upstream" in haystack or "could not resolve upstream commit" in haystack:
+        return "upstream_unavailable"
+    if "no valid subtree sync baseline found" in haystack:
+        return "missing_sync_baseline"
+    if "direction undetermined" in haystack:
+        return "direction_undetermined"
+    return "unknown"
+
+
+def _subtree_status_summary() -> OrderedDict[str, Any]:
+    global _SUBTREE_STATUS_CACHE
+    if _SUBTREE_STATUS_CACHE is not None:
+        return _SUBTREE_STATUS_CACHE
+
+    try:
+        completed = subprocess.run(
+            ["bash", "scripts/ci/subtree-sync-check.sh"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=45,
+        )
+        raw_output = f"{completed.stdout or ''}{completed.stderr or ''}"
+        output = ANSI_ESCAPE_RE.sub("", raw_output).strip()
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        summary = lines[-1] if lines else "No subtree sync summary was emitted."
+        _SUBTREE_STATUS_CACHE = OrderedDict(
+            status=_classify_subtree_status(output),
+            summary=summary,
+            command=SUBTREE_SYNC_SUMMARY_COMMAND,
+            timed_out=False,
+            exit_code=completed.returncode,
+        )
+    except subprocess.TimeoutExpired:
+        _SUBTREE_STATUS_CACHE = OrderedDict(
+            status="probe_timed_out",
+            summary=(
+                "Subtree sync probe timed out while computing consent-protocol status. "
+                "Run ./bin/hushh protocol check-sync for the authoritative result."
+            ),
+            command=SUBTREE_SYNC_SUMMARY_COMMAND,
+            timed_out=True,
+            exit_code=None,
+        )
+    return _SUBTREE_STATUS_CACHE
+
+
 def _normalize_checks(pr_payload: dict[str, Any]) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     for raw_check in pr_payload.get("statusCheckRollup", []):
@@ -128,6 +193,10 @@ def _normalize_checks(pr_payload: dict[str, Any]) -> list[dict[str, Any]]:
         next_commands = [f"./bin/hushh codex route-task {workflow_id}"]
         if run_id and job_id:
             next_commands.append(f"gh run view {run_id} --job {job_id} --log-failed")
+        subtree_summary: OrderedDict[str, Any] | None = None
+        if name in UPSTREAM_SYNC_CHECK_NAMES:
+            subtree_summary = _subtree_status_summary()
+            next_commands.append("./bin/hushh protocol check-sync")
         checks.append(
             OrderedDict(
                 name=name,
@@ -143,6 +212,9 @@ def _normalize_checks(pr_payload: dict[str, Any]) -> list[dict[str, Any]]:
                 run_id=run_id,
                 job_id=job_id,
                 recommended_next_commands=next_commands,
+                surface_summary=subtree_summary["summary"] if subtree_summary else None,
+                surface_status=subtree_summary["status"] if subtree_summary else None,
+                surface_command=subtree_summary["command"] if subtree_summary else None,
             )
         )
     return sorted(checks, key=lambda item: (item["workflow_name"] or "", item["name"]))
@@ -278,6 +350,10 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
         next_actions["primary_owner_skills"] = sorted({check["recommended_owner_skill"] for check in pending_checks})
     else:
         next_actions["primary_owner_skills"] = []
+    upstream_sync_check = next((check for check in checks if check["name"] in UPSTREAM_SYNC_CHECK_NAMES), None)
+    if upstream_sync_check and upstream_sync_check.get("surface_summary"):
+        next_actions["upstream_subtree_summary"] = upstream_sync_check["surface_summary"]
+        next_actions["upstream_subtree_route_task"] = "./bin/hushh codex route-task subtree-upstream-governance"
 
     return OrderedDict(
         pr=OrderedDict(
@@ -369,6 +445,12 @@ def _render_text(payload: OrderedDict[str, Any]) -> str:
         lines.append("Checks have not been reported by GitHub yet.")
     else:
         lines.append("No failing or pending checks.")
+    upstream_sync_check = next((check for check in payload["checks"] if check["name"] in UPSTREAM_SYNC_CHECK_NAMES), None)
+    if upstream_sync_check and upstream_sync_check.get("surface_summary"):
+        lines.append(
+            "Upstream subtree summary: "
+            f"{upstream_sync_check['surface_summary']}"
+        )
     lines.append("Next actions:")
     for key, value in payload["next_actions"].items():
         if isinstance(value, list):

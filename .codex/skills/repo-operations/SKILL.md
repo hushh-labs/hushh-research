@@ -99,6 +99,8 @@ Non-owned surfaces:
 33. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
 34. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
 35. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
+36. Do not conflate `Upstream Sync` with `Main Freshness Gate`. Freshness is branch-to-main currency; upstream sync is consent-protocol subtree state and must route through `subtree-upstream-governance`.
+37. When rendering or summarizing PR operations, show the actual subtree status from `scripts/ci/subtree-sync-check.sh`, not a generic freshness or status-gate description.
 
 ## Handoff Rules
 
