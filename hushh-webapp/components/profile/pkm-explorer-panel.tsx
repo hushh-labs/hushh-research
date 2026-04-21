@@ -29,7 +29,7 @@ import {
 } from "@/lib/services/personal-knowledge-model-service";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { useVault } from "@/lib/vault/vault-context";
+import {  KYC_PKM_DOMAIN } from "@/lib/services/kyc-pkm-write-service";
 
 type DomainInspectorState = {
   manifest: DomainManifest | null;
@@ -307,12 +307,18 @@ export function PkmExplorerPanel() {
                     onClick={() => setSelectedDomain(domain.key)}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                     <div className="min-w-0">
                         <p className="text-sm font-semibold">{domain.displayName}</p>
                         <p className="text-xs text-muted-foreground">{domain.key}</p>
                       </div>
-                      <Badge variant="secondary">{domain.attributeCount}</Badge>
-                    </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant="secondary">{domain.attributeCount}</Badge>
+                        {domain.key === KYC_PKM_DOMAIN ? (
+                          <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300">
+                            KYC
+                          </Badge>
+                        ) : null}
+                      </div>                    </div>
                     <p className="mt-2 text-xs text-muted-foreground">
                       Updated {formatTimestamp(domain.lastUpdated)}
                     </p>
