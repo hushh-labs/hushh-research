@@ -56,7 +56,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
 2. The workflow checks out that exact chosen green `main` SHA.
-3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`.
+3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 
@@ -88,7 +88,7 @@ Before deleting a local backup branch, classify its unique commits as:
 6. Block force-pushes.
 7. Block branch deletion.
 8. Do not require blanket PR approvals on `main`; CI status plus merge queue are the default merge gates.
-9. Use review bypass plus the dedicated `main-bypass-queue` team for the 3 core owners only; do not rely on overlapping push restrictions.
+9. Use review bypass plus the dedicated `main-bypass-queue` team for the sanctioned `main` bypass cohort only; do not rely on overlapping push restrictions.
 10. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
@@ -99,9 +99,9 @@ Current operating note:
 - `main` intentionally requires `0` blanket approvals; the external community still goes through PR + CI + queue
 - admin ownership does not count as an independent PR approval
 - a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges
-- the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`
-- the current live merge-queue bypass team is `main-bypass-queue`, containing those same 3 users only
-- the sanctioned review-bypass trio is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
+- the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`
+- the current live merge-queue bypass team is `main-bypass-queue`, containing those same 4 users only
+- the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
 - direct pushes to `main` are not the default bypass model; the preferred path is a green PR plus bypass merge

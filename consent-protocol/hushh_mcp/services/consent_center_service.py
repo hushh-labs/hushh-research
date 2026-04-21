@@ -1374,9 +1374,7 @@ class ConsentCenterService:
         # 1) Consent audit events between user and the counterpart agent_id.
         #    The agent_id in consent_audit for RIA requests is typically
         #    "ria:<ria_profile_id>" or the ria_user_id.
-        audit_result = await self._consent_db.get_audit_log(
-            user_id, page=1, limit=500
-        )
+        audit_result = await self._consent_db.get_audit_log(user_id, page=1, limit=500)
         audit_items = audit_result.get("items", [])
 
         # Filter to events involving the counterpart.

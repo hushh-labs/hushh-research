@@ -1,0 +1,72 @@
+{
+  "id": "pr-governance-review",
+  "role": "owner",
+  "owner_family": "pr-governance-review",
+  "primary_scope": "pr-governance-review-intake",
+  "description": "Use when reviewing an incoming pull request for north-star alignment, trust-boundary regressions, malicious or low-signal degradation, stale-vs-current CI interpretation, and true merge readiness beyond a green gate.",
+  "owned_paths": [
+    ".codex/skills/pr-governance-review"
+  ],
+  "non_owned_paths": [
+    "repo-context",
+    "repo-operations",
+    "quality-contracts",
+    "backend-runtime-governance",
+    "frontend-architecture",
+    "security-audit"
+  ],
+  "task_types": [
+    "pr-governance-review"
+  ],
+  "required_reads": [
+    "README.md",
+    "docs/reference/operations/ci.md",
+    ".codex/skills/repo-operations/SKILL.md",
+    ".codex/skills/quality-contracts/SKILL.md",
+    ".codex/skills/pr-governance-review/references/review-axes.md"
+  ],
+  "required_commands": [
+    "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+    "./bin/hushh codex audit --text",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "pr-governance-review",
+      "commands": [
+        "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+        "./bin/hushh codex audit --text",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+        "./bin/hushh codex audit --text",
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "repo-operations",
+    "quality-contracts",
+    "backend-runtime-governance",
+    "frontend-architecture",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "repo-operations",
+    "quality-contracts",
+    "backend-runtime-governance",
+    "frontend-architecture",
+    "security-audit"
+  ],
+  "risk_tags": [
+    "north-star-drift",
+    "trust-boundary-regression",
+    "merge-readiness-false-positive",
+    "malicious-degradation-risk"
+  ]
+}

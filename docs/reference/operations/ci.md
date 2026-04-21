@@ -64,6 +64,7 @@ Minimum expectation:
 5. do not stop at "triggered" or "queued"
 6. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
 7. when the run is expected to outlive the current chat turn, start the persistent watcher instead of relying on manual follow-up
+8. when Codex initiated the merge or queue action, continuing this watch is mandatory; needing a user reminder to resume monitoring is process drift
 
 Codex-first PR watcher:
 
@@ -72,6 +73,15 @@ Codex-first PR watcher:
 ```
 
 Use this command first for active pull-request checks because it classifies failing jobs into the right owner skill and points to the next workflow pack before dropping to raw `gh run` inspection.
+
+Merge-queue rule:
+
+If Codex triggers `gh pr merge`, `gh pr merge --auto`, or any action that places a PR into merge queue, that is not completion. Codex must confirm the queue entry, then continue monitoring the authoritative workflow chain until:
+
+1. `Queue Validation` reaches terminal state for the merge candidate
+2. if the PR lands, `Main Post-Merge Smoke` reaches terminal state for the landed `main` SHA
+3. only stop earlier when the user explicitly asked for queue placement rather than landed completion
+4. if Codex triggered the merge path, it owns this monitoring step through terminal completion and should not pause after the queue accepts the PR
 
 Codex-first RCA surface:
 
@@ -114,7 +124,7 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated three-person owner team only.
+The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
 ### PKM rollout blocker
 
@@ -194,8 +204,8 @@ The live GitHub setting can drift from the docs, so verify it directly:
 Current live nuance:
 
 - the repo uses branch protection for review, freshness, and conversation-resolution requirements
-- the sanctioned bypass trio should be limited to the 3 core owners, without overlapping push-restriction lists
-- that sanctioned trio is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
+- the sanctioned bypass cohort should be limited to the approved owner set, without overlapping push-restriction lists
+- that sanctioned cohort is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
 
 ### GitHub Alert Parity
 
@@ -232,6 +242,12 @@ The required pre-merge lane stays intentionally small:
 
 Post-merge smoke remains the deployment eligibility gate for `main`.
 
+Practical maintainer rule:
+
+1. Use `git commit -s` for new branch commits that are headed to GitHub.
+2. If unsigned commits already exist on the branch, repair them before push with `git rebase --signoff <base>`.
+3. If the last local edit touched `.codex/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
+
 ### Script Lifecycle Policy
 
 1. Add a new CI/helper script only when it replaces or consolidates an existing one in the same PR.
@@ -243,7 +259,7 @@ Post-merge smoke remains the deployment eligibility gate for `main`.
 1. `main` is the only integration branch for day-to-day development.
 2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
 3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
-4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`.
+4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only `kushaltrivedi5` may trigger it.
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
 7. Feature or hotfix branches never deploy directly; they merge through `main`.
