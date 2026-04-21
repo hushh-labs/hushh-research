@@ -17,6 +17,19 @@
       "Akash-292",
       "RGlodAkshat",
       "ankitkumarsingh1702"
+    ],
+    "protected_pipeline_edit_users": [
+      "kushaltrivedi5",
+      "Akash-292",
+      "RGlodAkshat",
+      "ankitkumarsingh1702"
+    ],
+    "protected_pipeline_paths": [
+      ".github/workflows/",
+      ".github/actions/",
+      "scripts/ci/",
+      "deploy/",
+      "config/ci-governance.json"
     ]
   },
   "uat": {
