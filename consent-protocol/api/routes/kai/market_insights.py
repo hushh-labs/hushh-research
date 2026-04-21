@@ -827,28 +827,36 @@ async def _fetch_vix_signal() -> dict[str, Any]:
 
 async def _fetch_macro_bundle() -> dict[str, Any]:
     statuses: dict[str, str] = {}
-    try:
-        vix = await _fetch_vix_signal()
-        statuses["volatility"] = "partial" if vix.get("degraded") else "ok"
-    except Exception as exc:
-        logger.warning("[Kai Market] volatility failed: %s", exc)
-        vix = {
-            "label": "Volatility",
-            "value": None,
-            "delta_pct": None,
-            "as_of": None,
-            "source": "Unavailable",
-            "degraded": True,
-        }
-        statuses["volatility"] = _provider_status_from_exception(exc)
 
-    try:
-        market_status = await _fetch_market_status()
-        statuses["market_status"] = "partial" if market_status.get("degraded") else "ok"
-    except Exception as exc:
-        logger.warning("[Kai Market] market status failed: %s", exc)
-        market_status = _scheduled_market_status_fallback()
-        statuses["market_status"] = _provider_status_from_exception(exc)
+    async def safe_vix() -> tuple[dict[str, Any], str]:
+        try:
+            vix = await _fetch_vix_signal()
+            return vix, "partial" if vix.get("degraded") else "ok"
+        except Exception as exc:
+            logger.warning("[Kai Market] volatility failed: %s", exc)
+            fallback = {
+                "label": "Volatility",
+                "value": None,
+                "delta_pct": None,
+                "as_of": None,
+                "source": "Unavailable",
+                "degraded": True,
+            }
+            return fallback, _provider_status_from_exception(exc)
+
+    async def safe_market_status() -> tuple[dict[str, Any], str]:
+        try:
+            market_status = await _fetch_market_status()
+            return market_status, "partial" if market_status.get("degraded") else "ok"
+        except Exception as exc:
+            logger.warning("[Kai Market] market status failed: %s", exc)
+            return _scheduled_market_status_fallback(), _provider_status_from_exception(exc)
+
+    (vix, vix_status), (market_status, ms_status) = await asyncio.gather(
+        safe_vix(), safe_market_status()
+    )
+    statuses["volatility"] = vix_status
+    statuses["market_status"] = ms_status
 
     return {
         "vix": vix,
@@ -1128,29 +1136,17 @@ def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | N
 async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
     status_map: dict[str, str] = {}
 
-    gainers_rows = await _fetch_pmp_json(
-        [
-            "/stable/biggest-gainers",
-            "/stable/market-gainers",
-            "/stable/market/gainers",
-        ],
-        {},
+    gainers_task = _fetch_pmp_json(
+        ["/stable/biggest-gainers", "/stable/market-gainers", "/stable/market/gainers"], {}
     )
-    losers_rows = await _fetch_pmp_json(
-        [
-            "/stable/biggest-losers",
-            "/stable/market-losers",
-            "/stable/market/losers",
-        ],
-        {},
+    losers_task = _fetch_pmp_json(
+        ["/stable/biggest-losers", "/stable/market-losers", "/stable/market/losers"], {}
     )
-    active_rows = await _fetch_pmp_json(
-        [
-            "/stable/most-actives",
-            "/stable/market-most-actives",
-            "/stable/market/actives",
-        ],
-        {},
+    active_task = _fetch_pmp_json(
+        ["/stable/most-actives", "/stable/market-most-actives", "/stable/market/actives"], {}
+    )
+    gainers_rows, losers_rows, active_rows = await asyncio.gather(
+        gainers_task, losers_task, active_task
     )
 
     gainers = [row for row in (_normalize_mover_row(r, "PMP/FMP") for r in gainers_rows) if row]
@@ -1876,19 +1872,43 @@ async def _get_market_insights_payload(
                 "generated_at": _now_iso(),
             }
 
-        (
-            quotes_value,
-            quotes_stale,
-            _quotes_age_seconds,
-            quotes_cache_tier,
-            quotes_cache_hit,
-        ) = await _get_or_refresh_public_module(
+        # ⚡️ CONCURRENCY REFACTOR
+
+        quotes_task = _get_or_refresh_public_module(
             key=quotes_key,
             fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
             stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
             fetcher=fetch_quotes_bundle,
-            warm_source="request",
+            warm_source=warm_source,
         )
+
+        macro_task = _get_or_refresh_public_module(
+            key="macro:us",
+            fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
+            fetcher=_fetch_macro_bundle,
+            warm_source=warm_source,
+        )
+        movers_task = _get_or_refresh_public_module(
+            key="movers:us",
+            fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
+            fetcher=_fetch_movers_from_fmp,
+            warm_source=warm_source,
+        )
+        sectors_task = _get_or_refresh_public_module(
+            key="sectors:us",
+            fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
+            fetcher=lambda: _fetch_sector_rotation_snapshot(user_id, consent_token),
+            warm_source=warm_source,
+        )
+        (
+            (quotes_value, quotes_stale, _quotes_age, quotes_cache_tier, quotes_cache_hit),
+            (macro_value, macro_stale, _macro_age, macro_cache_tier, macro_cache_hit),
+            (movers_value, movers_stale, _movers_age, movers_cache_tier, movers_cache_hit),
+            (sectors_value, sectors_stale, _sectors_age, sectors_cache_tier, sectors_cache_hit),
+        ) = await asyncio.gather(quotes_task, macro_task, movers_task, sectors_task)
         quote_bundle = quotes_value if isinstance(quotes_value, dict) else {}
         quote_map = (
             quote_bundle.get("quotes") if isinstance(quote_bundle.get("quotes"), dict) else {}
@@ -1899,32 +1919,15 @@ async def _get_market_insights_payload(
         stale = stale or quotes_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, quotes_cache_tier)
         aggregated_cache_hit = aggregated_cache_hit and quotes_cache_hit
-
         spy_quote = quote_map.get("SPY") if isinstance(quote_map, dict) else None
         qqq_quote = quote_map.get("QQQ") if isinstance(quote_map, dict) else None
-
-        # Drop invalid/non-quoted watchlist symbols when at least one symbol has live quote data.
         quoted_watchlist_symbols = [
-            symbol
-            for symbol in watchlist_symbols
-            if _safe_float((quote_map.get(symbol) or {}).get("price")) is not None
+            s
+            for s in watchlist_symbols
+            if _safe_float((quote_map.get(s) or {}).get("price")) is not None
         ]
         watchlist_symbols_for_cards = (
             quoted_watchlist_symbols if quoted_watchlist_symbols else watchlist_symbols
-        )
-
-        (
-            macro_value,
-            macro_stale,
-            _macro_age_seconds,
-            macro_cache_tier,
-            macro_cache_hit,
-        ) = await _get_or_refresh_public_module(
-            key="macro:us",
-            fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
-            fetcher=_fetch_macro_bundle,
-            warm_source="request",
         )
         macro_bundle = macro_value if isinstance(macro_value, dict) else {}
         vix_payload = (
@@ -1957,12 +1960,13 @@ async def _get_market_insights_payload(
         stale = stale or macro_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, macro_cache_tier)
         aggregated_cache_hit = aggregated_cache_hit and macro_cache_hit
-
         watchlist_rows: list[dict[str, Any]] = []
         renaissance_rows: list[dict[str, Any]] = []
         rec_semaphore = asyncio.Semaphore(RECOMMENDATION_FANOUT_CONCURRENCY)
 
-        async def build_watchlist_row(symbol: str) -> tuple[dict[str, Any], dict[str, str], bool]:
+        async def build_watchlist_row(
+            symbol: str,
+        ) -> tuple[dict[str, Any], dict[str, str], bool, str, bool]:
             quote = quote_map.get(symbol) if isinstance(quote_map, dict) else None
             quote_price = _safe_float((quote or {}).get("price"))
             rec_key = f"recommendation:{symbol}"
@@ -1988,7 +1992,7 @@ async def _get_market_insights_payload(
                 fresh_ttl_seconds=RECOMMENDATION_FRESH_TTL_SECONDS,
                 stale_ttl_seconds=RECOMMENDATION_STALE_TTL_SECONDS,
                 fetcher=fetch_recommendation_bundle,
-                warm_source="request",
+                warm_source=warm_source,
             )
             rec_bundle = rec_value if isinstance(rec_value, dict) else {}
             recommendation = (
@@ -2034,6 +2038,7 @@ async def _get_market_insights_payload(
         watchlist_results = await asyncio.gather(
             *(build_watchlist_row(symbol) for symbol in watchlist_symbols_for_cards)
         )
+
         for row, status_map, row_stale, row_cache_tier, row_cache_hit in watchlist_results:
             watchlist_rows.append(row)
             provider_status.update(status_map)
@@ -2053,10 +2058,7 @@ async def _get_market_insights_payload(
             if not quote and quote_symbol and quote_status != "unsupported":
                 try:
                     rescued_quote = await fetch_market_data(
-                        quote_symbol,
-                        user_id,
-                        consent_token,
-                        allow_slow_fallbacks=True,
+                        quote_symbol, user_id, consent_token, allow_slow_fallbacks=True
                     )
                 except Exception as rescue_error:
                     logger.debug(
@@ -2074,8 +2076,7 @@ async def _get_market_insights_payload(
                         if isinstance(quote_map, dict):
                             quote_map[quote_symbol] = quote
                         market_insights_cache.append_series_point(
-                            f"quote:{quote_symbol}",
-                            rescued_price,
+                            f"quote:{quote_symbol}", rescued_price
                         )
             renaissance_rows.append(
                 {
@@ -2111,19 +2112,6 @@ async def _get_market_insights_payload(
                 }
             )
 
-        (
-            movers_value,
-            movers_stale,
-            _movers_age_seconds,
-            movers_cache_tier,
-            movers_cache_hit,
-        ) = await _get_or_refresh_public_module(
-            key="movers:us",
-            fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
-            fetcher=_fetch_movers_from_fmp,
-            warm_source="request",
-        )
         movers_pair = movers_value if isinstance(movers_value, (tuple, list)) else ({}, {})
         movers_payload = (
             movers_pair[0] if len(movers_pair) > 0 and isinstance(movers_pair[0], dict) else {}
@@ -2139,23 +2127,11 @@ async def _get_market_insights_payload(
                 "movers:active": "partial",
             }
         provider_status.update({str(k): str(v) for k, v in movers_status.items()})
+
         stale = stale or movers_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, movers_cache_tier)
         aggregated_cache_hit = aggregated_cache_hit and movers_cache_hit
 
-        (
-            sectors_value,
-            sectors_stale,
-            _sectors_age_seconds,
-            sectors_cache_tier,
-            sectors_cache_hit,
-        ) = await _get_or_refresh_public_module(
-            key="sectors:us",
-            fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
-            fetcher=lambda: _fetch_sector_rotation_snapshot(user_id, consent_token),
-            warm_source="request",
-        )
         sectors_pair = (
             sectors_value if isinstance(sectors_value, (tuple, list)) else ([], "partial")
         )
@@ -2167,10 +2143,12 @@ async def _get_market_insights_payload(
             if len(sectors_pair) > 1 and isinstance(sectors_pair[1], str)
             else "partial"
         )
+
         if not sector_rotation:
             sector_rotation = _fallback_sector_rotation_from_watchlist(watchlist_rows)
             sector_status = "partial"
         provider_status["sectors"] = sector_status
+
         stale = stale or sectors_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, sectors_cache_tier)
         aggregated_cache_hit = aggregated_cache_hit and sectors_cache_hit
