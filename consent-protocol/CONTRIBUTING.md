@@ -7,31 +7,44 @@ Thank you for your interest in contributing to the Hushh Consent Protocol. This 
 ## Prerequisites
 
 - Python 3.13+
-- A virtual environment (`python -m venv .venv`)
-- Dependencies installed: `pip install -r requirements.txt -r requirements-dev.txt`
+- `uv`
+- Dependencies installed: `uv sync --frozen --group dev`
 
 ---
 
 ## Development Workflow
 
-### 1. Fork and Clone
+### 1. Choose the Right Contribution Surface
+
+If you are working inside the `hushh-research` monorepo, use the root contributor path:
+
+```bash
+cd ..
+./bin/hushh bootstrap
+./bin/hushh terminal backend --mode local --reload
+```
+
+If you are working on the standalone upstream backend:
+
+### 2. Fork and Clone
 
 ```bash
 git clone https://github.com/<your-username>/consent-protocol.git
 cd consent-protocol
+uv sync --frozen --group dev
 ```
 
-### 2. Create a Branch
+### 3. Create a Branch
 
 ```bash
 git checkout -b feat/my-new-operon
 ```
 
-### 3. Make Your Changes
+### 4. Make Your Changes
 
 Follow the architecture and coding standards below.
 
-### 4. Run All Checks
+### 5. Run All Checks
 
 Every PR must pass these before merge:
 
@@ -49,11 +62,12 @@ Or run individually:
 ./bin/consent-protocol security      # Security scan
 ```
 
-### 5. Open a Pull Request
+### 6. Open a Pull Request
 
 - Target: `main`
 - Fill out the PR template (tests, ruff, mypy, consent validation, docs)
 - One approval required
+- Every commit must include `Signed-off-by` (`git commit -s`)
 
 ---
 
@@ -171,6 +185,15 @@ Reference docs:
 - Every new agent or operon must be documented
 - Use relative paths for all internal links
 
+## Migration Authority
+
+Treat only these as release authority:
+
+- `db/migrations/`
+- `db/release_migration_manifest.json`
+
+Do not treat legacy/bootstrap SQL or one-off repair scripts as the normal migration lane for contributor work.
+
 ---
 
 ## PR Checklist
@@ -181,6 +204,7 @@ Before submitting, verify:
 - [ ] Consent validation is present at agent entry AND tool invocation
 - [ ] Tests cover the new code
 - [ ] Documentation is updated
+- [ ] Commits are signed off (`git log --format=%B -n 1`)
 
 ---
 

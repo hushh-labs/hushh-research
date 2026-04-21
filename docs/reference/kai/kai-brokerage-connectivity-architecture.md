@@ -104,7 +104,7 @@ Callback path:
 Runtime rules:
 
 1. Client requests a Link token with a frontend-derived absolute `redirect_uri`.
-2. Backend validates the origin against `FRONTEND_URL` and the path against `PLAID_REDIRECT_PATH`.
+2. Backend validates the origin against `APP_FRONTEND_ORIGIN` and the path against `PLAID_REDIRECT_PATH`.
 3. Backend persists an opaque `resume_session_id` in `kai_plaid_link_sessions`.
 4. Browser stores only that opaque session id, never the vault key or a persisted vault token.
 5. On return from the institution, Kai re-issues a fresh `VAULT_OWNER` token, fetches the stored Link token, resumes Link with `receivedRedirectUri`, exchanges the `public_token`, and clears the session.

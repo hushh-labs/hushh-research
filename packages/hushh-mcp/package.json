@@ -1,8 +1,8 @@
 {
   "name": "@hushh/mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Launch-friendly npm wrapper for the Hushh Consent MCP server",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hushh-labs/hushh-research.git",
@@ -16,6 +16,8 @@
     "hushh-mcp": "bin/hushh-mcp.js"
   },
   "files": [
+    "LICENSE",
+    "NOTICE",
     "README.md",
     "bin/",
     "public-docs.json",

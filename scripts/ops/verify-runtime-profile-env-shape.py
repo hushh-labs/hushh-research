@@ -29,6 +29,9 @@ FRONTEND_RUNTIME_FILES = (
     Path("hushh-webapp/.env.local.local"),
     Path("hushh-webapp/.env.uat.local"),
     Path("hushh-webapp/.env.prod.local"),
+)
+
+FRONTEND_ACTIVE_RUNTIME_FILES = (
     Path("hushh-webapp/.env.local"),
 )
 
@@ -86,7 +89,12 @@ def main() -> int:
     parser.add_argument(
         "--include-runtime",
         action="store_true",
-        help="Also verify the local canonical runtime env files and active env files.",
+        help="Also verify the local canonical runtime env files.",
+    )
+    parser.add_argument(
+        "--include-active",
+        action="store_true",
+        help="Also verify active env files such as hushh-webapp/.env.local.",
     )
     args = parser.parse_args()
 
@@ -97,6 +105,8 @@ def main() -> int:
     if args.include_runtime:
         failures.extend(compare_runtime_to_templates("backend runtime", BACKEND_TEMPLATE_FILES, BACKEND_RUNTIME_FILES))
         failures.extend(compare_runtime_to_templates("frontend runtime", FRONTEND_TEMPLATE_FILES, FRONTEND_RUNTIME_FILES))
+    if args.include_active:
+        failures.extend(compare_runtime_to_templates("frontend active runtime", FRONTEND_TEMPLATE_FILES, FRONTEND_ACTIVE_RUNTIME_FILES))
 
     if failures:
         print("Runtime profile env shape check failed:", file=sys.stderr)

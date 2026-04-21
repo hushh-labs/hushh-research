@@ -1,18 +1,22 @@
 {
   "main": {
     "required_status_check": "CI Status Gate",
-    "required_approving_reviews": 1,
+    "required_approving_reviews": 0,
+    "require_strict_status_checks": true,
+    "require_conversation_resolution": true,
     "review_bypass_users": [
       "kushaltrivedi5",
       "Akash-292",
-      "RGlodAkshat"
+      "RGlodAkshat",
+      "ankitkumarsingh1702"
     ],
     "merge_queue_required": true,
     "merge_queue_bypass_team_slug": "main-bypass-queue",
     "merge_queue_bypass_users": [
       "kushaltrivedi5",
       "Akash-292",
-      "RGlodAkshat"
+      "RGlodAkshat",
+      "ankitkumarsingh1702"
     ]
   },
   "uat": {
@@ -21,7 +25,8 @@
     "manual_dispatch_users": [
       "kushaltrivedi5",
       "Akash-292",
-      "RGlodAkshat"
+      "RGlodAkshat",
+      "ankitkumarsingh1702"
     ]
   },
   "production": {

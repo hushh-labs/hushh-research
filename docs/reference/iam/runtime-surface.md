@@ -30,7 +30,7 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 1. IAM activation is migration-gated, not startup-mutated.
 2. Run explicit commands:
    `python db/migrate.py --iam`
-   `python scripts/verify_iam_schema.py`
+   `python db/verify/verify_iam_schema.py`
 3. If IAM schema is missing:
 4. `GET /api/iam/persona` returns `200` investor-safe payload with:
    `iam_schema_ready=false`, `mode="compat_investor"`.

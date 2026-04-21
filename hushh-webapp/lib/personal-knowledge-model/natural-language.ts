@@ -151,11 +151,11 @@ function deriveFallbackSummary(domain: DomainSummary, sections: string[]): strin
     ).toLowerCase()}.`;
   }
   if (domain.attributeCount > 0) {
-    return `Kai has ${domain.attributeCount} saved ${domain.displayName.toLowerCase()} detail${
+    return `Your ${domain.displayName.toLowerCase()} profile has ${domain.attributeCount} saved detail${
       domain.attributeCount === 1 ? "" : "s"
     } ready for you to review.`;
   }
-  return `Kai has a saved ${domain.displayName.toLowerCase()} profile ready for you to review.`;
+  return `Your ${domain.displayName.toLowerCase()} profile is ready for you to review.`;
 }
 
 function deriveFallbackHighlights(domain: DomainSummary, sections: string[]): string[] {

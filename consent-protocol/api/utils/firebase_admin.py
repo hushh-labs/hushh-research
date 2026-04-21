@@ -4,24 +4,29 @@ Firebase Admin initialization helpers.
 Goal: a single, reliable initialization path for local dev + Cloud Run.
 
 Credential sources (in priority order):
-1) FIREBASE_SERVICE_ACCOUNT_JSON  (JSON string)
-2) FIREBASE_AUTH_SERVICE_ACCOUNT_JSON (JSON string for auth-only operations)
+1) FIREBASE_ADMIN_CREDENTIALS_JSON
 2) GOOGLE_APPLICATION_CREDENTIALS / ADC
 """
 
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Optional, Tuple
 
-DEFAULT_SERVICE_ACCOUNT_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
-AUTH_SERVICE_ACCOUNT_ENV = "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON"
-AUTH_APP_NAME = "firebase-auth"
+from hushh_mcp.runtime_settings import (
+    FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
+    get_firebase_credential_settings,
+)
+
+DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
-    raw = os.environ.get(var_name)
+    credential_settings = get_firebase_credential_settings()
+    if var_name == DEFAULT_SERVICE_ACCOUNT_ENV:
+        raw = credential_settings.admin_credentials_json
+    else:
+        raw = None
     if not raw:
         return None
 
@@ -100,27 +105,6 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:
-    """
-    Ensure the Firebase Admin app used for ID token verification exists.
-
-    When FIREBASE_AUTH_SERVICE_ACCOUNT_JSON is provided, use a dedicated named
-    app so local/UAT runtimes can verify auth tokens from a different Firebase
-    project than the default admin/FCM project. Otherwise fall back to the
-    default Firebase Admin app.
-    """
-    import firebase_admin
-    from firebase_admin import credentials
-
-    auth_app = _get_existing_app(AUTH_APP_NAME)
-    if auth_app is not None:
-        return True, _project_id_from_app(auth_app)
-
-    auth_sa = _load_service_account_from_env(AUTH_SERVICE_ACCOUNT_ENV)
-    if auth_sa:
-        cred = credentials.Certificate(auth_sa)
-        auth_app = firebase_admin.initialize_app(cred, name=AUTH_APP_NAME)
-        return True, _project_id_from_app(auth_app, auth_sa)
-
     return ensure_firebase_admin()
 
 
@@ -131,9 +115,5 @@ def get_firebase_auth_app():
     configured, _ = ensure_firebase_auth_admin()
     if not configured:
         return None
-
-    auth_app = _get_existing_app(AUTH_APP_NAME)
-    if auth_app is not None:
-        return auth_app
 
     return _get_existing_app()

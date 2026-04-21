@@ -40,6 +40,7 @@ export function PersonaBootstrapRedirect() {
     personaState,
     activePersona,
     loading,
+    personaTransitionTarget,
     refreshing,
     riaCapability,
     riaEntryRoute,
@@ -57,6 +58,9 @@ export function PersonaBootstrapRedirect() {
     if (!isAuthenticated || !user || loading || refreshing || !personaState || !isVaultUnlocked) {
       return null;
     }
+    if (personaTransitionTarget) {
+      return null;
+    }
     if (!routePersona || routePersona === activePersona) {
       return null;
     }
@@ -68,7 +72,17 @@ export function PersonaBootstrapRedirect() {
       scopedRouteLabel: routePersona === "ria" ? "RIA workspace" : "Kai workspace",
       activePersonaLabel: activePersona === "ria" ? "RIA workspace" : "Investor workspace",
     };
-  }, [activePersona, isAuthenticated, isVaultUnlocked, loading, personaState, refreshing, routePersona, user]);
+  }, [
+    activePersona,
+    isAuthenticated,
+    isVaultUnlocked,
+    loading,
+    personaState,
+    personaTransitionTarget,
+    refreshing,
+    routePersona,
+    user,
+  ]);
 
   const handleSwitchToActivePersona = useCallback(async () => {
     if (!mismatch) return;

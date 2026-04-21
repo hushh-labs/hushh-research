@@ -1,0 +1,243 @@
+# Third-Party Notices
+
+Third-party dependency inventory for the Hushh Consent Protocol.
+
+This file is generated from the repo lockfiles and installed Python environment.
+Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
+
+## Python packages
+
+Package count: 199
+
+### License summary
+
+- `3-Clause BSD License`: 1
+- `Apache 2.0`: 2
+- `Apache License 2.0`: 1
+- `Apache Software License`: 50
+- `Apache Software License; BSD License`: 1
+- `Apache Software License; MIT License`: 1
+- `Apache-2.0`: 25
+- `Apache-2.0 AND MIT`: 1
+- `Apache-2.0 OR BSD-2-Clause`: 1
+- `Apache-2.0 OR BSD-3-Clause`: 1
+- `Apache-2.0 OR MIT`: 1
+- `BSD 3-Clause OR Apache-2.0`: 1
+- `BSD License`: 15
+- `BSD-2-Clause`: 2
+- `BSD-3-Clause`: 12
+- `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
+- `BSD-3-Clause, Apache-2.0, dependency licenses`: 1
+- `GNU Lesser General Public License v3 (LGPLv3)`: 1
+- `GNU Library or Lesser General Public License (LGPL)`: 1
+- `MIT`: 39
+- `MIT License`: 31
+- `MIT-CMU`: 1
+- `Mozilla Public License 2.0 (MPL 2.0)`: 2
+- `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
+- `MPL-2.0 AND MIT`: 1
+- `PSF-2.0`: 1
+- `Python Software Foundation License`: 2
+- `UNKNOWN`: 2
+
+### Package inventory
+
+- `aiohappyeyeballs` `2.6.1` — Python Software Foundation License
+- `aiohttp` `3.13.5` — Apache-2.0 AND MIT
+- `aiosignal` `1.4.0` — Apache Software License
+- `aiosqlite` `0.22.1` — MIT License
+- `alembic` `1.18.4` — MIT
+- `annotated-doc` `0.0.4` — MIT
+- `annotated-types` `0.7.0` — MIT License
+- `anthropic` `0.96.0` — MIT License
+- `anyio` `4.13.0` — MIT
+- `asgiref` `3.11.1` — BSD License
+- `asyncpg` `0.31.0` — Apache-2.0
+- `attrs` `26.1.0` — MIT
+- `Authlib` `1.6.11` — BSD License
+- `bandit` `1.9.4` — Apache-2.0
+- `beautifulsoup4` `4.14.3` — MIT License
+- `blinker` `1.9.0` — MIT License
+- `boto3` `1.42.90` — Apache-2.0
+- `botocore` `1.42.90` — Apache-2.0
+- `CacheControl` `0.14.4` — Apache-2.0
+- `certifi` `2026.2.25` — Mozilla Public License 2.0 (MPL 2.0)
+- `cffi` `2.0.0` — MIT
+- `charset-normalizer` `3.4.7` — MIT
+- `click` `8.3.2` — BSD-3-Clause
+- `cloudpickle` `3.1.2` — BSD License
+- `coverage` `7.13.5` — Apache-2.0
+- `cryptography` `46.0.7` — Apache-2.0 OR BSD-3-Clause
+- `curl_cffi` `0.15.0` — MIT
+- `defusedxml` `0.7.1` — Python Software Foundation License
+- `Deprecated` `1.3.1` — MIT License
+- `distro` `1.9.0` — Apache Software License
+- `docstring_parser` `0.18.0` — MIT License
+- `fastapi` `0.123.10` — MIT
+- `firebase_admin` `7.1.0` — Apache Software License
+- `Flask` `3.1.3` — BSD-3-Clause
+- `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
+- `frozenlist` `1.8.0` — Apache-2.0
+- `google-adk` `1.23.0` — Apache Software License
+- `google-ai-generativelanguage` `0.6.15` — Apache Software License
+- `google-api-core` `2.29.0` — Apache Software License
+- `google-api-python-client` `2.194.0` — Apache Software License
+- `google-auth` `2.49.2` — Apache Software License
+- `google-auth-httplib2` `0.3.1` — Apache Software License
+- `google-cloud-aiplatform` `1.148.0` — Apache 2.0
+- `google-cloud-appengine-logging` `1.9.0` — Apache Software License
+- `google-cloud-audit-log` `0.5.0` — Apache Software License
+- `google-cloud-bigquery` `3.41.0` — Apache 2.0
+- `google-cloud-bigquery-storage` `2.37.0` — Apache Software License
+- `google-cloud-bigtable` `2.36.0` — Apache Software License
+- `google-cloud-core` `2.5.1` — Apache Software License
+- `google-cloud-discoveryengine` `0.13.12` — Apache Software License
+- `google-cloud-firestore` `2.27.0` — Apache Software License
+- `google-cloud-iam` `2.22.0` — Apache Software License
+- `google-cloud-logging` `3.15.0` — Apache Software License
+- `google-cloud-monitoring` `2.30.0` — Apache Software License
+- `google-cloud-pubsub` `2.37.0` — Apache Software License
+- `google-cloud-resource-manager` `1.17.0` — Apache Software License
+- `google-cloud-secret-manager` `2.27.0` — Apache Software License
+- `google-cloud-spanner` `3.65.0` — Apache Software License
+- `google-cloud-speech` `2.38.0` — Apache Software License
+- `google-cloud-storage` `3.10.1` — Apache Software License
+- `google-cloud-trace` `1.19.0` — Apache Software License
+- `google-crc32c` `1.8.0` — UNKNOWN
+- `google-genai` `1.73.1` — Apache-2.0
+- `google-generativeai` `0.8.6` — Apache Software License
+- `google-resumable-media` `2.8.2` — Apache Software License
+- `googleapis-common-protos` `1.74.0` — Apache Software License
+- `graphviz` `0.21` — MIT
+- `grpc-google-iam-v1` `0.14.4` — Apache Software License
+- `grpc-interceptor` `0.15.4` — MIT License
+- `grpcio` `1.76.0` — Apache Software License
+- `grpcio-status` `1.76.0` — Apache Software License
+- `h11` `0.16.0` — MIT License
+- `h2` `4.3.0` — MIT License
+- `hpack` `4.1.0` — MIT License
+- `httpcore` `1.0.9` — BSD-3-Clause
+- `httplib2` `0.31.2` — MIT License
+- `httpx` `0.28.1` — BSD License
+- `httpx-sse` `0.4.3` — MIT
+- `hyperframe` `6.1.0` — MIT License
+- `idna` `3.11` — BSD-3-Clause
+- `importlib_metadata` `8.7.1` — Apache-2.0
+- `iniconfig` `2.3.0` — MIT
+- `itsdangerous` `2.2.0` — BSD License
+- `Jinja2` `3.1.6` — BSD License
+- `jiter` `0.14.0` — MIT
+- `jmespath` `1.1.0` — MIT License
+- `jsonpatch` `1.33` — BSD License
+- `jsonpointer` `3.1.1` — BSD License
+- `jsonschema` `4.26.0` — MIT
+- `jsonschema-specifications` `2025.9.1` — MIT
+- `langchain` `1.2.15` — MIT License
+- `langchain-core` `1.2.31` — MIT License
+- `langgraph` `1.1.6` — MIT
+- `langgraph-checkpoint` `4.0.2` — MIT
+- `langgraph-prebuilt` `1.0.9` — MIT
+- `langgraph-sdk` `0.3.13` — MIT
+- `langsmith` `0.7.32` — MIT
+- `librt` `0.9.0` — MIT
+- `limits` `5.8.0` — MIT
+- `Mako` `1.3.11` — MIT License
+- `markdown-it-py` `4.0.0` — MIT License
+- `MarkupSafe` `3.0.3` — BSD-3-Clause
+- `mcp` `1.26.0` — MIT License
+- `mdurl` `0.1.2` — MIT License
+- `mmh3` `5.2.1` — MIT License
+- `msgpack` `1.1.2` — Apache-2.0
+- `multidict` `6.7.1` — Apache License 2.0
+- `multitasking` `0.0.12` — Apache Software License
+- `mypy` `1.20.1` — MIT
+- `mypy_extensions` `1.1.0` — MIT
+- `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
+- `openai` `2.32.0` — Apache Software License
+- `opentelemetry-api` `1.37.0` — Apache-2.0
+- `opentelemetry-exporter-gcp-logging` `1.11.0a0` — Apache Software License
+- `opentelemetry-exporter-gcp-monitoring` `1.11.0a0` — Apache Software License
+- `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
+- `opentelemetry-exporter-otlp-proto-common` `1.37.0` — Apache-2.0
+- `opentelemetry-exporter-otlp-proto-http` `1.37.0` — Apache-2.0
+- `opentelemetry-instrumentation` `0.58b0` — Apache-2.0
+- `opentelemetry-instrumentation-asgi` `0.58b0` — Apache-2.0
+- `opentelemetry-instrumentation-fastapi` `0.58b0` — Apache-2.0
+- `opentelemetry-instrumentation-httpx` `0.58b0` — Apache-2.0
+- `opentelemetry-proto` `1.37.0` — Apache-2.0
+- `opentelemetry-resourcedetector-gcp` `1.11.0a0` — Apache Software License
+- `opentelemetry-sdk` `1.37.0` — Apache-2.0
+- `opentelemetry-semantic-conventions` `0.58b0` — Apache-2.0
+- `opentelemetry-util-http` `0.58b0` — Apache-2.0
+- `orjson` `3.11.8` — MPL-2.0 AND (Apache-2.0 OR MIT)
+- `ormsgpack` `1.12.2` — Apache-2.0 OR MIT
+- `packaging` `26.1` — Apache-2.0 OR BSD-2-Clause
+- `pandas` `3.0.2` — BSD License
+- `pathspec` `1.0.4` — Mozilla Public License 2.0 (MPL 2.0)
+- `pdfminer.six` `20231228` — MIT License
+- `pdfplumber` `0.11.0` — MIT License
+- `peewee` `4.0.4` — UNKNOWN
+- `pillow` `12.2.0` — MIT-CMU
+- `platformdirs` `4.9.6` — MIT
+- `pluggy` `1.6.0` — MIT License
+- `propcache` `0.4.1` — Apache Software License
+- `proto-plus` `1.27.0` — Apache Software License
+- `protobuf` `6.33.6` — 3-Clause BSD License
+- `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
+- `pyarrow` `23.0.1` — Apache-2.0
+- `pyasn1` `0.6.3` — BSD-2-Clause
+- `pyasn1_modules` `0.4.2` — BSD License
+- `pycparser` `3.0` — BSD-3-Clause
+- `pydantic` `2.13.1` — MIT
+- `pydantic-settings` `2.13.1` — MIT
+- `pydantic_core` `2.46.1` — MIT
+- `Pygments` `2.20.0` — BSD-2-Clause
+- `PyJWT` `2.12.1` — MIT
+- `pyparsing` `3.3.2` — MIT
+- `pypdfium2` `5.7.0` — BSD-3-Clause, Apache-2.0, dependency licenses
+- `pytesseract` `0.3.13` — Apache Software License
+- `pytest` `9.0.3` — MIT
+- `pytest-asyncio` `1.3.0` — Apache-2.0
+- `pytest-cov` `7.1.0` — MIT
+- `python-a2a` `0.5.10` — MIT License
+- `python-dateutil` `2.9.0.post0` — Apache Software License; BSD License
+- `python-dotenv` `1.0.1` — BSD License
+- `python-multipart` `0.0.26` — Apache-2.0
+- `pytz` `2026.1.post1` — MIT License
+- `PyYAML` `6.0.3` — MIT License
+- `referencing` `0.37.0` — MIT
+- `requests` `2.33.1` — Apache Software License
+- `requests-toolbelt` `1.0.0` — Apache Software License
+- `rich` `15.0.0` — MIT License
+- `rpds-py` `0.30.0` — MIT
+- `rsa` `4.9.1` — Apache Software License
+- `ruff` `0.15.11` — MIT
+- `s3transfer` `0.16.0` — Apache Software License
+- `six` `1.17.0` — MIT License
+- `slowapi` `0.1.9` — MIT License
+- `sniffio` `1.3.1` — Apache Software License; MIT License
+- `soupsieve` `2.8.3` — MIT
+- `SQLAlchemy` `2.0.49` — MIT
+- `sqlalchemy-spanner` `1.17.3` — Apache Software License
+- `sqlparse` `0.5.5` — BSD License
+- `sse-starlette` `3.3.4` — BSD-3-Clause
+- `starlette` `0.50.0` — BSD-3-Clause
+- `stevedore` `5.7.0` — Apache Software License
+- `tenacity` `9.1.4` — Apache Software License
+- `tqdm` `4.67.3` — MPL-2.0 AND MIT
+- `typing-inspection` `0.4.2` — MIT
+- `typing_extensions` `4.15.0` — PSF-2.0
+- `tzlocal` `5.3.1` — MIT License
+- `uritemplate` `4.2.0` — BSD 3-Clause OR Apache-2.0
+- `urllib3` `2.6.3` — MIT
+- `uuid_utils` `0.14.1` — BSD-3-Clause
+- `uvicorn` `0.44.0` — BSD-3-Clause
+- `watchdog` `6.0.0` — Apache Software License
+- `websockets` `15.0.1` — BSD License
+- `Werkzeug` `3.1.8` — BSD-3-Clause
+- `wrapt` `1.17.3` — BSD License
+- `xxhash` `3.6.0` — BSD License
+- `yarl` `1.23.0` — Apache-2.0
+- `yfinance` `1.3.0` — Apache Software License
+- `zipp` `3.23.1` — MIT
+- `zstandard` `0.25.0` — BSD-3-Clause

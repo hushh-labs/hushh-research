@@ -8,6 +8,7 @@ import {
   Bug,
   Cloud,
   Code2,
+  ExternalLink,
   Fingerprint,
   Folder,
   KeyRound,
@@ -2053,7 +2054,6 @@ function ProfilePageContent() {
         sharingError={consentCenterError}
         summary={profileSummary}
         domains={domainPresentations}
-        onOpenConsentCenter={() => router.push(ROUTES.CONSENTS)}
         onOpenConnection={(connection) =>
           updateProfileView(
             {
@@ -2069,6 +2069,15 @@ function ProfilePageContent() {
       />
 
       <SettingsGroup>
+        <SettingsRow
+          icon={ExternalLink}
+          title="Consent center"
+          description="Open the full sharing workspace."
+          trailing={<Badge variant="secondary">Manage</Badge>}
+          chevron
+          stackTrailingOnMobile
+          onClick={() => router.push(ROUTES.CONSENTS)}
+        />
         <SettingsRow
           icon={RefreshCw}
           title="Marketplace visibility"
@@ -2726,7 +2735,7 @@ function ProfilePageContent() {
   const profileRootContent = (
     <>
       <AppPageHeaderRegion
-        className="pt-[calc(var(--page-top-start)+5.35rem)] sm:pt-[calc(var(--page-top-start)+5.85rem)]"
+        className="pt-[calc(var(--page-top-start)+6.25rem)] sm:pt-[calc(var(--page-top-start)+6.9rem)]"
       >
         <header
           className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"

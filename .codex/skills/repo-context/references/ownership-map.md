@@ -10,11 +10,15 @@ Use this reference after the initial scan to choose the correct owner skill firs
 4. `backend`: backend runtime, API routes, services, agents, and protocol package surfaces.
 5. `security-audit`: IAM, consent, trust, vault, PKM, streaming, and quality/audit workflows.
 6. `docs-governance`: documentation homes, consolidation, and docs verification policy.
-7. `repo-operations`: CI/CD, env parity, deploy, branch protection, and repo operational tooling.
-8. `planning-board`: GitHub board workflows.
-9. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
-10. `comms-community`: public/community explanation workflows.
-11. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
+7. `analytics-observability-governance`: GA4/Firebase/BigQuery observability topology, dashboard verification, and shared-auth versus analytics-plane governance.
+8. `repo-operations`: CI/CD, env parity, deploy, branch protection, and repo operational tooling.
+9. `oss-license-governance`: Apache-2.0 surface, SPDX/REUSE, package license metadata, and third-party notice governance.
+10. `contributor-onboarding`: bootstrap, devcontainer, doctor, and contributor-first-run experience ownership.
+11. `subtree-upstream-governance`: upstream-first coordination, subtree sync policy, and maintainer-only subtree contract ownership.
+12. `planning-board`: GitHub board workflows.
+13. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
+14. `comms-community`: public/community explanation workflows.
+15. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
 
 ## Spoke skills by owner
 
@@ -58,3 +62,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 11. `community-response`
 12. `future-roadmap-plan`
 13. `mcp-surface-change`
+14. `analytics-observability-review`
+15. `oss-license-governance`
+16. `contributor-onboarding`
+17. `subtree-upstream-governance`

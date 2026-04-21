@@ -9,7 +9,7 @@ import {
   Loader2,
 } from "lucide-react";
 
-import { RiaCompatibilityState, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
+import { RiaCompatibilityState, RiaDevAllowlistBadge, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -195,9 +195,12 @@ export default function RiaHomePage() {
           >
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-3">
-                <Badge className={cn("w-fit", badgeToneClass(verification.tone))}>
-                  {verification.label}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={cn("w-fit", badgeToneClass(verification.tone))}>
+                    {verification.label}
+                  </Badge>
+                  <RiaDevAllowlistBadge />
+                </div>
                 <div className="space-y-2">
                   <h2 className="text-[clamp(1.25rem,3vw,1.85rem)] font-semibold tracking-tight text-foreground">
                     {heroTitle}

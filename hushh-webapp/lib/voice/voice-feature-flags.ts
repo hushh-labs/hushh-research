@@ -43,10 +43,7 @@ export function getVoiceV2Flags(): VoiceV2Flags {
       process.env.NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED,
       false
     ),
-    ttsBackendFallbackEnabled: resolveFlag(
-      process.env.NEXT_PUBLIC_VOICE_V2_TTS_BACKEND_FALLBACK_ENABLED,
-      false
-    ),
+    ttsBackendFallbackEnabled: false,
     groundedActionResolutionEnabled,
     groundedActionPolicyEnforcementEnabled: resolveFlag(
       process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED,

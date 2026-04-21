@@ -1,7 +1,7 @@
 {
   "id": "ci-watch-and-heal",
   "title": "CI Watch And Heal",
-  "goal": "Monitor PR, merge-queue, and post-merge smoke checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until CI reaches a terminal state or a hard blocker is identified.",
+  "goal": "Monitor PR, merge-queue, post-merge smoke, and explicitly dispatched UAT release checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until the relevant core workflow chain reaches a terminal state or a hard blocker is identified.",
   "owner_skill": "repo-operations",
   "default_spoke": null,
   "task_type": "ci-watch-and-heal",
@@ -38,7 +38,7 @@
     "delivery stage classification",
     "failing job classification",
     "fix-and-rerun log",
-    "terminal CI outcome or blocker note"
+    "terminal workflow-chain outcome or blocker note"
   ],
   "impact_fields": [
     "Failing checks",
@@ -59,15 +59,7 @@
     "treating a red check as someone else's problem",
     "not routing the failed job to the correct owner skill",
     "not distinguishing PR feedback from queue authority or post-merge deploy authority",
-    "stopping after rerun without monitoring terminal state"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "repo-operations",
-  "maintenance_issue_section": "ci-watch-and-heal",
-  "maintenance_blockers": [
-    "workflow is manual-only and should not run unattended"
-  ],
-  "maintenance_prerequisites": []
+    "stopping after rerun without monitoring terminal state",
+    "treating every merge as an implicit downstream UAT deploy instead of a separate explicit dispatch"
+  ]
 }

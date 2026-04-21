@@ -42,10 +42,10 @@ Set these in the backend runtime profile:
 - `PLAID_COUNTRY_CODES=US`
 - `PLAID_REDIRECT_PATH=/kai/plaid/oauth/return`
 - `PLAID_WEBHOOK_URL=https://<public-domain-or-tunnel>/api/kai/plaid/webhook`
-- `PLAID_TOKEN_ENCRYPTION_KEY=<recommended but optional>`
+- `PLAID_ACCESS_TOKEN_KEY=<recommended but optional>`
 - `PLAID_TX_HISTORY_DAYS=730`
 
-`FRONTEND_URL` must match the active frontend origin for the current profile.
+`APP_FRONTEND_ORIGIN` must match the active frontend origin for the current profile.
 
 Webhook values to use:
 
@@ -79,7 +79,7 @@ Hosted webhook targets:
 - `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
 - `https://kai.hushh.ai/api/kai/plaid/webhook`
 
-Backend must use the matching `FRONTEND_URL` for each profile so the callback origin validation succeeds.
+Backend must use the matching `APP_FRONTEND_ORIGIN` for each profile so the callback origin validation succeeds.
 
 ## Activation Steps
 
@@ -87,7 +87,7 @@ Backend must use the matching `FRONTEND_URL` for each profile so the callback or
 2. Set `PLAID_WEBHOOK_URL` for the active backend:
    - localhost/local: your current tunnel URL ending in `/api/kai/plaid/webhook`
    - UAT: `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
-3. Set a stable `PLAID_TOKEN_ENCRYPTION_KEY`.
+3. Set a stable `PLAID_ACCESS_TOKEN_KEY`.
 4. Restart the backend so the new Plaid env values load.
 5. Start the frontend on the matching origin.
 6. Open Kai import or dashboard.
