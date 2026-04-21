@@ -57,6 +57,7 @@ EXPECTED_WORKFLOW_IDS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "api-contract-change",
+    "pr-governance-review",
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",

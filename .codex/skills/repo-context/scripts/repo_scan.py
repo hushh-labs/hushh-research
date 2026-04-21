@@ -51,6 +51,7 @@ MEANINGFUL_SURFACES = [
 SECTION_NAMES = ("docs", "frontend", "backend", "skills", "commands")
 REQUIRED_OWNER_SKILLS = [
     "repo-context",
+    "pr-governance-review",
     "frontend",
     "mobile-native",
     "backend",
@@ -69,6 +70,7 @@ REQUIRED_WORKFLOWS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "api-contract-change",
+    "pr-governance-review",
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",

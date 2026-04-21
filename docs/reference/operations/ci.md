@@ -64,6 +64,7 @@ Minimum expectation:
 5. do not stop at "triggered" or "queued"
 6. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
 7. when the run is expected to outlive the current chat turn, start the persistent watcher instead of relying on manual follow-up
+8. when Codex initiated the merge or queue action, continuing this watch is mandatory; needing a user reminder to resume monitoring is process drift
 
 Codex-first PR watcher:
 
@@ -72,6 +73,15 @@ Codex-first PR watcher:
 ```
 
 Use this command first for active pull-request checks because it classifies failing jobs into the right owner skill and points to the next workflow pack before dropping to raw `gh run` inspection.
+
+Merge-queue rule:
+
+If Codex triggers `gh pr merge`, `gh pr merge --auto`, or any action that places a PR into merge queue, that is not completion. Codex must confirm the queue entry, then continue monitoring the authoritative workflow chain until:
+
+1. `Queue Validation` reaches terminal state for the merge candidate
+2. if the PR lands, `Main Post-Merge Smoke` reaches terminal state for the landed `main` SHA
+3. only stop earlier when the user explicitly asked for queue placement rather than landed completion
+4. if Codex triggered the merge path, it owns this monitoring step through terminal completion and should not pause after the queue accepts the PR
 
 Codex-first RCA surface:
 
