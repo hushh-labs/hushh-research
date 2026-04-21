@@ -222,7 +222,7 @@ GitHub deployment environments are part of the release authority surface and sho
   - no admin bypass
   - protected branches only
   - used by [`.github/workflows/deploy-uat.yml`](../../../.github/workflows/deploy-uat.yml)
-- `production-owner-bypass`
+- `production`
   - no reviewers
   - no admin bypass
   - protected branches only

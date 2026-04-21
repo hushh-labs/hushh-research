@@ -241,7 +241,7 @@ Deploys Next.js frontend to Cloud Run:
 
 The repo includes:
 
-- [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`) through `production-owner-bypass`.
+- [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`) through `production`.
 - [.github/workflows/deploy-uat.yml](../.github/workflows/deploy-uat.yml): manual UAT deploy (`workflow_dispatch`) through `uat`.
 
 Manual dispatch now supports `scope`:
@@ -256,7 +256,7 @@ Manual dispatch now supports `scope`:
 2. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
 3. **Environment policy:** keep only the canonical deploy environments in active use:
    - `uat`
-   - `production-owner-bypass`
+   - `production`
    Legacy unused production environments should not remain as parallel approval lanes.
 
 ### CI Security Gates
