@@ -3,12 +3,10 @@ Dry-run verification for Bug #408 fix.
 Mirrors the 5 tests shown in the GitHub issue screenshots.
 Writes results to bug408_results.log (UTF-8).
 """
+import builtins
 import os
 import sys
 import types
-import builtins
-
-
 
 sys.path.insert(0, os.path.dirname(__file__))
 
