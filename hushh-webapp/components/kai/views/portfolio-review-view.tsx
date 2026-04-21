@@ -1691,7 +1691,7 @@ export function PortfolioReviewView({
         account_summary: hasSummaryValues(statementAccountSummary)
           ? statementAccountSummary
           : null,
-        holdings: portfolioToSave.holdings || [],
+        holdings: consolidatedActiveHoldings || [],
         transactions:
           initialData.transactions ||
           initialData.activity_and_transactions ||
