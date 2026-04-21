@@ -170,12 +170,6 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "brain",
             "color_hex": "#D4AF37",
         },
-        "agent.kai.execute": {
-            "label": "Kai Actions",
-            "description": "Allow Kai agent to execute actions",
-            "icon_name": "zap",
-            "color_hex": "#D4AF37",
-        },
     }
 
     meta = _STATIC_SCOPE_META.get(scope)
