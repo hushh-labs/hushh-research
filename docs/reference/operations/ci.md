@@ -124,7 +124,7 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated three-person owner team only.
+The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
 ### PKM rollout blocker
 
@@ -204,8 +204,8 @@ The live GitHub setting can drift from the docs, so verify it directly:
 Current live nuance:
 
 - the repo uses branch protection for review, freshness, and conversation-resolution requirements
-- the sanctioned bypass trio should be limited to the 3 core owners, without overlapping push-restriction lists
-- that sanctioned trio is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
+- the sanctioned bypass cohort should be limited to the approved owner set, without overlapping push-restriction lists
+- that sanctioned cohort is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
 
 ### GitHub Alert Parity
 
@@ -253,7 +253,7 @@ Post-merge smoke remains the deployment eligibility gate for `main`.
 1. `main` is the only integration branch for day-to-day development.
 2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
 3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
-4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`.
+4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only `kushaltrivedi5` may trigger it.
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
 7. Feature or hotfix branches never deploy directly; they merge through `main`.

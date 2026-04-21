@@ -190,7 +190,7 @@ def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
         notes=[
             "A PR author still cannot self-approve through GitHub.",
             "Review bypass and merge-queue policy are separate gates.",
-            "The sanctioned main owner-bypass trio may waive review on main and bypass merge queue through the dedicated team-backed owner path.",
+            "The sanctioned main owner-bypass cohort may waive review on main and bypass merge queue through the dedicated team-backed owner path.",
         ],
     )
 
