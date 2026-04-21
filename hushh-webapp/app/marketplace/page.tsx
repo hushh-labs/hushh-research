@@ -133,12 +133,13 @@ function toSelectedProfile(item: DiscoveryCard): SelectedProfile {
 export default function MarketplacePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { activePersona } = usePersonaState();
+  const { personaState } = usePersonaState();
   const environment = resolveAppEnvironment();
   const allowTestProfiles = environment !== "production";
   const allowKaiTestInvestor = canShowKaiTestProfile();
   const kaiTestUserId = getKaiTestUserId();
-  const currentPersona = activePersona ?? "investor";
+  const currentPersona =
+    personaState?.active_persona || personaState?.last_active_persona || "investor";
   const directoryKind = currentPersona === "ria" ? "investors" : "rias";
   const searchPlaceholder =
     currentPersona === "ria" ? "Search investors by name" : "Search RIAs by name or firm";
@@ -926,7 +927,7 @@ export default function MarketplacePage() {
       {!iamUnavailable && view === "list" ? (
         <div className="grid gap-4 pb-16 md:grid-cols-2 xl:grid-cols-3">
           {activeCards.map((item) => {
-            const userId = item.profile.user_id;
+            const userId = item.kind === "ria" ? item.profile.user_id : item.profile.user_id;
             return (
               <RiaSurface
                 key={`${item.kind}-${item.id}`}
