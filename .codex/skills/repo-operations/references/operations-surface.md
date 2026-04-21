@@ -39,9 +39,10 @@ Use this reference to orient DevOps work in `hushh-research`.
 2. Merge queue is the standard path to `main`.
 3. `CI Status Gate` is the blocking queue/PR check on pre-merge commits.
 4. `Main Freshness Gate` is advisory on PRs and blocking on `merge_group`.
-5. `Main Post-Merge Smoke Gate` is the deploy-authority check on the real `main` SHA.
-6. UAT deploys only from an explicitly chosen green `main` SHA that passed post-merge smoke.
-7. Production deploys from an approved green `main` SHA that passed post-merge smoke.
+5. `Upstream Sync` is the subtree/governance signal for `consent-protocol`; it is not a freshness alias.
+6. `Main Post-Merge Smoke Gate` is the deploy-authority check on the real `main` SHA.
+7. UAT deploys only from an explicitly chosen green `main` SHA that passed post-merge smoke.
+8. Production deploys from an approved green `main` SHA that passed post-merge smoke.
 
 ## Review bypass semantics
 
