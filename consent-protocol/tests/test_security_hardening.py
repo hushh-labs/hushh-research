@@ -285,7 +285,7 @@ class TestCreateTrustLinkValidation:
             ConsentScope.PKM_READ,
             ConsentScope.PKM_WRITE,
             ConsentScope.VAULT_OWNER,
-            ConsentScope.AGENT_EXECUTE,
+            ConsentScope.AGENT_KAI_ANALYZE,
         ],
     )
     def test_all_consent_scope_enums_accepted(self, scope_enum):

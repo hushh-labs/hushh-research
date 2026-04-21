@@ -51,7 +51,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
 
     # Agent permissions
     if scope.startswith("agent."):
-        return ConsentScope.AGENT_EXECUTE
+        return ConsentScope.AGENT_KAI_ANALYZE
 
     # Custom/temporary scopes
     if scope.startswith("custom."):
@@ -116,7 +116,8 @@ def get_scope_description(scope: str) -> str:
         Human-readable description
     """
     info = get_scope_display_metadata(scope)
-    return info["description"]
+    description = info.get("description")
+    return description if isinstance(description, str) else f"Access: {scope}"
 
 
 def get_scope_display_metadata(scope: str) -> dict:

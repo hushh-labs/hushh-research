@@ -232,12 +232,16 @@ class DynamicScopeGenerator:
                 continue
             entry = catalog.setdefault(domain, {"paths": set(), "wildcards": set()})
             for top_level_path in row.get("top_level_scope_paths") or []:
-                normalized = self._normalize_scope_path(str(top_level_path))
+                normalized = self._normalize_scope_path(
+                    top_level_path if isinstance(top_level_path, str) else None
+                )
                 if normalized:
                     entry["paths"].add(normalized)
                     entry["wildcards"].add(normalized)
             for externalizable_path in row.get("externalizable_paths") or []:
-                normalized = self._normalize_scope_path(str(externalizable_path))
+                normalized = self._normalize_scope_path(
+                    externalizable_path if isinstance(externalizable_path, str) else None
+                )
                 if normalized:
                     entry["paths"].add(normalized)
 
@@ -372,8 +376,9 @@ class DynamicScopeGenerator:
             if domain:
                 known_domains.add(domain)
             summary_projection = self._coerce_json_dict(row.get("summary_projection"))
+            top_level_scope_path = summary_projection.get("top_level_scope_path")
             top_level_path = self._normalize_scope_path(
-                summary_projection.get("top_level_scope_path")
+                top_level_scope_path if isinstance(top_level_scope_path, str) else None
             )
             if domain and top_level_path:
                 all_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
