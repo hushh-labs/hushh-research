@@ -83,8 +83,8 @@ Non-owned surfaces:
    - relaunch fresh visible terminals
 21. Do not close a Terminal window that still has a live shell just because the app listener is gone. A plain `close ... saving no` still triggers the terminate-process prompt on macOS if `zsh` is alive.
 22. If a terminal refuses to disappear after `exit`, treat force-close as fallback only. Prefer proving the shell is gone first, then closing the leftover idle window.
-23. If `./bin/hushh terminal web` opens but the frontend never binds, inspect the actual package surface before retrying. A common failure mode is `npm run dev` -> `sh: next: command not found`, which means the frontend install surface is broken even if `hushh-webapp/node_modules/` exists.
-24. In that case, verify `hushh-webapp/node_modules/.bin/next` explicitly. If it is missing, repair the workspace through the canonical bootstrap path (`./bin/hushh bootstrap`) before relaunching the web terminal.
+23. If `./bin/hushh terminal web` opens but the frontend never binds, inspect the actual package surface before retrying. A common failure mode is `npm run dev` -> `sh: next: command not found`, which means the frontend install surface is broken even if dependencies appear partially present.
+24. In that case, verify the local Next binary resolves from the `hushh-webapp` package context, for example by checking `npm exec next -- --version` or an equivalent package-local resolution step. If Next does not resolve, repair the workspace through the canonical bootstrap path (`./bin/hushh bootstrap`) before relaunching the web terminal.
 25. Do not claim the server restart succeeded until both backend and web have been probed successfully after relaunch (`:8000/health` and `:3000`).
 26. Default branch policy: continue work on the user's active development branch. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
 27. Create a new branch only when one of these is true:
