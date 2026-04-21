@@ -84,10 +84,11 @@ bash scripts/ci/orchestrate.sh all
 That workflow is wired through [`.github/workflows/deploy-uat.yml`](../../.github/workflows/deploy-uat.yml), which now checks:
 
 - chosen SHA is reachable from `origin/main`
-- chosen SHA already has a successful `CI Status Gate`
+- chosen SHA already has a successful `Main Post-Merge Smoke Gate`
 - backend/frontend deploy succeeds
 - hosted runtime env contract is present on Cloud Run
 - UAT parity stays aligned after deploy
+- deployment is recorded under the canonical `uat` GitHub environment
 
 Validate the deployed result with:
 
@@ -107,7 +108,7 @@ Deploy workflows already validate:
 - runtime env/secret parity
 - backend/frontend runtime contract injection
 
-Production is no longer an auto-deploy branch lane. It is a manual dispatch of an approved green `main` SHA via [`.github/workflows/deploy-production.yml`](../../.github/workflows/deploy-production.yml).
+Production is no longer an auto-deploy branch lane. It is a manual dispatch of an approved green `main` SHA via [`.github/workflows/deploy-production.yml`](../../.github/workflows/deploy-production.yml), recorded under the canonical `production-owner-bypass` environment.
 
 Reference docs:
 

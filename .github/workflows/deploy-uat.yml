@@ -40,6 +40,7 @@ jobs:
   deploy:
     name: Deploy UAT Scope
     runs-on: ubuntu-latest
+    environment: uat
 
     steps:
       - name: Assert manual dispatch originates from main
