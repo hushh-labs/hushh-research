@@ -75,7 +75,7 @@ import {
   buildFinancialDomainSummary,
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
-import { consolidateHoldingsBySymbol, mergeWithExistingHoldings } from "@/lib/utils/portfolio-normalize";
+import { consolidateHoldingsBySymbol } from "@/lib/utils/portfolio-normalize";
 
 
 
@@ -1522,44 +1522,16 @@ export function PortfolioReviewView({
       const existingPortfolioCandidate =
         toRecord(existingFinancial.portfolio) ?? existingFinancial;
 
-      // Merge new holdings with existing holdings so old positions are retained
-      // and duplicates are averaged rather than erased (issue #158).
-      const existingHoldingsRaw = Array.isArray(existingPortfolioCandidate.holdings)
-        ? (existingPortfolioCandidate.holdings as Record<string, unknown>[])
-        : [];
-      const mergeResult = mergeWithExistingHoldings(
-        existingHoldingsRaw,
-        consolidatedActiveHoldings as unknown as Record<string, unknown>[]
-      );
-      const mergedHoldings = mergeResult.holdings as Holding[];
-
-      if (mergeResult.retained.length > 0 || mergeResult.averaged.length > 0) {
-        const parts: string[] = [];
-        if (mergeResult.averaged.length > 0) {
-          parts.push(`${mergeResult.averaged.length} averaged`);
-        }
-        if (mergeResult.retained.length > 0) {
-          parts.push(`${mergeResult.retained.length} retained from previous`);
-        }
-        if (mergeResult.added.length > 0) {
-          parts.push(`${mergeResult.added.length} new`);
-        }
-        toast.info(`Holdings merged: ${parts.join(", ")}.`);
-      }
-
       const parsedAccountSummary = sanitizeAccountSummary(accountSummary);
       const parsedAssetAllocation = sanitizeAssetAllocation(assetAllocation);
       const parsedCashBalance =
         toFiniteNumber(initialData.cash_balance) ?? parsedAccountSummary.cash_balance;
-      const holdingsTotal = mergedHoldings.reduce(
+      const holdingsTotal = consolidatedActiveHoldings.reduce(
         (sum, holding) => sum + (toFiniteNumber(holding.market_value) ?? 0),
         0
       );
-      const derivedCashBalance = deriveCashFromHoldings(mergedHoldings as unknown as Holding[]);
+      const derivedCashBalance = deriveCashFromHoldings(consolidatedActiveHoldings);
       const holdingsIncludeCash = derivedCashBalance !== undefined;
-
-      // Update save payload to reflect merged holdings for the onSaveComplete callback.
-      savePayload.holdings = mergedHoldings;
 
       // 3. Append structured statement snapshot (no raw PDF bytes).
       const existingDocsValue = existingFinancial.documents;
@@ -1672,7 +1644,7 @@ export function PortfolioReviewView({
         asset_allocation: hasAllocationValues(resolvedAssetAllocation)
           ? resolvedAssetAllocation
           : undefined,
-        holdings: mergedHoldings,
+        holdings: consolidatedActiveHoldings,
         income_summary: hasRecordValues(normalizedIncomeSummary as Record<string, unknown>)
           ? normalizedIncomeSummary
           : undefined,
@@ -1859,13 +1831,13 @@ export function PortfolioReviewView({
       const financialSummary = {
         ...buildFinancialDomainSummary(nextFinancialDomain as Record<string, unknown>),
         intent_source: "kai_import_llm",
-        attribute_count: mergedHoldings.length,
-        item_count: mergedHoldings.length,
-        holdings_count: mergedHoldings.length,
-        investable_positions_count: mergedHoldings.filter(
+        attribute_count: consolidatedActiveHoldings.length,
+        item_count: consolidatedActiveHoldings.length,
+        holdings_count: consolidatedActiveHoldings.length,
+        investable_positions_count: consolidatedActiveHoldings.filter(
           (holding) => holding.is_investable
         ).length,
-        cash_positions_count: mergedHoldings.filter(
+        cash_positions_count: consolidatedActiveHoldings.filter(
           (holding) => holding.is_cash_equivalent
         ).length,
         allocation_coverage_pct: hasAllocationValues(resolvedAssetAllocation) ? 1 : 0,
