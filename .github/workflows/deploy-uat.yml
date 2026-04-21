@@ -1,13 +1,6 @@
 name: Deploy to UAT
 
 on:
-  workflow_run:
-    workflows:
-      - "Main Post-Merge Smoke"
-    types:
-      - completed
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       scope:
@@ -33,23 +26,23 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
+  APP_FRONTEND_ORIGIN: https://uat.kai.hushh.ai
   UAT_CLOUDSQL_INSTANCE: hushh-pda-uat:us-central1:hushh-uat-pg
   UAT_DB_UNIX_SOCKET: /cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg
   CLOUD_RUN_REVISION_RETENTION: "10"
+  PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
-  group: deploy-uat-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.run_id }}
+  group: deploy-uat-${{ github.event.inputs.sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     name: Deploy UAT Scope
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
 
     steps:
       - name: Assert manual dispatch originates from main
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -65,7 +58,6 @@ jobs:
           ref: main
 
       - name: Assert manual UAT dispatch actor policy
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -76,15 +68,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
-            DEPLOY_SHA="${{ github.event.workflow_run.head_sha }}"
-          elif [ -n "${{ github.event.inputs.sha }}" ]; then
+          if [ -n "${{ github.event.inputs.sha }}" ]; then
             DEPLOY_SHA="${{ github.event.inputs.sha }}"
           else
             git fetch --no-tags origin main
             DEPLOY_SHA="$(git rev-parse origin/main)"
           fi
-
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Validate deployment SHA against main
@@ -126,11 +115,7 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            SCOPE="${{ github.event.inputs.scope }}"
-          else
-            SCOPE="all"
-          fi
+          SCOPE="${{ github.event.inputs.scope }}"
 
           case "$SCOPE" in
             backend)
@@ -152,15 +137,72 @@ jobs:
           echo "deploy_backend=$DEPLOY_BACKEND" >> "$GITHUB_OUTPUT"
           echo "deploy_frontend=$DEPLOY_FRONTEND" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Python for UAT DB governance
-        if: steps.scope.outputs.deploy_backend == 'true'
-        uses: actions/setup-python@v6
+      - name: Set up Python + uv runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: "3.13"
+          protocol-dir: ./consent-protocol
 
-      - name: Install UAT DB governance dependencies
-        if: steps.scope.outputs.deploy_backend == 'true'
-        run: python3 -m pip install --disable-pip-version-check asyncpg python-dotenv
+      - name: Capture predeploy Cloud Run state
+        id: predeploy-state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+
+          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
+          echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
+          echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync canonical hosted runtime secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --environment uat \
+            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --db-host "cloudsql-socket" \
+            --db-port "5432" \
+            --db-name "postgres" \
+            --db-unix-socket "${{ env.UAT_DB_UNIX_SOCKET }}" \
+            --cloudsql-instance-connection-name "${{ env.UAT_CLOUDSQL_INSTANCE }}" \
+            --consent-sse-enabled "true" \
+            --sync-remote-enabled "false" \
+            --developer-api-enabled "true" \
+            --remote-mcp-enabled "true" \
+            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --obs-data-stale-ratio-threshold "0.25" \
+            --passkey-allowed-rp-ids "localhost,127.0.0.1,kai.hushh.ai,uat.kai.hushh.ai" \
+            --plaid-env "production" \
+            --plaid-client-name "Hushh Kai" \
+            --plaid-country-codes "US" \
+            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
+            --plaid-redirect-path "/kai/plaid/oauth/return" \
+            --plaid-tx-history-days "730" \
+            > /tmp/uat-runtime-secret-sync.json
+
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --environment uat \
+            > /tmp/uat-frontend-runtime-secret-sync.json
 
       - name: Install Cloud SQL Auth Proxy
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -213,34 +255,22 @@ jobs:
 
           (
             cd consent-protocol
-            python3 db/migrate.py --release
+            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release
           )
-          python3 scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
+            --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
             --report-path /tmp/uat-db-migration-guard-predeploy.json
 
       - name: Deploy backend using Cloud Build
         if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
         run: |
-          NEWS_API_SECRET_NAME="NEWSAPI_KEY"
-          PMP_API_SECRET_NAME="PMP_API_KEY"
-          FINNHUB_API_SECRET_NAME="FINNHUB_API_KEY"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_ENVIRONMENT=uat##_DB_HOST=cloudsql-socket##_DB_PORT=5432##_DB_NAME=postgres##_DB_UNIX_SOCKET=${{ env.UAT_DB_UNIX_SOCKET }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_CORS_ALLOWED_ORIGINS=https://uat.kai.hushh.ai##_PASSKEY_ALLOWED_RP_IDS=localhost,127.0.0.1,kai.hushh.ai,uat.kai.hushh.ai##_OBS_DATA_STALE_RATIO_THRESHOLD=0.25##_CONSENT_SSE_ENABLED=true##_SYNC_REMOTE_ENABLED=false##_DEVELOPER_API_ENABLED=true##_REMOTE_MCP_ENABLED=true##_PLAID_ENV=production##_PLAID_CLIENT_NAME=Hushh Kai##_PLAID_COUNTRY_CODES=US##_PLAID_WEBHOOK_URL=https://uat.kai.hushh.ai/api/kai/plaid/webhook##_PLAID_REDIRECT_PATH=/kai/plaid/oauth/return##_PLAID_TX_HISTORY_DAYS=730##_RIA_DEV_BYPASS_ENABLED=true##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_TOKEN_ENCRYPTION_KEY_SECRET=PLAID_TOKEN_ENCRYPTION_KEY##_FINNHUB_API_KEY_SECRET=${FINNHUB_API_SECRET_NAME}##_PMP_API_KEY_SECRET=${PMP_API_SECRET_NAME}##_NEWSAPI_KEY_SECRET=${NEWS_API_SECRET_NAME}##_FIREBASE_SERVICE_ACCOUNT_SECRET=FIREBASE_SERVICE_ACCOUNT_JSON"
+          set -euo pipefail
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN"
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
             "--substitutions=^##^${SUBSTITUTIONS}"
-
-      - name: Get backend URL
-        if: steps.scope.outputs.deploy_backend == 'true'
-        id: backend-url
-        run: |
-          BACKEND_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --region=${{ env.GCP_REGION }} \
-            --format='value(status.url)')
-          echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
-          echo "Backend URL: $BACKEND_URL"
 
       - name: Retain latest backend revisions
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -255,82 +285,116 @@ jobs:
             --config=deploy/frontend.cloudbuild.yaml \
             "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=uat"
 
-      - name: Get frontend URL
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        id: frontend-url
-        run: |
-          FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --region=${{ env.GCP_REGION }} \
-            --format='value(status.url)')
-          echo "url=$FRONTEND_URL" >> $GITHUB_OUTPUT
-          echo "Frontend URL: $FRONTEND_URL"
-
-      - name: Update backend CORS allowlist to UAT frontend
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        run: |
-          RUN_APP_FRONTEND_URL="${{ steps.frontend-url.outputs.url }}"
-          CUSTOM_FRONTEND_URL="$(gcloud secrets versions access latest \
-            --secret=FRONTEND_URL \
-            --project="${{ env.GCP_PROJECT_ID }}")"
-          BACKEND_SERVICE_JSON="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format=json)"
-          EXISTING_CORS="$(printf '%s' "${BACKEND_SERVICE_JSON}" | jq -r \
-            '.spec.template.spec.containers[0].env[]? | select(.name=="CORS_ALLOWED_ORIGINS") | .value' | head -n1)"
-
-          MERGED_CORS="$(python3 - <<'PY' "${EXISTING_CORS}" "${CUSTOM_FRONTEND_URL}" "${RUN_APP_FRONTEND_URL}"
-          import sys
-          from urllib.parse import urlparse
-
-          def normalize(origin: str) -> str:
-              raw = (origin or "").strip()
-              if not raw:
-                  return ""
-              parsed = urlparse(raw)
-              if parsed.scheme and parsed.netloc:
-                  return f"{parsed.scheme}://{parsed.netloc}"
-              return ""
-
-          seen = set()
-          ordered = []
-          for arg in sys.argv[1:]:
-              for item in (arg or "").split(","):
-                  origin = normalize(item)
-                  if origin and origin not in seen:
-                      seen.add(origin)
-                      ordered.append(origin)
-
-          print(",".join(ordered))
-          PY
-          )"
-
-          # Use a custom delimiter so comma-separated origins are treated as one env var value.
-          gcloud run services update "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --update-env-vars "^##^CORS_ALLOWED_ORIGINS=${MERGED_CORS}"
-
       - name: Retain latest frontend revisions
         if: steps.scope.outputs.deploy_frontend == 'true'
         continue-on-error: true
         run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.CLOUD_RUN_REVISION_RETENTION }}"
 
-      - name: Verify UAT runtime env parity
-        if: steps.scope.outputs.deploy_backend == 'true' || steps.scope.outputs.deploy_frontend == 'true'
+      - name: Resolve deployed candidate revisions
+        id: candidate-state
+        shell: bash
         run: |
-          python3 scripts/ops/verify-env-secrets-parity.py \
+          set -euo pipefail
+
+          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestCreatedRevisionName)')"
+          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestCreatedRevisionName)')"
+
+          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
+          echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Promote deployed revisions to UAT traffic
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-revisions="${{ steps.candidate-state.outputs.backend_revision }}=100"
+          fi
+
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"
+          fi
+
+      - name: Resolve current deployed Cloud Run state
+        id: current-state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)')"
+          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)')"
+          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)')"
+          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)')"
+
+          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
+          echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
+          echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify UAT runtime env parity
+        id: verify-parity-1
+        continue-on-error: true
+        run: |
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --region "${{ env.GCP_REGION }}" \
             --backend-service "${{ env.BACKEND_SERVICE }}" \
             --frontend-service "${{ env.FRONTEND_SERVICE }}" \
             --require-plaid \
             --require-market-data \
-            --assert-runtime-env-contract
+            --require-gmail \
+            --require-voice \
+            --assert-runtime-env-contract \
+            --report-path /tmp/uat-runtime-parity-attempt-1.json
+
+      - name: Verify UAT runtime env parity retry
+        id: verify-parity-2
+        if: steps.verify-parity-1.outcome == 'failure'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 20
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --backend-service "${{ env.BACKEND_SERVICE }}" \
+            --frontend-service "${{ env.FRONTEND_SERVICE }}" \
+            --require-plaid \
+            --require-market-data \
+            --require-gmail \
+            --require-voice \
+            --assert-runtime-env-contract \
+            --report-path /tmp/uat-runtime-parity-attempt-2.json
 
       - name: Post-deploy UAT schema contract gate
+        id: postdeploy-db-gate
         if: steps.scope.outputs.deploy_backend == 'true'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -368,36 +432,385 @@ jobs:
           export DB_USER
           export DB_PASSWORD
 
-          python3 scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/schema_contract/uat_integrated_schema.json \
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
+            --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
             --report-path /tmp/uat-db-migration-guard-postdeploy.json
 
-      - name: Upload UAT DB governance artifacts
-        if: always() && steps.scope.outputs.deploy_backend == 'true'
-        uses: actions/upload-artifact@v4
+      - name: Bootstrap UAT runtime files for semantic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
+          bash scripts/env/use_profile.sh uat
+
+      - name: Load maintainer smoke overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "UAT_SMOKE_USER_ID<<EOF"
+            gcloud secrets versions access latest \
+              --secret=UAT_SMOKE_USER_ID \
+              --project="${{ env.GCP_PROJECT_ID }}"
+            echo
+            echo "EOF"
+            echo "UAT_SMOKE_PASSPHRASE<<EOF"
+            gcloud secrets versions access latest \
+              --secret=UAT_SMOKE_PASSPHRASE \
+              --project="${{ env.GCP_PROJECT_ID }}"
+            echo
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Semantic UAT verification
+        id: verify-uat-1
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --backend-url "${{ steps.current-state.outputs.backend_url }}" \
+            --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --protocol-env consent-protocol/.env \
+            --web-env hushh-webapp/.env.local \
+            --report-path /tmp/uat-release-verify-attempt-1.json
+
+      - name: Semantic UAT verification retry
+        id: verify-uat-2
+        if: steps.verify-uat-1.outcome == 'failure'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 20
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --backend-url "${{ steps.current-state.outputs.backend_url }}" \
+            --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --protocol-env consent-protocol/.env \
+            --web-env hushh-webapp/.env.local \
+            --report-path /tmp/uat-release-verify-attempt-2.json
+
+      - name: Classify UAT release outcome
+        if: always()
+        id: classify-uat-release
+        shell: bash
+        env:
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+          DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
+          PARITY_ATTEMPT_1: ${{ steps.verify-parity-1.outcome }}
+          PARITY_ATTEMPT_2: ${{ steps.verify-parity-2.outcome }}
+          DB_OUTCOME: ${{ steps.postdeploy-db-gate.outcome }}
+          SEMANTIC_ATTEMPT_1: ${{ steps.verify-uat-1.outcome }}
+          SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def load_json(path: str) -> dict:
+              candidate = Path(path)
+              if not candidate.exists():
+                  return {}
+              try:
+                  parsed = json.loads(candidate.read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  return {}
+              return parsed if isinstance(parsed, dict) else {}
+
+          def has_runtime_failures(entries: list[dict]) -> bool:
+              return any(str(entry.get("status")) in {"missing", "legacy"} for entry in entries)
+
+          def append_unique(target: list[str], values: list[str]) -> None:
+              for value in values:
+                  if value and value not in target:
+                      target.append(value)
+
+          parity_report = load_json("/tmp/uat-runtime-parity-attempt-2.json") or load_json(
+              "/tmp/uat-runtime-parity-attempt-1.json"
+          )
+          semantic_report = load_json("/tmp/uat-release-verify-attempt-2.json") or load_json(
+              "/tmp/uat-release-verify-attempt-1.json"
+          )
+
+          parity_success = os.environ.get("PARITY_ATTEMPT_1") == "success" or os.environ.get("PARITY_ATTEMPT_2") == "success"
+          semantic_success = os.environ.get("SEMANTIC_ATTEMPT_1") == "success" or os.environ.get("SEMANTIC_ATTEMPT_2") == "success"
+          db_outcome = os.environ.get("DB_OUTCOME", "")
+
+          blocking: list[str] = []
+          backend_failure = False
+          frontend_failure = False
+
+          required = parity_report.get("required") or {}
+          missing_secrets = set(parity_report.get("missing_secrets") or [])
+          backend_secret_names = set(
+              required.get("backend", [])
+              + required.get("gmail", [])
+              + required.get("voice", [])
+              + required.get("plaid", [])
+              + required.get("market", [])
+          )
+          frontend_secret_names = set(required.get("frontend", []))
+
+          runtime_contract = parity_report.get("runtime_contract") or {}
+          frontend_runtime_entries = runtime_contract.get("frontend") or []
+          backend_runtime_entries = (
+              (runtime_contract.get("backend") or [])
+              + (runtime_contract.get("backend_gmail") or [])
+              + (runtime_contract.get("backend_voice") or [])
+          )
+
+          if not parity_success:
+              append_unique(blocking, list(parity_report.get("classifications") or ["runtime_mount_missing"]))
+          if missing_secrets & backend_secret_names:
+              backend_failure = True
+          if missing_secrets & frontend_secret_names:
+              frontend_failure = True
+          if has_runtime_failures(frontend_runtime_entries):
+              frontend_failure = True
+          if has_runtime_failures(backend_runtime_entries):
+              backend_failure = True
+
+          semantic_failures = set(semantic_report.get("failures") or [])
+          advisory_semantic_failures = sorted(
+              item for item in semantic_failures if item.startswith("signed_in_routes:")
+          )
+          blocking_semantic_failures = {
+              item for item in semantic_failures if not item.startswith("signed_in_routes:")
+          }
+          if not semantic_success:
+              if blocking_semantic_failures:
+                  append_unique(blocking, ["runtime_behavior_failed"])
+              if "smoke_auth" in blocking_semantic_failures:
+                  append_unique(blocking, ["smoke_overlay_dependency_leak"])
+              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session"}:
+                  backend_failure = True
+              if "frontend_login" in blocking_semantic_failures:
+                  frontend_failure = True
+
+          if db_outcome == "failure":
+              append_unique(blocking, ["db_contract_drift"])
+              backend_failure = True
+
+          blocking = list(dict.fromkeys(blocking))
+          release_failed = bool(blocking)
+
+          payload = {
+              "status": "blocked" if release_failed else "healthy",
+              "release_failed": release_failed,
+              "blocking_classifications": blocking,
+              "backend_failure": backend_failure,
+              "frontend_failure": frontend_failure,
+              "parity": {
+                  "attempt_1": os.environ.get("PARITY_ATTEMPT_1", ""),
+                  "attempt_2": os.environ.get("PARITY_ATTEMPT_2", ""),
+                  "success": parity_success,
+              },
+              "semantic": {
+                  "attempt_1": os.environ.get("SEMANTIC_ATTEMPT_1", ""),
+                  "attempt_2": os.environ.get("SEMANTIC_ATTEMPT_2", ""),
+                  "success": semantic_success,
+                  "failures": sorted(semantic_failures),
+                  "blocking_failures": sorted(blocking_semantic_failures),
+                  "advisory_failures": advisory_semantic_failures,
+              },
+              "db_contract": {
+                  "outcome": db_outcome,
+              },
+          }
+
+          Path("/tmp/uat-release-classification.json").write_text(
+              json.dumps(payload, indent=2), encoding="utf-8"
+          )
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as handle:
+              handle.write(f"release_failed={'true' if release_failed else 'false'}\n")
+              handle.write(f"backend_failure={'true' if backend_failure else 'false'}\n")
+              handle.write(f"frontend_failure={'true' if frontend_failure else 'false'}\n")
+              handle.write(f"blocking_classifications={','.join(blocking)}\n")
+              handle.write(f"parity_success={'true' if parity_success else 'false'}\n")
+              handle.write(f"semantic_success={'true' if semantic_success else 'false'}\n")
+          PY
+
+      - name: Roll back backend revision
+        id: rollback-backend
+        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.predeploy-state.outputs.backend_revision != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+
+      - name: Roll back frontend revision
+        id: rollback-frontend
+        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.predeploy-state.outputs.frontend_revision != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+
+      - name: Resolve final Cloud Run state
+        if: always()
+        id: final-state
+        shell: bash
+        run: |
+          set -euo pipefail
+          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
+          echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
+          echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Write UAT release status artifact
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BACKEND_ROLLBACK_REQUIRED=false
+          FRONTEND_ROLLBACK_REQUIRED=false
+          BACKEND_ROLLBACK_DONE=true
+          FRONTEND_ROLLBACK_DONE=true
+
+          if [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
+            STATUS="healthy"
+          else
+            if [ "${{ steps.classify-uat-release.outputs.backend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.backend_revision }}" != "" ]; then
+              BACKEND_ROLLBACK_REQUIRED=true
+              if [ "${{ steps.rollback-backend.outcome }}" != "success" ]; then
+                BACKEND_ROLLBACK_DONE=false
+              fi
+            fi
+            if [ "${{ steps.classify-uat-release.outputs.frontend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.frontend_revision }}" != "" ]; then
+              FRONTEND_ROLLBACK_REQUIRED=true
+              if [ "${{ steps.rollback-frontend.outcome }}" != "success" ]; then
+                FRONTEND_ROLLBACK_DONE=false
+              fi
+            fi
+
+            if { [ "$BACKEND_ROLLBACK_REQUIRED" = true ] || [ "$FRONTEND_ROLLBACK_REQUIRED" = true ]; } && [ "$BACKEND_ROLLBACK_DONE" = true ] && [ "$FRONTEND_ROLLBACK_DONE" = true ]; then
+              STATUS="rolled_back"
+            else
+              STATUS="blocked"
+            fi
+          fi
+
+          export STATUS
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "status": os.environ["STATUS"],
+              "sha": "${{ steps.resolve-sha.outputs.sha }}",
+              "scope": "${{ steps.scope.outputs.scope }}",
+              "app_frontend_origin": "${{ env.APP_FRONTEND_ORIGIN }}",
+              "predeploy": {
+                  "backend_revision": "${{ steps.predeploy-state.outputs.backend_revision }}",
+                  "backend_url": "${{ steps.predeploy-state.outputs.backend_url }}",
+                  "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
+                  "frontend_url": "${{ steps.predeploy-state.outputs.frontend_url }}",
+              },
+              "current": {
+                  "backend_candidate_revision": "${{ steps.candidate-state.outputs.backend_revision }}",
+                  "backend_revision": "${{ steps.current-state.outputs.backend_revision }}",
+                  "backend_url": "${{ steps.current-state.outputs.backend_url }}",
+                  "frontend_candidate_revision": "${{ steps.candidate-state.outputs.frontend_revision }}",
+                  "frontend_revision": "${{ steps.current-state.outputs.frontend_revision }}",
+                  "frontend_url": "${{ steps.current-state.outputs.frontend_url }}",
+              },
+              "final": {
+                  "backend_revision": "${{ steps.final-state.outputs.backend_revision }}",
+                  "backend_url": "${{ steps.final-state.outputs.backend_url }}",
+                  "frontend_revision": "${{ steps.final-state.outputs.frontend_revision }}",
+                  "frontend_url": "${{ steps.final-state.outputs.frontend_url }}",
+              },
+              "verification": {
+                  "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
+                  "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
+                  "parity_success": "${{ steps.classify-uat-release.outputs.parity_success }}",
+                  "attempt_1": "${{ steps.verify-uat-1.outcome }}",
+                  "attempt_2": "${{ steps.verify-uat-2.outcome }}",
+                  "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
+                  "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
+                  "blocking_classifications": "${{ steps.classify-uat-release.outputs.blocking_classifications }}",
+              },
+              "rollback_targets": {
+                  "backend_revision": "${{ steps.predeploy-state.outputs.backend_revision }}",
+                  "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
+              },
+          }
+          Path("/tmp/uat-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+          PY
+
+      - name: Upload UAT deploy artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
         with:
-          name: uat-db-governance-${{ github.run_id }}
+          name: uat-release-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
+            /tmp/uat-runtime-secret-sync.json
+            /tmp/uat-frontend-runtime-secret-sync.json
+            /tmp/uat-runtime-parity-attempt-1.json
+            /tmp/uat-runtime-parity-attempt-2.json
             /tmp/uat-db-migration-guard-predeploy.json
             /tmp/uat-db-migration-guard-postdeploy.json
             /tmp/cloud-sql-proxy-uat.log
             /tmp/cloud-sql-proxy-uat-postdeploy.log
+            /tmp/uat-release-verify-attempt-1.json
+            /tmp/uat-release-verify-attempt-2.json
+            /tmp/uat-release-classification.json
+            /tmp/uat-release-status.json
 
-      - name: Deployment Summary
+      - name: Deployment summary
         if: always()
         shell: bash
         run: |
-          echo "UAT Deployment Complete"
-          echo "Commit SHA: ${{ steps.resolve-sha.outputs.sha }}"
-          echo "Scope: ${{ steps.scope.outputs.scope }}"
-          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
-            echo "Backend: ${{ steps.backend-url.outputs.url }}"
-          else
-            echo "Backend: skipped"
-          fi
-          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
-            echo "Frontend: ${{ steps.frontend-url.outputs.url }}"
-          else
-            echo "Frontend: skipped"
+          set -euo pipefail
+          {
+            echo "## UAT Release"
+            echo ""
+            echo "- SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
+            echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
+            echo "- Blocking classifications: \`${{ steps.classify-uat-release.outputs.blocking_classifications || 'none' }}\`"
+            echo "- Backend URL: \`${{ steps.final-state.outputs.backend_url }}\`"
+            echo "- Frontend URL: \`${{ env.APP_FRONTEND_ORIGIN }}\`"
+            echo "- Backend revision: \`${{ steps.final-state.outputs.backend_revision }}\`"
+            echo "- Frontend revision: \`${{ steps.final-state.outputs.frontend_revision }}\`"
+            echo "- Parity attempt 1: \`${{ steps.verify-parity-1.outcome }}\`"
+            echo "- Parity attempt 2: \`${{ steps.verify-parity-2.outcome }}\`"
+            echo "- Post-deploy DB contract: \`${{ steps.postdeploy-db-gate.outcome }}\`"
+            echo "- Verify attempt 1: \`${{ steps.verify-uat-1.outcome }}\`"
+            echo "- Verify attempt 2: \`${{ steps.verify-uat-2.outcome }}\`"
+            echo "- Backend rollback: \`${{ steps.rollback-backend.outcome }}\`"
+            echo "- Frontend rollback: \`${{ steps.rollback-frontend.outcome }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail workflow when UAT release did not end healthy
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$STATUS" != "healthy" ]; then
+            echo "UAT release finished with status: $STATUS"
+            exit 1
           fi

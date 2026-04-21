@@ -59,10 +59,6 @@ export function KaiControlSurface({
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent className="max-h-[85dvh] rounded-t-[var(--app-card-radius-feature)] border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-36 rounded-t-[var(--app-card-radius-feature)] bg-[radial-gradient(120%_100%_at_50%_0%,rgba(99,102,241,0.09)_0%,rgba(59,130,246,0.05)_38%,transparent_72%),linear-gradient(180deg,rgba(255,255,255,0.08)_0%,transparent_100%)] dark:bg-[radial-gradient(120%_100%_at_50%_0%,rgba(96,165,250,0.14)_0%,rgba(14,165,233,0.07)_38%,transparent_72%),linear-gradient(180deg,rgba(255,255,255,0.04)_0%,transparent_100%)]"
-          />
           <DrawerHeader className="relative z-10 border-b border-[color:var(--app-card-border-standard)] px-4 py-4 text-left">
             {eyebrow ? (
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -87,17 +83,13 @@ export function KaiControlSurface({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} modal>
-      <DialogContent
-        showCloseButton
-        className={cn(
-          "max-h-[calc(100dvh-3rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0 sm:max-w-[min(42rem,calc(100vw-4.5rem))] lg:max-w-[min(46rem,calc(100vw-8rem))]",
-          contentClassName
-        )}
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(120%_100%_at_50%_0%,rgba(99,102,241,0.1)_0%,rgba(59,130,246,0.05)_42%,transparent_74%),linear-gradient(180deg,rgba(255,255,255,0.08)_0%,transparent_100%)] dark:bg-[radial-gradient(120%_100%_at_50%_0%,rgba(96,165,250,0.12)_0%,rgba(14,165,233,0.06)_42%,transparent_74%),linear-gradient(180deg,rgba(255,255,255,0.04)_0%,transparent_100%)]"
-        />
+        <DialogContent
+          showCloseButton
+          className={cn(
+            "max-h-[calc(100dvh-3rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0 sm:max-w-[min(42rem,calc(100vw-4.5rem))] lg:max-w-[min(46rem,calc(100vw-8rem))]",
+            contentClassName
+          )}
+        >
         <DialogHeader className="relative z-10 border-b border-[color:var(--app-card-border-standard)] px-6 py-5 text-left">
           {eyebrow ? (
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">

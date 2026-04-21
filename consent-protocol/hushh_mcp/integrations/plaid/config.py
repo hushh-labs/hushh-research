@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from hushh_mcp.runtime_settings import get_app_runtime_settings
+
 logger = logging.getLogger(__name__)
 
 _PLAID_BASE_URLS = {
@@ -102,12 +104,13 @@ class PlaidRuntimeConfig:
 
     @classmethod
     def from_env(cls) -> "PlaidRuntimeConfig":
+        app_runtime = get_app_runtime_settings()
         environment = _clean_text(
             os.getenv("PLAID_ENV") or os.getenv("PLAID_ENVIRONMENT"),
             default="sandbox",
         ).lower()
         base_url = _PLAID_BASE_URLS.get(environment, _PLAID_BASE_URLS["sandbox"])
-        frontend_url = _clean_text(os.getenv("FRONTEND_URL")) or None
+        frontend_url = app_runtime.app_frontend_origin or None
         redirect_path = _clean_text(
             os.getenv("PLAID_REDIRECT_PATH"),
             default=_DEFAULT_REDIRECT_PATH,

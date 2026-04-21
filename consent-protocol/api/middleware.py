@@ -45,6 +45,28 @@ def _extract_bearer_token(authorization: Optional[str]) -> str:
     return token
 
 
+def _extract_bearer_or_raw_token(value: Optional[str], *, missing_detail: str) -> str:
+    if value is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=missing_detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    stripped = value.strip()
+    if not stripped:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=missing_detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if stripped.startswith("Bearer "):
+        return _extract_bearer_token(stripped)
+
+    return stripped
+
+
 def _token_data_dict(token: str, token_obj) -> dict:
     scope_value = token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
     return {
@@ -129,6 +151,11 @@ async def require_vault_owner_token(
     authorization: Optional[str] = Header(
         None, description="Bearer token for vault owner authentication"
     ),
+    hushh_consent: Optional[str] = Header(
+        None,
+        alias="X-Hushh-Consent",
+        description="Optional VAULT_OWNER token header for dual-auth surfaces",
+    ),
 ) -> dict:
     """
     FastAPI dependency that validates a VAULT_OWNER consent token.
@@ -148,7 +175,10 @@ async def require_vault_owner_token(
         HTTPException 401 if token is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
-    token = _extract_bearer_token(authorization)
+    token = _extract_bearer_or_raw_token(
+        hushh_consent if hushh_consent is not None else authorization,
+        missing_detail="Missing Authorization header",
+    )
 
     # Validate token with VAULT_OWNER scope and DB-backed revocation check.
     valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)

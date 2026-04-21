@@ -52,6 +52,7 @@
   ],
   "risk_tags": [
     "runtime-boundary-drift",
-    "service-test-drift"
+    "service-test-drift",
+    "python-toolchain-drift"
   ]
 }

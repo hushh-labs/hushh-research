@@ -102,6 +102,7 @@ Repo-local fallback still relies on the normal `consent-protocol` backend/runtim
 - The npm package is the public install surface; this repo doc should not reintroduce a second public quickstart.
 - Keep credentials machine-local. Do not commit host config files with inline developer tokens.
 - The remote MCP contract is query-token based today, so treat the full URL as secret material.
+- The published npm tarball should include package-local `LICENSE` and `NOTICE` files for Apache redistribution.
 
 ## Verification
 
@@ -114,5 +115,9 @@ For package verification:
 
 ```bash
 npm view @hushh/mcp version dist-tags --json
+(
+  cd packages/hushh-mcp
+  npm pack --dry-run
+)
 npx -y @hushh/mcp --help
 ```

@@ -53,23 +53,5 @@
     "changing package behavior without docs updates",
     "breaking remote vs local MCP parity",
     "forgetting developer API contract sync"
-  ],
-  "scheduled_safe": true,
-  "maintenance_cadence": "monthly",
-  "maintenance_runner": [
-    "cd packages/hushh-mcp && npm run docs:check",
-    "./bin/hushh protocol test-ci",
-    "./bin/hushh docs verify"
-  ],
-  "maintenance_owner": "backend",
-  "maintenance_issue_section": "mcp-surface-change",
-  "maintenance_blockers": [
-    "MCP docs check fails",
-    "protocol test-ci fails",
-    "developer API docs drift"
-  ],
-  "maintenance_prerequisites": [
-    "command:npm",
-    "command:python3"
   ]
 }

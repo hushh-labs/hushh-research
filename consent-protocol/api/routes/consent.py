@@ -29,7 +29,11 @@ from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
+from hushh_mcp.services.ria_iam_service import (
+    IAMSchemaNotReadyError,
+    RIAIAMPolicyError,
+    RIAIAMService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -665,6 +669,17 @@ async def create_generic_consent_request(
     payload: GenericConsentRequestCreate,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    # If the requester is an RIA, enforce verification before allowing
+    # consent requests to investors (mirrors the gate on POST /api/ria/requests).
+    if payload.requester_actor_type == "ria":
+        service = RIAIAMService()
+        try:
+            await service.require_ria_verified(firebase_uid)
+        except IAMSchemaNotReadyError as exc:
+            raise HTTPException(status_code=503, detail="Verification service unavailable") from exc
+        except RIAIAMPolicyError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     try:
         return await RIAIAMService().create_ria_consent_request(
             firebase_uid,
@@ -680,6 +695,25 @@ async def create_generic_consent_request(
         )
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/handshake/history")
+async def get_handshake_history(
+    counterpart_id: str = Query(..., min_length=1),
+    actor: str = Query(default="investor"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Consent handshake timeline between the caller and a counterpart."""
+    service = ConsentCenterService()
+    return await service.get_handshake_history(
+        firebase_uid,
+        counterpart_id=counterpart_id,
+        actor=actor,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.post("/relationships/disconnect")

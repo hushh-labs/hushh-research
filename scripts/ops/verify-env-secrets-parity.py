@@ -7,25 +7,24 @@ import argparse
 import json
 import subprocess
 import sys
-from typing import Iterable
+from pathlib import Path
+from typing import Any, Iterable
 
 BACKEND_REQUIRED = (
-    "SECRET_KEY",
-    "VAULT_ENCRYPTION_KEY",
+    "APP_SIGNING_KEY",
+    "VAULT_DATA_KEY",
     "GOOGLE_API_KEY",
-    "FIREBASE_SERVICE_ACCOUNT_JSON",
-    "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON",
-    "FRONTEND_URL",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON",
+    "APP_FRONTEND_ORIGIN",
+    "BACKEND_RUNTIME_CONFIG_JSON",
     "DB_USER",
     "DB_PASSWORD",
-    "APP_REVIEW_MODE",
-    "REVIEWER_UID",
 )
 
 BACKEND_PLAID_REQUIRED = (
     "PLAID_CLIENT_ID",
     "PLAID_SECRET",
-    "PLAID_TOKEN_ENCRYPTION_KEY",
+    "PLAID_ACCESS_TOKEN_KEY",
 )
 
 BACKEND_MARKET_REQUIRED = (
@@ -33,10 +32,22 @@ BACKEND_MARKET_REQUIRED = (
     "PMP_API_KEY",
 )
 
+BACKEND_GMAIL_REQUIRED = (
+    "GMAIL_OAUTH_CLIENT_ID",
+    "GMAIL_OAUTH_CLIENT_SECRET",
+    "GMAIL_OAUTH_REDIRECT_URI",
+    "GMAIL_OAUTH_TOKEN_KEY",
+)
+
+BACKEND_VOICE_REQUIRED = (
+    "OPENAI_API_KEY",
+    "VOICE_RUNTIME_CONFIG_JSON",
+)
+
 FRONTEND_REQUIRED = (
     "BACKEND_URL",
-    "FIREBASE_SERVICE_ACCOUNT_JSON",
-    "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON",
+    "APP_FRONTEND_ORIGIN",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON",
     "NEXT_PUBLIC_FIREBASE_API_KEY",
     "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
     "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
@@ -44,14 +55,8 @@ FRONTEND_REQUIRED = (
     "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
     "NEXT_PUBLIC_FIREBASE_APP_ID",
     "NEXT_PUBLIC_FIREBASE_VAPID_KEY",
-    "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY",
-    "NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN",
-    "NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID",
-    "NEXT_PUBLIC_AUTH_FIREBASE_APP_ID",
-    "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING",
-    "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION",
-    "NEXT_PUBLIC_GTM_ID_STAGING",
-    "NEXT_PUBLIC_GTM_ID_PRODUCTION",
+    "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",
+    "NEXT_PUBLIC_GTM_ID",
 )
 
 NATIVE_RELEASE_REQUIRED = (
@@ -73,6 +78,69 @@ NATIVE_RELEASE_REQUIRED = (
     "ANDROID_RELEASE_KEY_PASSWORD",
 )
 
+BACKEND_RUNTIME_REQUIRED = (
+    "APP_FRONTEND_ORIGIN",
+    "BACKEND_RUNTIME_CONFIG_JSON",
+    "APP_SIGNING_KEY",
+    "VAULT_DATA_KEY",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON",
+    "DB_USER",
+    "DB_PASSWORD",
+)
+
+FRONTEND_RUNTIME_REQUIRED = (
+    "BACKEND_URL",
+    "DEVELOPER_API_URL",
+    "NEXT_PUBLIC_APP_ENV",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON",
+)
+
+LEGACY_BACKEND_RUNTIME_MAP: dict[str, tuple[str, ...]] = {
+    "APP_SIGNING_KEY": ("SECRET_KEY",),
+    "VAULT_DATA_KEY": ("VAULT_ENCRYPTION_KEY",),
+    "APP_FRONTEND_ORIGIN": ("FRONTEND_URL",),
+    "FIREBASE_ADMIN_CREDENTIALS_JSON": ("FIREBASE_SERVICE_ACCOUNT_JSON",),
+    "GMAIL_OAUTH_TOKEN_KEY": ("GMAIL_TOKEN_ENCRYPTION_KEY",),
+    "PLAID_ACCESS_TOKEN_KEY": ("PLAID_TOKEN_ENCRYPTION_KEY",),
+}
+
+LEGACY_FRONTEND_RUNTIME_MAP: dict[str, tuple[str, ...]] = {
+    "FIREBASE_ADMIN_CREDENTIALS_JSON": ("FIREBASE_SERVICE_ACCOUNT_JSON",),
+}
+
+LEGACY_BACKEND_RUNTIME_COMPONENTS = (
+    "ENVIRONMENT",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "DB_HOST",
+    "DB_PORT",
+    "DB_NAME",
+    "DB_UNIX_SOCKET",
+    "CONSENT_SSE_ENABLED",
+    "SYNC_REMOTE_ENABLED",
+    "DEVELOPER_API_ENABLED",
+    "REMOTE_MCP_ENABLED",
+    "CORS_ALLOWED_ORIGINS",
+    "OBS_DATA_STALE_RATIO_THRESHOLD",
+    "PASSKEY_ALLOWED_RP_IDS",
+)
+
+LEGACY_VOICE_RUNTIME_COMPONENTS = (
+    "KAI_VOICE_REALTIME_ENABLED",
+    "KAI_VOICE_V1_ENABLED",
+    "KAI_VOICE_V1_CANARY_PERCENT",
+    "KAI_VOICE_V1_DISABLE_TOOL_EXECUTION",
+    "FORCE_REALTIME_VOICE",
+    "FAIL_FAST_VOICE",
+    "DISABLE_VOICE_FALLBACKS",
+    "OPENAI_VOICE_REALTIME_MODEL",
+    "OPENAI_VOICE_STT_MODELS",
+    "OPENAI_VOICE_INTENT_MODELS",
+    "OPENAI_VOICE_TTS_MODELS",
+    "OPENAI_VOICE_TTS_DEFAULT_VOICE",
+    "OPENAI_VOICE_TTS_FORMAT",
+    "OPENAI_VOICE_TTS_PREFER_QUALITY",
+)
+
 
 def _has_secret(project: str, name: str) -> bool:
     cmd = [
@@ -92,7 +160,7 @@ def _format_names(names: Iterable[str]) -> str:
     return ", ".join(sorted(names))
 
 
-def _describe_run_service(project: str, region: str, service: str) -> dict | None:
+def _describe_run_service(project: str, region: str, service: str) -> dict[str, Any] | None:
     cmd = [
         "gcloud",
         "run",
@@ -107,14 +175,14 @@ def _describe_run_service(project: str, region: str, service: str) -> dict | Non
     ]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:
-      return None
+        return None
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
         return None
 
 
-def _container_env_map(service_json: dict | None) -> dict[str, dict]:
+def _container_env_map(service_json: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not isinstance(service_json, dict):
         return {}
     containers = (
@@ -128,14 +196,14 @@ def _container_env_map(service_json: dict | None) -> dict[str, dict]:
     env_entries = containers[0].get("env", [])
     if not isinstance(env_entries, list):
         return {}
-    out: dict[str, dict] = {}
+    out: dict[str, dict[str, Any]] = {}
     for entry in env_entries:
         if isinstance(entry, dict) and entry.get("name"):
             out[str(entry["name"])] = entry
     return out
 
 
-def _runtime_source_label(entry: dict) -> str:
+def _runtime_source_label(entry: dict[str, Any]) -> str:
     value_from = entry.get("valueFrom")
     if isinstance(value_from, dict):
         secret_ref = value_from.get("secretKeyRef")
@@ -146,6 +214,86 @@ def _runtime_source_label(entry: dict) -> str:
                 return f"secret:{name}:{key or 'latest'}"
     value = str(entry.get("value") or "").strip()
     return f"value:{value}" if value else "missing"
+
+
+def _secret_name_from_source(source: str) -> str:
+    if not source.startswith("secret:"):
+        return ""
+    parts = source.split(":", 2)
+    if len(parts) < 2:
+        return ""
+    return parts[1].strip()
+
+
+def _load_json_report(path: str | None) -> dict[str, Any] | None:
+    if not path:
+        return None
+    candidate = Path(path)
+    if not candidate.exists():
+        return None
+    try:
+        parsed = json.loads(candidate.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _classify_runtime_key(
+    env_map: dict[str, dict[str, Any]],
+    key: str,
+    *,
+    legacy_keys: tuple[str, ...] = (),
+    legacy_component_keys: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    if key not in env_map:
+        matched_legacy_keys = [candidate for candidate in legacy_keys if candidate in env_map]
+        matched_components = [candidate for candidate in legacy_component_keys if candidate in env_map]
+        if matched_legacy_keys or matched_components:
+            return {
+                "key": key,
+                "status": "legacy",
+                "source": "missing",
+                "legacy_keys": sorted(matched_legacy_keys + matched_components),
+                "legacy_secret_name": "",
+            }
+        return {
+            "key": key,
+            "status": "missing",
+            "source": "missing",
+            "legacy_keys": [],
+            "legacy_secret_name": "",
+        }
+
+    source = _runtime_source_label(env_map[key])
+    legacy_secret_name = ""
+    if source.startswith("secret:"):
+        secret_name = _secret_name_from_source(source)
+        if secret_name and secret_name != key and secret_name in set(legacy_keys):
+            legacy_secret_name = secret_name
+
+    status = "legacy" if legacy_secret_name else "present"
+    return {
+        "key": key,
+        "status": status,
+        "source": source,
+        "legacy_keys": [],
+        "legacy_secret_name": legacy_secret_name,
+    }
+
+
+def _render_runtime_summary(label: str, entries: list[dict[str, Any]]) -> str:
+    rendered = ", ".join(f"{entry['key']}={entry['source']}" for entry in entries)
+    return f"{label}: {rendered}"
+
+
+def _classifications_from_runtime_entries(entries: list[dict[str, Any]]) -> list[str]:
+    statuses = {entry["status"] for entry in entries}
+    classifications: list[str] = []
+    if "legacy" in statuses:
+        classifications.append("runtime_mount_legacy")
+    if "missing" in statuses:
+        classifications.append("runtime_mount_missing")
+    return classifications
 
 
 def main() -> int:
@@ -180,9 +328,27 @@ def main() -> int:
         help="Also require backend market provider secrets for market-home parity.",
     )
     parser.add_argument(
+        "--require-gmail",
+        action="store_true",
+        help="Also require backend Gmail sync secrets for Gmail parity.",
+    )
+    parser.add_argument(
+        "--require-voice",
+        action="store_true",
+        help="Also require backend voice runtime secrets for voice parity.",
+    )
+    parser.add_argument(
         "--assert-runtime-env-contract",
         action="store_true",
         help="Also verify Cloud Run runtime env injection for hosted frontend/backend parity.",
+    )
+    parser.add_argument(
+        "--semantic-report-path",
+        help="Optional semantic UAT verification report used to classify runtime behavior failures.",
+    )
+    parser.add_argument(
+        "--report-path",
+        help="Optional JSON report path for machine-readable RCA artifacts.",
     )
     args = parser.parse_args()
 
@@ -191,10 +357,38 @@ def main() -> int:
         required.extend(BACKEND_PLAID_REQUIRED)
     if args.require_market_data:
         required.extend(BACKEND_MARKET_REQUIRED)
+    if args.require_gmail:
+        required.extend(BACKEND_GMAIL_REQUIRED)
+    if args.require_voice:
+        required.extend(BACKEND_VOICE_REQUIRED)
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
     missing = [name for name in required if not _has_secret(args.project, name)]
+
+    report: dict[str, Any] = {
+        "project": args.project,
+        "region": args.region,
+        "backend_service": args.backend_service,
+        "frontend_service": args.frontend_service,
+        "required": {
+            "backend": list(BACKEND_REQUIRED),
+            "frontend": list(FRONTEND_REQUIRED),
+            "gmail": list(BACKEND_GMAIL_REQUIRED) if args.require_gmail else [],
+            "voice": list(BACKEND_VOICE_REQUIRED) if args.require_voice else [],
+            "plaid": list(BACKEND_PLAID_REQUIRED) if args.require_plaid else [],
+            "market": list(BACKEND_MARKET_REQUIRED) if args.require_market_data else [],
+            "native_release": list(NATIVE_RELEASE_REQUIRED) if args.require_native_artifacts else [],
+        },
+        "missing_secrets": sorted(missing),
+        "classifications": [],
+        "runtime_contract": {
+            "frontend": [],
+            "backend": [],
+            "backend_gmail": [],
+            "backend_voice": [],
+        },
+    }
 
     print(f"Project: {args.project}")
     print(f"Required backend secrets ({len(BACKEND_REQUIRED)}): {_format_names(BACKEND_REQUIRED)}")
@@ -208,6 +402,16 @@ def main() -> int:
             "Required market backend secrets "
             f"({len(BACKEND_MARKET_REQUIRED)}): {_format_names(BACKEND_MARKET_REQUIRED)}"
         )
+    if args.require_gmail:
+        print(
+            "Required Gmail backend secrets "
+            f"({len(BACKEND_GMAIL_REQUIRED)}): {_format_names(BACKEND_GMAIL_REQUIRED)}"
+        )
+    if args.require_voice:
+        print(
+            "Required voice backend secrets "
+            f"({len(BACKEND_VOICE_REQUIRED)}): {_format_names(BACKEND_VOICE_REQUIRED)}"
+        )
     print(f"Required frontend secrets ({len(FRONTEND_REQUIRED)}): {_format_names(FRONTEND_REQUIRED)}")
     if args.require_native_artifacts:
         print(
@@ -216,8 +420,8 @@ def main() -> int:
         )
 
     if missing:
+        report["classifications"].append("secret_missing")
         print(f"Missing secrets ({len(missing)}): {_format_names(missing)}")
-        return 1
 
     if args.assert_runtime_env_contract:
         frontend_json = _describe_run_service(args.project, args.region, args.frontend_service)
@@ -225,43 +429,98 @@ def main() -> int:
         frontend_env = _container_env_map(frontend_json)
         backend_env = _container_env_map(backend_json)
 
-        runtime_failures: list[str] = []
-
-        required_frontend_runtime = ("BACKEND_URL", "DEVELOPER_API_URL", "NEXT_PUBLIC_APP_ENV")
-        for key in required_frontend_runtime:
-            if key not in frontend_env:
-                runtime_failures.append(f"frontend runtime env missing {key}")
-
-        if "BACKEND_URL" in frontend_env and "DEVELOPER_API_URL" in frontend_env:
-            backend_source = _runtime_source_label(frontend_env["BACKEND_URL"])
-            developer_source = _runtime_source_label(frontend_env["DEVELOPER_API_URL"])
-            if backend_source != developer_source:
-                runtime_failures.append(
-                    "frontend BACKEND_URL and DEVELOPER_API_URL must resolve from the same source"
+        frontend_entries = [
+            _classify_runtime_key(
+                frontend_env,
+                key,
+                legacy_keys=LEGACY_FRONTEND_RUNTIME_MAP.get(key, tuple()),
+            )
+            for key in FRONTEND_RUNTIME_REQUIRED
+        ]
+        backend_entries = [
+            _classify_runtime_key(
+                backend_env,
+                key,
+                legacy_keys=LEGACY_BACKEND_RUNTIME_MAP.get(key, tuple()),
+                legacy_component_keys=LEGACY_BACKEND_RUNTIME_COMPONENTS
+                if key == "BACKEND_RUNTIME_CONFIG_JSON"
+                else tuple(),
+            )
+            for key in BACKEND_RUNTIME_REQUIRED
+        ]
+        backend_gmail_entries = []
+        if args.require_gmail:
+            backend_gmail_entries = [
+                _classify_runtime_key(
+                    backend_env,
+                    key,
+                    legacy_keys=LEGACY_BACKEND_RUNTIME_MAP.get(key, tuple()),
                 )
-            if backend_source.startswith("value:") and "localhost" in backend_source:
-                runtime_failures.append("frontend BACKEND_URL must not resolve to localhost in Cloud Run")
+                for key in BACKEND_GMAIL_REQUIRED
+            ]
+        backend_voice_entries = []
+        if args.require_voice:
+            backend_voice_entries = [
+                _classify_runtime_key(
+                    backend_env,
+                    key,
+                    legacy_component_keys=LEGACY_VOICE_RUNTIME_COMPONENTS
+                    if key == "VOICE_RUNTIME_CONFIG_JSON"
+                    else tuple(),
+                )
+                for key in BACKEND_VOICE_REQUIRED
+            ]
 
-        if "FRONTEND_URL" not in backend_env:
-            runtime_failures.append("backend runtime env missing FRONTEND_URL")
+        report["runtime_contract"]["frontend"] = frontend_entries
+        report["runtime_contract"]["backend"] = backend_entries
+        report["runtime_contract"]["backend_gmail"] = backend_gmail_entries
+        report["runtime_contract"]["backend_voice"] = backend_voice_entries
 
-        print(
-            "Frontend runtime env contract:"
-            f" BACKEND_URL={_runtime_source_label(frontend_env.get('BACKEND_URL', {}))},"
-            f" DEVELOPER_API_URL={_runtime_source_label(frontend_env.get('DEVELOPER_API_URL', {}))},"
-            f" NEXT_PUBLIC_APP_ENV={_runtime_source_label(frontend_env.get('NEXT_PUBLIC_APP_ENV', {}))}"
-        )
-        print(
-            "Backend runtime env contract:"
-            f" FRONTEND_URL={_runtime_source_label(backend_env.get('FRONTEND_URL', {}))}"
-        )
+        runtime_classifications = []
+        runtime_classifications.extend(_classifications_from_runtime_entries(frontend_entries))
+        runtime_classifications.extend(_classifications_from_runtime_entries(backend_entries))
+        runtime_classifications.extend(_classifications_from_runtime_entries(backend_gmail_entries))
+        runtime_classifications.extend(_classifications_from_runtime_entries(backend_voice_entries))
+        report["classifications"].extend(runtime_classifications)
 
+        print(_render_runtime_summary("Frontend runtime env contract", frontend_entries))
+        print(_render_runtime_summary("Backend runtime env contract", backend_entries))
+        if args.require_gmail:
+            print(_render_runtime_summary("Backend Gmail runtime env contract", backend_gmail_entries))
+        if args.require_voice:
+            print(_render_runtime_summary("Backend voice runtime env contract", backend_voice_entries))
+
+        runtime_failures = [
+            entry["key"]
+            for entry in frontend_entries + backend_entries + backend_gmail_entries + backend_voice_entries
+            if entry["status"] in {"legacy", "missing"}
+        ]
         if runtime_failures:
-            print(f"Runtime env contract failures ({len(runtime_failures)}): {_format_names(runtime_failures)}")
-            return 1
+            print(
+                "Runtime env contract failures "
+                f"({len(runtime_failures)}): {_format_names(runtime_failures)}"
+            )
 
-    print(f"All required secrets present ({len(required)}).")
-    return 0
+    semantic_report = _load_json_report(args.semantic_report_path)
+    if semantic_report is not None:
+        report["semantic_report"] = semantic_report
+        if semantic_report.get("status") != "healthy":
+            report["classifications"].append("runtime_behavior_failed")
+
+    report["classifications"] = list(dict.fromkeys(report["classifications"]))
+    report["status"] = "healthy" if not report["classifications"] else "blocked"
+
+    if report["classifications"]:
+        print(f"Failure classifications: {_format_names(report['classifications'])}")
+    else:
+        print(f"All required secrets present ({len(required)}).")
+
+    if args.report_path:
+        report_path = Path(args.report_path)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    return 0 if report["status"] == "healthy" else 1
 
 
 if __name__ == "__main__":

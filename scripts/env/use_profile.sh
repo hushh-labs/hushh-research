@@ -52,7 +52,6 @@ fi
 FRONTEND_SOURCE="$REPO_ROOT/hushh-webapp/$(runtime_profile_frontend_source "$PROFILE")"
 BACKEND_TARGET="$REPO_ROOT/consent-protocol/.env"
 FRONTEND_TARGET="$REPO_ROOT/hushh-webapp/.env.local"
-NATIVE_MATERIALIZER="$REPO_ROOT/hushh-webapp/scripts/native/materialize-active-native-profile.sh"
 
 if [ ! -f "$FRONTEND_SOURCE" ]; then
   echo "Missing frontend profile file: $FRONTEND_SOURCE" >&2
@@ -115,6 +114,9 @@ PY
 is_placeholder_value() {
   local value="${1:-}"
   case "$value" in
+    __*__)
+      return 0
+      ;;
     ""|replace_with_*|REPLACE_WITH_*|dummy-*|changeme|CHANGEME|*replace_with_*|*REPLACE_WITH_*)
       return 0
       ;;
@@ -136,8 +138,9 @@ import sys
 path = pathlib.Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8").splitlines()
 keys = {
-    "FIREBASE_SERVICE_ACCOUNT_JSON",
-    "FIREBASE_AUTH_SERVICE_ACCOUNT_JSON",
+    "FIREBASE_ADMIN_CREDENTIALS_JSON",
+    "BACKEND_RUNTIME_CONFIG_JSON",
+    "VOICE_RUNTIME_CONFIG_JSON",
 }
 assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 decoder = json.JSONDecoder()
@@ -270,10 +273,6 @@ repair_frontend_profile_if_needed() {
     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
     NEXT_PUBLIC_FIREBASE_APP_ID
-    NEXT_PUBLIC_AUTH_FIREBASE_API_KEY
-    NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN
-    NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID
-    NEXT_PUBLIC_AUTH_FIREBASE_APP_ID
   )
 
   for key in "${keys[@]}"; do
@@ -321,20 +320,11 @@ if [ "$DRY_RUN" != "true" ]; then
     echo "Run scripts/env/bootstrap_profiles.sh to hydrate the local backend env." >&2
     exit 1
   fi
-  upsert_env_value "$BACKEND_TARGET" "APP_RUNTIME_MODE" "local"
   upsert_env_value "$BACKEND_TARGET" "APP_RUNTIME_PROFILE" "local"
-  upsert_env_value "$BACKEND_TARGET" "RESOURCE_TARGET" "uat"
-  upsert_env_value "$BACKEND_TARGET" "DB_RESOURCE_TARGET" "uat"
-  upsert_env_value "$FRONTEND_TARGET" "APP_RUNTIME_MODE" "$PROFILE"
   upsert_env_value "$FRONTEND_TARGET" "APP_RUNTIME_PROFILE" "$PROFILE"
   normalize_env_json_values "$FRONTEND_TARGET"
   require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_FIREBASE_API_KEY"
   require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"
-  require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY"
-  require_non_placeholder_value "$FRONTEND_TARGET" "NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN"
-  if [ -x "$NATIVE_MATERIALIZER" ]; then
-    ACTIVE_ENV_FILE="$FRONTEND_TARGET" PROFILE_ENV_FILE="$FRONTEND_SOURCE" bash "$NATIVE_MATERIALIZER"
-  fi
   SUMMARY_BACKEND_FILE="$BACKEND_TARGET"
   SUMMARY_FRONTEND_FILE="$FRONTEND_TARGET"
 fi
@@ -343,22 +333,20 @@ BACKEND_ENVIRONMENT="development"
 FRONTEND_ENVIRONMENT="$(runtime_profile_frontend_environment "$PROFILE")"
 BACKEND_MODE="local"
 FRONTEND_MODE="$(runtime_profile_frontend_mode "$PROFILE")"
-RESOURCE_TARGET="$(runtime_profile_resource_target "$PROFILE")"
 
-SUMMARY_BACKEND_URL="$(read_env_value "${SUMMARY_BACKEND_FILE}" "FRONTEND_URL")"
+SUMMARY_BACKEND_URL="$(read_env_value "${SUMMARY_BACKEND_FILE}" "APP_FRONTEND_ORIGIN")"
 SUMMARY_FRONTEND_BACKEND_URL="$(read_env_value "${SUMMARY_FRONTEND_FILE}" "NEXT_PUBLIC_BACKEND_URL")"
-SUMMARY_FRONTEND_URL="$(read_env_value "${SUMMARY_FRONTEND_FILE}" "NEXT_PUBLIC_FRONTEND_URL")"
+SUMMARY_FRONTEND_URL="$(read_env_value "${SUMMARY_FRONTEND_FILE}" "NEXT_PUBLIC_APP_URL")"
 
 echo "Activated runtime mode: $PROFILE"
 echo "Description: $(runtime_profile_description "$PROFILE")"
 echo "Frontend runtime: ${FRONTEND_MODE}"
 echo "Backend runtime: ${BACKEND_MODE}"
 echo "Frontend backend target: ${SUMMARY_FRONTEND_BACKEND_URL:-"(unset)"}"
-echo "Frontend URL: ${SUMMARY_FRONTEND_URL:-"(unset)"}"
+echo "Frontend app URL: ${SUMMARY_FRONTEND_URL:-"(unset)"}"
 echo "Backend allowed frontend URL: ${SUMMARY_BACKEND_URL:-"(unset)"}"
 echo "Backend ENVIRONMENT: ${BACKEND_ENVIRONMENT}"
 echo "Frontend NEXT_PUBLIC_APP_ENV: ${FRONTEND_ENVIRONMENT}"
-echo "Resource target: ${RESOURCE_TARGET}"
 echo "Frontend source: $FRONTEND_SOURCE"
 echo "Backend runtime file: $BACKEND_TARGET"
 if [ "$PROFILE" = "prod" ]; then

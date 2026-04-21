@@ -3,9 +3,13 @@ from __future__ import annotations
 import os
 from urllib.parse import urlencode
 
+from hushh_mcp.runtime_settings import get_app_runtime_settings
+
 
 def frontend_origin() -> str:
-    origin = str(os.getenv("FRONTEND_URL", "http://localhost:3000")).strip().rstrip("/")
+    origin = get_app_runtime_settings().app_frontend_origin
+    if not origin:
+        origin = str(os.getenv("NEXT_PUBLIC_APP_URL", "http://localhost:3000")).strip().rstrip("/")
     return origin or "http://localhost:3000"
 
 

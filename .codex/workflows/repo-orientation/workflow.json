@@ -48,22 +48,5 @@
     "choosing a spoke before routing through the owner skill",
     "loading broad repo context too early",
     "skipping north-star invariants before execution"
-  ],
-  "scheduled_safe": true,
-  "maintenance_cadence": "weekly",
-  "maintenance_runner": [
-    "./bin/hushh codex scan summary --text",
-    "./bin/hushh codex scan section skills --text",
-    "./bin/hushh codex list-workflows --text"
-  ],
-  "maintenance_owner": "repo-context",
-  "maintenance_issue_section": "repo-orientation",
-  "maintenance_blockers": [
-    "repo-context summary fails",
-    "workflow routing output is unavailable",
-    "skill topology drifts from the owner model"
-  ],
-  "maintenance_prerequisites": [
-    "command:python3"
   ]
 }

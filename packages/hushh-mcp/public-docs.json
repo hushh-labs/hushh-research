@@ -1,5 +1,7 @@
 {
   "packageName": "@hushh/mcp",
+  "license": "Apache-2.0",
+  "noticeSummary": "The published npm package ships package-local LICENSE and NOTICE files for Apache redistribution.",
   "tokenEnvVar": "HUSHH_DEVELOPER_TOKEN",
   "promotedEnvironment": {
     "label": "UAT",
