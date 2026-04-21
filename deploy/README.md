@@ -18,7 +18,7 @@ bash scripts/ci/orchestrate.sh all
 git push origin main
 ```
 
-The green `main` SHA triggers [`.github/workflows/deploy-uat.yml`](../.github/workflows/deploy-uat.yml), which now:
+The green `main` SHA is the deployment source of truth for a manual UAT dispatch through [`.github/workflows/deploy-uat.yml`](../.github/workflows/deploy-uat.yml), which now:
 
 1. opens a Cloud SQL Auth Proxy session to the UAT database
 2. applies the canonical release lane with `python3 consent-protocol/db/migrate.py --release`
@@ -26,7 +26,8 @@ The green `main` SHA triggers [`.github/workflows/deploy-uat.yml`](../.github/wo
 4. deploys backend/frontend
 5. reruns the read-only UAT schema contract gate after deploy
 6. runs the hosted runtime parity check
-7. loads the maintainer-only `UAT_SMOKE_*` overlay and runs semantic release verification with bounded retry/rollback
+7. records the deployment in the canonical `uat` GitHub environment
+8. loads the maintainer-only `UAT_SMOKE_*` overlay and runs semantic release verification with bounded retry/rollback
 
 ### Backend Deployment
 
@@ -240,8 +241,8 @@ Deploys Next.js frontend to Cloud Run:
 
 The repo includes:
 
-- [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`).
-- [.github/workflows/deploy-uat.yml](../.github/workflows/deploy-uat.yml): auto deploy from successful `main` CI and manual dispatch.
+- [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`) through `production-owner-bypass`.
+- [.github/workflows/deploy-uat.yml](../.github/workflows/deploy-uat.yml): manual UAT deploy (`workflow_dispatch`) through `uat`.
 
 Manual dispatch now supports `scope`:
 
@@ -253,7 +254,10 @@ Manual dispatch now supports `scope`:
 
 1. **GitHub secret:** add `GCP_SA_KEY` (and optionally `GCP_SA_KEY_UAT`) with Cloud Build + Cloud Run + Secret Manager permissions.
 2. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
-3. **Approval policy:** use `production-owner-bypass` for `kushaltrivedi5`, `production-approval` for everyone else, and keep `kushaltrivedi5` as the required reviewer on the approval lane. Keep `uat` separately configured for UAT rollout.
+3. **Environment policy:** keep only the canonical deploy environments in active use:
+   - `uat`
+   - `production-owner-bypass`
+   Legacy unused production environments should not remain as parallel approval lanes.
 
 ### CI Security Gates
 

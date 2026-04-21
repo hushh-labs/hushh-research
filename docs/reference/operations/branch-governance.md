@@ -59,6 +59,7 @@ Before deleting a local backup branch, classify its unique commits as:
 3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
+6. The canonical GitHub deployment environment for this lane is `uat`.
 
 ### Production
 
@@ -67,6 +68,7 @@ Before deleting a local backup branch, classify its unique commits as:
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
 5. Only `kushaltrivedi5` may dispatch the production workflow after the SHA preflight passes.
+6. The canonical GitHub deployment environment for this lane is `production-owner-bypass`.
 
 ## Hotfix Playbook
 
@@ -121,9 +123,16 @@ The production workflow uses one active GitHub environment name:
 |---|---|
 | `production-owner-bypass` | Owner-only production deploy lane for `kushaltrivedi5` |
 
+The UAT workflow uses one active GitHub environment name:
+
+| Environment | Intended use |
+|---|---|
+| `uat` | Maintainer-dispatched hosted validation lane for exact green `main` SHAs |
+
 Operational rules:
 
 1. Only `kushaltrivedi5` may dispatch the production workflow.
 2. Other developers may still merge to `main` through PR flow, but production dispatch remains owner-only.
 3. `production-owner-bypass` should not require reviewers and should not allow admin bypass.
 4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
+5. Verify both deploy lanes together with `../../../scripts/ci/verify-deployment-environment-governance.py`.

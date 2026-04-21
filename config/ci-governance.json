@@ -22,6 +22,7 @@
   "uat": {
     "auto_deploy_workflow": "Main Post-Merge Smoke",
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
+    "environment": "uat",
     "manual_dispatch_users": [
       "kushaltrivedi5",
       "Akash-292",

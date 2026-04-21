@@ -213,6 +213,29 @@ Current live nuance:
 - the sanctioned bypass cohort should be limited to the approved owner set, without overlapping push-restriction lists
 - that sanctioned cohort is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
 
+## Deployment environments
+
+GitHub deployment environments are part of the release authority surface and should stay minimal:
+
+- `uat`
+  - no reviewers
+  - no admin bypass
+  - protected branches only
+  - used by [`.github/workflows/deploy-uat.yml`](../../../.github/workflows/deploy-uat.yml)
+- `production-owner-bypass`
+  - no reviewers
+  - no admin bypass
+  - protected branches only
+  - used by [`.github/workflows/deploy-production.yml`](../../../.github/workflows/deploy-production.yml)
+
+There should not be parallel legacy production environments carrying approval logic that the current workflows no longer use.
+
+Verify live environment governance with:
+
+```bash
+python3 scripts/ci/verify-deployment-environment-governance.py
+```
+
 ### GitHub Alert Parity
 
 The secret gate is intentionally stricter than raw regex scanning:
