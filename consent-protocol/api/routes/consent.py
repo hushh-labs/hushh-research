@@ -697,6 +697,25 @@ async def create_generic_consent_request(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.get("/handshake/history")
+async def get_handshake_history(
+    counterpart_id: str = Query(..., min_length=1),
+    actor: str = Query(default="investor"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Consent handshake timeline between the caller and a counterpart."""
+    service = ConsentCenterService()
+    return await service.get_handshake_history(
+        firebase_uid,
+        counterpart_id=counterpart_id,
+        actor=actor,
+        page=page,
+        limit=limit,
+    )
+
+
 @router.post("/relationships/disconnect")
 async def disconnect_relationship(
     payload: RelationshipDisconnectRequest,
