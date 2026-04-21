@@ -242,6 +242,12 @@ The required pre-merge lane stays intentionally small:
 
 Post-merge smoke remains the deployment eligibility gate for `main`.
 
+Practical maintainer rule:
+
+1. Use `git commit -s` for new branch commits that are headed to GitHub.
+2. If unsigned commits already exist on the branch, repair them before push with `git rebase --signoff <base>`.
+3. If the last local edit touched `.codex/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
+
 ### Script Lifecycle Policy
 
 1. Add a new CI/helper script only when it replaces or consolidates an existing one in the same PR.
