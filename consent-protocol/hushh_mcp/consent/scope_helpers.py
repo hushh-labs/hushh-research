@@ -49,16 +49,21 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     if scope == "pkm.write":
         return ConsentScope.PKM_WRITE
 
-    # Agent permissions
+    # Agent permissions — direct enum lookup; never silently map unknown scopes
     if scope.startswith("agent."):
-        return ConsentScope.AGENT_EXECUTE
+        try:
+            return ConsentScope(scope)
+        except ValueError:
+            raise ValueError(
+                f"Unknown agent scope '{scope}'. "
+                f"Valid agent scopes: {[s.value for s in ConsentScope.agent_scopes()]}"
+            )
 
-    # Custom/temporary scopes
-    if scope.startswith("custom."):
-        return ConsentScope.CUSTOM_TEMPORARY
-
-    # Default to custom temporary
-    return ConsentScope.CUSTOM_TEMPORARY
+    # Direct enum lookup for all other static scopes
+    try:
+        return ConsentScope(scope)
+    except ValueError:
+        raise ValueError(f"Unknown scope '{scope}' cannot be resolved to a ConsentScope enum")
 
 
 def scope_matches(granted_scope: str, requested_scope: str) -> bool:

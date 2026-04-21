@@ -74,20 +74,18 @@ def issue_token(
 def _scope_str_to_enum(scope_str: str) -> ConsentScope:
     """
     Map a scope string to its ConsentScope enum equivalent.
-    Dynamic scopes (attr.*) map to PKM_READ.
+    Dynamic attr.* scopes map to PKM_READ.
+    All other scopes MUST exist in the enum - unknown scopes raise ValueError.
     """
     try:
         return ConsentScope(scope_str)
     except ValueError:
-        if scope_str == "pkm.read":
-            return ConsentScope.PKM_READ
-        if scope_str == "pkm.write":
-            return ConsentScope.PKM_WRITE
-        # Dynamic scope (e.g., attr.financial.*) - map to PKM_READ
+        # Dynamic attr.* scopes are validated separately; map to PKM_READ for type alignment.
         if scope_str.startswith("attr."):
             return ConsentScope.PKM_READ
-        # Unknown scope - default to PKM_READ
-        return ConsentScope.PKM_READ
+        # Re-raise for all unknown scopes - do NOT silently map to PKM_READ.
+        # A missing enum entry is a code bug and must surface loudly.
+        raise
 
 
 # ========== Token Verifier ==========
@@ -165,7 +163,9 @@ def validate_token(
         )
         return True, None, token
 
-    except Exception as e:
+    except (ValueError, KeyError, AttributeError, UnicodeDecodeError) as e:
+        # Only catch structural/parse errors that indicate a genuinely malformed token.
+        logger.debug("Token parse failed (malformed token): %s", e)
         return False, f"Malformed token: {str(e)}", None
 
 

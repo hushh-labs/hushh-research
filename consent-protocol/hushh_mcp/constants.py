@@ -49,6 +49,7 @@ class ConsentScope(str, Enum):
     # ==================== KAI AGENT OPERATIONS ====================
     AGENT_KAI_ANALYZE = "agent.kai.analyze"
     AGENT_KAI_DEBATE = "agent.kai.debate"
+    AGENT_KAI_EXECUTE = "agent.kai.execute"  # FIX #408: was missing, caused valid tokens to be rejected
     AGENT_KAI_INFER = "agent.kai.infer"
     AGENT_KAI_CHAT = "agent.kai.chat"
 
