@@ -14,12 +14,17 @@ Runtime truth note:
    - debate completion
    - PKM persistence
    - saved analysis history
-2. Playwright is visual-only in this lane:
-   - layout
-   - tabs
-   - tooltips
-   - styling
-3. For local debate/history verification, run:
+2. Do not use Playwright unless the proof actually requires a browser:
+   - review-mode auth/bootstrap
+   - vault unlock and protected-route gating
+   - Next client navigation behavior
+   - responsive layout, tabs, tooltips, styling, or animation
+3. When Playwright is required on a signed-in route:
+   - use the reviewer flow
+   - unlock with the configured Kai/reviewer passphrase from env
+   - keep same-session proof on Next client navigation after unlock
+4. Treat direct deep links as a separate cold-entry contract, not the same as unlocked navigation.
+5. For local debate/history verification, run:
    - `python3 consent-protocol/scripts/local_kai_debate_regression.py`
 
 ## 0) Route/System Audit
@@ -45,13 +50,18 @@ Runtime truth note:
 1. Run:
    - manual spot-check via Kai dashboard and `/api/pkm/metadata/{user_id}` in the API docs or local API client
 2. Confirm:
-   - blob domains align with index/registry,
+   - manifest-backed domains align with the metadata route and MCP discovery for the same user,
+   - `pkm_index` is not lagging behind manifest truth,
    - `financial` canonical summary count is non-zero when holdings exist,
    - debate context readiness is `true`.
 3. For local/UAT Kai drill runs, confirm the no-write PKM rehearsal:
    - starts automatically after sign-in + unlock,
    - records timing in the task center,
    - validates the dummy save without mutating the real PKM rows.
+4. For locked profile verification, confirm:
+   - locked PKM summary still shows truthful domain/item/source metadata,
+   - locked state does not render a false `0 domains / 0 items` view when manifest-backed PKM exists,
+   - only decrypted or mutation-sensitive detail stays gated behind unlock.
 
 ## 3) /kai Cache + UX
 1. Open `/kai` and note initial load time.

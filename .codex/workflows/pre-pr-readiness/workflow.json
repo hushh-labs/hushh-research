@@ -1,0 +1,56 @@
+{
+  "id": "pre-pr-readiness",
+  "title": "Pre-PR Readiness",
+  "goal": "Run the local CI surface that mirrors GitHub PR validation before opening or updating a pull request, so the developer sees CI Status Gate failures locally first.",
+  "owner_skill": "repo-operations",
+  "default_spoke": null,
+  "task_type": "pre-pr-readiness",
+  "affected_surfaces": [
+    "bin",
+    "scripts",
+    ".github/workflows",
+    "docs/reference/operations"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/reference/operations/cli.md",
+    ".codex/skills/repo-operations/references/agent-trigger-policy.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task pre-pr-readiness",
+    "./bin/hushh codex pre-pr",
+    "./bin/hushh codex pre-pr --include-advisory"
+  ],
+  "verification_bundle": {
+    "id": "pre-pr-readiness",
+    "commands": [
+      "./bin/hushh codex pre-pr"
+    ],
+    "tests": [
+      "./bin/hushh ci"
+    ]
+  },
+  "deliverables": [
+    "local CI mirror result",
+    "blocking-vs-advisory lane choice",
+    "pre-PR readiness summary"
+  ],
+  "impact_fields": [
+    "Workflow mirrored",
+    "Blocking checks passed",
+    "Advisory lane included",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "repo-operations",
+    "quality-contracts",
+    "frontend",
+    "backend",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "opening or updating a PR without running the local mirror first",
+    "inventing a second local CI path instead of reusing ./bin/hushh ci",
+    "treating advisory checks as blocking by default"
+  ]
+}

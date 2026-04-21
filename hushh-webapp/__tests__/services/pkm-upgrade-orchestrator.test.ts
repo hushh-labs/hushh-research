@@ -165,7 +165,10 @@ vi.mock("@/lib/utils/session-storage", () => ({
   removeSessionItem: (...a: unknown[]) => removeSessionItemMock(...a),
 }));
 
-import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
+import {
+  PKM_UPGRADE_COMPLETED_EVENT,
+  PkmUpgradeOrchestrator,
+} from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeRouteUnavailableError } from "@/lib/services/pkm-upgrade-service";
 import { PkmDomainManifestError } from "@/lib/services/personal-knowledge-model-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
@@ -570,6 +573,31 @@ describe("PkmUpgradeOrchestrator", () => {
           description: "Your Personal Knowledge Model is current.",
         })
       );
+    });
+
+    it("refreshes metadata before emitting completion for the profile surface", async () => {
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).resolves.toBeUndefined();
+
+      const metadataCallOrder = Math.max(...pkmGetMetadataMock.mock.invocationCallOrder);
+      const completeTaskOrder = Math.max(
+        ...(AppBackgroundTaskService.completeTask as unknown as ReturnType<typeof vi.fn>).mock
+          .invocationCallOrder
+      );
+
+      expect(metadataCallOrder).toBeLessThan(completeTaskOrder);
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: PKM_UPGRADE_COMPLETED_EVENT,
+          detail: expect.objectContaining({
+            userId: BASE_PARAMS.userId,
+            mode: "real",
+          }),
+        })
+      );
+
+      dispatchSpy.mockRestore();
     });
   });
 });

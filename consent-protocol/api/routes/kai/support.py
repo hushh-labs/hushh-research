@@ -45,7 +45,7 @@ async def send_support_message(
         if not cfg.configured:
             raise SupportEmailNotConfiguredError(
                 "Support email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_SERVICE_ACCOUNT_JSON, plus SUPPORT_EMAIL_* variables."
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON, plus SUPPORT_EMAIL_* variables."
             )
 
         queue_result = await get_email_delivery_queue_service().enqueue(

@@ -183,7 +183,7 @@ export function RoundTabsCard({
                     value={agent}
                     className={cn(
                       "flex h-8 w-full min-w-0 items-center justify-center gap-1 px-1.5 text-center text-[11px] leading-none transition-all duration-200 sm:text-xs",
-                      isAgentComplete && "data-[state=active]:text-emerald-600"
+                      isAgentComplete && "data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300"
                     )}
                   >
                     <span className="truncate">{config.label}</span>

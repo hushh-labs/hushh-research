@@ -53,8 +53,7 @@ type VaultStep =
   | "create"
   | "unlock"
   | "recovery"
-  | "method"
-  | "success";
+  | "method";
 type VaultMode = "passphrase" | GeneratedVaultKeyMode;
 
 interface VaultFlowProps {
@@ -126,8 +125,7 @@ export function VaultFlow({
       const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(user.uid);
       VaultService.setVaultCheckCache(user.uid, true);
       unlockVault(decryptedKey, token, expiresAt);
-      setStep("success");
-      setTimeout(() => onSuccess({ mode: vaultMode }), 1000);
+      onSuccess({ mode: vaultMode });
       return true;
     } catch (tokenError) {
       console.error("Failed to issue VAULT_OWNER token:", tokenError);
@@ -897,16 +895,6 @@ export function VaultFlow({
                   {hasActiveGeneratedWrapper ? generatedUnlockLabel : "Use Passphrase"}
                 </Button>
               </div>
-            </div>
-          )}
-
-          {/* Success */}
-          {step === "success" && (
-            <div className="text-center py-4">
-              <div className="text-4xl mb-4">✅</div>
-              <p className="text-muted-foreground">
-                Vault unlocked. Redirecting...
-              </p>
             </div>
           )}
 

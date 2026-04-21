@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import process from "node:process";
 
-import dotenv from "dotenv";
 import { chromium } from "playwright";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,23 +18,77 @@ const contractPath = path.join(webDir, "lib", "navigation", "app-route-layout.co
 const webEnvPath = path.join(webDir, ".env.local");
 const protocolEnvPath = path.join(repoRoot, "consent-protocol", ".env");
 
-dotenv.config({ path: webEnvPath });
-dotenv.config({ path: protocolEnvPath, override: false });
+function parseEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  const parsed = {};
+  const content = fs.readFileSync(filePath, "utf8");
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    let value = line.slice(separatorIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    parsed[key] = value;
+  }
+  return parsed;
+}
+
+function seedProcessEnv(parsed) {
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!process.env[key] && value) {
+      process.env[key] = value;
+    }
+  }
+}
+
+const parsedWebEnv = parseEnvFile(webEnvPath);
+const parsedProtocolEnv = parseEnvFile(protocolEnvPath);
+seedProcessEnv(parsedProtocolEnv);
+seedProcessEnv(parsedWebEnv);
+
+function readRawEnvLiteral(filePath, key) {
+  if (!fs.existsSync(filePath)) return "";
+  const pattern = new RegExp(`^${key}=(.*)$`, "m");
+  const match = fs.readFileSync(filePath, "utf8").match(pattern);
+  if (!match?.[1]) return "";
+  const rawValue = match[1].trim();
+  return rawValue.replace(/^['"]|['"]$/g, "");
+}
+
+function sanitizeConfiguredValue(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  if (/replace_with_/i.test(trimmed)) return "";
+  if (/your_[a-z0-9_]+_here/i.test(trimmed)) return "";
+  return trimmed;
+}
 
 const appOrigin = (
   process.env.HUSHH_APP_ORIGIN ||
   process.env.NEXT_PUBLIC_APP_URL ||
-  process.env.NEXT_PUBLIC_FRONTEND_URL ||
   "http://localhost:3000"
 ).replace(/\/$/, "");
 const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "").trim().toLowerCase();
 const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "").trim().toLowerCase();
+const rawProtocolReviewerPassphrase = readRawEnvLiteral(protocolEnvPath, "UAT_SMOKE_PASSPHRASE");
 const reviewerPassphrase =
-  process.env.HUSHH_KAI_TEST_PASSPHRASE ||
-  process.env.KAI_TEST_PASSPHRASE ||
+  sanitizeConfiguredValue(process.env.HUSHH_REVIEWER_PASSPHRASE) ||
+  sanitizeConfiguredValue(process.env.UAT_SMOKE_PASSPHRASE) ||
+  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_PASSPHRASE) ||
+  sanitizeConfiguredValue(rawProtocolReviewerPassphrase) ||
   "test#123";
-const kaiTestUserId =
-  process.env.NEXT_PUBLIC_KAI_TEST_USER_ID || "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
+const smokeUserId =
+  sanitizeConfiguredValue(process.env.HUSHH_SMOKE_USER_ID) ||
+  sanitizeConfiguredValue(process.env.UAT_SMOKE_USER_ID) ||
+  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_USER_ID) ||
+  "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
 
 const VIEWPORTS = [
   { name: "phone", width: 390, height: 844, isMobile: true },
@@ -45,6 +98,18 @@ const VIEWPORTS = [
 ];
 const NAVIGATION_TIMEOUT_MS = 120000;
 const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
+const SAME_SESSION_SHELL_ROUTES = new Set([
+  "/profile",
+  "/profile/pkm-agent-lab",
+  "/ria",
+  "/ria/clients",
+  "/ria/picks",
+  "/marketplace",
+  "/consents",
+  "/kai",
+  "/kai/portfolio",
+  "/kai/analysis",
+]);
 
 const TERMINAL_DATA_STATES = new Set([
   "loaded",
@@ -56,22 +121,22 @@ const TERMINAL_DATA_STATES = new Set([
 
 const DYNAMIC_ROUTE_FIXTURES = {
   "/ria/clients/[userId]": {
-    path: `/ria/clients/${kaiTestUserId}?tab=overview&test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}`,
+    path: `/ria/clients/${smokeUserId}?tab=overview&test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}`,
     expectedQueryIncludes: ["tab=overview", "test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]"],
     requireBackButton: false,
   },
   "/ria/clients/[userId]/accounts/[accountId]": {
-    path: `/ria/clients/${kaiTestUserId}/accounts/acct_demo_taxable_main?test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}/accounts/acct_demo_taxable_main`,
+    path: `/ria/clients/${smokeUserId}/accounts/acct_demo_taxable_main?test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}/accounts/acct_demo_taxable_main`,
     expectedQueryIncludes: ["test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]/accounts/[accountId]"],
     requireBackButton: true,
   },
   "/ria/clients/[userId]/requests/[requestId]": {
-    path: `/ria/clients/${kaiTestUserId}/requests/request_demo_kai_specialized_bundle?test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}/requests/request_demo_kai_specialized_bundle`,
+    path: `/ria/clients/${smokeUserId}/requests/request_demo_kai_specialized_bundle?test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}/requests/request_demo_kai_specialized_bundle`,
     expectedQueryIncludes: ["test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]/requests/[requestId]"],
     requireBackButton: true,
@@ -120,13 +185,37 @@ const REDIRECT_EXPECTATIONS = {
     expectedPathname: "/profile",
     allowedRouteIds: ["/profile"],
   },
+  "/profile/pkm": {
+    path: "/profile/pkm",
+    expectedPathname: "/profile/pkm-agent-lab",
+    allowedRouteIds: ["/profile/pkm-agent-lab"],
+    requiresColdEntry: true,
+  },
   "/ria/workspace": {
-    path: `/ria/workspace?clientId=${encodeURIComponent(kaiTestUserId)}&tab=overview&test_profile=1`,
-    expectedPathname: `/ria/clients/${kaiTestUserId}`,
+    path: `/ria/workspace?clientId=${encodeURIComponent(smokeUserId)}&tab=overview&test_profile=1`,
+    expectedPathname: `/ria/clients/${smokeUserId}`,
     expectedQueryIncludes: ["tab=overview", "test_profile=1"],
     allowedRouteIds: ["/ria/clients/[userId]"],
   },
 };
+
+async function installNativeTestBridge(page) {
+  await page.addInitScript(
+    ({ expectedUserId, vaultPassphrase }) => {
+      window.__HUSHH_NATIVE_TEST__ = {
+        ...(window.__HUSHH_NATIVE_TEST__ || {}),
+        enabled: true,
+        autoReviewerLogin: true,
+        expectedUserId,
+        vaultPassphrase,
+      };
+    },
+    {
+      expectedUserId: smokeUserId,
+      vaultPassphrase: reviewerPassphrase,
+    }
+  );
+}
 
 function loadRouteContract() {
   return JSON.parse(fs.readFileSync(contractPath, "utf8"));
@@ -141,6 +230,11 @@ function shouldIncludeRoute(route) {
 function includedViewports() {
   if (!viewportFilter) return VIEWPORTS;
   return VIEWPORTS.filter((viewport) => viewport.name.includes(viewportFilter));
+}
+
+function shouldRunExtraFlow(flowKey) {
+  if (!routeFilter) return true;
+  return flowKey.toLowerCase().includes(routeFilter);
 }
 
 function sleep(ms) {
@@ -257,83 +351,202 @@ function routeSpec(route) {
   };
 }
 
-async function installNativeTestBootstrap(context) {
-  await context.addInitScript(
-    ({ expectedUserId, initialRoute, vaultPassphrase }) => {
-      window.__HUSHH_NATIVE_TEST__ = {
-        ...(window.__HUSHH_NATIVE_TEST__ || {}),
-        enabled: true,
-        autoReviewerLogin: true,
-        expectedUserId,
-        initialRoute,
-        expectedRoute: initialRoute,
-        vaultPassphrase,
-      };
-    },
-    {
-      expectedUserId: kaiTestUserId,
-      initialRoute: REVIEWER_BOOTSTRAP_ROUTE,
-      vaultPassphrase: reviewerPassphrase,
-    }
-  );
-}
-
 async function ensureReviewerSession(page) {
-  let lastDiagnostics = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await page.goto(
-      `${appOrigin}/login?redirect=${encodeURIComponent(REVIEWER_BOOTSTRAP_ROUTE)}`,
-      { waitUntil: "domcontentloaded" }
-    );
-    try {
-      await page.waitForFunction(
-        ({ routeId }) => {
-          const bridge = window.__HUSHH_NATIVE_TEST__;
-          return (
-            window.location.pathname === routeId &&
-            bridge?.bootstrapState === "vault_unlocked"
-          );
-        },
-        {
-          routeId: REVIEWER_BOOTSTRAP_ROUTE,
-        },
-        { timeout: NAVIGATION_TIMEOUT_MS }
-      );
-      return;
-    } catch (error) {
-      lastDiagnostics = await captureRouteDiagnostics(page);
-      if (attempt < 3 && lastDiagnostics?.bridge?.bootstrapState === "vault_error") {
-        continue;
+  process.stdout.write(`→ bootstrap reviewer session\n`);
+  await page.goto(
+    `${appOrigin}/login?redirect=${encodeURIComponent(REVIEWER_BOOTSTRAP_ROUTE)}`,
+    { waitUntil: "domcontentloaded" }
+  );
+
+  const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
+  await page.waitForFunction(
+    () => {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      const bootstrapState = bridge?.bootstrapState || "";
+      if (window.location.pathname === "/ria") {
+        return true;
       }
+      if (
+        bootstrapState === "authenticated" ||
+        bootstrapState === "loading_vault_state" ||
+        bootstrapState === "unlocking_vault" ||
+        bootstrapState === "vault_unlocked"
+      ) {
+        return true;
+      }
+      if (document.querySelector("#unlock-passphrase")) {
+        return true;
+      }
+      return Array.from(document.querySelectorAll("button")).some((button) =>
+        /continue as reviewer/i.test((button.textContent || "").trim())
+      );
+    },
+    {},
+    { timeout: 60_000 }
+  );
+
+  if (await reviewerButton.isVisible().catch(() => false)) {
+    process.stdout.write(`→ click reviewer login\n`);
+    await reviewerButton.click();
+  }
+
+  try {
+    await page.waitForURL(
+      (url) =>
+        url.pathname === REVIEWER_BOOTSTRAP_ROUTE ||
+        url.pathname.startsWith(`${REVIEWER_BOOTSTRAP_ROUTE}/`),
+      { timeout: NAVIGATION_TIMEOUT_MS }
+    );
+  } catch (error) {
+    const diagnostics = await captureRouteDiagnostics(page);
+    throw new Error(
+      `Reviewer session login timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
+      { cause: error }
+    );
+  }
+
+  const unlockInput = page.locator("#unlock-passphrase");
+  await unlockInput.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  if (await unlockInput.isVisible().catch(() => false)) {
+    process.stdout.write(`→ unlock vault with passphrase\n`);
+    process.stdout.write(`→ fill passphrase\n`);
+    await unlockInput.fill(reviewerPassphrase);
+    process.stdout.write(`→ resolve unlock button\n`);
+    const unlockButton = page
+      .getByRole("button", { name: /unlock with passphrase/i })
+      .first();
+    await page.waitForFunction(
+      () => {
+        const button = Array.from(document.querySelectorAll("button")).find((candidate) =>
+          /unlock with passphrase/i.test((candidate.textContent || "").trim())
+        );
+        return button instanceof HTMLButtonElement && !button.disabled;
+      },
+      {},
+      { timeout: 5_000 }
+    );
+    process.stdout.write(`→ dispatch unlock click\n`);
+    await unlockButton.click({ noWaitAfter: true });
+    process.stdout.write(`→ wait post-submit settle\n`);
+    await page.waitForTimeout(3000);
+    process.stdout.write(`→ confirm unlock UI hidden\n`);
+    if (await unlockInput.isVisible().catch(() => false)) {
+      const diagnostics = await captureRouteDiagnostics(page);
       throw new Error(
-        `Reviewer session bootstrap timed out.\n${JSON.stringify(lastDiagnostics, null, 2)}`,
-        { cause: error }
+        `Reviewer vault unlock timed out.\n${JSON.stringify(diagnostics, null, 2)}`
       );
     }
+    process.stdout.write(`→ vault unlock submitted\n`);
   }
+
+  process.stdout.write(`→ wait for reviewer route beacon\n`);
+  try {
+    await waitForRouteBeacon(page, [REVIEWER_BOOTSTRAP_ROUTE]);
+  } catch (error) {
+    const diagnostics = await captureRouteDiagnostics(page);
+    throw new Error(
+      `Reviewer session route did not stabilize.\n${JSON.stringify(diagnostics, null, 2)}`,
+      { cause: error }
+    );
+  }
+  process.stdout.write(`→ align reviewer persona to ria\n`);
+  await ensurePersona(page, "ria");
+  process.stdout.write(`→ reviewer route beacon ready\n`);
+  process.stdout.write(`✓ reviewer session ready\n`);
 }
 
 async function ensurePersona(page, persona) {
+  const stayInRiaWorkspace = page.getByRole("button", {
+    name: /stay in ria workspace/i,
+  });
+  const switchToInvestorWorkspace = page.getByRole("button", {
+    name: /switch to investor workspace/i,
+  });
+
+  if (persona === "ria" && (await stayInRiaWorkspace.isVisible().catch(() => false))) {
+    await stayInRiaWorkspace.click();
+    await page.waitForTimeout(1500);
+    return;
+  }
+
+  if (
+    persona === "investor" &&
+    (await switchToInvestorWorkspace.isVisible().catch(() => false))
+  ) {
+    await switchToInvestorWorkspace.click();
+    await page.waitForTimeout(1500);
+    return;
+  }
+
   const titleTrigger = page.getByTestId("top-app-bar-title");
   const label = persona === "ria" ? "RIA" : "Investor";
   const currentTitle = (await titleTrigger.textContent().catch(() => "")) || "";
   if (currentTitle.includes(label)) {
     return;
   }
-  await titleTrigger.click();
+  await titleTrigger.evaluate((node) => {
+    if (node instanceof HTMLElement) {
+      node.click();
+    }
+  });
   await page.getByRole("menuitem", { name: new RegExp(`^${label}$`, "i") }).click();
   await page.waitForTimeout(1500);
 }
 
 async function clickBottomNav(page, label) {
-  await page.getByRole("button", { name: new RegExp(`^${label}$`, "i") }).click();
+  const button = page.getByRole("button", { name: new RegExp(`^${label}$`, "i") }).first();
+  if (await button.isVisible().catch(() => false)) {
+    await button.evaluate((node) => {
+      if (node instanceof HTMLElement) {
+        node.click();
+      }
+    });
+    return;
+  }
+
+  const link = page.getByRole("link", { name: new RegExp(`^${label}$`, "i") }).first();
+  if (await link.isVisible().catch(() => false)) {
+    await link.evaluate((node) => {
+      if (node instanceof HTMLElement) {
+        node.click();
+      }
+    });
+    return;
+  }
+
+  const radio = page.getByRole("radio", { name: new RegExp(`^${label}$`, "i") }).first();
+  if (await radio.isVisible().catch(() => false)) {
+    await radio.evaluate((node) => {
+      if (node instanceof HTMLElement) {
+        node.click();
+      }
+    });
+    return;
+  }
+
+  const tab = page.getByRole("tab", { name: new RegExp(`^${label}$`, "i") }).first();
+  if (await tab.isVisible().catch(() => false)) {
+    await tab.evaluate((node) => {
+      if (node instanceof HTMLElement) {
+        node.click();
+      }
+    });
+    return;
+  }
+
+  await page.getByText(new RegExp(`^${label}$`, "i")).first().click({ force: true });
 }
 
 async function openRiaWorkspace(page) {
   await ensurePersona(page, "ria");
   await clickBottomNav(page, "Clients");
   await waitForRouteBeacon(page, ["/ria/clients"]);
-  await page.getByRole("button", { name: /kai test user/i }).click();
+  const explicitTestProfile = page.getByTestId("ria-client-test-profile").first();
+  if (await explicitTestProfile.isVisible().catch(() => false)) {
+    await explicitTestProfile.click();
+  } else {
+    await page.getByRole("button", { name: /kai test user|kushal trivedi/i }).click();
+  }
   await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
 }
 
@@ -357,10 +570,15 @@ async function navigateViaShell(page, spec) {
     case "/profile":
       await clickBottomNav(page, "Profile");
       return true;
+    case "/profile/pkm-agent-lab":
+      await clickBottomNav(page, "Profile");
+      await page.getByRole("button", { name: /pkm agent lab/i }).click();
+      return true;
     case "/consents":
-      await openRiaWorkspace(page);
-      await page.getByRole("button", { name: /^access$/i }).click();
-      await page.getByRole("link", { name: /open access manager/i }).first().click();
+      await clickBottomNav(page, "Profile");
+      await waitForRouteBeacon(page, ["/profile"]);
+      await page.getByRole("button", { name: /access & sharing/i }).click();
+      await page.getByRole("button", { name: /consent center/i }).click();
       return true;
     case "/ria/clients/[userId]":
       await openRiaWorkspace(page);
@@ -511,8 +729,18 @@ async function captureRouteDiagnostics(page) {
 async function verifyRoute(page, viewport, spec) {
   const { issues, dispose } = collectPageIssues(page);
   try {
+    if (spec.requiresColdEntry) {
+      process.stdout.write(`↷ [${viewport}] ${spec.route} requires cold-entry verification; skipping from signed-in sweep\n`);
+      return;
+    }
+
     const usedShellNav = await navigateViaShell(page, spec);
     if (!usedShellNav) {
+      if (SAME_SESSION_SHELL_ROUTES.has(spec.route)) {
+        throw new Error(
+          `${spec.route} must be proven through reviewer login plus Next client navigation. Add a shell navigation mapping instead of using page.goto(...).`
+        );
+      }
       const targetUrl = `${appOrigin}${spec.path}`;
       await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
     }
@@ -548,7 +776,12 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
   try {
     await page.goto(`${appOrigin}/ria/clients`, { waitUntil: "domcontentloaded" });
     await waitForRouteBeacon(page, ["/ria/clients"]);
-    await page.getByRole("button", { name: /kai test user/i }).click();
+    const explicitTestProfile = page.getByTestId("ria-client-test-profile").first();
+    if (await explicitTestProfile.isVisible().catch(() => false)) {
+      await explicitTestProfile.click();
+    } else {
+      await page.getByRole("button", { name: /kai test user|kushal trivedi/i }).click();
+    }
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
 
     await page.getByRole("button", { name: /taxable brokerage/i }).click();
@@ -558,7 +791,7 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
 
     await page.getByRole("button", { name: /^access$/i }).click();
     await page.getByTestId("ria-client-workspace-access").waitFor({ state: "visible", timeout: 15000 });
-    await page.getByRole("link", { name: /open access manager/i }).first().click();
+    await page.getByRole("link", { name: /open access/i }).first().click();
     await waitForRouteBeacon(page, ["/consents"]);
 
     assertNoIssues("ria-workspace-flow", viewport, issues);
@@ -584,16 +817,17 @@ async function verifyMarketplaceFlow(page, viewport) {
 }
 
 async function runViewportSweep(viewport, contract) {
-  const browser = await chromium.launch({ headless: true });
   let context = null;
   let page = null;
+  let browser = null;
 
   try {
     let bootstrapError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
+      browser = await chromium.launch({ headless: true });
       context = await browser.newContext({ viewport });
-      await installNativeTestBootstrap(context);
       page = await context.newPage();
+      await installNativeTestBridge(page);
       page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
       page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
       try {
@@ -602,7 +836,12 @@ async function runViewportSweep(viewport, contract) {
         break;
       } catch (error) {
         bootstrapError = error;
-        await context.close();
+        process.stderr.write(
+          `bootstrap attempt ${attempt} failed for ${viewport.name}: ${error instanceof Error ? error.message : String(error)}\n`
+        );
+        await context.close().catch(() => {});
+        await browser.close().catch(() => {});
+        browser = null;
         context = null;
         page = null;
       }
@@ -614,19 +853,26 @@ async function runViewportSweep(viewport, contract) {
 
     for (const route of contract.filter(shouldIncludeRoute)) {
       const spec = routeSpec(route);
+      process.stdout.write(`→ [${viewport.name}] ${route.route}\n`);
       await verifyRoute(page, viewport.name, spec);
       process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
     }
 
-    await verifyRiaWorkspaceFlow(page, viewport.name);
-    process.stdout.write(`✓ [${viewport.name}] ria workspace flow\n`);
-    await verifyMarketplaceFlow(page, viewport.name);
-    process.stdout.write(`✓ [${viewport.name}] marketplace workspace flow\n`);
+    if (shouldRunExtraFlow("ria")) {
+      await verifyRiaWorkspaceFlow(page, viewport.name);
+      process.stdout.write(`✓ [${viewport.name}] ria workspace flow\n`);
+    }
+    if (shouldRunExtraFlow("marketplace")) {
+      await verifyMarketplaceFlow(page, viewport.name);
+      process.stdout.write(`✓ [${viewport.name}] marketplace workspace flow\n`);
+    }
   } finally {
     if (context) {
-      await context.close();
+      await context.close().catch(() => {});
     }
-    await browser.close();
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
   }
 }
 

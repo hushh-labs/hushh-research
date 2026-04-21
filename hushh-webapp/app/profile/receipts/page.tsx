@@ -279,6 +279,7 @@ export default function ProfileReceiptsPage() {
   }, [user?.uid]);
 
   const canLoad = Boolean(user?.uid);
+  const hasSealedReceiptAccess = Boolean(vaultOwnerToken && isVaultUnlocked);
   const hasStoredReceipts = receipts.length > 0;
 
   const loadReceipts = useCallback(
@@ -289,7 +290,7 @@ export default function ProfileReceiptsPage() {
         silent?: boolean;
       }
     ) => {
-      if (!user?.uid) return;
+      if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked) return;
       const showBlockingLoader = !options?.silent;
       if (showBlockingLoader) {
         setLoadingReceipts(true);
@@ -298,6 +299,7 @@ export default function ProfileReceiptsPage() {
         const idToken = await user.getIdToken();
         const response = await GmailReceiptsService.listReceipts({
           idToken,
+          vaultOwnerToken,
           userId: user.uid,
           page: nextPage,
           perPage: 20,
@@ -345,7 +347,7 @@ export default function ProfileReceiptsPage() {
         }
       }
     },
-    [user]
+    [isVaultUnlocked, user, vaultOwnerToken]
   );
 
   const gmail = useGmailConnectorStatus({
@@ -373,6 +375,13 @@ export default function ProfileReceiptsPage() {
 
   useEffect(() => {
     if (loading || !canLoad || !user?.uid) return;
+    if (!hasSealedReceiptAccess) {
+      setReceipts([]);
+      setPage(1);
+      setHasMore(false);
+      setTotal(0);
+      return;
+    }
 
     const cached = getCachedGmailReceipts(user.uid);
     if (cached) {
@@ -391,7 +400,7 @@ export default function ProfileReceiptsPage() {
     }
 
     void loadReceipts(1);
-  }, [canLoad, loadReceipts, loading, user?.uid]);
+  }, [canLoad, hasSealedReceiptAccess, loadReceipts, loading, user?.uid]);
 
   const syncing = gmail.refreshingStatus || gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
@@ -469,7 +478,8 @@ export default function ProfileReceiptsPage() {
     connectorState === "connected_backfill_running" ||
     connectorState === "syncing";
   const hasStaleBackgroundSync = gmail.isStale && isSyncingState;
-  const canBuildReceiptMemoryPreview = Boolean(user?.uid) && (total > 0 || hasStoredReceipts);
+  const canBuildReceiptMemoryPreview =
+    Boolean(user?.uid) && hasSealedReceiptAccess && (total > 0 || hasStoredReceipts);
   const receiptSummaryDraftTrimmed = receiptSummaryDraft.trim();
   const autoReceiptSummaryKey = useMemo(() => {
     if (!user?.uid || !isConnected || !canBuildReceiptMemoryPreview) {
@@ -723,13 +733,14 @@ export default function ProfileReceiptsPage() {
 
   const handleBuildReceiptMemoryPreview = useCallback(
     async (forceRefresh = false) => {
-      if (!user?.uid) return;
+      if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked) return;
       setReceiptMemoryLoading(true);
       setReceiptMemoryMessage(null);
       try {
         const idToken = await user.getIdToken();
         const artifact = await GmailReceiptMemoryService.preview({
           idToken,
+          vaultOwnerToken,
           userId: user.uid,
           forceRefresh,
         });
@@ -748,7 +759,7 @@ export default function ProfileReceiptsPage() {
         setReceiptMemoryLoading(false);
       }
     },
-    [user]
+    [isVaultUnlocked, user, vaultOwnerToken]
   );
 
   usePublishVoiceSurfaceMetadata(receiptsVoiceSurfaceMetadata);
@@ -915,7 +926,7 @@ export default function ProfileReceiptsPage() {
               onClick={() =>
                 isConnected
                   ? void handleSyncNow()
-                  : router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)
+                  : router.push(`${ROUTES.PROFILE}?panel=gmail`)
               }
               disabled={isConnected ? syncing : gmail.status?.configured === false}
               className="min-w-[140px]"
@@ -981,7 +992,7 @@ export default function ProfileReceiptsPage() {
             {!isConnected ? (
               <div className="pt-1">
                 <Button
-                  onClick={() => router.push(`${ROUTES.PROFILE}?tab=account&panel=gmail`)}
+                  onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}
                   data-voice-control-id="open_gmail_connector"
                   data-voice-action-id="nav.profile_gmail_panel"
                   data-voice-label={primaryActionLabel}
@@ -1095,14 +1106,82 @@ export default function ProfileReceiptsPage() {
             ) : null}
           </SurfaceInset>
 
-          {isConnected && loadingReceipts && !loadingStatus ? (
+          {loadingStatus ? (
+            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading Gmail connector status...
+            </SurfaceInset>
+          ) : null}
+
+          {isSyncingState && gmail.syncRun ? (
+            <SurfaceInset className="space-y-1 px-4 py-3 text-sm">
+              <p className="font-medium text-foreground">Latest sync</p>
+              <p className="text-muted-foreground">Run: {gmail.syncRun.run_id}</p>
+              <p className="text-muted-foreground">Status: {gmail.syncRun.status}</p>
+              <p className="text-muted-foreground">
+                Synced {gmail.syncRun.synced_count} / Filtered {gmail.syncRun.filtered_count} / Extracted {gmail.syncRun.extracted_count}
+              </p>
+              {latestRunMetrics ? (
+                <div className="space-y-2 pt-1">
+                  <Progress value={progressPercent} className="h-2" />
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+                    <span>Scanned: {latestRunMetrics.listed}</span>
+                    <span>Matched: {latestRunMetrics.filtered}</span>
+                    <span>Stored: {latestRunMetrics.synced}</span>
+                    <span>Extracted: {latestRunMetrics.extracted}</span>
+                    <span>Duplicates: {latestRunMetrics.duplicates}</span>
+                    <span>Extract %: {latestRunMetrics.extractionSuccessPercent}%</span>
+                  </div>
+                </div>
+              ) : null}
+              {gmail.syncRun.error_message ? (
+                <p className="text-destructive">{gmail.syncRun.error_message}</p>
+              ) : null}
+            </SurfaceInset>
+          ) : null}
+
+          {gmail.status?.configured === false && !loadingStatus ? (
+            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
+              Gmail receipts are not configured in this environment yet.
+            </SurfaceInset>
+          ) : null}
+
+          {showConnectPrompt ? (
+            <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-foreground">
+                <Mail className="h-4 w-4" />
+                Connect Gmail from Profile to start syncing receipts.
+              </div>
+              <Button onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}>
+                Open Gmail connector
+              </Button>
+            </SurfaceInset>
+          ) : null}
+
+          {showDisconnectedNotice ? (
+            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
+              Gmail is currently disconnected. Your previously synced receipts stay available below,
+              but Sync now is disabled until you reconnect.
+            </SurfaceInset>
+          ) : null}
+          {isConnected && !hasSealedReceiptAccess && !loadingStatus ? (
+            <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-foreground">
+                <Lock className="h-4 w-4" />
+                Unlock your vault to view and summarize synced receipts.
+              </div>
+              <Button onClick={requestVaultUnlock}>Unlock vault</Button>
+            </SurfaceInset>
+          ) : null}
+
+          {isConnected && hasSealedReceiptAccess && loadingReceipts && !loadingStatus ? (
             <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading your receipts…
             </SurfaceInset>
           ) : null}
 
-          {isConnected && !loadingReceipts && receipts.length === 0 && !loadingStatus ? (
+          {isConnected && hasSealedReceiptAccess && !loadingReceipts && receipts.length === 0 && !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
               {gmail.syncRun?.synced_count
                 ? "Your receipts are still finishing up. Please try syncing again in a moment."

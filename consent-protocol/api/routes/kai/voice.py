@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from api.middleware import require_vault_owner_token
 from api.routes.kai.portfolio import _IMPORT_RUN_MANAGER
 from api.routes.kai.stream import _RUN_MANAGER
+from hushh_mcp.runtime_settings import VoiceRuntimeSettings, get_voice_runtime_settings
 from hushh_mcp.services.voice_intent_service import (
     _PLANNER_NORMALIZATION_VERSION,
     VoiceIntentService,
@@ -31,24 +32,20 @@ _VOICE_KILL_SWITCH_MESSAGE = (
     "Voice actions are temporarily unavailable. I can still respond and guide you."
 )
 _VOICE_STAGE_TIMING: dict[str, dict[str, float]] = {}
-_VOICE_UPLOAD_DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 _VOICE_UPLOAD_REQUEST_SLACK_BYTES = 64 * 1024
 _VOICE_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 
 
-def _env_truthy(name: str, fallback: str = "false") -> bool:
-    return str(os.getenv(name, fallback)).strip().lower() in {"1", "true", "yes", "on", "enabled"}
+def _voice_runtime_settings() -> VoiceRuntimeSettings:
+    return get_voice_runtime_settings()
 
 
 def _voice_tool_execution_disabled() -> bool:
-    return _env_truthy("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "false")
+    return _voice_runtime_settings().tool_execution_disabled
 
 
 def _parse_voice_allowlist() -> set[str]:
-    raw = str(os.getenv("KAI_VOICE_V1_ALLOWED_USERS", "")).strip()
-    if not raw:
-        return set()
-    return {item.strip() for item in raw.split(",") if item.strip()}
+    return set(_voice_runtime_settings().allowed_users)
 
 
 def _safe_user_ref(user_id: str) -> str:
@@ -62,7 +59,8 @@ def _stable_user_bucket(user_id: str) -> int:
 
 
 def _voice_rollout_state(user_id: str) -> dict[str, Any]:
-    enabled_globally = _env_truthy("KAI_VOICE_V1_ENABLED", "true")
+    settings = _voice_runtime_settings()
+    enabled_globally = settings.hosted_voice_enabled
     if not enabled_globally:
         return {
             "enabled": False,
@@ -81,12 +79,7 @@ def _voice_rollout_state(user_id: str) -> dict[str, Any]:
             "canary_percent": None,
         }
 
-    raw_percent = str(os.getenv("KAI_VOICE_V1_CANARY_PERCENT", "100")).strip()
-    try:
-        canary_percent = int(raw_percent)
-    except ValueError:
-        canary_percent = 100
-    canary_percent = max(0, min(100, canary_percent))
+    canary_percent = settings.canary_percent
     bucket = _stable_user_bucket(user_id)
     enabled = bucket < canary_percent
     return {
@@ -101,7 +94,8 @@ def _voice_capability_state(user_id: str) -> dict[str, Any]:
     rollout = _voice_rollout_state(user_id)
     tool_execution_disabled = _voice_tool_execution_disabled()
     execution_allowed = bool(rollout["enabled"] and not tool_execution_disabled)
-    enabled = bool(rollout["enabled"] and voice_service.realtime_enabled)
+    realtime_enabled = bool(rollout["enabled"] and _voice_runtime_settings().realtime_enabled)
+    enabled = realtime_enabled
     if enabled:
         reason = None
     elif not rollout["enabled"]:
@@ -118,7 +112,7 @@ def _voice_capability_state(user_id: str) -> dict[str, Any]:
         "rollout_reason": rollout["reason"],
         "bucket": rollout["bucket"],
         "canary_percent": rollout["canary_percent"],
-        "realtime_enabled": bool(rollout["enabled"] and voice_service.realtime_enabled),
+        "realtime_enabled": realtime_enabled,
         "stt_enabled": bool(rollout["enabled"]),
         "tts_enabled": bool(rollout["enabled"]),
         "tts_timeout_ms": int(voice_service.tts_timeout_seconds * 1000),
@@ -582,12 +576,7 @@ def _parse_optional_form_json(raw_value: str | None, *, field_name: str) -> dict
 
 
 def _voice_upload_max_bytes() -> int:
-    raw = str(os.getenv("KAI_VOICE_UPLOAD_MAX_BYTES", _VOICE_UPLOAD_DEFAULT_MAX_BYTES)).strip()
-    try:
-        parsed = int(raw)
-    except ValueError:
-        return _VOICE_UPLOAD_DEFAULT_MAX_BYTES
-    return parsed if parsed > 0 else _VOICE_UPLOAD_DEFAULT_MAX_BYTES
+    return _voice_runtime_settings().upload_max_bytes
 
 
 def _format_byte_limit(byte_count: int) -> str:

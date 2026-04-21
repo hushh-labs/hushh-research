@@ -8,6 +8,28 @@ function normalizeValue(raw: string | undefined | null): string {
     .toLowerCase();
 }
 
+function isPlaceholderValue(raw: string | undefined | null): boolean {
+  const normalized = normalizeValue(raw);
+  if (!normalized) return true;
+  return (
+    normalized.includes("replace_with") ||
+    normalized.includes("pending") ||
+    normalized.includes("placeholder") ||
+    normalized.includes("dummy")
+  );
+}
+
+function sanitizeAnalyticsId(
+  raw: string | undefined | null,
+  pattern: RegExp
+): string {
+  const value = String(raw || "").trim();
+  if (!value || isPlaceholderValue(value) || !pattern.test(value)) {
+    return "";
+  }
+  return value;
+}
+
 export function resolveObservabilityEnvironment(): ObservabilityEnvironment {
   return resolveAppEnvironment() === "production" ? "production" : "uat";
 }
@@ -37,16 +59,16 @@ export function resolveObservabilitySampleRate(): number {
   return Math.max(0, Math.min(1, value));
 }
 
-export function resolveGtmContainerId(): string {
-  const explicit = String(process.env.NEXT_PUBLIC_GTM_ID || "").trim();
-  if (explicit) {
-    return explicit;
-  }
+export function resolveAnalyticsMeasurementId(): string {
+  return sanitizeAnalyticsId(
+    process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+    /^G-[A-Z0-9]+$/i
+  );
+}
 
-  const env = resolveObservabilityEnvironment();
-  const uat =
-    String(process.env.NEXT_PUBLIC_GTM_ID_UAT || "").trim() ||
-    String(process.env.NEXT_PUBLIC_GTM_ID_STAGING || "").trim();
-  const production = String(process.env.NEXT_PUBLIC_GTM_ID_PRODUCTION || "").trim();
-  return env === "production" ? production : uat;
+export function resolveGtmContainerId(): string {
+  return sanitizeAnalyticsId(
+    process.env.NEXT_PUBLIC_GTM_ID,
+    /^GTM-[A-Z0-9]+$/i
+  );
 }

@@ -59,22 +59,5 @@
     "treating signed-in as consent",
     "allowing delegated scope escalation",
     "ignoring vault or PKM boundary docs"
-  ],
-  "scheduled_safe": true,
-  "maintenance_cadence": "weekly",
-  "maintenance_runner": [
-    "./bin/hushh docs verify",
-    "./bin/hushh protocol test-ci",
-    "cd consent-protocol && python3 scripts/verify_adk_a2a_compliance.py"
-  ],
-  "maintenance_owner": "security-audit",
-  "maintenance_issue_section": "security-consent-audit",
-  "maintenance_blockers": [
-    "protocol verification fails",
-    "consent or IAM docs drift",
-    "ADK or A2A compliance check fails"
-  ],
-  "maintenance_prerequisites": [
-    "command:python3"
   ]
 }

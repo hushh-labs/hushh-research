@@ -56,7 +56,7 @@ class HushhConsentPlugin : Plugin() {
     private val secretKey: String
         get() {
             // In production, this should come from secure storage
-            return System.getenv("SECRET_KEY") ?: "development_secret_key_32_chars!"
+            return System.getenv("APP_SIGNING_KEY") ?: "development_secret_key_32_chars!"
         }
 
     // ==================== Issue Token ====================

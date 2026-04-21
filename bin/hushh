@@ -33,6 +33,9 @@ Operational commands:
   env use --mode <local|uat|prod> [--dry-run]
   db init-iam
   db verify-iam-schema
+  db verify-release-contract
+  db verify-uat-schema
+  db report-prod-posture [--json]
   protocol <subcommand>
   sync <main|check-main>
 
@@ -91,14 +94,15 @@ Usage:
   ./bin/hushh codex route-task <workflow-id> [--json|--text] [--verbose]
   ./bin/hushh codex impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]
-  ./bin/hushh codex maintenance <daily|weekly|monthly> [--json|--text] [--report-file <path>] [--artifacts-dir <path>] [--no-issue-update]
+  ./bin/hushh codex pre-pr [--include-advisory] [--report-path <path>] [--json|--text]
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
+  ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
 EOF
 }
 
 run_web() {
-  local mode="uat"
+  local mode="local"
   local next_args=()
 
   while [ "$#" -gt 0 ]; do
@@ -116,6 +120,8 @@ run_web() {
         cat <<'EOF'
 Usage:
   ./bin/hushh web [--mode <local|uat|prod>] [-- <next-dev args>]
+
+Defaults to: --mode local
 EOF
         exit 0
         ;;
@@ -176,7 +182,7 @@ EOF
       fi
       ;;
     web)
-      local mode="uat"
+      local mode="local"
       local next_args=()
       while [ "$#" -gt 0 ]; do
         case "${1:-}" in
@@ -193,6 +199,8 @@ EOF
             cat <<'EOF'
 Usage:
   ./bin/hushh terminal web [--mode <local|uat|prod>] [-- <next-dev args>]
+
+Defaults to: --mode local
 EOF
             exit 0
             ;;
@@ -233,7 +241,10 @@ EOF
         esac
       done
       title="Hushh backend (${mode})"
-      command_args=(./bin/hushh backend --mode "$mode" "${extra[@]}")
+      command_args=(./bin/hushh backend --mode "$mode")
+      if [ "${#extra[@]}" -gt 0 ]; then
+        command_args+=("${extra[@]}")
+      fi
       ;;
     -h|--help|help)
       cat <<'EOF'
@@ -467,20 +478,11 @@ run_codex() {
       [ "${#args[@]}" -ge 1 ] || die "codex impact requires <workflow-id>"
       exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
       ;;
-    maintenance)
-      [ "${#args[@]}" -ge 1 ] || die "codex maintenance requires <daily|weekly|monthly>"
-      local cadence="${args[0]}"
-      case "$cadence" in
-        daily|weekly|monthly)
-          ;;
-        *)
-          die "Unknown codex maintenance cadence: $cadence"
-          ;;
-      esac
-      if [ "${#args[@]}" -gt 1 ]; then
-        exec python3 "$REPO_ROOT/scripts/ops/codex_maintenance.py" run --cadence "$cadence" "${args[@]:1}" "$format_flag"
+    pre-pr)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/pre_pr_readiness.py" "${args[@]}" "$format_flag"
       fi
-      exec python3 "$REPO_ROOT/scripts/ops/codex_maintenance.py" run --cadence "$cadence" "$format_flag"
+      exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/pre_pr_readiness.py" "$format_flag"
       ;;
     ci-status)
       if [ "${#args[@]}" -gt 0 ]; then
@@ -494,13 +496,18 @@ run_codex() {
       fi
       exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag"
       ;;
+    rca)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/autonomous-rca-governance/scripts/rca_runner.py" "${args[@]}" "$format_flag"
+      fi
+      die "codex rca requires --surface <uat|runtime|ci>"
+      ;;
     -h|--help|help)
       codex_usage
       exit 0
       ;;
     *)
-      codex_usage
-      exit 1
+      die "Unknown codex subcommand: $subcommand"
       ;;
   esac
 }
@@ -539,7 +546,10 @@ EOF
         esac
       done
       [ -n "$mode" ] || die "env use requires --mode"
-      exec bash "$REPO_ROOT/scripts/env/use_profile.sh" "$mode" "${extra[@]}"
+      if [ "${#extra[@]}" -gt 0 ]; then
+        exec bash "$REPO_ROOT/scripts/env/use_profile.sh" "$mode" "${extra[@]}"
+      fi
+      exec bash "$REPO_ROOT/scripts/env/use_profile.sh" "$mode"
       ;;
     *)
       die "Unknown env subcommand: $1"
@@ -560,7 +570,66 @@ run_db() {
       shift
       [ "$#" -eq 0 ] || die "db verify-iam-schema does not accept extra arguments"
       cd "$REPO_ROOT/consent-protocol"
-      exec env PYTHONPATH=. .venv/bin/python scripts/verify_iam_schema.py
+      exec env PYTHONPATH=. .venv/bin/python db/verify/verify_iam_schema.py
+      ;;
+    verify-release-contract)
+      shift
+      [ "$#" -eq 0 ] || die "db verify-release-contract does not accept extra arguments"
+      exec python3 "$REPO_ROOT/scripts/ops/verify_release_migration_contract.py"
+      ;;
+    verify-uat-schema)
+      shift
+      report_path=""
+      while [ "$#" -gt 0 ]; do
+        case "${1:-}" in
+          --report-path)
+            report_path="${2:-}"
+            shift 2
+            ;;
+          -h|--help)
+            cat <<'EOF'
+Usage:
+  ./bin/hushh db verify-uat-schema [--report-path <path>]
+EOF
+            exit 0
+            ;;
+          *)
+            die "Unknown option for db verify-uat-schema: $1"
+            ;;
+        esac
+      done
+      cmd=(bash "$REPO_ROOT/scripts/ops/verify_runtime_db_contract.sh" \
+        --project hushh-pda-uat \
+        --region us-central1 \
+        --service consent-protocol \
+        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
+      if [ -n "$report_path" ]; then
+        cmd+=(--report-path "$report_path")
+      fi
+      exec "${cmd[@]}"
+      ;;
+    report-prod-posture)
+      shift
+      json_flag=""
+      while [ "$#" -gt 0 ]; do
+        case "${1:-}" in
+          --json)
+            json_flag="--json"
+            shift
+            ;;
+          -h|--help)
+            cat <<'EOF'
+Usage:
+  ./bin/hushh db report-prod-posture [--json]
+EOF
+            exit 0
+            ;;
+          *)
+            die "Unknown option for db report-prod-posture: $1"
+            ;;
+        esac
+      done
+      exec python3 "$REPO_ROOT/scripts/ops/report_prod_frozen_posture.py" ${json_flag:+"$json_flag"}
       ;;
     *)
       die "Unknown db subcommand: $1"
@@ -636,7 +705,10 @@ EOF
       esac
     done
     [ -n "$mode" ] || die "doctor requires --mode"
-    exec bash "$REPO_ROOT/scripts/env/doctor.sh" "$mode" "${extra[@]}"
+    if [ "${#extra[@]}" -gt 0 ]; then
+      exec bash "$REPO_ROOT/scripts/env/doctor.sh" "$mode" "${extra[@]}"
+    fi
+    exec bash "$REPO_ROOT/scripts/env/doctor.sh" "$mode"
     ;;
   stack)
     mode=""
@@ -701,7 +773,10 @@ EOF
           ;;
       esac
     done
-    exec bash "$REPO_ROOT/scripts/runtime/run_backend_local.sh" "$mode" "${extra[@]}"
+    if [ "${#extra[@]}" -gt 0 ]; then
+      exec bash "$REPO_ROOT/scripts/runtime/run_backend_local.sh" "$mode" "${extra[@]}"
+    fi
+    exec bash "$REPO_ROOT/scripts/runtime/run_backend_local.sh" "$mode"
     ;;
   native)
     run_native "$@"
