@@ -21,6 +21,7 @@ import { PkmJsonTree, PkmManifestTree } from "@/components/profile/pkm-tree-view
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   PersonalKnowledgeModelService,
   type DomainSummary,
