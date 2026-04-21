@@ -72,12 +72,70 @@ class VerificationResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class NameVerificationResult:
+    status: str
+    matched_name: str | None = None
+    crd_number: str | None = None
+    current_firm: str | None = None
+    sec_number: str | None = None
+    reason: str | None = None
+    reason_code: str | None = None
+    suggested_names: list[str] = field(default_factory=list)
+    provider: str = "ria_intelligence_stage1"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _Stage1LookupCacheEntry:
+    expires_at: datetime
+    result: NameVerificationResult
+
+
 def _normalize_identity_text(value: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
 
 def _normalize_crd(value: str | None) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def _normalize_stage1_path(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return "/v1/ria/profile/stage1"
+    if not normalized.startswith("/"):
+        normalized = f"/{normalized}"
+    if normalized.rstrip("/") == "/v1/ria/profile":
+        return "/v1/ria/profile/stage1"
+    return normalized
+
+
+def _normalize_stage1_url(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized.rstrip("/").endswith("/v1/ria/profile"):
+        return f"{normalized.rstrip('/')}/stage1"
+    return normalized
+
+
+def _reason_code_from_provider_reason(reason: str | None) -> str:
+    normalized = str(reason or "").strip().lower()
+    if not normalized:
+        return "no_confident_match"
+    broad_markers = (
+        "too broad",
+        "insufficiently specific",
+        "more specific",
+        "full last name",
+        "full legal name",
+        "firm context",
+        "confidently identify a single",
+    )
+    if any(marker in normalized for marker in broad_markers):
+        return "query_too_broad"
+    return "no_confident_match"
 
 
 def _contains_official_regulator_source(payload: dict[str, Any]) -> bool:
@@ -326,6 +384,225 @@ class RIAIntelligenceVerificationAdapter:
                 "source_urls": source_urls[:5],
             },
         )
+
+
+class RIAIntelligenceStage1LookupAdapter:
+    _cache: dict[str, _Stage1LookupCacheEntry] = {}
+    _provider_label = "ria_intelligence_stage1"
+
+    def __init__(
+        self,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._base_url = str(os.getenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "")).strip().rstrip("/")
+        self._verify_url = _normalize_stage1_url(os.getenv("RIA_INTELLIGENCE_VERIFY_URL", ""))
+        self._endpoint_path = _normalize_stage1_path(
+            os.getenv("RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH", "/v1/ria/profile/stage1")
+        )
+        self._api_key = str(os.getenv("RIA_INTELLIGENCE_VERIFY_API_KEY", "")).strip()
+        self._timeout_seconds = float(os.getenv("RIA_INTELLIGENCE_VERIFY_TIMEOUT_SECONDS", "60"))
+        self._transport = transport
+        self._cache_ttl_seconds = int(os.getenv("RIA_INTELLIGENCE_STAGE1_CACHE_TTL_SECONDS", "300"))
+
+    @staticmethod
+    def _profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        profile = payload.get("profile")
+        return profile if isinstance(profile, dict) else {}
+
+    @classmethod
+    def _suggested_names(cls, payload: dict[str, Any]) -> list[str]:
+        profile = cls._profile_payload(payload)
+        value = profile.get("suggestedNames")
+        if not isinstance(value, list):
+            return []
+        out: list[str] = []
+        for item in value:
+            candidate = str(item or "").strip()
+            if candidate:
+                out.append(candidate)
+        return out
+
+    @classmethod
+    def _not_found_reason(cls, payload: dict[str, Any]) -> str:
+        profile = cls._profile_payload(payload)
+        candidate = str(profile.get("reasonIfNotExists") or "").strip()
+        if candidate:
+            return candidate
+        return "No confident FINRA or SEC match was found for the query."
+
+    @classmethod
+    def _source_urls(cls, payload: dict[str, Any]) -> list[str]:
+        sources = payload.get("sources")
+        if not isinstance(sources, list):
+            return []
+        out: list[str] = []
+        for item in sources:
+            if not isinstance(item, dict):
+                continue
+            candidate = str(item.get("uri") or item.get("url") or "").strip()
+            if candidate:
+                out.append(candidate)
+        return out[:5]
+
+    async def _request_payload(
+        self,
+        *,
+        query: str,
+    ) -> tuple[dict[str, Any] | None, NameVerificationResult | None]:
+        request_url = self._verify_url or (
+            f"{self._base_url}{self._endpoint_path}" if self._base_url else ""
+        )
+        if not request_url:
+            return None, NameVerificationResult(
+                status="provider_unavailable",
+                reason="RIA intelligence verification provider not configured",
+                provider=self._provider_label,
+                metadata={"provider": self._provider_label, "reason": "not_configured"},
+            )
+
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout_seconds,
+                transport=self._transport,
+                headers=headers,
+            ) as client:
+                response = await client.post(
+                    request_url,
+                    json={"query": query},
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ria.intelligence_stage1_request_failed: %s", exc)
+            return None, NameVerificationResult(
+                status="provider_unavailable",
+                reason="RIA intelligence verification request failed",
+                provider=self._provider_label,
+                metadata={"provider": self._provider_label, "error": type(exc).__name__},
+            )
+
+        if response.status_code >= 500:
+            return None, NameVerificationResult(
+                status="provider_unavailable",
+                reason="RIA intelligence verification provider unavailable",
+                provider=self._provider_label,
+                metadata={"provider": self._provider_label, "status_code": response.status_code},
+            )
+
+        payload = response.json() if response.content else {}
+        if not isinstance(payload, dict):
+            return None, NameVerificationResult(
+                status="provider_unavailable",
+                reason="RIA intelligence verification returned invalid payload",
+                provider=self._provider_label,
+                metadata={"provider": self._provider_label, "status_code": response.status_code},
+            )
+        return payload, None
+
+    def _cache_key(self, query: str) -> str:
+        return _normalize_identity_text(query)
+
+    @classmethod
+    def _prune_expired_cache(cls, now: datetime) -> None:
+        expired_keys = [key for key, entry in cls._cache.items() if entry.expires_at <= now]
+        for key in expired_keys:
+            cls._cache.pop(key, None)
+
+    def _get_cached_result(self, query: str) -> NameVerificationResult | None:
+        now = datetime.now(timezone.utc)
+        self._prune_expired_cache(now)
+        entry = self._cache.get(self._cache_key(query))
+        if entry is None or entry.expires_at <= now:
+            return None
+        return entry.result
+
+    def _store_cached_result(self, query: str, result: NameVerificationResult) -> None:
+        if result.status not in {"verified", "not_verified"} or self._cache_ttl_seconds <= 0:
+            return
+        self._prune_expired_cache(datetime.now(timezone.utc))
+        self._cache[self._cache_key(query)] = _Stage1LookupCacheEntry(
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=self._cache_ttl_seconds),
+            result=result,
+        )
+
+    async def verify_name(
+        self,
+        *,
+        query: str,
+        use_cache: bool = True,
+    ) -> NameVerificationResult:
+        normalized_query = str(query or "").strip()
+        if not normalized_query:
+            return NameVerificationResult(
+                status="not_verified",
+                reason="query must not be blank",
+                reason_code="no_confident_match",
+                provider=self._provider_label,
+                metadata={"provider": self._provider_label, "reason": "missing_query"},
+            )
+
+        if use_cache:
+            cached = self._get_cached_result(normalized_query)
+            if cached is not None:
+                return cached
+
+        payload, error = await self._request_payload(query=normalized_query)
+        if error is not None:
+            return error
+        if payload is None:
+            return NameVerificationResult(
+                status="provider_unavailable",
+                reason="RIA intelligence verification returned no payload.",
+                provider=self._provider_label,
+                metadata={"provider": self._provider_label, "reason": "missing_payload"},
+            )
+
+        profile = self._profile_payload(payload)
+        exists_on_finra = bool(profile.get("existsOnFinra") is True)
+        matched_name = str(profile.get("fullName") or normalized_query).strip() or None
+        crd_number = str(profile.get("crdNumber") or "").strip() or None
+        current_firm = str(profile.get("currentFirm") or "").strip() or None
+        sec_number = str(profile.get("secNumber") or "").strip() or None
+        suggested_names = self._suggested_names(payload)
+        not_found_reason = self._not_found_reason(payload)
+        reason_code = _reason_code_from_provider_reason(not_found_reason)
+        source_urls = self._source_urls(payload)
+        metadata = {"provider": self._provider_label, "source_urls": source_urls}
+
+        if exists_on_finra and _normalize_crd(crd_number):
+            result = NameVerificationResult(
+                status="verified",
+                matched_name=matched_name,
+                crd_number=crd_number,
+                current_firm=current_firm,
+                sec_number=sec_number,
+                provider=self._provider_label,
+                metadata=metadata,
+            )
+            self._store_cached_result(normalized_query, result)
+            return result
+
+        result = NameVerificationResult(
+            status="not_verified",
+            matched_name=matched_name,
+            crd_number=crd_number,
+            current_firm=current_firm,
+            sec_number=sec_number,
+            reason=not_found_reason,
+            reason_code=reason_code,
+            suggested_names=suggested_names,
+            provider=self._provider_label,
+            metadata={
+                **metadata,
+                "reason_code": reason_code,
+                "suggested_names": suggested_names,
+            },
+        )
+        self._store_cached_result(normalized_query, result)
+        return result
 
 
 class IapdVerificationAdapter:
