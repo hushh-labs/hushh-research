@@ -7,6 +7,8 @@
  * - storeUserData() proxies to POST /api/pkm/store-domain on the backend.
  *   The backend stores the ciphertext blob without being able to decrypt it
  *   (BYOK guarantee — the vault key never leaves the client).
+ * - Uses ApiService via apiJson() so routing works correctly on both
+ *   web (Next.js proxy) and native platforms (iOS/Android via Capacitor).
  *
  * Removed:
  * - getAllFoodData() and getAllProfessionalData() were stubs that returned null.
@@ -16,7 +18,12 @@
  *   /api/pkm/domains/{userId} endpoint instead.
  */
 
-const PKM_STORE_TIMEOUT_MS = 30_000;
+import { apiJson, ApiError } from "@/lib/services/api-client";
+
+interface StoreDomainResponse {
+  success: boolean;
+  message?: string;
+}
 
 /**
  * Persist an encrypted user data field to the PKM backend.
@@ -40,12 +47,8 @@ export async function storeUserData(
   tag: string
 ): Promise<boolean> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PKM_STORE_TIMEOUT_MS);
-
-    const response = await fetch("/api/pkm/store-domain", {
+    await apiJson<StoreDomainResponse>("/api/pkm/store-domain", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: userId,
         domain: key,
@@ -55,30 +58,18 @@ export async function storeUserData(
           tag,
           algorithm: "aes-256-gcm",
         },
-        // Summary is intentionally empty — the caller (store-preferences)
-        // stores encrypted preference blobs, not queryable PKM domain data.
+        // Summary is intentionally empty — store-preferences stores
+        // encrypted preference blobs, not queryable PKM domain data.
         summary: {},
       }),
-      signal: controller.signal,
     });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      console.error(
-        `[db] storeUserData failed for user ${userId} key ${key}:`,
-        response.status,
-        errorText
-      );
-      return false;
-    }
-
     return true;
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (error instanceof ApiError) {
       console.error(
-        `[db] storeUserData timed out after ${PKM_STORE_TIMEOUT_MS}ms for user ${userId} key ${key}`
+        `[db] storeUserData failed for user ${userId} key ${key}:`,
+        error.status,
+        error.message
       );
     } else {
       console.error(`[db] storeUserData error for user ${userId} key ${key}:`, error);
