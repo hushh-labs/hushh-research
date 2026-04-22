@@ -43,6 +43,7 @@ export type GroundedVoicePlan = {
   actionLabel: string | null;
   destructive: boolean;
   message: string | null;
+  resolutionSource: "canonical" | "response" | "transcript" | "none";
   execution: GroundedExecutionPlan;
 };
 
@@ -50,6 +51,8 @@ type ResolveGroundedPlanInput = {
   transcript: string;
   response: VoiceResponse;
   structuredContext?: StructuredScreenContext;
+  canonicalActionId?: string | null;
+  allowCompatibilityFallback?: boolean;
 };
 
 const MANUAL_ONLY_MESSAGE = "Please do that yourself in the app.";
@@ -188,6 +191,20 @@ function inferActionIdFromTranscript(transcript: string): InvestorKaiActionId | 
   if (/\b(open|show|go to|take me to)\b.*\b(security|vault security)\b/.test(text)) {
     return "nav.profile_security_panel";
   }
+  if (
+    /\b(open|show|go to|take me to)\b.*\b(analysis history|analysis tab history|past analys(?:is|es)|analysis archive)\b/.test(
+      text
+    )
+  ) {
+    return "nav.analysis_history";
+  }
+  if (
+    /\b(open|show|go to|take me to)\b.*\b(analysis|analysis section|analysis screen|research)\b/.test(
+      text
+    )
+  ) {
+    return "nav.kai_analysis";
+  }
   if (/\b(open|show|go to|take me to)\b.*\binvestments?\b/.test(text)) {
     return "nav.kai_investments";
   }
@@ -216,21 +233,63 @@ function resolveActionFromResponse(response: VoiceResponse): InvestorKaiActionDe
 }
 
 function chooseCandidateAction(
+  canonicalAction: InvestorKaiActionDefinition | null,
   transcriptAction: InvestorKaiActionDefinition | null,
   responseAction: InvestorKaiActionDefinition | null
-): InvestorKaiActionDefinition | null {
-  if (responseAction) return responseAction;
-  if (transcriptAction) return transcriptAction;
-  return null;
+): {
+  action: InvestorKaiActionDefinition | null;
+  source: GroundedVoicePlan["resolutionSource"];
+} {
+  if (canonicalAction) {
+    return {
+      action: canonicalAction,
+      source: "canonical",
+    };
+  }
+  if (responseAction) {
+    return {
+      action: responseAction,
+      source: "response",
+    };
+  }
+  if (transcriptAction) {
+    return {
+      action: transcriptAction,
+      source: "transcript",
+    };
+  }
+  return {
+    action: null,
+    source: "none",
+  };
 }
 
 export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): GroundedVoicePlan {
-  const transcriptActionId = inferActionIdFromTranscript(input.transcript);
-  const transcriptAction = transcriptActionId
-    ? getInvestorKaiActionById(transcriptActionId)
+  const compatibilityFallbackEnabled = input.allowCompatibilityFallback !== false;
+  const canonicalActionId =
+    typeof input.canonicalActionId === "string" && input.canonicalActionId.trim()
+      ? (input.canonicalActionId.trim() as InvestorKaiActionId)
+      : null;
+  const canonicalAction = canonicalActionId
+    ? getInvestorKaiActionById(canonicalActionId)
     : null;
-  const responseAction = resolveActionFromResponse(input.response);
-  const action = chooseCandidateAction(transcriptAction, responseAction);
+  const transcriptActionId = compatibilityFallbackEnabled
+    ? inferActionIdFromTranscript(input.transcript)
+    : null;
+  const transcriptAction = transcriptActionId ? getInvestorKaiActionById(transcriptActionId) : null;
+  const responseAction = compatibilityFallbackEnabled ? resolveActionFromResponse(input.response) : null;
+  const candidate = canonicalActionId
+    ? canonicalAction
+      ? {
+          action: canonicalAction,
+          source: "canonical" as const,
+        }
+      : {
+          action: null,
+          source: "canonical" as const,
+        }
+    : chooseCandidateAction(canonicalAction, transcriptAction, responseAction);
+  const action = candidate.action;
 
   if (input.response.kind === "clarify" && input.response.reason === "ticker_ambiguous") {
     return {
@@ -239,9 +298,31 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action?.label ?? null,
       destructive: Boolean(action && DESTRUCTIVE_ACTION_IDS.has(action.id)),
       message: input.response.message,
+      resolutionSource: candidate.source,
       execution: {
         mode: "ambiguous",
         steps: [],
+      },
+    };
+  }
+
+  if (canonicalActionId && !canonicalAction) {
+    return {
+      status: "unavailable",
+      actionId: canonicalActionId,
+      actionLabel: null,
+      destructive: false,
+      message: UNAVAILABLE_MESSAGE,
+      resolutionSource: "canonical",
+      execution: {
+        mode: "unavailable",
+        steps: [
+          {
+            type: "prompt",
+            message: UNAVAILABLE_MESSAGE,
+            reason: "canonical_action_not_found",
+          },
+        ],
       },
     };
   }
@@ -253,6 +334,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: null,
       destructive: false,
       message: null,
+      resolutionSource: "none",
       execution: {
         mode: "none",
         steps: [],
@@ -268,6 +350,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action.label,
       destructive: true,
       message: MANUAL_ONLY_MESSAGE,
+      resolutionSource: candidate.source,
       execution: {
         mode: "manual_only",
         steps: [
@@ -290,6 +373,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action.label,
       destructive: false,
       message: UNAVAILABLE_MESSAGE,
+      resolutionSource: candidate.source,
       execution: {
         mode: "unavailable",
         steps: [
@@ -324,6 +408,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action.label,
       destructive: false,
       message: "I opened the right screen. Please do that yourself in the app.",
+      resolutionSource: candidate.source,
       execution: {
         mode: steps.some((step) => step.type === "navigate")
           ? "navigate_then_action"
@@ -341,6 +426,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action.label,
       destructive: false,
       message: UNAVAILABLE_MESSAGE,
+      resolutionSource: candidate.source,
       execution: {
         mode: "unavailable",
         steps: [
@@ -363,6 +449,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
         actionLabel: action.label,
         destructive: false,
         message: null,
+        resolutionSource: candidate.source,
         execution: {
           mode: "navigate_only",
           steps: [],
@@ -375,6 +462,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action.label,
       destructive: false,
       message: null,
+      resolutionSource: candidate.source,
       execution: {
         mode: "navigate_only",
         steps: [
@@ -396,6 +484,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action.label,
       destructive: false,
       message: UNAVAILABLE_MESSAGE,
+      resolutionSource: candidate.source,
       execution: {
         mode: "unavailable",
         steps: [
@@ -422,6 +511,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       actionLabel: action.label,
       destructive: false,
       message: null,
+      resolutionSource: candidate.source,
       execution: {
         mode: "navigate_then_action",
         steps: [
@@ -446,6 +536,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
     actionLabel: action.label,
     destructive: false,
     message: null,
+    resolutionSource: candidate.source,
     execution: {
       mode: "direct_tool",
       steps: [

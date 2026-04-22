@@ -24,6 +24,7 @@ import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-eve
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAmplitudeMeter } from "@/lib/voice/use-amplitude-meter";
+import { composeVoiceSpeechAfterExecution } from "@/lib/voice/voice-response-composer";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import { createVoiceTurnId } from "@/lib/voice/voice-telemetry";
 import {
@@ -43,7 +44,9 @@ import {
 } from "@/lib/voice/voice-turn-orchestrator";
 import type {
   AppRuntimeState,
+  VoiceActionResult,
   VoiceMemoryHint,
+  VoicePlanPayload,
   VoiceResponse,
 } from "@/lib/voice/voice-types";
 
@@ -64,6 +67,7 @@ interface KaiSearchBarProps {
     responseId: string;
     transcript: string;
     response: VoiceResponse;
+    plan: VoicePlanPayload;
     groundedPlan?: GroundedVoicePlan;
     memory?: VoiceMemoryHint;
     executionAllowed?: boolean;
@@ -791,21 +795,70 @@ export function KaiSearchBar({
             speak: true as const,
             tool_call: pendingConfirmation.toolCall,
           };
+    const plan: VoicePlanPayload = {
+      mode: "execute_and_wait",
+      action_id: null,
+      reply_strategy: "template",
+      response,
+      execution_allowed: true,
+      needs_confirmation: false,
+    };
 
     setPendingConfirmation(null);
     setProcessingStageText("Executing action...");
     transitionVoiceState("processing_compact", "confirmation_accepted");
     try {
-      await Promise.resolve(
+      const outcome = await Promise.resolve(
         onVoiceResponseRef.current({
           turnId,
           responseId,
           transcript: pendingConfirmation.transcript,
           response,
+          plan,
           executionAllowed: true,
           needsConfirmation: false,
         })
       );
+      const actionResult =
+        outcome &&
+        typeof outcome === "object" &&
+        "actionResult" in outcome &&
+        outcome.actionResult &&
+        typeof outcome.actionResult === "object"
+          ? (outcome.actionResult as VoiceActionResult)
+          : null;
+      const speech = composeVoiceSpeechAfterExecution({
+        response,
+        plan,
+        actionResult,
+        plannerFinalText: response.message,
+      });
+      if (speech?.text) {
+        currentVoiceTurnIdRef.current = turnId;
+        setLastReplyText(speech.text);
+        if (speech.segmentType !== "ack") {
+          setFinalTranscript(speech.text);
+        }
+        setLastAssistantReplyRef.current({
+          message: speech.text,
+          kind: speech.segmentType === "ack" ? "speak_only" : response.kind,
+          turnId,
+        });
+        emitDebug("tts", "assistant_text_scheduled", {
+          response_id: responseId,
+          segment_type: speech.segmentType,
+          kind: speech.segmentType === "ack" ? "ack" : response.kind,
+          text_chars: speech.text.length,
+        }, turnId);
+        setProcessingStageText("Kai is speaking...");
+        transitionVoiceState("speaking_compact", "confirmation_speech_scheduled");
+        await speakAssistantMessageRef.current({
+          text: speech.text,
+          turnId,
+          responseId,
+          segmentType: speech.segmentType,
+        });
+      }
       moveToListeningOrIdle();
     } catch (error) {
       setRetryReadyError(
@@ -814,6 +867,7 @@ export function KaiSearchBar({
       );
     }
   }, [
+    emitDebug,
     moveToListeningOrIdle,
     pendingConfirmation,
     setPendingConfirmation,

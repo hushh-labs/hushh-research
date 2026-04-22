@@ -128,7 +128,7 @@ export type AppRuntimeState = {
 
 export type VoiceBlockedResponse = {
   kind: "blocked";
-  reason: "auth_required" | "vault_required";
+  reason: string;
   message: string;
   speak: true;
 };
@@ -184,7 +184,43 @@ export type VoiceMemoryHint = {
   allow_durable_write: boolean;
 };
 
-export type VoicePlanPayload = {
+export type VoicePlanMode =
+  | "answer_now"
+  | "execute_and_wait"
+  | "start_background_and_ack"
+  | "clarify";
+
+export type VoiceReplyStrategy = "template" | "llm";
+
+export type VoicePlanSlotValue =
+  | string
+  | number
+  | boolean
+  | null
+  | VoicePlanSlotValue[]
+  | { [key: string]: VoicePlanSlotValue };
+
+export type VoicePlanSlots = Record<string, VoicePlanSlotValue>;
+
+export type VoicePlanClarification = {
+  question: string;
+  reason?: string | null;
+  options?: string[];
+  candidate?: string | null;
+  entity?: string | null;
+};
+
+export type VoiceCanonicalPlanFields = {
+  schema_version?: string;
+  mode?: VoicePlanMode;
+  action_id?: string | null;
+  slots?: VoicePlanSlots;
+  guards?: string[];
+  reply_strategy?: VoiceReplyStrategy;
+  clarification?: VoicePlanClarification | null;
+};
+
+export type VoicePlanPayload = VoiceCanonicalPlanFields & {
   response: VoiceResponse;
   tool_call?: VoiceToolCall;
   memory?: VoiceMemoryHint;
@@ -215,7 +251,7 @@ export type PlannerV2Request = {
   }>;
 };
 
-export type PlannerV2Response = {
+export type PlannerV2Response = VoiceCanonicalPlanFields & {
   turn_id: string;
   response_id: string;
   intent?: { name: string; confidence: number };
@@ -229,6 +265,50 @@ export type PlannerV2Response = {
     category: string;
     summary: string;
   }>;
+};
+
+export type VoiceActionResultStatus =
+  | "succeeded"
+  | "started"
+  | "blocked"
+  | "failed"
+  | "noop";
+
+export type VoiceActionResultSettledBy =
+  | "none"
+  | "route"
+  | "screen"
+  | "background_start"
+  | "timeout";
+
+export type VoiceActionResult = {
+  status: VoiceActionResultStatus;
+  action_id: string | null;
+  route_before?: string | null;
+  route_after?: string | null;
+  screen_before?: string | null;
+  screen_after?: string | null;
+  settled_by?: VoiceActionResultSettledBy;
+  result_summary: string;
+  data?: Record<string, unknown>;
+  error_code?: string | null;
+  tool_name?: string | null;
+  ticker?: string | null;
+};
+
+export type VoiceComposedSpeech = {
+  text: string;
+  segmentType: "ack" | "final";
+};
+
+export type VoiceComposeResponsePayload = {
+  text: string;
+  segment_type: "ack" | "final";
+  elapsed_ms?: number;
+  openai_http_ms?: number;
+  model?: string;
+  turn_id?: string | null;
+  response_id?: string | null;
 };
 
 export type VoiceCapabilityResponse = {

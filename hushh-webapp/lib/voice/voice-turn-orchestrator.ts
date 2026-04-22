@@ -5,6 +5,7 @@ import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import { normalizeClarifyToolCall, validateVoicePlanPayload } from "@/lib/voice/voice-json-validator";
 import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
 import { buildStructuredScreenContext, type StructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import { composeVoiceSpeechAfterExecution } from "@/lib/voice/voice-response-composer";
 import {
   resolveGroundedVoicePlan,
   type GroundedVoicePlan,
@@ -17,7 +18,15 @@ import {
   type ShortTermTurn,
   voiceMemoryStore,
 } from "@/lib/voice/voice-memory-store";
-import type { AppRuntimeState, VoiceMemoryHint, VoiceResponse } from "@/lib/voice/voice-types";
+import type {
+  AppRuntimeState,
+  VoiceActionResult,
+  VoiceComposeResponsePayload,
+  VoiceComposedSpeech,
+  VoiceMemoryHint,
+  VoicePlanPayload,
+  VoiceResponse,
+} from "@/lib/voice/voice-types";
 
 export type VoiceOrchestratorSource = "microphone" | "example_chip" | "replay";
 
@@ -54,6 +63,10 @@ type VoicePlannerV2Envelope = {
   model?: unknown;
 };
 
+type VoiceComposerEnvelope = VoiceComposeResponsePayload & {
+  detail?: unknown;
+};
+
 function parsePlannerMemoryWriteCandidates(
   raw: unknown
 ): DurableMemoryWriteCandidate[] {
@@ -82,6 +95,13 @@ function makeResponseId(turnId: string): string {
   return `vrsp_${turnId.replace(/^vturn_/, "")}`;
 }
 
+function inferModeFromResponse(response: VoiceResponse): NonNullable<VoicePlanPayload["mode"]> {
+  if (response.kind === "clarify") return "clarify";
+  if (response.kind === "background_started") return "start_background_and_ack";
+  if (response.kind === "execute") return "execute_and_wait";
+  return "answer_now";
+}
+
 function createNoopGroundedPlan(): GroundedVoicePlan {
   return {
     status: "none",
@@ -89,6 +109,7 @@ function createNoopGroundedPlan(): GroundedVoicePlan {
     actionLabel: null,
     destructive: false,
     message: null,
+    resolutionSource: "none",
     execution: {
       mode: "none",
       steps: [],
@@ -106,6 +127,7 @@ export type VoiceTurnOrchestratorConfig = {
     responseId: string;
     transcript: string;
     response: VoiceResponse;
+    plan: VoicePlanPayload;
     groundedPlan?: GroundedVoicePlan;
     memory?: VoiceMemoryHint;
     executionAllowed?: boolean;
@@ -131,11 +153,95 @@ function shouldWriteMemoryFromDispatch(raw: unknown): boolean {
   return true;
 }
 
+function getNullableString(
+  record: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: string
+): string | null {
+  const value = record[snakeKey] ?? record[camelKey];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function getOptionalData(record: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const value = record[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function normalizeActionResultStatus(raw: unknown): VoiceActionResult["status"] | null {
+  if (raw === "succeeded" || raw === "started" || raw === "blocked" || raw === "failed" || raw === "noop") {
+    return raw;
+  }
+  if (raw === "invalid") {
+    return "failed";
+  }
+  return null;
+}
+
+function normalizeSettledBy(raw: unknown): VoiceActionResult["settled_by"] | undefined {
+  if (
+    raw === "none" ||
+    raw === "route" ||
+    raw === "screen" ||
+    raw === "background_start" ||
+    raw === "timeout"
+  ) {
+    return raw;
+  }
+  return undefined;
+}
+
+function extractActionResultFromDispatch(raw: unknown): VoiceActionResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const envelope = raw as Record<string, unknown>;
+  const candidate =
+    envelope.actionResult && typeof envelope.actionResult === "object"
+      ? (envelope.actionResult as Record<string, unknown>)
+      : envelope;
+  const status = normalizeActionResultStatus(candidate.status);
+  const resultSummary = getNullableString(candidate, "result_summary", "resultSummary");
+  if (!status || !resultSummary) {
+    return null;
+  }
+  return {
+    status,
+    action_id: getNullableString(candidate, "action_id", "actionId"),
+    route_before: getNullableString(candidate, "route_before", "routeBefore"),
+    route_after: getNullableString(candidate, "route_after", "routeAfter"),
+    screen_before: getNullableString(candidate, "screen_before", "screenBefore"),
+    screen_after: getNullableString(candidate, "screen_after", "screenAfter"),
+    settled_by: normalizeSettledBy(candidate.settled_by),
+    result_summary: resultSummary,
+    data: getOptionalData(candidate, "data"),
+    error_code: getNullableString(candidate, "error_code", "errorCode"),
+    tool_name: getNullableString(candidate, "tool_name", "toolName"),
+    ticker: getNullableString(candidate, "ticker", "ticker"),
+  };
+}
+
+function extractComposedSpeech(raw: unknown): VoiceComposedSpeech | null {
+  if (!raw || typeof raw !== "object") return null;
+  const envelope = raw as Record<string, unknown>;
+  const text = plannerSafeText(envelope.text);
+  const segmentType = envelope.segment_type;
+  if (!text) return null;
+  if (segmentType !== "ack" && segmentType !== "final") return null;
+  return {
+    text,
+    segmentType,
+  };
+}
+
 export type VoiceTurnOrchestratorResult = {
   turnId: string;
   responseId: string;
   response: VoiceResponse;
+  plan: VoicePlanPayload;
   groundedPlan: GroundedVoicePlan;
+  actionResult: VoiceActionResult | null;
+  spokenText: string | null;
   source: VoiceOrchestratorSource;
 };
 
@@ -269,7 +375,6 @@ export class VoiceTurnOrchestrator {
         plannerSafeText(plannerEnvelope.response_id) || makeResponseId(turnId);
       const executionAllowed = normalizedPlan.execution_allowed !== false;
       const needsConfirmation = normalizedPlan.needs_confirmation === true;
-      const isLongRunning = plannerEnvelope.is_long_running === true;
       const ackText = plannerSafeText(plannerEnvelope.ack_text);
       const memoryWriteCandidates = parsePlannerMemoryWriteCandidates(
         plannerEnvelope.memory_write_candidates
@@ -280,6 +385,8 @@ export class VoiceTurnOrchestrator {
             transcript: cleanTranscript,
             response: plannerResponse,
             structuredContext,
+            canonicalActionId: normalizedPlan.action_id ?? null,
+            allowCompatibilityFallback: !normalizedPlan.action_id,
           })
         : createNoopGroundedPlan();
       if (!voiceFlags.groundedActionResolutionEnabled) {
@@ -299,10 +406,44 @@ export class VoiceTurnOrchestrator {
         action_label: groundedPlan.actionLabel,
         execution_mode: groundedPlan.execution.mode,
         destructive: groundedPlan.destructive,
+        resolution_source: groundedPlan.resolutionSource,
         planner_intent: plannerIntentName || null,
+        canonical_action_id: normalizedPlan.action_id ?? null,
         rollout_grounded_resolution_enabled: voiceFlags.groundedActionResolutionEnabled,
         rollout_grounded_policy_enabled: voiceFlags.groundedActionPolicyEnforcementEnabled,
       });
+      if (
+        normalizedPlan.action_id &&
+        groundedPlan.resolutionSource === "canonical" &&
+        groundedPlan.status === "unavailable"
+      ) {
+        this.config.onDebug?.("grounding_canonical_action_unavailable", {
+          canonical_action_id: normalizedPlan.action_id,
+          grounded_status: groundedPlan.status,
+        });
+      }
+      if (
+        voiceFlags.groundedActionResolutionEnabled &&
+        !normalizedPlan.action_id &&
+        groundedPlan.resolutionSource !== "none" &&
+        groundedPlan.resolutionSource !== "canonical"
+      ) {
+        this.config.onDebug?.("grounding_fallback_resolution_used", {
+          resolution_source: groundedPlan.resolutionSource,
+          grounded_status: groundedPlan.status,
+          action_id: groundedPlan.actionId,
+        });
+        logVoiceMetric({
+          metric: "grounding_fallback_resolution_used",
+          value: 1,
+          turnId,
+          tags: {
+            resolution_source: groundedPlan.resolutionSource,
+            grounded_status: groundedPlan.status,
+            action_id: groundedPlan.actionId || "none",
+          },
+        });
+      }
       this.config.onDebug?.("intent_grounded_action_mapped", {
         intent_name: plannerIntentName || null,
         action_id: groundedPlan.actionId,
@@ -346,10 +487,6 @@ export class VoiceTurnOrchestrator {
       }
 
       let response: VoiceResponse = plannerResponse;
-      let finalText =
-        plannerSafeText(plannerEnvelope.final_text) || plannerResponse.message;
-      let effectiveLongRunning = isLongRunning;
-
       if (voiceFlags.groundedActionPolicyEnforcementEnabled && groundedPlan.status === "manual_only") {
         if (groundedPlan.destructive) {
           this.config.onDebug?.("destructive_intent_blocked_self_serve_required", {
@@ -372,8 +509,6 @@ export class VoiceTurnOrchestrator {
           message,
           speak: true,
         };
-        finalText = message;
-        effectiveLongRunning = false;
       } else if (voiceFlags.groundedActionPolicyEnforcementEnabled && groundedPlan.status === "unavailable") {
         this.config.onDebug?.("grounded_action_unavailable", {
           action_id: groundedPlan.actionId,
@@ -394,31 +529,6 @@ export class VoiceTurnOrchestrator {
           message,
           speak: true,
         };
-        finalText = message;
-        effectiveLongRunning = false;
-      }
-
-      if (effectiveLongRunning && ackText) {
-        this.config.onStageChange?.("speaking_ack");
-        this.config.onAssistantText?.({
-          text: ackText,
-          kind: "ack",
-          turnId,
-          responseId,
-          segmentType: "ack",
-        });
-        try {
-          await this.config.speak({
-            text: ackText,
-            turnId,
-            responseId,
-            segmentType: "ack",
-          });
-        } catch (error) {
-          this.config.onDebug?.("ack_tts_failed_dispatch_continues", {
-            error: error instanceof Error ? error.message : "unknown_error",
-          });
-        }
       }
 
       if (!this.isTokenActive(token)) return null;
@@ -430,6 +540,7 @@ export class VoiceTurnOrchestrator {
           responseId,
           transcript: cleanTranscript,
           response,
+          plan: normalizedPlan,
           groundedPlan,
           memory: normalizedPlan.memory,
           executionAllowed,
@@ -439,30 +550,104 @@ export class VoiceTurnOrchestrator {
 
       if (!this.isTokenActive(token)) return null;
 
-      const shouldSpeakFinal =
-        response.speak &&
-        (!effectiveLongRunning || !ackText || ackText.trim() !== finalText.trim());
+      const actionResult = extractActionResultFromDispatch(dispatchOutcome);
+      const appRuntimeStateAfter = this.config.getAppRuntimeState();
+      const voiceContextAfter = this.config.getVoiceContext() || {};
+      const structuredContextAfter: StructuredScreenContext = buildStructuredScreenContext({
+        appRuntimeState: appRuntimeStateAfter,
+        voiceContext: voiceContextAfter,
+      });
 
-      if (shouldSpeakFinal) {
-        this.config.onStageChange?.("speaking_final");
+      let composedSpeech: VoiceComposedSpeech | null = null;
+      if (response.speak && normalizedPlan.reply_strategy === "llm") {
+        try {
+          const composeResponse = await ApiService.composeKaiVoiceReply({
+            userId: this.config.userId,
+            vaultOwnerToken: this.config.vaultOwnerToken,
+            transcript: cleanTranscript,
+            response: response as unknown as Record<string, unknown>,
+            appState: appRuntimeStateAfter,
+            context: {
+              ...(voiceContextAfter || {}),
+              planner_v2_enabled: true,
+              planner_turn_id: turnId,
+            },
+            structuredContext: structuredContextAfter,
+            turnId,
+            responseId,
+            mode: normalizedPlan.mode || inferModeFromResponse(response),
+            actionId: actionResult?.action_id || normalizedPlan.action_id || null,
+            slots: normalizedPlan.slots || {},
+            guards: normalizedPlan.guards || [],
+            replyStrategy: normalizedPlan.reply_strategy,
+            clarification: normalizedPlan.clarification || null,
+            actionCompletion: (normalizedPlan as Record<string, unknown>).action_completion as
+              | string
+              | null
+              | undefined,
+            actionResult: (actionResult as unknown as Record<string, unknown> | null) ?? null,
+            memoryShort,
+            memoryRetrieved,
+            voiceTurnId: turnId,
+            signal: abortController.signal,
+          });
+          if (!this.isTokenActive(token)) return null;
+          const composerEnvelope = (await composeResponse
+            .json()
+            .catch(() => ({}))) as VoiceComposerEnvelope;
+          if (!composeResponse.ok) {
+            this.config.onDebug?.("voice_compose_http_error", {
+              status: composeResponse.status,
+              response_id: plannerSafeText(composerEnvelope.response_id),
+              detail: plannerSafeText(composerEnvelope.detail),
+            });
+          } else {
+            composedSpeech = extractComposedSpeech(composerEnvelope);
+            if (!composedSpeech) {
+              this.config.onDebug?.("voice_compose_invalid_payload", {
+                response_id: plannerSafeText(composerEnvelope.response_id),
+              });
+            }
+          }
+        } catch (error) {
+          this.config.onDebug?.("voice_compose_failed_falling_back_to_template", {
+            error: error instanceof Error ? error.message : "unknown_error",
+            mode: normalizedPlan.mode || inferModeFromResponse(response),
+          });
+        }
+      }
+      if (!composedSpeech) {
+        composedSpeech = composeVoiceSpeechAfterExecution({
+          response,
+          plan: normalizedPlan,
+          actionResult,
+          plannerFinalText: plannerSafeText(plannerEnvelope.final_text),
+          plannerAckText: ackText,
+        });
+      }
+
+      if (composedSpeech && composedSpeech.text.trim()) {
+        const segmentType = composedSpeech.segmentType;
+        this.config.onStageChange?.(segmentType === "ack" ? "speaking_ack" : "speaking_final");
         this.config.onAssistantText?.({
-          text: finalText,
-          kind: response.kind,
+          text: composedSpeech.text,
+          kind: segmentType === "ack" ? "ack" : response.kind,
           turnId,
           responseId,
-          segmentType: "final",
+          segmentType,
         });
         try {
           await this.config.speak({
-            text: finalText,
+            text: composedSpeech.text,
             turnId,
             responseId,
-            segmentType: "final",
+            segmentType,
           });
         } catch (error) {
-          this.config.onDebug?.("final_tts_failed_turn_continues", {
+          this.config.onDebug?.("post_dispatch_tts_failed_turn_continues", {
             error: error instanceof Error ? error.message : "unknown_error",
             response_kind: response.kind,
+            segment_type: segmentType,
           });
         }
       }
@@ -473,7 +658,10 @@ export class VoiceTurnOrchestrator {
         voiceMemoryStore.appendShortTerm(this.config.userId, {
           turn_id: turnId,
           transcript_final: cleanTranscript,
-          response_text: finalText,
+          response_text:
+            composedSpeech?.text ||
+            plannerSafeText(plannerEnvelope.final_text) ||
+            response.message,
           response_kind: response.kind,
           created_at_ms: Date.now(),
         });
@@ -487,7 +675,10 @@ export class VoiceTurnOrchestrator {
         turnId,
         responseId,
         response,
+        plan: normalizedPlan,
         groundedPlan,
+        actionResult,
+        spokenText: composedSpeech?.text || null,
         source: input.source,
       };
     } finally {

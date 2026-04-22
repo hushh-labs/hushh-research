@@ -192,6 +192,39 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     mapReferences: ["docs/voice-navigation-architecture-plan.md#3"],
   },
   {
+    id: "nav.kai_analysis",
+    label: "Open Analysis Surface",
+    meaning: "Navigates directly to the Kai analysis workspace and history route.",
+    scope: {
+      routes: [ROUTES.KAI_ANALYSIS],
+      screens: ["kai_analysis"],
+      hiddenNavigable: false,
+      navigationPrerequisites: [],
+    },
+    trigger: {
+      primary: "voice",
+      supported: ["voice", "tap", "keyboard", "programmatic"],
+    },
+    guards: [],
+    expectedEffects: {
+      stateChanges: ["current route becomes /kai/analysis"],
+      backendEffects: [],
+    },
+    risk: {
+      level: "low",
+      executionPolicy: "allow_direct",
+    },
+    wiring: {
+      status: "wired",
+      handler: "router.push",
+      binding: {
+        kind: "route",
+        href: ROUTES.KAI_ANALYSIS,
+      },
+    },
+    mapReferences: ["app/kai/analysis/page.tsx"],
+  },
+  {
     id: "nav.analysis_history",
     label: "Open Analysis History",
     meaning: "Navigates to analysis page history context.",
@@ -205,12 +238,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       primary: "voice",
       supported: ["voice", "tap", "keyboard", "programmatic"],
     },
-    guards: [
-      {
-        id: "portfolio_required",
-        description: "Analysis history is meaningful only when portfolio data exists.",
-      },
-    ],
+    guards: [],
     expectedEffects: {
       stateChanges: ["current route becomes /kai/analysis", "history tab is selected when supported"],
       backendEffects: [],
@@ -244,10 +272,6 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       supported: ["voice", "tap", "programmatic"],
     },
     guards: [
-      {
-        id: "portfolio_required",
-        description: "Portfolio context is required by current command executor policy.",
-      },
       {
         id: "analysis_idle_required",
         description: "Starting a new run is blocked while another analysis run is active.",
@@ -712,6 +736,42 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
       },
     },
     mapReferences: ["app/profile/pkm-agent-lab/page-client.tsx"],
+  },
+  {
+    id: "nav.back",
+    label: "Go Back",
+    meaning: "Navigates back to the previous Kai or profile surface in browser history.",
+    scope: {
+      routes: [ROUTES.KAI_HOME, ROUTES.KAI_ANALYSIS, ROUTES.PROFILE],
+      screens: ["kai_market", "kai_analysis", "profile_account"],
+      hiddenNavigable: true,
+      navigationPrerequisites: [
+        "client browser history must have a previous entry",
+        "current route must already be inside a signed-in Kai or profile surface",
+      ],
+    },
+    trigger: {
+      primary: "voice",
+      supported: ["voice", "keyboard", "programmatic"],
+    },
+    guards: [],
+    expectedEffects: {
+      stateChanges: ["browser history moves back one entry when available"],
+      backendEffects: [],
+    },
+    risk: {
+      level: "low",
+      executionPolicy: "allow_direct",
+    },
+    wiring: {
+      status: "wired",
+      handler: "dispatchVoiceToolCall",
+      binding: {
+        kind: "voice_tool",
+        toolName: "navigate_back",
+      },
+    },
+    mapReferences: ["hushh-webapp/lib/voice/voice-action-dispatcher.ts"],
   },
   {
     id: "profile.gmail.connect",

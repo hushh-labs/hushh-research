@@ -1,7 +1,10 @@
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type {
+  VoiceCanonicalPlanFields,
   VoiceMemoryHint,
   VoicePlanPayload,
+  VoicePlanClarification,
+  VoicePlanSlotValue,
   VoiceResponse,
   VoiceToolCall,
 } from "@/lib/voice/voice-types";
@@ -38,6 +41,150 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isCanonicalPlanMode(
+  value: unknown
+): value is NonNullable<VoiceCanonicalPlanFields["mode"]> {
+  return (
+    value === "answer_now" ||
+    value === "execute_and_wait" ||
+    value === "start_background_and_ack" ||
+    value === "clarify"
+  );
+}
+
+function isReplyStrategy(
+  value: unknown
+): value is NonNullable<VoiceCanonicalPlanFields["reply_strategy"]> {
+  return value === "template" || value === "llm";
+}
+
+function validateSlotValue(input: unknown): VoicePlanSlotValue | undefined {
+  if (input === null) return null;
+  if (
+    typeof input === "string" ||
+    typeof input === "boolean" ||
+    typeof input === "number"
+  ) {
+    return input;
+  }
+  if (Array.isArray(input)) {
+    const normalized = input.map((item) => validateSlotValue(item));
+    if (normalized.some((item) => item === undefined)) return undefined;
+    return normalized as VoicePlanSlotValue[];
+  }
+  if (!isPlainObject(input)) return undefined;
+
+  const normalized: Record<string, VoicePlanSlotValue> = {};
+  for (const [key, value] of Object.entries(input)) {
+    const validated = validateSlotValue(value);
+    if (validated === undefined) return undefined;
+    normalized[key] = validated;
+  }
+  return normalized;
+}
+
+function validateClarification(input: unknown): VoicePlanClarification | null {
+  if (!isPlainObject(input)) return null;
+  if (typeof input.question !== "string" || !input.question.trim()) return null;
+
+  const clarification: VoicePlanClarification = {
+    question: input.question.trim(),
+  };
+
+  if (input.reason !== undefined) {
+    if (input.reason !== null && typeof input.reason !== "string") return null;
+    clarification.reason = typeof input.reason === "string" ? input.reason.trim() : null;
+  }
+
+  if (input.options !== undefined) {
+    if (!isStringArray(input.options)) return null;
+    clarification.options = input.options.map((option) => option.trim());
+  }
+
+  if (input.candidate !== undefined) {
+    if (input.candidate !== null && typeof input.candidate !== "string") return null;
+    clarification.candidate =
+      typeof input.candidate === "string" ? input.candidate.trim() : null;
+  }
+
+  if (input.entity !== undefined) {
+    if (input.entity !== null && typeof input.entity !== "string") return null;
+    clarification.entity = typeof input.entity === "string" ? input.entity.trim() : null;
+  }
+
+  return clarification;
+}
+
+function validateCanonicalPlanFields(input: Record<string, unknown>): VoiceCanonicalPlanFields | null {
+  const hasCanonicalField =
+    input.schema_version !== undefined ||
+    input.mode !== undefined ||
+    input.action_id !== undefined ||
+    input.slots !== undefined ||
+    input.guards !== undefined ||
+    input.reply_strategy !== undefined ||
+    input.clarification !== undefined;
+
+  if (!hasCanonicalField) return {};
+
+  const canonical: VoiceCanonicalPlanFields = {};
+
+  if (input.schema_version !== undefined) {
+    if (typeof input.schema_version !== "string" || !input.schema_version.trim()) return null;
+    canonical.schema_version = input.schema_version.trim();
+  }
+
+  if (!isCanonicalPlanMode(input.mode)) return null;
+  canonical.mode = input.mode;
+
+  if (input.action_id !== undefined) {
+    if (input.action_id !== null && (typeof input.action_id !== "string" || !input.action_id.trim())) {
+      return null;
+    }
+    canonical.action_id = typeof input.action_id === "string" ? input.action_id.trim() : null;
+  }
+
+  if (
+    (canonical.mode === "execute_and_wait" || canonical.mode === "start_background_and_ack") &&
+    !canonical.action_id
+  ) {
+    return null;
+  }
+
+  if (input.slots !== undefined) {
+    if (!isPlainObject(input.slots)) return null;
+    const normalizedSlots: Record<string, VoicePlanSlotValue> = {};
+    for (const [key, value] of Object.entries(input.slots)) {
+      const validated = validateSlotValue(value);
+      if (validated === undefined) return null;
+      normalizedSlots[key] = validated;
+    }
+    canonical.slots = normalizedSlots;
+  }
+
+  if (input.guards !== undefined) {
+    if (!isStringArray(input.guards)) return null;
+    canonical.guards = input.guards.map((guard) => guard.trim());
+  }
+
+  if (input.reply_strategy !== undefined) {
+    if (!isReplyStrategy(input.reply_strategy)) return null;
+    canonical.reply_strategy = input.reply_strategy;
+  }
+
+  if (input.clarification !== undefined) {
+    if (input.clarification === null) {
+      canonical.clarification = null;
+    } else {
+      const clarification = validateClarification(input.clarification);
+      if (!clarification) return null;
+      canonical.clarification = clarification;
+    }
+  }
+
+  return canonical;
 }
 
 export function validateVoiceToolCall(input: unknown): VoiceToolCall | null {
@@ -158,10 +305,10 @@ export function validateVoiceResponse(input: unknown): VoiceResponse | null {
   const message = input.message.trim();
 
   if (input.kind === "blocked") {
-    if (input.reason !== "auth_required" && input.reason !== "vault_required") return null;
+    if (typeof input.reason !== "string" || !input.reason.trim()) return null;
     return {
       kind: "blocked",
-      reason: input.reason,
+      reason: input.reason.trim(),
       message,
       speak: true,
     };
@@ -257,8 +404,11 @@ export function validateVoicePlanPayload(input: unknown): VoicePlanPayload | nul
   if (!isPlainObject(input)) return null;
   const response = validateVoiceResponse(input.response);
   if (!response) return null;
+  const canonical = validateCanonicalPlanFields(input);
+  if (!canonical) return null;
 
   const payload: VoicePlanPayload = {
+    ...canonical,
     response,
   };
 

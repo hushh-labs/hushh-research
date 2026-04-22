@@ -1,0 +1,631 @@
+{
+  "schema_version": "kai.voice_action_manifest.v1",
+  "source_registry": "hushh-webapp/lib/voice/investor-kai-action-registry.ts",
+  "actions": [
+    {
+      "id": "nav.kai_home",
+      "label": "Open Market Home",
+      "meaning": "Navigates to the Investor Kai market home surface.",
+      "scope": {
+        "routes": ["/kai", "/kai/home"],
+        "screens": ["kai_market"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "home"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+    },
+    {
+      "id": "nav.kai_dashboard",
+      "label": "Open Portfolio Dashboard",
+      "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "scope": {
+        "routes": ["/kai/portfolio"],
+        "screens": ["kai_portfolio_dashboard"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "dashboard"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+    },
+    {
+      "id": "nav.kai_analysis",
+      "label": "Open Analysis Surface",
+      "meaning": "Navigates directly to the Kai analysis workspace and history route.",
+      "scope": {
+        "routes": ["/kai/analysis"],
+        "screens": ["kai_analysis"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/analysis"
+      },
+      "map_references": ["app/kai/analysis/page.tsx"]
+    },
+    {
+      "id": "nav.analysis_history",
+      "label": "Open Analysis History",
+      "meaning": "Navigates to analysis page history context.",
+      "scope": {
+        "routes": ["/kai/analysis", "/kai/analysis?tab=history"],
+        "screens": ["kai_analysis"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "history"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+    },
+    {
+      "id": "analysis.start",
+      "label": "Start Stock Analysis",
+      "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "scope": {
+        "routes": ["/kai/analysis"],
+        "screens": ["kai_analysis"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["analysis_idle_required"],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "analyze",
+        "params": {
+          "requires_symbol": true
+        }
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#4"]
+    },
+    {
+      "id": "analysis.resume_active",
+      "label": "Resume Active Analysis Run",
+      "meaning": "Attaches to currently running debate task and opens focused analysis route.",
+      "scope": {
+        "routes": ["/kai/analysis", "/kai/analysis?focus=active"],
+        "screens": ["kai_analysis"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": ["active debate run must exist for this user"]
+      },
+      "guard_ids": ["active_analysis_required", "vault_unlocked"],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "resume_active_analysis"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#4"]
+    },
+    {
+      "id": "analysis.cancel_active",
+      "label": "Cancel Active Analysis Run",
+      "meaning": "Cancels running debate task and returns to history view.",
+      "scope": {
+        "routes": ["/kai/analysis"],
+        "screens": ["kai_analysis"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": ["active debate run must exist for this user"]
+      },
+      "guard_ids": [
+        "active_analysis_required",
+        "explicit_user_confirmation",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "cancel_active_analysis"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#4"]
+    },
+    {
+      "id": "nav.kai_import",
+      "label": "Open Portfolio Import",
+      "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
+      "scope": {
+        "routes": ["/kai/import"],
+        "screens": ["kai_portfolio_dashboard"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "import"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+    },
+    {
+      "id": "nav.kai_investments",
+      "label": "Open Investments Surface",
+      "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
+      "scope": {
+        "routes": ["/kai/investments"],
+        "screens": ["kai_investments"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": ["user must be signed in"]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/investments"
+      },
+      "map_references": ["components/kai/views/dashboard-master-view.tsx"]
+    },
+    {
+      "id": "nav.kai_optimize",
+      "label": "Open Optimize Surface",
+      "meaning": "Navigates to optimize workspace route directly.",
+      "scope": {
+        "routes": ["/kai/optimize"],
+        "screens": ["kai_optimize"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "optimization context should be prepared from portfolio source"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/optimize"
+      },
+      "map_references": ["app/kai/optimize/page.tsx"]
+    },
+    {
+      "id": "nav.consents",
+      "label": "Open Consent Center",
+      "meaning": "Navigates to consents route.",
+      "scope": {
+        "routes": ["/consents"],
+        "screens": ["consents"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "consent"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+    },
+    {
+      "id": "nav.profile",
+      "label": "Open Profile",
+      "meaning": "Navigates to profile landing route.",
+      "scope": {
+        "routes": ["/profile"],
+        "screens": ["profile_account", "profile_preferences", "profile_privacy"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "profile"
+      },
+      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+    },
+    {
+      "id": "nav.profile_receipts",
+      "label": "Open Receipts Page",
+      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "scope": {
+        "routes": ["/profile/receipts"],
+        "screens": ["profile_receipts"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to profile surface if route is currently outside profile scope"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile/receipts"
+      },
+      "map_references": ["app/profile/receipts/page.tsx"]
+    },
+    {
+      "id": "nav.profile_gmail_panel",
+      "label": "Open Gmail Connector Panel",
+      "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
+      "scope": {
+        "routes": ["/profile?panel=gmail"],
+        "screens": ["profile_gmail_panel"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": ["profile route must be active", "query param panel=gmail"]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?panel=gmail"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "nav.profile_support_panel",
+      "label": "Open Support Panel",
+      "meaning": "Navigates to hidden support panel in Profile > Account.",
+      "scope": {
+        "routes": ["/profile?tab=account&panel=support"],
+        "screens": ["profile_support_panel"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=account & panel=support"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?tab=account&panel=support"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "nav.profile_security_panel",
+      "label": "Open Vault Security Panel",
+      "meaning": "Navigates to hidden security panel in Profile > Privacy.",
+      "scope": {
+        "routes": ["/profile?tab=privacy&panel=security"],
+        "screens": ["profile_security_panel"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=privacy & panel=security"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?tab=privacy&panel=security"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "nav.profile_pkm_agent_lab",
+      "label": "Open PKM Agent Lab",
+      "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
+      "scope": {
+        "routes": ["/profile/pkm-agent-lab"],
+        "screens": ["profile_pkm_agent_lab"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "localhost developer access to PKM Agent Lab must be enabled"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile/pkm-agent-lab"
+      },
+      "map_references": ["app/profile/pkm-agent-lab/page-client.tsx"]
+    },
+    {
+      "id": "nav.back",
+      "label": "Go Back",
+      "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
+      "scope": {
+        "routes": ["/kai", "/kai/analysis", "/profile"],
+        "screens": ["kai_market", "kai_analysis", "profile_account"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "client browser history must have a previous entry",
+          "current route must already be inside a signed-in Kai or profile surface"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "navigate_back"
+      },
+      "map_references": ["hushh-webapp/lib/voice/voice-action-dispatcher.ts"]
+    },
+    {
+      "id": "profile.gmail.connect",
+      "label": "Connect Gmail",
+      "meaning": "Starts OAuth flow for Gmail receipts connector.",
+      "scope": {
+        "routes": ["/profile", "/profile?panel=gmail"],
+        "screens": ["profile_gmail_panel"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["gmail_configured"],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
+        "intended_handler": "router.push"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "profile.gmail.sync_now",
+      "label": "Sync Gmail Receipts Now",
+      "meaning": "Queues and polls Gmail receipt sync run.",
+      "scope": {
+        "routes": ["/profile/receipts", "/profile?panel=gmail"],
+        "screens": ["profile_receipts", "profile_gmail_panel"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["gmail_connected"],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/page.tsx", "app/profile/receipts/page.tsx"]
+    },
+    {
+      "id": "profile.receipts_memory.preview",
+      "label": "Build receipts memory preview",
+      "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
+      "scope": {
+        "routes": ["/profile/receipts"],
+        "screens": ["profile_receipts"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/receipts/page.tsx"]
+    },
+    {
+      "id": "profile.receipts_memory.save",
+      "label": "Save receipts memory to PKM",
+      "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
+      "scope": {
+        "routes": ["/profile/receipts"],
+        "screens": ["profile_receipts"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["receipt memory preview must exist before save"]
+      },
+      "guard_ids": ["vault_unlocked", "manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Save to PKM is currently implemented only inside the receipts page.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/receipts/page.tsx"]
+    },
+    {
+      "id": "profile.gmail.disconnect",
+      "label": "Disconnect Gmail",
+      "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
+      "scope": {
+        "routes": ["/profile?panel=gmail"],
+        "screens": ["profile_gmail_panel"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["gmail_connected", "manual_user_execution"],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "No global action dispatcher for Gmail disconnect yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "profile.pkm.preview_capture",
+      "label": "Generate PKM capture preview",
+      "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
+      "scope": {
+        "routes": ["/profile/pkm-agent-lab"],
+        "screens": ["profile_pkm_agent_lab"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["vault_unlocked"],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Generate preview is currently handled only by local PKM Agent Lab state.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/pkm-agent-lab/page-client.tsx"]
+    },
+    {
+      "id": "profile.pkm.save_capture",
+      "label": "Save PKM capture",
+      "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
+      "scope": {
+        "routes": ["/profile/pkm-agent-lab"],
+        "screens": ["profile_pkm_agent_lab"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "a saveable PKM capture preview must already exist"
+        ]
+      },
+      "guard_ids": ["vault_unlocked", "manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Save encrypted capture is currently handled only inside PKM Agent Lab.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/pkm-agent-lab/page-client.tsx"]
+    },
+    {
+      "id": "profile.support.submit_message",
+      "label": "Submit Support Message",
+      "meaning": "Sends support/bug/developer feedback email via support service.",
+      "scope": {
+        "routes": ["/profile?tab=account&panel=support"],
+        "screens": ["profile_support_panel"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "profile.marketplace_visibility.toggle",
+      "label": "Toggle Marketplace Visibility",
+      "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
+      "scope": {
+        "routes": ["/profile?tab=privacy"],
+        "screens": ["profile_privacy"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in", "manual_user_execution"],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Only handled by local Switch in ProfilePage.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "profile.sign_out",
+      "label": "Sign Out",
+      "meaning": "Ends current session and redirects to home route.",
+      "scope": {
+        "routes": ["/profile"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "profile.delete_account",
+      "label": "Delete Account",
+      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "scope": {
+        "routes": ["/profile"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "vault unlock may be required before delete confirmation"
+        ]
+      },
+      "guard_ids": ["explicit_user_confirmation", "manual_user_execution"],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": ["app/profile/page.tsx"]
+    },
+    {
+      "id": "analysis.open_transcript_tab_legacy",
+      "label": "Legacy Transcript Tab Route",
+      "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
+      "scope": {
+        "routes": ["/kai/analysis?tab=transcript"],
+        "screens": ["kai_analysis"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": ["analysis route must be loaded"]
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "dead",
+        "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
+      },
+      "map_references": ["lib/voice/voice-json-validator.ts", "app/kai/analysis/page.tsx"]
+    }
+  ]
+}

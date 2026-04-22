@@ -16,7 +16,11 @@ import type {
   VoiceExecuteKaiCommandCall,
   VoiceResponse,
 } from "@/lib/voice/voice-types";
-import type { ExecuteKaiCommandResult } from "@/lib/kai/command-executor";
+import {
+  buildVoiceActionResult,
+  type ExecuteKaiCommandResult,
+  type VoiceActionResult,
+} from "@/lib/kai/command-executor";
 
 type RouterLike = {
   push: (href: string) => void;
@@ -32,9 +36,14 @@ export type ExecuteVoiceResponseInput = {
   groundedPlan?: GroundedVoicePlan;
   executionAllowed?: boolean;
   needsConfirmation?: boolean;
+  // Temporary Phase 4 shim: legacy speak_only transcript/response grounding must be
+  // explicitly re-enabled instead of silently executing on the normal path.
+  allowSpeakOnlyCompatibilityFallback?: boolean;
   suppressNotifications?: boolean;
   turnId?: string;
   responseId?: string;
+  currentRoute?: string | null;
+  currentScreen?: string | null;
   userId: string;
   vaultOwnerToken?: string;
   vaultKey?: string;
@@ -51,6 +60,7 @@ export type ExecuteVoiceResponseResult = {
   toolName: string | null;
   ticker: string | null;
   responseKind: VoiceResponse["kind"];
+  actionResult: VoiceActionResult;
 };
 
 function extractTickerFromToolCall(
@@ -118,6 +128,70 @@ function buildDispatchTelemetry(
   };
 }
 
+function buildExecutorActionResult(
+  status: VoiceActionResult["status"],
+  input: ExecuteVoiceResponseInput,
+  overrides: Partial<VoiceActionResult> & Pick<VoiceActionResult, "resultSummary">
+): VoiceActionResult {
+  return buildVoiceActionResult({
+    status,
+    actionId: overrides.actionId ?? null,
+    routeBefore: overrides.routeBefore ?? input.currentRoute ?? null,
+    routeAfter: overrides.routeAfter ?? null,
+    screenBefore: overrides.screenBefore ?? input.currentScreen ?? null,
+    screenAfter: overrides.screenAfter ?? null,
+    resultSummary: overrides.resultSummary,
+    data: overrides.data,
+  });
+}
+
+function mergeActionResult(
+  input: ExecuteVoiceResponseInput,
+  actionResult: VoiceActionResult | undefined,
+  defaults: Partial<VoiceActionResult> & Pick<VoiceActionResult, "resultSummary" | "status">
+): VoiceActionResult {
+  const mergedData =
+    actionResult?.data || defaults.data
+      ? {
+          ...(defaults.data || {}),
+          ...(actionResult?.data || {}),
+        }
+      : undefined;
+
+  return buildVoiceActionResult({
+    status: actionResult?.status ?? defaults.status,
+    actionId: actionResult?.actionId ?? defaults.actionId ?? null,
+    routeBefore: actionResult?.routeBefore ?? defaults.routeBefore ?? input.currentRoute ?? null,
+    routeAfter: actionResult?.routeAfter ?? defaults.routeAfter ?? null,
+    screenBefore:
+      actionResult?.screenBefore ?? defaults.screenBefore ?? input.currentScreen ?? null,
+    screenAfter: actionResult?.screenAfter ?? defaults.screenAfter ?? null,
+    resultSummary: actionResult?.resultSummary || defaults.resultSummary,
+    data: mergedData,
+  });
+}
+
+function fallbackDispatchSummary(
+  status: VoiceDispatchResult["status"],
+  scope: "legacy" | "grounded"
+): string {
+  const subject =
+    scope === "grounded" ? "The requested grounded voice action" : "The requested voice action";
+
+  if (status === "executed") {
+    return scope === "grounded"
+      ? "Completed the grounded voice action."
+      : "Executed the requested voice action.";
+  }
+  if (status === "blocked") {
+    return `${subject} was blocked.`;
+  }
+  if (status === "invalid") {
+    return `${subject} was invalid.`;
+  }
+  return `${subject} failed.`;
+}
+
 export async function executeVoiceResponse(
   input: ExecuteVoiceResponseInput
 ): Promise<ExecuteVoiceResponseResult> {
@@ -125,6 +199,8 @@ export async function executeVoiceResponse(
   const voiceFlags = getVoiceV2Flags();
   const groundedExecutionEnabled = voiceFlags.groundedActionExecutionEnabled;
   const executionAllowed = input.executionAllowed !== false;
+  const allowSpeakOnlyCompatibilityFallback =
+    input.allowSpeakOnlyCompatibilityFallback === true;
   const waitingForConfirmation = input.needsConfirmation === true && response.kind === "execute";
   const suppressNotifications = input.suppressNotifications === true;
   const notifyInfo = (...args: Parameters<typeof toast.info>) => {
@@ -146,6 +222,14 @@ export async function executeVoiceResponse(
       toolName: null,
       ticker: null,
       responseKind: response.kind,
+      actionResult: buildExecutorActionResult("blocked", input, {
+        actionId: groundedPlan?.actionId ?? null,
+        resultSummary: "Execution was disallowed by the backend for this response.",
+        data: {
+          responseKind: response.kind,
+          groundedStatus: groundedPlan?.status || "none",
+        },
+      }),
     };
   }
 
@@ -167,6 +251,14 @@ export async function executeVoiceResponse(
         toolName: null,
         ticker: null,
         responseKind: response.kind,
+        actionResult: buildExecutorActionResult("blocked", input, {
+          actionId: groundedPlan.actionId,
+          resultSummary: message,
+          data: {
+            executionMode: groundedPlan.execution.mode,
+            policy: "manual_only",
+          },
+        }),
       };
     }
 
@@ -181,6 +273,90 @@ export async function executeVoiceResponse(
         toolName: null,
         ticker: null,
         responseKind: response.kind,
+        actionResult: buildExecutorActionResult("blocked", input, {
+          actionId: groundedPlan.actionId,
+          resultSummary: message,
+          data: {
+            executionMode: groundedPlan.execution.mode,
+            policy: "unavailable",
+          },
+        }),
+      };
+    }
+
+    const shouldExecuteResolvedGroundedPlan =
+      response.kind === "execute" ||
+      groundedPlan.resolutionSource === "canonical" ||
+      allowSpeakOnlyCompatibilityFallback;
+
+    if (
+      response.kind === "speak_only" &&
+      groundedPlan.status === "resolved" &&
+      groundedPlan.execution.steps.length > 0 &&
+      !shouldExecuteResolvedGroundedPlan
+    ) {
+      emitExecutionTelemetry(input, "speak_only_execution_skipped_missing_canonical", {
+        action_id: groundedPlan.actionId,
+        resolution_source: groundedPlan.resolutionSource,
+        compatibility_fallback_enabled: allowSpeakOnlyCompatibilityFallback,
+      });
+      return {
+        shortTermMemoryWrite: false,
+        toolName: null,
+        ticker: null,
+        responseKind: response.kind,
+        actionResult: buildExecutorActionResult("noop", input, {
+          actionId: groundedPlan.actionId,
+          resultSummary: "I couldn't complete that action from the current Kai voice plan.",
+          data: {
+            executionMode: groundedPlan.execution.mode,
+            resolutionSource: groundedPlan.resolutionSource,
+            compatibilityFallbackRequired: true,
+          },
+        }),
+      };
+    }
+
+    if (
+      response.kind === "speak_only" &&
+      groundedPlan.status === "resolved" &&
+      groundedPlan.execution.steps.length > 0 &&
+      shouldExecuteResolvedGroundedPlan
+    ) {
+      emitExecutionTelemetry(
+        input,
+        groundedPlan.resolutionSource === "canonical"
+          ? "speak_only_execution_via_canonical_action"
+          : "speak_only_execution_compatibility_fallback_used",
+        {
+          action_id: groundedPlan.actionId,
+          resolution_source: groundedPlan.resolutionSource,
+        }
+      );
+    }
+
+    if (groundedPlan.status === "resolved" && groundedPlan.execution.steps.length === 0) {
+      emitExecutionTelemetry(input, "grounded_execution_noop", {
+        action_id: groundedPlan.actionId,
+        execution_mode: groundedPlan.execution.mode,
+        resolution_source: groundedPlan.resolutionSource,
+      });
+      return {
+        shortTermMemoryWrite: false,
+        toolName: null,
+        ticker: null,
+        responseKind: response.kind,
+        actionResult: buildExecutorActionResult("noop", input, {
+          actionId: groundedPlan.actionId,
+          resultSummary:
+            groundedPlan.execution.mode === "navigate_only"
+              ? "You're already on the right Kai screen."
+              : "That Kai voice action is already in the expected state.",
+          data: {
+            executionMode: groundedPlan.execution.mode,
+            resolutionSource: groundedPlan.resolutionSource,
+          },
+        }),
       };
     }
 
@@ -189,12 +365,14 @@ export async function executeVoiceResponse(
       let extractedTicker: string | null = null;
       let navigated = false;
       let dispatchResult: VoiceDispatchResult | null = null;
+      let routeAfter: string | null = null;
 
       try {
         for (const step of groundedPlan.execution.steps) {
           if (step.type === "navigate") {
             input.router.push(step.href);
             navigated = true;
+            routeAfter = step.href;
             emitExecutionTelemetry(input, "hidden_navigation_step", {
               action_id: groundedPlan.actionId,
               href: step.href,
@@ -212,6 +390,8 @@ export async function executeVoiceResponse(
               handleBack: input.handleBack,
               executeKaiCommand: input.executeKaiCommand,
               setAnalysisParams: input.setAnalysisParams,
+              currentRoute: routeAfter ?? input.currentRoute ?? null,
+              currentScreen: input.currentScreen ?? null,
             });
             if (dispatchResult.status !== "executed") {
               const outcomeTelemetry = buildDispatchTelemetry("grounded_execution", dispatchResult, {
@@ -225,10 +405,26 @@ export async function executeVoiceResponse(
                 toolName: null,
                 ticker: null,
                 responseKind: response.kind,
+                actionResult: mergeActionResult(input, dispatchResult.actionResult, {
+                  status:
+                    dispatchResult.status === "failed"
+                      ? "failed"
+                : dispatchResult.status === "invalid"
+                  ? "invalid"
+                  : "blocked",
+                  actionId: groundedPlan.actionId,
+                  routeAfter,
+                  resultSummary: fallbackDispatchSummary(dispatchResult.status, "grounded"),
+                  data: {
+                    executionMode: groundedPlan.execution.mode,
+                    navigated,
+                  },
+                }),
               };
             }
             executedToolName = dispatchResult.toolName;
             extractedTicker = extractedTicker || extractTickerFromToolCall(step.toolCall);
+            routeAfter = dispatchResult.actionResult?.routeAfter ?? routeAfter;
             continue;
           }
           notifyInfo(step.message);
@@ -245,6 +441,15 @@ export async function executeVoiceResponse(
           toolName: null,
           ticker: null,
           responseKind: response.kind,
+          actionResult: buildExecutorActionResult("failed", input, {
+            actionId: groundedPlan.actionId,
+            routeAfter,
+            resultSummary: message,
+            data: {
+              executionMode: groundedPlan.execution.mode,
+              error: error instanceof Error ? error.message : "unknown_error",
+            },
+          }),
         };
       }
 
@@ -259,6 +464,19 @@ export async function executeVoiceResponse(
         toolName: executedToolName || (navigated ? "navigate" : null),
         ticker: extractedTicker,
         responseKind: response.kind,
+        actionResult: mergeActionResult(input, dispatchResult?.actionResult, {
+          status: navigated || executedToolName ? "succeeded" : "noop",
+          actionId: groundedPlan.actionId,
+          routeAfter,
+          resultSummary:
+            dispatchResult?.actionResult?.resultSummary ||
+            (routeAfter ? `Navigated to ${routeAfter}.` : "Completed the grounded voice action."),
+          data: {
+            executionMode: groundedPlan.execution.mode,
+            navigated,
+            toolName: executedToolName,
+          },
+        }),
       };
     }
   }
@@ -295,6 +513,12 @@ export async function executeVoiceResponse(
         toolName: null,
         ticker: null,
         responseKind: response.kind,
+        actionResult: buildExecutorActionResult("noop", input, {
+          resultSummary: "Waiting for confirmation before running the requested action.",
+          data: {
+            toolName: response.tool_call.tool_name,
+          },
+        }),
       };
     }
 
@@ -307,6 +531,12 @@ export async function executeVoiceResponse(
         toolName: null,
         ticker: null,
         responseKind: response.kind,
+        actionResult: buildExecutorActionResult("noop", input, {
+          resultSummary: "Execution is waiting for confirmation, but no confirmation handler is registered.",
+          data: {
+            toolName: response.tool_call.tool_name,
+          },
+        }),
       };
     }
 
@@ -320,6 +550,8 @@ export async function executeVoiceResponse(
         handleBack: input.handleBack,
         executeKaiCommand: input.executeKaiCommand,
         setAnalysisParams: input.setAnalysisParams,
+        currentRoute: input.currentRoute ?? null,
+        currentScreen: input.currentScreen ?? null,
       });
       if (dispatchResult.status !== "executed") {
         const outcomeTelemetry = buildDispatchTelemetry("legacy_execute", dispatchResult);
@@ -329,8 +561,31 @@ export async function executeVoiceResponse(
           toolName: null,
           ticker: null,
           responseKind: response.kind,
+          actionResult: mergeActionResult(input, dispatchResult.actionResult, {
+            status:
+              dispatchResult.status === "failed"
+                ? "failed"
+                : dispatchResult.status === "invalid"
+                  ? "invalid"
+                  : "blocked",
+            resultSummary: fallbackDispatchSummary(dispatchResult.status, "legacy"),
+          }),
         };
       }
+      const actionResult = mergeActionResult(input, dispatchResult.actionResult, {
+        status: "succeeded",
+        resultSummary: fallbackDispatchSummary(dispatchResult.status, "legacy"),
+      });
+      emitExecutionTelemetry(input, "legacy_execute_success", {
+        tool_name: response.tool_call.tool_name,
+      });
+      return {
+        shortTermMemoryWrite: true,
+        toolName: response.tool_call.tool_name,
+        ticker: extractTickerFromExecute(response),
+        responseKind: response.kind,
+        actionResult,
+      };
     } catch (error) {
       notifyInfo(VOICE_UNAVAILABLE_MESSAGE);
       emitExecutionTelemetry(input, "legacy_execute_failure", {
@@ -342,17 +597,15 @@ export async function executeVoiceResponse(
         toolName: null,
         ticker: null,
         responseKind: response.kind,
+        actionResult: buildExecutorActionResult("failed", input, {
+          resultSummary: VOICE_UNAVAILABLE_MESSAGE,
+          data: {
+            toolName: response.tool_call.tool_name,
+            error: error instanceof Error ? error.message : "unknown_error",
+          },
+        }),
       };
     }
-    emitExecutionTelemetry(input, "legacy_execute_success", {
-      tool_name: response.tool_call.tool_name,
-    });
-    return {
-      shortTermMemoryWrite: true,
-      toolName: response.tool_call.tool_name,
-      ticker: extractTickerFromExecute(response),
-      responseKind: response.kind,
-    };
   }
 
   if (response.kind === "background_started") {
@@ -369,6 +622,14 @@ export async function executeVoiceResponse(
       toolName: "background_started",
       ticker: response.ticker,
       responseKind: response.kind,
+      actionResult: buildExecutorActionResult("started", input, {
+        resultSummary: response.message,
+        data: {
+          task: response.task,
+          ticker: response.ticker,
+          runId: response.run_id,
+        },
+      }),
     };
   }
 
@@ -384,6 +645,14 @@ export async function executeVoiceResponse(
       toolName: "already_running",
       ticker: response.ticker ?? null,
       responseKind: response.kind,
+      actionResult: buildExecutorActionResult("noop", input, {
+        resultSummary: response.message,
+        data: {
+          task: response.task,
+          ticker: response.ticker ?? null,
+          runId: response.run_id ?? null,
+        },
+      }),
     };
   }
 
@@ -397,6 +666,12 @@ export async function executeVoiceResponse(
       toolName: response.reason === "stt_unusable" ? null : "clarify",
       ticker: null,
       responseKind: response.kind,
+      actionResult: buildExecutorActionResult("noop", input, {
+        resultSummary: response.message,
+        data: {
+          reason: response.reason,
+        },
+      }),
     };
   }
 
@@ -411,6 +686,12 @@ export async function executeVoiceResponse(
       toolName: null,
       ticker: null,
       responseKind: response.kind,
+      actionResult: buildExecutorActionResult("blocked", input, {
+        resultSummary: message,
+        data: {
+          reason: response.reason,
+        },
+      }),
     };
   }
 
@@ -423,5 +704,11 @@ export async function executeVoiceResponse(
     toolName: null,
     ticker: null,
     responseKind: response.kind,
+    actionResult: buildExecutorActionResult("noop", input, {
+      resultSummary: String(response.message || "").trim() || VOICE_UNAVAILABLE_MESSAGE,
+      data: {
+        responseKind: response.kind,
+      },
+    }),
   };
 }

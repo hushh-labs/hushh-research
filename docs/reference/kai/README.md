@@ -8,6 +8,8 @@ flowchart TD
   root["Kai Index"]
   n1["Kai Accuracy Contract"]
   root --> n1
+  n10["Kai Voice Assistant Architecture"]
+  root --> n10
   n2["Kai Brokerage Connectivity Architecture"]
   root --> n2
   n3["Kai Change Impact Matrix"]
@@ -32,6 +34,7 @@ Kai-specific architecture, runtime, and rollout references live here.
 
 - [kai-interconnection-map.md](./kai-interconnection-map.md): dependency map and upstream boundaries.
 - [kai-change-impact-matrix.md](./kai-change-impact-matrix.md): blast-radius guide for Kai changes.
+- [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md): current-state audit, implemented closed-loop voice architecture, migration notes, and remaining compatibility shims for the Kai in-app voice assistant.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md): accuracy and output expectations.
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md): route-level audit map.

@@ -13,11 +13,19 @@ import httpx
 from hushh_mcp.runtime_settings import get_voice_runtime_settings
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 from hushh_mcp.services.ticker_cache import ticker_cache
+from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 from hushh_mcp.services.voice_app_knowledge import (
+    get_kai_voice_identity_context,
     looks_like_voice_knowledge_request,
     resolve_global_concept,
     resolve_surface_explanation,
     resolve_voice_explain_knowledge,
+)
+from hushh_mcp.services.voice_prompt_builder import (
+    build_voice_planner_context,
+    build_voice_planner_system_prompt,
+    build_voice_response_composer_context,
+    build_voice_response_composer_system_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +63,7 @@ _ALLOWED_COMMANDS = {
     "home",
 }
 _ALLOWED_HISTORY_TABS = {"history", "debate", "summary", "transcript"}
-_PLANNER_NORMALIZATION_VERSION = "2026-03-13-stabilize-a"
+_PLANNER_NORMALIZATION_VERSION = "2026-04-21-canonical-plan-a"
 _COMMAND_ALIASES = {
     "market": "home",
     "market_section": "home",
@@ -76,6 +84,12 @@ _COMMAND_ALIASES = {
     "profle": "profile",
     "dash_board": "dashboard",
     "dashbord": "dashboard",
+    "analysis": "history",
+    "analysis_section": "history",
+    "analysis_screen": "history",
+    "analysis_page": "history",
+    "analysis_tab": "history",
+    "analysis_workspace": "history",
 }
 _ALLOWED_CONTEXT_KEYS = {
     "route",
@@ -98,7 +112,11 @@ _ANALYZE_TARGET_RE = re.compile(
     re.IGNORECASE,
 )
 _ANALYZE_NOUN_TARGET_RE = re.compile(
-    r"^\s*(?:start|run|begin|do|open)?\s*(?:the\s+)?analysis(?:\s+(?:for|of|on|about))\s+(?P<target>.+?)\s*$",
+    r"^\s*(?:start|run|begin|do|open)?\s*(?:the\s+)?analysis(?:\s+(?:for|of|on|about))?\s+(?P<target>.+?)\s*$",
+    re.IGNORECASE,
+)
+_ANALYSIS_NAVIGATION_RE = re.compile(
+    r"\b(?:(?:go|open|show|take|bring|navigate|move|head|get)(?:\s+me)?(?:\s+to)?|visit)\b.*\banalysis(?:\s+(?:section|screen|page|tab|history|workspace|area))?\b",
     re.IGNORECASE,
 )
 _FILLER_WORDS = {
@@ -489,9 +507,20 @@ def _contains_any(lowered_text: str, keywords: tuple[str, ...]) -> bool:
 def _is_screen_explain_intent(lowered_text: str) -> bool:
     if _contains_any(lowered_text, _SCREEN_EXPLAIN_KEYWORDS):
         return True
+    if _is_screen_capability_intent(lowered_text):
+        return True
     return bool(
         re.search(
             r"\bwhat(?:'s| is)\s+(?:going on|happening)\s+(?:on\s+)?(?:my|the)\s+screen\b",
+            lowered_text,
+        )
+    )
+
+
+def _is_screen_capability_intent(lowered_text: str) -> bool:
+    return bool(
+        re.search(
+            r"\bwhat can (?:you|i) do(?: here| on (?:this screen|this page))\b",
             lowered_text,
         )
     )
@@ -567,6 +596,383 @@ def _build_execute_message(tool_call: dict[str, Any] | None) -> str:
             return f"Starting analysis for {symbol}." if symbol else "Starting analysis."
         return f"Opening {_spoken_command_label(command)}."
     return "Working on that now."
+
+
+_COMMAND_TO_CANONICAL_ACTION_ID = {
+    "home": "nav.kai_home",
+    "dashboard": "nav.kai_dashboard",
+    "history": "nav.analysis_history",
+    "import": "nav.kai_import",
+    "consent": "nav.consents",
+    "profile": "nav.profile",
+    "optimize": "nav.kai_optimize",
+    "analyze": "analysis.start",
+}
+_VOICE_TOOL_TO_CANONICAL_ACTION_ID = {
+    "resume_active_analysis": "analysis.resume_active",
+    "cancel_active_analysis": "analysis.cancel_active",
+}
+_CANONICAL_ACTION_ID_TO_COMMAND = {
+    action_id: command for command, action_id in _COMMAND_TO_CANONICAL_ACTION_ID.items()
+}
+_CANONICAL_ACTION_ID_TO_VOICE_TOOL = {
+    action_id: tool_name for tool_name, action_id in _VOICE_TOOL_TO_CANONICAL_ACTION_ID.items()
+}
+
+
+def _coerce_slot_value(value: Any) -> str | int | float | bool | None:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return _coerce_str(value) or None
+
+
+def _canonical_action_id_from_tool_call(tool_call: dict[str, Any] | None) -> str | None:
+    if not isinstance(tool_call, dict):
+        return None
+    tool_name = _coerce_str(tool_call.get("tool_name"))
+    args = tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
+    if tool_name == "execute_kai_command":
+        command = _COMMAND_ALIASES.get(_coerce_str(args.get("command")).lower())
+        normalized_command = command or _coerce_str(args.get("command")).lower()
+        return _COMMAND_TO_CANONICAL_ACTION_ID.get(normalized_command)
+    return _VOICE_TOOL_TO_CANONICAL_ACTION_ID.get(tool_name)
+
+
+def _canonical_slots_from_tool_call(tool_call: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(tool_call, dict):
+        return {}
+    tool_name = _coerce_str(tool_call.get("tool_name"))
+    args = tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
+    if tool_name == "execute_kai_command":
+        slots: dict[str, Any] = {}
+        command = _coerce_str(args.get("command"))
+        if command:
+            slots["command"] = command
+        params = args.get("params") if isinstance(args.get("params"), dict) else {}
+        for key, value in params.items():
+            normalized = _coerce_slot_value(value)
+            if normalized is not None:
+                slots[key] = normalized
+        return slots
+    return {
+        key: normalized
+        for key, value in args.items()
+        if (normalized := _coerce_slot_value(value)) is not None
+    }
+
+
+def _is_executable_tool_call(tool_call: dict[str, Any] | None) -> bool:
+    if not isinstance(tool_call, dict):
+        return False
+    return _coerce_str(tool_call.get("tool_name")) in {
+        "execute_kai_command",
+        "navigate_back",
+        "resume_active_analysis",
+        "cancel_active_analysis",
+    }
+
+
+def _is_executable_mode(mode: str | None) -> bool:
+    return _coerce_str(mode) in {"execute_and_wait", "start_background_and_ack"}
+
+
+def _legacy_tool_call_from_action(
+    action_id: str | None,
+    *,
+    slots: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    normalized_action_id = _coerce_str(action_id)
+    normalized_slots = dict(slots or {})
+    if not normalized_action_id:
+        return None
+    if normalized_action_id == "nav.back":
+        return {"tool_name": "navigate_back", "args": {}}
+
+    voice_tool_name = _CANONICAL_ACTION_ID_TO_VOICE_TOOL.get(normalized_action_id)
+    if voice_tool_name:
+        args = {
+            key: value
+            for key, value in normalized_slots.items()
+            if key != "command" and value is not None
+        }
+        return {"tool_name": voice_tool_name, "args": args}
+
+    command = _CANONICAL_ACTION_ID_TO_COMMAND.get(normalized_action_id)
+    if not command:
+        return None
+
+    args: dict[str, Any] = {"command": command}
+    params = {
+        key: value
+        for key, value in normalized_slots.items()
+        if key != "command" and value is not None
+    }
+    if params:
+        args["params"] = params
+    return {"tool_name": "execute_kai_command", "args": args}
+
+
+def _response_has_executable_plan(response: dict[str, Any] | None) -> bool:
+    if not isinstance(response, dict):
+        return False
+    tool_call = response.get("tool_call")
+    if _coerce_bool(response.get("execution_allowed")):
+        return True
+    mode = _coerce_str(response.get("mode"))
+    if _is_executable_mode(mode):
+        return bool(_coerce_str(response.get("action_id")) or _is_executable_tool_call(tool_call))
+    return _coerce_str(response.get("kind")) == "execute" and _is_executable_tool_call(tool_call)
+
+
+def _heuristic_completion_mode(action_id: str | None, *, mode: str) -> str:
+    if mode not in {"execute_and_wait", "start_background_and_ack"}:
+        return "none"
+    action = get_voice_manifest_action(action_id)
+    if isinstance(action, dict):
+        completion_mode = _coerce_str(action.get("completion_mode"))
+        if completion_mode and completion_mode != "none":
+            return completion_mode
+    normalized_action_id = _coerce_str(action_id)
+    if not normalized_action_id:
+        return "none"
+    if normalized_action_id == "analysis.start":
+        return "background_start"
+    if normalized_action_id.startswith("nav.") or normalized_action_id == "analysis.resume_active":
+        return "route_settle"
+    return "none"
+
+
+def _manifest_execution_policy(action_id: str | None) -> str:
+    action = get_voice_manifest_action(action_id)
+    risk = (
+        action.get("risk")
+        if isinstance(action, dict) and isinstance(action.get("risk"), dict)
+        else {}
+    )
+    return _coerce_str(risk.get("execution_policy")) or "allow_direct"
+
+
+def _guard_status(
+    guard_id: str,
+    *,
+    gate_state: dict[str, Any],
+    has_active_analysis: bool,
+    has_portfolio_data: bool,
+    response: dict[str, Any],
+) -> tuple[str, str | None]:
+    if guard_id == "auth_signed_in":
+        satisfied = bool(gate_state.get("signed_in"))
+        return (
+            "satisfied" if satisfied else "blocked",
+            None if satisfied else "User is not signed in.",
+        )
+    if guard_id == "vault_unlocked":
+        satisfied = bool(
+            gate_state.get("vault_unlocked")
+            and gate_state.get("token_available")
+            and gate_state.get("token_valid")
+        )
+        return (
+            "satisfied" if satisfied else "blocked",
+            None if satisfied else "Vault access is not currently available.",
+        )
+    if guard_id == "portfolio_required":
+        satisfied = bool(has_portfolio_data)
+        return (
+            "satisfied" if satisfied else "blocked",
+            None if satisfied else "Portfolio data is required for this action.",
+        )
+    if guard_id == "analysis_idle_required":
+        satisfied = not has_active_analysis
+        return (
+            "satisfied" if satisfied else "blocked",
+            None if satisfied else "Another analysis run is already active.",
+        )
+    if guard_id == "active_analysis_required":
+        satisfied = bool(has_active_analysis)
+        return (
+            "satisfied" if satisfied else "blocked",
+            None if satisfied else "No active analysis run is available.",
+        )
+    if guard_id == "explicit_user_confirmation":
+        args = (
+            response.get("tool_call", {}).get("args")
+            if isinstance(response.get("tool_call"), dict)
+            else {}
+        )
+        confirmed = bool(isinstance(args, dict) and args.get("confirm") is True)
+        return (
+            "satisfied" if confirmed else "unknown",
+            None
+            if confirmed
+            else "Explicit confirmation is modeled separately in the legacy payload.",
+        )
+    if guard_id == "manual_user_execution":
+        return ("unknown", "This action still requires the on-screen control.")
+    if guard_id == "gmail_connected":
+        return ("unknown", "Gmail connection state is not modeled in the backend voice planner.")
+    if guard_id == "gmail_configured":
+        return ("unknown", "Gmail configuration state is not modeled in the backend voice planner.")
+    return ("unknown", None)
+
+
+def _canonical_guards_for_action(
+    action_id: str | None,
+    *,
+    gate_state: dict[str, Any],
+    has_active_analysis: bool,
+    has_portfolio_data: bool,
+    response: dict[str, Any],
+) -> list[str]:
+    del gate_state
+    del has_active_analysis
+    del has_portfolio_data
+    del response
+    action = get_voice_manifest_action(action_id)
+    guard_entries = action.get("guards") if isinstance(action, dict) else []
+    return [
+        guard_id
+        for raw_guard in guard_entries or []
+        if (guard_id := _coerce_str(raw_guard.get("id")))
+    ]
+
+
+def _canonical_mode_for_response(response: dict[str, Any], *, action_id: str | None) -> str:
+    return _canonical_mode_for_response_with_policy(
+        response,
+        action_id=action_id,
+        execution_policy=_manifest_execution_policy(action_id),
+        blocked_guards=[],
+        unknown_guards=[],
+    )
+
+
+def _canonical_mode_for_response_with_policy(
+    response: dict[str, Any],
+    *,
+    action_id: str | None,
+    execution_policy: str,
+    blocked_guards: list[str],
+    unknown_guards: list[str],
+) -> str:
+    kind = _coerce_str(response.get("kind"))
+    if kind == "clarify":
+        return "clarify"
+    if blocked_guards:
+        return "answer_now"
+    if execution_policy in {"manual_only", "confirm_required"} and action_id:
+        return "answer_now"
+    if "manual_user_execution" in unknown_guards or "explicit_user_confirmation" in unknown_guards:
+        return "answer_now"
+    if kind == "background_started":
+        return "start_background_and_ack"
+    if kind == "execute":
+        if action_id == "analysis.start":
+            return "start_background_and_ack"
+        return "execute_and_wait"
+    if kind == "speak_only" and action_id:
+        if action_id == "analysis.start":
+            return "start_background_and_ack"
+        return "execute_and_wait"
+    return "answer_now"
+
+
+def _canonical_reply_strategy_for_response(mode: str) -> str:
+    del mode
+    return "llm"
+
+
+def _blocked_reason_for_guard(guard_id: str) -> str:
+    return {
+        "auth_signed_in": "auth_required",
+        "vault_unlocked": "vault_required",
+        "portfolio_required": "portfolio_required",
+        "analysis_idle_required": "analysis_active",
+        "active_analysis_required": "active_analysis_required",
+        "gmail_connected": "gmail_connected_required",
+        "gmail_configured": "gmail_config_required",
+    }.get(guard_id, "action_blocked")
+
+
+def _guard_blocked_message(action_id: str | None, guard_id: str) -> str:
+    if guard_id == "portfolio_required":
+        if action_id == "analysis.start":
+            return "I can start that analysis in Kai once your portfolio data is available."
+        return "I can do that in Kai once portfolio data is available."
+    if guard_id == "analysis_idle_required":
+        return "Another analysis is already running in Kai right now."
+    if guard_id == "active_analysis_required":
+        if action_id == "analysis.resume_active":
+            return "I can resume the analysis once an active run exists in Kai."
+        if action_id == "analysis.cancel_active":
+            return "I can cancel the analysis once an active run exists in Kai."
+        return "I can do that once an active analysis run exists in Kai."
+    if guard_id == "gmail_connected":
+        return "I can do that after Gmail is connected in Kai."
+    if guard_id == "gmail_configured":
+        return "I can do that after the Gmail receipts workflow is configured in Kai."
+    return "That action is not available right now."
+
+
+def _manual_only_message(action_id: str | None, execution_policy: str) -> str:
+    if action_id == "analysis.cancel_active":
+        return "Kai can cancel the active analysis, but this step still needs the on-screen confirmation."
+    if execution_policy == "confirm_required":
+        return (
+            "Kai supports that action, but it needs confirmation in the app before I can continue."
+        )
+    return "Kai supports that action, but it still needs the on-screen control to finish."
+
+
+def _apply_action_contract_to_response(
+    response: dict[str, Any],
+    *,
+    action_id: str | None,
+    execution_policy: str,
+    blocked_guards: list[str],
+    unknown_guards: list[str],
+) -> dict[str, Any]:
+    finalized = dict(response)
+    if blocked_guards:
+        primary_guard = blocked_guards[0]
+        finalized["kind"] = "blocked"
+        finalized["reason"] = _blocked_reason_for_guard(primary_guard)
+        finalized["message"] = _guard_blocked_message(action_id, primary_guard)
+        finalized["execution_allowed"] = False
+        return finalized
+    if action_id and (
+        execution_policy in {"manual_only", "confirm_required"}
+        or "manual_user_execution" in unknown_guards
+        or "explicit_user_confirmation" in unknown_guards
+    ):
+        finalized["kind"] = "speak_only"
+        finalized["reason"] = (
+            "confirmation_required"
+            if execution_policy == "confirm_required"
+            or "explicit_user_confirmation" in unknown_guards
+            else "manual_user_execution_required"
+        )
+        finalized["message"] = _manual_only_message(action_id, execution_policy)
+        finalized["execution_allowed"] = False
+        return finalized
+    return finalized
+
+
+def _canonical_clarification_for_response(response: dict[str, Any]) -> dict[str, Any] | None:
+    if _coerce_str(response.get("kind")) != "clarify":
+        return None
+    message = _coerce_str(response.get("message")) or _UNCLEAR_STT_MESSAGE
+    reason = _coerce_str(response.get("reason")) or "intent_ambiguous"
+    clarification: dict[str, Any] = {
+        "reason": reason,
+        "question": message,
+    }
+    candidate = _coerce_str_or_none(response.get("candidate"))
+    if candidate:
+        clarification["candidate"] = candidate
+    return clarification
 
 
 def _normalize_banker_message(
@@ -682,6 +1088,38 @@ def _screen_label(screen: str, pathname: str) -> str:
     if pathname.startswith("/kai"):
         return "Kai"
     return "Kai"
+
+
+def _screen_action_hint(screen: str, pathname: str) -> str | None:
+    if screen in _SCREEN_ACTION_HINTS:
+        return _SCREEN_ACTION_HINTS[screen]
+    if screen.startswith("profile"):
+        return _SCREEN_ACTION_HINTS.get("profile")
+    if screen in {
+        "analysis",
+        "kai_analysis",
+        "kai_analysis_workspace",
+        "kai_analysis_history",
+    } or pathname.startswith("/kai/analysis"):
+        return _SCREEN_ACTION_HINTS.get("analysis")
+    if screen in {
+        "kai_portfolio_bootstrap",
+        "kai_portfolio_import",
+        "kai_portfolio_import_progress",
+        "kai_portfolio_import_complete",
+        "kai_portfolio_review",
+        "kai_portfolio_dashboard",
+        "kai_portfolio_analysis",
+        "dashboard",
+    } or pathname.startswith("/kai/portfolio"):
+        return _SCREEN_ACTION_HINTS.get("dashboard")
+    if screen in {"home", "kai_market"} or pathname in {"/kai", "/kai/home"}:
+        return _SCREEN_ACTION_HINTS.get("home")
+    if screen in {"import", "kai_import"} or pathname.startswith("/kai/import"):
+        return _SCREEN_ACTION_HINTS.get("import")
+    if screen in {"consent", "consents"} or pathname.startswith("/consents"):
+        return _SCREEN_ACTION_HINTS.get("consent")
+    return None
 
 
 def _preferred_screen_key(
@@ -960,6 +1398,7 @@ def _build_screen_explain_message(
         runtime_line = f"Busy operations include {', '.join(busy_ops[:3])}."
 
     transcript_lowered = transcript.lower()
+    capability_request = _is_screen_capability_intent(transcript_lowered)
     prefer_surface_specific_message = bool(
         compat_surface_message
         and any(
@@ -1023,6 +1462,7 @@ def _build_screen_explain_message(
     elif not screen_specific_line:
         screen_specific_line = fallback_screen_specific_line
     actions_line = _format_action_hint(available_actions)
+    screen_actions_line = _screen_action_hint(screen_key, pathname)
     visible_modules_line = (
         f"Visible modules include {', '.join(visible_modules[:4])}." if visible_modules else None
     )
@@ -1031,6 +1471,27 @@ def _build_screen_explain_message(
         if has_portfolio_data
         else "Portfolio data is limited right now."
     )
+    if capability_request:
+        identity = get_kai_voice_identity_context()
+        core_capabilities = [
+            str(capability).strip()
+            for capability in (identity.get("core_capabilities") or [])
+            if str(capability or "").strip()
+        ]
+        capability_lines = [
+            actions_line,
+            screen_actions_line,
+            (
+                "I can " + ", ".join(core_capabilities[:3]) + "."
+                if core_capabilities
+                else "I can explain this screen, navigate inside Kai, and start approved actions when the app state allows it."
+            ),
+        ]
+        if detailed:
+            capability_lines.append(
+                "I can also use PKM context and connected Gmail receipt workflows when they are available."
+            )
+        return " ".join([location_line, next(line for line in capability_lines if line)])
 
     if not detailed:
         concise_parts = [part for part in [screen_specific_line, runtime_line] if part]
@@ -1120,6 +1581,108 @@ def _extract_analyze_target(transcript: str) -> str | None:
     return target
 
 
+def _normalize_company_lookup_key(value: str) -> str:
+    text = _coerce_str(value).lower()
+    if not text:
+        return ""
+    text = re.sub(r"[&/,+()]", " ", text)
+    text = re.sub(r"[^a-z0-9.\- ]+", " ", text)
+    text = re.sub(
+        r"\b(?:incorporated|inc|corp|corporation|co|company|holdings|holding|limited|ltd|plc|class a|class b|common stock)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _resolve_single_fuzzy_alias(query_key: str) -> dict[str, Any] | None:
+    if not query_key:
+        return None
+    alias_keys = sorted(_COMPANY_ALIAS_TO_TICKER.keys())
+    close_aliases = get_close_matches(query_key, alias_keys, n=2, cutoff=0.84)
+    if not close_aliases:
+        return None
+    resolved_tickers = {
+        _COMPANY_ALIAS_TO_TICKER.get(alias)
+        for alias in close_aliases
+        if _COMPANY_ALIAS_TO_TICKER.get(alias)
+    }
+    if len(resolved_tickers) == 1:
+        ticker = next(iter(resolved_tickers))
+        return {"kind": "exact", "ticker": ticker}
+    return {"kind": "ambiguous", "candidate": None, "matches": sorted(resolved_tickers)}
+
+
+def _best_title_match_from_rows(
+    query_key: str, rows: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    if not query_key or not rows:
+        return None
+
+    normalized_titles = [_normalize_company_lookup_key(str(row.get("title") or "")) for row in rows]
+
+    exact_indexes = [index for index, title in enumerate(normalized_titles) if title == query_key]
+    if exact_indexes:
+        tickers = {
+            str(rows[index].get("ticker") or "").upper()
+            for index in exact_indexes
+            if rows[index].get("ticker")
+        }
+        if len(tickers) == 1:
+            return {"kind": "exact", "ticker": next(iter(tickers))}
+        if tickers:
+            return {"kind": "ambiguous", "candidate": None, "matches": sorted(tickers)}
+
+    close_titles = get_close_matches(
+        query_key,
+        [title for title in normalized_titles if title],
+        n=2,
+        cutoff=0.92,
+    )
+    if not close_titles:
+        return None
+
+    top_match = close_titles[0]
+    tickers = {
+        str(rows[index].get("ticker") or "").upper()
+        for index, title in enumerate(normalized_titles)
+        if title == top_match and rows[index].get("ticker")
+    }
+    if len(tickers) != 1:
+        return {"kind": "ambiguous", "candidate": None, "matches": sorted(tickers)}
+
+    if len(close_titles) == 1:
+        return {"kind": "exact", "ticker": next(iter(tickers))}
+
+    second_match = close_titles[1]
+    second_tickers = {
+        str(rows[index].get("ticker") or "").upper()
+        for index, title in enumerate(normalized_titles)
+        if title == second_match and rows[index].get("ticker")
+    }
+    if not second_tickers or second_tickers == tickers:
+        return {"kind": "exact", "ticker": next(iter(tickers))}
+    return {"kind": "ambiguous", "candidate": None, "matches": sorted(tickers | second_tickers)}
+
+
+def _is_analysis_navigation_request(transcript: str) -> bool:
+    normalized = _coerce_str(transcript).strip().lower()
+    if not normalized:
+        return False
+    if normalized in {
+        "analysis",
+        "analysis section",
+        "analysis screen",
+        "analysis page",
+        "analysis tab",
+        "analysis workspace",
+        "analysis area",
+    }:
+        return True
+    return bool(_ANALYSIS_NAVIGATION_RE.search(normalized))
+
+
 def _resolve_ticker_target(target: str) -> dict[str, Any]:
     query = _coerce_str(target)
     if not query:
@@ -1127,6 +1690,7 @@ def _resolve_ticker_target(target: str) -> dict[str, Any]:
 
     normalized_query = re.sub(r"\s+", " ", query).strip()
     uppercase_query = normalized_query.upper()
+    query_key = _normalize_company_lookup_key(normalized_query)
     symbol_master = get_symbol_master_service()
 
     if _TICKER_PATTERN_RE.match(uppercase_query):
@@ -1136,9 +1700,15 @@ def _resolve_ticker_target(target: str) -> dict[str, Any]:
             return {"kind": "exact", "ticker": classification.symbol}
 
     alias_key = normalized_query.lower()
-    alias_ticker = _COMPANY_ALIAS_TO_TICKER.get(alias_key)
+    alias_ticker = _COMPANY_ALIAS_TO_TICKER.get(query_key) or _COMPANY_ALIAS_TO_TICKER.get(
+        alias_key
+    )
     if alias_ticker:
         return {"kind": "exact", "ticker": alias_ticker}
+
+    fuzzy_alias_match = _resolve_single_fuzzy_alias(query_key or alias_key)
+    if fuzzy_alias_match is not None:
+        return fuzzy_alias_match
 
     if not ticker_cache.loaded:
         try:
@@ -1147,21 +1717,17 @@ def _resolve_ticker_target(target: str) -> dict[str, Any]:
             logger.warning("[VOICE_RESOLVE] ticker cache load failed", exc_info=True)
 
     rows = ticker_cache.search(normalized_query, limit=5)
+    if not rows and query_key and query_key != normalized_query.lower():
+        rows = ticker_cache.search(query_key, limit=5)
     tickers = [str(row.get("ticker") or "").upper() for row in rows if row.get("ticker")]
     tickers = [ticker for ticker in tickers if ticker]
 
     if len(tickers) == 1:
-        return {"kind": "candidate", "candidate": tickers[0], "matches": tickers}
+        return {"kind": "exact", "ticker": tickers[0]}
     if len(tickers) > 1:
-        titles = [str(row.get("title") or "").strip().lower() for row in rows]
-        close = get_close_matches(alias_key, titles, n=1, cutoff=0.92)
-        if close:
-            idx = titles.index(close[0])
-            return {
-                "kind": "candidate",
-                "candidate": str(rows[idx].get("ticker") or "").upper(),
-                "matches": tickers,
-            }
+        title_match = _best_title_match_from_rows(query_key or alias_key, rows)
+        if title_match is not None:
+            return title_match
         return {"kind": "ambiguous", "candidate": None, "matches": tickers}
 
     return {"kind": "unknown", "candidate": None, "matches": []}
@@ -1701,23 +2267,12 @@ class VoiceIntentService:
 
         tools = _build_tools_schema()
         context_payload = _compact_context(context)
-
-        system_prompt = (
-            "You are Kai voice intent planner. Output exactly one tool call from provided tools. "
-            "Never output plain text. "
-            "Do not produce conversational filler. Spoken response styling is handled separately. "
-            "Important: speech-to-text may contain misspellings/homophones. Infer the intended destination "
-            "for navigation requests like go to / take me to / open / navigate to, even if text is imperfect. "
-            "Navigation target mapping: "
-            "dashboard|portfolio => execute_kai_command(command='dashboard'); "
-            "import|upload statement|portfolio import => execute_kai_command(command='import'); "
-            "history|analysis history|analysis tab => execute_kai_command(command='history'); "
-            "market|kai|home => execute_kai_command(command='home'); "
-            "consent|consents|similar sounding consent words => execute_kai_command(command='consent'); "
-            "profile => execute_kai_command(command='profile'). "
-            "For 'analyze <company_or_symbol>' always use execute_kai_command(command='analyze', params.symbol='<SYMBOL>'). "
-            "If likely ticker is uncertain, return clarify."
+        planner_context = build_voice_planner_context(
+            transcript=clean_transcript,
+            runtime_state={},
+            context_payload=context_payload,
         )
+        system_prompt = build_voice_planner_system_prompt(planner_context=planner_context)
 
         response, result, openai_http_ms, model_used = await _post_with_model_fallback(
             url=_OPENAI_CHAT_URL,
@@ -1743,6 +2298,7 @@ class VoiceIntentService:
                                 {
                                     "user_id": user_id,
                                     "transcript": clean_transcript,
+                                    "planner_context": planner_context,
                                     "context": context_payload,
                                 }
                             ),
@@ -1846,15 +2402,115 @@ class VoiceIntentService:
             allow = False
         if kind == "clarify" and reason in {"stt_unusable", "ticker_ambiguous", "ticker_unknown"}:
             allow = False
+        if reason in {"manual_user_execution_required", "confirmation_required"}:
+            allow = False
         return {"allow_durable_write": allow}
 
     @staticmethod
     def _legacy_tool_call_for_response(response: dict[str, Any]) -> dict[str, Any]:
         tool_call = response.get("tool_call")
-        if isinstance(tool_call, dict):
+        if _response_has_executable_plan(response):
+            if _is_executable_tool_call(tool_call):
+                return tool_call
+            synthesized = _legacy_tool_call_from_action(
+                _coerce_str_or_none(response.get("action_id")),
+                slots=dict(response.get("slots") or {}),
+            )
+            if synthesized is not None:
+                return synthesized
+        if isinstance(tool_call, dict) and _coerce_str(tool_call.get("tool_name")) == "clarify":
             return tool_call
         message = _coerce_str(response.get("message")) or _UNCLEAR_STT_MESSAGE
         return {"tool_name": "clarify", "args": {"question": message}}
+
+    @staticmethod
+    def _finalize_response(
+        response: dict[str, Any],
+        *,
+        gate_state: dict[str, Any],
+        has_active_analysis: bool,
+        has_portfolio_data: bool,
+        action_id_override: str | None = None,
+        slots_override: dict[str, Any] | None = None,
+        memory_override: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        finalized = dict(response)
+        canonical_tool_call = (
+            finalized.get("tool_call") if isinstance(finalized.get("tool_call"), dict) else None
+        )
+        action_id = action_id_override or _canonical_action_id_from_tool_call(canonical_tool_call)
+        slots = dict(slots_override or _canonical_slots_from_tool_call(canonical_tool_call))
+        guard_ids = _canonical_guards_for_action(
+            action_id,
+            gate_state=gate_state,
+            has_active_analysis=has_active_analysis,
+            has_portfolio_data=has_portfolio_data,
+            response=finalized,
+        )
+        guard_states = {
+            guard_id: _guard_status(
+                guard_id,
+                gate_state=gate_state,
+                has_active_analysis=has_active_analysis,
+                has_portfolio_data=has_portfolio_data,
+                response=finalized,
+            )
+            for guard_id in guard_ids
+        }
+        blocked_guards = [
+            guard_id for guard_id, (status, _) in guard_states.items() if status == "blocked"
+        ]
+        unknown_guards = [
+            guard_id for guard_id, (status, _) in guard_states.items() if status == "unknown"
+        ]
+        execution_policy = _manifest_execution_policy(action_id)
+        finalized = _apply_action_contract_to_response(
+            finalized,
+            action_id=action_id,
+            execution_policy=execution_policy,
+            blocked_guards=blocked_guards,
+            unknown_guards=unknown_guards,
+        )
+        mode = _canonical_mode_for_response_with_policy(
+            finalized,
+            action_id=action_id,
+            execution_policy=execution_policy,
+            blocked_guards=blocked_guards,
+            unknown_guards=unknown_guards,
+        )
+        executable_plan = _is_executable_mode(mode) and bool(
+            action_id or _is_executable_tool_call(finalized.get("tool_call"))
+        )
+        if executable_plan:
+            finalized["execution_allowed"] = True
+            if not _is_executable_tool_call(finalized.get("tool_call")):
+                synthesized_tool_call = _legacy_tool_call_from_action(
+                    action_id,
+                    slots=slots,
+                )
+                if synthesized_tool_call is not None:
+                    finalized["tool_call"] = synthesized_tool_call
+                else:
+                    finalized.pop("tool_call", None)
+        else:
+            finalized["execution_allowed"] = False
+            if _is_executable_tool_call(finalized.get("tool_call")):
+                finalized.pop("tool_call", None)
+        if not isinstance(finalized.get("memory"), dict):
+            finalized["memory"] = VoiceIntentService._memory_hint_from_response(finalized)
+        if isinstance(memory_override, dict):
+            finalized["memory"] = dict(memory_override)
+        finalized["schema_version"] = "kai_voice_plan.v1"
+        finalized["mode"] = mode
+        finalized["action_id"] = action_id
+        finalized["slots"] = slots
+        finalized["guards"] = guard_ids
+        finalized["reply_strategy"] = _canonical_reply_strategy_for_response(mode)
+        finalized["action_completion"] = _heuristic_completion_mode(action_id, mode=mode)
+        clarification = _canonical_clarification_for_response(finalized)
+        if clarification is not None:
+            finalized["clarification"] = clarification
+        return finalized
 
     async def _plan_intent_with_llm_v1(
         self,
@@ -1867,12 +2523,12 @@ class VoiceIntentService:
     ) -> tuple[dict[str, Any] | None, int, str]:
         self._require_api_key()
         tools = _build_tools_schema()
-        system_prompt = (
-            "You are Kai voice intent planner. "
-            "Use English-only behavior for V1. "
-            "Return exactly one tool call from provided tools and never output plain text. "
-            "Do not add conversational filler or explanation."
+        planner_context = build_voice_planner_context(
+            transcript=transcript,
+            runtime_state=runtime_state,
+            context_payload=context_payload,
         )
+        system_prompt = build_voice_planner_system_prompt(planner_context=planner_context)
 
         def _emit_trace(stage: str, payload: dict[str, Any]) -> None:
             if not trace_hook:
@@ -1937,6 +2593,7 @@ class VoiceIntentService:
                                 {
                                     "user_id": user_id,
                                     "transcript": transcript,
+                                    "planner_context": planner_context,
                                     "context": context_payload,
                                     "runtime": runtime_state,
                                 }
@@ -1975,26 +2632,42 @@ class VoiceIntentService:
         gate_state = _normalize_voice_gate(
             app_state, user_id=user_id, legacy_context=context_payload
         )
+        portfolio_state = app_state.get("portfolio") if isinstance(app_state, dict) else {}
+        has_portfolio_data = bool(
+            isinstance(portfolio_state, dict) and portfolio_state.get("has_portfolio_data")
+        )
 
         if _is_transcript_unusable(clean_transcript):
-            response = self._build_response(
-                kind="clarify",
-                reason="stt_unusable",
-                message=_UNCLEAR_STT_MESSAGE,
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="clarify",
+                        reason="stt_unusable",
+                        message=_UNCLEAR_STT_MESSAGE,
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=False,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
 
         if not gate_state.get("signed_in"):
-            response = self._build_response(
-                kind="blocked",
-                reason="auth_required",
-                message="Sign in to use voice.",
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="blocked",
+                        reason="auth_required",
+                        message="Sign in to use voice.",
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=False,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
 
         if (
             not gate_state.get("vault_unlocked")
@@ -2002,14 +2675,20 @@ class VoiceIntentService:
             or not gate_state.get("token_valid")
             or not gate_state.get("voice_available")
         ):
-            response = self._build_response(
-                kind="blocked",
-                reason="vault_required",
-                message="Unlock your vault to use voice.",
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="blocked",
+                        reason="vault_required",
+                        message="Unlock your vault to use voice.",
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=False,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
 
         active_analysis_payload = active_analysis if isinstance(active_analysis, dict) else {}
         authoritative_analysis_active = active_analysis_payload.get("active")
@@ -2084,13 +2763,19 @@ class VoiceIntentService:
         else:
             compat_surface_message = None
         if compat_surface_message:
-            response = self._build_response(
-                kind="speak_only",
-                message=compat_surface_message,
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="speak_only",
+                        message=compat_surface_message,
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
         if not _is_screen_explain_intent(lowered) and looks_like_voice_knowledge_request(
             clean_transcript
         ):
@@ -2112,13 +2797,19 @@ class VoiceIntentService:
             message = knowledge.summary
             if detailed_response and knowledge.detail and knowledge.detail != knowledge.summary:
                 message = f"{message} {knowledge.detail}"
-            response = self._build_response(
-                kind="speak_only",
-                message=message,
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="speak_only",
+                        message=message,
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
         compat_concept_message = (
             resolve_global_concept(clean_transcript, detailed=detailed_response)
             if (
@@ -2128,33 +2819,52 @@ class VoiceIntentService:
             else None
         )
         if compat_concept_message:
-            response = self._build_response(
-                kind="speak_only",
-                message=compat_concept_message,
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="speak_only",
+                        message=compat_concept_message,
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
         if knowledge is not None and knowledge.tier != "fallback":
             message = knowledge.summary
             if detailed_response and knowledge.detail and knowledge.detail != knowledge.summary:
                 message = f"{message} {knowledge.detail}"
-            response = self._build_response(
-                kind="speak_only",
-                message=message,
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="speak_only",
+                        message=message,
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
 
         if _contains_any(lowered, _DESTRUCTIVE_INTENT_KEYWORDS):
-            response = self._build_response(
-                kind="speak_only",
-                message="That action is not available in voice.",
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="speak_only",
+                        message="That action is not available in voice.",
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                    memory_override={"allow_durable_write": False},
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = {"allow_durable_write": False}
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
 
         if _is_screen_explain_intent(lowered):
             message = _build_screen_explain_message(
@@ -2163,10 +2873,16 @@ class VoiceIntentService:
                 legacy_context=context_payload,
                 detailed=detailed_response,
             )
-            response = self._build_response(kind="speak_only", message=message)
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
+            return (
+                self._finalize_response(
+                    self._build_response(kind="speak_only", message=message),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
+            )
 
         if _contains_any(lowered, _STATUS_QUERY_KEYWORDS):
             if has_active_analysis and active_analysis_ticker:
@@ -2175,29 +2891,56 @@ class VoiceIntentService:
                 message = "A portfolio import is currently running."
             else:
                 message = "No analysis or import is currently running."
-            response = self._build_response(kind="speak_only", message=message)
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
+            return (
+                self._finalize_response(
+                    self._build_response(kind="speak_only", message=message),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
+            )
 
         surface_navigation = _match_surface_navigation_intent(lowered)
         if surface_navigation == "gmail":
-            response = self._build_response(kind="speak_only", message="Opening Gmail.")
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
+            return (
+                self._finalize_response(
+                    self._build_response(kind="speak_only", message="Opening Gmail."),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                    action_id_override="nav.profile_gmail_panel",
+                ),
+                0,
+                "deterministic",
+            )
 
         if surface_navigation == "receipts":
-            response = self._build_response(kind="speak_only", message="Opening receipts.")
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
+            return (
+                self._finalize_response(
+                    self._build_response(kind="speak_only", message="Opening receipts."),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                    action_id_override="nav.profile_receipts",
+                ),
+                0,
+                "deterministic",
+            )
 
         if surface_navigation == "pkm_agent_lab":
-            response = self._build_response(kind="speak_only", message="Opening PKM Agent Lab.")
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
+            return (
+                self._finalize_response(
+                    self._build_response(kind="speak_only", message="Opening PKM Agent Lab."),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                    action_id_override="nav.profile_pkm_agent_lab",
+                ),
+                0,
+                "deterministic",
+            )
 
         if _is_receipts_memory_intent(lowered):
             message = (
@@ -2205,34 +2948,56 @@ class VoiceIntentService:
                 if current_screen == "profile_receipts"
                 else "Opening receipts. Use Add receipts to memory there."
             )
-            response = self._build_response(kind="speak_only", message=message)
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
+            action_id_override = (
+                None if current_screen == "profile_receipts" else "nav.profile_receipts"
+            )
+            return (
+                self._finalize_response(
+                    self._build_response(kind="speak_only", message=message),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                    action_id_override=action_id_override,
+                ),
+                0,
+                "deterministic",
+            )
 
         analyze_target = _extract_analyze_target(clean_transcript)
         if analyze_target is not None:
             if has_active_analysis:
                 ticker_label = active_analysis_ticker or "unknown ticker"
-                response = self._build_response(
-                    kind="already_running",
-                    task="analysis",
-                    ticker=active_analysis_ticker,
-                    run_id=active_analysis_run_id,
-                    message=f"Analysis is already running for {ticker_label}.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="already_running",
+                            task="analysis",
+                            ticker=active_analysis_ticker,
+                            run_id=active_analysis_run_id,
+                            message=f"Analysis is already running for {ticker_label}.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, 0, "deterministic"
 
             if not runtime_state.get("complete") and gate_state.get("source") == "app_state":
-                response = self._build_response(
-                    kind="speak_only",
-                    message="I couldn't verify app state right now. Please try again.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="speak_only",
+                            message="I couldn't verify app state right now. Please try again.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, 0, "deterministic"
 
             resolution = _resolve_ticker_target(analyze_target)
             if resolution.get("kind") == "exact":
@@ -2241,126 +3006,241 @@ class VoiceIntentService:
                     "tool_name": "execute_kai_command",
                     "args": {"command": "analyze", "params": {"symbol": symbol}},
                 }
-                response = self._build_response(
-                    kind="execute",
-                    message=_build_execute_message(tool_call),
-                    tool_call=tool_call,
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="execute",
+                            message=_build_execute_message(tool_call),
+                            tool_call=tool_call,
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                return response, 0, "deterministic"
 
             if resolution.get("kind") == "candidate":
                 candidate = _coerce_str(resolution.get("candidate")).upper()
-                response = self._build_response(
-                    kind="clarify",
-                    reason="ticker_unknown",
-                    candidate=candidate,
-                    message=f"I don't know this company. Did you mean {candidate}?",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="clarify",
+                            reason="ticker_unknown",
+                            candidate=candidate,
+                            message=f"I don't know this company. Did you mean {candidate}?",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, 0, "deterministic"
 
             if resolution.get("kind") == "ambiguous":
-                response = self._build_response(
-                    kind="clarify",
-                    reason="ticker_ambiguous",
-                    message="I found multiple matches. Please say the stock ticker.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="clarify",
+                            reason="ticker_ambiguous",
+                            message="I found multiple matches. Please say the stock ticker.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, 0, "deterministic"
 
-            response = self._build_response(
-                kind="clarify",
-                reason="ticker_unknown",
-                message="I couldn't identify that company. Please repeat the company or stock ticker.",
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="clarify",
+                        reason="ticker_unknown",
+                        message="I couldn't identify that company. Please repeat the company or stock ticker.",
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
 
         if re.search(r"\b(start|begin|run|do)\b.*\banalysis\b", lowered):
-            response = self._build_response(
-                kind="clarify",
-                reason="ticker_unknown",
-                message="Please say the stock ticker you want to analyze.",
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="clarify",
+                        reason="ticker_unknown",
+                        message="Please say the stock ticker you want to analyze.",
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, 0, "deterministic"
 
         if _contains_any(lowered, _IMPORT_INTENT_KEYWORDS):
             if has_active_import:
-                response = self._build_response(
-                    kind="already_running",
-                    task="import",
-                    run_id=active_import_run_id,
-                    message="An import is already running.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="already_running",
+                            task="import",
+                            run_id=active_import_run_id,
+                            message="An import is already running.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, 0, "deterministic"
-            response = self._build_response(
-                kind="execute",
-                message="Opening import.",
-                tool_call={"tool_name": "execute_kai_command", "args": {"command": "import"}},
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="execute",
+                        message="Opening import.",
+                        tool_call={
+                            "tool_name": "execute_kai_command",
+                            "args": {"command": "import"},
+                        },
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            return response, 0, "deterministic"
 
         if _contains_any(lowered, _RESUME_INTENT_KEYWORDS):
             if not has_active_analysis:
-                response = self._build_response(
-                    kind="speak_only",
-                    message="No active analysis is running right now.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="speak_only",
+                            message="No active analysis is running right now.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                        action_id_override="analysis.resume_active",
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, 0, "deterministic"
-            response = self._build_response(
-                kind="execute",
-                message="Resuming analysis.",
-                tool_call={"tool_name": "resume_active_analysis", "args": {}},
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="execute",
+                        message="Resuming analysis.",
+                        tool_call={"tool_name": "resume_active_analysis", "args": {}},
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            return response, 0, "deterministic"
 
         if _contains_any(lowered, _CANCEL_INTENT_KEYWORDS):
             if not has_active_analysis:
-                response = self._build_response(
-                    kind="speak_only",
-                    message="No active analysis is running right now.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="speak_only",
+                            message="No active analysis is running right now.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                        action_id_override="analysis.cancel_active",
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, 0, "deterministic"
-            response = self._build_response(
-                kind="execute",
-                message="Cancelling analysis.",
-                tool_call={"tool_name": "cancel_active_analysis", "args": {"confirm": True}},
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="execute",
+                        message="Cancelling analysis.",
+                        tool_call={
+                            "tool_name": "cancel_active_analysis",
+                            "args": {"confirm": True},
+                        },
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            return response, 0, "deterministic"
 
         if "go back" in lowered or lowered.strip() == "back":
-            response = self._build_response(
-                kind="execute",
-                message="Going back.",
-                tool_call={"tool_name": "navigate_back", "args": {}},
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="execute",
+                        message="Going back.",
+                        tool_call={"tool_name": "navigate_back", "args": {}},
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                    action_id_override="nav.back",
+                ),
+                0,
+                "deterministic",
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            return response, 0, "deterministic"
+
+        if _is_analysis_navigation_request(lowered):
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="execute",
+                        message="Opening analysis history.",
+                        tool_call={
+                            "tool_name": "execute_kai_command",
+                            "args": {"command": "history"},
+                        },
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                0,
+                "deterministic",
+            )
 
         for keyword, command in _NAV_COMMAND_KEYWORDS:
             if keyword in lowered:
-                response = self._build_response(
-                    kind="execute",
-                    message=f"Opening {_spoken_command_label(command)}.",
-                    tool_call={"tool_name": "execute_kai_command", "args": {"command": command}},
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="execute",
+                            message=f"Opening {_spoken_command_label(command)}.",
+                            tool_call={
+                                "tool_name": "execute_kai_command",
+                                "args": {"command": command},
+                            },
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    0,
+                    "deterministic",
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                return response, 0, "deterministic"
 
         tool_call, openai_http_ms, model_used = await self._plan_intent_with_llm_v1(
             transcript=clean_transcript,
@@ -2372,47 +3252,190 @@ class VoiceIntentService:
 
         validated = _validate_tool_call(tool_call)
         if not validated:
-            response = self._build_response(
-                kind="clarify",
-                reason="stt_unusable",
-                message=_UNCLEAR_STT_MESSAGE,
+            return (
+                self._finalize_response(
+                    self._build_response(
+                        kind="clarify",
+                        reason="stt_unusable",
+                        message=_UNCLEAR_STT_MESSAGE,
+                    ),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                ),
+                openai_http_ms,
+                model_used,
             )
-            response["memory"] = self._memory_hint_from_response(response)
-            response["tool_call"] = self._legacy_tool_call_for_response(response)
-            return response, openai_http_ms, model_used
 
         if validated["tool_name"] == "execute_kai_command":
             command = _coerce_str(validated["args"].get("command"))
             params = validated["args"].get("params") if isinstance(validated["args"], dict) else {}
             if command == "analyze" and has_active_analysis:
                 ticker_label = active_analysis_ticker or "unknown ticker"
-                response = self._build_response(
-                    kind="already_running",
-                    task="analysis",
-                    ticker=active_analysis_ticker,
-                    run_id=active_analysis_run_id,
-                    message=f"Analysis is already running for {ticker_label}.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="already_running",
+                            task="analysis",
+                            ticker=active_analysis_ticker,
+                            run_id=active_analysis_run_id,
+                            message=f"Analysis is already running for {ticker_label}.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    openai_http_ms,
+                    model_used,
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, openai_http_ms, model_used
             if command == "analyze" and not _coerce_str((params or {}).get("symbol")):
-                response = self._build_response(
-                    kind="clarify",
-                    reason="ticker_unknown",
-                    message="Please say the stock ticker you want to analyze.",
+                return (
+                    self._finalize_response(
+                        self._build_response(
+                            kind="clarify",
+                            reason="ticker_unknown",
+                            message="Please say the stock ticker you want to analyze.",
+                        ),
+                        gate_state=gate_state,
+                        has_active_analysis=has_active_analysis,
+                        has_portfolio_data=has_portfolio_data,
+                    ),
+                    openai_http_ms,
+                    model_used,
                 )
-                response["memory"] = self._memory_hint_from_response(response)
-                response["tool_call"] = self._legacy_tool_call_for_response(response)
-                return response, openai_http_ms, model_used
 
-        response = self._build_response(
-            kind="execute",
-            message=_build_execute_message(validated),
-            tool_call=validated,
+        return (
+            self._finalize_response(
+                self._build_response(
+                    kind="execute",
+                    message=_build_execute_message(validated),
+                    tool_call=validated,
+                ),
+                gate_state=gate_state,
+                has_active_analysis=has_active_analysis,
+                has_portfolio_data=has_portfolio_data,
+                action_id_override="nav.back"
+                if _coerce_str(validated.get("tool_name")) == "navigate_back"
+                else None,
+            ),
+            openai_http_ms,
+            model_used,
         )
-        response["memory"] = self._memory_hint_from_response(response)
-        return response, openai_http_ms, model_used
+
+    async def compose_voice_reply(
+        self,
+        *,
+        transcript: str,
+        user_id: str,
+        app_state: dict[str, Any] | None,
+        context: dict[str, Any] | None,
+        plan_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        action_result: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], int, str]:
+        self._require_api_key()
+        clean_transcript = _coerce_str(transcript)
+        if not clean_transcript:
+            raise VoiceServiceError(422, "Transcript is empty")
+
+        context_payload = _compact_context(context)
+        runtime_state = _normalize_runtime_state(app_state, legacy_context=context_payload)
+        composer_context = build_voice_response_composer_context(
+            transcript=clean_transcript,
+            runtime_state=runtime_state,
+            context_payload=context_payload,
+            plan_payload=plan_payload,
+            response_payload=response_payload,
+            action_result=action_result,
+        )
+        system_prompt = build_voice_response_composer_system_prompt(
+            composer_context=composer_context
+        )
+
+        response, result, openai_http_ms, model_used = await _post_with_model_fallback(
+            url=_OPENAI_CHAT_URL,
+            headers={**self._headers(), "Content-Type": "application/json"},
+            candidate_models=self.intent_models,
+            body_builder=lambda model_name: {
+                "json": {
+                    "model": model_name,
+                    "temperature": 0.2,
+                    "max_tokens": 140,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "user_id": user_id,
+                                    "transcript": clean_transcript,
+                                    "plan": {
+                                        "mode": plan_payload.get("mode"),
+                                        "action_id": plan_payload.get("action_id"),
+                                        "slots": dict(plan_payload.get("slots") or {}),
+                                        "guards": list(plan_payload.get("guards") or []),
+                                        "reply_strategy": plan_payload.get("reply_strategy"),
+                                        "action_completion": plan_payload.get("action_completion"),
+                                    },
+                                    "response": {
+                                        "kind": response_payload.get("kind"),
+                                        "message": response_payload.get("message"),
+                                        "reason": response_payload.get("reason"),
+                                        "task": response_payload.get("task"),
+                                        "ticker": response_payload.get("ticker"),
+                                        "execution_allowed": response_payload.get(
+                                            "execution_allowed"
+                                        ),
+                                    },
+                                    "action_result": dict(action_result or {})
+                                    if isinstance(action_result, dict)
+                                    else None,
+                                    "composer_context": composer_context,
+                                }
+                            ),
+                        },
+                    ],
+                }
+            },
+            timeout_seconds=self.upstream_http_timeout_seconds,
+            allow_model_fallback=not self.disable_voice_fallbacks,
+        )
+        if response.status_code >= 400:
+            detail = _extract_openai_error(result) or "Voice response composition failed"
+            raise VoiceServiceError(502, detail)
+
+        parsed = _extract_first_json_message(result) or {}
+        fallback_mode = str(plan_payload.get("mode") or "").strip()
+        fallback_segment_type = (
+            "ack"
+            if fallback_mode == "start_background_and_ack"
+            or (
+                isinstance(action_result, dict)
+                and str(action_result.get("status") or "").strip() == "started"
+            )
+            else "final"
+        )
+        fallback_text = (
+            _coerce_str((action_result or {}).get("result_summary"))
+            if isinstance(action_result, dict)
+            else ""
+        ) or _coerce_str(response_payload.get("message"))
+        composed_text = _coerce_str(parsed.get("text")) or fallback_text
+        if not composed_text:
+            raise VoiceServiceError(502, "Voice response composition returned empty text")
+
+        segment_type = _coerce_str(parsed.get("segment_type")).lower() or fallback_segment_type
+        if segment_type not in {"ack", "final"}:
+            segment_type = fallback_segment_type
+        return (
+            {
+                "text": composed_text,
+                "segment_type": segment_type,
+            },
+            openai_http_ms,
+            model_used,
+        )
 
     async def synthesize_speech(
         self,
@@ -2593,6 +3616,47 @@ def _extract_openai_error(payload: Any) -> str | None:
         if isinstance(message, str) and message.strip():
             return message.strip()
     return None
+
+
+def _extract_first_message_content(payload: dict[str, Any]) -> str | None:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    first = choices[0]
+    if not isinstance(first, dict):
+        return None
+    message = first.get("message")
+    if not isinstance(message, dict):
+        return None
+    content = message.get("content")
+    if isinstance(content, str):
+        text = content.strip()
+        return text or None
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text" and isinstance(item.get("text"), str):
+                part = item["text"].strip()
+                if part:
+                    text_parts.append(part)
+        joined = "\n".join(text_parts).strip()
+        return joined or None
+    return None
+
+
+def _extract_first_json_message(payload: dict[str, Any]) -> dict[str, Any] | None:
+    raw_content = _extract_first_message_content(payload)
+    if not raw_content:
+        return None
+    try:
+        parsed = json.loads(raw_content)
+    except Exception:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
 
 
 def _extract_first_tool_call(payload: dict[str, Any]) -> dict[str, Any] | None:
