@@ -51,9 +51,7 @@ class TestBundleStructure:
     @pytest.mark.parametrize("key", list(CANONICAL_BUNDLES.keys()))
     def test_color_hex_valid(self, key: str) -> None:
         color = CANONICAL_BUNDLES[key].color_hex
-        assert re.match(
-            r"^#[0-9A-Fa-f]{6}$", color
-        ), f"{key} has invalid color_hex: {color}"
+        assert re.match(r"^#[0-9A-Fa-f]{6}$", color), f"{key} has invalid color_hex: {color}"
 
     @pytest.mark.parametrize("key", list(CANONICAL_BUNDLES.keys()))
     def test_scopes_non_empty(self, key: str) -> None:
@@ -87,11 +85,7 @@ class TestBundleScopeMatching:
 
     @pytest.mark.parametrize(
         "key,scope",
-        [
-            (k, s)
-            for k, b in CANONICAL_BUNDLES.items()
-            for s in b.scopes
-        ],
+        [(k, s) for k, b in CANONICAL_BUNDLES.items() for s in b.scopes],
     )
     def test_scope_is_dynamic(self, key: str, scope: str) -> None:
         assert self.gen.is_dynamic_scope(scope), (
@@ -100,25 +94,14 @@ class TestBundleScopeMatching:
 
     @pytest.mark.parametrize(
         "key,scope",
-        [
-            (k, s)
-            for k, b in CANONICAL_BUNDLES.items()
-            for s in b.scopes
-        ],
+        [(k, s) for k, b in CANONICAL_BUNDLES.items() for s in b.scopes],
     )
     def test_scope_matches_itself(self, key: str, scope: str) -> None:
-        assert scope_matches(scope, scope), (
-            f"Bundle {key} scope {scope} does not match itself"
-        )
+        assert scope_matches(scope, scope), f"Bundle {key} scope {scope} does not match itself"
 
     @pytest.mark.parametrize(
         "key,scope",
-        [
-            (k, s)
-            for k, b in CANONICAL_BUNDLES.items()
-            for s in b.scopes
-            if s.endswith(".*")
-        ],
+        [(k, s) for k, b in CANONICAL_BUNDLES.items() for s in b.scopes if s.endswith(".*")],
     )
     def test_wildcard_scope_matches_child(self, key: str, scope: str) -> None:
         child = scope.replace(".*", ".test_attribute")
@@ -168,7 +151,15 @@ class TestBundleAPI:
 
     def test_get_bundle_display_info_has_required_fields(self) -> None:
         info = get_bundle_display_info("financial_overview")
-        for field in ("bundle_key", "label", "description", "icon_name", "color_hex", "scopes", "scope_count"):
+        for field in (
+            "bundle_key",
+            "label",
+            "description",
+            "icon_name",
+            "color_hex",
+            "scopes",
+            "scope_count",
+        ):
             assert field in info, f"Missing field: {field}"
 
     def test_get_bundle_display_info_unknown_raises(self) -> None:

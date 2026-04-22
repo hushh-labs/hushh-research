@@ -30,6 +30,8 @@ function baseInput() {
     userId: "user_1",
     vaultOwnerToken: "vault_token",
     vaultKey: "vault_key",
+    currentRoute: "/kai/dashboard",
+    currentScreen: "dashboard",
     router: {
       push: vi.fn(),
     },
@@ -82,6 +84,16 @@ describe("executeVoiceResponse", () => {
       toolName: "execute_kai_command",
       ticker: "NVDA",
       responseKind: "execute",
+      actionResult: {
+        status: "succeeded",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Executed the requested voice action.",
+        data: undefined,
+      },
     });
   });
 
@@ -99,6 +111,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: "Delete Account",
         destructive: true,
         message: "Please do that yourself in the app.",
+        resolutionSource: "transcript",
         execution: {
           mode: "manual_only",
           steps: [
@@ -119,6 +132,19 @@ describe("executeVoiceResponse", () => {
       toolName: null,
       ticker: null,
       responseKind: "speak_only",
+      actionResult: {
+        status: "blocked",
+        actionId: "profile.delete_account",
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Please do that yourself in the app.",
+        data: {
+          executionMode: "manual_only",
+          policy: "manual_only",
+        },
+      },
     });
   });
 
@@ -141,6 +167,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: "Resume Active Analysis Run",
         destructive: false,
         message: null,
+        resolutionSource: "canonical",
         execution: {
           mode: "navigate_then_action",
           steps: [
@@ -160,6 +187,19 @@ describe("executeVoiceResponse", () => {
       toolName: null,
       ticker: null,
       responseKind: "execute",
+      actionResult: {
+        status: "blocked",
+        actionId: "analysis.resume_active",
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Execution was disallowed by the backend for this response.",
+        data: {
+          responseKind: "execute",
+          groundedStatus: "resolved",
+        },
+      },
     });
   });
 
@@ -194,6 +234,18 @@ describe("executeVoiceResponse", () => {
       toolName: null,
       ticker: null,
       responseKind: "execute",
+      actionResult: {
+        status: "noop",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Waiting for confirmation before running the requested action.",
+        data: {
+          toolName: "cancel_active_analysis",
+        },
+      },
     });
   });
 
@@ -216,6 +268,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: "Resume Active Analysis Run",
         destructive: false,
         message: null,
+        resolutionSource: "canonical",
         execution: {
           mode: "navigate_then_action",
           steps: [
@@ -247,6 +300,20 @@ describe("executeVoiceResponse", () => {
       toolName: "resume_active_analysis",
       ticker: null,
       responseKind: "execute",
+      actionResult: {
+        status: "succeeded",
+        actionId: "analysis.resume_active",
+        routeBefore: "/kai/dashboard",
+        routeAfter: "/kai/analysis",
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Navigated to /kai/analysis.",
+        data: {
+          executionMode: "navigate_then_action",
+          navigated: true,
+          toolName: "resume_active_analysis",
+        },
+      },
     });
   });
 
@@ -264,6 +331,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: "Legacy Optimize Voice Command",
         destructive: false,
         message: "I can’t do that right now.",
+        resolutionSource: "response",
         execution: {
           mode: "unavailable",
           steps: [
@@ -284,10 +352,23 @@ describe("executeVoiceResponse", () => {
       toolName: null,
       ticker: null,
       responseKind: "speak_only",
+      actionResult: {
+        status: "blocked",
+        actionId: "command.optimize_legacy",
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "I can’t do that right now.",
+        data: {
+          executionMode: "unavailable",
+          policy: "unavailable",
+        },
+      },
     });
   });
 
-  it("executes grounded navigation for speak-only route intents", async () => {
+  it("executes grounded navigation for canonical speak-only route intents", async () => {
     const input = baseInput();
     const result = await executeVoiceResponse({
       ...input,
@@ -302,6 +383,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: "Open Gmail Connector Panel",
         destructive: false,
         message: null,
+        resolutionSource: "canonical",
         execution: {
           mode: "navigate_only",
           steps: [
@@ -322,7 +404,127 @@ describe("executeVoiceResponse", () => {
       toolName: "navigate",
       ticker: null,
       responseKind: "speak_only",
+      actionResult: {
+        status: "succeeded",
+        actionId: "nav.profile_gmail_panel",
+        routeBefore: "/kai/dashboard",
+        routeAfter: "/profile?panel=gmail",
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Navigated to /profile?panel=gmail.",
+        data: {
+          executionMode: "navigate_only",
+          navigated: true,
+          toolName: null,
+        },
+      },
     });
+  });
+
+  it("does not silently execute speak-only grounded navigation without canonical resolution", async () => {
+    const input = baseInput();
+    const emitTelemetry = vi.fn();
+    const result = await executeVoiceResponse({
+      ...input,
+      emitTelemetry,
+      response: {
+        kind: "speak_only",
+        message: "Opening Gmail.",
+        speak: true,
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "nav.profile_gmail_panel",
+        actionLabel: "Open Gmail Connector Panel",
+        destructive: false,
+        message: null,
+        resolutionSource: "transcript",
+        execution: {
+          mode: "navigate_only",
+          steps: [
+            {
+              type: "navigate",
+              href: "/profile?panel=gmail",
+              reason: "route_bound_action",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(input.router.push).not.toHaveBeenCalled();
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(emitTelemetry).toHaveBeenCalledWith(
+      "speak_only_execution_skipped_missing_canonical",
+      expect.objectContaining({
+        action_id: "nav.profile_gmail_panel",
+        resolution_source: "transcript",
+      })
+    );
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "speak_only",
+      actionResult: {
+        status: "noop",
+        actionId: "nav.profile_gmail_panel",
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "I couldn't complete that action from the current Kai voice plan.",
+        data: {
+          executionMode: "navigate_only",
+          resolutionSource: "transcript",
+          compatibilityFallbackRequired: true,
+        },
+      },
+    });
+  });
+
+  it("allows explicit speak-only compatibility fallback when requested", async () => {
+    const input = baseInput();
+    const emitTelemetry = vi.fn();
+    const result = await executeVoiceResponse({
+      ...input,
+      emitTelemetry,
+      allowSpeakOnlyCompatibilityFallback: true,
+      response: {
+        kind: "speak_only",
+        message: "Opening Gmail.",
+        speak: true,
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "nav.profile_gmail_panel",
+        actionLabel: "Open Gmail Connector Panel",
+        destructive: false,
+        message: null,
+        resolutionSource: "transcript",
+        execution: {
+          mode: "navigate_only",
+          steps: [
+            {
+              type: "navigate",
+              href: "/profile?panel=gmail",
+              reason: "route_bound_action",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(input.router.push).toHaveBeenCalledWith("/profile?panel=gmail");
+    expect(emitTelemetry).toHaveBeenCalledWith(
+      "speak_only_execution_compatibility_fallback_used",
+      expect.objectContaining({
+        action_id: "nav.profile_gmail_panel",
+        resolution_source: "transcript",
+      })
+    );
+    expect(result.actionResult.status).toBe("succeeded");
+    expect(result.actionResult.routeAfter).toBe("/profile?panel=gmail");
   });
 
   it("falls back to legacy execute path when grounded execution rollout flag is disabled", async () => {
@@ -345,6 +547,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: "Resume Active Analysis Run",
         destructive: false,
         message: null,
+        resolutionSource: "canonical",
         execution: {
           mode: "navigate_then_action",
           steps: [
@@ -373,6 +576,16 @@ describe("executeVoiceResponse", () => {
       toolName: "resume_active_analysis",
       ticker: null,
       responseKind: "execute",
+      actionResult: {
+        status: "succeeded",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Executed the requested voice action.",
+        data: undefined,
+      },
     });
   });
 
@@ -424,6 +637,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: null,
         destructive: false,
         message: "Did you mean NVDA or AMD?",
+        resolutionSource: "none",
         execution: {
           mode: "ambiguous",
           steps: [],
@@ -438,6 +652,53 @@ describe("executeVoiceResponse", () => {
       toolName: "clarify",
       ticker: null,
       responseKind: "clarify",
+      actionResult: {
+        status: "noop",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Did you mean NVDA or AMD?",
+        data: {
+          reason: "ticker_ambiguous",
+        },
+      },
+    });
+  });
+
+  it("surfaces portfolio_required blocked responses without collapsing into clarify", async () => {
+    const result = await executeVoiceResponse({
+      ...baseInput(),
+      response: {
+        kind: "blocked",
+        reason: "portfolio_required",
+        message: "Import your portfolio before starting stock analysis.",
+        speak: true,
+      },
+    });
+
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(toastInfoMock).toHaveBeenCalledWith(
+      "Import your portfolio before starting stock analysis."
+    );
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "blocked",
+      actionResult: {
+        status: "blocked",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Import your portfolio before starting stock analysis.",
+        data: {
+          reason: "portfolio_required",
+        },
+      },
     });
   });
 
@@ -459,6 +720,20 @@ describe("executeVoiceResponse", () => {
       toolName: "already_running",
       ticker: "AAPL",
       responseKind: "already_running",
+      actionResult: {
+        status: "noop",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Analysis is already running for AAPL.",
+        data: {
+          task: "analysis",
+          ticker: "AAPL",
+          runId: "run_1",
+        },
+      },
     });
   });
 
@@ -481,6 +756,20 @@ describe("executeVoiceResponse", () => {
       toolName: "background_started",
       ticker: "MSFT",
       responseKind: "background_started",
+      actionResult: {
+        status: "started",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Started analysis for MSFT in background.",
+        data: {
+          task: "analysis",
+          ticker: "MSFT",
+          runId: "run_2",
+        },
+      },
     });
   });
 
@@ -504,6 +793,20 @@ describe("executeVoiceResponse", () => {
       toolName: "background_started",
       ticker: "MSFT",
       responseKind: "background_started",
+      actionResult: {
+        status: "started",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Started analysis for MSFT in background.",
+        data: {
+          task: "analysis",
+          ticker: "MSFT",
+          runId: "run_2",
+        },
+      },
     });
   });
 
@@ -535,6 +838,7 @@ describe("executeVoiceResponse", () => {
         actionLabel: "Resume Active Analysis Run",
         destructive: false,
         message: null,
+        resolutionSource: "canonical",
         execution: {
           mode: "navigate_then_action",
           steps: [
@@ -561,6 +865,19 @@ describe("executeVoiceResponse", () => {
       toolName: null,
       ticker: null,
       responseKind: "execute",
+      actionResult: {
+        status: "blocked",
+        actionId: "analysis.resume_active",
+        routeBefore: "/kai/dashboard",
+        routeAfter: "/kai/analysis",
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "The requested grounded voice action was blocked.",
+        data: {
+          executionMode: "navigate_then_action",
+          navigated: true,
+        },
+      },
     });
     expect(emitTelemetry).not.toHaveBeenCalledWith(
       "grounded_execution_success",
@@ -605,6 +922,16 @@ describe("executeVoiceResponse", () => {
       toolName: null,
       ticker: null,
       responseKind: "execute",
+      actionResult: {
+        status: "invalid",
+        actionId: null,
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "The requested voice action was invalid.",
+        data: undefined,
+      },
     });
     expect(emitTelemetry).not.toHaveBeenCalledWith(
       "legacy_execute_success",

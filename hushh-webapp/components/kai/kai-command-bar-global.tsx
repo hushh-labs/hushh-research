@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -18,8 +18,80 @@ import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { isVoiceEligibleRouteScreen } from "@/lib/voice/voice-route-eligibility";
-import type { AppRuntimeState, VoiceMemoryHint, VoiceResponse } from "@/lib/voice/voice-types";
+import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
+import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import type {
+  AppRuntimeState,
+  VoiceActionResult,
+  VoiceMemoryHint,
+  VoicePlanPayload,
+  VoiceResponse,
+} from "@/lib/voice/voice-types";
 import { ApiService } from "@/lib/services/api-service";
+
+function getNullableString(
+  record: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: string
+): string | null {
+  const value = record[snakeKey] ?? record[camelKey];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeActionStatus(raw: unknown): VoiceActionResult["status"] | null {
+  if (raw === "succeeded" || raw === "started" || raw === "blocked" || raw === "failed" || raw === "noop") {
+    return raw;
+  }
+  if (raw === "invalid") {
+    return "failed";
+  }
+  return null;
+}
+
+function normalizeSettledBy(raw: unknown): VoiceActionResult["settled_by"] | undefined {
+  if (
+    raw === "none" ||
+    raw === "route" ||
+    raw === "screen" ||
+    raw === "background_start" ||
+    raw === "timeout"
+  ) {
+    return raw;
+  }
+  return undefined;
+}
+
+function normalizeVoiceActionResult(raw: unknown): VoiceActionResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const envelope = raw as Record<string, unknown>;
+  const candidate =
+    envelope.actionResult && typeof envelope.actionResult === "object"
+      ? (envelope.actionResult as Record<string, unknown>)
+      : envelope;
+  const status = normalizeActionStatus(candidate.status);
+  const resultSummary = getNullableString(candidate, "result_summary", "resultSummary");
+  if (!status || !resultSummary) return null;
+  const data =
+    candidate.data && typeof candidate.data === "object" && !Array.isArray(candidate.data)
+      ? (candidate.data as Record<string, unknown>)
+      : undefined;
+  return {
+    status,
+    action_id: getNullableString(candidate, "action_id", "actionId"),
+    route_before: getNullableString(candidate, "route_before", "routeBefore"),
+    route_after: getNullableString(candidate, "route_after", "routeAfter"),
+    screen_before: getNullableString(candidate, "screen_before", "screenBefore"),
+    screen_after: getNullableString(candidate, "screen_after", "screenAfter"),
+    settled_by: normalizeSettledBy(candidate.settled_by),
+    result_summary: resultSummary,
+    data,
+    error_code: getNullableString(candidate, "error_code", "errorCode"),
+    tool_name: getNullableString(candidate, "tool_name", "toolName"),
+    ticker: getNullableString(candidate, "ticker", "ticker"),
+  };
+}
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -385,7 +457,14 @@ export function KaiCommandBarGlobal() {
     ]
   );
 
+  const appRuntimeStateRef = useRef(appRuntimeState);
+
+  useEffect(() => {
+    appRuntimeStateRef.current = appRuntimeState;
+  }, [appRuntimeState]);
+
   const runKaiCommand = (command: KaiCommandAction, params?: Record<string, unknown>) => {
+    const currentRoute = appRuntimeStateRef.current.route;
     const result = executeKaiCommand({
       command,
       params,
@@ -395,6 +474,8 @@ export function KaiCommandBarGlobal() {
       reviewDirty,
       busyOperations,
       setAnalysisParams,
+      currentRoute: currentRoute.pathname,
+      currentScreen: currentRoute.screen,
     });
     console.info(
       `[VOICE_UI] execute_kai_command command=${command} status=${result.status}${result.reason ? ` reason=${result.reason}` : ""}`
@@ -420,11 +501,13 @@ export function KaiCommandBarGlobal() {
         responseId: string;
         transcript: string;
         response: VoiceResponse;
+        plan: VoicePlanPayload;
         groundedPlan?: GroundedVoicePlan;
         memory?: VoiceMemoryHint;
         executionAllowed?: boolean;
         needsConfirmation?: boolean;
       }) => {
+        const routeBefore = appRuntimeStateRef.current.route;
         const outcome = await executeVoiceResponse({
           response: payload.response,
           groundedPlan: payload.groundedPlan,
@@ -433,6 +516,8 @@ export function KaiCommandBarGlobal() {
           suppressNotifications: true,
           turnId: payload.turnId,
           responseId: payload.responseId,
+          currentRoute: routeBefore.pathname,
+          currentScreen: routeBefore.screen,
           userId,
           vaultOwnerToken: vaultOwnerToken || undefined,
           vaultKey: vaultKey || undefined,
@@ -456,17 +541,73 @@ export function KaiCommandBarGlobal() {
           setPendingConfirmation,
         });
 
+        const normalizedActionResult = normalizeVoiceActionResult(outcome);
+        const expectedRoute =
+          normalizedActionResult?.route_after ||
+          payload.groundedPlan?.execution.steps.find((step) => step.type === "navigate")?.href ||
+          null;
+        const shouldWaitForSettlement =
+          normalizedActionResult &&
+          (normalizedActionResult.status === "succeeded" ||
+            normalizedActionResult.status === "started") &&
+          (payload.plan.mode === "start_background_and_ack" ||
+            (payload.plan.mode === "execute_and_wait" &&
+              Boolean(expectedRoute || normalizedActionResult.screen_after)));
+
+        let settledActionResult = normalizedActionResult;
+        if (shouldWaitForSettlement && normalizedActionResult) {
+          const settlement = await waitForVoiceActionSettlement({
+            actionId:
+              payload.plan.action_id ||
+              normalizedActionResult.action_id ||
+              payload.groundedPlan?.actionId ||
+              null,
+            actionStatus: normalizedActionResult.status,
+            mode: payload.plan.mode,
+            routeBefore,
+            expectedRoute,
+            expectedScreen: normalizedActionResult.screen_after,
+            getCurrentRoute: () => appRuntimeStateRef.current.route,
+            getCurrentSurfaceMetadata: () => getVoiceSurfaceMetadata(),
+            emitTelemetry: (event, telemetryPayload) => {
+              appendVoiceDebugEvent({
+                turnId: payload.turnId || "no_turn",
+                sessionId: null,
+                stage: "dispatch",
+                event,
+                payload: telemetryPayload,
+              });
+            },
+          });
+          settledActionResult = {
+            ...normalizedActionResult,
+            route_after: settlement.route_after ?? normalizedActionResult.route_after,
+            screen_after: settlement.screen_after ?? normalizedActionResult.screen_after,
+            settled_by: settlement.settled_by ?? normalizedActionResult.settled_by,
+            data:
+              normalizedActionResult.data || settlement.data
+                ? {
+                    ...(normalizedActionResult.data || {}),
+                    ...(settlement.data || {}),
+                  }
+                : undefined,
+          };
+        }
+
         if (outcome.shortTermMemoryWrite) {
           setLastVoiceTurn({
             transcript: payload.transcript,
-            toolName: outcome.toolName,
-            ticker: outcome.ticker,
+            toolName: outcome.toolName ?? settledActionResult?.tool_name ?? null,
+            ticker: outcome.ticker ?? settledActionResult?.ticker ?? null,
             responseKind: outcome.responseKind,
             turnId: payload.turnId,
           });
         }
 
-        return outcome;
+        return {
+          ...outcome,
+          actionResult: settledActionResult || outcome.actionResult,
+        };
       }}
       hasPortfolioData={hasPortfolioData}
       userId={userId}

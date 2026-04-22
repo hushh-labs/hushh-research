@@ -173,7 +173,9 @@ def test_full_handshake_lifecycle(monkeypatch):
     monkeypatch.setattr(
         consent,
         "issue_token",
-        lambda **_kwargs: SimpleNamespace(token=issued_token, expires_at=int(time.time() * 1000) + 86400000),
+        lambda **_kwargs: SimpleNamespace(
+            token=issued_token, expires_at=int(time.time() * 1000) + 86400000
+        ),
     )
     monkeypatch.setattr(consent, "revoke_token", lambda t: None)
     monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
@@ -420,7 +422,12 @@ def test_handshake_history_empty_for_unrelated_counterpart():
     with patch(
         "hushh_mcp.services.consent_center_service.ConsentCenterService.get_handshake_history",
         new_callable=AsyncMock,
-        return_value={"user_id": "investor_1", "counterpart_id": "unknown", "total": 0, "timeline": []},
+        return_value={
+            "user_id": "investor_1",
+            "counterpart_id": "unknown",
+            "total": 0,
+            "timeline": [],
+        },
     ):
         client = TestClient(app)
         resp = client.get(

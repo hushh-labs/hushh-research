@@ -1,4 +1,5 @@
 """Tests for RIA verification hardening and dev allowlist (issue #123)."""
+
 from __future__ import annotations
 
 import pytest
@@ -125,9 +126,7 @@ def test_unverified_ria_blocked_on_clients(monkeypatch):
 
 def test_unverified_ria_blocked_on_client_detail(monkeypatch):
     async def _mock_require(self, user_id):
-        raise RIAIAMPolicyError(
-            "RIA verification incomplete.", status_code=403
-        )
+        raise RIAIAMPolicyError("RIA verification incomplete.", status_code=403)
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
 
@@ -138,9 +137,7 @@ def test_unverified_ria_blocked_on_client_detail(monkeypatch):
 
 def test_unverified_ria_blocked_on_create_request(monkeypatch):
     async def _mock_require(self, user_id):
-        raise RIAIAMPolicyError(
-            "RIA verification incomplete.", status_code=403
-        )
+        raise RIAIAMPolicyError("RIA verification incomplete.", status_code=403)
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
 
@@ -157,9 +154,7 @@ def test_unverified_ria_blocked_on_create_request(monkeypatch):
 
 def test_unverified_ria_blocked_on_workspace(monkeypatch):
     async def _mock_require(self, user_id):
-        raise RIAIAMPolicyError(
-            "RIA verification incomplete.", status_code=403
-        )
+        raise RIAIAMPolicyError("RIA verification incomplete.", status_code=403)
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
 
@@ -170,9 +165,7 @@ def test_unverified_ria_blocked_on_workspace(monkeypatch):
 
 def test_unverified_ria_blocked_on_create_invites(monkeypatch):
     async def _mock_require(self, user_id):
-        raise RIAIAMPolicyError(
-            "RIA verification incomplete.", status_code=403
-        )
+        raise RIAIAMPolicyError("RIA verification incomplete.", status_code=403)
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
 

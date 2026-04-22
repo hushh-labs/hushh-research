@@ -140,6 +140,32 @@ describe("resolveGroundedVoicePlan", () => {
     ]);
   });
 
+  it("grounds direct analysis navigation from transcript fallback", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening analysis.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "take me to analysis",
+      response,
+      structuredContext: makeContext("/profile"),
+    });
+
+    expect(plan.status).toBe("resolved");
+    expect(plan.actionId).toBe("nav.kai_analysis");
+    expect(plan.execution.mode).toBe("navigate_only");
+    expect(plan.execution.steps).toEqual([
+      {
+        type: "navigate",
+        href: "/kai/analysis",
+        reason: "route_bound_action",
+      },
+    ]);
+    expect(plan.resolutionSource).toBe("transcript");
+  });
+
   it("keeps ambiguous clarify responses in the ambiguity fallback", () => {
     const response: VoiceResponse = {
       kind: "clarify",
@@ -222,5 +248,86 @@ describe("resolveGroundedVoicePlan", () => {
         reason: "route_bound_action",
       },
     ]);
+    expect(plan.resolutionSource).toBe("transcript");
+  });
+
+  it("prefers the canonical planner action id over transcript heuristics", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening profile.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open gmail receipts",
+      response,
+      structuredContext: makeContext("/kai"),
+      canonicalActionId: "nav.profile",
+    });
+
+    expect(plan.status).toBe("resolved");
+    expect(plan.actionId).toBe("nav.profile");
+    expect(plan.resolutionSource).toBe("canonical");
+    expect(plan.execution.mode).toBe("direct_tool");
+    expect(plan.execution.steps).toEqual([
+      {
+        type: "tool_call",
+        toolCall: {
+          tool_name: "execute_kai_command",
+          args: {
+            command: "profile",
+          },
+        },
+        reason: "wired_tool_action",
+      },
+    ]);
+  });
+
+  it("fails closed when the planner sends an unknown canonical action id", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening Gmail.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open gmail",
+      response,
+      structuredContext: makeContext("/kai"),
+      canonicalActionId: "nav.not_real",
+    });
+
+    expect(plan.status).toBe("unavailable");
+    expect(plan.actionId).toBe("nav.not_real");
+    expect(plan.actionLabel).toBeNull();
+    expect(plan.resolutionSource).toBe("canonical");
+    expect(plan.execution.mode).toBe("unavailable");
+    expect(plan.execution.steps).toEqual([
+      {
+        type: "prompt",
+        message: "I can’t do that right now.",
+        reason: "canonical_action_not_found",
+      },
+    ]);
+  });
+
+  it("disables heuristic compatibility fallback when explicitly requested", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening PKM Agent Lab.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open pkm",
+      response,
+      structuredContext: makeContext("/profile"),
+      allowCompatibilityFallback: false,
+    });
+
+    expect(plan.status).toBe("none");
+    expect(plan.actionId).toBeNull();
+    expect(plan.resolutionSource).toBe("none");
+    expect(plan.execution.steps).toHaveLength(0);
   });
 });
