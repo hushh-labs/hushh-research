@@ -10,7 +10,6 @@ import {
   ExternalLink,
   LineChart,
   Loader2,
-  Newspaper,
   Percent,
   RefreshCw,
   TrendingDown,
@@ -719,12 +718,6 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
           <SurfaceCardTitle className="text-[15px] font-semibold tracking-tight">
             Fast reads from the tape
           </SurfaceCardTitle>
-          <div
-            data-slot="card-action"
-            className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
-          >
-            <Newspaper className="h-4 w-4" />
-          </div>
         </SurfaceCardHeader>
         <div className="max-h-[520px] overflow-y-auto">
           <div className="divide-y divide-border/40">

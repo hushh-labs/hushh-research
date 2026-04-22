@@ -16,7 +16,7 @@ import { VoiceCompactStatus } from "@/components/kai/voice/voice-compact-status"
 import { VoiceConsoleSheet } from "@/components/kai/voice/voice-console-sheet";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
-import { Button } from "@/lib/morphy-ux/button";
+import { getVariantStyles } from "@/lib/morphy-ux/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
@@ -280,7 +280,7 @@ export function KaiSearchBar({
     () => `voice_scope_${createVoiceTurnId().replace("vturn_", "")}`
   );
 
-  const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } =
+  const { progress: hideBottomChromeProgress } =
     useKaiBottomChromeVisibility(true);
 
   const appendDebugEvent = useVoiceSession((s) => s.appendDebugEvent);
@@ -995,7 +995,7 @@ export function KaiSearchBar({
   useLayoutEffect(() => {
     const root = document.documentElement;
     const update = () => {
-      const barHeight = barRef.current?.getBoundingClientRect().height ?? 48;
+      const barHeight = barRef.current?.getBoundingClientRect().height ?? 40;
       const cssGap = Number.parseFloat(getComputedStyle(root).getPropertyValue("--kai-command-bottom-gap"));
       const gap = Number.isFinite(cssGap) ? cssGap : 12;
       const total = Math.round(barHeight + gap);
@@ -1370,22 +1370,24 @@ export function KaiSearchBar({
   const commandBarBottomOffset = isElevatedVoiceSurface
     ? "calc(var(--app-bottom-inset) + 58px)"
     : "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
+  const visibleCommandBarBottomOffset = isElevatedVoiceSurface
+    ? commandBarBottomOffset
+    : `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
   const realtimeConnecting = sessionStateText === "connecting" && !realtimeSessionReady;
 
       return (
     <>
       <div
         className={cn(
-          "fixed inset-x-0 z-[136] flex justify-center px-4",
-          hideBottomChrome ? "pointer-events-none opacity-0" : "pointer-events-none opacity-100"
+          "fixed inset-x-0 z-[136] flex justify-center px-4 pointer-events-none"
         )}
         style={{
-          bottom: commandBarBottomOffset,
-          transform: `translate3d(0, calc(${100 * hideBottomChromeProgress}% + ${12 * hideBottomChromeProgress}px), 0)`,
-          opacity: Math.max(0, 1 - hideBottomChromeProgress),
+          bottom: visibleCommandBarBottomOffset,
+          transform: `translate3d(0, ${6 * hideBottomChromeProgress}px, 0)`,
+          opacity: 1,
         }}
       >
-        <div ref={barRef} className="pointer-events-auto w-full max-w-[460px]">
+        <div ref={barRef} className="pointer-events-auto w-full max-w-[360px] sm:max-w-[392px]">
           {showVoiceSheet ? (
             <VoiceConsoleSheet
               open={showVoiceSheet}
@@ -1424,22 +1426,22 @@ export function KaiSearchBar({
               cancelLabel="Not now"
             />
           ) : showBaseCommandSurface ? (
-            <div className="relative h-12">
-              <Button
-                variant="none"
-                effect="fade"
-                fullWidth
-                size="default"
+            <div className="relative h-9">
+              <button
+                type="button"
                 data-tour-id="kai-command-bar"
                 className={cn(
-                  "h-12 justify-start rounded-full px-4 pr-12 text-sm text-muted-foreground",
+                  "flex h-9 w-full items-center justify-start overflow-hidden rounded-full px-3 pr-11 text-[12px] text-muted-foreground",
+                  getVariantStyles("none", "fade"),
                   disabled && "pointer-events-none opacity-50"
                 )}
                 onClick={() => setOpen(true)}
               >
-                <Icon icon={Search} size="sm" className="mr-2 text-muted-foreground" />
-                Analyze, dashboard, consent with Kai
-              </Button>
+                <Icon icon={Search} size="sm" className="shrink-0 text-muted-foreground" />
+                <span className="ml-2 min-w-0 flex-1 truncate text-left">
+                  Analyze, dashboard, consent with Kai
+                </span>
+              </button>
               {!micHidden ? (
                 <button
                   type="button"
@@ -1454,7 +1456,7 @@ export function KaiSearchBar({
                         : "Mute microphone"
                   }
                   className={cn(
-                    "absolute right-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
+                    "absolute right-1 top-1/2 z-10 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
                     micDisabled && "cursor-not-allowed opacity-60"
                   )}
                   onClick={handleMicTap}
