@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import OrderedDict
@@ -570,11 +571,116 @@ def _prepend_response_rules(briefing: str, repo_root: Path, query: str) -> str:
     return "\n".join(header) + briefing
 
 
+HOOK_MIN_PROMPT_LEN = 12
+HOOK_WORKFLOW_SCORE = 8
+HOOK_SKILL_SCORE = 10
+
+
+def _read_hook_stdin() -> str:
+    """Read UserPromptSubmit hook JSON from stdin and return the prompt field.
+
+    Claude Code feeds hooks a JSON payload containing at least `prompt`,
+    `session_id`, `cwd`, and `hook_event_name`. We only need `prompt`.
+    Returns "" on any parse failure so the hook stays silent.
+    """
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        return ""
+    if not raw.strip():
+        return ""
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("prompt") or "").strip()
+
+
+def _hook_wrap(briefing: str, match_id: str, kind: str) -> str:
+    header = (
+        "# Auto-routed by codex-bridge\n\n"
+        f"_Your prompt matched **{kind} `{match_id}`** in the codex tree. "
+        "Treat the briefing below as authoritative for this turn: follow its "
+        "Read-First list, workflow steps, and required checks, and hand off "
+        "if the task leaves scope. If the match looks wrong, ignore this "
+        "block and proceed with the user's request as stated._\n\n---\n\n"
+    )
+    return header + briefing
+
+
+def _route_hook(
+    repo_root: Path,
+    skills: list[Entry],
+    workflows: list[Entry],
+    query: str,
+) -> tuple[str, int]:
+    """Silent-fallback mode for the UserPromptSubmit hook.
+
+    Emits a wrapped briefing only on a confident match. Conversational or
+    off-topic prompts produce empty stdout so the hook does not bury the
+    turn in catalog dumps.
+    """
+    if os.environ.get("CODEX_BRIDGE_DISABLE") == "1":
+        return ("", 0)
+    if not query or len(query) < HOOK_MIN_PROMPT_LEN:
+        return ("", 0)
+
+    skills_by_id = {s.name: s for s in skills}
+
+    direct_workflow = exact_match(query, workflows)
+    if direct_workflow:
+        briefing = compose_workflow_briefing(direct_workflow, skills_by_id)
+        return _prepend_response_rules(
+            _hook_wrap(briefing, direct_workflow.name, "workflow"), repo_root, query
+        ), 0
+
+    direct_skill = exact_match(query, skills)
+    if direct_skill:
+        briefing = compose_skill_briefing(direct_skill, workflows, skills_by_id)
+        return _prepend_response_rules(
+            _hook_wrap(briefing, direct_skill.name, "skill"), repo_root, query
+        ), 0
+
+    tokens = _tokens(query)
+    if not tokens:
+        return ("", 0)
+
+    ranked_skills = sorted(((score_skill(e, tokens), e) for e in skills), key=lambda x: -x[0])
+    ranked_workflows = sorted(((score_workflow(e, tokens), e) for e in workflows), key=lambda x: -x[0])
+
+    best_skill_score, best_skill = (ranked_skills[0] if ranked_skills else (0, None))
+    best_wf_score, best_wf = (ranked_workflows[0] if ranked_workflows else (0, None))
+
+    if best_wf is not None and best_wf_score >= HOOK_WORKFLOW_SCORE and best_wf_score >= best_skill_score:
+        briefing = compose_workflow_briefing(best_wf, skills_by_id)
+        return _prepend_response_rules(
+            _hook_wrap(briefing, best_wf.name, "workflow"), repo_root, query
+        ), 0
+
+    if best_skill is not None and best_skill_score >= HOOK_SKILL_SCORE:
+        close = [e for s, e in ranked_skills if s >= best_skill_score - 2 and e is not best_skill]
+        if close:
+            return ("", 0)
+        briefing = compose_skill_briefing(best_skill, workflows, skills_by_id)
+        return _prepend_response_rules(
+            _hook_wrap(briefing, best_skill.name, "skill"), repo_root, query
+        ), 0
+
+    return ("", 0)
+
+
 def route(argv: list[str]) -> tuple[str, int]:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--coverage", action="store_true")
+    parser.add_argument(
+        "--hook",
+        action="store_true",
+        help="UserPromptSubmit hook mode: read prompt JSON from stdin and emit a briefing only on a confident match.",
+    )
     parser.add_argument("--repo", default=None)
     parser.add_argument("query", nargs="*")
     args = parser.parse_args(argv)
@@ -582,7 +688,13 @@ def route(argv: list[str]) -> tuple[str, int]:
     repo_root = Path(args.repo).resolve() if args.repo else find_repo_root(Path.cwd())
     skills, workflows = discover(repo_root)
     if not skills and not workflows:
+        if args.hook:
+            return ("", 0)
         return (f"_No `.codex/skills/` or `.codex/workflows/` entries under {repo_root}._\n", 1)
+
+    if args.hook:
+        query = _read_hook_stdin()
+        return _route_hook(repo_root, skills, workflows, query)
 
     if args.check:
         return render_check(repo_root, skills, workflows)
