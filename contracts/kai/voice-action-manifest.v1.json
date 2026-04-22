@@ -49,7 +49,7 @@
       "scope": {
         "routes": ["/kai/analysis"],
         "screens": ["kai_analysis"],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": []
       },
       "guard_ids": [],
@@ -366,10 +366,13 @@
       "label": "Go Back",
       "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
       "scope": {
-        "routes": [],
-        "screens": [],
+        "routes": ["/kai", "/kai/analysis", "/profile"],
+        "screens": ["kai_market", "kai_analysis", "profile_account"],
         "hidden_navigable": true,
-        "navigation_prerequisites": ["client browser history must have a previous entry"]
+        "navigation_prerequisites": [
+          "client browser history must have a previous entry",
+          "current route must already be inside a signed-in Kai or profile surface"
+        ]
       },
       "guard_ids": [],
       "risk_level": "low",

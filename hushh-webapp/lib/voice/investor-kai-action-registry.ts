@@ -198,7 +198,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     scope: {
       routes: [ROUTES.KAI_ANALYSIS],
       screens: ["kai_analysis"],
-      hiddenNavigable: true,
+      hiddenNavigable: false,
       navigationPrerequisites: [],
     },
     trigger: {
@@ -742,10 +742,13 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
     label: "Go Back",
     meaning: "Navigates back to the previous Kai or profile surface in browser history.",
     scope: {
-      routes: [],
-      screens: [],
+      routes: [ROUTES.KAI_HOME, ROUTES.KAI_ANALYSIS, ROUTES.PROFILE],
+      screens: ["kai_market", "kai_analysis", "profile_account"],
       hiddenNavigable: true,
-      navigationPrerequisites: ["client browser history must have a previous entry"],
+      navigationPrerequisites: [
+        "client browser history must have a previous entry",
+        "current route must already be inside a signed-in Kai or profile surface",
+      ],
     },
     trigger: {
       primary: "voice",

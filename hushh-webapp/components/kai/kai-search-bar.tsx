@@ -867,6 +867,7 @@ export function KaiSearchBar({
       );
     }
   }, [
+    emitDebug,
     moveToListeningOrIdle,
     pendingConfirmation,
     setPendingConfirmation,
