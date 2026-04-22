@@ -57,6 +57,8 @@ Repo governance baseline:
 - DCO signoff on PR commits
 - `uv` as the canonical backend Python toolchain
 - one required aggregate PR gate: `CI Status Gate`
+- project-scoped custom agents live under `.codex/agents/`; bounded repo defaults for subagent fan-out live in `.codex/config.toml`
+- repo-scoped custom agents inherit the runtime-selected model by default and are enforced through the existing `Governance` lane plus local Codex validation
 
 ## Codex skills
 
@@ -77,6 +79,7 @@ Top-level owner skills:
 - `.codex/skills/future-planner/`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
 - `.codex/skills/comms-community/`: public/community explanation workflows.
 - `.codex/skills/codex-skill-authoring/`: repo-local skill creation, retrofit, linting, scaffolding, and taxonomy maintenance.
+- `.codex/skills/agent-orchestration-governance/`: repo-scoped custom-agent authoring, bounded subagent limits, delegation authority, and handoff verification.
 
 Specialist spoke skills live under the same tree and should be used after the correct owner skill or `repo-context` has narrowed the request.
 Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.

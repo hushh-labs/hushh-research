@@ -132,6 +132,25 @@ Rules:
 2. Store credentials in shell env vars or a local secret store.
 3. Treat the examples in this doc as templates, not committed project config.
 
+Repo-scoped exception:
+
+1. Project-scoped custom-agent defaults may live in `.codex/config.toml` and `.codex/agents/`.
+2. Keep that repo config non-secret. MCP credentials and user-local server config still belong in the machine-local Codex config, not the repo.
+
+## Repo-scoped custom agents
+
+Codex supports project-scoped custom agents under `.codex/agents/`. In this repo, that surface is intentionally bounded:
+
+1. Subagent use is explicit only; do not add repo instructions that auto-fan-out by default.
+2. Most repo custom agents should stay `read-only`.
+3. Repo custom agents inherit the parent-session model and reasoning by default; pinning is an exception for future specialized lanes.
+4. The parent session or the built-in `worker` owns edits unless a narrower workflow says otherwise.
+5. Repo-level fan-out stays capped in `.codex/config.toml`:
+   - `max_threads = 6`
+   - `max_depth = 1`
+6. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
+7. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
+
 ## How to verify the servers are working
 
 ### `shadcn`
@@ -189,6 +208,7 @@ When working in this repo:
 11. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
 12. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
 13. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+14. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
 
 If a developer has not configured MCP yet:
 

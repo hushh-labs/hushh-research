@@ -54,6 +54,7 @@ REQUIRED_WORKFLOW_KEYS = [
     "common_failures",
 ]
 EXPECTED_WORKFLOW_IDS = [
+    "agent-orchestration-governance",
     "repo-orientation",
     "new-feature-tri-flow",
     "api-contract-change",
