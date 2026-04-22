@@ -23,6 +23,8 @@ from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_q
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
+    NameVerificationResult,
+    RIAIntelligenceStage1LookupAdapter,
     VerificationGateway,
     VerificationResult,
 )
@@ -132,6 +134,7 @@ class _PooledAsyncpgConnection:
 class RIAIAMService:
     def __init__(self) -> None:
         self._verification_gateway = VerificationGateway(FinraVerificationAdapter())
+        self._name_verification_gateway = RIAIntelligenceStage1LookupAdapter()
 
     @staticmethod
     def _runtime_environment() -> str:
@@ -440,7 +443,13 @@ class RIAIAMService:
     @staticmethod
     def _verification_provider_label(result: VerificationResult) -> str:
         provider = str((result.metadata or {}).get("provider") or "").strip().lower()
-        if provider in {"ria_intelligence", "iapd", "dev_allowlist", "advisory_bypass"}:
+        if provider in {
+            "ria_intelligence",
+            "ria_intelligence_stage1",
+            "iapd",
+            "dev_allowlist",
+            "advisory_bypass",
+        }:
             return provider
         return "regulatory_verification"
 
@@ -459,6 +468,7 @@ class RIAIAMService:
         strategy: str | None,
         disclosures_url: str | None,
         require_regulatory_identity: bool,
+        require_advisory_firm_identifiers: bool = True,
     ) -> dict[str, Any]:
         normalized_display_name = (display_name or "").strip()
         if not normalized_display_name:
@@ -510,7 +520,7 @@ class RIAIAMService:
                     status_code=400,
                 )
 
-        if "advisory" in normalized_capabilities:
+        if "advisory" in normalized_capabilities and require_advisory_firm_identifiers:
             if not normalized_advisory_firm_legal_name:
                 raise RIAIAMPolicyError(
                     "advisory_firm_legal_name is required when advisory capability is requested",
@@ -548,6 +558,41 @@ class RIAIAMService:
             "disclosures_url": RIAIAMService._normalize_optional_text(disclosures_url),
             "require_regulatory_identity": bool(require_regulatory_identity),
         }
+
+    @staticmethod
+    def _serialize_name_verification_result(result: NameVerificationResult) -> dict[str, Any]:
+        return {
+            "status": result.status,
+            "matched_name": result.matched_name,
+            "crd_number": result.crd_number,
+            "current_firm": result.current_firm,
+            "sec_number": result.sec_number,
+            "reason": result.reason,
+            "reason_code": result.reason_code,
+            "suggested_names": list(result.suggested_names or []),
+            "provider": result.provider,
+        }
+
+    async def _verify_ria_name_result(
+        self,
+        query: str,
+        *,
+        use_cache: bool = True,
+    ) -> NameVerificationResult:
+        normalized_query = str(query or "").strip()
+        if not normalized_query:
+            raise RIAIAMPolicyError("query is required", status_code=400)
+        return await self._name_verification_gateway.verify_name(
+            query=normalized_query,
+            use_cache=use_cache,
+        )
+
+    async def verify_ria_name(
+        self,
+        query: str,
+    ) -> dict[str, Any]:
+        result = await self._verify_ria_name_result(query, use_cache=True)
+        return self._serialize_name_verification_result(result)
 
     @staticmethod
     def _advisory_status_from_row(row: Any) -> str:
@@ -2102,56 +2147,73 @@ class RIAIAMService:
         primary_firm_role: str | None = None,
         force_live_verification: bool = False,
     ) -> dict[str, Any]:
-        if not display_name.strip():
-            raise RIAIAMPolicyError("display_name is required", status_code=400)
-
-        normalized_requested_capabilities: list[str] = []
-        for capability in requested_capabilities or []:
-            candidate = str(capability or "").strip().lower()
-            if not candidate:
-                continue
-            if candidate not in _ALLOWED_PROFESSIONAL_CAPABILITIES:
-                raise RIAIAMPolicyError(
-                    "requested_capabilities contains unsupported capability",
-                    status_code=400,
-                )
-            if candidate not in normalized_requested_capabilities:
-                normalized_requested_capabilities.append(candidate)
-        if not normalized_requested_capabilities:
-            normalized_requested_capabilities = ["advisory"]
+        prepared = self._prepare_professional_onboarding_inputs(
+            display_name=display_name,
+            requested_capabilities=requested_capabilities or ["advisory"],
+            individual_legal_name=individual_legal_name or legal_name,
+            individual_crd=individual_crd or finra_crd,
+            advisory_firm_legal_name=advisory_firm_legal_name or primary_firm_name,
+            advisory_firm_iapd_number=advisory_firm_iapd_number or sec_iard,
+            broker_firm_legal_name=broker_firm_legal_name,
+            broker_firm_crd=broker_firm_crd,
+            bio=bio,
+            strategy=strategy,
+            disclosures_url=disclosures_url,
+            require_regulatory_identity=False,
+            require_advisory_firm_identifiers=False,
+        )
+        normalized_display_name = str(prepared["display_name"])
+        normalized_requested_capabilities = list(prepared["requested_capabilities"])
+        name_lookup = await self._verify_ria_name_result(normalized_display_name, use_cache=True)
+        if name_lookup.status == "provider_unavailable":
+            raise RIAIAMPolicyError(
+                name_lookup.reason or "RIA name verification provider unavailable.",
+                status_code=503,
+            )
+        if name_lookup.status != "verified" or not self._normalize_optional_text(
+            name_lookup.crd_number
+        ):
+            raise RIAIAMPolicyError(
+                name_lookup.reason
+                or "Advisor name could not be verified against a CRD-backed registration.",
+                status_code=400,
+            )
 
         effective_legal_name = (
-            self._normalize_optional_text(individual_legal_name)
-            or self._normalize_optional_text(legal_name)
-            or display_name.strip()
+            self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
         )
-        effective_finra_crd = self._normalize_optional_text(
-            individual_crd
-        ) or self._normalize_optional_text(finra_crd)
+        effective_finra_crd = self._normalize_optional_text(name_lookup.crd_number)
         effective_sec_iard = self._normalize_optional_text(
-            advisory_firm_iapd_number
-        ) or self._normalize_optional_text(sec_iard)
-        effective_primary_firm_name = self._normalize_optional_text(
-            advisory_firm_legal_name
-        ) or self._normalize_optional_text(primary_firm_name)
-        effective_broker_firm_name = self._normalize_optional_text(broker_firm_legal_name)
-        effective_broker_firm_crd = self._normalize_optional_text(broker_firm_crd)
-
-        if not effective_legal_name:
-            raise RIAIAMPolicyError(
-                "individual_legal_name is required for regulatory verification",
-                status_code=400,
-            )
-        if not effective_finra_crd:
-            raise RIAIAMPolicyError(
-                "individual_crd is required for regulatory verification",
-                status_code=400,
-            )
-        if "advisory" in normalized_requested_capabilities and not effective_sec_iard:
-            raise RIAIAMPolicyError(
-                "advisory_firm_iapd_number is required for regulatory verification",
-                status_code=400,
-            )
+            name_lookup.sec_number
+        ) or self._normalize_optional_text(prepared.get("advisory_firm_iapd_number"))
+        effective_primary_firm_name = (
+            self._normalize_optional_text(name_lookup.current_firm)
+            or self._normalize_optional_text(prepared.get("advisory_firm_legal_name"))
+            or self._normalize_optional_text(primary_firm_name)
+        )
+        effective_broker_firm_name = self._normalize_optional_text(
+            prepared.get("broker_firm_legal_name")
+        )
+        effective_broker_firm_crd = self._normalize_optional_text(prepared.get("broker_firm_crd"))
+        verification_result = VerificationResult(
+            verified=True,
+            rejected=False,
+            outcome="verified",
+            message="RIA verification succeeded from the Stage 1 name lookup.",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            metadata={
+                "provider": name_lookup.provider,
+                "matched_name": name_lookup.matched_name,
+                "crd_number": name_lookup.crd_number,
+                "current_firm": name_lookup.current_firm,
+                "sec_number": name_lookup.sec_number,
+                "reason_code": name_lookup.reason_code,
+                "suggested_names": list(name_lookup.suggested_names or []),
+                **dict(name_lookup.metadata or {}),
+            },
+        )
+        verification_provider = self._verification_provider_label(verification_result)
+        next_status = "verified"
 
         conn = await self._conn()
         try:
@@ -2221,13 +2283,13 @@ class RIAIAMService:
                     RETURNING id, user_id, display_name, legal_name, finra_crd, sec_iard, verification_status
                     """,
                     user_id,
-                    display_name.strip(),
+                    normalized_display_name,
                     effective_legal_name,
                     effective_finra_crd,
                     effective_sec_iard or "",
-                    (bio or "").strip(),
-                    (strategy or "").strip(),
-                    (disclosures_url or "").strip(),
+                    str(prepared.get("bio") or ""),
+                    str(prepared.get("strategy") or ""),
+                    str(prepared.get("disclosures_url") or ""),
                 )
                 if ria is None:
                     raise RuntimeError("Failed to create RIA profile")
@@ -2268,21 +2330,7 @@ class RIAIAMService:
                             (primary_firm_role or "").strip(),
                         )
 
-                verification_result: VerificationResult = await self._verification_gateway.verify(
-                    legal_name=effective_legal_name,
-                    finra_crd=effective_finra_crd,
-                    sec_iard=effective_sec_iard,
-                    force_live=force_live_verification,
-                )
-                verification_provider = self._verification_provider_label(verification_result)
-
-                next_status = "submitted"
-                if verification_result.outcome == "bypassed":
-                    next_status = "bypassed"
-                elif verification_result.verified:
-                    next_status = "finra_verified"
-                elif verification_result.rejected:
-                    next_status = "rejected"
+                _ = force_live_verification
 
                 await conn.execute(
                     """
@@ -2299,6 +2347,46 @@ class RIAIAMService:
                     verification_provider,
                     verification_result.expires_at,
                 )
+                try:
+                    await conn.execute(
+                        """
+                        UPDATE ria_profiles
+                        SET
+                          requested_capabilities = $2::text[],
+                          individual_legal_name = NULLIF($3, ''),
+                          individual_crd = NULLIF($4, ''),
+                          advisory_firm_legal_name = NULLIF($5, ''),
+                          advisory_firm_iapd_number = NULLIF($6, ''),
+                          broker_firm_legal_name = NULLIF($7, ''),
+                          broker_firm_crd = NULLIF($8, ''),
+                          advisory_status = $9,
+                          brokerage_status = $10,
+                          advisory_provider = $11,
+                          brokerage_provider = $12,
+                          advisory_verification_expires_at = $13,
+                          brokerage_verification_expires_at = $14,
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        ria["id"],
+                        normalized_requested_capabilities,
+                        effective_legal_name or "",
+                        effective_finra_crd or "",
+                        effective_primary_firm_name or "",
+                        effective_sec_iard or "",
+                        effective_broker_firm_name or "",
+                        effective_broker_firm_crd or "",
+                        "verified",
+                        "draft",
+                        verification_provider,
+                        None,
+                        verification_result.expires_at,
+                        None,
+                    )
+                except asyncpg.exceptions.UndefinedColumnError:
+                    logger.warning(
+                        "ria_profiles capability columns unavailable during onboarding write; using legacy verification fields only"
+                    )
 
                 await conn.execute(
                     """
@@ -2364,20 +2452,18 @@ class RIAIAMService:
                       strategy_summary = EXCLUDED.strategy_summary,
                       verification_badge = EXCLUDED.verification_badge,
                       is_discoverable = TRUE,
-                      updated_at = NOW()
+                    updated_at = NOW()
                     """,
                     user_id,
-                    display_name.strip(),
-                    (bio or "").strip(),
-                    (strategy or "").strip(),
+                    normalized_display_name,
+                    str(prepared.get("bio") or ""),
+                    str(prepared.get("strategy") or ""),
                     next_status,
                 )
 
-                advisory_status = self._normalize_legacy_verification_status(next_status)
-                brokerage_status = (
-                    "draft" if "brokerage" in normalized_requested_capabilities else "draft"
-                )
-                professional_access_granted = advisory_status in {"verified", "active", "bypassed"}
+                advisory_status = "verified"
+                brokerage_status = "draft"
+                professional_access_granted = True
                 brokerage_outcome = (
                     "not_requested"
                     if "brokerage" not in normalized_requested_capabilities

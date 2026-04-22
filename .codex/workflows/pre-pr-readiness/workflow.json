@@ -32,14 +32,18 @@
   },
   "deliverables": [
     "local CI mirror result",
+    "DCO signoff state for branch commits",
+    "governance rerun state for skill/docs/config/scripts changes",
     "blocking-vs-advisory lane choice",
-    "pre-PR readiness summary"
+    "pre-PR readiness summary",
+    "post-trigger monitoring state when Codex opens, updates, or queues a PR merge"
   ],
   "impact_fields": [
     "Workflow mirrored",
     "Blocking checks passed",
     "Advisory lane included",
-    "Verification commands executed"
+    "Verification commands executed",
+    "Post-trigger terminal status"
   ],
   "handoff_chain": [
     "repo-operations",
@@ -50,7 +54,10 @@
   ],
   "common_failures": [
     "opening or updating a PR without running the local mirror first",
+    "pushing unsigned commits and discovering DCO only on GitHub",
+    "changing .codex/docs/config/scripts without rerunning the governance lane",
     "inventing a second local CI path instead of reusing ./bin/hushh ci",
-    "treating advisory checks as blocking by default"
+    "treating advisory checks as blocking by default",
+    "treating merge-queue entry as completion instead of monitoring queue and post-merge authority surfaces"
   ]
 }

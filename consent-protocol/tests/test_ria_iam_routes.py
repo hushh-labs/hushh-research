@@ -177,6 +177,35 @@ def test_ria_onboarding_submit_maps_professional_capabilities(monkeypatch):
     assert payload["requested_capabilities"] == ["advisory", "brokerage"]
 
 
+def test_ria_name_verification_route_maps_stage1_lookup(monkeypatch):
+    async def _mock_verify_name(self, query: str):
+        assert query == "Ana Roumenova Carter"
+        return {
+            "status": "verified",
+            "matched_name": "Ana Roumenova Carter",
+            "crd_number": "4424794",
+            "current_firm": "LCG CAPITAL ADVISORS, LLC",
+            "sec_number": "801-12345",
+            "reason": None,
+            "suggested_names": [],
+            "provider": "ria_intelligence_stage1",
+        }
+
+    monkeypatch.setattr(RIAIAMService, "verify_ria_name", _mock_verify_name)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/onboarding/verify-name",
+        json={"query": "Ana Roumenova Carter"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "verified"
+    assert payload["crd_number"] == "4424794"
+    assert payload["provider"] == "ria_intelligence_stage1"
+
+
 def test_marketplace_schema_not_ready_returns_503(monkeypatch):
     async def _mock_search(self, **kwargs):  # noqa: ANN003
         _ = kwargs
