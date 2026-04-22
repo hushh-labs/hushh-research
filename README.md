@@ -59,6 +59,21 @@ flowchart TB
 - **Zero-knowledge**: the backend persists ciphertext and metadata, not plaintext user memory.
 - **Tri-flow parity**: web, iOS, and Android stay aligned on visible contracts.
 
+##  Prerequisites
+
+Ensure you have the following installed:
+
+- Node.js (v18+ recommended)
+- Python (3.13 recommended)
+- uv (Python package manager)
+- Git
+- (Optional) gcloud CLI for full environment hydration
+
+To install uv:
+
+```bash
+pip install uv
+
 ## Quick Start
 
 ```bash
@@ -69,6 +84,45 @@ cd hushh-research
 ./bin/hushh web
 ```
 
+```md
+##  Understanding the CLI
+
+All project operations are handled via:
+
+```bash
+./bin/hushh
+```
+##  Expected Result
+
+After running the setup:
+
+- frontend should start on a local development server (usually http://localhost:3000)
+- backend API should be running locally
+- no critical errors should appear in terminal
+
+If the app loads in browser, setup is successful.
+
+##  Troubleshooting
+
+### Command not found: ./bin/hushh
+Make sure you are in the root directory and the script has execute permissions:
+```bash
+chmod +x ./bin/hushh
+-Python or uv issues
+pip install uv
+-Environment issues
+./bin/hushh doctor --mode local
+
+```
+##  Beginner Tip
+
+If you're new to this project, start with:
+
+```bash
+./bin/hushh bootstrap
+./bin/hushh web
+
+```
 That is the local-first default contributor path:
 
 - local frontend
