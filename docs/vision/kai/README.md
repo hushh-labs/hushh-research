@@ -14,6 +14,12 @@ flowchart TD
 
 Forward-looking Kai roadmap and R&D planning now belong under [../../future/kai/README.md](../../future/kai/README.md). `docs/vision/kai/` stays north-star oriented; speculative execution-model docs should not start here.
 
+Current implementation note:
+
+- This vision document is not the source of truth for the shipped Kai runtime.
+- For the live Kai voice/runtime architecture, use [../../reference/kai/kai-voice-runtime-architecture.md](../../reference/kai/kai-voice-runtime-architecture.md).
+- For on-device AI status, use [../../reference/ai/on-device-future-plan/README.md](../../reference/ai/on-device-future-plan/README.md); cloud remains the current primary runtime path.
+
 ---
 
 <p align="center">

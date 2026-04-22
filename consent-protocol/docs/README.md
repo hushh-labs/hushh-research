@@ -55,6 +55,7 @@ It does not own:
 | Publish against the developer API / MCP | [reference/developer-api.md](./reference/developer-api.md) |
 | Understand data encryption and storage | [reference/personal-knowledge-model.md](./reference/personal-knowledge-model.md) |
 | Learn the 3-agent debate system | [reference/kai-agents.md](./reference/kai-agents.md) |
+| Understand the current Kai voice runtime contract | [../../docs/reference/kai/kai-voice-runtime-architecture.md](../../docs/reference/kai/kai-voice-runtime-architecture.md) |
 | Understand the consent token model | [reference/consent-protocol.md](./reference/consent-protocol.md) |
 | FCM push notification architecture | [reference/fcm-notifications.md](./reference/fcm-notifications.md) |
 | Understand MCP runtime and contributor-local setup | [mcp-setup.md](./mcp-setup.md) |

@@ -19,6 +19,11 @@ flowchart LR
 
 Status: implemented through Phase 4 for the Kai app's in-app voice assistant, with a small set of explicit compatibility shims still gated for migration safety.
 
+Current-state note:
+
+- This document is the original migration/audit spec for the Kai voice redesign.
+- For the current checked-in runtime architecture, use [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md).
+
 ## Phase 4 Status
 
 The closed-loop Kai voice runtime described in this document is now the default architecture in the checked-in codebase:

@@ -8,8 +8,10 @@ flowchart TD
   root["Kai Index"]
   n1["Kai Accuracy Contract"]
   root --> n1
-  n10["Kai Voice Assistant Architecture"]
+  n10["Kai Voice Runtime Architecture"]
   root --> n10
+  n11["Kai Voice Migration Audit"]
+  root --> n11
   n2["Kai Brokerage Connectivity Architecture"]
   root --> n2
   n3["Kai Change Impact Matrix"]
@@ -28,17 +30,21 @@ flowchart TD
   root --> n9
 ```
 
-Kai-specific architecture, runtime, and rollout references live here.
+Kai-specific architecture, runtime, rollout, and audit references live here.
 
 ## References
 
+- Canonical current-state references:
 - [kai-interconnection-map.md](./kai-interconnection-map.md): dependency map and upstream boundaries.
 - [kai-change-impact-matrix.md](./kai-change-impact-matrix.md): blast-radius guide for Kai changes.
-- [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md): current-state audit, implemented closed-loop voice architecture, migration notes, and remaining compatibility shims for the Kai in-app voice assistant.
+- [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md): canonical current runtime architecture for Kai voice, including planner, compose, execution, settlement, and manifest/file ownership.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md): accuracy and output expectations.
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md): route-level audit map.
 - [kai-runtime-smoke-checklist.md](./kai-runtime-smoke-checklist.md): runtime smoke checklist.
 - [kai-rate-limit-playbook.md](./kai-rate-limit-playbook.md): rate-limit handling.
 - [mobile-kai-parity-map.md](./mobile-kai-parity-map.md): mobile parity map.
-- [kai-v6-execution-plan.md](./kai-v6-execution-plan.md): currently tracked Kai execution plan.
+
+- Historical or plan references:
+- [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md): original migration/audit spec for the Kai voice redesign.
+- [kai-v6-execution-plan.md](./kai-v6-execution-plan.md): execution-plan artifact, not the source of truth for current runtime behavior.

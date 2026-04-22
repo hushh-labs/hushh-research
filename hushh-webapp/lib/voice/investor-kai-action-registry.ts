@@ -156,7 +156,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         command: "home",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#3"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "nav.kai_dashboard",
@@ -189,7 +189,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         command: "dashboard",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#3"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "nav.kai_analysis",
@@ -255,7 +255,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         command: "history",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#3"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "analysis.start",
@@ -299,7 +299,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         },
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#4"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "analysis.resume_active",
@@ -341,7 +341,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         toolName: "resume_active_analysis",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#4"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "analysis.cancel_active",
@@ -391,7 +391,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         toolName: "cancel_active_analysis",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#4"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "nav.kai_import",
@@ -424,7 +424,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         command: "import",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#3"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "nav.kai_investments",
@@ -528,7 +528,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         command: "consent",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#3"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "nav.profile",
@@ -561,7 +561,7 @@ export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[
         command: "profile",
       },
     },
-    mapReferences: ["docs/voice-navigation-architecture-plan.md#3"],
+    mapReferences: ["docs/reference/kai/kai-voice-runtime-architecture.md"],
   },
   {
     id: "nav.profile_receipts",
