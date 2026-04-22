@@ -17,6 +17,11 @@ Operational matrix for runtime audits without expanding automated test suites.
 | `/kai/portfolio` | `GET` | Portfolio route reachable |
 | `/kai/analysis` | `GET` | Analysis route reachable |
 | `/kai/optimize` | `GET` | Optimize route reachable |
+| `/api/kai/voice/capability` | `GET` | Voice capability contract reachable and gated correctly for the current user/runtime |
+| `/api/kai/voice/plan` | `POST` | Voice planning contract reachable with canonical planner fields plus legacy response envelope |
+| `/api/kai/voice/compose` | `POST` | Post-execution voice composition contract reachable for final spoken reply generation |
+| `/api/kai/voice/stt` | `POST` | Voice STT contract reachable for non-realtime fallback paths |
+| `/api/kai/voice/tts` | `POST` | Voice TTS contract reachable for explicit synthesized playback |
 | `/api/kai/plaid/status/{user_id}` | `GET` | Plaid aggregate status and source metadata available |
 | `/api/kai/plaid/oauth/resume` | `POST` | OAuth resume session can mint a fresh Link continuation |
 | `/api/kai/plaid/exchange-public-token` | `POST` | Public-token exchange syncs read-only holdings + transactions |
@@ -50,3 +55,4 @@ In addition to route reachability, review these runtime behaviors:
 3. Cache-first `/kai` refresh behavior within fresh TTL windows.
 4. Onboarding chrome gating and command bar visibility during onboarding/import.
 5. Bottom chrome scroll hide/reveal behavior on mobile-sized viewports.
+6. Voice route family reachability, capability gating, and planner/compose contract health.

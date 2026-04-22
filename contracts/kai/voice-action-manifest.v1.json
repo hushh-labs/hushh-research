@@ -20,7 +20,7 @@
         "path": "kai_command",
         "target": "home"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "nav.kai_dashboard",
@@ -40,7 +40,7 @@
         "path": "kai_command",
         "target": "dashboard"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "nav.kai_analysis",
@@ -80,7 +80,7 @@
         "path": "kai_command",
         "target": "history"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "analysis.start",
@@ -103,7 +103,7 @@
           "requires_symbol": true
         }
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#4"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "analysis.resume_active",
@@ -123,7 +123,7 @@
         "path": "voice_tool",
         "target": "resume_active_analysis"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#4"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "analysis.cancel_active",
@@ -147,7 +147,7 @@
         "path": "voice_tool",
         "target": "cancel_active_analysis"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#4"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "nav.kai_import",
@@ -167,7 +167,7 @@
         "path": "kai_command",
         "target": "import"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "nav.kai_investments",
@@ -229,7 +229,7 @@
         "path": "kai_command",
         "target": "consent"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "nav.profile",
@@ -249,7 +249,7 @@
         "path": "kai_command",
         "target": "profile"
       },
-      "map_references": ["docs/voice-navigation-architecture-plan.md#3"]
+      "map_references": ["docs/reference/kai/kai-voice-runtime-architecture.md"]
     },
     {
       "id": "nav.profile_receipts",
