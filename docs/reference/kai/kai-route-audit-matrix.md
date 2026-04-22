@@ -17,7 +17,7 @@ Operational matrix for runtime audits without expanding automated test suites.
 | `/kai/portfolio` | `GET` | Portfolio route reachable |
 | `/kai/analysis` | `GET` | Analysis route reachable |
 | `/kai/optimize` | `GET` | Optimize route reachable |
-| `/api/kai/voice/capability` | `GET` | Voice capability contract reachable and gated correctly for the current user/runtime |
+| `/api/kai/voice/capability` | `POST` | Voice capability contract reachable and gated correctly for the current user/runtime |
 | `/api/kai/voice/plan` | `POST` | Voice planning contract reachable with canonical planner fields plus legacy response envelope |
 | `/api/kai/voice/compose` | `POST` | Post-execution voice composition contract reachable for final spoken reply generation |
 | `/api/kai/voice/stt` | `POST` | Voice STT contract reachable for non-realtime fallback paths |

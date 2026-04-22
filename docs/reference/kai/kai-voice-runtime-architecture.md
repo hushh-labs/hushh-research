@@ -138,7 +138,7 @@ Important current behavior:
 - `/voice/tts`
 - `/voice/stt`
 - `/voice/realtime/session`
-- `/voice/capability`
+- `/voice/capability` (`POST`)
 
 `/voice/plan` is the main planning transport and still preserves rollout, canary, and kill-switch behavior.
 
