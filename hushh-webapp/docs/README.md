@@ -37,5 +37,6 @@ This docs home is package-local. It should stay focused on frontend/native imple
 ## Related References
 
 - Cross-cutting docs entry: [`docs/README.md`](../../docs/README.md)
+- Kai voice runtime architecture: [`docs/reference/kai/kai-voice-runtime-architecture.md`](../../docs/reference/kai/kai-voice-runtime-architecture.md)
 - Documentation homes map: [`docs/reference/operations/documentation-architecture-map.md`](../../docs/reference/operations/documentation-architecture-map.md)
 - Backend docs entry: [`consent-protocol/docs/README.md`](../../consent-protocol/docs/README.md)
