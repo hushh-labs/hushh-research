@@ -35,18 +35,28 @@ async def issue_session_token(
     from hushh_mcp.constants import ConsentScope
 
     try:
-        verified_uid = verify_firebase_bearer(authorization)
+    verified_uid = verify_firebase_bearer(authorization)
 
-        # Ensure request userId matches verified token
-        if request.userId != verified_uid:
-            logger.warning("session_token.user_mismatch")
-            raise HTTPException(status_code=403, detail="userId does not match authenticated user")
+    # Ensure request userId matches verified token
+    if request.userId != verified_uid:
+        logger.warning("session_token.user_mismatch")
+        raise HTTPException(status_code=403, detail="userId does not match authenticated user")
 
-        logger.info("session_token.firebase_verified")
+    logger.info("session_token.firebase_verified")
 
-    except Exception as e:
-        logger.error("session_token.verification_failed: %s", e)
-        raise HTTPException(status_code=401, detail="Token verification failed")
+except HTTPException:
+    # Preserve already raised HTTP errors (like 403)
+    raise
+
+except ValueError as e:
+    # Token-related issues (invalid, expired, malformed)
+    logger.warning("session_token.invalid_token: %s", e)
+    raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+except Exception as e:
+    # Unexpected server errors
+    logger.error("session_token.verification_failed: %s", e)
+    raise HTTPException(status_code=500, detail="Internal server error")
 
     try:
         # Issue token with session scope
