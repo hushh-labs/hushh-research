@@ -73,7 +73,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
 
     In production, this endpoint returns:
     - granted: if already granted
-    - pending: user must approve in Hushh app/dashboard
+    - pending: user must approve in Hussh app/dashboard
     """
     user_id = args.get("user_id")
     scope_str = args.get("scope")
@@ -140,8 +140,8 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                     {
                         "status": "user_not_found",
                         "email": original_identifier,
-                        "message": f"No Hushh account found for {original_identifier}",
-                        "next_step": "Ask the user to sign in to the Hushh app before requesting consent.",
+                        "message": f"No Hussh account found for {original_identifier}",
+                        "next_step": "Ask the user to sign in to the Hussh app before requesting consent.",
                     }
                 ),
             )
@@ -373,7 +373,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                             "request_id": request_id,
                             "message": data.get(
                                 "message",
-                                "Consent request submitted. User approval is pending in Hushh app.",
+                                "Consent request submitted. User approval is pending in Hussh app.",
                             ),
                             "approval_surface": data.get("approval_surface", "/consents"),
                             "request_url": data.get("request_url"),
@@ -455,7 +455,7 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
                     {
                         "status": "user_not_found",
                         "email": original_identifier,
-                        "message": f"No Hushh account found for {original_identifier}",
+                        "message": f"No Hussh account found for {original_identifier}",
                     }
                 ),
             )

@@ -1,9 +1,9 @@
 ---
 name: frontend-design-system
-description: Use when changing Hushh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.
+description: Use when changing Hussh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.
 ---
 
-# Hushh Frontend Design System Skill
+# Hussh Frontend Design System Skill
 
 ## Purpose and Trigger
 

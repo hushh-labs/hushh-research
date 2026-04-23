@@ -7,6 +7,7 @@ import type {
   VoiceSurfaceControlDefinition,
   VoiceSurfaceSectionDefinition,
 } from "@/lib/voice/voice-types";
+import { getKaiActionsForControlId } from "@/lib/voice/kai-action-gateway";
 import { listInvestorKaiActionsForSurface } from "@/lib/voice/investor-kai-action-registry";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -42,6 +43,14 @@ export type StructuredScreenContext = {
     signed_in: boolean;
     user_id?: string | null;
   };
+  persona: {
+    active: string;
+    primary_nav: string;
+    available: string[];
+    transition_target?: string | null;
+    ria_switch_available: boolean;
+    ria_setup_available: boolean;
+  };
   vault: {
     unlocked: boolean;
     token_available: boolean;
@@ -60,6 +69,7 @@ export type StructuredScreenContext = {
     }>;
     actions: Array<{
       id: string;
+      action_id?: string | null;
       label: string;
       purpose?: string | null;
       description?: string | null;
@@ -161,6 +171,7 @@ function mapActions(actions: VoiceSurfaceActionDefinition[] | undefined) {
   return Array.isArray(actions)
     ? actions.map((action) => ({
         id: action.id,
+        action_id: action.actionId || null,
         label: action.label,
         purpose: action.purpose || null,
         description: action.description || null,
@@ -178,7 +189,10 @@ function mapControls(controls: VoiceSurfaceControlDefinition[] | undefined) {
         state: control.state || null,
         purpose: control.purpose || null,
         description: control.description || null,
-        action_id: control.actionId || null,
+        action_id:
+          control.actionId ||
+          getKaiActionsForControlId(control.id)[0]?.action_id ||
+          null,
         role: control.role || null,
         voice_aliases: Array.isArray(control.voiceAliases) ? [...control.voiceAliases] : undefined,
       }))
@@ -269,19 +283,37 @@ export function buildStructuredScreenContext(args: {
   const busyOps = Array.isArray(app?.runtime.busy_operations)
     ? app?.runtime.busy_operations
     : [];
+  const routeActions = listInvestorKaiActionsForSurface({
+    screen,
+    href: pathname,
+    pathname,
+  });
+  const derivedControlActionIds = uniqueStrings([
+    ...getKaiActionsForControlId(publishedSurface?.activeControlId).map((action) => action.action_id),
+    ...getKaiActionsForControlId(publishedSurface?.lastInteractedControlId).map(
+      (action) => action.action_id
+    ),
+  ]);
   const availableActions = uniqueStrings([
-    ...listInvestorKaiActionsForSurface({
-      screen,
-      href: pathname,
-      pathname,
-    }).map((action) => action.label),
+    ...routeActions.map((action) => action.label),
     ...((publishedSurface?.actions || []).map((action) => action.label)),
     ...(publishedSurface?.availableActions || []),
     ...(Array.isArray(rawContext.available_actions) ? rawContext.available_actions : []),
   ]);
+  const availableActionIds = uniqueStrings([
+    ...routeActions.map((action) => action.id),
+    ...derivedControlActionIds,
+    ...((publishedSurface?.controls || [])
+      .map((control) => control.actionId || null)
+      .filter((actionId): actionId is string => Boolean(actionId))),
+    ...((publishedSurface?.actions || [])
+      .flatMap((action) => [action.actionId || null, action.id])
+      .filter((actionId): actionId is string => Boolean(actionId))),
+  ]);
   const screenMetadata = {
     ...readObject(rawContext.screen_metadata),
     ...readObject(publishedSurface?.screenMetadata),
+    available_action_ids: availableActionIds,
   };
 
   return {
@@ -322,6 +354,14 @@ export function buildStructuredScreenContext(args: {
     auth: {
       signed_in: Boolean(app?.auth.signed_in),
       user_id: app?.auth.user_id || null,
+    },
+    persona: {
+      active: app?.persona?.active || "investor",
+      primary_nav: app?.persona?.primary_nav || app?.persona?.active || "investor",
+      available: Array.isArray(app?.persona?.available) ? [...app.persona.available] : ["investor"],
+      transition_target: app?.persona?.transition_target || null,
+      ria_switch_available: Boolean(app?.persona?.ria_switch_available),
+      ria_setup_available: Boolean(app?.persona?.ria_setup_available),
     },
     vault: {
       unlocked: Boolean(app?.vault.unlocked),

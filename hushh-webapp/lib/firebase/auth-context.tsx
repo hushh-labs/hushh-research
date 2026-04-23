@@ -91,7 +91,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     useState<ConfirmationResult | null>(null);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
 
-  // Hushh State
+  // Hussh state
   const [userId, setUserId] = useState<string | null>(null);
 
   const router = useRouter();

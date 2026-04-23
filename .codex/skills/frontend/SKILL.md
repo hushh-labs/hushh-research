@@ -1,9 +1,9 @@
 ---
 name: frontend
-description: Use when the request is broadly about the Hushh web frontend and the correct frontend specialist skill is not yet clear.
+description: Use when the request is broadly about the Hussh web frontend and the correct frontend specialist skill is not yet clear.
 ---
 
-# Hushh Frontend Skill
+# Hussh Frontend Skill
 
 ## Purpose and Trigger
 
@@ -58,11 +58,12 @@ Non-owned surfaces:
 5. Do not default to Playwright when a faster proof is sufficient:
    - use typecheck, route/service tests, and Next runtime diagnostics first
    - reserve Playwright for browser-only behavior such as auth, unlock, navigation, responsiveness, or interaction defects
+   - run Playwright or any browser automation only when the user explicitly asks for it
 6. Treat protected-route browser verification according to the vault model:
    - the vault key is memory-only
    - Next client navigation preserves unlocked state
    - full document navigations and raw `page.goto(...)` reset React memory and may require re-unlock
-7. For signed-in Playwright work, the default protected-route browser contract is:
+7. When the user explicitly asks for signed-in Playwright work, the default protected-route browser contract is:
    - reviewer-mode login
    - vault unlock using the configured Kai/reviewer passphrase from env
    - real in-app clicks for same-session route coverage
@@ -122,4 +123,4 @@ cd hushh-webapp && npm run typecheck
 cd hushh-webapp && npm run verify:routes
 ```
 
-When route work touches protected signed-in surfaces, also prove one real browser flow using reviewer login plus vault unlock before calling the task done.
+Only run a real browser flow for protected signed-in surfaces when the user explicitly asks for browser verification.

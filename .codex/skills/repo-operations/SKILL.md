@@ -1,9 +1,9 @@
 ---
 name: repo-operations
-description: Use when working on Hushh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.
+description: Use when working on Hussh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.
 ---
 
-# Hushh Repo Operations Skill
+# Hussh Repo Operations Skill
 
 ## Purpose and Trigger
 

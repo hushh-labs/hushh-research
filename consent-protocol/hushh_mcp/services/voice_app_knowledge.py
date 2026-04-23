@@ -148,6 +148,32 @@ def _build_dynamic_control_entry(label: str) -> VoiceKnowledgeEntry:
 
 _GLOBAL_CONCEPTS: tuple[VoiceKnowledgeEntry, ...] = (
     VoiceKnowledgeEntry(
+        key="kai_app",
+        summary="Kai is the investor app for profile optimization and personalized investor guidance.",
+        detail=(
+            "The voice assistant lives inside the Kai app. It can explain screens, navigate inside Kai, "
+            "start approved actions, and use PKM or connected data like Gmail-derived receipt workflows "
+            "when the current permissions and runtime allow it."
+        ),
+        aliases=("kai", "kai app"),
+    ),
+    VoiceKnowledgeEntry(
+        key="kai_voice_interface",
+        summary="The voice assistant is Kai's in-app voice interface.",
+        detail=(
+            "It is not a generic external chatbot. It helps inside the Kai app with screen explanations, "
+            "navigation, and approved investor workflows grounded in app state."
+        ),
+        aliases=(
+            "voice assistant",
+            "kai voice assistant",
+            "kai voice",
+            "voice interface",
+            "who are you",
+            "what are you",
+        ),
+    ),
+    VoiceKnowledgeEntry(
         key="pkm",
         summary="PKM is your structured personal memory layer.",
         detail="It stores compact, governed memory instead of raw source-system payloads.",
@@ -155,9 +181,18 @@ _GLOBAL_CONCEPTS: tuple[VoiceKnowledgeEntry, ...] = (
     ),
     VoiceKnowledgeEntry(
         key="gmail_connector",
-        summary="The Gmail connector links your inbox for receipt sync.",
-        detail="It manages Gmail connection state and receipt sync, but raw email bodies are not saved into PKM.",
-        aliases=("gmail connector", "gmail receipts connector", "gmail integration"),
+        summary="The Gmail receipts workflow links your inbox, syncs receipt data, and feeds the receipts-to-PKM flow.",
+        detail=(
+            "It manages Gmail connection state, receipt sync, and receipt-memory previews. Raw email bodies are "
+            "not saved into PKM."
+        ),
+        aliases=(
+            "gmail connector",
+            "gmail receipts connector",
+            "gmail integration",
+            "gmail receipts",
+            "receipt sync",
+        ),
     ),
     VoiceKnowledgeEntry(
         key="receipt_memory",
@@ -413,7 +448,7 @@ def looks_like_voice_knowledge_request(transcript: str) -> bool:
     normalized = _normalize(transcript)
     return bool(
         re.match(
-            r"^(?:what(?:'s| is)|explain|tell me about|how does|what does)\b",
+            r"^(?:who are you|what are you|what can (?:you|i) do(?: here| on (?:this screen|this page))?|what(?:'s| is)|explain|tell me about|how does|what does)\b",
             normalized,
         )
     )
@@ -748,11 +783,35 @@ def resolve_voice_explain_knowledge(
 _COMPAT_GLOBAL_CONCEPTS: dict[str, dict[str, Any]] = {
     "kai": {
         "label": "Kai",
-        "aliases": ["kai", "kai agent"],
-        "short": "Kai is Hushh's in-app investor agent for navigation, analysis, and memory-aware workflows.",
+        "aliases": ["kai", "kai app", "kai voice"],
+        "short": (
+            "Kai is the investor app. Its voice assistant helps with investor profile optimization, "
+            "screen guidance, navigation, approved actions, PKM, and connected Gmail receipt workflows."
+        ),
         "detailed": (
-            "Kai is Hushh's in-app investor agent. It helps with market navigation, portfolio workflows, "
-            "analysis, consent-aware actions, and memory-aware features like PKM."
+            "Kai is the investor app for profile optimization and personalized investor guidance. "
+            "The voice assistant lives inside Kai. It can explain screens, navigate the app, start "
+            "approved actions, and use PKM or connected data like Gmail-derived receipt workflows when allowed."
+        ),
+    },
+    "voice_assistant": {
+        "label": "Kai voice assistant",
+        "aliases": [
+            "voice assistant",
+            "kai voice assistant",
+            "kai voice",
+            "voice interface",
+            "who are you",
+            "what are you",
+        ],
+        "short": (
+            "I am the voice assistant inside the Kai app. I can explain screens, navigate inside Kai, "
+            "start approved actions, and use PKM or Gmail-derived receipt workflows when available."
+        ),
+        "detailed": (
+            "I am Kai's in-app voice interface. I help with investor profile optimization and personalized "
+            "guidance by explaining current screens, navigating inside Kai, starting approved actions, and "
+            "using PKM or connected Gmail receipt workflows when policy and runtime allow it."
         ),
     },
     "profile": {
@@ -775,11 +834,19 @@ _COMPAT_GLOBAL_CONCEPTS: dict[str, dict[str, Any]] = {
     },
     "gmail_receipts": {
         "label": "Gmail receipts",
-        "aliases": ["gmail receipts", "receipt sync", "email receipts"],
-        "short": "Gmail receipts connects Gmail receipt sync and feeds receipt-memory imports into PKM.",
+        "aliases": [
+            "gmail receipts",
+            "receipt sync",
+            "email receipts",
+            "gmail connector",
+            "gmail integration",
+        ],
+        "short": (
+            "Gmail receipts connects your inbox, manages receipt sync, and feeds the governed receipts-to-PKM workflow."
+        ),
         "detailed": (
-            "Gmail receipts manages receipt sync from Gmail, shows backfill and sync state, and supports "
-            "turning stored receipts into compact PKM memory instead of storing raw emails in PKM."
+            "Gmail receipts links the selected inbox, manages receipt sync and backfill state, builds a "
+            "receipt-memory preview, and supports saving that governed summary into PKM instead of writing raw emails."
         ),
     },
     "portfolio": {
@@ -818,6 +885,27 @@ _COMPAT_GLOBAL_CONCEPTS: dict[str, dict[str, Any]] = {
             "and manage what data can be shared."
         ),
     },
+}
+
+_KAI_VOICE_IDENTITY_CONTEXT: dict[str, Any] = {
+    "app_name": "Kai",
+    "assistant_role": "in_app_voice_interface",
+    "role_summary": (
+        "Kai is the app. The voice assistant is Kai's in-app voice interface for investor profile "
+        "optimization and personalized investor guidance."
+    ),
+    "core_capabilities": [
+        "explain current Kai screens and visible controls",
+        "navigate inside Kai",
+        "start approved in-app investor actions",
+        "use PKM context when policy and permissions allow it",
+        "use connected Gmail receipt workflows when available",
+    ],
+    "guardrails": [
+        "never present as a generic external assistant",
+        "never sound powerless when Kai can complete the approved in-app action",
+        "never invent screens, permissions, data sources, or powers",
+    ],
 }
 
 _COMPAT_SURFACE_DEFINITIONS: dict[str, dict[str, Any]] = {
@@ -1104,6 +1192,23 @@ def resolve_global_concept(transcript: str, *, detailed: bool = False) -> str | 
             message = concept["detailed"] if detailed else concept["short"]
             return message if message.endswith((".", "!", "?")) else f"{message}."
     return None
+
+
+def get_kai_voice_identity_context() -> dict[str, Any]:
+    return {
+        "app_name": _KAI_VOICE_IDENTITY_CONTEXT["app_name"],
+        "assistant_role": _KAI_VOICE_IDENTITY_CONTEXT["assistant_role"],
+        "role_summary": _KAI_VOICE_IDENTITY_CONTEXT["role_summary"],
+        "core_capabilities": list(_KAI_VOICE_IDENTITY_CONTEXT["core_capabilities"]),
+        "guardrails": list(_KAI_VOICE_IDENTITY_CONTEXT["guardrails"]),
+    }
+
+
+def list_voice_global_concept_summaries(*, limit: int | None = None) -> list[str]:
+    summaries = [f"{entry.key}: {entry.summary}" for entry in _GLOBAL_CONCEPTS]
+    if isinstance(limit, int) and limit >= 0:
+        return summaries[:limit]
+    return summaries
 
 
 def resolve_surface_explanation(

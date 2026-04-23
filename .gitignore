@@ -104,6 +104,9 @@ hushh-webapp/android/app/build/
 
 envs
 envs_From_Others
+envs_From_Others.zip
+Personal_Tasks/
+.ci-bin/
 
 # Hushh Security Policy - Secrets and Credentials
 *.pem

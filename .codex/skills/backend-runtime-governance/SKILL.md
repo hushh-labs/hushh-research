@@ -3,7 +3,7 @@ name: backend-runtime-governance
 description: Use when changing backend route placement, service boundaries, runtime ownership, or backend docs/tests alignment.
 ---
 
-# Hushh Backend Runtime Governance Skill
+# Hussh Backend Runtime Governance Skill
 
 ## Purpose and Trigger
 

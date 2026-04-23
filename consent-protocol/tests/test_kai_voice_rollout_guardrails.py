@@ -310,6 +310,178 @@ def test_voice_plan_respects_rollout_allowlist(
     assert called["value"] is False
 
 
+def test_voice_plan_surfaces_canonical_fields_alongside_legacy_contract(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        canary_percent=100,
+        tool_execution_disabled=False,
+    )
+
+    async def _fake_plan(*args, **kwargs):
+        return (
+            {
+                "kind": "speak_only",
+                "message": "Opening Gmail.",
+                "speak": True,
+                "execution_allowed": True,
+                "memory": {"allow_durable_write": True},
+                "schema_version": "kai_voice_plan.v1",
+                "mode": "execute_and_wait",
+                "action_id": "nav.profile_gmail_panel",
+                "slots": {},
+                "guards": [],
+                "reply_strategy": "llm",
+            },
+            4,
+            "deterministic",
+        )
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "plan_voice_response", _fake_plan)
+
+    response = client.post(
+        "/api/kai/voice/plan",
+        json={**_plan_body(), "transcript": "open gmail"},
+        headers=_auth(token),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["response"]["kind"] == "speak_only"
+    assert payload["response"]["execution_allowed"] is True
+    assert payload["execution_allowed"] is True
+    assert payload["schema_version"] == "kai_voice_plan.v1"
+    assert payload["mode"] == "execute_and_wait"
+    assert payload["action_id"] == "nav.profile_gmail_panel"
+    assert payload["reply_strategy"] == "llm"
+    assert payload["guards"] == []
+    assert payload["tool_call"]["tool_name"] == "clarify"
+    assert payload["intent"]["name"] == "execute_and_wait"
+    assert payload["intent"]["legacy_kind"] == "speak_only"
+    assert payload["action"]["type"] == "canonical"
+    assert payload["action"]["payload"]["action_id"] == "nav.profile_gmail_panel"
+    assert payload["action"]["payload"]["mode"] == "execute_and_wait"
+    assert payload["action"]["payload"].get("legacy_tool_call") is None
+
+
+def test_voice_plan_kill_switch_downgrades_canonical_only_execute_and_wait(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        tool_execution_disabled=True,
+    )
+
+    async def _fake_plan(*args, **kwargs):
+        return (
+            {
+                "kind": "speak_only",
+                "message": "Opening Gmail.",
+                "speak": True,
+                "execution_allowed": True,
+                "memory": {"allow_durable_write": True},
+                "schema_version": "kai_voice_plan.v1",
+                "mode": "execute_and_wait",
+                "action_id": "nav.profile_gmail_panel",
+                "slots": {},
+                "guards": [],
+                "reply_strategy": "llm",
+            },
+            2,
+            "deterministic",
+        )
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "plan_voice_response", _fake_plan)
+
+    response = client.post(
+        "/api/kai/voice/plan",
+        json={**_plan_body(), "transcript": "open gmail"},
+        headers=_auth(token),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["response"]["kind"] == "speak_only"
+    assert payload["response"]["execution_allowed"] is False
+    assert payload["execution_allowed"] is False
+    assert payload["response"]["message"] == (
+        "Voice actions are temporarily unavailable. I can still respond and guide you."
+    )
+    assert payload["mode"] == "answer_now"
+    assert payload["action_id"] is None
+    assert payload["tool_call"]["tool_name"] == "clarify"
+    assert payload["action"]["type"] == "none"
+
+
+def test_voice_plan_manual_only_response_strips_stale_executable_tool_call(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        tool_execution_disabled=False,
+    )
+
+    async def _fake_plan(*args, **kwargs):
+        return (
+            {
+                "kind": "speak_only",
+                "message": "Kai can cancel the active analysis, but this step still needs the on-screen confirmation.",
+                "speak": True,
+                "execution_allowed": False,
+                "reason": "manual_user_execution_required",
+                "tool_call": {"tool_name": "cancel_active_analysis", "args": {"confirm": True}},
+                "memory": {"allow_durable_write": False},
+                "schema_version": "kai_voice_plan.v1",
+                "mode": "answer_now",
+                "action_id": "analysis.cancel_active",
+                "slots": {},
+                "guards": [
+                    "active_analysis_required",
+                    "explicit_user_confirmation",
+                    "manual_user_execution",
+                ],
+                "reply_strategy": "llm",
+            },
+            3,
+            "deterministic",
+        )
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "plan_voice_response", _fake_plan)
+
+    response = client.post(
+        "/api/kai/voice/plan",
+        json={**_plan_body(), "transcript": "cancel analysis"},
+        headers=_auth(token),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["response"]["kind"] == "speak_only"
+    assert payload["response"]["execution_allowed"] is False
+    assert payload["response"]["tool_call"] is None
+    assert payload["tool_call"]["tool_name"] == "clarify"
+    assert payload["needs_confirmation"] is False
+    assert payload["action"]["type"] == "canonical"
+    assert payload["action"]["payload"]["action_id"] == "analysis.cancel_active"
+    assert payload["action"]["payload"].get("legacy_tool_call") is None
+
+
 def test_voice_realtime_session_respects_rollout_allowlist(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -777,6 +949,115 @@ def test_voice_plan_kill_switch_downgrades_execute_to_speak_only(
     )
     assert payload["memory"]["allow_durable_write"] is False
     assert payload["tool_call"]["tool_name"] == "clarify"
+
+
+def test_voice_plan_marks_analysis_start_as_long_running_from_canonical_mode(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        tool_execution_disabled=False,
+    )
+
+    async def _fake_plan(*args, **kwargs):
+        return (
+            {
+                "kind": "execute",
+                "message": "Starting analysis for GOOGL.",
+                "speak": True,
+                "execution_allowed": True,
+                "tool_call": {
+                    "tool_name": "execute_kai_command",
+                    "args": {"command": "analyze", "params": {"symbol": "GOOGL"}},
+                },
+                "memory": {"allow_durable_write": True},
+                "schema_version": "kai_voice_plan.v1",
+                "mode": "start_background_and_ack",
+                "action_id": "analysis.start",
+                "slots": {"command": "analyze", "symbol": "GOOGL"},
+                "guards": ["analysis_idle_required"],
+                "reply_strategy": "llm",
+            },
+            5,
+            "deterministic",
+        )
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "plan_voice_response", _fake_plan)
+
+    response = client.post(
+        "/api/kai/voice/plan",
+        json={**_plan_body(), "transcript": "analyze google"},
+        headers=_auth(token),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["mode"] == "start_background_and_ack"
+    assert payload["is_long_running"] is True
+    assert payload["ack_text"] == "Starting analysis for GOOGL."
+    assert payload["final_text"] == "Starting analysis for GOOGL."
+    assert payload["execution_allowed"] is True
+    assert payload["tool_call"]["tool_name"] == "execute_kai_command"
+
+
+def test_voice_compose_returns_backend_llm_spoken_reply(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+
+    async def _fake_compose(*args, **kwargs):
+        return (
+            {
+                "text": "You're on Profile now. Manage your investor identity and connected data here.",
+                "segment_type": "final",
+            },
+            9,
+            "gpt-4o-mini",
+        )
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "compose_voice_reply", _fake_compose)
+
+    response = client.post(
+        "/api/kai/voice/compose",
+        json={
+            "user_id": "user_a",
+            "transcript": "take me to profile",
+            "response": {
+                "kind": "execute",
+                "message": "Opening profile.",
+                "speak": True,
+                "execution_allowed": True,
+            },
+            "app_state": _plan_body()["app_state"],
+            "mode": "execute_and_wait",
+            "action_id": "nav.profile",
+            "reply_strategy": "llm",
+            "action_result": {
+                "status": "succeeded",
+                "action_id": "nav.profile",
+                "route_after": "/profile",
+                "screen_after": "profile_account",
+                "result_summary": "Opened your profile.",
+            },
+        },
+        headers=_auth(token),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["text"] == (
+        "You're on Profile now. Manage your investor identity and connected data here."
+    )
+    assert payload["segment_type"] == "final"
+    assert payload["openai_http_ms"] == 9
+    assert payload["model"] == "gpt-4o-mini"
 
 
 def test_voice_plan_echoes_voice_turn_id_header(

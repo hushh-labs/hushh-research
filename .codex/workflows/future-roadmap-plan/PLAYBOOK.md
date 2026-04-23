@@ -4,7 +4,7 @@ Use this workflow pack when the task matches `future-roadmap-plan`.
 
 ## Goal
 
-Create planning-only future-state docs that stay grounded in Hushh north stars, trust boundaries, and current repo reality.
+Create planning-only future-state docs that stay grounded in Hussh north stars, trust boundaries, and current repo reality.
 
 ## Steps
 

@@ -1,4 +1,4 @@
-# Mobile Index
+# Hussh Mobile Index
 
 
 ## Visual Map
@@ -13,6 +13,10 @@ flowchart TD
 ```
 
 Use this index for Capacitor parity and release-readiness checks.
+
+These docs describe the mobile side of the platform's `Separation of Duties`: one shared product contract, different transport boundaries, and release gating that proves parity rather than assuming it.
+
+Within the seven-layer platform architecture, mobile is the main Layer 6 and Layer 7 delivery surface.
 
 ## References
 

@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "backend",
   "primary_scope": "hushh-consent-mcp-ops",
-  "description": "Use when operating the Hushh Consent MCP connector directly for domain discovery, consent request/status checks, token validation, or scoped export verification.",
+  "description": "Use when operating the Hussh Consent MCP connector directly for domain discovery, consent request/status checks, token validation, or scoped export verification.",
   "owned_paths": [
     "packages/hushh-mcp",
     "consent-protocol/docs/mcp-setup.md",

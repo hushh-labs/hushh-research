@@ -1,4 +1,8 @@
-from hushh_mcp.services.voice_app_knowledge import resolve_voice_explain_knowledge
+from hushh_mcp.services.voice_app_knowledge import (
+    get_kai_voice_identity_context,
+    resolve_global_concept,
+    resolve_voice_explain_knowledge,
+)
 
 
 def test_resolve_voice_explain_knowledge_prioritizes_control_over_section() -> None:
@@ -64,3 +68,27 @@ def test_resolve_voice_explain_knowledge_resolves_global_concept() -> None:
     assert resolution.tier == "global_concept"
     assert resolution.key == "pkm"
     assert "structured personal memory layer" in resolution.summary.lower()
+
+
+def test_resolve_global_concept_describes_kai_as_app_with_in_app_voice_interface() -> None:
+    message = resolve_global_concept("What is Kai?")
+
+    assert message is not None
+    assert "Kai is the investor app" in message
+    assert "voice assistant" in message.lower()
+
+
+def test_resolve_global_concept_describes_voice_assistant_identity() -> None:
+    message = resolve_global_concept("Who are you?")
+
+    assert message is not None
+    assert "voice assistant" in message.lower()
+    assert "Kai app" in message
+
+
+def test_get_kai_voice_identity_context_exposes_app_and_role() -> None:
+    identity = get_kai_voice_identity_context()
+
+    assert identity["app_name"] == "Kai"
+    assert identity["assistant_role"] == "in_app_voice_interface"
+    assert "Kai is the app" in identity["role_summary"]

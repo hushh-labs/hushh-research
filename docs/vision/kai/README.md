@@ -14,6 +14,12 @@ flowchart TD
 
 Forward-looking Kai roadmap and R&D planning now belong under [../../future/kai/README.md](../../future/kai/README.md). `docs/vision/kai/` stays north-star oriented; speculative execution-model docs should not start here.
 
+Current implementation note:
+
+- This vision document is not the source of truth for the shipped Kai runtime.
+- For the live Kai voice/runtime architecture, use [../../reference/kai/kai-voice-runtime-architecture.md](../../reference/kai/kai-voice-runtime-architecture.md).
+- For on-device AI status, use [../../reference/ai/on-device-future-plan/README.md](../../reference/ai/on-device-future-plan/README.md); cloud remains the current primary runtime path.
+
 ---
 
 <p align="center">
@@ -41,14 +47,14 @@ Specific operating-entity legal details are maintained outside this technical do
 
 ### Educational Tool Disclaimer
 
-Agent Kai is provided as an **educational and informational tool**. It is NOT part of Hushh Technology Fund L.P.'s investment advisory or fund management services.
+Agent Kai is provided as an **educational and informational tool**. It is NOT part of `Hushh Technology Fund L.P.`'s investment advisory or fund management services.
 
 **The information provided by Kai:**
 
 - Is for informational and educational purposes only
 - Does NOT constitute investment advice, recommendations, or offers to buy/sell securities
 - Should NOT be relied upon for making investment decisions
-- Is NOT a solicitation for Hushh Technology Fund L.P. or any investment product
+- Is NOT a solicitation for `Hushh Technology Fund L.P.` or any investment product
 
 ### Regulatory Status
 
@@ -56,7 +62,7 @@ Agent Kai is provided as an **educational and informational tool**. It is NOT pa
 | ------------------------------ | ---------------------------------------------------- |
 | **Agent Kai**                  | Educational tool, NOT investment advice              |
 | **Operating Entity**           | Not specified in this repository                     |
-| **Hushh Technology Fund L.P.** | SEC compliant (Reg D, ICA exemptions), Delaware L.P. |
+| **`Hushh Technology Fund L.P.`** | SEC compliant (Reg D, ICA exemptions), Delaware L.P. |
 
 Agent Kai's operating entity is NOT registered with the SEC or any state securities regulatory authority as an investment adviser.
 
@@ -80,13 +86,13 @@ This is a faithful consumer translation of the **AlphaAgents framework**:
 
 ---
 
-## 🧠 The Hushh Philosophy (Why Kai Exists)
+## 🧠 The Hussh Philosophy (Why Kai Exists)
 
-> _"Hushh is not Jarvis. Hushh is not Batman or Batwoman either."_
+> _"Hussh is not Jarvis. Hussh is not Batman or Batwoman either."_
 
-### What Hushh IS
+### What Hussh IS
 
-**Hushh is your Personal Agent (PA)** — a _fiduciary intelligence_.
+**Hussh is your Personal Agent (PA)** — a _fiduciary intelligence_.
 
 An agent that:
 
@@ -95,7 +101,7 @@ An agent that:
 - Treats your data as **your private capital**
 - Optimizes outcomes across **your life**, not just tasks
 
-> _"Hushh is the agent you would hire if your data were your business."_
+> _"Hussh is the agent you would hire if your data were your business."_
 
 ### The Kai Promise
 
@@ -387,7 +393,7 @@ The culmination of the debate process is a comprehensive **Decision Card** that 
 │                                                                           │
 │  • This is NOT investment advice                                         │
 │  • Agent Kai operators are NOT a registered investment adviser           │
-│  • Agent Kai is NOT part of Hushh Technology Fund L.P.'s services       │
+│  • Agent Kai is NOT part of `Hushh Technology Fund L.P.`'s services       │
 │  • Past performance does not guarantee future results                    │
 │  • You may lose money; there is no assurance of profit                  │
 │  • Always consult a licensed financial advisor before investing         │
@@ -411,9 +417,9 @@ Kai personalizes recommendations based on user risk profiles:
 
 ---
 
-## 🔐 Consent Integration with Hushh Protocol
+## 🔐 Consent Integration with Hussh Protocol
 
-Agent Kai operates under the Hushh Consent Protocol:
+Agent Kai operates under the Hussh Consent Protocol:
 
 ### User Onboarding Experience
 
@@ -530,15 +536,15 @@ class KaiConsentScope:
 
 ### Entity Structure
 
-Agent Kai is developed through a collaboration between entities in the Hushh ecosystem:
+Agent Kai is developed through a collaboration between entities in the Hussh ecosystem:
 
 | Entity                         | Role in Agent Kai                 | Regulatory Status                    |
 | ------------------------------ | --------------------------------- | ------------------------------------ |
 | **Agent Kai Operators**        | Develops and operates Agent Kai   | Not represented as licensed adviser in this repository |
-| **Hushh Technology Fund L.P.** | Related entity in Hushh ecosystem | SEC compliant (Reg D), Delaware L.P. |
+| **`Hushh Technology Fund L.P.`** | Related entity in Hussh ecosystem | SEC compliant (Reg D), Delaware L.P. |
 
 > [!IMPORTANT]
-> Agent Kai is NOT part of Hushh Technology Fund L.P.'s investment services. The fund's SEC registration relates to its own fund operations, not to Agent Kai.
+> Agent Kai is NOT part of `Hushh Technology Fund L.P.`'s investment services. The fund's SEC registration relates to its own fund operations, not to Agent Kai.
 
 ### SEC Considerations
 
@@ -549,7 +555,7 @@ Agent Kai is developed through a collaboration between entities in the Hushh eco
 | **Suitability**                    | Risk personas are user-selected, not Kai-determined |
 | **Disclosure**                     | Every decision card includes required disclaimers   |
 | **Audit Trail**                    | Complete debate history available for review        |
-| **Not a Solicitation**             | Kai does NOT solicit for Hushh Technology Fund L.P. |
+| **Not a Solicitation**             | Kai does NOT solicit for `Hushh Technology Fund L.P.` |
 
 ### FINRA Compliance Alignment
 
@@ -671,7 +677,7 @@ MLX (iOS) and Gemma (Android) now enable powerful LLM inference directly on mobi
 │   └──────────────────────────────────────────────────────────────────┘   │
 │                                    │                                      │
 │                        ┌───────────▼───────────┐                         │
-│                        │   Hushh Consent       │                         │
+│                        │   Hussh Consent       │                         │
 │                        │   Protocol Layer      │                         │
 │                        └───────────┬───────────┘                         │
 │                                    │                                      │

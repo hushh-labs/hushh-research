@@ -1,6 +1,6 @@
 // lib/constants.ts
 /**
- * Shared constants for Hushh PDA frontend
+ * Shared constants for Hussh PDA frontend
  */
 
 /**

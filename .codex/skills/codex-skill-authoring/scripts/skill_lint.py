@@ -54,6 +54,7 @@ REQUIRED_WORKFLOW_KEYS = [
     "common_failures",
 ]
 EXPECTED_WORKFLOW_IDS = [
+    "agent-orchestration-governance",
     "repo-orientation",
     "new-feature-tri-flow",
     "api-contract-change",
@@ -66,11 +67,13 @@ EXPECTED_WORKFLOW_IDS = [
     "mobile-parity-check",
     "release-readiness",
     "docs-sync",
+    "founder-brief-curation",
     "skill-authoring",
     "board-update",
     "community-response",
     "autonomous-rca-governance",
     "future-roadmap-plan",
+    "kai-voice-governance",
     "mcp-surface-change",
     "oss-license-governance",
     "contributor-onboarding",
@@ -469,10 +472,90 @@ def validate_workflows(skill_manifests: dict[str, dict[str, Any]], errors: list[
         errors.append(f"unexpected workflow pack without contract entry: {workflow_id}")
 
 
+def validate_special_skill_contracts(errors: list[str]) -> None:
+    comms_skill = SKILLS_ROOT / "comms-community" / "SKILL.md"
+    reply_rules = SKILLS_ROOT / "comms-community" / "references" / "reply-rules.md"
+    community_playbook = WORKFLOWS_ROOT / "community-response" / "PLAYBOOK.md"
+    community_workflow = WORKFLOWS_ROOT / "community-response" / "workflow.json"
+
+    if comms_skill.exists():
+        skill_text = comms_skill.read_text(encoding="utf-8")
+        required_skill_phrases = [
+            "default to named reply variants",
+            "canonical GitHub markdown doc links on `main`, not repo-relative paths",
+            "maintained top-level doc first",
+        ]
+        for phrase in required_skill_phrases:
+            if phrase not in skill_text:
+                errors.append(
+                    f"{comms_skill.relative_to(REPO_ROOT)}: missing comms-community contract phrase `{phrase}`"
+                )
+
+    if reply_rules.exists():
+        rules_text = reply_rules.read_text(encoding="utf-8")
+        required_rules_phrases = [
+            "All public links must be full GitHub URLs on `main`",
+            "default output must include:",
+            "`Default`",
+            "`Detailed`",
+            "`Firmer`",
+            "Do not answer with repo-relative paths unless the user explicitly wants repo-local references.",
+        ]
+        for phrase in required_rules_phrases:
+            if phrase not in rules_text:
+                errors.append(
+                    f"{reply_rules.relative_to(REPO_ROOT)}: missing comms-community reply rule phrase `{phrase}`"
+                )
+
+    if community_playbook.exists():
+        playbook_text = community_playbook.read_text(encoding="utf-8")
+        required_playbook_phrases = [
+            "For drafted reply/Q&A requests, default to:",
+            "full GitHub `blob/main` links",
+        ]
+        for phrase in required_playbook_phrases:
+            if phrase not in playbook_text:
+                errors.append(
+                    f"{community_playbook.relative_to(REPO_ROOT)}: missing community-response playbook phrase `{phrase}`"
+                )
+
+    if community_workflow.exists():
+        workflow = load_json(community_workflow)
+        deliverables = workflow.get("deliverables", [])
+        impact_fields = workflow.get("impact_fields", [])
+        common_failures = workflow.get("common_failures", [])
+        expected_deliverables = {
+            "default reply variant",
+            "detailed reply variant",
+            "repo-backed GitHub doc citations",
+        }
+        for value in expected_deliverables:
+            if value not in deliverables:
+                errors.append(
+                    f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response deliverable `{value}`"
+                )
+        expected_impacts = {"GitHub doc links used", "Reply variants provided"}
+        for value in expected_impacts:
+            if value not in impact_fields:
+                errors.append(
+                    f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response impact field `{value}`"
+                )
+        expected_failures = {
+            "repo-relative paths instead of canonical GitHub doc links",
+            "missing required drafted-reply variants",
+        }
+        for value in expected_failures:
+            if value not in common_failures:
+                errors.append(
+                    f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response failure mode `{value}`"
+                )
+
+
 def main() -> int:
     skills, errors = collect_skill_bodies()
     skill_manifests = validate_skill_manifests(skills, errors)
     validate_workflows(skill_manifests, errors)
+    validate_special_skill_contracts(errors)
 
     if errors:
         print("Skill lint failed:")

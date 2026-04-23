@@ -186,7 +186,6 @@ const PUBLIC_DOC_CONTRACT_TARGETS = [
   "docs/reference/architecture/architecture.md",
   "docs/reference/operations/cli.md",
   "docs/reference/operations/branch-governance.md",
-  "docs/reference/operations/naming-policy.md",
 ];
 
 const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
@@ -204,7 +203,6 @@ const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
   { pattern: /\bnpm run native:android\b/g, message: "root npm native:android is not part of the public contributor contract" },
   { pattern: /\.\/bin\/hushh codex maintenance\b/g, message: "codex maintenance is retired and must not appear in canonical public docs" },
   { pattern: /\/Users\//g, message: "personal absolute paths are not allowed in canonical public docs" },
-  { pattern: /\bHussh\b/g, message: "Hussh public branding is not allowed in canonical public docs" },
 ];
 
 const REQUIRED_DENSITY_MARKERS = [

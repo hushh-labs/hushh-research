@@ -47,13 +47,13 @@ function renderHostExample(example) {
 
 const readme = `# \`${contract.packageName}\`
 
-npm launcher for the Hushh Consent MCP server
+npm launcher for the Hussh Consent MCP server
 
 Use this package when your MCP host needs a local stdio process. If your host supports remote HTTP MCP, use the hosted endpoint directly.
 
-## Hosted Hushh MCP
+## Hosted Hussh MCP
 
-Hushh MCP exposes the public consent tool surface for external apps and agents:
+Hussh MCP exposes the public consent tool surface for external apps and agents:
 
 - dynamic scope discovery
 - explicit consent requests
@@ -130,7 +130,7 @@ ${contract.publicResources.map((uri) => `- \`${uri}\``).join("\n")}
 
 The data flow is:
 
-- encrypted storage in Hushh
+- encrypted storage in Hussh
 - explicit user approval in Kai
 - encrypted export back to the external connector
 - local decryption on the connector side
