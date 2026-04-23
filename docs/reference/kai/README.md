@@ -6,6 +6,8 @@
 ```mermaid
 flowchart TD
   root["Kai Index"]
+  n0["Agent Kai Architecture"]
+  root --> n0
   n1["Kai Accuracy Contract"]
   root --> n1
   n10["Kai Voice Runtime Architecture"]
@@ -35,6 +37,7 @@ Kai-specific architecture, runtime, rollout, and audit references live here.
 ## References
 
 - Canonical current-state references:
+- [agent-kai-architecture.md](./agent-kai-architecture.md): system-level architecture overview for Agent Kai — start here.
 - [kai-interconnection-map.md](./kai-interconnection-map.md): dependency map and upstream boundaries.
 - [kai-change-impact-matrix.md](./kai-change-impact-matrix.md): blast-radius guide for Kai changes.
 - [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md): canonical current runtime architecture for Kai voice, including planner, compose, execution, settlement, and manifest/file ownership.
