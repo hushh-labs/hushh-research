@@ -1,4 +1,4 @@
-import manifestJson from "../../../contracts/kai/voice-action-manifest.v1.json";
+import manifestJson from "@/contracts/kai/voice-action-manifest.v1.json";
 
 export type VoiceActionManifestRiskLevel = "low" | "medium" | "high";
 export type VoiceActionManifestExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
