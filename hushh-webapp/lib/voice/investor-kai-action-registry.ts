@@ -3,7 +3,6 @@ import type { Persona } from "@/lib/services/ria-service";
 import type { VoiceToolCall } from "@/lib/voice/voice-types";
 import {
   getKaiActionById,
-  getKaiActionByKaiCommand,
   getKaiActionByVoiceToolCall,
   listKaiActions,
   listKaiActionsForSurface,

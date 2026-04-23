@@ -4,12 +4,6 @@ npm launcher for the Hussh Consent MCP server
 
 Use this package when your MCP host needs a local stdio process. If your host supports remote HTTP MCP, use the hosted endpoint directly.
 
-Founder-language framing:
-
-- `PCHP` is implemented today through the Consent Protocol developer API + MCP consent/export flow exposed by this package
-- `Developer API / MCP` is the current public developer lane into the platform
-- `Capability Tokens` remain explicit in examples as `developer token`, `consent_token`, and `VAULT_OWNER` where the runtime requires those exact labels
-
 ## Hosted Hussh MCP
 
 Hussh MCP exposes the public consent tool surface for external apps and agents:

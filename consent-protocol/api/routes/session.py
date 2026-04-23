@@ -268,8 +268,8 @@ async def lookup_user_by_email(
         return {
             "exists": False,
             "email": email,
-            "message": f"No Hushh account found for {email}. The user needs to sign up first.",
-            "suggestion": "Ask the user to create a Hushh account at the login page.",
+            "message": f"No Hussh account found for {email}. The user needs to sign up first.",
+            "suggestion": "Ask the user to create a Hussh account at the login page.",
         }
 
     except Exception as e:

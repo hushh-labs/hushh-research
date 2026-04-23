@@ -321,7 +321,7 @@ html body[data-scroll-locked] {
   --activeShadowColor: var(--shadow1);
   --fadeGrey: #e5e7eb80;
 
-  /* Hushh Brand Color Tokens - Apple Blue */
+  /* Hussh Brand Color Tokens - Apple Blue */
   --morphy-primary-start: #0071e3;
   --morphy-primary-mid: #2d86ff;
   --morphy-primary-end: #3b82f6;
@@ -681,7 +681,7 @@ html.native-ios {
   );
 }
 
-/* Hushh Brand Text */
+/* Hussh Brand Text */
 .text-hushh-brand {
   background: linear-gradient(135deg, #0071e3 0%, #3b82f6 100%);
   -webkit-background-clip: text;

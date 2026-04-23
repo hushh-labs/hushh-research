@@ -23,6 +23,10 @@ Founder-facing artifacts are not ordinary maintained docs. They are presentation
 3. Keep diagrams and tables boxed, but let the document itself read as continuous prose.
 4. Avoid brightly labeled panel grids that make the artifact feel like a product brochure.
 5. Keep the figure system small and coherent. Prefer a few premium platform figures over many local diagrams.
+6. Keep chapter rhythm intentional. Major new section titles should begin on a fresh page or on a deliberate title-divider page, not as leftovers beneath a preceding figure.
+7. If a title-divider page is used, keep that page visually clean and move the body to the next page.
+8. Do not single out one chapter with a different heading system unless the whole paper uses that system.
+9. If the paper is organized around layers, follow the stack with explicit cross-layer pointers so the document explains both order and coherence.
 
 ## Truth rules
 

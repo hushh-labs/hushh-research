@@ -1,6 +1,6 @@
 # Contributing to Consent Protocol
 
-Thank you for your interest in contributing to the Hushh Consent Protocol. This document explains how to contribute code, agents, operons, and documentation.
+Thank you for your interest in contributing to the Hussh Consent Protocol. This document explains how to contribute code, agents, operons, and documentation.
 
 ---
 

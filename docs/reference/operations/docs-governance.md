@@ -21,6 +21,7 @@ This governance contract also owns the repo-wide dual-label terminology rule:
 - implementation language stays primary where a reader must copy exact paths, package names, tokens, env vars, methods, or field names
 - the canonical mapping lives in [../architecture/founder-language-matrix.md](../architecture/founder-language-matrix.md)
 - the public naming and compatibility rule lives in [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md)
+- the non-breaking rebrand bucket model lives in [hussh-rebrand-classification.md](./hussh-rebrand-classification.md)
 
 ## Naming Rules
 

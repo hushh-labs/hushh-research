@@ -461,7 +461,7 @@ def _render_text(payload: OrderedDict[str, Any]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Monitor and classify GitHub PR checks for Hushh Codex.")
+    parser = argparse.ArgumentParser(description="Monitor and classify GitHub PR checks for Hussh Codex.")
     parser.add_argument("--pr", type=int, help="pull request number")
     parser.add_argument("--branch", help="head branch name; defaults to the current branch")
     parser.add_argument("--watch", action="store_true", help="poll until the PR checks reach a terminal state")

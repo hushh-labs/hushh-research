@@ -610,7 +610,7 @@ export async function executeVoiceResponse(
             executionMode: groundedPlan.execution.mode,
             navigated,
             toolName: executedToolName,
-            settledBy: settledBy || null,
+            ...(settledBy ? { settledBy } : {}),
           },
         }),
       };

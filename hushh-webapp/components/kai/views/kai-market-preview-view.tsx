@@ -44,7 +44,6 @@ import {
   marketAmbientGlowClassName,
   marketCardClassName,
   marketInsetClassName,
-  marketMicroSurfaceClassName,
 } from "@/components/kai/shared/market-surface-theme";
 import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
 import { Badge } from "@/components/ui/badge";

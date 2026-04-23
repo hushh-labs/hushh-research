@@ -356,12 +356,12 @@ export function buildStructuredScreenContext(args: {
       user_id: app?.auth.user_id || null,
     },
     persona: {
-      active: app?.persona.active || "investor",
-      primary_nav: app?.persona.primary_nav || app?.persona.active || "investor",
-      available: Array.isArray(app?.persona.available) ? [...app.persona.available] : ["investor"],
-      transition_target: app?.persona.transition_target || null,
-      ria_switch_available: Boolean(app?.persona.ria_switch_available),
-      ria_setup_available: Boolean(app?.persona.ria_setup_available),
+      active: app?.persona?.active || "investor",
+      primary_nav: app?.persona?.primary_nav || app?.persona?.active || "investor",
+      available: Array.isArray(app?.persona?.available) ? [...app.persona.available] : ["investor"],
+      transition_target: app?.persona?.transition_target || null,
+      ria_switch_available: Boolean(app?.persona?.ria_switch_available),
+      ria_setup_available: Boolean(app?.persona?.ria_setup_available),
     },
     vault: {
       unlocked: Boolean(app?.vault.unlocked),

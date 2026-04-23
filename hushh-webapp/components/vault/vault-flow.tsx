@@ -573,7 +573,7 @@ export function VaultFlow({
               <div className="space-y-2">
                 <h3 className="text-2xl font-bold tracking-tight">Secure Your Digital Vault</h3>
                 <p className="text-muted-foreground text-balance max-w-sm mx-auto">
-                  Hushh uses end-to-end encryption to protect your personal data.
+                  Hussh uses end-to-end encryption to protect your personal data.
                   Create your passphrase first, then optionally enable faster sign-in.
                 </p>
               </div>
@@ -937,7 +937,7 @@ export function VaultFlow({
                       const result = await VaultMethodService.switchMethod({
                         userId: user.uid,
                         currentVaultKey: pendingUnlockKey,
-                        displayName: user.displayName || user.email || "Hushh User",
+                        displayName: user.displayName || user.email || "Hussh User",
                         targetMethod: recommendedQuickMethod,
                       });
                       setVaultMode(result.method);
@@ -1065,7 +1065,7 @@ export function VaultFlow({
                 variant="none"
                 className="flex-1 border border-gray-200 dark:border-gray-700 whitespace-normal"
                 onClick={async () => {
-                  const content = `Hushh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
+                  const content = `Hussh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
                   await downloadTextFile(content, "hushh-recovery-key.txt");
                 }}
               >

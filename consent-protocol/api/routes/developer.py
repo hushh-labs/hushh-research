@@ -77,7 +77,7 @@ class DeveloperScopeCatalogResponse(BaseModel):
         default_factory=lambda: [
             "Do not hardcode domain keys. Discover available scopes per user at runtime.",
             "Dynamic attr scopes are derived from PKM discovery metadata and the scope registry.",
-            "Use get_encrypted_scoped_export for all consented reads; Hushh does not return plaintext user data to developer callers.",
+            "Use get_encrypted_scoped_export for all consented reads; Hussh does not return plaintext user data to developer callers.",
         ]
     )
 
@@ -1010,7 +1010,7 @@ async def request_consent(
         pending_metadata = _metadata_object_map(pending.get("metadata"))
         return {
             "status": "pending",
-            "message": "Consent request already pending in the Hushh app.",
+            "message": "Consent request already pending in the Hussh app.",
             "request_id": pending.get("id"),
             "scope": normalized_scope,
             **_coverage_fields(
@@ -1109,7 +1109,7 @@ async def request_consent(
     )
     return {
         "status": "pending",
-        "message": "Consent request submitted. User approval is pending in the Hushh app.",
+        "message": "Consent request submitted. User approval is pending in the Hussh app.",
         "request_id": request_id,
         "scope": normalized_scope,
         **_coverage_fields(
