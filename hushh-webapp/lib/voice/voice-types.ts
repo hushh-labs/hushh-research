@@ -1,4 +1,5 @@
 import type { KaiCommandAction, KaiWorkspaceTab } from "@/lib/kai/kai-command-types";
+import type { Persona } from "@/lib/services/ria-service";
 
 export type VoiceSurfaceSectionDefinition = {
   id: string;
@@ -10,6 +11,7 @@ export type VoiceSurfaceSectionDefinition = {
 export type VoiceSurfaceActionDefinition = {
   id: string;
   label: string;
+  actionId?: string | null;
   purpose?: string | null;
   description?: string | null;
   voiceAliases?: string[];
@@ -85,12 +87,22 @@ export type VoiceClarifyCall = {
   };
 };
 
+export type VoiceSwitchPersonaCall = {
+  tool_name: "switch_persona";
+  args: {
+    target_persona: Persona;
+    after_route?: string;
+    after_screen?: string | null;
+  };
+};
+
 export type VoiceToolCall =
   | VoiceExecuteKaiCommandCall
   | VoiceNavigateBackCall
   | VoiceResumeActiveAnalysisCall
   | VoiceCancelActiveAnalysisCall
-  | VoiceClarifyCall;
+  | VoiceClarifyCall
+  | VoiceSwitchPersonaCall;
 
 export type AppRuntimeState = {
   auth: {
@@ -117,6 +129,14 @@ export type AppRuntimeState = {
   };
   portfolio: {
     has_portfolio_data: boolean;
+  };
+  persona: {
+    active: Persona;
+    primary_nav: Persona;
+    available: Persona[];
+    transition_target?: Persona | null;
+    ria_switch_available: boolean;
+    ria_setup_available: boolean;
   };
   voice: {
     available: boolean;

@@ -1,4 +1,4 @@
-# Hushh Future Roadmap
+# Hussh Future Roadmap
 
 > Planning-only home for future-state concepts, R&D assessment, and promotion criteria.
 
@@ -58,6 +58,6 @@ Promotion targets:
 
 ## References
 
-- [../vision/README.md](../vision/README.md): durable Hushh north stars
+- [../vision/README.md](../vision/README.md): durable Hussh north stars
 - [../reference/operations/documentation-architecture-map.md](../reference/operations/documentation-architecture-map.md): canonical docs-home map
 - [../reference/operations/docs-governance.md](../reference/operations/docs-governance.md): docs placement and promotion rules

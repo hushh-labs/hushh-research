@@ -1,0 +1,54 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "consents",
+  "surface_title": "Consent Center",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "nav.consents",
+      "label": "Open Consent Center",
+      "meaning": "Navigates to consents route.",
+      "aliases": [
+        "open consent center",
+        "open consents"
+      ],
+      "search_keywords": [
+        "consents",
+        "consent center"
+      ],
+      "reachability": {
+        "routes": [
+          "/consents"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "consent"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ]
+    }
+  ]
+}

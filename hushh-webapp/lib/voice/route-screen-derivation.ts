@@ -51,7 +51,25 @@ export function deriveVoiceRouteScreen(
     return { screen: "import", subview: null };
   }
   if (normalizedPath.startsWith(ROUTES.KAI_OPTIMIZE)) {
-    return { screen: "optimize", subview: null };
+    return { screen: "kai_optimize", subview: null };
+  }
+  if (normalizedPath === ROUTES.RIA_HOME) {
+    return { screen: "ria_home", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_CLIENTS)) {
+    return { screen: "ria_clients", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_WORKSPACE)) {
+    return { screen: "ria_workspace", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_REQUESTS)) {
+    return { screen: "ria_requests", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_PICKS)) {
+    return { screen: "ria_picks", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_SETTINGS)) {
+    return { screen: "ria_settings", subview: query.get("tab") || null };
   }
   if (normalizedPath.startsWith(ROUTES.CONSENTS)) {
     return { screen: "consents", subview: query.get("tab") || null };

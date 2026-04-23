@@ -120,6 +120,7 @@ function createNoopGroundedPlan(): GroundedVoicePlan {
 export type VoiceTurnOrchestratorConfig = {
   userId: string;
   vaultOwnerToken: string;
+  vaultKey?: string | null;
   getAppRuntimeState: () => AppRuntimeState | undefined;
   getVoiceContext: () => Record<string, unknown> | undefined;
   onVoiceResponse: (payload: {
@@ -294,11 +295,13 @@ export class VoiceTurnOrchestrator {
     });
 
     const memoryShort: ShortTermTurn[] = voiceMemoryStore.getShortTerm(this.config.userId, 20);
-    const memoryRetrieved: DurableMemoryItem[] = voiceMemoryStore.retrieveDurable(
-      this.config.userId,
-      cleanTranscript,
-      8
-    );
+    const memoryRetrieved: DurableMemoryItem[] = await voiceMemoryStore.retrieveDurable({
+      userId: this.config.userId,
+      query: cleanTranscript,
+      limit: 8,
+      vaultUnlocked: Boolean(appRuntimeState?.vault.unlocked),
+      vaultKey: this.config.vaultKey,
+    });
 
     this.config.onDebug?.("orchestrator_turn_started", {
       turn_id: turnId,
@@ -385,6 +388,7 @@ export class VoiceTurnOrchestrator {
             transcript: cleanTranscript,
             response: plannerResponse,
             structuredContext,
+            appRuntimeState,
             canonicalActionId: normalizedPlan.action_id ?? null,
             allowCompatibilityFallback: !normalizedPlan.action_id,
           })
@@ -667,7 +671,12 @@ export class VoiceTurnOrchestrator {
         });
 
         if (normalizedPlan.memory?.allow_durable_write && memoryWriteCandidates.length > 0) {
-          voiceMemoryStore.writeDurable(this.config.userId, memoryWriteCandidates);
+          await voiceMemoryStore.writeDurable({
+            userId: this.config.userId,
+            candidates: memoryWriteCandidates,
+            vaultUnlocked: Boolean(appRuntimeStateAfter?.vault.unlocked),
+            vaultKey: this.config.vaultKey,
+          });
         }
       }
 

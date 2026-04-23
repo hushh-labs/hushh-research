@@ -1,5 +1,6 @@
 "use client";
 
+import styles from "./page.module.css";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -84,6 +85,7 @@ import {
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
   AccountService,
   type AccountDeletionTarget,
@@ -505,6 +507,10 @@ function ProfilePageContent() {
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
+  useScrollReset(`${pathname}:${activePanel ?? "root"}:${activeDetail ?? "root"}`, {
+    enabled: true,
+    behavior: "auto",
+  });
 
   const provider = getProvider(user);
   const gmailRouteHref = `${pathname}?${searchParamsString}`;
@@ -1294,7 +1300,7 @@ function ProfilePageContent() {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
         currentVaultKey: vaultKey,
-        displayName: user.displayName || user.email || "Hushh User",
+        displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
       });
 
@@ -2735,7 +2741,7 @@ function ProfilePageContent() {
   const profileRootContent = (
     <>
       <AppPageHeaderRegion
-        className="pt-[calc(var(--page-top-start)+6.25rem)] sm:pt-[calc(var(--page-top-start)+6.9rem)]"
+        className={styles.profilePageHeaderRegion}
       >
         <header
           className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"

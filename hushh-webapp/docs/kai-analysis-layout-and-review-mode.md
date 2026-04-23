@@ -3,7 +3,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Hushh Webapp Docs](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+Canonical visual owner: [Hussh Webapp Docs](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
 ## Global Top Spacing
 - Root shell owns top spacing at layout level for all routes via `resolveTopShellMetrics(...)`.

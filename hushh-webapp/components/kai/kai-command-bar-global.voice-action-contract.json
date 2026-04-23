@@ -1,0 +1,60 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_command_bar",
+  "surface_title": "Kai Global Command Bar",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "nav.back",
+      "label": "Go Back",
+      "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
+      "aliases": [
+        "go back",
+        "back"
+      ],
+      "search_keywords": [
+        "back"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai",
+          "/kai/analysis",
+          "/profile"
+        ],
+        "screens": [
+          "kai_market",
+          "kai_analysis",
+          "profile_account"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "client browser history must have a previous entry",
+          "current route must already be inside a signed-in Kai or profile surface"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "navigate_back"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/lib/voice/voice-action-dispatcher.ts"
+      ]
+    }
+  ]
+}

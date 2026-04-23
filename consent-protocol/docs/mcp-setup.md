@@ -4,6 +4,12 @@
 
 Canonical visual owner: [consent-protocol](README.md). This page is the technical companion to the public npm package page.
 
+Founder-language mapping:
+
+- `PCHP` is implemented today through the hosted MCP and `/api/v1` approval/export flow documented here and in the package README
+- `Developer API / MCP` is the public developer lane
+- `Capability Tokens` remain explicit in setup examples as `developer token`
+
 ## Public Onboarding Source
 
 Start public MCP setup from the npm package page:
@@ -12,7 +18,7 @@ Start public MCP setup from the npm package page:
 
 That page is the canonical public source for:
 
-- what Hushh MCP is
+- what Hussh MCP is
 - the promoted UAT endpoint
 - remote vs npm bridge usage
 - host setup examples
@@ -22,7 +28,7 @@ This doc covers runtime details, contributor-local fallback, and operational not
 
 ## Runtime Model
 
-Hushh MCP supports three runtime shapes:
+Hussh MCP supports three runtime shapes:
 
 1. Hosted remote MCP for hosts that support HTTP MCP directly.
 2. The npm bridge (`npx -y @hushh/mcp`) for hosts that still expect a local stdio process.

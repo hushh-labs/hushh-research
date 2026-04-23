@@ -4,7 +4,7 @@ Use this workflow pack when reviewing an incoming pull request for true merge re
 
 ## Goal
 
-Review the current PR head, not stale history, and decide whether the change is actually safe to merge against Hushh north stars and trust boundaries.
+Review the current PR head, not stale history, and decide whether the change is actually safe to merge against Hussh north stars and trust boundaries.
 
 ## Steps
 

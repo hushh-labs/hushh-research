@@ -15,6 +15,14 @@ Define one durable documentation model across:
 - `consent-protocol/docs/` (backend)
 - `hushh-webapp/docs/` (frontend/native)
 
+This governance contract also owns the repo-wide dual-label terminology rule:
+
+- founder language leads when a doc is explaining platform meaning, trust boundaries, or system architecture
+- implementation language stays primary where a reader must copy exact paths, package names, tokens, env vars, methods, or field names
+- the canonical mapping lives in [../architecture/founder-language-matrix.md](../architecture/founder-language-matrix.md)
+- the public naming and compatibility rule lives in [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md)
+- the non-breaking rebrand bucket model lives in [hussh-rebrand-classification.md](./hussh-rebrand-classification.md)
+
 ## Naming Rules
 
 1. Index files must be named `README.md`.
@@ -22,6 +30,14 @@ Define one durable documentation model across:
 3. Avoid temporary plan docs in `docs/reference/`.
 4. Keep paths stable; if moved, update all inbound links in the same PR.
 5. Every major `docs/reference/*` domain and every declared source-tree north-star domain must have a `README.md` index.
+
+## Terminology Rules
+
+1. Use founder terms such as `PCHP`, `Capability Tokens`, `Cryptographic Primitives`, `Separation of Duties`, and `Tamper-Evident History` when the page is establishing architecture meaning.
+2. Immediately map those terms back to current implementation labels when operational precision matters.
+3. Do not rename current endpoints, packages, token types, or code symbols in docs prose.
+4. Do not describe future-state Kai/Nav separation, Merkle sealing, threshold signing, or other unshipped controls as implemented truth.
+5. When a doc introduces a new architecture-heavy term, reconcile it against the founder-language matrix in the same PR.
 
 ## Placement Rules
 
@@ -43,10 +59,24 @@ Define one durable documentation model across:
    - major README/index docs under `docs/`, `consent-protocol/docs/`, and `hushh-webapp/docs/`
    - `docs/project_context_map.md`
    - `docs/reference/operations/documentation-architecture-map.md`
+   - `docs/reference/architecture/architecture.md`
+   - `docs/reference/architecture/README.md`
+   - `docs/reference/iam/README.md`
+   - `docs/reference/kai/README.md`
+   - `docs/reference/mobile/README.md`
+   - `docs/reference/operations/README.md`
    - canonical architecture, IAM, Kai, mobile, CI, and branch-governance north-star docs
 5. Tier B docs may link to the nearest Tier A owner instead of embedding a local diagram.
 6. Diagrams must stay markdown-native. Prefer Mermaid for larger flows and ASCII only when the smaller inline sketch reads better.
 7. Do not add diagrams for transient incident history, one-time maintenance activity, or branch-only cleanup.
+
+## Diagram Quality Rules
+
+1. Treat diagrams as part of the contract, not decoration.
+2. Captions belong outside the figure geometry.
+3. Sibling lanes or columns should use equal widths when the concept is meant to be parallel.
+4. Avoid text overflow, clipped arrows, and top-heavy layouts.
+5. Shared HTML/PDF artifacts require rendered-page verification, not only source inspection.
 
 ## Root Entrypoint Rules
 
@@ -72,8 +102,8 @@ Required baseline:
    - local contributor bootstrap
    - PR/change expectations
 5. Public docs must teach the canonical contributor command surface (`bin/hushh` at repo root, package-local commands only in package-local docs), not maintainer-only compatibility paths.
-6. Public docs must use Hushh branding unless a compatibility identifier is being referenced explicitly.
-7. Secure / Scoped / Handled-by-the-user framing is allowed when it clarifies trust boundaries, but it should remain explanatory and must not replace the Hushh product name.
+6. Public docs must use Hussh branding unless a compatibility identifier is being referenced explicitly.
+7. Secure / Scoped / Handled-by-the-user framing is allowed when it clarifies trust boundaries, but it should remain explanatory and must not replace the Hussh product name.
 
 Allowed in root docs:
 
@@ -109,6 +139,8 @@ Default bias:
 1. `npm run verify:docs` (runtime/doc parity gate)
 2. `node scripts/verify-doc-links.cjs` (broken link + dead path gate)
 3. `node scripts/verify-doc-governance.cjs` (doc-home, index, thin-root, and Tier A diagram gate)
+4. `node scripts/verify-doc-brand.cjs` (public-brand vs compatibility-surface gate)
+5. `node scripts/verify-shareable-links.cjs` (shareable artifact link-hygiene gate)
 
 All applicable docs gates must pass in CI before merge.
 
@@ -118,6 +150,17 @@ CI gate policy:
 2. Treat docs parity and subtree drift as advisory unless explicitly promoted.
 3. Do not add a new CI/parity script unless it replaces or consolidates an existing script in the same PR.
 4. Every new CI/helper script must declare owner team (`frontend`, `backend`, or `platform`) and get owner approval.
+
+Terminology review gate:
+
+1. Sweep changed docs for founder terms and implementation terms with `rg`.
+2. Confirm the page still contains exact runtime labels where the reader must act on them.
+
+Brand review gate:
+
+1. Sweep changed docs, skills, and workflows for stray standalone `Hushh` branding.
+2. Keep exact runtime identifiers unchanged when they are quoted as compatibility surfaces.
+3. If a shareable artifact is added or edited, verify it does not contain local filesystem links.
 
 ## One-Time Rules
 

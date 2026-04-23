@@ -1,52 +1,15 @@
 # Naming Policy
 
-Public docs and product prose in this repo use **Hushh**.
-
 ## Visual Context
 
-Canonical visual owner: [Operations Index](README.md). Use that map for the top-down operations view; this page defines one policy inside it.
+Canonical visual owner: [Operations Index](./README.md). Use that map for the top-down operations view; this page points to the live repo-wide branding rule.
 
-Where useful, the trust model may be described with an SSH-style mnemonic:
+## Status
 
-- **Secure**
-- **Scoped**
-- **Handled by the user**
+This page remains as a compatibility pointer.
 
-## Public Usage
+The canonical naming rule now lives in [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md), which defines:
 
-Use **Hushh** in:
-
-- public docs
-- onboarding copy
-- product and architecture narratives
-- headings, badges, and canonical diagrams
-
-## Compatibility Only
-
-Legacy and infrastructure-bound identifiers may remain temporarily in:
-
-- repo slug
-- package names
-- bundle IDs
-- cloud services
-- env keys
-- native plugin and class names
-
-Those are compatibility boundaries, not the public product language.
-
-## Do Not Add
-
-Do not introduce new public-facing:
-
-- alternate public spellings that replace the Hushh name in prose
-- emoji-led secrecy branding
-- “privacy by vibe” language that hides the actual trust model
-
-Prefer precise language:
-
-- consent
-- scoped access
-- BYOK
-- zero-knowledge
-- ciphertext-only storage
-- local decryption boundary
+1. the public docs rebrand from `Hushh` to `Hussh (Human Secure Socket Host)`
+2. the compatibility surfaces that must remain literal, such as `./bin/hushh`, `hushh-webapp`, and `@hushh/mcp`
+3. the shared-artifact link and diagram hygiene rules

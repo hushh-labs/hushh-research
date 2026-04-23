@@ -1,9 +1,9 @@
 ---
 name: mobile-parity-audit
-description: Use when auditing mobile/native parity, release readiness, or platform-specific coverage across the Hushh app.
+description: Use when auditing mobile/native parity, release readiness, or platform-specific coverage across the Hussh app.
 ---
 
-# Hushh Mobile Parity Audit Skill
+# Hussh Mobile Parity Audit Skill
 
 ## Purpose and Trigger
 

@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "frontend",
   "primary_scope": "frontend-architecture",
-  "description": "Use when changing Hushh frontend structure, route contracts, package-level conventions, or frontend verification ownership.",
+  "description": "Use when changing Hussh frontend structure, route contracts, package-level conventions, or frontend verification ownership.",
   "owned_paths": [
     "hushh-webapp/lib/navigation",
     "hushh-webapp/scripts/architecture",

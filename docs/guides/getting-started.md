@@ -8,7 +8,7 @@ Canonical visual owner: [Guides Index](README.md). Use that map for the top-down
 
 ## What You Are Booting
 
-Hushh is a monorepo for a consent-and-scope platform:
+Hussh is a monorepo for a consent-and-scope platform:
 
 - `hushh-webapp/`: Next.js + Capacitor client
 - `consent-protocol/`: FastAPI backend, consent protocol, PKM, and agents

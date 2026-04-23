@@ -1,10 +1,10 @@
-# Hushh Consent MCP Ops
+# Hussh Consent MCP Ops
 
 Use this workflow pack when the task matches `hushh-consent-mcp-ops`.
 
 ## Goal
 
-Operate and verify the Hushh Consent MCP connector directly without confusing connector startup, empty discovery, and environment mismatch.
+Operate and verify the Hussh Consent MCP connector directly without confusing connector startup, empty discovery, and environment mismatch.
 
 ## Steps
 

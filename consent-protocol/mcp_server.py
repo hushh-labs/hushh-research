@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Hushh MCP Server - Production Grade
+Hussh MCP Server - Production Grade
 ====================================
 
 Consent-first personal data access for AI agents.
 
-This MCP Server exposes the Hushh consent protocol to any MCP Host,
+This MCP Server exposes the Hussh consent protocol to any MCP Host,
 enabling AI agents to access user data ONLY with explicit, cryptographic consent.
 
 Compliant with:
@@ -97,7 +97,7 @@ HANDLERS = {
 
 @server.list_tools()
 async def list_tools():
-    """Expose Hushh consent tools to MCP hosts."""
+    """Expose Hussh consent tools to MCP hosts."""
     allowed_tool_names = set(get_current_visible_tool_names())
     return get_tool_definitions(allowed_tool_names=allowed_tool_names)
 
@@ -182,7 +182,7 @@ async def read_resource(uri: str):
 
 async def main():
     """
-    Run the Hushh MCP Server.
+    Run the Hussh MCP Server.
 
     Transport: stdio (for Claude Desktop, Cursor, and other MCP hosts)
     Protocol: JSON-RPC 2.0

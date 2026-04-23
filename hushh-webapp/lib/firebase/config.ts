@@ -2,7 +2,7 @@
  * Firebase Configuration
  * ======================
  * 
- * Production-grade Firebase setup for Hushh webapp.
+ * Production-grade Firebase setup for Hussh webapp.
  * Uses Phone Authentication for consent-first user identification.
  */
 

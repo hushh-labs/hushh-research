@@ -20,7 +20,7 @@ flowchart TD
   hidden --> parity
 ```
 
-Hushh uses a code-owned route contract plus docs/runtime checks to keep the declared runtime surface aligned across:
+Hussh uses a code-owned route contract plus docs/runtime checks to keep the declared runtime surface aligned across:
 
 - Next.js API route handlers under `hushh-webapp/app/api/**/route.ts`
 - backend router prefixes and path families

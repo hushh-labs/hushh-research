@@ -4,6 +4,7 @@ import {
   dispatchVoiceToolCall,
   type VoiceDispatchResult,
 } from "@/lib/voice/voice-action-dispatcher";
+import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import {
   type GroundedVoicePlan,
@@ -13,9 +14,11 @@ import {
 import type { PendingVoiceConfirmation } from "@/lib/voice/voice-session-store";
 import { logVoiceMetric } from "@/lib/voice/voice-telemetry";
 import type {
+  AppRuntimeState,
   VoiceExecuteKaiCommandCall,
   VoiceResponse,
 } from "@/lib/voice/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import {
   buildVoiceActionResult,
   type ExecuteKaiCommandResult,
@@ -24,6 +27,14 @@ import {
 
 type RouterLike = {
   push: (href: string) => void;
+};
+
+type RouteSnapshot = AppRuntimeState["route"];
+type GroundedStepSettlementResult = {
+  route_after?: string | null;
+  screen_after?: string | null;
+  settled_by?: "none" | "route" | "screen" | "background_start" | "timeout";
+  data?: Record<string, unknown>;
 };
 
 type VoiceExecutionTelemetryEmitter = (
@@ -49,10 +60,14 @@ export type ExecuteVoiceResponseInput = {
   vaultKey?: string;
   router: RouterLike;
   handleBack: () => void;
+  switchPersona?: (target: "investor" | "ria") => Promise<unknown>;
   executeKaiCommand: (toolCall: VoiceExecuteKaiCommandCall) => ExecuteKaiCommandResult;
   setAnalysisParams: (params: AnalysisParams | null) => void;
   setPendingConfirmation?: (payload: PendingVoiceConfirmation) => void;
   emitTelemetry?: VoiceExecutionTelemetryEmitter;
+  getCurrentRoute?: () => RouteSnapshot | undefined;
+  getCurrentSurfaceMetadata?: () => VoiceSurfaceMetadata | null;
+  activePersona?: "investor" | "ria" | null;
 };
 
 export type ExecuteVoiceResponseResult = {
@@ -190,6 +205,47 @@ function fallbackDispatchSummary(
     return `${subject} was invalid.`;
   }
   return `${subject} failed.`;
+}
+
+async function waitForGroundedStepSettlement(
+  input: ExecuteVoiceResponseInput,
+  actionId: string | null,
+  routeBefore: string | null,
+  expectedRoute: string | null,
+  expectedScreen: string | null,
+  expectedPersona?: string | null
+): Promise<GroundedStepSettlementResult | null> {
+  if (!input.getCurrentRoute) return null;
+  if (!expectedRoute && !expectedScreen && !expectedPersona) return null;
+
+  const routeBeforeSnapshot: RouteSnapshot = {
+    pathname: routeBefore || input.currentRoute || "",
+    screen: input.currentScreen || "",
+    subview: null,
+  };
+
+  if (expectedPersona && input.activePersona === expectedPersona) {
+    const currentRoute = input.getCurrentRoute();
+    return {
+      route_after: currentRoute?.pathname || routeBeforeSnapshot.pathname,
+      screen_after: currentRoute?.screen || routeBeforeSnapshot.screen,
+      settled_by: "screen",
+    };
+  }
+
+  const settlement = await waitForVoiceActionSettlement({
+    actionId,
+    mode: "execute_and_wait",
+    actionStatus: "succeeded",
+    routeBefore: routeBeforeSnapshot,
+    expectedRoute,
+    expectedScreen,
+    getCurrentRoute: input.getCurrentRoute,
+    getCurrentSurfaceMetadata: input.getCurrentSurfaceMetadata,
+    emitTelemetry: input.emitTelemetry,
+    timeoutMs: 1800,
+  });
+  return settlement;
 }
 
 export async function executeVoiceResponse(
@@ -366,21 +422,83 @@ export async function executeVoiceResponse(
       let navigated = false;
       let dispatchResult: VoiceDispatchResult | null = null;
       let routeAfter: string | null = null;
+      let screenAfter: string | null = null;
+      let settledBy: GroundedStepSettlementResult["settled_by"];
 
       try {
         for (const step of groundedPlan.execution.steps) {
           if (step.type === "navigate") {
+            const stepRouteBefore = input.getCurrentRoute?.()?.pathname || routeAfter || input.currentRoute || null;
             input.router.push(step.href);
             navigated = true;
             routeAfter = step.href;
+            screenAfter = step.settlementTarget?.screen || screenAfter;
             emitExecutionTelemetry(input, "hidden_navigation_step", {
               action_id: groundedPlan.actionId,
               href: step.href,
               path_mode: groundedPlan.execution.mode,
             });
+            const stepSettlement = await waitForGroundedStepSettlement(
+              input,
+              groundedPlan.actionId,
+              stepRouteBefore,
+              step.settlementTarget?.route || step.href,
+              step.settlementTarget?.screen || null,
+              step.settlementTarget?.persona || null
+            );
+            if (stepSettlement) {
+              routeAfter = stepSettlement.route_after || routeAfter;
+              screenAfter = stepSettlement.screen_after || screenAfter;
+              settledBy = stepSettlement.settled_by || settledBy;
+            }
             continue;
           }
           if (step.type === "tool_call") {
+            if (step.confirmationRequired === true && input.setPendingConfirmation) {
+              if (
+                step.toolCall.tool_name === "cancel_active_analysis" ||
+                step.toolCall.tool_name === "execute_kai_command" ||
+                step.toolCall.tool_name === "resume_active_analysis" ||
+                step.toolCall.tool_name === "switch_persona"
+              ) {
+                input.setPendingConfirmation({
+                  kind: step.toolCall.tool_name,
+                  toolCall: step.toolCall,
+                  prompt:
+                    step.toolCall.tool_name === "switch_persona"
+                      ? `Switch to the ${step.toolCall.args.target_persona.toUpperCase()} workspace?`
+                      : "Confirm this Kai action before continuing.",
+                  transcript:
+                    step.toolCall.tool_name === "switch_persona"
+                      ? `switch to ${step.toolCall.args.target_persona}`
+                      : "confirm action",
+                  turnId: input.turnId || null,
+                  responseId: input.responseId || null,
+                });
+              }
+              emitExecutionTelemetry(input, "confirmation_required", {
+                action_id: groundedPlan.actionId,
+                tool_name: step.toolCall.tool_name,
+              });
+              return {
+                shortTermMemoryWrite: false,
+                toolName: null,
+                ticker: null,
+                responseKind: response.kind,
+                actionResult: buildExecutorActionResult("noop", input, {
+                  actionId: groundedPlan.actionId,
+                  routeAfter,
+                  screenAfter,
+                  resultSummary: "Waiting for confirmation before running the next Kai action step.",
+                  data: {
+                    executionMode: groundedPlan.execution.mode,
+                    toolName: step.toolCall.tool_name,
+                  },
+                }),
+              };
+            }
+            const stepRouteBefore =
+              input.getCurrentRoute?.()?.pathname || routeAfter || input.currentRoute || null;
             dispatchResult = await dispatchVoiceToolCall({
               toolCall: step.toolCall,
               userId: input.userId,
@@ -388,10 +506,12 @@ export async function executeVoiceResponse(
               vaultKey: input.vaultKey,
               router: input.router,
               handleBack: input.handleBack,
+              switchPersona: input.switchPersona,
               executeKaiCommand: input.executeKaiCommand,
               setAnalysisParams: input.setAnalysisParams,
               currentRoute: routeAfter ?? input.currentRoute ?? null,
               currentScreen: input.currentScreen ?? null,
+              activePersona: input.activePersona || null,
             });
             if (dispatchResult.status !== "executed") {
               const outcomeTelemetry = buildDispatchTelemetry("grounded_execution", dispatchResult, {
@@ -425,6 +545,20 @@ export async function executeVoiceResponse(
             executedToolName = dispatchResult.toolName;
             extractedTicker = extractedTicker || extractTickerFromToolCall(step.toolCall);
             routeAfter = dispatchResult.actionResult?.routeAfter ?? routeAfter;
+            screenAfter = dispatchResult.actionResult?.screenAfter ?? screenAfter;
+            const stepSettlement = await waitForGroundedStepSettlement(
+              input,
+              groundedPlan.actionId,
+              stepRouteBefore,
+              step.settlementTarget?.route || routeAfter,
+              step.settlementTarget?.screen || screenAfter,
+              step.settlementTarget?.persona || null
+            );
+            if (stepSettlement) {
+              routeAfter = stepSettlement.route_after || routeAfter;
+              screenAfter = stepSettlement.screen_after || screenAfter;
+              settledBy = stepSettlement.settled_by || settledBy;
+            }
             continue;
           }
           notifyInfo(step.message);
@@ -468,6 +602,7 @@ export async function executeVoiceResponse(
           status: navigated || executedToolName ? "succeeded" : "noop",
           actionId: groundedPlan.actionId,
           routeAfter,
+          screenAfter,
           resultSummary:
             dispatchResult?.actionResult?.resultSummary ||
             (routeAfter ? `Navigated to ${routeAfter}.` : "Completed the grounded voice action."),
@@ -475,6 +610,7 @@ export async function executeVoiceResponse(
             executionMode: groundedPlan.execution.mode,
             navigated,
             toolName: executedToolName,
+            ...(settledBy ? { settledBy } : {}),
           },
         }),
       };
@@ -494,7 +630,8 @@ export async function executeVoiceResponse(
       input.setPendingConfirmation &&
       (response.tool_call.tool_name === "cancel_active_analysis" ||
         response.tool_call.tool_name === "execute_kai_command" ||
-        response.tool_call.tool_name === "resume_active_analysis")
+        response.tool_call.tool_name === "resume_active_analysis" ||
+        response.tool_call.tool_name === "switch_persona")
     ) {
       input.setPendingConfirmation({
         kind: response.tool_call.tool_name,
@@ -548,10 +685,12 @@ export async function executeVoiceResponse(
         vaultKey: input.vaultKey,
         router: input.router,
         handleBack: input.handleBack,
+        switchPersona: input.switchPersona,
         executeKaiCommand: input.executeKaiCommand,
         setAnalysisParams: input.setAnalysisParams,
         currentRoute: input.currentRoute ?? null,
         currentScreen: input.currentScreen ?? null,
+        activePersona: input.activePersona || null,
       });
       if (dispatchResult.status !== "executed") {
         const outcomeTelemetry = buildDispatchTelemetry("legacy_execute", dispatchResult);

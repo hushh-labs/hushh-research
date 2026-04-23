@@ -18,12 +18,15 @@
   "task_types": [
     "docs-sync",
     "release-readiness",
-    "repo-orientation"
+    "repo-orientation",
+    "founder-brief-curation"
   ],
   "required_reads": [
     "docs/reference/operations/documentation-architecture-map.md",
     "docs/reference/operations/docs-governance.md",
-    ".codex/skills/docs-governance/references/documentation-homes.md"
+    "docs/reference/operations/brand-and-compatibility-contract.md",
+    ".codex/skills/docs-governance/references/documentation-homes.md",
+    ".codex/skills/docs-governance/references/founder-document-cadence.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",
@@ -46,14 +49,16 @@
     "frontend",
     "backend",
     "repo-operations",
-    "contributor-onboarding"
+    "contributor-onboarding",
+    "founder-brief-curation"
   ],
   "adjacent_skills": [
     "repo-context",
     "frontend",
     "backend",
     "repo-operations",
-    "contributor-onboarding"
+    "contributor-onboarding",
+    "founder-brief-curation"
   ],
   "risk_tags": [
     "docs-home-drift",

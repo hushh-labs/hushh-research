@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Hushh-Research-5B4BFF?style=for-the-badge" alt="Hushh Research"/>
+  <img src="https://img.shields.io/badge/Hussh-Research-5B4BFF?style=for-the-badge" alt="Hussh Research"/>
 </p>
 
-<h1 align="center">Hushh Research</h1>
+<h1 align="center">Hussh Research</h1>
 
 <p align="center">
   <strong>Consent-first personal data agents</strong><br/>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Hushh-Consent--First-0f172a?style=flat-square" alt="Hushh Consent First"/>
+  <img src="https://img.shields.io/badge/Hussh-Consent--First-0f172a?style=flat-square" alt="Hussh Consent First"/>
   <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js&logoColor=white" alt="Next.js 16"/>
   <img src="https://img.shields.io/badge/FastAPI-Python_3.13-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI Python 3.13"/>
   <img src="https://img.shields.io/badge/Google%20ADK-Agent%20Runtime-4285F4?style=flat-square&logo=google&logoColor=white" alt="Google ADK"/>
@@ -23,7 +23,7 @@
 
 ## 30-Second View
 
-**Hushh** is a consent-first platform for personal data agents.
+**Hussh** is a consent-first platform for personal data agents.
 
 The repo stays intentionally small for contributors:
 
@@ -148,12 +148,13 @@ Dev Containers: Reopen in Container
 - [Docs Index](./docs/README.md)
 - [CLI Reference](./docs/reference/operations/cli.md)
 - [Architecture](./docs/reference/architecture/architecture.md)
+- [Brand And Compatibility Contract](./docs/reference/operations/brand-and-compatibility-contract.md)
 - [Branch Governance](./docs/reference/operations/branch-governance.md)
 - [Vision](./docs/vision/README.md)
 
 ## Compatibility Boundaries
 
-Public markdown and contributor-facing copy use **Hushh**.
+Public markdown and contributor-facing copy use **Hussh**.
 
 Some internal identifiers still use legacy compatibility names:
 
@@ -163,7 +164,7 @@ Some internal identifiers still use legacy compatibility names:
 - env keys
 - internal plugin and class names
 
-Those are infrastructure details, not the public docs contract.
+Those are infrastructure details, not the public docs contract. The canonical rule lives in [docs/reference/operations/brand-and-compatibility-contract.md](./docs/reference/operations/brand-and-compatibility-contract.md).
 
 ## Principles
 
@@ -176,4 +177,4 @@ In practice:
 - self-contained scripts
 - minimal contributor cognitive load
 
-Hushh exists to make consented, scoped, zero-knowledge AI straightforward to build and straightforward to reason about.
+Hussh exists to make consented, scoped, zero-knowledge AI straightforward to build and straightforward to reason about.

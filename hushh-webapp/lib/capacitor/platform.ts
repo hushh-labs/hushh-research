@@ -1,5 +1,5 @@
 /**
- * Platform Detection Utilities for Hushh
+ * Platform Detection Utilities for Hussh
  *
  * Detects whether running in:
  * - Native iOS (Capacitor)

@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Third-party dependency inventory for the Hushh Consent Protocol.
+Third-party dependency inventory for the Hussh Consent Protocol.
 
 This file is generated from the repo lockfiles and installed Python environment.
 Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.

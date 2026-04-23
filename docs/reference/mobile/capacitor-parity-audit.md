@@ -15,6 +15,8 @@ flowchart TD
 
 This is the release-gate contract for calling iOS/Android parity complete.
 
+Founder-language note: this audit is one of the concrete proofs behind the platform's `Separation of Duties` claim. It shows that changing the transport boundary from Next.js proxy to native plugin does not change the visible product contract.
+
 ## Source Of Truth
 
 - Canonical app routes: `hushh-webapp/lib/navigation/routes.ts`

@@ -1,0 +1,306 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "profile_receipts",
+  "surface_title": "Profile Receipts",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "nav.profile_receipts",
+      "label": "Open Receipts Page",
+      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "aliases": [
+        "open receipts",
+        "open gmail receipts"
+      ],
+      "search_keywords": [
+        "receipts",
+        "gmail receipts"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile/receipts"
+        ],
+        "screens": [
+          "profile_receipts"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to profile surface if route is currently outside profile scope"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile/receipts"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/receipts/page.tsx"
+      ],
+      "expected_effects": {
+        "backend_effects": [
+          {
+            "api": "GET /api/kai/gmail/status/{user_id} (proxied)",
+            "effect": "Reads Gmail connector status on mount."
+          },
+          {
+            "api": "GET /api/kai/gmail/receipts/{user_id} (proxied)",
+            "effect": "Reads paginated receipt items."
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.connect",
+      "label": "Connect Gmail",
+      "meaning": "Starts OAuth flow for Gmail receipts connector.",
+      "aliases": [
+        "connect gmail",
+        "link gmail"
+      ],
+      "search_keywords": [
+        "gmail connect",
+        "gmail"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile",
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "gmail_configured"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "open_gmail_connector"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ],
+      "expected_effects": {
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/connect/start (proxied)",
+            "effect": "Generates OAuth authorize URL and state nonce."
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.sync_now",
+      "label": "Sync Gmail Receipts Now",
+      "meaning": "Queues and polls Gmail receipt sync run.",
+      "aliases": [
+        "sync gmail receipts",
+        "refresh gmail receipts"
+      ],
+      "search_keywords": [
+        "gmail sync",
+        "refresh receipts"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile/receipts",
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_receipts",
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "gmail_connected"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "sync_gmail_receipts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx",
+        "app/profile/receipts/page.tsx"
+      ],
+      "expected_effects": {
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/sync (proxied)",
+            "effect": "Queues sync job."
+          },
+          {
+            "api": "GET /api/kai/gmail/sync/{run_id} (proxied)",
+            "effect": "Polls sync run status."
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "profile.receipts_memory.preview",
+      "label": "Build receipts memory preview",
+      "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
+      "aliases": [
+        "preview receipts memory",
+        "generate receipts memory preview"
+      ],
+      "search_keywords": [
+        "receipts memory",
+        "preview receipts"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile/receipts"
+        ],
+        "screens": [
+          "profile_receipts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "edit_receipts_summary"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/receipts/page.tsx"
+      ],
+      "expected_effects": {
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/receipts-memory/preview (proxied)",
+            "effect": "Builds or refreshes the receipts memory artifact preview."
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "profile.receipts_memory.save",
+      "label": "Save receipts memory to PKM",
+      "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
+      "aliases": [
+        "save receipts memory",
+        "save receipts to memory"
+      ],
+      "search_keywords": [
+        "save receipts memory"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile/receipts"
+        ],
+        "screens": [
+          "profile_receipts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "receipt memory preview must exist before save"
+        ]
+      },
+      "guard_ids": [
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Save to PKM is currently implemented only inside the receipts page.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "save_receipts_memory"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/receipts/page.tsx"
+      ]
+    },
+    {
+      "action_id": "profile.gmail.disconnect",
+      "label": "Disconnect Gmail",
+      "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
+      "aliases": [
+        "disconnect gmail",
+        "unlink gmail"
+      ],
+      "search_keywords": [
+        "disconnect gmail"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "gmail_connected",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "No global action dispatcher for Gmail disconnect yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ],
+      "expected_effects": {
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/disconnect (proxied)",
+            "effect": "Revokes connector state in backend."
+          }
+        ]
+      }
+    }
+  ]
+}
