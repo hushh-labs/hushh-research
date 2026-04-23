@@ -3,7 +3,7 @@ name: quality-contracts
 description: Use when changing cross-surface verification policy, contract-test placement, test selection, or quality gates across frontend and backend.
 ---
 
-# Hushh Quality Contracts Skill
+# Hussh Quality Contracts Skill
 
 ## Purpose and Trigger
 

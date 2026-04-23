@@ -1,5 +1,5 @@
 /**
- * Hushh Local Agent - Web Implementation
+ * Hussh Local Agent - Web Implementation
  * 
  * DEV: Routes to remote API by default (useRemoteLLM: true).
  * When set to local, uses on-device intent classification and agents.

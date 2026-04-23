@@ -36,12 +36,29 @@ Product truth:
 
 Use this file as the maintained architecture reference. The older [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md) remains useful as the original migration/audit document, but it is no longer the best source for current runtime behavior.
 
+## Founder Language Mapping
+
+- `Separation of Duties`: voice planning, execution, and trust checks are split across frontend context building, backend planning/composition, and policy-gated data access
+- `Capability Tokens`: voice never bypasses `VAULT_OWNER`, consent, persona, or workspace gates
+- `Cryptographic Primitives`: durable voice memory stays vault-gated and encrypted; plaintext browser storage is not a valid fallback
+- `TrustLink / A2A delegation`: delegated agent paths must inherit the same consent boundary rather than minting broader voice authority
+
 ## Source Of Truth
 
-The maintained voice implementation is spread across these canonical surfaces:
+Capability authoring is now contract-first.
 
-- Shared semantic manifest: [contracts/kai/voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json)
-- Frontend registry and loaders:
+Use [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md) as the canonical contributor guide for how actions are authored, generated, and reviewed.
+
+The maintained runtime now depends on these canonical surfaces:
+
+- Local authored action contracts:
+  - `hushh-webapp/**/**/*.voice-action-contract.json`
+- Generated shared gateway:
+  - [contracts/kai/kai-action-gateway.vnext.json](../../../contracts/kai/kai-action-gateway.vnext.json)
+- Generated compatibility manifest:
+  - [contracts/kai/voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json)
+- Frontend adapters and loaders:
+  - [hushh-webapp/lib/voice/kai-action-gateway.ts](../../../hushh-webapp/lib/voice/kai-action-gateway.ts)
   - [hushh-webapp/lib/voice/investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
   - [hushh-webapp/lib/voice/voice-action-manifest.ts](../../../hushh-webapp/lib/voice/voice-action-manifest.ts)
 - Frontend runtime:
@@ -51,6 +68,7 @@ The maintained voice implementation is spread across these canonical surfaces:
   - [hushh-webapp/lib/voice/voice-action-dispatcher.ts](../../../hushh-webapp/lib/voice/voice-action-dispatcher.ts)
   - [hushh-webapp/lib/voice/voice-action-settlement.ts](../../../hushh-webapp/lib/voice/voice-action-settlement.ts)
   - [hushh-webapp/lib/voice/voice-response-composer.ts](../../../hushh-webapp/lib/voice/voice-response-composer.ts)
+  - [hushh-webapp/lib/voice/voice-memory-store.ts](../../../hushh-webapp/lib/voice/voice-memory-store.ts)
   - [hushh-webapp/lib/kai/command-executor.ts](../../../hushh-webapp/lib/kai/command-executor.ts)
 - Frontend context and UI entrypoints:
   - [hushh-webapp/lib/voice/screen-context-builder.ts](../../../hushh-webapp/lib/voice/screen-context-builder.ts)
@@ -204,16 +222,34 @@ The important correction from the older architecture is that the normal path is 
 
 ## Shared Manifest And Contracts
 
-### Shared semantic manifest
+### Generated action gateway
 
-The shared source of truth for canonical actions is [contracts/kai/voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json).
+The shared semantic authority is now [contracts/kai/kai-action-gateway.vnext.json](../../../contracts/kai/kai-action-gateway.vnext.json).
 
-It is consumed by:
+The gateway is generated from colocated local action contracts by [generate-kai-action-gateway.mjs](../../../hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs).
+
+Runtime consumption:
 
 - backend loader: [voice_action_manifest.py](../../../consent-protocol/hushh_mcp/services/voice_action_manifest.py)
-- frontend loader: [voice-action-manifest.ts](../../../hushh-webapp/lib/voice/voice-action-manifest.ts)
+- frontend gateway utilities: [kai-action-gateway.ts](../../../hushh-webapp/lib/voice/kai-action-gateway.ts)
+- frontend registry adapter: [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
 
-The frontend registry still owns the richer runtime wiring and UI-oriented semantics. The JSON manifest is the shared semantic contract, not the entire runtime binding surface.
+The older [voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json) still exists, but it is now a generated compatibility artifact rather than the primary authored source.
+
+### Capability authoring boundary
+
+Capability existence and shared semantics come from local contracts plus the generated gateway.
+
+Runtime surface metadata remains responsible for:
+
+- current state
+- active control
+- selected entity
+- visible modules
+- busy operations
+- explainable screen context
+
+Do not use runtime surface metadata as the source of capability existence.
 
 ### Canonical plan fields
 
@@ -246,12 +282,29 @@ The current typed observed result includes:
 
 This is the contract shared by the backend composer path and the deterministic fallback composer.
 
+### Authored workflows and persona gating
+
+The gateway now supports authored multi-step workflows.
+
+Current examples include:
+
+- persona switch plus route switch for RIA entry
+- route prerequisite plus tool call for hidden-but-navigable actions
+
+Rules:
+
+- voice may auto-chain only authored prerequisite steps
+- settlement is required between steps
+- persona and workspace are hard preconditions
+- unavailable workspaces block or require explicit switch instead of pretending the action is flat-global
+
 ## Voice Navigation And Analysis Surfaces
 
-The primary navigation and analysis actions are defined in:
+The primary navigation and analysis actions are authored in local contracts and consumed through:
 
+- [kai-action-gateway.ts](../../../hushh-webapp/lib/voice/kai-action-gateway.ts)
 - [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
-- [contracts/kai/voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json)
+- [contracts/kai/kai-action-gateway.vnext.json](../../../contracts/kai/kai-action-gateway.vnext.json)
 
 Important current voice surfaces include:
 
@@ -264,12 +317,26 @@ Important current voice surfaces include:
 - Gmail receipts
 - PKM / PKM Agent Lab
 - consent center
+- RIA workspace entry
 
 Important analysis actions include:
 
 - `analysis.start`
 - `analysis.resume_active`
 - `analysis.cancel_active`
+
+The same action plane now also powers typed search suggestions and control-id mapping in the Kai search bar.
+
+## Memory And Privacy
+
+Voice memory now follows the vault-safe BYOK/ZK boundary:
+
+- short-term memory remains in-memory only
+- durable voice memory is available only when the vault is unlocked
+- durable voice memory is stored in encrypted IndexedDB
+- plaintext browser fallback is not allowed
+
+The current implementation is in [voice-memory-store.ts](../../../hushh-webapp/lib/voice/voice-memory-store.ts).
 
 ## Observability And Debugging
 
@@ -311,16 +378,18 @@ The main documentation/code drift found during this refresh:
 - the older migration/audit doc still described several pre-implementation problems as if they were current state
 - `/voice/understand` remains a legacy combined surface and does not expose the richest canonical route contract
 - screen identifiers still drift across route derivation, command execution, surface publishers, and manifest expectations, which can cause settlement to fall back to timeout on otherwise successful navigations
-- some surface-published action IDs are still freer-form than the central registry, so action availability context is not yet perfectly canonical
+- not every Kai surface is yet covered by a colocated local action contract, so discoverability coverage is still incomplete outside the current seeded surfaces
 
 ## Maintainer Checklist
 
 When changing Kai voice behavior:
 
-1. update the frontend registry and the shared manifest together
-2. keep backend route contracts, frontend types, and validators aligned
-3. update this document when the canonical runtime flow or shared contract changes
-4. update the historical audit doc only when its migration notes need correction, not as the main runtime source
+1. update the local `.voice-action-contract.json` first
+2. regenerate the action gateway and compatibility manifest
+3. keep backend route contracts, frontend types, and validators aligned with the generated gateway
+4. update [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md) when the authoring contract or governance rules change
+5. update this document when the runtime flow, settlement model, or backend/frontend ownership changes
+6. update the historical audit doc only when its migration notes need correction, not as the main runtime source
 
 ## Verification
 
@@ -334,13 +403,16 @@ python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a
 If the shared manifest or voice registry changes, also run:
 
 ```bash
-cd hushh-webapp && npm test -- __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts
+cd hushh-webapp && npm run build:voice-gateway
+cd hushh-webapp && npm run verify:voice-gateway
+cd hushh-webapp && npm test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts
 ```
 
 If backend voice routes or planner/composer contracts change, also run the focused backend voice suites.
 
 ## Related References
 
+- [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md)
 - [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md)
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md)
 - [kai-runtime-smoke-checklist.md](./kai-runtime-smoke-checklist.md)

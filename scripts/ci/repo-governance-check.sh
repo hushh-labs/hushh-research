@@ -11,5 +11,6 @@ python3 scripts/ci/verify-protected-pipeline-edits.py
 ./bin/hushh docs verify
 python3 scripts/licenses/verify_apache_surface.py
 python3 scripts/ci/verify-runtime-config-contract.py
+python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 ./bin/hushh db verify-release-contract

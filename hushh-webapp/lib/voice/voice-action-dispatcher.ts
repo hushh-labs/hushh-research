@@ -1,6 +1,7 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
+import type { Persona } from "@/lib/services/ria-service";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { VoiceExecuteKaiCommandCall, VoiceToolCall } from "@/lib/voice/voice-types";
 import {
@@ -24,10 +25,12 @@ export type VoiceDispatchInput = {
   vaultKey?: string;
   router: RouterLike;
   handleBack: () => void;
+  switchPersona?: (target: Persona) => Promise<unknown>;
   executeKaiCommand: (toolCall: VoiceExecuteKaiCommandCall) => ExecuteKaiCommandResult;
   setAnalysisParams: (params: AnalysisParams | null) => void;
   currentRoute?: string | null;
   currentScreen?: string | null;
+  activePersona?: Persona | null;
 };
 
 export type VoiceDispatchResult = {
@@ -94,10 +97,12 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     vaultKey,
     router,
     handleBack,
+    switchPersona,
     executeKaiCommand,
     setAnalysisParams,
     currentRoute,
     currentScreen,
+    activePersona,
   } = input;
   const toolName = toolCall.tool_name;
   const handledBuiltinTool =
@@ -105,7 +110,8 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     toolName === "navigate_back" ||
     toolName === "execute_kai_command" ||
     toolName === "resume_active_analysis" ||
-    toolName === "cancel_active_analysis";
+    toolName === "cancel_active_analysis" ||
+    toolName === "switch_persona";
 
   const canonicalAction = getInvestorKaiActionByVoiceToolCall(toolCall);
   const canonicalActionId = canonicalAction?.id ?? null;
@@ -184,6 +190,93 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
           currentScreen ?? null
         ),
     });
+  }
+
+  if (toolCall.tool_name === "switch_persona") {
+    const targetPersona = toolCall.args.target_persona;
+    if (!switchPersona) {
+      return buildDispatchResult({
+        status: "invalid",
+        toolName: "switch_persona",
+        reason: "missing_persona_switch_handler",
+        actionResult: buildVoiceActionResult({
+          status: "failed",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          screenBefore: currentScreen,
+          resultSummary: "Persona switch is not available in this Kai runtime.",
+          data: {
+            toolName: "switch_persona",
+            targetPersona,
+          },
+        }),
+      });
+    }
+
+    if (activePersona === targetPersona) {
+      return buildDispatchResult({
+        status: "executed",
+        toolName: "switch_persona",
+        actionResult: buildVoiceActionResult({
+          status: "noop",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          routeAfter: currentRoute,
+          screenBefore: currentScreen,
+          screenAfter: currentScreen,
+          resultSummary: `Already in the ${targetPersona.toUpperCase()} workspace.`,
+          data: {
+            toolName: "switch_persona",
+            targetPersona,
+          },
+        }),
+      });
+    }
+
+    try {
+      await switchPersona(targetPersona);
+      const routeAfter = toolCall.args.after_route || currentRoute || null;
+      if (toolCall.args.after_route) {
+        router.push(toolCall.args.after_route);
+      }
+      return buildDispatchResult({
+        status: "executed",
+        toolName: "switch_persona",
+        actionResult: buildVoiceActionResult({
+          status: "succeeded",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          routeAfter,
+          screenBefore: currentScreen,
+          screenAfter: toolCall.args.after_screen || null,
+          resultSummary: `Switched to the ${targetPersona.toUpperCase()} workspace.`,
+          data: {
+            toolName: "switch_persona",
+            targetPersona,
+          },
+        }),
+      });
+    } catch (error) {
+      return buildDispatchResult({
+        status: "failed",
+        toolName: "switch_persona",
+        reason: "persona_switch_failed",
+        actionResult: buildVoiceActionResult({
+          status: "failed",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          screenBefore: currentScreen,
+          resultSummary:
+            error instanceof Error && error.message.trim()
+              ? error.message.trim()
+              : `Could not switch to the ${targetPersona.toUpperCase()} workspace.`,
+          data: {
+            toolName: "switch_persona",
+            targetPersona,
+          },
+        }),
+      });
+    }
   }
 
   if (!vaultOwnerToken) {

@@ -3,12 +3,12 @@ name: pr-governance-review
 description: Use when reviewing an incoming pull request for north-star alignment, trust-boundary regressions, malicious or low-signal degradation, stale-vs-current CI interpretation, and true merge readiness beyond a green gate.
 ---
 
-# Hushh PR Governance Review Skill
+# Hussh PR Governance Review Skill
 
 ## Purpose and Trigger
 
 - Primary scope: `pr-governance-review-intake`
-- Trigger on incoming pull request review, contributor PR triage, merge-readiness assessment, or any case where CI may be green but the change could still erode Hushh north stars, trust boundaries, runtime contracts, or repo quality.
+- Trigger on incoming pull request review, contributor PR triage, merge-readiness assessment, or any case where CI may be green but the change could still erode Hussh north stars, trust boundaries, runtime contracts, or repo quality.
 - Avoid overlap with `repo-context`, `repo-operations`, and `quality-contracts` when the task is broad repo discovery, CI repair, or test-policy design rather than PR trust review.
 
 ## Coverage and Ownership

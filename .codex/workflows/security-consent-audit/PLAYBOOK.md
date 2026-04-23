@@ -4,7 +4,7 @@ Use this workflow pack when the task matches `security-consent-audit`.
 
 ## Goal
 
-Audit IAM, consent, vault, PKM, and delegated access boundaries against Hushh trust invariants.
+Audit IAM, consent, vault, PKM, and delegated access boundaries against Hussh trust invariants.
 
 ## Steps
 

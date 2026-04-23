@@ -16,6 +16,12 @@ flowchart TD
 
 Describe the current implemented Investor + RIA runtime surface (backend + web + MCP).
 
+Founder-language note:
+
+- this file documents the runtime side of `Separation of Duties`
+- `Capability Tokens` remain explicit as route-level requirements because the reader needs exact runtime labels
+- `TrustLink / A2A delegation` should be understood as inherited-scope delegation over this same runtime surface, not a second authority system
+
 ## Runtime Contract
 
 | Variable | Layer | Role |

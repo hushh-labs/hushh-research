@@ -1,14 +1,14 @@
 ---
 name: planning-board
-description: Use when inspecting, summarizing, creating, triaging, or updating work on the Hushh Engineering Core GitHub board.
+description: Use when inspecting, summarizing, creating, triaging, or updating work on the Hussh Engineering Core GitHub board.
 ---
 
-# Hushh Planning Board Skill
+# Hussh Planning Board Skill
 
 ## Purpose and Trigger
 
 - Primary scope: `planning-board-intake`
-- Trigger on `Hushh Engineering Core` board summaries, issue-backed board item creation, triage, and field updates.
+- Trigger on `Hussh Engineering Core` board summaries, issue-backed board item creation, triage, and field updates.
 - Avoid overlap with `repo-operations` and `repo-context`.
 
 ## Coverage and Ownership

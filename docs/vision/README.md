@@ -1,4 +1,4 @@
-# Hushh Vision
+# Hussh Vision
 
 > Build personal AI on consent, scoped access, BYOK, and zero-knowledge boundaries.
 
@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart TD
-  root["Hushh"]
+  root["Hussh"]
   trust["Consent + scoped access"]
   vault["BYOK + zero-knowledge"]
   product["Kai, consent, RIA, PKM"]
@@ -20,7 +20,7 @@ flowchart TD
 
 ## The Core Idea
 
-Hushh is not trying to make privacy feel cute. It is trying to make trust explicit.
+Hussh is not trying to make privacy feel cute. It is trying to make trust explicit.
 
 The product thesis is:
 
@@ -35,9 +35,9 @@ Where the shorthand helps, the trust model can be read as:
 - **Scoped**
 - **Handled by the user**
 
-## What Hushh Is
+## What Hussh Is
 
-Hushh is a platform for personal agents and agent-assisted workflows where:
+Hussh is a platform for personal agents and agent-assisted workflows where:
 
 - identity says who is acting
 - the vault defines the encrypted data boundary
@@ -46,7 +46,7 @@ Hushh is a platform for personal agents and agent-assisted workflows where:
 
 ## Why This Matters
 
-| Old model | Hushh model |
+| Old model | Hussh model |
 | --- | --- |
 | implied platform access | explicit scoped access |
 | server-readable user state | ciphertext-only storage |
@@ -95,6 +95,6 @@ This is the “eukaryotic backbone, bacterial modules” rule for the repo:
 
 ## Public Naming Rule
 
-Use **Hushh** in public docs and product copy.
+Use **Hussh** in public docs and product copy.
 
-Legacy `Hushh` identifiers that remain in code, env keys, bundle IDs, or service names are compatibility details, not the public brand.
+Legacy `Hushh` identifiers that remain in code, env keys, bundle IDs, or service names are compatibility details, not the public brand. The canonical rule lives in [../reference/operations/brand-and-compatibility-contract.md](../reference/operations/brand-and-compatibility-contract.md).

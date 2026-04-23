@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
   keywords: ["AI agents", "personal AI", "Kai", "consent-first", "privacy"],
-  authors: [{ name: "Hushh Labs" }],
+  authors: [{ name: "Hussh Labs" }],
   openGraph: {
     title: "Kai: Your Personal Agent",
     description: "Personal AI agents with consent at the core.",

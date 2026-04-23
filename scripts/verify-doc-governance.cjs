@@ -43,6 +43,11 @@ const tierADocs = [
   "README.md",
   "docs/README.md",
   "docs/guides/README.md",
+  "docs/reference/architecture/architecture.md",
+  "docs/reference/architecture/README.md",
+  "docs/reference/iam/README.md",
+  "docs/reference/kai/README.md",
+  "docs/reference/mobile/README.md",
   "docs/reference/operations/README.md",
   "docs/reference/operations/documentation-architecture-map.md",
   "docs/reference/quality/README.md",
@@ -110,6 +115,9 @@ for (const forbidden of ["## Quick Start", "## Deployment", "## Linting and Test
 const docsReadme = read("docs/README.md");
 if (!docsReadme.includes("documentation-architecture-map.md")) {
   failures.push("docs/README.md must link documentation-architecture-map.md");
+}
+if (!docsReadme.includes("brand-and-compatibility-contract.md")) {
+  failures.push("docs/README.md must link brand-and-compatibility-contract.md");
 }
 
 function walkMarkdown(relStart) {

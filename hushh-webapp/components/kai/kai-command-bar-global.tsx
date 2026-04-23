@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { KaiSearchBar } from "@/components/kai/kai-search-bar";
+import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { useVault } from "@/lib/vault/vault-context";
@@ -14,11 +15,14 @@ import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
+import { resolveGroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { isVoiceEligibleRouteScreen } from "@/lib/voice/voice-route-eligibility";
 import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
+import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import type {
   AppRuntimeState,
@@ -26,6 +30,7 @@ import type {
   VoiceMemoryHint,
   VoicePlanPayload,
   VoiceResponse,
+  VoiceToolCall,
 } from "@/lib/voice/voice-types";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -126,6 +131,15 @@ export function KaiCommandBarGlobal() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading } = useAuth();
+  const {
+    activePersona,
+    primaryNavPersona,
+    personaState,
+    personaTransitionTarget,
+    riaSetupAvailable,
+    riaSwitchAvailable,
+    switchPersona,
+  } = usePersonaState();
   const { isVaultUnlocked, vaultOwnerToken, vaultKey, tokenExpiresAt } = useVault();
   const handleBack = useCallback(() => {
     router.back();
@@ -408,6 +422,16 @@ export function KaiCommandBarGlobal() {
       portfolio: {
         has_portfolio_data: hasPortfolioData,
       },
+      persona: {
+        active: activePersona,
+        primary_nav: primaryNavPersona,
+        available: Array.isArray(personaState?.personas) && personaState.personas.length > 0
+          ? [...personaState.personas]
+          : [activePersona],
+        transition_target: personaTransitionTarget || null,
+        ria_switch_available: riaSwitchAvailable,
+        ria_setup_available: riaSetupAvailable,
+      },
       voice: {
         available: voiceAvailable,
         tts_playing: ttsPlaying,
@@ -427,12 +451,18 @@ export function KaiCommandBarGlobal() {
       routeInfo.screen,
       routeInfo.subview,
       runningImportTask,
+      activePersona,
       signedIn,
       tokenAvailable,
       tokenValid,
       ttsPlaying,
       userId,
       voiceAvailable,
+      personaState?.personas,
+      personaTransitionTarget,
+      primaryNavPersona,
+      riaSetupAvailable,
+      riaSwitchAvailable,
     ]
   );
 
@@ -463,25 +493,225 @@ export function KaiCommandBarGlobal() {
     appRuntimeStateRef.current = appRuntimeState;
   }, [appRuntimeState]);
 
-  const runKaiCommand = (command: KaiCommandAction, params?: Record<string, unknown>) => {
-    const currentRoute = appRuntimeStateRef.current.route;
-    const result = executeKaiCommand({
-      command,
-      params,
+  const runKaiCommand = useCallback(
+    (command: KaiCommandAction, params?: Record<string, unknown>) => {
+      const currentRoute = appRuntimeStateRef.current.route;
+      const result = executeKaiCommand({
+        command,
+        params,
+        router,
+        userId,
+        hasPortfolioData,
+        reviewDirty,
+        busyOperations,
+        setAnalysisParams,
+        currentRoute: currentRoute.pathname,
+        currentScreen: currentRoute.screen,
+      });
+      console.info(
+        `[VOICE_UI] execute_kai_command command=${command} status=${result.status}${result.reason ? ` reason=${result.reason}` : ""}`
+      );
+      return result;
+    },
+    [busyOperations, hasPortfolioData, reviewDirty, router, setAnalysisParams, userId]
+  );
+
+  const finalizeActionSettlement = useCallback(
+    async (args: {
+      turnId?: string | null;
+      actionId?: string | null;
+      planMode: VoicePlanPayload["mode"];
+      groundedPlan?: GroundedVoicePlan;
+      outcome: Awaited<ReturnType<typeof executeVoiceResponse>>;
+      routeBefore: AppRuntimeState["route"];
+    }) => {
+      const normalizedActionResult = normalizeVoiceActionResult(args.outcome);
+      const expectedRoute =
+        normalizedActionResult?.route_after ||
+        args.groundedPlan?.execution.steps.find((step) => step.type === "navigate")?.href ||
+        null;
+      const shouldWaitForSettlement =
+        normalizedActionResult &&
+        (normalizedActionResult.status === "succeeded" ||
+          normalizedActionResult.status === "started") &&
+        (args.planMode === "start_background_and_ack" ||
+          (args.planMode === "execute_and_wait" &&
+            Boolean(expectedRoute || normalizedActionResult.screen_after)));
+
+      let settledActionResult = normalizedActionResult;
+      if (shouldWaitForSettlement && normalizedActionResult) {
+        const settlement = await waitForVoiceActionSettlement({
+          actionId:
+            args.actionId ||
+            normalizedActionResult.action_id ||
+            args.groundedPlan?.actionId ||
+            null,
+          actionStatus: normalizedActionResult.status,
+          mode: args.planMode,
+          routeBefore: args.routeBefore,
+          expectedRoute,
+          expectedScreen: normalizedActionResult.screen_after,
+          getCurrentRoute: () => appRuntimeStateRef.current.route,
+          getCurrentSurfaceMetadata: () => getVoiceSurfaceMetadata(),
+          emitTelemetry: (event, telemetryPayload) => {
+            appendVoiceDebugEvent({
+              turnId: args.turnId || "no_turn",
+              sessionId: null,
+              stage: "dispatch",
+              event,
+              payload: telemetryPayload,
+            });
+          },
+        });
+        settledActionResult = {
+          ...normalizedActionResult,
+          route_after: settlement.route_after ?? normalizedActionResult.route_after,
+          screen_after: settlement.screen_after ?? normalizedActionResult.screen_after,
+          settled_by: settlement.settled_by ?? normalizedActionResult.settled_by,
+          data:
+            normalizedActionResult.data || settlement.data
+              ? {
+                  ...(normalizedActionResult.data || {}),
+                  ...(settlement.data || {}),
+                }
+              : undefined,
+        };
+      }
+
+      if (args.outcome.shortTermMemoryWrite) {
+        setLastVoiceTurn({
+          transcript: args.groundedPlan?.actionId || args.actionId || "palette_action",
+          toolName: args.outcome.toolName ?? settledActionResult?.tool_name ?? null,
+          ticker: args.outcome.ticker ?? settledActionResult?.ticker ?? null,
+          responseKind: args.outcome.responseKind,
+          turnId: args.turnId || null,
+        });
+      }
+
+      return {
+        ...args.outcome,
+        actionResult: settledActionResult || args.outcome.actionResult,
+      };
+    },
+    [appendVoiceDebugEvent, setLastVoiceTurn]
+  );
+
+  const runGatewayAction = useCallback(
+    async (actionId: string, slots?: Record<string, unknown>) => {
+      const action = getKaiActionById(actionId);
+      if (!action) {
+        return;
+      }
+      const routeBefore = appRuntimeStateRef.current.route;
+      const voiceToolCall: VoiceToolCall | null =
+        action.execution_target.status === "wired" && action.execution_target.path === "voice_tool"
+          ? ({
+              tool_name: action.execution_target.target,
+              args: action.execution_target.params || {},
+            } as VoiceToolCall)
+          : action.execution_target.status === "wired" &&
+              action.execution_target.path === "kai_command"
+            ? ({
+                tool_name: "execute_kai_command",
+                args: {
+                  command: action.execution_target.target as KaiCommandAction,
+                  params:
+                    action.execution_target.target === "analyze"
+                      ? {
+                          ...(typeof slots?.symbol === "string"
+                            ? { symbol: slots.symbol.trim().toUpperCase() }
+                            : {}),
+                        }
+                      : (action.execution_target.params as Record<string, unknown> | undefined),
+                },
+              } as VoiceToolCall)
+            : null;
+      const response: VoiceResponse =
+        voiceToolCall
+          ? {
+              kind: "execute",
+              message: `Executing ${action.label}.`,
+              speak: true,
+              tool_call: voiceToolCall,
+            }
+          : {
+              kind: "speak_only",
+              message: `Opening ${action.label}.`,
+              speak: true,
+            };
+
+      const groundedPlan = resolveGroundedVoicePlan({
+        transcript:
+          typeof slots?.symbol === "string"
+            ? `${action.label} ${slots.symbol}`
+            : action.label,
+        response,
+        structuredContext: buildStructuredScreenContext({
+          appRuntimeState: appRuntimeStateRef.current,
+          voiceContext,
+        }),
+        appRuntimeState: appRuntimeStateRef.current,
+        canonicalActionId: actionId,
+        allowCompatibilityFallback: false,
+      });
+
+      const outcome = await executeVoiceResponse({
+        response,
+        groundedPlan,
+        executionAllowed: true,
+        needsConfirmation: false,
+        suppressNotifications: false,
+        currentRoute: routeBefore.pathname,
+        currentScreen: routeBefore.screen,
+        userId,
+        vaultOwnerToken: vaultOwnerToken || undefined,
+        vaultKey: vaultKey || undefined,
+        router,
+        handleBack,
+        switchPersona,
+        executeKaiCommand: (toolCall) =>
+          runKaiCommand(toolCall.args.command, toolCall.args.params),
+        setAnalysisParams,
+        emitTelemetry: (event, telemetryPayload) => {
+          appendVoiceDebugEvent({
+            turnId: "palette_action",
+            sessionId: null,
+            stage: "dispatch",
+            event,
+            payload: telemetryPayload,
+          });
+        },
+        setPendingConfirmation,
+        getCurrentRoute: () => appRuntimeStateRef.current.route,
+        getCurrentSurfaceMetadata: () => getVoiceSurfaceMetadata(),
+        activePersona,
+      });
+
+      await finalizeActionSettlement({
+        turnId: "palette_action",
+        actionId,
+        planMode: "execute_and_wait",
+        groundedPlan,
+        outcome,
+        routeBefore,
+      });
+    },
+    [
+      activePersona,
+      appendVoiceDebugEvent,
+      finalizeActionSettlement,
+      handleBack,
       router,
-      userId,
-      hasPortfolioData,
-      reviewDirty,
-      busyOperations,
+      runKaiCommand,
       setAnalysisParams,
-      currentRoute: currentRoute.pathname,
-      currentScreen: currentRoute.screen,
-    });
-    console.info(
-      `[VOICE_UI] execute_kai_command command=${command} status=${result.status}${result.reason ? ` reason=${result.reason}` : ""}`
-    );
-    return result;
-  };
+      setPendingConfirmation,
+      switchPersona,
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+      voiceContext,
+    ]
+  );
 
   if (loading || !user || reviewScreenActive) {
     return null;
@@ -493,8 +723,8 @@ export function KaiCommandBarGlobal() {
 
   return (
     <KaiSearchBar
-      onCommand={(command, params) => {
-        runKaiCommand(command, params);
+      onSelectAction={(selection) => {
+        void runGatewayAction(selection.actionId, selection.slots);
       }}
       onVoiceResponse={async (payload: {
         turnId: string;
@@ -523,6 +753,7 @@ export function KaiCommandBarGlobal() {
           vaultKey: vaultKey || undefined,
           router,
           handleBack,
+          switchPersona,
           executeKaiCommand: (toolCall) =>
             runKaiCommand(
               toolCall.args.command,
@@ -539,77 +770,19 @@ export function KaiCommandBarGlobal() {
             });
           },
           setPendingConfirmation,
+          getCurrentRoute: () => appRuntimeStateRef.current.route,
+          getCurrentSurfaceMetadata: () => getVoiceSurfaceMetadata(),
+          activePersona,
         });
-
-        const normalizedActionResult = normalizeVoiceActionResult(outcome);
-        const expectedRoute =
-          normalizedActionResult?.route_after ||
-          payload.groundedPlan?.execution.steps.find((step) => step.type === "navigate")?.href ||
-          null;
-        const shouldWaitForSettlement =
-          normalizedActionResult &&
-          (normalizedActionResult.status === "succeeded" ||
-            normalizedActionResult.status === "started") &&
-          (payload.plan.mode === "start_background_and_ack" ||
-            (payload.plan.mode === "execute_and_wait" &&
-              Boolean(expectedRoute || normalizedActionResult.screen_after)));
-
-        let settledActionResult = normalizedActionResult;
-        if (shouldWaitForSettlement && normalizedActionResult) {
-          const settlement = await waitForVoiceActionSettlement({
-            actionId:
-              payload.plan.action_id ||
-              normalizedActionResult.action_id ||
-              payload.groundedPlan?.actionId ||
-              null,
-            actionStatus: normalizedActionResult.status,
-            mode: payload.plan.mode,
-            routeBefore,
-            expectedRoute,
-            expectedScreen: normalizedActionResult.screen_after,
-            getCurrentRoute: () => appRuntimeStateRef.current.route,
-            getCurrentSurfaceMetadata: () => getVoiceSurfaceMetadata(),
-            emitTelemetry: (event, telemetryPayload) => {
-              appendVoiceDebugEvent({
-                turnId: payload.turnId || "no_turn",
-                sessionId: null,
-                stage: "dispatch",
-                event,
-                payload: telemetryPayload,
-              });
-            },
-          });
-          settledActionResult = {
-            ...normalizedActionResult,
-            route_after: settlement.route_after ?? normalizedActionResult.route_after,
-            screen_after: settlement.screen_after ?? normalizedActionResult.screen_after,
-            settled_by: settlement.settled_by ?? normalizedActionResult.settled_by,
-            data:
-              normalizedActionResult.data || settlement.data
-                ? {
-                    ...(normalizedActionResult.data || {}),
-                    ...(settlement.data || {}),
-                  }
-                : undefined,
-          };
-        }
-
-        if (outcome.shortTermMemoryWrite) {
-          setLastVoiceTurn({
-            transcript: payload.transcript,
-            toolName: outcome.toolName ?? settledActionResult?.tool_name ?? null,
-            ticker: outcome.ticker ?? settledActionResult?.ticker ?? null,
-            responseKind: outcome.responseKind,
-            turnId: payload.turnId,
-          });
-        }
-
-        return {
-          ...outcome,
-          actionResult: settledActionResult || outcome.actionResult,
-        };
+        return finalizeActionSettlement({
+          turnId: payload.turnId,
+          actionId: payload.plan.action_id || payload.groundedPlan?.actionId || null,
+          planMode: payload.plan.mode,
+          groundedPlan: payload.groundedPlan,
+          outcome,
+          routeBefore,
+        });
       }}
-      hasPortfolioData={hasPortfolioData}
       userId={userId}
       vaultOwnerToken={vaultOwnerToken || undefined}
       voiceAvailable={voiceAvailable}

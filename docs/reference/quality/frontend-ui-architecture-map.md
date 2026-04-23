@@ -10,7 +10,7 @@ Canonical visual owner: [Quality and Design System Index](./README.md). Use that
 |---|---|---|---|
 | Stock primitives | `hushh-webapp/components/ui/*` | Registry-backed baseline controls | Keep overwrite-safe. No app semantics here. |
 | Morphy UX | `hushh-webapp/lib/morphy-ux/*` | Standalone design-system root | Own tokens, primitive surface shells, motion, and reusable interaction layers. Do not pull in feature or app-ui code. |
-| App surfaces | `hushh-webapp/components/app-ui/*` | Hushh shell chrome and semantic shared compositions | Own shell, settings, page chrome, and semantic wrappers built on Morphy primitives. |
+| App surfaces | `hushh-webapp/components/app-ui/*` | Hussh shell chrome and semantic shared compositions | Own shell, settings, page chrome, and semantic wrappers built on Morphy primitives. |
 | Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Route-level composition and feature behavior | Reuse stock or app-ui primitives before inventing new surfaces. |
 | Labs | `hushh-webapp/app/labs/*`, `hushh-webapp/components/labs/*`, `hushh-webapp/lib/labs/*` | Experimental visual exploration | Never import directly into production Kai routes without graduation. |
 

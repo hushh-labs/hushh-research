@@ -5,19 +5,33 @@ import {
   type InvestorKaiActionId,
   resolveInvestorKaiActionWiring,
 } from "@/lib/voice/investor-kai-action-registry";
+import {
+  evaluateKaiActionAvailability,
+  getKaiActionById,
+} from "@/lib/voice/kai-action-gateway";
 import type { StructuredScreenContext } from "@/lib/voice/screen-context-builder";
-import type { VoiceResponse, VoiceToolCall } from "@/lib/voice/voice-types";
+import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import type { AppRuntimeState, VoiceResponse, VoiceToolCall } from "@/lib/voice/voice-types";
+
+export type GroundedSettlementTarget = {
+  route?: string | null;
+  screen?: string | null;
+  persona?: string | null;
+};
 
 export type GroundedExecutionStep =
   | {
       type: "navigate";
       href: string;
       reason: string;
+      settlementTarget?: GroundedSettlementTarget | null;
     }
   | {
       type: "tool_call";
       toolCall: VoiceToolCall;
       reason: string;
+      confirmationRequired?: boolean;
+      settlementTarget?: GroundedSettlementTarget | null;
     }
   | {
       type: "prompt";
@@ -51,6 +65,7 @@ type ResolveGroundedPlanInput = {
   transcript: string;
   response: VoiceResponse;
   structuredContext?: StructuredScreenContext;
+  appRuntimeState?: AppRuntimeState;
   canonicalActionId?: string | null;
   allowCompatibilityFallback?: boolean;
 };
@@ -107,6 +122,14 @@ function buildToolCallFromWiredAction(
     if (binding.toolName === "navigate_back") {
       return { tool_name: "navigate_back", args: {} };
     }
+    if (binding.toolName === "switch_persona") {
+      return {
+        tool_name: "switch_persona",
+        args: {
+          target_persona: "ria",
+        },
+      };
+    }
     return null;
   }
   if (binding.kind === "kai_command") {
@@ -138,7 +161,14 @@ function buildToolCallFromWiredAction(
     }
 
     if (binding.params?.tab) {
-      params.tab = binding.params.tab;
+      if (
+        binding.params.tab === "history" ||
+        binding.params.tab === "debate" ||
+        binding.params.tab === "summary" ||
+        binding.params.tab === "transcript"
+      ) {
+        params.tab = binding.params.tab;
+      }
     }
 
     const normalizedParams = Object.keys(params).length > 0 ? params : undefined;
@@ -151,6 +181,109 @@ function buildToolCallFromWiredAction(
     };
   }
   return null;
+}
+
+function toSettlementTarget(
+  input:
+    | {
+        route?: string;
+        screen?: string;
+        persona?: string;
+      }
+    | null
+    | undefined
+): GroundedSettlementTarget | null {
+  if (!input) return null;
+  const target: GroundedSettlementTarget = {
+    route: input.route || null,
+    screen: input.screen || null,
+    persona: input.persona || null,
+  };
+  return target.route || target.screen || target.persona ? target : null;
+}
+
+function buildToolCallFromWorkflowStep(step: {
+  tool_name: VoiceToolCall["tool_name"];
+  args?: Record<string, unknown>;
+}): VoiceToolCall {
+  if (step.tool_name === "execute_kai_command") {
+    const args = (step.args || {}) as Record<string, unknown>;
+    return {
+      tool_name: "execute_kai_command",
+      args: {
+        command: String(args.command || "home") as "analyze" | "optimize" | "import" | "consent" | "profile" | "history" | "dashboard" | "home",
+        params:
+          args.params && typeof args.params === "object"
+            ? (args.params as {
+                symbol?: string;
+                focus?: "active";
+                tab?: "history" | "debate" | "summary" | "transcript";
+              })
+            : undefined,
+      },
+    };
+  }
+  return {
+    tool_name: step.tool_name,
+    args: (step.args || {}) as never,
+  } as VoiceToolCall;
+}
+
+function buildWorkflowSteps(
+  action: InvestorKaiActionDefinition,
+  currentHref: string,
+  currentPersona: string | null
+): GroundedExecutionStep[] {
+  if (!action.workflow) return [];
+  const steps: GroundedExecutionStep[] = [];
+  for (const step of action.workflow.steps) {
+    if (step.type === "route_switch") {
+      if (isSameRouteTarget(currentHref, step.href)) {
+        continue;
+      }
+      steps.push({
+        type: "navigate",
+        href: step.href,
+        reason: "workflow_route_switch",
+        settlementTarget: toSettlementTarget(step.settlement_target),
+      });
+      continue;
+    }
+    if (step.type === "persona_switch") {
+      if (currentPersona === step.target_persona) {
+        continue;
+      }
+      steps.push({
+        type: "tool_call",
+        toolCall: {
+          tool_name: "switch_persona",
+          args: {
+            target_persona: step.target_persona,
+          },
+        },
+        reason: step.reason || "workflow_persona_switch",
+        confirmationRequired: step.confirmation_required === true,
+        settlementTarget: toSettlementTarget(step.settlement_target),
+      });
+      continue;
+    }
+    if (step.type === "tool_call") {
+      steps.push({
+        type: "tool_call",
+        toolCall: buildToolCallFromWorkflowStep(step),
+        reason: step.reason || "workflow_tool_call",
+        confirmationRequired: step.confirmation_required === true,
+        settlementTarget: toSettlementTarget(step.settlement_target),
+      });
+      continue;
+    }
+    steps.push({
+      type: "prompt",
+      message: step.message,
+      reason: "workflow_prompt",
+    });
+  }
+  return steps;
 }
 
 function inferActionIdFromTranscript(transcript: string): InvestorKaiActionId | null {
@@ -290,6 +423,8 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
         }
     : chooseCandidateAction(canonicalAction, transcriptAction, responseAction);
   const action = candidate.action;
+  const currentHref = String(input.structuredContext?.route.pathname || "").trim();
+  const currentPersona = String(input.appRuntimeState?.persona.active || "").trim() || null;
 
   if (input.response.kind === "clarify" && input.response.reason === "ticker_ambiguous") {
     return {
@@ -342,21 +477,29 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
     };
   }
 
+  const availability = evaluateKaiActionAvailability({
+    action: getKaiActionById(action.id)!,
+    appRuntimeState: input.appRuntimeState,
+    surfaceMetadata: getVoiceSurfaceMetadata(),
+  });
   const destructive = DESTRUCTIVE_ACTION_IDS.has(action.id);
-  if (destructive) {
+  if (destructive || availability.status === "manual_only") {
+    const manualOnlyMessage = destructive
+      ? MANUAL_ONLY_MESSAGE
+      : availability.reason || MANUAL_ONLY_MESSAGE;
     return {
       status: "manual_only",
       actionId: action.id,
       actionLabel: action.label,
-      destructive: true,
-      message: MANUAL_ONLY_MESSAGE,
+      destructive,
+      message: manualOnlyMessage,
       resolutionSource: candidate.source,
       execution: {
         mode: "manual_only",
         steps: [
           {
             type: "prompt",
-            message: MANUAL_ONLY_MESSAGE,
+            message: manualOnlyMessage,
             reason: "destructive_action_policy",
           },
         ],
@@ -364,7 +507,49 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
     };
   }
 
-  const currentHref = String(input.structuredContext?.route.pathname || "").trim();
+  if (availability.status === "dead" || availability.status === "blocked") {
+    const message = availability.reason || availability.blocked_guidance || UNAVAILABLE_MESSAGE;
+    return {
+      status: "unavailable",
+      actionId: action.id,
+      actionLabel: action.label,
+      destructive: false,
+      message,
+      resolutionSource: candidate.source,
+      execution: {
+        mode: "unavailable",
+        steps: [
+          {
+            type: "prompt",
+            message,
+            reason: availability.status,
+          },
+        ],
+      },
+    };
+  }
+
+  if (availability.status === "requires_persona_switch" && !action.workflow) {
+    const message = availability.reason || "Switch workspaces before running that action.";
+    return {
+      status: "unavailable",
+      actionId: action.id,
+      actionLabel: action.label,
+      destructive: false,
+      message,
+      resolutionSource: candidate.source,
+      execution: {
+        mode: "unavailable",
+        steps: [
+          {
+            type: "prompt",
+            message,
+            reason: "persona_switch_required_without_workflow",
+          },
+        ],
+      },
+    };
+  }
 
   if (action.wiring.status === "dead") {
     return {
@@ -413,6 +598,42 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
         mode: steps.some((step) => step.type === "navigate")
           ? "navigate_then_action"
           : "manual_only",
+        steps,
+      },
+    };
+  }
+
+  if (action.workflow) {
+    const steps = buildWorkflowSteps(action, currentHref, currentPersona);
+    if (steps.length === 0) {
+      return {
+        status: "resolved",
+        actionId: action.id,
+        actionLabel: action.label,
+        destructive: false,
+        message: null,
+        resolutionSource: candidate.source,
+        execution: {
+          mode: "navigate_only",
+          steps: [],
+        },
+      };
+    }
+    return {
+      status: "resolved",
+      actionId: action.id,
+      actionLabel: action.label,
+      destructive: false,
+      message: null,
+      resolutionSource: candidate.source,
+      execution: {
+        mode:
+          steps.some((step) => step.type === "navigate") &&
+          steps.some((step) => step.type === "tool_call")
+            ? "navigate_then_action"
+            : steps.some((step) => step.type === "navigate")
+              ? "navigate_only"
+              : "direct_tool",
         steps,
       },
     };
@@ -470,6 +691,10 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
             type: "navigate",
             href: binding.href,
             reason: "route_bound_action",
+            settlementTarget: {
+              route: binding.href,
+              screen: action.scope.screens[0] || null,
+            },
           },
         ],
       },
@@ -519,6 +744,10 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
             type: "navigate",
             href: targetHref,
             reason: "hidden_action_navigation_prerequisite",
+            settlementTarget: {
+              route: targetHref,
+              screen: action.scope.screens[0] || null,
+            },
           },
           {
             type: "tool_call",

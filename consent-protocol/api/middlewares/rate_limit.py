@@ -1,6 +1,6 @@
 # api/middlewares/rate_limit.py
 """
-Rate Limiting Middleware for Hushh Consent Protocol
+Rate Limiting Middleware for Hussh Consent Protocol
 
 Implements safe rate limits for the 2-step consent flow:
 1. Step 1 (consent_request): 10/min per user

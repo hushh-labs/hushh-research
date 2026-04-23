@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 _MANIFEST_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "kai" / "voice-action-manifest.v1.json"
+    Path(__file__).resolve().parents[3] / "contracts" / "kai" / "kai-action-gateway.vnext.json"
 )
 
 
@@ -21,7 +21,13 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
 
     aliases_raw = raw.get("aliases")
     aliases = [str(item).strip() for item in aliases_raw or [] if str(item or "").strip()]
-    scope = raw.get("scope") if isinstance(raw.get("scope"), dict) else {}
+    scope = (
+        raw.get("reachability")
+        if isinstance(raw.get("reachability"), dict)
+        else raw.get("scope")
+        if isinstance(raw.get("scope"), dict)
+        else {}
+    )
     guards_raw = raw.get("guards")
     if isinstance(guards_raw, list):
         guards = [guard for guard in guards_raw if isinstance(guard, dict)]
@@ -82,7 +88,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
 def load_voice_action_manifest() -> dict[str, Any]:
     if not _MANIFEST_PATH.exists():
         return {
-            "schema_version": "kai_voice_action_manifest.v1",
+            "schema_version": "kai.action_gateway.vnext",
             "actions": [],
             "source": "missing",
             "path": str(_MANIFEST_PATH),
@@ -96,10 +102,10 @@ def load_voice_action_manifest() -> dict[str, Any]:
         raw_actions = (
             raw_payload.get("actions") if isinstance(raw_payload.get("actions"), list) else []
         )
-        schema_version = str(raw_payload.get("schema_version") or "kai_voice_action_manifest.v1")
+        schema_version = str(raw_payload.get("schema_version") or "kai.action_gateway.vnext")
     else:
         raw_actions = []
-        schema_version = "kai_voice_action_manifest.v1"
+        schema_version = "kai.action_gateway.vnext"
 
     actions = [
         normalized

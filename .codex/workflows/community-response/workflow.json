@@ -26,12 +26,16 @@
     "tests": []
   },
   "deliverables": [
-    "public reply draft",
+    "default reply variant",
+    "detailed reply variant",
+    "optional firmer reply variant when correction is needed",
     "shipped-vs-future distinction",
-    "repo-backed citations"
+    "repo-backed GitHub doc citations"
   ],
   "impact_fields": [
-    "Docs updated"
+    "Docs updated",
+    "GitHub doc links used",
+    "Reply variants provided"
   ],
   "handoff_chain": [
     "comms-community",
@@ -40,6 +44,8 @@
   ],
   "common_failures": [
     "overstating shipped functionality",
-    "mixing roadmap with runtime truth"
+    "mixing roadmap with runtime truth",
+    "repo-relative paths instead of canonical GitHub doc links",
+    "missing required drafted-reply variants"
   ]
 }

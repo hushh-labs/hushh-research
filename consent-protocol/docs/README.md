@@ -1,6 +1,6 @@
 # consent-protocol
 
-> Python FastAPI backend for the Hushh Consent Protocol, MCP server, and agent infrastructure.
+> Python FastAPI backend for the Hussh Consent Protocol, MCP server, and agent infrastructure.
 
 
 ## Visual Map
@@ -19,6 +19,8 @@ flowchart TD
 ```
 
 This directory is the package-local documentation home for backend and protocol contributors.
+
+Public architecture prose in this docs home follows the Hussh brand contract, while exact compatibility identifiers stay literal when they name the actual package, CLI, env vars, or runtime surfaces. See [../../docs/reference/operations/brand-and-compatibility-contract.md](../../docs/reference/operations/brand-and-compatibility-contract.md).
 
 Use the package root README for:
 
@@ -60,7 +62,7 @@ It does not own:
 | FCM push notification architecture | [reference/fcm-notifications.md](./reference/fcm-notifications.md) |
 | Understand MCP runtime and contributor-local setup | [mcp-setup.md](./mcp-setup.md) |
 | Integrate into a host monorepo (subtree) | [monorepo-integration.md](./monorepo-integration.md) |
-| Read the Hushh philosophy | [manifesto.md](./manifesto.md) |
+| Read the Hussh philosophy | [manifesto.md](./manifesto.md) |
 
 ## Related Docs
 

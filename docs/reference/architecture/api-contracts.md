@@ -8,6 +8,12 @@
 
 All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
 
+Founder-language note:
+
+- `Capability Tokens` are the architecture headline
+- this file keeps the runtime labels `VAULT_OWNER`, `consent-token`, and `developer token` because readers need the exact wire contract
+- `PCHP` maps here to the `/api/v1/request-consent`, `/api/v1/consent-status`, and `/api/v1/scoped-export` flow
+
 ```
 Firebase Sign-In
       │
