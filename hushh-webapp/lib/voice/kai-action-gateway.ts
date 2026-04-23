@@ -1,4 +1,4 @@
-import gatewayJson from "../../../contracts/kai/kai-action-gateway.vnext.json";
+import gatewayJson from "@/contracts/kai/kai-action-gateway.vnext.json";
 
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
