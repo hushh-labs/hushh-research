@@ -3071,12 +3071,12 @@ export class ApiService {
 
         if (!response.ok) {
           const message =
-            typeof payload?.detail === 'string'
-              ? payload.detail
-              : typeof payload?.error === 'string'
-                ? payload.error
-                : typeof payload?.message === 'string'
-                  ? payload.message
+            typeof (payload as any)?.detail === 'string'
+              ? (payload as any).detail
+              : typeof (payload as any)?.error === 'string'
+                ? (payload as any).error
+                : typeof (payload as any)?.message === 'string'
+                  ? (payload as any).message
                   : `Failed to submit insight feedback: ${response.status}`
 
           if (response.status >= 500 && attempt < maxAttempts) {

@@ -241,15 +241,6 @@ function spotlightContextLabel(
   return 'Market signal feed'
 }
 
-function spotlightConfidenceLabel(
-  row: NonNullable<KaiHomeInsightsV2['spotlights']>[number]
-): string | null {
-  const value = row.confidence
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null
-  const pct = Math.max(0, Math.min(100, Math.round(value * 100)))
-  return `${pct}% confidence`
-}
-
 function signalConfidenceLabel(signal: { confidence?: number | null }): string {
   const value = signal.confidence
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'Signal'
