@@ -226,6 +226,39 @@ export function validateVoiceToolCall(input: unknown): VoiceToolCall | null {
     };
   }
 
+  if (toolName === "switch_persona") {
+    const keys = Object.keys(args);
+    if (
+      !keys.every(
+        (key) => key === "target_persona" || key === "after_route" || key === "after_screen"
+      )
+    ) {
+      return null;
+    }
+    if (args.target_persona !== "investor" && args.target_persona !== "ria") {
+      return null;
+    }
+    if (args.after_route !== undefined && typeof args.after_route !== "string") {
+      return null;
+    }
+    if (
+      args.after_screen !== undefined &&
+      args.after_screen !== null &&
+      typeof args.after_screen !== "string"
+    ) {
+      return null;
+    }
+    return {
+      tool_name: "switch_persona",
+      args: {
+        target_persona: args.target_persona,
+        after_route: typeof args.after_route === "string" ? args.after_route : undefined,
+        after_screen:
+          typeof args.after_screen === "string" ? args.after_screen : args.after_screen ?? undefined,
+      },
+    };
+  }
+
   if (toolName === "execute_kai_command") {
     const argKeys = Object.keys(args);
     if (!argKeys.every((key) => ALLOWED_EXECUTE_ARG_KEYS.has(key))) return null;

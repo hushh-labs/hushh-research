@@ -1,0 +1,372 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "profile_account",
+  "surface_title": "Profile Workspace",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "nav.profile",
+      "label": "Open Profile",
+      "meaning": "Navigates to profile landing route.",
+      "aliases": [
+        "open profile",
+        "go to profile"
+      ],
+      "search_keywords": [
+        "profile",
+        "account"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_preferences",
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "profile"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "action_id": "nav.profile_gmail_panel",
+      "label": "Open Gmail Connector Panel",
+      "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
+      "aliases": [
+        "open gmail settings",
+        "open gmail panel"
+      ],
+      "search_keywords": [
+        "gmail",
+        "gmail panel"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query param panel=gmail"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?panel=gmail"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ]
+    },
+    {
+      "action_id": "nav.profile_support_panel",
+      "label": "Open Support Panel",
+      "meaning": "Navigates to hidden support panel in Profile > Account.",
+      "aliases": [
+        "open support",
+        "contact support"
+      ],
+      "search_keywords": [
+        "support"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile?tab=account&panel=support"
+        ],
+        "screens": [
+          "profile_support_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=account & panel=support"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?tab=account&panel=support"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ]
+    },
+    {
+      "action_id": "nav.profile_security_panel",
+      "label": "Open Vault Security Panel",
+      "meaning": "Navigates to hidden security panel in Profile > Privacy.",
+      "aliases": [
+        "open security",
+        "vault security"
+      ],
+      "search_keywords": [
+        "security",
+        "vault"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile?tab=privacy&panel=security"
+        ],
+        "screens": [
+          "profile_security_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=privacy & panel=security"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?tab=privacy&panel=security"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ]
+    },
+    {
+      "action_id": "nav.profile_pkm_agent_lab",
+      "label": "Open PKM Agent Lab",
+      "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
+      "aliases": [
+        "open pkm lab",
+        "open memory lab"
+      ],
+      "search_keywords": [
+        "pkm",
+        "memory lab"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile/pkm-agent-lab"
+        ],
+        "screens": [
+          "profile_pkm_agent_lab"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "localhost developer access to PKM Agent Lab must be enabled"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile/pkm-agent-lab"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/pkm-agent-lab/page-client.tsx"
+      ]
+    },
+    {
+      "action_id": "profile.support.submit_message",
+      "label": "Submit Support Message",
+      "meaning": "Sends support/bug/developer feedback email via support service.",
+      "aliases": [
+        "send support message",
+        "submit support message"
+      ],
+      "search_keywords": [
+        "support message",
+        "contact support"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile?tab=account&panel=support"
+        ],
+        "screens": [
+          "profile_support_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ],
+      "expected_effects": {
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/support/message (proxied)",
+            "effect": "Routes support payload to support_email_service."
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "profile.marketplace_visibility.toggle",
+      "label": "Toggle Marketplace Visibility",
+      "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
+      "aliases": [
+        "toggle marketplace visibility",
+        "change marketplace visibility"
+      ],
+      "search_keywords": [
+        "marketplace visibility"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile?tab=privacy"
+        ],
+        "screens": [
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only handled by local Switch in ProfilePage.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ]
+    },
+    {
+      "action_id": "profile.sign_out",
+      "label": "Sign Out",
+      "meaning": "Ends current session and redirects to home route.",
+      "aliases": [
+        "sign out",
+        "log out"
+      ],
+      "search_keywords": [
+        "sign out",
+        "logout"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ]
+    },
+    {
+      "action_id": "profile.delete_account",
+      "label": "Delete Account",
+      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "aliases": [
+        "delete my account",
+        "remove account"
+      ],
+      "search_keywords": [
+        "delete account"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "vault unlock may be required before delete confirmation"
+        ]
+      },
+      "guard_ids": [
+        "explicit_user_confirmation",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/page.tsx"
+      ]
+    }
+  ]
+}

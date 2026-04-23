@@ -1,131 +1,437 @@
-# Architecture
+# Hussh Platform Architecture
 
-> Current runtime architecture for the Hushh monorepo.
+> Canonical seven-layer architecture for the current Hussh platform and the scale path beyond it.
 
 ## Visual Map
 
 ```mermaid
-flowchart LR
-  identity["Identity"]
-  token["Scoped token"]
-  app["App / Agent"]
-  backend["Backend services"]
-  store["Ciphertext store"]
+flowchart TB
+  l7["7. Channels, Ecosystem, and Distribution<br/>Kai, RIA, developer API, MCP, external hosts"]
+  l6["6. Experience and Interaction<br/>web, iOS, Android, voice, search, action surfaces"]
+  l5["5. Intelligence and Agent<br/>Kai agents, ADK surfaces, debate, delegations, operons"]
+  l4["4. Data and Knowledge<br/>encrypted PKM, relational workflow state, market caches, provenance"]
+  l3["3. Trust, Identity, and Governance<br/>identity, vault unlock, Capability Tokens, consent, audit"]
+  l2["2. Core Platform Services<br/>Consent Protocol runtime, domain services, exports, provider orchestration"]
+  l1["1. Infrastructure<br/>runtime profiles, deploy substrate, storage, secrets, CI/CD, observability base"]
 
-  identity -->|authenticates actor| token
-  token -->|authorizes operation| app
-  app -->|sends scoped request| backend
-  backend -->|stores ciphertext only| store
+  l1 --> l2 --> l3 --> l4 --> l5 --> l6 --> l7
 ```
 
-## Trust Model
+## Architecture Thesis
 
-The platform should be read as a protocol boundary first and an app stack second.
+Hussh should be read as a governed personal-intelligence platform, not as a single app and not as a loose collection of packages.
 
-Core invariants:
+Kai is the primary investor-facing intelligence surface, but the architecture is broader than Kai. The repo already contains the trust boundary, the data boundary, the developer lane, the mobile lane, and the agent lane that make the platform coherent.
 
-1. **BYOK**: the user-controlled key boundary stays on the user side.
-2. **Zero-knowledge**: the backend stores ciphertext and metadata, not plaintext user memory.
-3. **Consent + scoped access**: sensitive operations require explicit scope.
-4. **Tri-flow parity**: web, iOS, and Android stay contract-aligned.
+The canonical terminology contract for this architecture lives in [founder-language-matrix.md](./founder-language-matrix.md). The canonical public naming and compatibility rule lives in [../operations/brand-and-compatibility-contract.md](../operations/brand-and-compatibility-contract.md).
 
-## Protocol View
+## Layer Summary
+
+| Layer | Purpose | Current repo anchors |
+| --- | --- | --- |
+| 7. Channels, Ecosystem, and Distribution | Reach users, developers, and external systems through governed surfaces | Kai app surfaces, `/api/v1`, hosted MCP, `@hushh/mcp`, native delivery |
+| 6. Experience and Interaction | Turn trust and intelligence into usable product surfaces | `hushh-webapp/`, shared shell, service layer, generated action plane |
+| 5. Intelligence and Agent | Reason, plan, delegate, and execute inside scoped authority | Kai agents, ADK surfaces, operons, A2A-compatible entry points |
+| 4. Data and Knowledge | Persist encrypted context, workflow state, and freshness-aware derived data | PKM blobs, metadata index, market caches, export revisions |
+| 3. Trust, Identity, and Governance | Decide who is acting, what is allowed, and how it is audited | Firebase auth, local vault unlock, `VAULT_OWNER`, consent, audit rows |
+| 2. Core Platform Services | Enforce platform policy and domain behavior | Consent Protocol routes, PKM services, Kai services, RIA and provider orchestration |
+| 1. Infrastructure | Keep the runtime deployable, observable, and recoverable | runtime profiles, CI/CD, secrets, storage, deploy scripts, verification tooling |
+
+## 1. Infrastructure Layer
+
+**Purpose:** provide the runtime substrate on which every higher layer depends.
+
+- What belongs here:
+  - runtime profiles and environment shape
+  - deployment scripts and service launch surfaces
+  - storage, caches, and secret distribution
+  - CI/CD and baseline observability substrate
+- What it exposes upward:
+  - stable environments
+  - storage primitives
+  - deploy and verification surfaces
+- What it depends on downward:
+  - cloud and local execution environments
+  - managed storage and networking substrates
+- What exists today:
+  - `./bin/hushh` as the canonical repo command surface
+  - documented runtime profiles, deployment governance, and environment parity checks
+  - repo-level CI and local verification scripts
+- What is missing for full-scale architecture:
+  - a more explicit multi-environment topology and resilience model
+  - stronger service-level objectives, failure domains, and recovery targets
+  - a clearer control-plane versus data-plane operations split
+- Next build path:
+  - formalize environment classes, service topology, and reliability objectives
+
+## 2. Core Platform Services Layer
+
+**Purpose:** host the backend systems that enforce platform behavior instead of letting clients improvise it.
+
+- What belongs here:
+  - Consent Protocol runtime
+  - consent, IAM, PKM, Kai, RIA, and marketplace services
+  - export generation and provider orchestration
+  - route-level validation and domain service composition
+- What it exposes upward:
+  - authenticated and scoped APIs
+  - workflow services
+  - provider-backed data and export surfaces
+- What it depends on downward:
+  - infrastructure runtime
+  - storage and secret surfaces
+- What exists today:
+  - FastAPI routes in `consent-protocol/`
+  - domain services that own consent, PKM, export, and market-facing operations
+  - typed boundary contracts consumed by web and native paths
+- What is missing for full-scale architecture:
+  - clearer service decomposition and async workflow boundaries
+  - a more formal event backbone for long-running operations
+  - sharper ownership lines across domain services
+- Next build path:
+  - split the service map into explicit bounded contexts and introduce event-driven workflow orchestration where request/response is no longer sufficient
+
+## 3. Trust, Identity, and Governance Layer
+
+**Purpose:** decide who is acting, what they are allowed to do, and how that decision is reviewed.
+
+- What belongs here:
+  - authentication
+  - local vault unlock
+  - Capability Tokens
+  - consent lifecycle
+  - delegated authority and audit surfaces
+- What it exposes upward:
+  - scoped authority
+  - verified actor identity
+  - reviewable audit history
+- What it depends on downward:
+  - platform services that validate policy
+  - infrastructure-backed secret and storage surfaces
+- What exists today:
+  - Firebase bootstrap identity plus local vault unlock
+  - `VAULT_OWNER`, consent tokens, scoped tokens, and developer tokens
+  - consent status, approval, revocation, and audit flows
+  - current PCHP implementation through the Developer API and MCP consent/export flow
+- What is missing for full-scale architecture:
+  - a more explicit policy control plane
+  - stronger delegated-authority lifecycle controls and revocation semantics
+  - a more formalized governance model for apps, agents, and organizations
+- Next build path:
+  - separate policy authoring, issuance, revocation, and review into clearer control-plane contracts
+
+## 4. Data and Knowledge Layer
+
+**Purpose:** hold the encrypted and derived memory of the platform without collapsing the trust boundary.
+
+- What belongs here:
+  - encrypted Personal Knowledge Model (PKM) blobs
+  - sanitized indexes and metadata
+  - relational workflow data
+  - market caches, brokerage-derived state, and export revisions
+  - provenance and freshness rules
+- What it exposes upward:
+  - ciphertext-backed personal context
+  - queryable workflow state
+  - freshness-aware market and portfolio data
+- What it depends on downward:
+  - trust contracts that define allowed access
+  - core services that validate reads, writes, and refreshes
+- What exists today:
+  - encrypted PKM storage and metadata split
+  - runtime DB fact sheet, provenance ledger, and degraded-state handling
+  - explicit storage boundary between private encrypted context and shared/query-heavy data
+- What is missing for full-scale architecture:
+  - a more formal separation between transactional, analytical, cache, and export materialization planes
+  - clearer retention and replay contracts
+  - stronger lineage and data lifecycle documentation
+- Next build path:
+  - publish explicit data-plane contracts for personal context, caches, workflows, and analytical replicas
+
+## 5. Intelligence and Agent Layer
+
+**Purpose:** transform trusted context into reasoning, recommendations, and bounded execution.
+
+- What belongs here:
+  - Kai agents and specialist financial agents
+  - ADK-backed agent entry points
+  - debate and planner/executor flows
+  - operons and backend orchestration helpers
+  - TrustLink / A2A delegation surfaces
+- What it exposes upward:
+  - analysis
+  - recommendations
+  - tool-driven actions
+  - delegated specialist execution
+- What it depends on downward:
+  - trusted data and scoped authority
+  - backend orchestration and provider access
+- What exists today:
+  - Kai runtime references, agent-development contract, and generated action gateway work
+  - ADK-backed surfaces and A2A-compatible delegation entry points
+  - debate-oriented financial analysis scaffolding
+- What is missing for full-scale architecture:
+  - formal agent registry and capability registry
+  - execution budget and fallback policy
+  - a more explicit memory and delegation contract
+- Next build path:
+  - define governable agent infrastructure instead of leaving agents as mostly implicit runtime features
+
+## 6. Experience and Interaction Layer
+
+**Purpose:** make the platform legible and usable across human-facing product surfaces.
+
+- What belongs here:
+  - Kai product surfaces
+  - shared React shell and service layer
+  - voice, search, and generated action surfaces
+  - consent and approval UX
+  - native bridge and parity behavior
+- What it exposes upward:
+  - investor-facing intelligence
+  - approval surfaces
+  - web and mobile interaction contracts
+- What it depends on downward:
+  - agent outputs
+  - trusted data and scoped backend services
+- What exists today:
+  - `hushh-webapp/` as the primary experience runtime
+  - shared web and native shell
+  - generated action gateway and Kai voice/runtime work
+  - explicit web-proxy and native-plugin transport boundaries
+- What is missing for full-scale architecture:
+  - a cleaner unified experience contract across typed search, voice, and actionability
+  - stronger cross-surface state composition and parity verification
+  - clearer treatment of non-Kai user-facing surfaces as part of the same platform story
+- Next build path:
+  - formalize one product contract across web, native, voice, approvals, and delegated workflows
+
+## 7. Channels, Ecosystem, and Distribution Layer
+
+**Purpose:** distribute platform capabilities through governed user, developer, and partner channels.
+
+- What belongs here:
+  - Kai and RIA user channels
+  - Developer API and MCP
+  - external apps and connectors
+  - native packaging and release distribution
+- What it exposes upward:
+  - public channel surfaces
+  - developer integration points
+  - ecosystem participation
+- What it depends on downward:
+  - experience contracts
+  - trust and export contracts
+  - agent and data services
+- What exists today:
+  - hosted Developer API under `/api/v1`
+  - hosted MCP endpoint and `@hushh/mcp`
+  - web, iOS, and Android distribution paths
+- What is missing for full-scale architecture:
+  - a more formal ecosystem contract for apps, partners, and versioning
+  - stronger lifecycle governance for external integrations
+  - clearer channel-specific observability and rollout models
+- Next build path:
+  - turn the current developer lane into a first-class governed platform ecosystem
+
+## Integration Model
 
 ```mermaid
 flowchart LR
-  identity["Identity<br/>who is acting"]
-  vault["Vault<br/>encrypted user data"]
-  token["Scoped token<br/>what access is allowed"]
-  app["App / Agent<br/>what operation runs"]
-  backend["Backend services<br/>verify scope + persist state"]
-  store["Ciphertext store + metadata index"]
+  identity["Identity + local unlock"]
+  token["Capability Token"]
+  experience["Experience surfaces<br/>Kai, consent, mobile"]
+  services["Core platform services"]
+  data["Encrypted PKM + workflow data"]
+  agents["Agent plane"]
+  channels["Developer API, MCP, external hosts"]
 
-  identity -->|authenticates actor| token
-  vault -->|decrypts locally with user-held key| app
-  token -->|authorizes scoped operation| app
-  app -->|sends scoped request| backend
-  backend -->|verifies access scope| token
-  backend -->|stores ciphertext only| store
-  backend -->|returns allowed metadata or ciphertext| app
+  identity --> token
+  token --> experience
+  experience --> services
+  services --> data
+  services --> agents
+  agents --> experience
+  services --> channels
+  channels --> services
 ```
 
-## Runtime View
+The integration rule is simple: identity establishes authority, authority gates data and services, services ground agents, agents feed experience, and channels are distributed versions of the same governed platform truth.
+
+## Deployment Model
 
 ```mermaid
 flowchart TB
-  subgraph clients["Client surfaces"]
-    web["Web"]
-    ios["iOS"]
-    android["Android"]
+  subgraph channels["Channel layer"]
+    web["Web browser"]
+    mobile["iOS + Android shells"]
+    hosts["External hosts and connectors"]
   end
 
-  subgraph frontend["Frontend runtime"]
-    shell["Shared shell + providers"]
-    services["Typed service layer"]
-    cache["Session + stale-first cache"]
+  subgraph experience["Experience layer"]
+    shell["Shared React shell"]
+    action["Generated action plane"]
   end
 
-  subgraph boundary["Boundary layer"]
-    next["Next.js route handlers"]
-    native["Capacitor plugins"]
+  subgraph boundary["Transport boundary"]
+    next["Next.js web proxy"]
+    plugins["Capacitor plugins"]
+    mcp["Hosted MCP + /api/v1"]
   end
 
-  subgraph backend["Backend runtime"]
-    routes["FastAPI routes"]
-    domain["Consent, PKM, Kai, IAM, RIA services"]
+  subgraph services["Core platform services"]
+    api["Consent Protocol routes"]
+    domain["Consent, PKM, Kai, IAM, RIA, marketplace"]
+    orchestration["Agent and provider orchestration"]
   end
 
-  subgraph persistence["Persistence"]
+  subgraph data["Data and infrastructure"]
     relational["Relational workflow data"]
     blobs["Encrypted PKM blobs + manifests"]
-    providers["External providers"]
+    caches["Market caches + provider state"]
+    ops["Profiles, secrets, CI/CD, verification"]
   end
 
-  web -->|renders signed-in and public routes| shell
-  ios -->|hosts same app contract in native shell| shell
-  android -->|hosts same app contract in native shell| shell
-  shell -->|calls typed APIs| services
-  cache -->|hydrates stale-first reads| services
-  services -->|web path| next
-  services -->|native path| native
-  next -->|forwards authenticated contract| routes
-  native -->|forwards authenticated contract| routes
-  routes -->|delegates domain work| domain
-  domain -->|writes workflow state| relational
-  domain -->|writes ciphertext and manifests| blobs
-  domain -->|reads external systems| providers
+  web --> shell
+  mobile --> shell
+  hosts --> mcp
+  shell --> action
+  action --> next
+  action --> plugins
+  next --> api
+  plugins --> api
+  mcp --> api
+  api --> domain
+  domain --> orchestration
+  domain --> relational
+  domain --> blobs
+  domain --> caches
+  orchestration --> caches
+  ops --> api
+  ops --> domain
 ```
 
-## Repo Shape
+## Runtime Sequence Model
 
-The normal contributor mental model should stay small:
+### 1. Trust Establishment And Unlock
 
-- `hushh-webapp/`: client shell, UI, service layer, native bridges
-- `consent-protocol/`: backend routes, services, consent, PKM, agents
-- `docs/`: cross-cutting product, architecture, and operations references
+```mermaid
+sequenceDiagram
+  actor User
+  participant App as Hussh app
+  participant Identity as Identity provider
+  participant Vault as Local vault boundary
+  participant API as Consent Protocol
 
-The `consent-protocol` subtree relationship still exists, but it is maintainer-only complexity and not part of the first-run contributor contract.
+  User->>App: Sign in
+  App->>Identity: Verify actor identity
+  Identity-->>App: Identity token
+  User->>Vault: Unlock vault locally
+  Vault-->>App: Local key boundary available
+  App->>API: Request scoped platform access
+  API-->>App: Capability Token / current authority
+```
 
-## What The Backend Is Responsible For
+### 2. Kai Scoped Analysis Flow
 
-- verify consent and scope
-- issue and validate token-backed access
-- persist encrypted PKM blobs and metadata
-- coordinate Kai, IAM, consent, and RIA workflows
-- integrate with external providers without breaking the ciphertext boundary
+```mermaid
+sequenceDiagram
+  actor User
+  participant Kai as Kai surface
+  participant Service as Typed service layer
+  participant API as Consent Protocol
+  participant Data as PKM + market data
+  participant Agent as Kai agent plane
 
-## What The Frontend Is Responsible For
+  User->>Kai: Ask for analysis
+  Kai->>Service: Execute scoped request
+  Service->>API: Forward authenticated contract
+  API->>Data: Read allowed context and freshness-aware data
+  API->>Agent: Run analysis inside granted scope
+  Agent-->>API: Structured result
+  API-->>Service: Response + degraded-state labels when needed
+  Service-->>Kai: Render investor-facing output
+```
 
-- hold the user-side trust boundary for local decryption
-- maintain the session, vault, and persona state
-- render the consent and scope UX clearly
-- keep web, iOS, and Android aligned on visible behavior
+### 3. Developer Consent And Export Flow Via PCHP
 
-## Design Rule
+```mermaid
+sequenceDiagram
+  participant Host as External host
+  participant Dev as Developer API / MCP
+  participant Kai as Kai approval surface
+  participant API as Consent Protocol
+  participant Export as Encrypted export store
 
-Keep the backbone integrated where the platform needs it, but make the public contributor surface feel bacterial:
+  Host->>Dev: Discover scopes and request consent
+  Dev->>API: Create or reuse app-scoped request
+  API-->>Kai: Present approval request to user
+  Kai-->>API: Approval or denial
+  Host->>Dev: Poll status / fetch export
+  Dev->>API: Request encrypted scoped export
+  API->>Export: Read ciphertext + wrapped key bundle
+  Export-->>Host: Encrypted payload only
+```
 
-- small commands
-- self-contained scripts
-- modular docs
-- minimal cross-repo mental load
+### 4. Delegated Agent Flow Via TrustLink / A2A
+
+```mermaid
+sequenceDiagram
+  participant Kai as Kai runtime
+  participant Orchestrator as Agent orchestrator
+  participant Delegate as Specialist agent
+  participant Policy as Trust and consent layer
+  participant Data as Allowed data sources
+
+  Kai->>Orchestrator: Request delegated specialist work
+  Orchestrator->>Policy: Validate inherited scope
+  Policy-->>Orchestrator: Delegation allowed
+  Orchestrator->>Delegate: Launch specialist agent
+  Delegate->>Data: Read only within inherited scope
+  Delegate-->>Orchestrator: Result
+  Orchestrator-->>Kai: Grounded delegated outcome
+```
+
+### 5. Shared Action Execution Across Web And Mobile
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant Surface as Hussh surface
+  participant Action as Generated action plane
+  participant Web as Next.js proxy
+  participant Native as Capacitor plugin
+  participant API as Consent Protocol
+
+  User->>Surface: Trigger action
+  Surface->>Action: Resolve action contract
+  alt web runtime
+    Action->>Web: Web transport
+    Web->>API: Authenticated request
+  else native runtime
+    Action->>Native: Native transport
+    Native->>API: Authenticated request
+  end
+  API-->>Surface: Same product truth, transport-specific boundary
+```
+
+## Present State And Full-Scale Gaps
+
+The current repo is already strong in three areas: trust boundaries, scoped developer access, and multi-surface product runtime. The remaining full-scale work is mostly architectural formalization, not conceptual invention.
+
+The main gaps are:
+
+1. a clearer control plane for policy, revocation, and delegated authority
+2. a more formal multi-service and event-driven backend topology
+3. a better-defined data-plane split across transactional, analytical, cache, and export materialization surfaces
+4. governable agent infrastructure with registry, budgets, and delegation policy
+5. scale-grade observability, reliability targets, and ecosystem lifecycle governance
+
+## Canonical Companions
+
+1. [founder-language-matrix.md](./founder-language-matrix.md)
+2. [api-contracts.md](./api-contracts.md)
+3. [runtime-db-fact-sheet.md](./runtime-db-fact-sheet.md)
+4. [data-provenance-ledger.md](./data-provenance-ledger.md)
+5. [../iam/architecture.md](../iam/architecture.md)
+6. [../kai/README.md](../kai/README.md)

@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "mobile-native",
   "primary_scope": "mobile-parity-audit",
-  "description": "Use when auditing mobile/native parity, release readiness, or platform-specific coverage across the Hushh app.",
+  "description": "Use when auditing mobile/native parity, release readiness, or platform-specific coverage across the Hussh app.",
   "owned_paths": [
     "docs/reference/mobile",
     "hushh-webapp/scripts/native",

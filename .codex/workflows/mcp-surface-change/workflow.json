@@ -1,7 +1,7 @@
 {
   "id": "mcp-surface-change",
   "title": "MCP Surface Change",
-  "goal": "Change the Hushh MCP package, server surface, or developer onboarding contract without breaking docs or setup parity.",
+  "goal": "Change the Hussh MCP package, server surface, or developer onboarding contract without breaking docs or setup parity.",
   "owner_skill": "backend",
   "default_spoke": "mcp-developer-surface",
   "task_type": "mcp-surface-change",

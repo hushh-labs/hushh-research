@@ -254,6 +254,96 @@ describe("VoiceTurnOrchestrator", () => {
     expect(writeDurableSpy).not.toHaveBeenCalled();
   });
 
+  it("passes vault-gated durable memory inputs through without falling back to insecure storage", async () => {
+    const retrieveDurableSpy = vi
+      .spyOn(voiceMemoryStore, "retrieveDurable")
+      .mockResolvedValueOnce([]);
+    const writeDurableSpy = vi
+      .spyOn(voiceMemoryStore, "writeDurable")
+      .mockResolvedValueOnce(undefined);
+
+    const orchestrator = new VoiceTurnOrchestrator({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key_material",
+      getAppRuntimeState: () => ({
+        auth: {
+          signed_in: true,
+          user_id: "user_1",
+        },
+        vault: {
+          unlocked: false,
+          token_available: true,
+          token_valid: true,
+        },
+        route: {
+          pathname: "/kai",
+          screen: "kai_market",
+          subview: null,
+        },
+        runtime: {
+          analysis_active: false,
+          analysis_ticker: null,
+          analysis_run_id: null,
+          import_active: false,
+          import_run_id: null,
+          busy_operations: [],
+        },
+        portfolio: {
+          has_portfolio_data: true,
+        },
+        persona: {
+          active: "investor",
+          primary_nav: "investor",
+          available: ["investor"],
+          transition_target: null,
+          ria_switch_available: false,
+          ria_setup_available: false,
+        },
+        voice: {
+          available: true,
+          tts_playing: false,
+          last_tool_name: null,
+          last_ticker: null,
+        },
+      }),
+      getVoiceContext: () => undefined,
+      onVoiceResponse: vi.fn().mockResolvedValue({
+        shortTermMemoryWrite: true,
+        actionResult: {
+          status: "succeeded",
+          action_id: "analysis.start",
+          result_summary: "Analysis started.",
+          settled_by: "background_start",
+        },
+      }),
+      speak: vi.fn().mockResolvedValue(undefined),
+      onStageChange: vi.fn(),
+      onDebug: vi.fn(),
+      onAssistantText: vi.fn(),
+    });
+
+    await orchestrator.processTranscript({
+      transcript: "Analyze NVDA",
+      source: "microphone",
+    });
+
+    expect(retrieveDurableSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user_1",
+        vaultUnlocked: false,
+        vaultKey: "vault_key_material",
+      })
+    );
+    expect(writeDurableSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user_1",
+        vaultUnlocked: false,
+        vaultKey: "vault_key_material",
+      })
+    );
+  });
+
   it("passes execution_allowed and needs_confirmation through to dispatch", async () => {
     const onVoiceResponse = vi.fn().mockResolvedValue({
       shortTermMemoryWrite: false,

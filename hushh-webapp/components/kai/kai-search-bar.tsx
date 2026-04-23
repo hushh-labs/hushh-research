@@ -11,11 +11,13 @@ import {
 } from "react";
 import { Bug, Loader2, Mic, Search } from "lucide-react";
 
-import { KaiCommandPalette } from "@/components/kai/kai-command-palette";
+import {
+  KaiCommandPalette,
+  type KaiCommandPaletteSelection,
+} from "@/components/kai/kai-command-palette";
 import { VoiceCompactStatus } from "@/components/kai/voice/voice-compact-status";
 import { VoiceConsoleSheet } from "@/components/kai/voice/voice-console-sheet";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
-import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import { getVariantStyles } from "@/lib/morphy-ux/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -61,7 +63,7 @@ const DEV_VOICE_DEBUG_ENABLED =
 const VOICE_V2_FLAGS = getVoiceV2Flags();
 
 interface KaiSearchBarProps {
-  onCommand: (command: KaiCommandAction, params?: Record<string, unknown>) => void;
+  onSelectAction: (selection: KaiCommandPaletteSelection) => void;
   onVoiceResponse?: (payload: {
     turnId: string;
     responseId: string;
@@ -74,7 +76,6 @@ interface KaiSearchBarProps {
     needsConfirmation?: boolean;
   }) => Promise<unknown> | unknown;
   disabled?: boolean;
-  hasPortfolioData?: boolean;
   userId?: string;
   vaultOwnerToken?: string;
   voiceAvailable?: boolean;
@@ -245,10 +246,9 @@ export function runAutoTurnDispatchSafely(input: {
 }
 
 export function KaiSearchBar({
-  onCommand,
   onVoiceResponse,
   disabled = false,
-  hasPortfolioData = true,
+  onSelectAction,
   userId,
   vaultOwnerToken,
   voiceAvailable = true,
@@ -259,7 +259,7 @@ export function KaiSearchBar({
   voiceContext,
   portfolioTickers = [],
 }: KaiSearchBarProps) {
-  const { getVaultOwnerToken } = useVault();
+  const { getVaultOwnerToken, vaultKey } = useVault();
   const [open, setOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
   const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(null);
@@ -1055,6 +1055,7 @@ export function KaiSearchBar({
     const orchestratorConfig: VoiceTurnOrchestratorConfig = {
       userId,
       vaultOwnerToken,
+      vaultKey: vaultKey || undefined,
       getAppRuntimeState: () => appRuntimeStateRef.current,
       getVoiceContext: () => voiceContextRef.current,
       onVoiceResponse: (payload) => {
@@ -1067,7 +1068,8 @@ export function KaiSearchBar({
           payload.response.kind === "execute" &&
           (payload.response.tool_call.tool_name === "cancel_active_analysis" ||
             payload.response.tool_call.tool_name === "execute_kai_command" ||
-            payload.response.tool_call.tool_name === "resume_active_analysis")
+            payload.response.tool_call.tool_name === "resume_active_analysis" ||
+            payload.response.tool_call.tool_name === "switch_persona")
         ) {
           setPendingConfirmation({
             kind: payload.response.tool_call.tool_name,
@@ -1142,7 +1144,7 @@ export function KaiSearchBar({
       return;
     }
     orchestratorRef.current = new VoiceTurnOrchestrator(orchestratorConfig);
-  }, [onVoiceResponse, setPendingConfirmation, userId, vaultOwnerToken]);
+  }, [onVoiceResponse, setPendingConfirmation, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     const unsubscribe = voiceSessionManager.subscribe((event) => {
@@ -1483,8 +1485,8 @@ export function KaiSearchBar({
       <KaiCommandPalette
         open={open}
         onOpenChange={setOpen}
-        onCommand={onCommand}
-        hasPortfolioData={hasPortfolioData}
+        onSelectAction={onSelectAction}
+        appRuntimeState={appRuntimeState}
         portfolioTickers={portfolioTickers}
       />
 

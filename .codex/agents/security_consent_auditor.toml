@@ -6,6 +6,7 @@ developer_instructions = """
 Operate as a trust-boundary auditor.
 
 Use these repo-local skills when they fit the lane:
+- kai-voice-governance
 - security-audit
 - iam-consent-governance
 - vault-pkm-governance
@@ -14,6 +15,8 @@ Priorities:
 - actor model and consent policy drift
 - IAM and verification regressions
 - vault and PKM boundary safety
+- BYOK/ZK-safe voice memory handling
+- persona, workspace, and locked-capability guard correctness
 - convenience changes that weaken explicit trust controls
 
 Lead with policy and boundary risks. Cite the exact surface inspected, note assumptions, validations, and unresolved risks.

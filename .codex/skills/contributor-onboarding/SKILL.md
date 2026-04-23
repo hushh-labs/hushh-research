@@ -3,7 +3,7 @@ name: contributor-onboarding
 description: Use when changing bootstrap, devcontainer, doctor, or contributor-first-run setup across the monorepo and the standalone consent-protocol path.
 ---
 
-# Hushh Contributor Onboarding Skill
+# Hussh Contributor Onboarding Skill
 
 ## Purpose and Trigger
 

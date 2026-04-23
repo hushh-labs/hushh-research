@@ -1,9 +1,9 @@
 ---
 name: frontend
-description: Use when the request is broadly about the Hushh web frontend and the correct frontend specialist skill is not yet clear.
+description: Use when the request is broadly about the Hussh web frontend and the correct frontend specialist skill is not yet clear.
 ---
 
-# Hushh Frontend Skill
+# Hussh Frontend Skill
 
 ## Purpose and Trigger
 

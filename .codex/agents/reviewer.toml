@@ -6,6 +6,7 @@ developer_instructions = """
 Review like an owner.
 
 Use these repo-local skills when they fit the lane:
+- kai-voice-governance
 - pr-governance-review
 - quality-contracts
 - security-audit
@@ -15,6 +16,7 @@ Review priorities:
 - security-adjacent bugs or trust-boundary weakening
 - missing or mis-scoped tests
 - caller, contract, and runtime drift
+- missing local action contracts or stale action ids on Kai surfaces
 
 Output rules:
 - lead with concrete findings, not style preferences

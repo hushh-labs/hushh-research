@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "repo-operations",
   "primary_scope": "repo-operations-intake",
-  "description": "Use when working on Hushh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.",
+  "description": "Use when working on Hussh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.",
   "owned_paths": [
     "bin",
     "scripts",

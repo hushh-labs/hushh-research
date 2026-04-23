@@ -38,7 +38,7 @@ Set these in the backend runtime profile:
 - `PLAID_ENV=sandbox`
 - `PLAID_CLIENT_ID=...`
 - `PLAID_SECRET=...`
-- `PLAID_CLIENT_NAME=Hushh Kai`
+- `PLAID_CLIENT_NAME=Hussh Kai`
 - `PLAID_COUNTRY_CODES=US`
 - `PLAID_REDIRECT_PATH=/kai/plaid/oauth/return`
 - `PLAID_WEBHOOK_URL=https://<public-domain-or-tunnel>/api/kai/plaid/webhook`
@@ -165,4 +165,4 @@ BYOK note:
 
 ## Capability Reminder
 
-Plaid is only the read-only brokerage ingestion layer. Future trade execution must use broker-specific APIs behind a separate Hushh execution contract.
+Plaid is only the read-only brokerage ingestion layer. Future trade execution must use broker-specific APIs behind a separate Hussh execution contract.

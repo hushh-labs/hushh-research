@@ -1,6 +1,6 @@
 ---
 name: codex-bridge
-description: Answers questions about and routes tasks for the hushh-research codebase. Use whenever the user asks about or wants to change anything this repo owns, including consent-protocol, Operons, HCT, Kai, MCP, IAM, PKM, vault, backend, frontend, mobile, security, docs, comms, ops, skill authoring, and any new specialist added under .codex/ later. Reads .codex/skills/ and .codex/workflows/ at invocation time, composes a briefing the way codex route-task does (workflow plus owner_skill plus default_spoke unioned), and auto-discovers any skills added to the tree without a bridge edit.
+description: Answers questions about and routes tasks for the hushh-research codebase. Use whenever the user asks about or wants to change anything this repo owns, including consent-protocol, Operons, HCT, Kai, MCP, IAM, PKM, vault, backend, frontend, mobile, security, docs, comms, ops, skill authoring, and any new specialist added under .codex/ later. Reads .codex/skills/, .codex/workflows/, and .codex/agents/ at invocation time, composes a briefing the way codex route-task does (workflow plus owner_skill plus default_spoke unioned), surfaces .codex/agents/* as advisory delegation lanes, and auto-discovers anything added to the tree without a bridge edit.
 argument-hint: "[skill-or-workflow-name | --list | --check | --coverage | free-text]"
 allowed-tools: Read Grep Glob Bash(python3 *)
 paths:
@@ -50,6 +50,14 @@ Multiple skills scored close. Prefer the spoke over the owner when both match; p
 
 No strong match. Pick by description, re-invoke `/codex-bridge <name>`.
 
+### An agent briefing
+
+The matched entry is a repo-scoped custom agent (under `.codex/agents/`), not a skill or workflow. Treat it as a delegation lane, not instructions to execute directly:
+
+1. Decide whether the current turn actually benefits from delegation. Most single-lane requests do not.
+2. If delegation fits, confirm with the user before invoking the corresponding `/agent <name>`. Subagent use is explicit only per [.codex/skills/agent-orchestration-governance/references/delegation-contract.md](../../../.codex/skills/agent-orchestration-governance/references/delegation-contract.md).
+3. When the briefing appears as a `Suggested delegation lanes` footer on a skill or workflow briefing, treat it as context only. Execute the primary briefing normally.
+
 ### A `--check` report
 
 Surface findings to the user. Don't auto-fix — `--check` is a health report, not a migration.
@@ -57,16 +65,18 @@ Surface findings to the user. Don't auto-fix — `--check` is a health report, n
 ## Invocation patterns
 
 ```
-/codex-bridge                                 # catalog of owners, spokes, workflows
+/codex-bridge                                 # catalog of owners, spokes, workflows, agents
 /codex-bridge backend-api-contracts           # compose skill briefing
 /codex-bridge security-consent-audit          # compose workflow briefing (owner+spoke unioned)
+/codex-bridge governor                        # compose agent briefing (delegation lane)
 /codex-bridge "how does Kai maintain session continuity"  # free-text → token scoring
 /codex-bridge --check                         # structural lint of .codex tree
 ```
 
 ## Design
 
-- **Source of truth:** `.codex/skills/*` and `.codex/workflows/*`. Edit there; the bridge re-reads every invocation.
+- **Source of truth:** `.codex/skills/*`, `.codex/workflows/*`, and `.codex/agents/*`. Edit there; the bridge re-reads every invocation.
 - **Composition mirrors codex.** Routing emits the same union of fields that `repo_scan.py::build_route_task` produces, so Claude makes the same scope decisions codex would.
+- **Agents are advisory lanes, not winners.** Exact agent name routes to an agent briefing. Free-text never elevates an agent above a matching skill or workflow. On explicit skill or workflow invocations, matching agents appear as a compact `Suggested delegation lanes` footer (suppressed on Q&A turns and on close-scoring ties).
 - **Progressive disclosure.** Only the routed briefing enters context, not the full corpus.
 - **Path-aware auto-trigger.** `paths: .codex/**, consent-protocol/**, hushh-webapp/**, docs/**` covers the repo surfaces where a specialist applies.

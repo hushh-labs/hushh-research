@@ -122,6 +122,64 @@ def main() -> int:
         f"code={code} out={out[:120]!r}",
     )
 
+    # Agent-extension regression cases ----------------------------------------
+
+    out, code = run_hook(payload("governor"))
+    check(
+        "exact agent name (short) emits final-authority agent briefing",
+        code == 0
+        and "Auto-routed by codex-bridge" in out
+        and "agent `governor`" in out
+        and "Final merge/deploy/plan recommendations" in out
+        and "delegation lane" in out.lower(),
+        f"head={out[:240]!r}",
+    )
+
+    out, code = run_hook(payload("reviewer"))
+    check(
+        "exact advisory agent name emits advisory-only authority",
+        code == 0
+        and "agent `reviewer`" in out
+        and "Advisory-only" in out,
+        f"head={out[:240]!r}",
+    )
+
+    out, code = run_hook(payload("Northstar Summit Keystone top-level plan-level"))
+    check(
+        "agent-primary fallback routes to governor when no skill clears gate",
+        code == 0
+        and "Auto-routed by codex-bridge" in out
+        and "agent `governor`" in out,
+        f"head={out[:240]!r}",
+    )
+
+    out, code = run_hook(payload("vault PKM boundary encrypted storage rules"))
+    check(
+        "skill briefing for non-Q&A query includes Suggested delegation lanes footer",
+        code == 0
+        and "skill `vault-pkm-governance`" in out
+        and "Suggested delegation lanes" in out
+        and "`security_consent_auditor`" in out,
+        f"excerpt={out[-600:]!r}",
+    )
+
+    out, code = run_hook(payload("how does vault PKM boundary encryption handle storage rules?"))
+    check(
+        "Q&A plus skill match suppresses agent lanes footer",
+        code == 0
+        and "Response format (codex Q&A rules)" in out
+        and "skill `vault-pkm-governance`" in out
+        and "Suggested delegation lanes" not in out,
+        f"excerpt={out[-400:]!r}",
+    )
+
+    out, code = run_hook(payload("architecture review across frontend and backend and voice contracts"))
+    check(
+        "close-scoring multi-agent tie suppresses delegation footer",
+        code == 0 and "Suggested delegation lanes" not in out,
+        f"excerpt={out[-400:]!r}",
+    )
+
     if FAILED:
         print(f"\n{len(FAILED)} check(s) failed: {FAILED}")
         return 1

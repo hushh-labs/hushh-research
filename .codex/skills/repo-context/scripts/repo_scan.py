@@ -79,6 +79,7 @@ REQUIRED_WORKFLOWS = [
     "mobile-parity-check",
     "release-readiness",
     "docs-sync",
+    "founder-brief-curation",
     "skill-authoring",
     "board-update",
     "community-response",

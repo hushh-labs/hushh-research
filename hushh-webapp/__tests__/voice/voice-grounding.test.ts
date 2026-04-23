@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveGroundedVoicePlan, VOICE_MANUAL_ONLY_MESSAGE } from "@/lib/voice/voice-grounding";
 import type { StructuredScreenContext } from "@/lib/voice/screen-context-builder";
-import type { VoiceResponse } from "@/lib/voice/voice-types";
+import type { AppRuntimeState, VoiceResponse } from "@/lib/voice/voice-types";
 
 function makeContext(pathname: string): StructuredScreenContext {
   return {
@@ -34,6 +34,68 @@ function makeContext(pathname: string): StructuredScreenContext {
       unlocked: true,
       token_available: true,
       token_valid: true,
+    },
+  };
+}
+
+function makeRuntimeState(
+  pathname: string,
+  overrides: Partial<AppRuntimeState> = {}
+): AppRuntimeState {
+  return {
+    auth: {
+      signed_in: true,
+      user_id: "user_1",
+      ...(overrides.auth || {}),
+    },
+    vault: {
+      unlocked: true,
+      token_available: true,
+      token_valid: true,
+      ...(overrides.vault || {}),
+    },
+    route: {
+      pathname,
+      screen: pathname.startsWith("/profile")
+        ? "profile_account"
+        : pathname.startsWith("/kai/analysis")
+          ? "kai_analysis"
+          : pathname.startsWith("/kai/optimize")
+            ? "kai_optimize"
+            : pathname.startsWith("/kai")
+              ? "kai_market"
+              : "profile_account",
+      subview: null,
+      ...(overrides.route || {}),
+    },
+    runtime: {
+      analysis_active: false,
+      analysis_ticker: null,
+      analysis_run_id: null,
+      import_active: false,
+      import_run_id: null,
+      busy_operations: [],
+      ...(overrides.runtime || {}),
+    },
+    portfolio: {
+      has_portfolio_data: true,
+      ...(overrides.portfolio || {}),
+    },
+    persona: {
+      active: "investor",
+      primary_nav: "investor",
+      available: ["investor"],
+      transition_target: null,
+      ria_switch_available: false,
+      ria_setup_available: false,
+      ...(overrides.persona || {}),
+    },
+    voice: {
+      available: true,
+      tts_playing: false,
+      last_tool_name: null,
+      last_ticker: null,
+      ...(overrides.voice || {}),
     },
   };
 }
@@ -81,6 +143,16 @@ describe("resolveGroundedVoicePlan", () => {
       transcript: "resume my active analysis",
       response,
       structuredContext: makeContext("/kai"),
+      appRuntimeState: makeRuntimeState("/kai", {
+        runtime: {
+          analysis_active: true,
+          analysis_ticker: "NVDA",
+          analysis_run_id: "run_1",
+          import_active: false,
+          import_run_id: null,
+          busy_operations: [],
+        },
+      }),
     });
 
     expect(plan.status).toBe("resolved");
@@ -94,6 +166,10 @@ describe("resolveGroundedVoicePlan", () => {
         type: "navigate",
         href: "/kai/analysis",
         reason: "hidden_action_navigation_prerequisite",
+        settlementTarget: {
+          route: "/kai/analysis",
+          screen: "kai_analysis",
+        },
       },
       {
         type: "tool_call",
@@ -136,6 +212,10 @@ describe("resolveGroundedVoicePlan", () => {
         type: "navigate",
         href: "/kai/optimize",
         reason: "route_bound_action",
+        settlementTarget: {
+          route: "/kai/optimize",
+          screen: "kai_optimize",
+        },
       },
     ]);
   });
@@ -161,6 +241,10 @@ describe("resolveGroundedVoicePlan", () => {
         type: "navigate",
         href: "/kai/analysis",
         reason: "route_bound_action",
+        settlementTarget: {
+          route: "/kai/analysis",
+          screen: "kai_analysis",
+        },
       },
     ]);
     expect(plan.resolutionSource).toBe("transcript");
@@ -246,6 +330,10 @@ describe("resolveGroundedVoicePlan", () => {
         type: "navigate",
         href: "/profile/pkm-agent-lab",
         reason: "route_bound_action",
+        settlementTarget: {
+          route: "/profile/pkm-agent-lab",
+          screen: "profile_pkm_agent_lab",
+        },
       },
     ]);
     expect(plan.resolutionSource).toBe("transcript");

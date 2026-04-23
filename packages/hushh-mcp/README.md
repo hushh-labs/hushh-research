@@ -1,12 +1,18 @@
 # `@hushh/mcp`
 
-npm launcher for the Hushh Consent MCP server
+npm launcher for the Hussh Consent MCP server
 
 Use this package when your MCP host needs a local stdio process. If your host supports remote HTTP MCP, use the hosted endpoint directly.
 
-## Hosted Hushh MCP
+Founder-language framing:
 
-Hushh MCP exposes the public consent tool surface for external apps and agents:
+- `PCHP` is implemented today through the Consent Protocol developer API + MCP consent/export flow exposed by this package
+- `Developer API / MCP` is the current public developer lane into the platform
+- `Capability Tokens` remain explicit in examples as `developer token`, `consent_token`, and `VAULT_OWNER` where the runtime requires those exact labels
+
+## Hosted Hussh MCP
+
+Hussh MCP exposes the public consent tool surface for external apps and agents:
 
 - dynamic scope discovery
 - explicit consent requests
@@ -199,7 +205,7 @@ https://api.uat.hushh.ai/mcp/?token=<developer-token>
 
 The data flow is:
 
-- encrypted storage in Hushh
+- encrypted storage in Hussh
 - explicit user approval in Kai
 - encrypted export back to the external connector
 - local decryption on the connector side

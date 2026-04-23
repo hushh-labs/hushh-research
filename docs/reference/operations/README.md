@@ -1,4 +1,4 @@
-# Operations Index
+# Hussh Operations Index
 
 
 ## Visual Map
@@ -39,6 +39,8 @@ flowchart TD
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
 One-time rollout notes belong in PRs, issues, or git history, not in the active operations surface.
 
+Within the seven-layer architecture, operations is the primary Layer 1 governance surface and the cross-layer enforcement surface for documentation, release, and compatibility rules.
+
 ## Codex OS
 
 Use the root CLI for agent-first onboarding and deterministic workflow routing:
@@ -75,7 +77,7 @@ Top-level owner skills:
 - `.codex/skills/contributor-onboarding/`: bootstrap, devcontainer, doctor, and contributor-first-run ownership.
 - `.codex/skills/subtree-upstream-governance/`: upstream-first coordination, subtree sync, and maintainer-only subtree policy.
 - `.codex/skills/analytics-observability-governance/`: GA4/Firebase/BigQuery topology, growth dashboard verification, environment split, and observability contract ownership.
-- `.codex/skills/planning-board/`: `Hushh Engineering Core` board workflows only.
+- `.codex/skills/planning-board/`: planning-board workflows for the `Hushh Engineering Core` board.
 - `.codex/skills/future-planner/`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
 - `.codex/skills/comms-community/`: public/community explanation workflows.
 - `.codex/skills/codex-skill-authoring/`: repo-local skill creation, retrofit, linting, scaffolding, and taxonomy maintenance.
@@ -95,7 +97,8 @@ Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends
 - [env-and-secrets.md](./env-and-secrets.md): environment and secret contract.
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.
 - [migration-governance.md](./migration-governance.md): canonical migration authority, frozen-vs-integrated DB contracts, and allowed SQL surfaces.
-- [naming-policy.md](./naming-policy.md): Hushh public naming rules and compatibility boundaries.
+- [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md): Hussh public naming rule and compatibility boundaries.
+- [naming-policy.md](./naming-policy.md): compatibility pointer to the canonical brand contract.
 - [developer-access-matrix.md](./developer-access-matrix.md): org-level developer IAM baseline, runtime identities, and DB access path.
 - [observability-architecture-map.md](./observability-architecture-map.md): canonical analytics-plane and reporting-plane map.
 - [observability-google-first.md](./observability-google-first.md): observability operating model.

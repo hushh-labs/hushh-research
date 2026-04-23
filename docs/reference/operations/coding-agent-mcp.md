@@ -73,11 +73,11 @@ Required env vars:
 
 Do not inline these values in committed config.
 
-### 3. Hushh Consent MCP
+### 3. Hussh Consent MCP
 
 Purpose:
 
-1. Access Hushh consent/data tools and internal self-documentation.
+1. Access Hussh consent/data tools and internal self-documentation.
 2. Verify the same dynamic scope discovery, consent, and encrypted scoped export contract shipped through `@hushh/mcp`.
 
 Public onboarding source:
@@ -163,7 +163,7 @@ Codex supports project-scoped custom agents under `.codex/agents/`. In this repo
 1. Confirm the agent can query Plaid docs.
 2. Try a sandbox question like “What are the default sandbox credentials?”
 
-### Hushh Consent MCP
+### Hussh Consent MCP
 
 1. Confirm the server starts locally with:
 
@@ -171,7 +171,7 @@ Codex supports project-scoped custom agents under `.codex/agents/`. In this repo
 npx -y @hushh/mcp --help
 ```
 
-2. Confirm the host can discover Hushh tools/resources after attaching it.
+2. Confirm the host can discover Hussh tools/resources after attaching it.
 3. For hosted UAT, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
 4. `@hushh/mcp` is the default stdio install surface.
 5. If you are working contributor-local instead, use the repo-local fallback:
@@ -187,7 +187,7 @@ When working in this repo:
 
 1. Use `shadcn` MCP before adding or modifying registry-backed UI components.
 2. Use `plaid` MCP before guessing on Plaid flows, sandbox behavior, webhooks, or OAuth.
-3. Use Hushh Consent MCP when you need internal consent/data-access guidance or machine-readable internal documentation.
+3. Use Hussh Consent MCP when you need internal consent/data-access guidance or machine-readable internal documentation.
 4. Start with `./bin/hushh codex onboard` for first-run contributor or agent orientation.
 5. Use `./bin/hushh codex list-workflows`, `route-task <workflow-id>`, and `impact <workflow-id>` for recurring repo workflows before improvising a route.
 6. Use `./bin/hushh codex ci-status --watch` when the task depends on live PR checks or GitHub Actions state.
@@ -207,11 +207,11 @@ When working in this repo:
 10. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
 11. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
 12. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
-13. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+13. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
 14. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
 
 If a developer has not configured MCP yet:
 
-1. Start with `shadcn` and Hushh Consent MCP first.
+1. Start with `shadcn` and Hussh Consent MCP first.
 2. Add `plaid` only after setting local `PLAID_CLIENT_ID` and `PLAID_SECRET`.
 3. Verify each server independently before relying on it inside coding-agent flows.
