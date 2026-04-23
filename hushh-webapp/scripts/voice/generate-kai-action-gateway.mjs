@@ -11,6 +11,14 @@ const WEBAPP_ROOT = path.resolve(REPO_ROOT, "hushh-webapp");
 const CONTRACT_SUFFIX = ".voice-action-contract.json";
 const GATEWAY_OUTPUT_PATH = path.resolve(REPO_ROOT, "contracts/kai/kai-action-gateway.vnext.json");
 const MANIFEST_OUTPUT_PATH = path.resolve(REPO_ROOT, "contracts/kai/voice-action-manifest.v1.json");
+const WEBAPP_GATEWAY_OUTPUT_PATH = path.resolve(
+  WEBAPP_ROOT,
+  "contracts/kai/kai-action-gateway.vnext.json"
+);
+const WEBAPP_MANIFEST_OUTPUT_PATH = path.resolve(
+  WEBAPP_ROOT,
+  "contracts/kai/voice-action-manifest.v1.json"
+);
 
 const DEFAULT_TRIGGER = {
   primary: "voice",
@@ -460,11 +468,15 @@ async function main() {
   const gatewayText = `${JSON.stringify(gatewayPayload, null, 2)}\n`;
   const manifestText = `${JSON.stringify(legacyManifestPayload, null, 2)}\n`;
 
-  const gatewayResult = await writeIfChanged(GATEWAY_OUTPUT_PATH, gatewayText, checkOnly);
-  const manifestResult = await writeIfChanged(MANIFEST_OUTPUT_PATH, manifestText, checkOnly);
+  const outputResults = await Promise.all([
+    writeIfChanged(GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
+    writeIfChanged(MANIFEST_OUTPUT_PATH, manifestText, checkOnly),
+    writeIfChanged(WEBAPP_GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
+    writeIfChanged(WEBAPP_MANIFEST_OUTPUT_PATH, manifestText, checkOnly),
+  ]);
 
   if (checkOnly) {
-    if (gatewayResult.changed || manifestResult.changed) {
+    if (outputResults.some((result) => result.changed)) {
       throw new Error(
         "Kai action gateway artifacts are out of date. Run `npm run build:voice-gateway` from hushh-webapp."
       );
