@@ -1,15 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockAuth, mockFirebaseAuthentication, mockHushhAuth } = vi.hoisted(() => ({
+const {
+  mockAuth,
+  mockFirebaseAuthentication,
+  mockHushhAuth,
+  mockCapacitor,
+  mockPhoneAuthProvider,
+  mockUpdatePhoneNumber,
+  mockLinkWithPhoneNumber,
+} = vi.hoisted(() => ({
   mockAuth: {
     currentUser: null as any,
     onAuthStateChanged: vi.fn(),
   },
   mockFirebaseAuthentication: {
+    addListener: vi.fn(),
+    confirmVerificationCode: vi.fn(),
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
     signInWithGoogle: vi.fn(),
     signInWithEmailAndPassword: vi.fn(),
+    linkWithPhoneNumber: vi.fn(),
+    unlink: vi.fn(),
   },
   mockHushhAuth: {
     getCurrentUser: vi.fn(),
@@ -17,13 +29,17 @@ const { mockAuth, mockFirebaseAuthentication, mockHushhAuth } = vi.hoisted(() =>
     signOut: vi.fn(),
     signInWithApple: vi.fn(),
   },
+  mockCapacitor: {
+    isNativePlatform: vi.fn(() => true),
+    getPlatform: vi.fn(() => "ios"),
+  },
+  mockPhoneAuthProvider: vi.fn(),
+  mockUpdatePhoneNumber: vi.fn(),
+  mockLinkWithPhoneNumber: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    isNativePlatform: () => true,
-    getPlatform: () => "ios",
-  },
+  Capacitor: mockCapacitor,
 }));
 
 vi.mock("sonner", () => ({
@@ -45,15 +61,23 @@ vi.mock("firebase/auth", () => ({
     credentialFromResult: vi.fn(),
   },
   OAuthProvider: vi.fn(),
+  PhoneAuthProvider: Object.assign(mockPhoneAuthProvider, {
+    credential: vi.fn(),
+  }),
+  linkWithPhoneNumber: mockLinkWithPhoneNumber,
   signInWithCredential: vi.fn(),
   signInWithCustomToken: vi.fn(),
   signInWithPopup: vi.fn(),
   signOut: vi.fn(),
   onAuthStateChanged: vi.fn(),
+  updatePhoneNumber: mockUpdatePhoneNumber,
 }));
 
 vi.mock("@capacitor-firebase/authentication", () => ({
   FirebaseAuthentication: mockFirebaseAuthentication,
+  ProviderId: {
+    PHONE: "phone",
+  },
 }));
 
 vi.mock("@/lib/capacitor", () => ({
@@ -61,6 +85,8 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
+import { Capacitor } from "@capacitor/core";
+import { PhoneAuthProvider, updatePhoneNumber } from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
 
@@ -78,14 +104,27 @@ function createIdToken(expiresInSeconds: number): string {
 describe("AuthService.restoreNativeSession", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockCapacitor.getPlatform.mockReturnValue("ios");
     mockAuth.currentUser = null;
     mockAuth.onAuthStateChanged.mockReset();
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber: vi.fn(),
+      };
+    });
     vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValue({
       user: null,
     } as any);
     vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
       token: null,
     } as any);
+    vi.mocked(FirebaseAuthentication.addListener).mockResolvedValue({
+      remove: vi.fn(),
+    } as any);
+    vi.mocked(FirebaseAuthentication.confirmVerificationCode).mockResolvedValue({} as any);
+    vi.mocked(FirebaseAuthentication.linkWithPhoneNumber).mockResolvedValue(undefined as any);
+    vi.mocked(FirebaseAuthentication.unlink).mockResolvedValue({ user: null } as any);
     vi.mocked(HushhAuth.getCurrentUser).mockResolvedValue({ user: null } as any);
     vi.mocked(HushhAuth.getIdToken).mockResolvedValue({ idToken: null } as any);
   });
@@ -124,6 +163,7 @@ describe("AuthService.restoreNativeSession", () => {
         displayName: "Kai",
         photoUrl: "https://example.com/kai.png",
         emailVerified: true,
+        phoneNumber: "+16505550101",
       },
     } as any);
     vi.mocked(FirebaseAuthentication.getIdToken)
@@ -133,6 +173,7 @@ describe("AuthService.restoreNativeSession", () => {
     const restoredUser = await AuthService.restoreNativeSession();
 
     expect(restoredUser?.uid).toBe("ios-google-user");
+    expect(restoredUser?.phoneNumber).toBe("+16505550101");
     await expect(restoredUser?.getIdToken(true)).resolves.toBe(freshToken);
   });
 
@@ -154,5 +195,68 @@ describe("AuthService.restoreNativeSession", () => {
     const restoredUser = await AuthService.restoreNativeSession();
 
     expect(restoredUser).toBeNull();
+  });
+
+  it("starts web phone replacement verification with PhoneAuthProvider", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockResolvedValue("verification-id");
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: "+16505550100",
+    } as any;
+
+    const result = await AuthService.startPhoneReplacementVerification("+16505550101", {
+      recaptchaVerifier: {} as any,
+    });
+
+    expect(verifyPhoneNumber).toHaveBeenCalledWith("+16505550101", expect.any(Object));
+    expect(result).toEqual({
+      autoVerified: false,
+      verificationId: "verification-id",
+    });
+  });
+
+  it("updates the web user phone number during replacement confirmation", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const reload = vi.fn().mockResolvedValue(undefined);
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: "+16505550101",
+      reload,
+    } as any;
+    vi.mocked(PhoneAuthProvider.credential).mockReturnValue("phone-credential" as any);
+    vi.mocked(updatePhoneNumber).mockResolvedValue(undefined);
+
+    const verifiedUser = await AuthService.confirmPhoneReplacementVerification({
+      verificationCode: "123456",
+      verificationId: "verification-id",
+    });
+
+    expect(PhoneAuthProvider.credential).toHaveBeenCalledWith("verification-id", "123456");
+    expect(updatePhoneNumber).toHaveBeenCalledWith(mockAuth.currentUser, "phone-credential");
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(verifiedUser).toBe(mockAuth.currentUser);
+  });
+
+  it("blocks replacing with a phone number already linked to the current user", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: "+16505550101",
+    } as any;
+
+    await expect(
+      AuthService.startPhoneReplacementVerification("+16505550101", {
+        recaptchaVerifier: {} as any,
+      })
+    ).rejects.toMatchObject({
+      message: "This phone number is already linked to your account.",
+      code: "phone-already-linked-to-current-user",
+    });
   });
 });

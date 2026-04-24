@@ -27,6 +27,13 @@ The Hussh developer contract is versioned under `/api/v1` and built around one s
 
 Do not hardcode domain keys. Dynamic scopes are derived from the indexed PKM and domain registry.
 
+Identifier note:
+
+- Raw `/api/v1` HTTP calls still use the canonical Firebase UID as `user_id`.
+- Hosted MCP tool calls may accept the Firebase UID directly, the user's registered email, or the user's phone number.
+- MCP resolves email and phone identifiers to the canonical Firebase UID before calling `/api/v1`.
+- For national phone numbers, MCP requires an explicit `country_iso2` or `country` hint. It does not assume a default country.
+
 Founder-language framing:
 
 - `PCHP` is implemented today through this `/api/v1` contract plus the hosted MCP transport
