@@ -696,15 +696,19 @@ export function KaiSearchBar({
         setSessionMuted(true);
         return "cancelled";
       }
+      // FIX 1: Route mic permission errors to error_microphone_denied state
       if (isPermissionDeniedError(error)) {
         setMicPermissionStatus("denied");
-        setVoiceError(message, "Microphone permission denied");
+        setVoiceErrorMessage(message);
+        transitionVoiceState("error_microphone_denied", "mic_permission_denied", { message });
+        emitDebug("mic", "permission_denied", { message });
+        toast.error("Microphone access denied. Please allow microphone in browser settings.");
         return "failed";
       }
       setVoiceErrorMessage(message);
       return "failed";
     }
-  }, [getVaultOwnerToken, sessionScopeId, setVoiceError, userId, vaultOwnerToken, voiceAvailable]);
+  }, [emitDebug, getVaultOwnerToken, sessionScopeId, transitionVoiceState, userId, vaultOwnerToken, voiceAvailable]);
 
   const startListening = useCallback(async () => {
     if (micDisabled) {
@@ -721,7 +725,11 @@ export function KaiSearchBar({
         permissionStatus = result.state;
         setMicPermissionStatus(result.state);
         if (result.state === "denied") {
-          setVoiceError("Microphone permission denied", "Microphone permission denied");
+          setVoiceErrorMessage("Microphone permission denied");
+          // FIX 2: Transition to error_microphone_denied on preflight denial
+          transitionVoiceState("error_microphone_denied", "mic_permission_denied_preflight");
+          emitDebug("mic", "permission_denied_preflight", {});
+          toast.error("Microphone access denied. Please allow microphone in browser settings.");
           return;
         }
       } catch {
@@ -732,7 +740,8 @@ export function KaiSearchBar({
     setVoiceErrorMessage(null);
     setProcessingStageText(null);
     setPendingConfirmation(null);
-    transitionVoiceState("sheet_listening", "mic_connect_started");
+    // FIX 3: Transition to loading state while voice session is initializing
+    transitionVoiceState("loading", "mic_connect_started");
     setTranscriptPreview(describeVoiceConnectStage(permissionStatus));
 
     const connectionState = await connectVoiceSession();
@@ -755,11 +764,11 @@ export function KaiSearchBar({
     setTranscriptPreview("Listening...");
   }, [
     connectVoiceSession,
+    emitDebug,
     micDisabled,
     sessionStateText,
     setPendingConfirmation,
     stableMicDisabledReason,
-    setVoiceError,
     transitionVoiceState,
   ]);
 
@@ -1165,9 +1174,14 @@ export function KaiSearchBar({
           }
           if (
             !snapshot.muted &&
-            (voiceUiStateRef.current === "sheet_listening" || voiceUiStateRef.current === "retry_ready")
+            (voiceUiStateRef.current === "sheet_listening" ||
+              voiceUiStateRef.current === "retry_ready" ||
+              voiceUiStateRef.current === "loading")
           ) {
-            if (voiceUiStateRef.current === "retry_ready") {
+            if (
+              voiceUiStateRef.current === "retry_ready" ||
+              voiceUiStateRef.current === "loading"
+            ) {
               transitionVoiceStateRef.current("sheet_listening", "session_recovered");
             }
             setTranscriptPreview("Listening...");
@@ -1176,7 +1190,11 @@ export function KaiSearchBar({
         if (snapshot.state === "idle" || snapshot.state === "error") {
           stopMeterRef.current();
         }
-        if (snapshot.state === "connecting" && voiceUiStateRef.current === "sheet_listening") {
+        if (
+          snapshot.state === "connecting" &&
+          (voiceUiStateRef.current === "sheet_listening" ||
+            voiceUiStateRef.current === "loading")
+        ) {
           setTranscriptPreview("Connecting realtime voice session...");
         }
         if (snapshot.state === "error") {
@@ -1187,10 +1205,11 @@ export function KaiSearchBar({
               : "Realtime voice session failed.";
           setProcessingStageText(null);
           setVoiceErrorMessage(detail);
-          setTranscriptPreview("Realtime session dropped.");
+          setTranscriptPreview("Connection lost. Please check your internet.");
           if (voiceSessionManager.hasActiveScope(sessionScopeId)) {
-            setProcessingStageText("Realtime session dropped. Tap retry to reconnect.");
-            transitionVoiceStateRef.current("retry_ready", "session_error_retry_ready");
+            // FIX: Route network/connection errors to error_network state
+            setProcessingStageText("Connection lost. Please check your internet.");
+            transitionVoiceStateRef.current("error_network", "session_error_network");
           }
         }
 
@@ -1214,8 +1233,10 @@ export function KaiSearchBar({
 
       if (event.type === "debug") {
         const allowConnectStageUpdates =
-          voiceUiStateRef.current === "sheet_listening" &&
-          (!sessionMutedRef.current || voiceSessionManager.getSnapshot().state === "connecting");
+          (voiceUiStateRef.current === "sheet_listening" ||
+            voiceUiStateRef.current === "loading") &&
+          (!sessionMutedRef.current ||
+            voiceSessionManager.getSnapshot().state === "connecting");
         if (allowConnectStageUpdates) {
           if (event.event === "permission_request_started") {
             setTranscriptPreview("Waiting for microphone access...");
