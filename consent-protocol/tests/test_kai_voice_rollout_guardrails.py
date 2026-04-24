@@ -553,6 +553,8 @@ def test_voice_realtime_session_allows_rollout_included_user(
     assert payload["session_id"] == "sess_123"
     assert payload["model"] == "gpt-realtime"
     assert payload["voice"] == "alloy"
+    assert payload["transcription_model"] == "gpt-4o-mini-transcribe"
+    assert payload["transcription_language"] == "en"
     assert payload["client_secret"] == "ephemeral_secret"  # noqa: S105
 
 

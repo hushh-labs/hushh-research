@@ -203,6 +203,7 @@ Current runtime loop:
 
 Important current constraints:
 
+- Kai voice is English-only: STT/realtime transcription are pinned to `en`, planner/composer prompts require English-only responses, and TTS receives English-only speech instructions.
 - runtime metadata describes current screen state, not capability existence
 - transcript heuristics are compatibility fallback, not the desired authority plane
 - durable voice memory remains encrypted and vault-gated

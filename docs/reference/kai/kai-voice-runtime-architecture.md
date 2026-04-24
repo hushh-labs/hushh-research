@@ -6,12 +6,15 @@
 sequenceDiagram
   participant User
   participant FE as Frontend voice runtime
+  participant RT as Realtime/STT
   participant Plan as /voice/plan
   participant Exec as Frontend executor
   participant Compose as /voice/compose
   participant TTS as TTS path
 
-  User->>FE: Speak
+  User->>FE: Speak English
+  FE->>RT: WebRTC realtime session or STT fallback
+  RT-->>FE: English transcript
   FE->>FE: Build structured screen context
   FE->>Plan: transcript + runtime state + context
   Plan-->>FE: response envelope + canonical plan
@@ -63,11 +66,14 @@ The maintained runtime now depends on these canonical surfaces:
   - [hushh-webapp/lib/voice/voice-action-manifest.ts](../../../hushh-webapp/lib/voice/voice-action-manifest.ts)
 - Frontend runtime:
   - [hushh-webapp/lib/voice/voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts)
+  - [hushh-webapp/lib/voice/voice-session-manager.ts](../../../hushh-webapp/lib/voice/voice-session-manager.ts)
+  - [hushh-webapp/lib/voice/voice-realtime-client.ts](../../../hushh-webapp/lib/voice/voice-realtime-client.ts)
   - [hushh-webapp/lib/voice/voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts)
   - [hushh-webapp/lib/voice/voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts)
   - [hushh-webapp/lib/voice/voice-action-dispatcher.ts](../../../hushh-webapp/lib/voice/voice-action-dispatcher.ts)
   - [hushh-webapp/lib/voice/voice-action-settlement.ts](../../../hushh-webapp/lib/voice/voice-action-settlement.ts)
   - [hushh-webapp/lib/voice/voice-response-composer.ts](../../../hushh-webapp/lib/voice/voice-response-composer.ts)
+  - [hushh-webapp/lib/voice/voice-tts-playback.ts](../../../hushh-webapp/lib/voice/voice-tts-playback.ts)
   - [hushh-webapp/lib/voice/voice-memory-store.ts](../../../hushh-webapp/lib/voice/voice-memory-store.ts)
   - [hushh-webapp/lib/kai/command-executor.ts](../../../hushh-webapp/lib/kai/command-executor.ts)
 - Frontend context and UI entrypoints:
@@ -87,16 +93,17 @@ The maintained runtime now depends on these canonical surfaces:
 The current runtime is a closed-loop hybrid flow:
 
 1. Speech enters the frontend voice runtime.
-2. The frontend builds live route, screen, runtime, auth, vault, and surface metadata context.
-3. The frontend calls `/voice/plan`.
-4. The backend planner returns both:
+2. Realtime transcription produces the normal final transcript. `/voice/stt` remains the non-realtime fallback, and `/voice/understand` remains a legacy combined STT+plan surface.
+3. The frontend builds live route, screen, runtime, auth, vault, and surface metadata context.
+4. The frontend calls `/voice/plan`.
+5. The backend planner returns both:
    - a legacy-compatible response envelope
    - canonical planner fields such as `mode`, `action_id`, `slots`, `guards`, and `reply_strategy`
-5. The frontend grounds and executes the canonical plan.
-6. The executor emits a typed `VoiceActionResult`.
-7. The frontend rebuilds post-action screen context.
-8. When the plan requests LLM-backed final speech, the frontend calls `/voice/compose`.
-9. The composed or fallback text is spoken through the active TTS path.
+6. The frontend grounds and executes the canonical plan.
+7. The executor emits a typed `VoiceActionResult`.
+8. The frontend rebuilds post-action screen context.
+9. When the plan requests LLM-backed final speech, the frontend calls `/voice/compose`.
+10. The composed or fallback English text is spoken through the active TTS path.
 
 The canonical plan modes are:
 
@@ -104,6 +111,16 @@ The canonical plan modes are:
 - `execute_and_wait`
 - `start_background_and_ack`
 - `clarify`
+
+## Language Policy
+
+Kai voice is English-only in the current runtime.
+
+- Realtime transcription and batch STT both pin OpenAI transcription to language `en` and use an English-only transcription prompt.
+- Non-English or unusable transcripts fail closed into a clarification response; the response remains English and keeps the compatibility reason `stt_unusable`.
+- Planner and composer prompts include an explicit language policy: accept English-language transcripts only, and produce English-only tool arguments, clarification text, and spoken replies.
+- TTS receives only composed English text plus an OpenAI speech instruction to speak English only; the legacy browser speech fallback is also pinned to `en-US`.
+- The voice runtime does not call OpenAI translation endpoints and does not translate user speech into another language.
 
 ## Backend Architecture
 
@@ -156,6 +173,7 @@ Important current behavior:
 - `/voice/tts`
 - `/voice/stt`
 - `/voice/realtime/session`
+- `/voice/understand` (legacy combined STT+plan compatibility surface)
 - `/voice/capability` (`POST`)
 
 `/voice/plan` is the main planning transport and still preserves rollout, canary, and kill-switch behavior.
@@ -170,6 +188,37 @@ Important current behavior:
 - structured screen context after execution
 
 and calls `compose_voice_reply(...)` in [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py).
+
+### Route gates and rollout semantics
+
+All backend voice routes require a `VAULT_OWNER` bearer token, and the request `user_id` must match the token user.
+
+Voice rollout is controlled by `VOICE_RUNTIME_CONFIG_JSON`:
+
+- global hosted voice enablement
+- optional user allowlist
+- stable canary bucket percentage
+- realtime enablement
+- tool-execution kill switch
+- model and timeout defaults
+
+`/voice/capability` reports both rollout and realtime availability. `voice_enabled` means the user is inside voice rollout. `enabled` means the realtime voice path is available for that user/runtime. When rollout is disabled, `/voice/plan` returns HTTP 200 with a non-executable `speak_only` response, while realtime session creation, STT, and TTS return HTTP 403.
+
+### Speech, realtime, and TTS boundaries
+
+`/voice/realtime/session` creates the OpenAI realtime client secret and configures:
+
+- server VAD
+- near-field noise reduction
+- input transcription model
+- `transcription_language: "en"`
+- English-only transcription prompt
+
+The frontend preserves those transcription settings when it sends its post-handshake `session.update` for VAD and output voice. Realtime model auto-response is disabled on the normal path; the app requests speech explicitly with English-only output instructions after planning/execution/composition.
+
+`/voice/stt` sends batch audio to OpenAI transcriptions with `language: "en"` and the same English-only transcription prompt.
+
+Normal frontend post-dispatch speech prefers realtime-stream TTS through the active realtime client. `/voice/tts` remains the backend streaming speech endpoint for explicit backend synthesized playback, with binary audio headers and English-only speech instructions. The frontend backend-batch fallback path is currently disabled by feature flag. The backend runtime accepts a `tts_models` list in config, then chooses one prioritized active TTS model at service initialization. The legacy browser speech synthesis fallback is pinned to `en-US`.
 
 ## Frontend Architecture
 
@@ -235,6 +284,8 @@ Runtime consumption:
 - frontend registry adapter: [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
 
 The older [voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json) still exists, but it is now a generated compatibility artifact rather than the primary authored source.
+
+If the generated manifest is missing, the backend manifest loader degrades to an empty `source: "missing"` manifest instead of failing import. That is a degraded prompt-selection state, not a valid release state; `verify:voice-gateway` and docs/runtime verification should catch it. When a manifest is present but no action ranks for the current screen/transcript, prompt selection falls back to the first generated actions.
 
 ### Capability authoring boundary
 
@@ -344,8 +395,11 @@ Current voice debugging spans both frontend and backend.
 
 Backend:
 
+- `/voice/realtime/session` session creation and transcription metadata
+- `/voice/stt` tracing and audio/transcript metrics
 - `/voice/plan` tracing and latency metrics
 - `/voice/compose` tracing and latency metrics
+- `/voice/tts` streaming lifecycle and client-disconnect handling
 - rollout/canary/kill-switch decisions in the route layer
 
 Frontend:
@@ -374,7 +428,6 @@ These are compatibility measures, not the main architecture.
 
 The main documentation/code drift found during this refresh:
 
-- some in-code `mapReferences` still pointed at a deleted historical voice-navigation planning doc
 - the older migration/audit doc still described several pre-implementation problems as if they were current state
 - `/voice/understand` remains a legacy combined surface and does not expose the richest canonical route contract
 - screen identifiers still drift across route derivation, command execution, surface publishers, and manifest expectations, which can cause settlement to fall back to timeout on otherwise successful navigations

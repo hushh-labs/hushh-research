@@ -41,10 +41,12 @@ Runtime truth note:
    - `/kai/optimize`
  4. Verify required voice routes are present and reachable in the protected API surface:
    - `/api/kai/voice/capability`
+   - `/api/kai/voice/realtime/session`
    - `/api/kai/voice/plan`
    - `/api/kai/voice/compose`
    - `/api/kai/voice/stt`
    - `/api/kai/voice/tts`
+   - `/api/kai/voice/understand`
 
 ## 0a) Voice Runtime Sanity
 1. Open a signed-in Kai route where voice is eligible.
@@ -62,6 +64,10 @@ Runtime truth note:
    - successful navigation waits for route/screen settlement before final speech,
    - analysis start responds with an acknowledgement rather than a fake completion claim,
    - final spoken text comes from the post-execution compose path or the explicit deterministic fallback.
+8. Confirm the English-only voice contract:
+   - realtime session metadata reports `transcription_language: "en"`,
+   - non-English speech or transcript input returns an English clarification instead of executing,
+   - spoken output remains English even when the input asks for another language.
 
 ## 1) Fresh User Import Flow
 1. Sign in with a user that has no `financial` domain.

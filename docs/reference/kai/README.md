@@ -54,7 +54,7 @@ Brand and compatibility rule: [../operations/brand-and-compatibility-contract.md
 - [kai-interconnection-map.md](./kai-interconnection-map.md): dependency map and upstream boundaries.
 - [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md): canonical capability-authoring and generated gateway contract for voice, search, UI actionables, and planner grounding.
 - [kai-change-impact-matrix.md](./kai-change-impact-matrix.md): blast-radius guide for Kai changes.
-- [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md): canonical current runtime architecture for Kai voice, including planner, compose, execution, settlement, and how the generated action gateway is consumed at runtime.
+- [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md): canonical current runtime architecture for Kai voice, including English-only STT/realtime/TTS policy, planner, compose, execution, settlement, and how the generated action gateway is consumed at runtime.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md): accuracy and output expectations.
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md): route-level audit map.
