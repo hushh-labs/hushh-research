@@ -432,6 +432,7 @@ The main documentation/code drift found during this refresh:
 - `/voice/understand` remains a legacy combined surface and does not expose the richest canonical route contract
 - screen identifiers still drift across route derivation, command execution, surface publishers, and manifest expectations, which can cause settlement to fall back to timeout on otherwise successful navigations
 - not every Kai surface is yet covered by a colocated local action contract, so discoverability coverage is still incomplete outside the current seeded surfaces
+- the current screen/button/action coverage audit lives in [kai-voice-action-coverage-audit.md](./kai-voice-action-coverage-audit.md)
 
 ## Maintainer Checklist
 
@@ -466,6 +467,7 @@ If backend voice routes or planner/composer contracts change, also run the focus
 ## Related References
 
 - [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md)
+- [kai-voice-action-coverage-audit.md](./kai-voice-action-coverage-audit.md)
 - [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md)
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md)
 - [kai-runtime-smoke-checklist.md](./kai-runtime-smoke-checklist.md)

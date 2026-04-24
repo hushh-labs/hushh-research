@@ -12,6 +12,8 @@ flowchart TD
   root --> n13
   n12["Kai Action Gateway vNext"]
   root --> n12
+  n14["Kai Voice Action Coverage Audit"]
+  root --> n14
   n10["Kai Voice Runtime Architecture"]
   root --> n10
   n11["Kai Voice Migration Audit"]
@@ -53,6 +55,7 @@ Brand and compatibility rule: [../operations/brand-and-compatibility-contract.md
 - [kai-architecture-specification-v1.md](./kai-architecture-specification-v1.md): single current-state Kai architecture narrative across product surfaces, trust boundaries, voice/actionability, brokerage connectivity, and verification.
 - [kai-interconnection-map.md](./kai-interconnection-map.md): dependency map and upstream boundaries.
 - [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md): canonical capability-authoring and generated gateway contract for voice, search, UI actionables, and planner grounding.
+- [kai-voice-action-coverage-audit.md](./kai-voice-action-coverage-audit.md): current audit of what Kai voice can actually trigger and where screen/button/action coverage is incomplete.
 - [kai-change-impact-matrix.md](./kai-change-impact-matrix.md): blast-radius guide for Kai changes.
 - [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md): canonical current runtime architecture for Kai voice, including English-only STT/realtime/TTS policy, planner, compose, execution, settlement, and how the generated action gateway is consumed at runtime.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
