@@ -41,7 +41,6 @@ vi.mock("lucide-react", () => ({
   CheckCircle2: () => <span />,
   Loader2: () => <span />,
   ShieldCheck: () => <span />,
-  ShieldQuestion: () => <span />,
 }));
 
 vi.mock("@/components/app-ui/command-fields", () => ({
@@ -257,6 +256,58 @@ describe("RiaOnboardingPage", () => {
       expect(screen.queryByText("Verified name")).toBeNull();
     });
     expect(continueButton.disabled).toBe(true);
+  });
+
+  it("keeps non-actionable helper cards out of onboarding", async () => {
+    render(<RiaOnboardingPage />);
+
+    await screen.findByLabelText("Advisor name");
+
+    expect(screen.queryByText("Trust summary")).toBeNull();
+    expect(screen.queryByText("Deferred for later settings")).toBeNull();
+  });
+
+  it("offers the verification bypass only when the environment allows it", async () => {
+    mocks.usePersonaState.mockReturnValue({
+      devRiaBypassAllowed: true,
+      refresh: mocks.refreshPersonaState,
+    });
+    mocks.riaService.activateDevRia.mockResolvedValue({
+      ria_profile_id: "ria-profile-1",
+      verification_status: "active",
+      advisory_status: "active",
+      brokerage_status: "draft",
+      requested_capabilities: ["advisory"],
+      verification_outcome: "dev_allowlist",
+      verification_message: "RIA activated for an allowlisted development account",
+      brokerage_outcome: "not_requested",
+      brokerage_message: "Brokerage capability was not requested.",
+      professional_access_granted: true,
+      individual_legal_name: "Local Advisor",
+      individual_crd: null,
+      advisory_firm_legal_name: null,
+      advisory_firm_iapd_number: null,
+      broker_firm_legal_name: null,
+      broker_firm_crd: null,
+    });
+
+    render(<RiaOnboardingPage />);
+
+    const input = await screen.findByLabelText("Advisor name");
+    fireEvent.change(input, { target: { value: "Local Advisor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Bypass verification" }));
+
+    await waitFor(() => {
+      expect(mocks.riaService.activateDevRia).toHaveBeenCalledWith(
+        "token-ria-1",
+        expect.objectContaining({
+          display_name: "Local Advisor",
+          requested_capabilities: ["advisory"],
+        })
+      );
+    });
+    expect(mocks.riaService.verifyOnboardingName).not.toHaveBeenCalled();
+    expect(mocks.refreshPersonaState).toHaveBeenCalledWith({ force: true });
   });
 
   it("supports Enter-to-verify and blocks continue after a failed lookup", async () => {

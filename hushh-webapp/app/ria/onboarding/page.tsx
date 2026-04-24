@@ -9,11 +9,10 @@ import {
   CheckCircle2,
   Loader2,
   ShieldCheck,
-  ShieldQuestion,
 } from "lucide-react";
 
 import { PopupTextEditorField } from "@/components/app-ui/command-fields";
-import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader, SurfaceInset } from "@/components/app-ui/surfaces";
+import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader } from "@/components/app-ui/surfaces";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -50,36 +49,6 @@ import {
   trackGrowthFunnelStepCompleted,
   trackRiaActivationCompleted,
 } from "@/lib/observability/growth";
-
-function formatVerificationStatus(
-  status?: string | null,
-  loading?: boolean,
-  lane: "advisory" | "brokerage" = "advisory"
-) {
-  if (loading) return "Loading";
-  switch (status) {
-    case "verified":
-      return lane === "brokerage" ? "Broker verified" : "IAPD verified";
-    case "active":
-      return "Active";
-    case "bypassed":
-      return "Bypassed";
-    case "submitted":
-      return "Submitted";
-    case "rejected":
-      return "Rejected";
-    case "draft":
-    default:
-      return "Draft";
-  }
-}
-
-function compactDate(value?: string | null): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString();
-}
 
 type NameVerificationState =
   | "idle"
@@ -139,14 +108,6 @@ function buildSubmitPayload(draft: RiaOnboardingDraft) {
     broker_firm_crd: brokerageEnabled ? draft.brokerFirmCrd.trim() || undefined : undefined,
     strategy: draft.strategySummary.trim() || undefined,
   };
-}
-
-function latestVerificationCopy(status: RiaOnboardingStatus | null): string {
-  const latest = status?.latest_advisory_event || status?.latest_verification_event;
-  if (!latest) return "Verification starts after you submit this trust profile.";
-  const outcome = latest.outcome || "latest check";
-  const checkedAt = compactDate(latest.checked_at);
-  return checkedAt ? `${outcome} on ${checkedAt}` : outcome;
 }
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
@@ -415,12 +376,7 @@ export default function RiaOnboardingPage() {
   );
 
   const advisoryVerificationStatus = status?.advisory_status || status?.verification_status || "draft";
-  const brokerageVerificationStatus = status?.brokerage_status || "draft";
   const advisoryAccessReady = isAdvisoryAccessReady(advisoryVerificationStatus);
-  const brokerageAccessReady =
-    brokerageVerificationStatus === "active" ||
-    brokerageVerificationStatus === "verified" ||
-    brokerageVerificationStatus === "bypassed";
   const displayNameQuery = draft.displayName.trim();
   latestDisplayNameRef.current = displayNameQuery;
   const persistedVerifiedDisplayName = status?.display_name?.trim() || "";
@@ -1025,6 +981,16 @@ export default function RiaOnboardingPage() {
                       : "Verify"}
                 </button>
               ) : null}
+              {devRiaBypassAllowed && !nameVerificationSatisfied ? (
+                <button
+                  type="button"
+                  onClick={() => void handleDevActivate()}
+                  disabled={saving || displayNameQuery.length === 0}
+                  className="inline-flex min-h-10 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? "Activating..." : "Bypass verification"}
+                </button>
+              ) : null}
             </div>
 
             <p className="text-sm leading-6 text-muted-foreground">
@@ -1247,71 +1213,6 @@ export default function RiaOnboardingPage() {
 
       {!iamUnavailable ? (
         <div className="space-y-5">
-          <SurfaceInset className="space-y-4 px-4 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-                  Trust summary
-                </p>
-                <h2 className="text-sm font-semibold">Keep the verification state visible, not heavy</h2>
-                <p className="max-w-3xl text-sm text-muted-foreground">
-                  This summary stays persistent while the wizard keeps attention on one decision at a time.
-                </p>
-              </div>
-              {loading ? (
-                <Badge variant="secondary">
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  Loading
-                </Badge>
-              ) : (
-                <Badge variant="secondary">
-                  {formatVerificationStatus(advisoryVerificationStatus, false)}
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">
-                {capabilityLabels.length > 0 ? capabilityLabels.join(" + ") : "No capabilities selected"}
-              </Badge>
-              <Badge variant="secondary">
-                {advisoryAccessReady
-                  ? "RIA workspace ready"
-                  : brokerageAccessReady
-                    ? "Broker lane verified"
-                    : "Activation still gated"}
-              </Badge>
-              {draft.displayName.trim() ? (
-                <Badge variant="secondary">{draft.displayName.trim()}</Badge>
-              ) : null}
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <ReviewField
-                label="Verification"
-                value={formatVerificationStatus(advisoryVerificationStatus, loading)}
-                helper={latestVerificationCopy(status)}
-              />
-              {draft.requestedCapabilities.includes("brokerage") ? (
-                <ReviewField
-                  label="Brokerage"
-                  value={formatVerificationStatus(brokerageVerificationStatus, false, "brokerage")}
-                  helper="Broker capability stays isolated from advisory access."
-                />
-              ) : null}
-              <ReviewField
-                label="Current focus"
-                value={`Step ${currentStepIndex + 1} of ${steps.length}`}
-                helper={currentStep?.title}
-              />
-              <ReviewField
-                label="Investor identity"
-                value={draft.displayName.trim() || user?.displayName || user?.email || "Not set yet"}
-                helper="The name carried into invites and consent prompts."
-              />
-            </div>
-          </SurfaceInset>
-
           <SurfaceCard className="mx-auto w-full max-w-3xl">
             <SurfaceCardHeader className="space-y-4 border-b border-border/60">
               <div className="flex items-center justify-between gap-3">
@@ -1412,17 +1313,6 @@ export default function RiaOnboardingPage() {
             </SurfaceCardContent>
           </SurfaceCard>
 
-          <SurfaceInset className="space-y-3 px-4 py-4">
-            <div className="flex items-start gap-3">
-              <ShieldQuestion className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Deferred for later settings</p>
-                <p className="text-sm text-muted-foreground">
-                  Long bio, disclosures URL, firm role, communication style, and alert cadence now stay out of onboarding so activation feels shorter and clearer.
-                </p>
-              </div>
-            </div>
-          </SurfaceInset>
         </div>
       ) : null}
     </RiaPageShell>
