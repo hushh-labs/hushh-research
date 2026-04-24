@@ -23,6 +23,7 @@ Current-state note:
 
 - This document is the original migration/audit spec for the Kai voice redesign.
 - For the current checked-in runtime architecture, use [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md).
+- Sections after Phase 4 Status preserve the pre-Phase-4 audit and target design for provenance. Treat them as migration history unless they are restated in the current runtime architecture doc.
 
 ## Phase 4 Status
 
@@ -33,6 +34,7 @@ The closed-loop Kai voice runtime described in this document is now the default 
 - route and screen settlement inform post-navigation replies
 - common navigation and background acknowledgements use deterministic post-execution composition
 - destructive or blocked actions respond with outcome-aware speech instead of generic powerless phrasing
+- STT, realtime transcription, planner/composer prompts, and TTS now enforce the current English-only voice policy described in [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md#language-policy)
 
 Residual compatibility shims intentionally still present:
 
@@ -41,9 +43,9 @@ Residual compatibility shims intentionally still present:
 - Frontend grounding fallback: `resolveGroundedVoicePlan(... allowCompatibilityFallback)` is still available only when the planner omits `action_id`, and that path emits fallback telemetry.
 - Frontend speak-only fallback: `executeVoiceResponse(... allowSpeakOnlyCompatibilityFallback)` remains as an explicit opt-in escape hatch, default off, so legacy `speak_only` execution can be temporarily re-enabled only if needed.
 
-## Purpose
+## Historical Purpose
 
-This document is the implementation-ready architecture spec for the Kai in-app voice assistant. It replaces guesswork with a code-cited target design and a staged migration plan.
+This document was the implementation-ready architecture spec for the Kai in-app voice assistant. It is now retained as the migration/audit record behind the implemented runtime.
 
 Product correction applied throughout this spec:
 
@@ -51,85 +53,84 @@ Product correction applied throughout this spec:
 - The voice assistant lives inside Kai.
 - The assistant must speak as Kai's in-app voice interface, not as a generic external chatbot.
 
-## Current-State Audit
+## Historical Pre-Phase-4 Audit Snapshot
+
+The table below records the audit state that motivated the migration. It is not the current runtime source of truth.
 
 | Area | Observed state | Evidence | Migration implication |
 | --- | --- | --- | --- |
-| Live screen context | The frontend already builds a rich structured screen context from route, published surface metadata, visible modules, runtime state, auth, vault, and available actions. | [screen-context-builder.ts](../../../hushh-webapp/lib/voice/screen-context-builder.ts#L210-L340), [kai-command-bar-global.tsx](../../../hushh-webapp/components/kai/kai-command-bar-global.tsx#L309-L480) | The redesign should reuse this context instead of inventing a second app-state model. |
-| Screen metadata publication | One current surface publishes normalized voice metadata and control tracking through a singleton store. | [voice-surface-metadata.ts](../../../hushh-webapp/lib/voice/voice-surface-metadata.ts#L329-L420) | Route/screen settle checks can use this existing publication channel. |
-| Frontend action model | The frontend owns a far richer action registry than the backend planner, including guards, execution policies, and expected effects. | [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts#L1-L220) | A shared semantic manifest should be derived from this richer model, not from the backend's smaller tool schema. |
-| Frontend-internal action drift | Surface publishers already advertise `actionId`s that do not exist in the central registry, so the registry is not yet the sole frontend source of truth either. | [app/profile/page.tsx](../../../hushh-webapp/app/profile/page.tsx#L1521-L1545), [dashboard-master-view.tsx](../../../hushh-webapp/components/kai/views/dashboard-master-view.tsx#L2126-L2136), [app/kai/analysis/page.tsx](../../../hushh-webapp/app/kai/analysis/page.tsx#L500-L510), [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts#L127-L220) | Manifest extraction must reconcile surface-published action ids before the frontend can rely on a single canonical action catalog. |
-| Backend planner identity | The backend LLM planner prompt is intentionally narrow: tool-only, no plain text, navigation mapping hints, and no durable Kai app identity. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1702-L1798) | Kai self-knowledge must move into a layered prompt/context system, not stay implicit. |
-| Backend response contract | Backend responses are normalized into `kind`, `message`, `speak`, `execution_allowed`, optional `tool_call`, and legacy hints. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1800-L1838), [voice.py](../../../consent-protocol/api/routes/kai/voice.py#L2314-L2502) | The new canonical contract must dual-write during migration without breaking existing clients. |
-| Deterministic fast paths | The backend resolves many intents without the LLM: screen explain, knowledge, status, some surface navigation, import/resume/cancel, and keyword navigation. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1960-L2415) | The target design should preserve deterministic fast paths for latency-sensitive turns. |
-| Existing app knowledge | Backend knowledge entries already define PKM, Gmail connector, receipt memory, consent center, and several surface concepts. | [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py#L149-L240) | Extend this module for Kai app identity and assistant role instead of embedding one giant prompt string. |
-| Backend identity mismatch | A compat global concept still describes Kai as an in-app investor agent, which conflicts with the corrected product model that Kai is the app and the assistant lives inside it. | [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py#L748-L756) | The identity layer must correct this language before broader prompt reuse. |
-| Final speech timing | The frontend determines `finalText` before dispatch, then executes the action, then speaks the already chosen text. | [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts#L348-L468) | This is the primary reason speech can drift from real execution outcome. |
-| Grounded execution path | The frontend can execute grounded actions for both `execute` and `speak_only` planner responses. | [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts#L121-L263) | `speak_only` must stop being implicitly executable on the normal path. |
-| Transcript heuristics | The frontend can infer `actionId` directly from transcript patterns and prefer planner-grounded response actions only when available. | [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts#L153-L460) | Transcript heuristics should be demoted to explicit fallback mode only. |
-| Shallow execution result | The executor returns short-term-memory eligibility, tool name, ticker, and response kind, but not a rich observed result object. | [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts#L49-L54), [voice-action-dispatcher.ts](../../../hushh-webapp/lib/voice/voice-action-dispatcher.ts#L16-L33), [command-executor.ts](../../../hushh-webapp/lib/kai/command-executor.ts#L14-L18) | A typed `VoiceActionResult` is required before post-execution speech can be accurate. |
-| Rollout and kill switch | The API route preserves rollout, canary, and tool-execution kill-switch behavior, downgrading execute responses to `speak_only` when required. | [voice.py](../../../consent-protocol/api/routes/kai/voice.py#L93-L122), [voice.py](../../../consent-protocol/api/routes/kai/voice.py#L2368-L2374), [test_kai_voice_rollout_guardrails.py](../../../consent-protocol/tests/test_kai_voice_rollout_guardrails.py#L735-L779) | The redesign must preserve these operational guards. |
-| Background-task placeholders | The route already exposes `ack_text`, `final_text`, `is_long_running`, and `memory_write_candidates`, but the backend service does not currently emit a meaningful `background_started` path. | [voice.py](../../../consent-protocol/api/routes/kai/voice.py#L2399-L2502), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1960-L2415) | Background-start acknowledgements can reuse part of the existing API contract, but the service needs a real producer later. |
-| Realtime behavior | Realtime auto-response is disabled; the app explicitly sends TTS instructions rather than letting the realtime model free-run. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1374-L1535), [voice-realtime-client.ts](../../../hushh-webapp/lib/voice/voice-realtime-client.ts#L314-L455) | Persona drift is not caused by unmanaged realtime auto-response; it comes from the planner/executor/composer split. |
+| Live screen context | The frontend already builds a rich structured screen context from route, published surface metadata, visible modules, runtime state, auth, vault, and available actions. | [screen-context-builder.ts](../../../hushh-webapp/lib/voice/screen-context-builder.ts), [kai-command-bar-global.tsx](../../../hushh-webapp/components/kai/kai-command-bar-global.tsx) | The redesign should reuse this context instead of inventing a second app-state model. |
+| Screen metadata publication | One current surface publishes normalized voice metadata and control tracking through a singleton store. | [voice-surface-metadata.ts](../../../hushh-webapp/lib/voice/voice-surface-metadata.ts) | Route/screen settle checks can use this existing publication channel. |
+| Frontend action model | The frontend owns a far richer action registry than the backend planner, including guards, execution policies, and expected effects. | [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts) | A shared semantic manifest should be derived from this richer model, not from the backend's smaller tool schema. |
+| Frontend-internal action drift | Surface publishers already advertise `actionId`s that do not exist in the central registry, so the registry is not yet the sole frontend source of truth either. | [app/profile/page.tsx](../../../hushh-webapp/app/profile/page.tsx), [dashboard-master-view.tsx](../../../hushh-webapp/components/kai/views/dashboard-master-view.tsx), [app/kai/analysis/page.tsx](../../../hushh-webapp/app/kai/analysis/page.tsx), [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts) | Manifest extraction must reconcile surface-published action ids before the frontend can rely on a single canonical action catalog. |
+| Backend planner identity | The backend LLM planner prompt is intentionally narrow: tool-only, no plain text, navigation mapping hints, and no durable Kai app identity. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py) | Kai self-knowledge must move into a layered prompt/context system, not stay implicit. |
+| Backend response contract | Backend responses are normalized into `kind`, `message`, `speak`, `execution_allowed`, optional `tool_call`, and legacy hints. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py), [voice.py](../../../consent-protocol/api/routes/kai/voice.py) | The new canonical contract must dual-write during migration without breaking existing clients. |
+| Deterministic fast paths | The backend resolves many intents without the LLM: screen explain, knowledge, status, some surface navigation, import/resume/cancel, and keyword navigation. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py) | The target design should preserve deterministic fast paths for latency-sensitive turns. |
+| Existing app knowledge | Backend knowledge entries already define PKM, Gmail connector, receipt memory, consent center, and several surface concepts. | [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py) | Extend this module for Kai app identity and assistant role instead of embedding one giant prompt string. |
+| Backend identity mismatch | A compat global concept still describes Kai as an in-app investor agent, which conflicts with the corrected product model that Kai is the app and the assistant lives inside it. | [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py) | The identity layer must correct this language before broader prompt reuse. |
+| Final speech timing | The frontend determines `finalText` before dispatch, then executes the action, then speaks the already chosen text. | [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts) | This is the primary reason speech can drift from real execution outcome. |
+| Grounded execution path | The frontend can execute grounded actions for both `execute` and `speak_only` planner responses. | [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts) | `speak_only` must stop being implicitly executable on the normal path. |
+| Transcript heuristics | The frontend can infer `actionId` directly from transcript patterns and prefer planner-grounded response actions only when available. | [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts) | Transcript heuristics should be demoted to explicit fallback mode only. |
+| Shallow execution result | The executor returns short-term-memory eligibility, tool name, ticker, and response kind, but not a rich observed result object. | [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts), [voice-action-dispatcher.ts](../../../hushh-webapp/lib/voice/voice-action-dispatcher.ts), [command-executor.ts](../../../hushh-webapp/lib/kai/command-executor.ts) | A typed `VoiceActionResult` is required before post-execution speech can be accurate. |
+| Rollout and kill switch | The API route preserves rollout, canary, and tool-execution kill-switch behavior, downgrading execute responses to `speak_only` when required. | [voice.py](../../../consent-protocol/api/routes/kai/voice.py), [voice.py](../../../consent-protocol/api/routes/kai/voice.py), [test_kai_voice_rollout_guardrails.py](../../../consent-protocol/tests/test_kai_voice_rollout_guardrails.py) | The redesign must preserve these operational guards. |
+| Background-task placeholders | The route already exposes `ack_text`, `final_text`, `is_long_running`, and `memory_write_candidates`, but the backend service does not currently emit a meaningful `background_started` path. | [voice.py](../../../consent-protocol/api/routes/kai/voice.py), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py) | Background-start acknowledgements can reuse part of the existing API contract, but the service needs a real producer later. |
+| Realtime behavior | Realtime auto-response is disabled; the app explicitly sends TTS instructions rather than letting the realtime model free-run. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py), [voice-realtime-client.ts](../../../hushh-webapp/lib/voice/voice-realtime-client.ts) | Persona drift is not caused by unmanaged realtime auto-response; it comes from the planner/executor/composer split. |
 
-## Verified Drift Symptoms
+## Historical Drift Symptoms
 
-The current architecture allows speech and action to diverge in multiple ways:
+The pre-Phase-4 architecture allowed speech and action to diverge in multiple ways:
 
 1. The planner chooses spoken text before execution completes.  
-   Evidence: [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts#L348-L468)
+   Evidence: [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts)
 
 2. The frontend can execute grounded navigation even when the planner response is only `speak_only`.  
-   Evidence: [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts#L152-L263), [voice-response-executor.test.ts](../../../hushh-webapp/__tests__/voice/voice-response-executor.test.ts#L290-L325)
+   Evidence: [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts), [voice-response-executor.test.ts](../../../hushh-webapp/__tests__/voice/voice-response-executor.test.ts)
 
 3. The frontend still infers actions from transcript heuristics, which means execution authority is shared between planner output and client-side regex matching.  
-   Evidence: [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts#L153-L233)
+   Evidence: [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts)
 
 4. The backend and frontend reason over different capability sets. The backend planner allows five tool names and eight Kai commands, while the frontend registry models many more actions with guardrails and effect expectations.  
-   Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1702-L1798), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L2631-L2715), [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts#L1-L220)
+   Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py), [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
 
 5. The executor does not return enough information to generate outcome-aware speech.  
-   Evidence: [voice-action-dispatcher.ts](../../../hushh-webapp/lib/voice/voice-action-dispatcher.ts#L16-L200), [command-executor.ts](../../../hushh-webapp/lib/kai/command-executor.ts#L53-L163)
+   Evidence: [voice-action-dispatcher.ts](../../../hushh-webapp/lib/voice/voice-action-dispatcher.ts), [command-executor.ts](../../../hushh-webapp/lib/kai/command-executor.ts)
 
 These are design-level causes, not just isolated bugs.
 
-## Missing or Broken References Discovered During Audit
+## Resolved Historical Reference Drift
 
-- `hushh-webapp/lib/voice/investor-kai-action-registry.ts` references a historical `voice-navigation-architecture-plan.md` document in multiple `mapReferences` entries, but that document does not exist in the current repository snapshot.  
-  Evidence: [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts#L159-L192) and a repo search during this audit returned no `voice-navigation-architecture-plan.md` file.
+The original audit recorded deleted `voice-navigation-architecture-plan.md` references in `mapReferences`. The generated gateway and compatibility manifest now point to maintained action-gateway docs instead, and the old missing-path issue is retained here only as migration provenance.
 
-This spec intentionally does not recreate that missing file. It is recorded here as historical drift.
-
-## Root-Cause Analysis
+## Historical Root-Cause Analysis
 
 ### 1. Identity is under-specified
 
 The backend planner prompt describes a "Kai voice intent planner" that must emit tool calls, but it does not provide durable Kai app identity, assistant role, product scope, or capability boundaries beyond a narrow tool list.  
-Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1705-L1719)
+Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py)
 
 ### 2. Capability knowledge is split
 
 The frontend registry knows actions, risks, guards, and expected effects, but the backend planner does not consume the same model.  
-Evidence: [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts#L44-L127), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L2631-L2715)
+Evidence: [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py)
 
 ### 3. Execution authority is split
 
 Planner output can imply one thing, while the frontend transcript-grounding layer can infer and execute another.  
-Evidence: [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts#L218-L460), [voice-grounding.test.ts](../../../hushh-webapp/__tests__/voice/voice-grounding.test.ts#L166-L200)
+Evidence: [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts), [voice-grounding.test.ts](../../../hushh-webapp/__tests__/voice/voice-grounding.test.ts)
 
 ### 4. The voice loop is open-loop, not closed-loop
 
 The system does not execute, observe, and then speak. It plans a message, dispatches an action, and usually speaks the preselected message.  
-Evidence: [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts#L348-L468)
+Evidence: [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts)
 
 ### 5. Navigation completion is not a first-class observed outcome
 
 The executor pushes routes and logs telemetry, but it does not return a typed route/screen settlement result.  
-Evidence: [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts#L187-L263)
+Evidence: [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts)
 
-## Target Architecture
+## Target Architecture Now Implemented
 
-The target design is a closed-loop voice runtime:
+The migration target below is now the implemented closed-loop voice runtime. The maintained current-state version lives in [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md).
 
 1. User speaks.
 2. Frontend builds live app context.
@@ -149,7 +150,7 @@ The target design is a closed-loop voice runtime:
 | `start_background_and_ack` | Long-running task starts asynchronously; only startup confirmation is required before speech. | "Analyze Nvidia", "Resume active analysis", "Start portfolio import" | After start confirmation |
 | `clarify` | Request is ambiguous, unsafe, or missing required slots. | ambiguous ticker, unclear destination | Immediate clarification |
 
-## Shared Capability Manifest Strategy
+## Historical Shared Capability Manifest Strategy
 
 ### Recommendation
 
@@ -216,7 +217,7 @@ The planner and composer should both inherit the same layered Kai context:
    - active analysis/import state
 
 4. **Knowledge layer**
-   - existing PKM/Gmail/receipt/consent concepts in [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py#L149-L240)
+   - existing PKM/Gmail/receipt/consent concepts in [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py)
    - new Kai app identity entries
    - current surface concepts
 
@@ -365,7 +366,7 @@ Navigation turns in `execute_and_wait` mode must not speak final output until se
 1. Capture `route_before` and `screen_before`.
 2. Execute the action.
 3. Watch for route change.
-4. Re-derive screen identity using [route-screen-derivation.ts](../../../hushh-webapp/lib/voice/route-screen-derivation.ts#L19-L99).
+4. Re-derive screen identity using [route-screen-derivation.ts](../../../hushh-webapp/lib/voice/route-screen-derivation.ts).
 5. Wait for matching surface metadata publication when the action expects a richer destination surface.
 6. Build `post_action_context`.
 7. Compose final speech.
@@ -380,16 +381,16 @@ Navigation turns in `execute_and_wait` mode must not speak final output until se
 The following paths should not remain on the normal path after migration:
 
 1. `speak_only` responses that can still execute navigation or tool steps.  
-   Evidence: [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts#L152-L263), [voice-response-executor.test.ts](../../../hushh-webapp/__tests__/voice/voice-response-executor.test.ts#L290-L325)
+   Evidence: [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts), [voice-response-executor.test.ts](../../../hushh-webapp/__tests__/voice/voice-response-executor.test.ts)
 
 2. Transcript-first action inference as an execution authority.  
-   Evidence: [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts#L153-L233)
+   Evidence: [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts)
 
 3. Preselected final speech before dispatch outcome exists.  
-   Evidence: [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts#L348-L468)
+   Evidence: [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts)
 
 4. Backend-only tool schema as the effective capability model.  
-   Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L1702-L1798), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L2631-L2715)
+   Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py), [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py)
 
 These may remain temporarily as migration shims, but only behind explicit fallback gates and telemetry.
 
@@ -434,10 +435,10 @@ These may remain temporarily as migration shims, but only behind explicit fallba
 
 ### Preserve existing coverage
 
-- Backend execute-message contract for navigation: [test_kai_voice_contract.py](../../../consent-protocol/tests/test_kai_voice_contract.py#L936-L962)
-- Backend kill-switch downgrade: [test_kai_voice_rollout_guardrails.py](../../../consent-protocol/tests/test_kai_voice_rollout_guardrails.py#L735-L779)
-- Frontend `speak_only` navigation drift proof: [voice-response-executor.test.ts](../../../hushh-webapp/__tests__/voice/voice-response-executor.test.ts#L290-L325)
-- Frontend planner-vs-transcript divergence proof: [voice-grounding.test.ts](../../../hushh-webapp/__tests__/voice/voice-grounding.test.ts#L166-L200)
+- Backend execute-message contract for navigation: [test_kai_voice_contract.py](../../../consent-protocol/tests/test_kai_voice_contract.py)
+- Backend kill-switch downgrade: [test_kai_voice_rollout_guardrails.py](../../../consent-protocol/tests/test_kai_voice_rollout_guardrails.py)
+- Frontend `speak_only` navigation drift proof: [voice-response-executor.test.ts](../../../hushh-webapp/__tests__/voice/voice-response-executor.test.ts)
+- Frontend planner-vs-transcript divergence proof: [voice-grounding.test.ts](../../../hushh-webapp/__tests__/voice/voice-grounding.test.ts)
 
 ### New required coverage
 
@@ -474,13 +475,13 @@ These may remain temporarily as migration shims, but only behind explicit fallba
 ## Rollback and Compatibility Considerations
 
 1. Keep legacy `response`, `tool_call`, `execution_allowed`, `final_text`, and `ack_text` fields until the new frontend path is fully adopted.  
-   Evidence: [voice.py](../../../consent-protocol/api/routes/kai/voice.py#L2478-L2502)
+   Evidence: [voice.py](../../../consent-protocol/api/routes/kai/voice.py)
 
 2. Preserve rollout and tool-execution kill-switch behavior during every migration phase.  
-   Evidence: [voice.py](../../../consent-protocol/api/routes/kai/voice.py#L2368-L2374)
+   Evidence: [voice.py](../../../consent-protocol/api/routes/kai/voice.py)
 
 3. Preserve deterministic explain/status fast paths as long as they are mapped into the new turn modes instead of bypassing the canonical planner contract.  
-   Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py#L2041-L2365)
+   Evidence: [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py)
 
 4. During dual-write, prefer new canonical fields when present and keep transcript heuristics behind explicit fallback telemetry only.
 

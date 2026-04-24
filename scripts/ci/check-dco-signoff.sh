@@ -35,7 +35,11 @@ resolve_range() {
 
 COMMIT_RANGE="$(resolve_range "$@")"
 
-mapfile -t COMMITS < <(git rev-list --no-merges "$COMMIT_RANGE")
+COMMITS=()
+while IFS= read -r commit; do
+  [ -n "$commit" ] || continue
+  COMMITS[${#COMMITS[@]}]="$commit"
+done < <(git rev-list --no-merges "$COMMIT_RANGE")
 
 if [ "${#COMMITS[@]}" -eq 0 ]; then
   echo "No non-merge commits found in range ${COMMIT_RANGE}."

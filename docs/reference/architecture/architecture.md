@@ -200,7 +200,7 @@ The canonical terminology contract for this architecture lives in [founder-langu
   - generated action gateway and Kai voice/runtime work
   - explicit web-proxy and native-plugin transport boundaries
 - What is missing for full-scale architecture:
-  - a cleaner unified experience contract across typed search, voice, and actionability
+  - a cleaner product-wide experience contract beyond the current generated Kai action gateway for typed search, voice, and UI actionability
   - stronger cross-surface state composition and parity verification
   - clearer treatment of non-Kai user-facing surfaces as part of the same platform story
 - Next build path:

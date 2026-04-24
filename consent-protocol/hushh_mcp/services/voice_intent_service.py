@@ -36,14 +36,23 @@ _OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 _OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
 _OPENAI_HTTP_TIMEOUT_SECONDS = 45.0
 _OPENAI_TTS_TIMEOUT_SECONDS = 20.0
-_REALTIME_TRANSCRIPTION_LANGUAGE = "en"
-_REALTIME_TRANSCRIPTION_PROMPT = (
+_VOICE_LANGUAGE = "en"
+_VOICE_STT_PROMPT = (
     "Transcribe spoken English only. Do not translate or transliterate. "
     "If the speech is unclear, keep the transcript short and in English."
 )
+_REALTIME_TRANSCRIPTION_LANGUAGE = _VOICE_LANGUAGE
+_REALTIME_TRANSCRIPTION_PROMPT = _VOICE_STT_PROMPT
 _REALTIME_NOISE_REDUCTION_TYPE = "near_field"
 _REALTIME_SERVER_VAD_THRESHOLD = 0.72
 _REALTIME_SERVER_VAD_PREFIX_PADDING_MS = 450
+_VOICE_ENGLISH_ONLY_INPUT_MESSAGE = (
+    "Kai voice currently supports English only. Please repeat your request in English."
+)
+_VOICE_TTS_INSTRUCTIONS = (
+    "Speak in natural English only. Read the provided English text as written. "
+    "Do not translate it, add non-English words, or switch languages."
+)
 
 _ALLOWED_TOOL_NAMES = {
     "execute_kai_command",
@@ -1529,20 +1538,37 @@ def _is_likely_english(text: str) -> bool:
     return (ascii_alpha / alpha_total) >= 0.65
 
 
-def _is_transcript_unusable(transcript: str) -> bool:
+def _transcript_unusable_reason(transcript: str) -> str | None:
     clean = _coerce_str(transcript)
     if not clean:
-        return True
-    if len(re.sub(r"[^a-zA-Z0-9]+", "", clean)) < _MIN_ACTIONABLE_CHARS:
-        return True
+        return "empty_or_noise"
     if not _is_likely_english(clean):
-        return True
+        return "non_english"
+    if len(re.sub(r"[^a-zA-Z0-9]+", "", clean)) < _MIN_ACTIONABLE_CHARS:
+        return "empty_or_noise"
     tokens = [token for token in re.split(r"[\s,.;:!?]+", clean.lower()) if token]
     if not tokens:
-        return True
+        return "empty_or_noise"
     if len(tokens) <= 2 and all(token in _FILLER_WORDS for token in tokens):
-        return True
-    return False
+        return "empty_or_noise"
+    return None
+
+
+def _is_transcript_unusable(transcript: str) -> bool:
+    return _transcript_unusable_reason(transcript) is not None
+
+
+def _unusable_transcript_message(transcript: str) -> str:
+    if _transcript_unusable_reason(transcript) == "non_english":
+        return _VOICE_ENGLISH_ONLY_INPUT_MESSAGE
+    return _UNCLEAR_STT_MESSAGE
+
+
+def _enforce_english_voice_output(text: str) -> str:
+    clean = _coerce_str(text)
+    if clean and _is_likely_english(clean):
+        return clean
+    return _VOICE_ENGLISH_ONLY_INPUT_MESSAGE
 
 
 def _extract_analyze_target(transcript: str) -> str | None:
@@ -2094,6 +2120,16 @@ class VoiceIntentService:
             ),
             "model": response_model,
             "voice": response_voice,
+            "transcription_model": str(
+                (
+                    input_section.get("transcription")
+                    if isinstance(input_section.get("transcription"), dict)
+                    else {}
+                ).get("model")
+                or "gpt-4o-mini-transcribe"
+            ),
+            "transcription_language": _REALTIME_TRANSCRIPTION_LANGUAGE,
+            "transcription_prompt": _REALTIME_TRANSCRIPTION_PROMPT,
             "server_vad_enabled": True,
             "silence_duration_ms": int(turn_detection["silence_duration_ms"]),
             "auto_response_enabled": bool(turn_detection["create_response"]),
@@ -2180,7 +2216,11 @@ class VoiceIntentService:
             headers=self._headers(),
             candidate_models=self.stt_models,
             body_builder=lambda model_name: {
-                "data": {"model": model_name},
+                "data": {
+                    "model": model_name,
+                    "language": _VOICE_LANGUAGE,
+                    "prompt": _VOICE_STT_PROMPT,
+                },
                 "files": files,
             },
             timeout_seconds=self.upstream_http_timeout_seconds,
@@ -2264,6 +2304,17 @@ class VoiceIntentService:
         clean_transcript = str(transcript or "").strip()
         if not clean_transcript:
             raise VoiceServiceError(422, "Transcript is empty")
+        if _is_transcript_unusable(clean_transcript):
+            return (
+                {
+                    "tool_name": "clarify",
+                    "args": {
+                        "question": _unusable_transcript_message(clean_transcript),
+                    },
+                },
+                0,
+                "deterministic",
+            )
 
         tools = _build_tools_schema()
         context_payload = _compact_context(context)
@@ -2643,7 +2694,7 @@ class VoiceIntentService:
                     self._build_response(
                         kind="clarify",
                         reason="stt_unusable",
-                        message=_UNCLEAR_STT_MESSAGE,
+                        message=_unusable_transcript_message(clean_transcript),
                     ),
                     gate_state=gate_state,
                     has_active_analysis=False,
@@ -3421,7 +3472,9 @@ class VoiceIntentService:
             if isinstance(action_result, dict)
             else ""
         ) or _coerce_str(response_payload.get("message"))
-        composed_text = _coerce_str(parsed.get("text")) or fallback_text
+        composed_text = _enforce_english_voice_output(
+            _coerce_str(parsed.get("text")) or fallback_text
+        )
         if not composed_text:
             raise VoiceServiceError(502, "Voice response composition returned empty text")
 
@@ -3500,6 +3553,7 @@ class VoiceIntentService:
                 "input": clean_text,
                 "voice": selected_voice,
                 "format": self.tts_format,
+                "instructions": _VOICE_TTS_INSTRUCTIONS,
             },
         )
 
@@ -3812,6 +3866,7 @@ def _validate_tool_call(value: Any) -> dict[str, Any] | None:
         question = args.get("question")
         if not isinstance(question, str) or not question.strip():
             return None
+        question_text = _enforce_english_voice_output(question)
         options = args.get("options")
         if options is not None:
             if not isinstance(options, list) or not all(isinstance(item, str) for item in options):
@@ -3819,7 +3874,7 @@ def _validate_tool_call(value: Any) -> dict[str, Any] | None:
         out = {
             "tool_name": "clarify",
             "args": {
-                "question": question.strip(),
+                "question": question_text,
             },
         }
         if options is not None:

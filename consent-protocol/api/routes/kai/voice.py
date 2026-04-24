@@ -507,6 +507,9 @@ class VoiceRealtimeSessionResponse(BaseModel):
     client_secret_expires_at: Optional[int] = None
     model: str
     voice: str
+    transcription_model: str = "gpt-4o-mini-transcribe"
+    transcription_language: str = "en"
+    transcription_prompt: str = ""
     server_vad_enabled: bool = True
     silence_duration_ms: int = 800
     auto_response_enabled: bool = False
@@ -926,6 +929,9 @@ async def kai_voice_realtime_session(
             ),
             model=str(session.get("model") or voice_service.realtime_model),
             voice=str(session.get("voice") or voice_service.tts_default_voice),
+            transcription_model=str(session.get("transcription_model") or "gpt-4o-mini-transcribe"),
+            transcription_language=str(session.get("transcription_language") or "en"),
+            transcription_prompt=str(session.get("transcription_prompt") or ""),
             server_vad_enabled=bool(session.get("server_vad_enabled", True)),
             silence_duration_ms=int(session.get("silence_duration_ms") or 800),
             auto_response_enabled=bool(session.get("auto_response_enabled", False)),
