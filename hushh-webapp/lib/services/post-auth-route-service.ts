@@ -23,6 +23,7 @@ export class PostAuthRouteService {
     redirectPath?: string;
     idToken?: string;
     phoneNumber?: string | null;
+    hostname?: string | null;
   }): Promise<string> {
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
@@ -94,6 +95,8 @@ export class PostAuthRouteService {
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
         hasVault: false,
+        hostname:
+          params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
       })
     ) {
       return buildPhoneMandateRoute(resolvedNoVaultRoute);

@@ -1,15 +1,37 @@
+import { resolveAppEnvironment } from "@/lib/app-env";
 import { ROUTES } from "@/lib/navigation/routes";
+
+const LOCAL_PHONE_MANDATE_BYPASS_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+function normalizeHostname(hostname?: string | null): string {
+  return String(hostname ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, "");
+}
 
 export function hasVerifiedPhoneNumber(phoneNumber?: string | null): boolean {
   return String(phoneNumber ?? "").trim().length > 0;
+}
+
+export function shouldBypassPhoneMandateForLocalhost(hostname?: string | null): boolean {
+  return (
+    resolveAppEnvironment() === "development" &&
+    LOCAL_PHONE_MANDATE_BYPASS_HOSTS.has(normalizeHostname(hostname))
+  );
 }
 
 export function shouldRequirePhoneMandate(params: {
   phoneNumber?: string | null;
   hasVault: boolean;
   exemptVaultUsers?: boolean;
+  hostname?: string | null;
 }): boolean {
   if (hasVerifiedPhoneNumber(params.phoneNumber)) {
+    return false;
+  }
+
+  if (shouldBypassPhoneMandateForLocalhost(params.hostname)) {
     return false;
   }
 

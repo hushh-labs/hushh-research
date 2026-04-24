@@ -6,7 +6,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
-import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service";
+import {
+  shouldBypassPhoneMandateForLocalhost,
+  shouldRequirePhoneMandate,
+} from "@/lib/services/phone-mandate-service";
 import { VaultService } from "@/lib/services/vault-service";
 
 const vaultPresenceCache = new Map<string, boolean>();
@@ -23,10 +26,17 @@ export function PhoneMandateGuard({
   const searchParams = useSearchParams();
   const { user, loading, phoneNumber } = useAuth();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const hostname = typeof window === "undefined" ? null : window.location.hostname;
+  const localPhoneMandateBypassed = shouldBypassPhoneMandateForLocalhost(hostname);
 
   useEffect(() => {
     if (!user?.uid) {
       setHasVault(null);
+      return;
+    }
+
+    if (localPhoneMandateBypassed) {
+      setHasVault(false);
       return;
     }
 
@@ -58,7 +68,7 @@ export function PhoneMandateGuard({
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [localPhoneMandateBypassed, user?.uid]);
 
   const currentRoute = useMemo(() => {
     const query = searchParams.toString();
@@ -72,6 +82,7 @@ export function PhoneMandateGuard({
       phoneNumber,
       hasVault,
       exemptVaultUsers,
+      hostname,
     });
 
   useEffect(() => {
