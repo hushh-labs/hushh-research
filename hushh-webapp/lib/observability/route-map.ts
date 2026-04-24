@@ -355,6 +355,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/account/delete",
   },
   {
+    regex: /^\/api\/account\/export(?:\?.*)?$/i,
+    template: "/api/account/export",
+  },
+  {
     regex: /^\/api\/developer\/access(?:\?.*)?$/i,
     template: "/api/developer/access",
   },

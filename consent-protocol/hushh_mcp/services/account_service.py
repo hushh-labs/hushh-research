@@ -2,6 +2,7 @@
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Literal
 
 from sqlalchemy import text
@@ -33,6 +34,63 @@ class AccountService:
             "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
             "kai_plaid_user_profile_cache": text(
                 "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
+            ),
+        }
+        self._safe_export_queries = {
+            "actor_profile": text(
+                """
+                SELECT user_id, personas, last_active_persona, investor_marketplace_opt_in, updated_at
+                FROM actor_profiles
+                WHERE user_id = :user_id
+                """
+            ),
+            "runtime_persona_state": text(
+                """
+                SELECT user_id, last_active_persona, updated_at
+                FROM runtime_persona_state
+                WHERE user_id = :user_id
+                """
+            ),
+            "encrypted_vault_keys": text(
+                """
+                SELECT user_id, encrypted_key, wrapped_by, created_at, updated_at
+                FROM vault_keys
+                WHERE user_id = :user_id
+                ORDER BY created_at DESC
+                """
+            ),
+            "encrypted_pkm_manifests": text(
+                """
+                SELECT user_id, scope, stored_version, schema_version, storage_layout, updated_at
+                FROM pkm_manifests
+                WHERE user_id = :user_id
+                ORDER BY updated_at DESC
+                """
+            ),
+            "encrypted_pkm_index": text(
+                """
+                SELECT user_id, domain, record_count, updated_at
+                FROM pkm_index
+                WHERE user_id = :user_id
+                ORDER BY updated_at DESC
+                """
+            ),
+            "encrypted_pkm_blobs": text(
+                """
+                SELECT user_id, domain, blob_size, encrypted_blob, iv, tag, updated_at
+                FROM pkm_blobs
+                WHERE user_id = :user_id
+                ORDER BY updated_at DESC
+                """
+            ),
+            "consent_audit": text(
+                """
+                SELECT user_id, scope, action, app_id, actor_type, occurred_at
+                FROM consent_audit
+                WHERE user_id = :user_id
+                ORDER BY occurred_at DESC
+                LIMIT 500
+                """
             ),
         }
 
@@ -543,7 +601,64 @@ class AccountService:
         - PKM Data (Encrypted)
         - Identity (Encrypted)
         """
-        # NOT_IN_SCOPE: Full data export deferred. Current specific export
-        # endpoints (vault keys, PKM index, identity) serve all active use-cases.
-        # Revisit when GDPR bulk-export or account portability becomes a requirement.
-        pass
+        try:
+            with get_db_connection() as conn:
+                params = {"user_id": user_id}
+                export_payload = {
+                    "actor_profile": self._fetch_optional_single_row(
+                        conn, table_name="actor_profiles", query_name="actor_profile", params=params
+                    ),
+                    "runtime_persona_state": self._fetch_optional_single_row(
+                        conn,
+                        table_name="runtime_persona_state",
+                        query_name="runtime_persona_state",
+                        params=params,
+                    ),
+                    "encrypted_vault_keys": self._fetch_optional_many_rows(
+                        conn, table_name="vault_keys", query_name="encrypted_vault_keys", params=params
+                    ),
+                    "encrypted_pkm_manifests": self._fetch_optional_many_rows(
+                        conn,
+                        table_name="pkm_manifests",
+                        query_name="encrypted_pkm_manifests",
+                        params=params,
+                    ),
+                    "encrypted_pkm_index": self._fetch_optional_many_rows(
+                        conn, table_name="pkm_index", query_name="encrypted_pkm_index", params=params
+                    ),
+                    "encrypted_pkm_blobs": self._fetch_optional_many_rows(
+                        conn, table_name="pkm_blobs", query_name="encrypted_pkm_blobs", params=params
+                    ),
+                    "consent_audit": self._fetch_optional_many_rows(
+                        conn, table_name="consent_audit", query_name="consent_audit", params=params
+                    ),
+                }
+            return {
+                "success": True,
+                "requested_target": "account",
+                "exported_at": datetime.now(timezone.utc).isoformat(),
+                "data": export_payload,
+            }
+        except Exception as exc:
+            logger.exception("❌ Account export failed for %s", user_id)
+            return {"success": False, "error": str(exc)}
+
+    def _fetch_optional_single_row(
+        self, conn, *, table_name: str, query_name: str, params: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if not self._table_exists(conn, table_name):
+            logger.info("Skipping export for missing table: %s", table_name)
+            return None
+        query = self._safe_export_queries[query_name]
+        row = conn.execute(query, params).mappings().first()
+        return dict(row) if row else None
+
+    def _fetch_optional_many_rows(
+        self, conn, *, table_name: str, query_name: str, params: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        if not self._table_exists(conn, table_name):
+            logger.info("Skipping export for missing table: %s", table_name)
+            return []
+        query = self._safe_export_queries[query_name]
+        rows = conn.execute(query, params).mappings().all()
+        return [dict(row) for row in rows]
