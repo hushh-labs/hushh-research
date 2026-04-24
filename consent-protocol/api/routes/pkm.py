@@ -95,7 +95,10 @@ async def require_pkm_metadata_access(
         )
 
     if authorization.startswith("Bearer HCT:"):
-        token_data = await require_vault_owner_token(authorization)
+        token_data = await require_vault_owner_token(
+            authorization=authorization,
+            hushh_consent=None,
+        )
         return {"user_id": token_data.get("user_id"), "auth_type": "vault_owner"}
 
     firebase_uid = await require_firebase_auth(authorization)

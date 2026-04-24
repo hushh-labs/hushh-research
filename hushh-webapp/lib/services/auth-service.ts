@@ -14,11 +14,11 @@
 import { Capacitor } from "@capacitor/core";
 import {
   type ApplicationVerifier,
-  ConfirmationResult,
+  type ConfirmationResult,
   GoogleAuthProvider,
   OAuthProvider,
   PhoneAuthProvider,
-  linkWithPhoneNumber,
+  linkWithCredential,
   signInWithCredential,
   signInWithCustomToken as firebaseSignInWithCustomToken,
   signInWithPopup,
@@ -794,28 +794,22 @@ export class AuthService {
     }
 
     try {
-      if (intent === "replace") {
-        const provider = new PhoneAuthProvider(auth);
-        const verificationId = await provider.verifyPhoneNumber(
-          normalizedPhoneNumber,
-          options?.recaptchaVerifier
-        );
+      this.debugLog("[AuthService] Starting phone verification", {
+        intent,
+        host: typeof window === "undefined" ? "server" : window.location.host,
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      });
 
-        return {
-          autoVerified: false,
-          verificationId,
-        };
-      }
-
-      const confirmationResult = await linkWithPhoneNumber(
-        auth.currentUser,
+      const provider = new PhoneAuthProvider(auth);
+      const verificationId = await provider.verifyPhoneNumber(
         normalizedPhoneNumber,
         options?.recaptchaVerifier
       );
 
       return {
         autoVerified: false,
-        confirmationResult,
+        verificationId,
       };
     } catch (error) {
       throw this.normalizePhoneVerificationError(
@@ -880,31 +874,31 @@ export class AuthService {
       return restoredUser;
     }
 
-    if (!params.confirmationResult) {
-      if (intent !== "replace") {
-        throw new Error("Phone verification has not started.");
-      }
-    }
-
     try {
+      if (!auth.currentUser) {
+        throw new Error(
+          intent === "replace"
+            ? "You must be signed in before changing the phone number."
+            : "You must be signed in before linking a phone number."
+        );
+      }
+
+      const verificationId = String(params.verificationId ?? "").trim();
+      if (!verificationId) {
+        throw new Error("Verification ID is required.");
+      }
+
+      const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+
       if (intent === "replace") {
-        if (!auth.currentUser) {
-          throw new Error("You must be signed in before changing the phone number.");
-        }
-
-        const verificationId = String(params.verificationId ?? "").trim();
-        if (!verificationId) {
-          throw new Error("Verification ID is required.");
-        }
-
-        const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
         await updatePhoneNumber(auth.currentUser, credential);
         await auth.currentUser.reload().catch(() => undefined);
         return auth.currentUser;
       }
 
-      const credential = await params.confirmationResult!.confirm(verificationCode);
-      return credential.user;
+      const linkedCredential = await linkWithCredential(auth.currentUser, credential);
+      await linkedCredential.user.reload().catch(() => undefined);
+      return linkedCredential.user;
     } catch (error) {
       throw this.normalizePhoneVerificationError(
         error,
@@ -932,6 +926,9 @@ export class AuthService {
     if (message.includes("credential-already-in-use")) return "credential-already-in-use";
     if (message.includes("provider-already-linked")) return "provider-already-linked";
     if (message.includes("requires-recent-login")) return "requires-recent-login";
+    if (message.includes("invalid-app-credential")) return "invalid-app-credential";
+    if (message.includes("captcha-check-failed")) return "captcha-check-failed";
+    if (message.includes("too-many-requests")) return "too-many-requests";
     return "";
   }
 
@@ -975,6 +972,25 @@ export class AuthService {
       return this.createPhoneVerificationError(
         code,
         "For security, sign in again before changing your phone number."
+      );
+    }
+
+    if (code === "too-many-requests") {
+      return this.createPhoneVerificationError(
+        code,
+        "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number."
+      );
+    }
+
+    if (code === "invalid-app-credential" || code === "captcha-check-failed") {
+      const hostname = typeof window === "undefined" ? "" : window.location.hostname;
+      const host = typeof window === "undefined" ? "" : window.location.host;
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      return this.createPhoneVerificationError(
+        code,
+        host
+          ? `Firebase could not verify phone auth from ${host}. Open ${appUrl} and check that ${hostname} is in Firebase Authentication authorized domains.`
+          : "Firebase could not verify this app for phone auth. Check Firebase Authentication authorized domains and reCAPTCHA configuration."
       );
     }
 

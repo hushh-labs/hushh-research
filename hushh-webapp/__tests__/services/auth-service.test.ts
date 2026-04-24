@@ -7,7 +7,7 @@ const {
   mockCapacitor,
   mockPhoneAuthProvider,
   mockUpdatePhoneNumber,
-  mockLinkWithPhoneNumber,
+  mockLinkWithCredential,
 } = vi.hoisted(() => ({
   mockAuth: {
     currentUser: null as any,
@@ -35,7 +35,7 @@ const {
   },
   mockPhoneAuthProvider: vi.fn(),
   mockUpdatePhoneNumber: vi.fn(),
-  mockLinkWithPhoneNumber: vi.fn(),
+  mockLinkWithCredential: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -64,7 +64,7 @@ vi.mock("firebase/auth", () => ({
   PhoneAuthProvider: Object.assign(mockPhoneAuthProvider, {
     credential: vi.fn(),
   }),
-  linkWithPhoneNumber: mockLinkWithPhoneNumber,
+  linkWithCredential: mockLinkWithCredential,
   signInWithCredential: vi.fn(),
   signInWithCustomToken: vi.fn(),
   signInWithPopup: vi.fn(),
@@ -85,8 +85,7 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
-import { Capacitor } from "@capacitor/core";
-import { PhoneAuthProvider, updatePhoneNumber } from "firebase/auth";
+import { linkWithCredential, PhoneAuthProvider, updatePhoneNumber } from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
 
@@ -219,6 +218,88 @@ describe("AuthService.restoreNativeSession", () => {
       autoVerified: false,
       verificationId: "verification-id",
     });
+  });
+
+  it("starts web phone link verification with PhoneAuthProvider", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockResolvedValue("link-verification-id");
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    const result = await AuthService.startPhoneLinkVerification("+16505550101", {
+      recaptchaVerifier: {} as any,
+    });
+
+    expect(verifyPhoneNumber).toHaveBeenCalledWith("+16505550101", expect.any(Object));
+    expect(result).toEqual({
+      autoVerified: false,
+      verificationId: "link-verification-id",
+    });
+  });
+
+  it("normalizes Firebase SMS throttle errors during web phone verification", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockRejectedValue({
+      code: "auth/too-many-requests",
+      message: "Firebase: Error (auth/too-many-requests).",
+    });
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    await expect(
+      AuthService.startPhoneLinkVerification("+16505550101", {
+        recaptchaVerifier: {} as any,
+      })
+    ).rejects.toMatchObject({
+      code: "too-many-requests",
+      message:
+        "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number.",
+    });
+  });
+
+  it("links the web user phone number during link confirmation", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const reload = vi.fn().mockResolvedValue(undefined);
+    const linkedUser = {
+      uid: "web-user",
+      phoneNumber: "+16505550101",
+      reload,
+    };
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+    vi.mocked(PhoneAuthProvider.credential).mockReturnValue("phone-credential" as any);
+    vi.mocked(linkWithCredential).mockResolvedValue({
+      user: linkedUser,
+    } as any);
+
+    const verifiedUser = await AuthService.confirmPhoneLinkVerification({
+      verificationCode: "123456",
+      verificationId: "link-verification-id",
+    });
+
+    expect(PhoneAuthProvider.credential).toHaveBeenCalledWith(
+      "link-verification-id",
+      "123456"
+    );
+    expect(linkWithCredential).toHaveBeenCalledWith(mockAuth.currentUser, "phone-credential");
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(verifiedUser).toBe(linkedUser);
   });
 
   it("updates the web user phone number during replacement confirmation", async () => {

@@ -29,7 +29,7 @@ import {
   ConfirmationResult,
   onAuthStateChanged,
 } from "firebase/auth";
-import { auth, getRecaptchaVerifier, resetRecaptcha } from "./config";
+import { auth, prepareRecaptchaVerifier, resetRecaptcha } from "./config";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -252,7 +252,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       mounted = false;
       unsubscribe();
     };
-  }, [checkAuth]); // FIXED: Removed `user` from dependencies to prevent render loop
+  }, [applyAuthUser, checkAuth]); // Do not depend on `user`; that would re-run auth init on every user state update.
 
   // Sign out
   const signOut = useCallback(async (options?: { redirectTo?: string }): Promise<void> => {
@@ -351,13 +351,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return await (async () => {
         setConfirmationResult(null);
         setNativeVerificationId(null);
+        const isNative = Capacitor.isNativePlatform();
 
-        const result = await AuthService.startPhoneLinkVerification(phone, {
-          resendCode: options?.resendCode,
-          recaptchaVerifier: Capacitor.isNativePlatform()
-            ? undefined
-            : getRecaptchaVerifier("recaptcha-container"),
-        });
+        let result: Awaited<ReturnType<typeof AuthService.startPhoneLinkVerification>>;
+        try {
+          result = await AuthService.startPhoneLinkVerification(phone, {
+            resendCode: options?.resendCode,
+            recaptchaVerifier: isNative
+              ? undefined
+              : await prepareRecaptchaVerifier("recaptcha-container"),
+          });
+        } catch (error) {
+          if (!isNative) {
+            resetRecaptcha();
+          }
+          throw error;
+        }
 
         if (result.confirmationResult) {
           setConfirmationResult(result.confirmationResult);
@@ -368,7 +377,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         if (result.autoVerified) {
-          if (!Capacitor.isNativePlatform()) {
+          if (!isNative) {
             resetRecaptcha();
           }
           const refreshedUser = result.user ?? (await refreshUser());
@@ -392,13 +401,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     ): Promise<{ autoVerified: boolean; user?: User | null }> => {
       setConfirmationResult(null);
       setNativeVerificationId(null);
+      const isNative = Capacitor.isNativePlatform();
 
-      const result = await AuthService.startPhoneReplacementVerification(phone, {
-        resendCode: options?.resendCode,
-        recaptchaVerifier: Capacitor.isNativePlatform()
-          ? undefined
-          : getRecaptchaVerifier("recaptcha-container"),
-      });
+      let result: Awaited<ReturnType<typeof AuthService.startPhoneReplacementVerification>>;
+      try {
+        result = await AuthService.startPhoneReplacementVerification(phone, {
+          resendCode: options?.resendCode,
+          recaptchaVerifier: isNative
+            ? undefined
+            : await prepareRecaptchaVerifier("recaptcha-container"),
+        });
+      } catch (error) {
+        if (!isNative) {
+          resetRecaptcha();
+        }
+        throw error;
+      }
 
       if (result.confirmationResult) {
         setConfirmationResult(result.confirmationResult);
@@ -409,7 +427,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (result.autoVerified) {
-        if (!Capacitor.isNativePlatform()) {
+        if (!isNative) {
           resetRecaptcha();
         }
         const refreshedUser = result.user ?? (await refreshUser());

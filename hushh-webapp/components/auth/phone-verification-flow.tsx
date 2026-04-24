@@ -66,6 +66,29 @@ function getCountryOptionLabel(option: {
   return `${option.label} (${option.dialCode})`;
 }
 
+function getCountryOption(value: string): CountryPhoneOption {
+  return COUNTRY_PHONE_OPTIONS.find((option) => option.value === value) ?? COUNTRY_PHONE_OPTIONS[0]!;
+}
+
+function getCountryOptionForPhoneNumber(phoneNumber: string): CountryPhoneOption | undefined {
+  const matchingOptions = COUNTRY_PHONE_OPTIONS.filter((option) =>
+    phoneNumber.startsWith(option.dialCode)
+  ).sort((left, right) => right.dialCode.length - left.dialCode.length);
+  const firstMatch = matchingOptions[0];
+  if (!firstMatch) {
+    return undefined;
+  }
+
+  const longestDialCodeLength = firstMatch.dialCode.length;
+  const longestMatches = matchingOptions.filter(
+    (option) => option.dialCode.length === longestDialCodeLength
+  );
+  return (
+    longestMatches.find((option) => option.value === DEFAULT_COUNTRY_VALUE) ??
+    firstMatch
+  );
+}
+
 function sanitizeDialCode(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 4);
   return digits ? `+${digits}` : "";
@@ -79,7 +102,7 @@ function composePhoneNumber(dialCode: string, localPhoneNumber: string): string 
   return `${sanitizeDialCode(dialCode)}${sanitizeLocalPhoneNumber(localPhoneNumber)}`;
 }
 
-function derivePhoneFields(phoneNumber?: string | null): {
+export function derivePhoneFields(phoneNumber?: string | null): {
   countryValue: string;
   localPhoneNumber: string;
 } {
@@ -91,9 +114,7 @@ function derivePhoneFields(phoneNumber?: string | null): {
     };
   }
 
-  const matchingOption = [...COUNTRY_PHONE_OPTIONS]
-    .sort((left, right) => right.dialCode.length - left.dialCode.length)
-    .find((option) => normalizedPhone.startsWith(option.dialCode));
+  const matchingOption = getCountryOptionForPhoneNumber(normalizedPhone);
 
   if (matchingOption) {
     return {
@@ -108,6 +129,20 @@ function derivePhoneFields(phoneNumber?: string | null): {
     countryValue: DEFAULT_COUNTRY_VALUE,
     localPhoneNumber: sanitizeLocalPhoneNumber(normalizedPhone.replace(/^\+\d{1,4}/, "")),
   };
+}
+
+export function resolvePhoneInputChange(value: string): {
+  countryValue?: string;
+  localPhoneNumber: string;
+} {
+  const trimmedValue = value.trim();
+  if (!trimmedValue.startsWith("+")) {
+    return {
+      localPhoneNumber: sanitizeLocalPhoneNumber(value),
+    };
+  }
+
+  return derivePhoneFields(trimmedValue);
 }
 
 export function PhoneVerificationFlow({
@@ -141,8 +176,7 @@ export function PhoneVerificationFlow({
     setSubmittedPhoneNumber(currentPhoneNumber || "");
     setCountryQuery(
       getCountryOptionLabel(
-        COUNTRY_PHONE_OPTIONS.find((option) => option.value === nextFields.countryValue) ??
-          COUNTRY_PHONE_OPTIONS[0]!
+        getCountryOption(nextFields.countryValue)
       )
     );
     setVerificationCode("");
@@ -194,6 +228,16 @@ export function PhoneVerificationFlow({
     setSelectedCountry(nextOption.value);
     setCountryQuery(getCountryOptionLabel(nextOption));
     setCountryComboboxOpen(false);
+  }, []);
+
+  const handlePhoneNumberChange = useCallback((value: string) => {
+    const nextInput = resolvePhoneInputChange(value);
+    if (nextInput.countryValue) {
+      const nextOption = getCountryOption(nextInput.countryValue);
+      setSelectedCountry(nextOption.value);
+      setCountryQuery(getCountryOptionLabel(nextOption));
+    }
+    setLocalPhoneNumber(nextInput.localPhoneNumber);
   }, []);
 
   const handleStartVerification = useCallback(
@@ -358,9 +402,7 @@ export function PhoneVerificationFlow({
                   inputMode="tel"
                   autoComplete="tel-national"
                   value={localPhoneNumber}
-                  onChange={(event) =>
-                    setLocalPhoneNumber(sanitizeLocalPhoneNumber(event.target.value))
-                  }
+                  onChange={(event) => handlePhoneNumberChange(event.target.value)}
                   placeholder="6505550101"
                   className={FLOW_CONTROL_CLASS_NAME}
                 />
