@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 
 const FLOW_SHELL_STYLE = {
   "--page-top-local-offset": "clamp(1.25rem, 4vh, 3rem)",
@@ -74,14 +75,33 @@ function PhoneMandatePageContent() {
         redirectPath,
         idToken,
         phoneNumber: activeUser.phoneNumber,
+        hostname: window.location.hostname,
       });
       router.replace(nextPath);
     },
     [redirectPath, refreshUser, router, user]
   );
 
+  const shouldBypassLocalPhoneMandate =
+    !loading &&
+    Boolean(user) &&
+    !phoneNumber &&
+    typeof window !== "undefined" &&
+    shouldBypassPhoneMandateForLocalhost(window.location.hostname);
+
+  useEffect(() => {
+    if (!shouldBypassLocalPhoneMandate || !user) {
+      return;
+    }
+    void continueToNextRoute(user);
+  }, [continueToNextRoute, shouldBypassLocalPhoneMandate, user]);
+
   if (loading || !user) {
     return <HushhLoader label="Loading phone verification..." variant="fullscreen" />;
+  }
+
+  if (shouldBypassLocalPhoneMandate) {
+    return <HushhLoader label="Continuing local session..." variant="fullscreen" />;
   }
 
   const shell = (

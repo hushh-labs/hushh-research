@@ -40,6 +40,7 @@ vi.mock("@/lib/services/vault-service", () => ({
 
 describe("PhoneMandateGuard", () => {
   beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     replace.mockReset();
     checkVaultMock.mockReset();
     pathnameValue = "/profile";
@@ -103,5 +104,22 @@ describe("PhoneMandateGuard", () => {
       expect(screen.getByText("kai content")).toBeTruthy();
     });
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps localhost development users in the app without requiring phone verification", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+    checkVaultMock.mockResolvedValue(false);
+
+    render(
+      <PhoneMandateGuard exemptVaultUsers>
+        <div>profile content</div>
+      </PhoneMandateGuard>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("profile content")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
+    expect(checkVaultMock).not.toHaveBeenCalled();
   });
 });
