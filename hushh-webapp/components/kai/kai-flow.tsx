@@ -1,6 +1,5 @@
 "use client";
 // components/kai/kai-flow.tsx
-
 /**
  * Kai Flow - State-driven UI component flow for investment analysis
  *
@@ -13,9 +12,7 @@
  *
  * No chat interface - pure UI component flow.
  */
-
-
-import FinancialInsightsCard from "./kai-financial-insights-card";
+import FinancialInsightsCard from "@/components/kai/kai-financial-insights-card";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -692,6 +689,7 @@ async function fetchDemoModePortfolioTemplate(
   }
 
   return normalized;
+  return {} as ReviewPortfolioData;
 }
 
 // =============================================================================
@@ -3443,5 +3441,5 @@ export function KaiFlow({
         />
       )}
     </div>
-  );
+  ;
 }
