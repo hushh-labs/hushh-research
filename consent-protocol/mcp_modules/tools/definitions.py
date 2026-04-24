@@ -30,7 +30,21 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "properties": {
                     "user_id": {
                         "type": "string",
-                        "description": "The user's unique identifier or Email Address (e.g., user@example.com)",
+                        "description": "The user's Firebase UID, registered email, or registered E.164 phone number",
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO country hint for national phone numbers. "
+                            "Examples: US, GB, IN."
+                        ),
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": (
+                            "Optional country name or shortform for national phone numbers. "
+                            "Examples: United States, USA, UK."
+                        ),
                     },
                     "scope": {
                         "type": "string",
@@ -136,7 +150,21 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "properties": {
                     "user_id": {
                         "type": "string",
-                        "description": "The user's unique identifier or email address",
+                        "description": "The user's Firebase UID, registered email, or registered E.164 phone number",
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO country hint for national phone numbers. "
+                            "Examples: US, GB, IN."
+                        ),
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": (
+                            "Optional country name or shortform for national phone numbers. "
+                            "Examples: United States, USA, UK."
+                        ),
                     },
                     "consent_token": {
                         "type": "string",
@@ -181,7 +209,21 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     "scope": {"type": "string", "description": "Scope being delegated"},
                     "user_id": {
                         "type": "string",
-                        "description": "User authorizing the delegation (or Email Address)",
+                        "description": "User authorizing the delegation (Firebase UID, registered email, or registered E.164 phone number)",
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO country hint for national phone numbers. "
+                            "Examples: US, GB, IN."
+                        ),
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": (
+                            "Optional country name or shortform for national phone numbers. "
+                            "Examples: United States, USA, UK."
+                        ),
                     },
                 },
                 "required": ["from_agent", "to_agent", "scope", "user_id"],
@@ -209,8 +251,22 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "properties": {
                     "user_id": {
                         "type": "string",
-                        "description": "The user's unique identifier (Firebase UID or email to resolve)",
-                    }
+                        "description": "The user's Firebase UID, registered email, or registered E.164 phone number",
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO country hint for national phone numbers. "
+                            "Examples: US, GB, IN."
+                        ),
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": (
+                            "Optional country name or shortform for national phone numbers. "
+                            "Examples: United States, USA, UK."
+                        ),
+                    },
                 },
                 "required": ["user_id"],
             },
@@ -229,7 +285,21 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "properties": {
                     "user_id": {
                         "type": "string",
-                        "description": "The user's unique identifier or Email Address",
+                        "description": "The user's Firebase UID, registered email, or registered E.164 phone number",
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO country hint for national phone numbers. "
+                            "Examples: US, GB, IN."
+                        ),
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": (
+                            "Optional country name or shortform for national phone numbers. "
+                            "Examples: United States, USA, UK."
+                        ),
                     },
                     "scope": {
                         "type": "string",
