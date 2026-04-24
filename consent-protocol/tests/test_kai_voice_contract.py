@@ -7,6 +7,15 @@ from pathlib import Path
 
 import pytest
 
+
+class _UndefinedColumnError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
+class _UndefinedTableError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
 if "asyncpg" not in sys.modules:
     asyncpg_stub = types.ModuleType("asyncpg")
 
@@ -15,11 +24,20 @@ if "asyncpg" not in sys.modules:
 
     asyncpg_stub.Pool = _Pool
     sys.modules["asyncpg"] = asyncpg_stub
+if not hasattr(sys.modules["asyncpg"], "UndefinedColumnError"):
+    sys.modules["asyncpg"].UndefinedColumnError = _UndefinedColumnError
+if not hasattr(sys.modules["asyncpg"], "UndefinedTableError"):
+    sys.modules["asyncpg"].UndefinedTableError = _UndefinedTableError
 
 if "db" not in sys.modules:
     db_pkg = types.ModuleType("db")
     db_pkg.__path__ = []
     sys.modules["db"] = db_pkg
+
+
+class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
 
 if "db.db_client" not in sys.modules:
     db_client_stub = types.ModuleType("db.db_client")
@@ -28,7 +46,10 @@ if "db.db_client" not in sys.modules:
         raise RuntimeError("db not available in unit test")
 
     db_client_stub.get_db = _noop_get_db
+    db_client_stub.DatabaseExecutionError = _DatabaseExecutionError
     sys.modules["db.db_client"] = db_client_stub
+elif not hasattr(sys.modules["db.db_client"], "DatabaseExecutionError"):
+    sys.modules["db.db_client"].DatabaseExecutionError = _DatabaseExecutionError
 
 ROOT = Path(__file__).resolve().parents[1]
 if "hushh_mcp.services" not in sys.modules:
