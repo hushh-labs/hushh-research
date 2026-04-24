@@ -24,7 +24,7 @@ from api.utils.firebase_auth import verify_firebase_bearer
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
-from hushh_mcp.consent.token import issue_token, revoke_token, validate_token, validate_token_with_db
+from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
