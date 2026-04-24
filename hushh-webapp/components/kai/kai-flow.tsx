@@ -1,3 +1,4 @@
+"use client";
 // components/kai/kai-flow.tsx
 
 /**
@@ -13,8 +14,8 @@
  * No chat interface - pure UI component flow.
  */
 
-"use client";
 
+import FinancialInsightsCard from "./kai-financial-insights-card";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -3251,9 +3252,11 @@ export function KaiFlow({
     );
   }
 
-  return (
+  
+  
     <div className="flex w-full flex-col">
       {/* Error display */}
+      <FinancialInsightsCard />
       {error && state !== "importing" && state !== "import_complete" && (
         <SurfaceCard tone="critical" className="mb-4">
           <SurfaceCardContent className="space-y-3 pt-5">
