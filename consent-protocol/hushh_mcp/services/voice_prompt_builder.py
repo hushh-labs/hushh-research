@@ -102,6 +102,17 @@ def build_voice_planner_system_prompt(*, planner_context: dict[str, Any]) -> str
     guardrails = [
         f"- {rule}" for rule in (identity.get("guardrails") or []) if str(rule or "").strip()
     ]
+    consent_philosophy = str(identity.get("consent_philosophy") or "").strip()
+    out_of_scope = [
+        f"- {behavior}"
+        for behavior in (identity.get("out_of_scope_behaviors") or [])
+        if str(behavior or "").strip()
+    ]
+    tone_rules = [
+        f"- {guideline}"
+        for guideline in (identity.get("tone_guidelines") or [])
+        if str(guideline or "").strip()
+    ]
     operating_rules = [
         "You are the planner for the voice assistant inside the Kai app.",
         role_summary or "Kai is the investor app. The assistant is Kai's in-app voice interface.",
@@ -140,6 +151,14 @@ def build_voice_planner_system_prompt(*, planner_context: dict[str, Any]) -> str
         if str(entry or "").strip()
     ]
 
+    consent_first_rules = [
+        "- Only reference data that is present in the provided context payload. Never fabricate holdings, balances, or portfolio data.",
+        "- If a request requires consent or permissions not currently granted, return clarify with the reason rather than attempting the action.",
+        "- Never select a tool that would share, export, or transmit user data to third parties.",
+        "- Treat the VAULT_OWNER token as the boundary of what Kai can do in this session.",
+        "- Never reference server-side internals, other users, raw API responses, or encryption implementation details.",
+    ]
+
     prompt_sections = [
         "Role",
         "\n".join(operating_rules),
@@ -151,6 +170,14 @@ def build_voice_planner_system_prompt(*, planner_context: dict[str, Any]) -> str
         "\n".join(guardrails)
         if guardrails
         else "- Never invent screens, powers, or permissions that are not grounded in context.",
+        "Consent-First Rules",
+        consent_philosophy + "\n" + "\n".join(consent_first_rules)
+        if consent_philosophy
+        else "\n".join(consent_first_rules),
+        "Tone & Voice",
+        "\n".join(tone_rules)
+        if tone_rules
+        else "- Be concise, direct, and natural for spoken TTS output.",
         "Current App Context",
         json.dumps(dynamic_context, ensure_ascii=True),
         "Relevant Manifest Actions",
@@ -161,6 +188,10 @@ def build_voice_planner_system_prompt(*, planner_context: dict[str, Any]) -> str
         "\n".join(concept_summaries)
         if concept_summaries
         else "- No additional global concept summaries were available.",
+        "Out-of-Scope Behaviors",
+        "\n".join(out_of_scope)
+        if out_of_scope
+        else "- Do not attempt actions outside the current consent and permission scope.",
         "Planning Rules",
         "\n".join(
             [
@@ -240,6 +271,12 @@ def build_voice_response_composer_system_prompt(*, composer_context: dict[str, A
     guardrails = [
         f"- {rule}" for rule in (identity.get("guardrails") or []) if str(rule or "").strip()
     ]
+    consent_philosophy = str(identity.get("consent_philosophy") or "").strip()
+    tone_rules = [
+        f"- {guideline}"
+        for guideline in (identity.get("tone_guidelines") or [])
+        if str(guideline or "").strip()
+    ]
     operating_rules = [
         "You are the voice assistant inside the Kai app.",
         role_summary or "Kai is the investor app. The assistant is Kai's in-app voice interface.",
@@ -252,6 +289,14 @@ def build_voice_response_composer_system_prompt(*, composer_context: dict[str, A
         "If the action was blocked or failed, explain the real block succinctly and stay grounded in the actual result.",
         "Keep the reply concise and natural for spoken TTS output.",
         'Return JSON only with the shape {"text":"...","segment_type":"final|ack"}.',
+    ]
+
+    consent_first_rules = [
+        "- Only describe data that is present in the turn context. Never fabricate holdings, balances, or portfolio figures.",
+        "- If the action was blocked due to missing consent or permissions, explain what the user needs to do in the app to proceed.",
+        "- Never mention sharing, exporting, or transmitting user data to anyone outside the current session.",
+        "- Qualify any financial insight with 'based on available data' rather than presenting it as advice.",
+        "- Never reference server-side internals, other users, raw API responses, or encryption implementation details.",
     ]
 
     action_summaries = []
@@ -282,6 +327,22 @@ def build_voice_response_composer_system_prompt(*, composer_context: dict[str, A
         "\n".join(guardrails)
         if guardrails
         else "- Never invent screens, powers, permissions, or connected data.",
+        "Consent-First Rules",
+        consent_philosophy + "\n" + "\n".join(consent_first_rules)
+        if consent_philosophy
+        else "\n".join(consent_first_rules),
+        "Tone & Voice",
+        "\n".join(tone_rules)
+        if tone_rules
+        else "- Be concise, direct, and natural for spoken TTS output.",
+        "Refusal Protocol",
+        "\n".join(
+            [
+                "- If the user asks to share data externally, explain that Kai requires explicit consent for data sharing and guide them to the consent center.",
+                "- If the user asks for regulated financial advice, clarify that Kai provides data-driven insights, not financial advice.",
+                "- If the user asks about other users or external accounts, state that Kai only operates on the current user's consented data.",
+            ]
+        ),
         "Current App Context",
         json.dumps(dynamic_context, ensure_ascii=True),
         "Relevant Manifest Actions",

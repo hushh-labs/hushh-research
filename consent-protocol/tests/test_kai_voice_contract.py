@@ -1539,6 +1539,7 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
     assert "Relevant Manifest Actions" in prompt
     assert "Core Capabilities" in prompt
     assert "manual_only" in prompt
+    assert "Consent-First Rules" in prompt
 
 
 def test_voice_response_composer_prompt_includes_identity_and_execution_grounding():
