@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["Session"])
 
-
 @router.post("/consent/issue-token", response_model=SessionTokenResponse)
 async def issue_session_token(
     request: SessionTokenRequest, authorization: Optional[str] = Header(None)
@@ -34,36 +33,42 @@ async def issue_session_token(
     from hushh_mcp.consent.token import issue_token
     from hushh_mcp.constants import ConsentScope
 
+    # --- Step 1: Verify Firebase token ---
     try:
-    verified_uid = verify_firebase_bearer(authorization)
+        verified_uid = verify_firebase_bearer(authorization)
 
-    # Ensure request userId matches verified token
-    if request.userId != verified_uid:
-        logger.warning("session_token.user_mismatch")
-        raise HTTPException(status_code=403, detail="userId does not match authenticated user")
+        if request.userId != verified_uid:
+            logger.warning("session_token.user_mismatch")
+            raise HTTPException(
+                status_code=403,
+                detail="userId does not match authenticated user"
+            )
 
-    logger.info("session_token.firebase_verified")
+        logger.info("session_token.firebase_verified")
 
-except HTTPException:
-    # Preserve already raised HTTP errors (like 403)
-    raise
+    except HTTPException:
+        raise
 
-except ValueError as e:
-    # Token-related issues (invalid, expired, malformed)
-    logger.warning("session_token.invalid_token: %s", e)
-    raise HTTPException(status_code=401, detail="Invalid or expired token")
+    except ValueError as e:
+        logger.warning("session_token.invalid_token: %s", e)
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
 
-except Exception as e:
-    # Unexpected server errors
-    logger.error("session_token.verification_failed: %s", e)
-    raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        logger.error("session_token.verification_failed: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
+    # --- Step 2: Issue session token ---
     try:
-        # Issue token with session scope
-        # Issue token with session scope
-        # If request asks for "session", grant VAULT_OWNER (Master Scope)
         scope_to_grant = (
-            ConsentScope.VAULT_OWNER if request.scope == "session" else ConsentScope(request.scope)
+            ConsentScope.VAULT_OWNER
+            if request.scope == "session"
+            else ConsentScope(request.scope)
         )
 
         token_obj = issue_token(
@@ -81,9 +86,13 @@ except Exception as e:
             expiresAt=token_obj.expires_at,
             scope=request.scope,
         )
+
     except Exception as e:
         logger.error("session_token.issue_failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to issue session token")
+        raise HTTPException(
+    status_code=500,
+    detail="Failed to issue session token"
+)
 
 
 @router.post("/consent/logout")
