@@ -79,6 +79,17 @@ Parity is not complete until both projects still load structurally:
 - iOS: `xcodebuild -list -project ios/App/App.xcodeproj`
 - Android: `./gradlew tasks --all`
 
+## Authentication Provider Parity
+
+Native parity for authenticated flows now includes the verified phone mandate after login.
+
+- `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
+- `/register-phone` is a contract route even though it bypasses the standard shell.
+- Web, iOS, and Android must all produce the same product truth: a signed-in user without
+  `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
+- Android still requires a documented OTP smoke on device or UAT because the repo does not
+  currently ship a dedicated Android OTP automation harness.
+
 ## Release Standard
 
 Treat docs/runtime drift as a blocker. A route, native contract, or browser-sensitive flow is not parity-ready if the docs and audit registry do not describe it correctly.

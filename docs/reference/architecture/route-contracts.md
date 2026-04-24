@@ -43,6 +43,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/`
 - `/developers`
 - `/login`
+- `/register-phone`
 - `/logout`
 - `/labs/profile-appearance`
 - `/profile`
@@ -79,6 +80,12 @@ Legacy navigation surfaces and aliases must not be reintroduced without updating
 - intentionally web-only
 
 If a route is added to the navigation contract, the corresponding architecture/mobile docs must be updated in the same change.
+
+Auth-only routes can still be mandatory even when they intentionally bypass the standard shell. Current hidden auth routes include:
+
+- `/login`
+- `/register-phone`
+- `/logout`
 
 ## When To Update Route Governance
 

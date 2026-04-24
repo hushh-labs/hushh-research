@@ -56,6 +56,15 @@ The hosted public developer lane exposes the consent core only:
 - `validate_token`
 - `list_scopes`
 
+When an MCP tool asks for `user_id`, callers may provide the canonical Firebase UID, the user's registered email, or the user's phone number. The hosted MCP resolves email and phone identifiers to the Firebase UID before hitting the `/api/v1` backend contract.
+
+For national phone numbers, callers may also provide:
+
+- `country_iso2`, such as `US`, `GB`, or `IN`
+- `country`, such as `United States`, `USA`, or `UK`
+
+If no country hint is provided, national phone numbers stay ambiguous and are not auto-parsed to any default region.
+
 Read-only self-documentation resources:
 
 - `hushh://info/server`
