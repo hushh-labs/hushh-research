@@ -30,7 +30,7 @@ from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent, FundamentalInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent, SentimentInsight
 from hushh_mcp.agents.kai.valuation_agent import ValuationAgent, ValuationInsight
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.kai.llm import (
     get_gemini_unavailable_reason,
@@ -63,7 +63,10 @@ async def _require_vault_owner_token(
         )
 
     consent_token = authorization.replace("Bearer ", "")
-    valid, reason, payload = validate_token(consent_token, ConsentScope.VAULT_OWNER)
+    # DB-backed check catches cross-instance revocations (issue #429).
+    valid, reason, payload = await validate_token_with_db(
+        consent_token, ConsentScope.VAULT_OWNER
+    )
 
     if not valid or not payload:
         raise HTTPException(status_code=401, detail=f"Invalid token: {reason}")
@@ -2409,7 +2412,7 @@ async def analyze_stream(
     - decision: Final decision card
     - error: Fatal error
     """
-    # Auth path includes validate_token() inside _require_vault_owner_token().
+    # Auth path includes validate_token_with_db() inside _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(user_id=user_id, authorization=authorization)
 
     # Log operation for audit trail (shows what vault.owner token was used for)
@@ -2445,7 +2448,7 @@ async def analyze_stream_post(
     POST version of streaming analysis (allows context in body).
     Also supports streaming an existing resumable run via run_id.
     """
-    # Auth path includes validate_token() inside _require_vault_owner_token().
+    # Auth path includes validate_token_with_db() inside _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(
         user_id=body.user_id,
         authorization=authorization,
