@@ -8,6 +8,7 @@ export const ROUTES = {
   DEVELOPERS: "/developers",
   LOGIN: "/login",
   LOGOUT: "/logout",
+  PHONE_MANDATE: "/register-phone",
   LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
   PROFILE_PKM: "/profile/pkm",
@@ -54,6 +55,10 @@ function withQuery(pathname: string, entries: Record<string, string | null | und
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
+}
+
+export function buildPhoneMandateRoute(redirect?: string | null) {
+  return withQuery(ROUTES.PHONE_MANDATE, { redirect });
 }
 
 export function buildMarketplaceConnectionsRoute(entries?: {
@@ -159,6 +164,7 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.HOME ||
     pathname === ROUTES.DEVELOPERS ||
     pathname === ROUTES.LOGIN ||
+    pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
     pathname === ROUTES.PROFILE
   );

@@ -46,6 +46,8 @@ dependencies = [
     "uvicorn>=0.34.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",
+    "phonenumbers>=9.0.28",
+    "pycountry>=26.2.16",
 ]
 
 [dependency-groups]
