@@ -50,6 +50,7 @@ FORCE=false
 STRICT=false
 LOCAL_UATDB_PROXY_PORT="${LOCAL_UATDB_PROXY_PORT:-6543}"
 DEFAULT_LOCAL_CLOUDSQL_INSTANCE="${DEFAULT_LOCAL_CLOUDSQL_INSTANCE:-hushh-pda-uat:us-central1:hushh-uat-pg}"
+DEFAULT_RIA_INTELLIGENCE_VERIFY_BASE_URL="${DEFAULT_RIA_INTELLIGENCE_VERIFY_BASE_URL:-https://hushh-ria-intelligence-api-53407187172.us-central1.run.app}"
 GCLOUD_TIMEOUT_SECONDS="${GCLOUD_TIMEOUT_SECONDS:-5}"
 LEGACY_CACHE_FIRST="${LEGACY_CACHE_FIRST:-false}"
 
@@ -570,6 +571,31 @@ cloudsql_instance_for_backend() {
   return 1
 }
 
+set_secret_key_from_candidates_or_cached() {
+  local file="$1"
+  local profile="$2"
+  local project="$3"
+  local target_key="$4"
+  local required="$5"
+  local cache_file="$6"
+  shift 6
+
+  local candidate=""
+  local value=""
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    if value="$(resolve_cloud_or_cached_secret_value "$project" "$candidate" "$cache_file")"; then
+      upsert_env_value "$file" "$target_key" "$value"
+      return 0
+    fi
+  done
+
+  if [ "$required" = "true" ]; then
+    MISSING_REQUIRED+=("${profile}: missing secret ${target_key} (candidates: $*) in ${project}")
+  fi
+  return 1
+}
+
 hydrate_backend_cloud_reference() {
   local file="$1"
   local profile="$2"
@@ -596,6 +622,34 @@ hydrate_backend_cloud_reference() {
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
+  local ria_verify_base_url=""
+  local ria_verify_url=""
+  local ria_verify_endpoint_path=""
+  local ria_verify_timeout=""
+  ria_verify_base_url="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "RIA_INTELLIGENCE_VERIFY_BASE_URL" "$cache_file")"
+  ria_verify_url="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "RIA_INTELLIGENCE_VERIFY_URL" "$cache_file")"
+  ria_verify_endpoint_path="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH" "$cache_file")"
+  ria_verify_timeout="$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "RIA_INTELLIGENCE_VERIFY_TIMEOUT_SECONDS" "$cache_file")"
+
+  if [ -n "$ria_verify_base_url" ]; then
+    upsert_env_value "$file" "RIA_INTELLIGENCE_VERIFY_BASE_URL" "$ria_verify_base_url"
+  elif [ -n "$DEFAULT_RIA_INTELLIGENCE_VERIFY_BASE_URL" ]; then
+    upsert_env_value "$file" "RIA_INTELLIGENCE_VERIFY_BASE_URL" "$DEFAULT_RIA_INTELLIGENCE_VERIFY_BASE_URL"
+    WARNINGS+=("${profile}: RIA_INTELLIGENCE_VERIFY_BASE_URL missing in ${project}; used default hosted RIA Intelligence URL")
+  else
+    MISSING_REQUIRED+=("${profile}: missing RIA_INTELLIGENCE_VERIFY_BASE_URL in ${project} and no default fallback is configured")
+  fi
+
+  set_if_non_empty "$file" "RIA_INTELLIGENCE_VERIFY_URL" "$ria_verify_url"
+  upsert_env_value \
+    "$file" \
+    "RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH" \
+    "${ria_verify_endpoint_path:-/v1/ria/profile/stage1}"
+  upsert_env_value \
+    "$file" \
+    "RIA_INTELLIGENCE_VERIFY_TIMEOUT_SECONDS" \
+    "${ria_verify_timeout:-60}"
+
   if [ -z "$(read_env_value "$file" "CORS_ALLOWED_ORIGINS")" ] && [ -n "$front_secret" ]; then
     upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "$front_secret"
   fi
@@ -616,8 +670,19 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_CLIENT_ID" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_SECRET" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "PLAID_TOKEN_ENCRYPTION_KEY" "false" "$cache_file"
+  set_secret_key_from_candidates_or_cached "$file" "$profile" "$project" "ALPACA_BROKER_AUTH_TOKEN" "false" "$cache_file" "ALPACA_BROKER_AUTH_TOKEN"
+  set_secret_key_from_candidates_or_cached "$file" "$profile" "$project" "ALPACA_BROKER_KEY_ID" "false" "$cache_file" "ALPACA_BROKER_KEY_ID" "ALPACA_API_KEY"
+  set_secret_key_from_candidates_or_cached "$file" "$profile" "$project" "ALPACA_BROKER_SECRET" "false" "$cache_file" "ALPACA_BROKER_SECRET" "ALPACA_API_SECRET"
+  set_secret_key_or_cached "$file" "$profile" "$project" "ALPACA_CONNECT_CLIENT_ID" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "ALPACA_CONNECT_CLIENT_SECRET" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "FUNDING_SECRET_ENCRYPTION_KEY" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "RIA_INTELLIGENCE_VERIFY_API_KEY" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "RECAPTCHA_ENTERPRISE_SITE_KEY" "false" "$cache_file"
 
   for key in PLAID_ENV PLAID_CLIENT_NAME PLAID_COUNTRY_CODES PLAID_WEBHOOK_URL PLAID_REDIRECT_PATH PLAID_REDIRECT_URI PLAID_TX_HISTORY_DAYS; do
+    set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
+  done
+  for key in ALPACA_ENV ALPACA_BROKER_ENV ALPACA_BROKER_BASE_URL ALPACA_DEFAULT_ACCOUNT_ID ALPACA_CONNECT_REDIRECT_URI ALPACA_CONNECT_AUTHORIZE_URL ALPACA_CONNECT_TOKEN_URL ALPACA_CONNECT_ACCOUNT_URL ALPACA_CONNECT_SCOPES ALPACA_CONNECT_ENV ALPACA_CONNECT_STATE_TTL_SECONDS; do
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
@@ -735,6 +800,14 @@ hydrate_frontend_cloud() {
   do
     set_secret_key_or_cached "$file" "$profile" "$project" "$key" "false" "$cache_file"
   done
+
+  set_secret_key_or_cached \
+    "$file" \
+    "$profile" \
+    "$project" \
+    "NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY" \
+    "false" \
+    "$cache_file"
 
   for key in \
     IOS_GOOGLESERVICE_INFO_PLIST_B64 ANDROID_GOOGLE_SERVICES_JSON_B64 \

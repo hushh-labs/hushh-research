@@ -655,6 +655,11 @@ async def resume_plaid_oauth(
             resume_session_id=request.resume_session_id,
         )
         if result is None:
+            result = await get_broker_funding_service().get_oauth_resume(
+                user_id=request.user_id,
+                resume_session_id=request.resume_session_id,
+            )
+        if result is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={

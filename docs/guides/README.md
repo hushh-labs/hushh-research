@@ -32,5 +32,6 @@ flowchart TD
 
 - [native_streaming.md](./native_streaming.md): native streaming workflow details.
 - [plaid-activation-and-testing.md](./plaid-activation-and-testing.md): Plaid activation and sandbox/live testing.
+- [alpaca-funding-activation-and-testing.md](./alpaca-funding-activation-and-testing.md): Plaid bank-link to Alpaca funding and funded-trade activation.
 
 Subtree synchronization is no longer part of the normal contributor guide surface. Maintainer-only sync notes now belong under operations.

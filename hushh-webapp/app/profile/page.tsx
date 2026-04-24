@@ -917,6 +917,16 @@ function ProfilePageContent() {
       }
 
       if (!user?.uid || hasVault === null) return;
+      if (hasVault === false) {
+        setPkmMetadata(null);
+        setConsentCenter(null);
+        setPkmError(null);
+        setConsentCenterError(null);
+        setLoadingPkmMetadata(false);
+        setLoadingConsentCenter(false);
+        completeStep();
+        return;
+      }
 
       try {
         setLoadingPkmMetadata(true);
@@ -1139,6 +1149,11 @@ function ProfilePageContent() {
 
   function requestVaultUnlock(reason: "profile_data" | "delete_account" = "profile_data") {
     setVaultUnlockReason(reason);
+    setShowVaultUnlock(true);
+  }
+
+  function requestVaultCreation() {
+    setVaultUnlockReason("profile_data");
     setShowVaultUnlock(true);
   }
 
@@ -1445,11 +1460,15 @@ function ProfilePageContent() {
   };
 
   const unlockDialogTitle =
-    vaultUnlockReason === "delete_account"
+    vaultAccess.needsVaultCreation
+      ? "Create Vault"
+      : vaultUnlockReason === "delete_account"
       ? "Unlock Vault to Delete Account"
       : "Unlock Vault";
   const unlockDialogDescription =
-    vaultUnlockReason === "delete_account"
+    vaultAccess.needsVaultCreation
+      ? "Create your vault to secure profile data, imports, funding setup, and Kai preferences."
+      : vaultUnlockReason === "delete_account"
       ? "Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
       : "Unlock your vault to access profile settings.";
 
@@ -1490,17 +1509,21 @@ function ProfilePageContent() {
   const gmailLastSyncText = gmailPresentation.latestSyncText;
   const profileManagerLoading = loadingPkmMetadata || loadingConsentCenter;
   const activeGrantCount = consentCenter?.active_grants.length || 0;
-  const myDataRootBadge = formatProfileInventoryBadge(profileSummary, {
-    loading: loadingPkmMetadata,
-    ready: pkmMetadataReady,
-    failed: pkmMetadataFailed,
-  });
-  const accessRootBadge = formatProfileAccessBadge({
-    activeGrantCount,
-    loading: loadingConsentCenter,
-    ready: consentCenterReady,
-    failed: consentCenterFailed,
-  });
+  const myDataRootBadge = vaultAccess.needsVaultCreation
+    ? "No vault"
+    : formatProfileInventoryBadge(profileSummary, {
+        loading: loadingPkmMetadata,
+        ready: pkmMetadataReady,
+        failed: pkmMetadataFailed,
+      });
+  const accessRootBadge = vaultAccess.needsVaultCreation
+    ? "No vault"
+    : formatProfileAccessBadge({
+        activeGrantCount,
+        loading: loadingConsentCenter,
+        ready: consentCenterReady,
+        failed: consentCenterFailed,
+      });
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -2781,6 +2804,18 @@ function ProfilePageContent() {
                 </Button>
               </div>
             ) : null}
+            {vaultAccess.needsVaultCreation ? (
+              <div className="pt-1.5">
+                <Button
+                  size="sm"
+                  className="min-w-[148px]"
+                  onClick={requestVaultCreation}
+                >
+                  <Icon icon={Folder} size="sm" className="mr-2" />
+                  Create vault
+                </Button>
+              </div>
+            ) : null}
           </div>
         </header>
       </AppPageHeaderRegion>
@@ -2928,7 +2963,7 @@ function ProfilePageContent() {
     >
       <ProfileStackNavigator rootContent={profileRootContent} entries={profileStackEntries} />
 
-      {hasVault === true && (
+      {user && hasVault !== null && (
         <VaultUnlockDialog
           user={user}
           open={showVaultUnlock}
@@ -2936,6 +2971,11 @@ function ProfilePageContent() {
           title={unlockDialogTitle}
           description={unlockDialogDescription}
           onSuccess={() => {
+            const createdVault = vaultAccess.needsVaultCreation;
+            if (user?.uid) {
+              setHasVault(true);
+              VaultService.setVaultCheckCache(user.uid, true);
+            }
             vaultUnlockCompletingRef.current = true;
             setShowVaultUnlock(false);
             if (vaultUnlockReason === "delete_account") {
@@ -2958,7 +2998,7 @@ function ProfilePageContent() {
             setTimeout(() => {
               vaultUnlockCompletingRef.current = false;
             }, 0);
-            toast.success("Vault unlocked.");
+            toast.success(createdVault ? "Vault created and unlocked." : "Vault unlocked.");
           }}
         />
       )}

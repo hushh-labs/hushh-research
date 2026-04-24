@@ -56,6 +56,40 @@ Profile bootstrap rule:
 | `SYNC_REMOTE_ENABLED` | `runtime deploy env` | Y | N | N | env | N | env | N | required |
 | `DEVELOPER_API_ENABLED` | `consent-protocol/server.py` | Y | N | N | env | N | env | N | required |
 | `CORS_ALLOWED_ORIGINS` | `consent-protocol/server.py` | Y | N | N | env | N | env | N | required |
+| `RIA_INTELLIGENCE_VERIFY_BASE_URL` | `consent-protocol/hushh_mcp/services/ria_verification.py` | Y | N | N | env | N | env | N | required |
+| `RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH` | `consent-protocol/hushh_mcp/services/ria_verification.py` | Y | N | N | env | N | env | N | optional |
+| `RIA_INTELLIGENCE_VERIFY_URL` | `consent-protocol/hushh_mcp/services/ria_verification.py` | Y | N | N | env | N | env | N | optional |
+| `RIA_INTELLIGENCE_VERIFY_API_KEY` | `consent-protocol/hushh_mcp/services/ria_verification.py` | Y | N | Y | secret | N | secret | N | optional |
+| `PLAID_CLIENT_ID` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | Y | secret | N | secret | N | required |
+| `PLAID_SECRET` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | Y | secret | N | secret | N | required |
+| `PLAID_TOKEN_ENCRYPTION_KEY` | `consent-protocol/hushh_mcp/services/plaid_portfolio_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `PLAID_ENV` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | N | env | N | env | N | required |
+| `PLAID_CLIENT_NAME` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | N | env | N | env | N | required |
+| `PLAID_COUNTRY_CODES` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | N | env | N | env | N | required |
+| `PLAID_WEBHOOK_URL` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | N | env | N | env | N | required |
+| `PLAID_REDIRECT_PATH` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | N | env | N | env | N | required |
+| `PLAID_REDIRECT_URI` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | N | env | N | env | N | required |
+| `PLAID_TX_HISTORY_DAYS` | `consent-protocol/hushh_mcp/integrations/plaid/config.py` | Y | N | N | env | N | env | N | required |
+| `ALPACA_BROKER_CLIENT_ID` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | Y | secret | N | secret | N | optional |
+| `ALPACA_BROKER_CLIENT_SECRET` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | Y | secret | N | secret | N | optional |
+| `ALPACA_BROKER_AUTH_TOKEN` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | Y | secret | N | secret | N | optional |
+| `ALPACA_BROKER_KEY_ID` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | Y | secret | N | secret | N | optional |
+| `ALPACA_BROKER_SECRET` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | Y | secret | N | secret | N | optional |
+| `ALPACA_API_KEY` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py`, `deploy/backend.cloudbuild.yaml` | Y | N | Y | secret | N | N | N | legacy |
+| `ALPACA_API_SECRET` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py`, `deploy/backend.cloudbuild.yaml` | Y | N | Y | secret | N | N | N | legacy |
+| `ALPACA_CONNECT_CLIENT_ID` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `ALPACA_CONNECT_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `FUNDING_SECRET_ENCRYPTION_KEY` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `ALPACA_ENV` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | N | env | N | env | N | required |
+| `ALPACA_BROKER_BASE_URL` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | N | env | N | env | N | optional |
+| `ALPACA_DEFAULT_ACCOUNT_ID` | `consent-protocol/hushh_mcp/integrations/alpaca/config.py` | Y | N | N | env | N | env | N | optional |
+| `ALPACA_CONNECT_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | N | env | N | env | N | required |
+| `ALPACA_CONNECT_AUTHORIZE_URL` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | N | env | N | env | N | optional |
+| `ALPACA_CONNECT_TOKEN_URL` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | N | env | N | env | N | optional |
+| `ALPACA_CONNECT_ACCOUNT_URL` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | N | env | N | env | N | optional |
+| `ALPACA_CONNECT_SCOPES` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | N | env | N | env | N | required |
+| `ALPACA_CONNECT_ENV` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | N | env | N | env | N | required |
+| `ALPACA_CONNECT_STATE_TTL_SECONDS` | `consent-protocol/hushh_mcp/services/broker_funding_service.py` | Y | N | N | env | N | env | N | required |
 | `BACKEND_URL` | frontend server-side API handlers | N | N | Y | N | Y | N | N | required |
 | `NEXT_PUBLIC_BACKEND_URL` | `hushh-webapp/lib/config.ts` | N | Y | N | N | N | N | N | required |
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | `hushh-webapp/lib/firebase/config.ts` | N | Y | Y | N | Y | N | N | required |
@@ -98,5 +132,8 @@ Profile bootstrap rule:
 ## Notes
 
 - `cloud_run_live_*` columns are evaluated from current active service revision at runtime by the audit script.
+- Real-bank Plaid lanes use `PLAID_ENV=production` for Limited Production/trial and full production; there is no separate hosted `development` deploy lane.
+- Preferred live Broker auth uses `ALPACA_BROKER_CLIENT_ID` + `ALPACA_BROKER_CLIENT_SECRET`. Legacy Basic auth remains available through `ALPACA_BROKER_KEY_ID` + `ALPACA_BROKER_SECRET`, with `ALPACA_API_KEY` + `ALPACA_API_SECRET` as deploy-time compatibility inputs only.
+- `ALPACA_ENV` selects Broker API `sandbox|live` and still accepts `production` as a compatibility alias, while `ALPACA_CONNECT_ENV` selects Connect authorize `paper|live`.
 - `legacy` keys must not appear in Secret Manager, deploy manifests, or live Cloud Run env refs.
 - `APP_REVIEW_MODE` is secret-managed in production and local `.env` fallback in development.

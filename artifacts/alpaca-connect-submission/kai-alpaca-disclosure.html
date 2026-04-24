@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hushh Kai Alpaca Disclosure</title>
+    <style>
+      :root {
+        --bg: #f3efe5;
+        --panel: rgba(255, 255, 255, 0.92);
+        --line: rgba(36, 22, 12, 0.12);
+        --text: #24160c;
+        --muted: #6b5b4c;
+        --accent: #bd8615;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        width: 1024px;
+        height: 500px;
+        overflow: hidden;
+        font-family: "SF Pro Display", "Inter", system-ui, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top right, rgba(189, 134, 21, 0.2), transparent 22%),
+          linear-gradient(135deg, #faf7ef, var(--bg) 58%, #ede4d4);
+      }
+
+      .frame {
+        width: 100%;
+        height: 100%;
+        padding: 28px;
+      }
+
+      .modal {
+        width: 100%;
+        height: 100%;
+        border-radius: 26px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: 0 24px 60px rgba(32, 22, 10, 0.12);
+        padding: 28px 30px;
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 18px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .brand img {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 8px 0 10px;
+        font-size: 34px;
+        line-height: 1.06;
+      }
+
+      p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        line-height: 1.55;
+        font-size: 15px;
+      }
+
+      .consent-box {
+        margin-top: 16px;
+        padding: 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(189, 134, 21, 0.18);
+        background: rgba(189, 134, 21, 0.08);
+      }
+
+      .consent-box strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 16px;
+      }
+
+      .consent-box p {
+        margin: 0;
+        font-size: 14px;
+      }
+
+      .actions {
+        margin-top: 18px;
+        display: flex;
+        gap: 12px;
+      }
+
+      .btn {
+        padding: 12px 16px;
+        border-radius: 14px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .btn.primary {
+        background: linear-gradient(135deg, #cb9017, #9f6907);
+        color: white;
+      }
+
+      .btn.secondary {
+        border: 1px solid var(--line);
+        background: rgba(36, 22, 12, 0.04);
+      }
+
+      .panel {
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background: rgba(247, 242, 233, 0.72);
+        padding: 20px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .panel h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      .item {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(255,255,255,0.75);
+        border: 1px solid rgba(36, 22, 12, 0.08);
+      }
+
+      .item strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 14px;
+      }
+
+      .item span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="modal">
+        <div>
+          <div class="brand">
+            <img src="file:///Volumes/AnkitSSD/Projects/github/hushh-labs/hushh-research/hushh-webapp/assets/icon.png" alt="Hushh logo" />
+            <div>
+              <div class="eyebrow">Authorization review</div>
+              <strong>Hushh Kai × Alpaca</strong>
+            </div>
+          </div>
+          <h1>Authorize Hushh Kai</h1>
+          <p>
+            By allowing Hushh Kai to access your Alpaca account, you are granting
+            Hushh Kai access to your account information and authorization to place
+            transactions in your account at your direction.
+          </p>
+          <p>
+            Alpaca does not warrant or guarantee that Hushh Kai will work as
+            advertised or expected. Before authorizing, learn more about Hushh Kai.
+          </p>
+          <div class="consent-box">
+            <strong>User control remains explicit</strong>
+            <p>
+              Kai uses consent-first connectivity. Account linking, funding,
+              and execution steps remain reviewable, permissioned, and revocable.
+            </p>
+          </div>
+          <div class="actions">
+            <div class="btn secondary">Cancel</div>
+            <div class="btn primary">Authorize and continue</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>What Hushh Kai uses</h2>
+          <div class="item">
+            <strong>Account information</strong>
+            <span>To identify the destination brokerage account selected by the user.</span>
+          </div>
+          <div class="item">
+            <strong>Execution authorization</strong>
+            <span>To progress user-directed trading workflows only after the required funding state is satisfied.</span>
+          </div>
+          <div class="item">
+            <strong>Consent record</strong>
+            <span>To preserve a reviewable trail of connectivity and approval state.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

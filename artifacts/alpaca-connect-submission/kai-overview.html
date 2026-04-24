@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hushh Kai Overview</title>
+    <style>
+      :root {
+        --bg: #f4f1e8;
+        --panel: rgba(255, 255, 255, 0.82);
+        --line: rgba(44, 32, 17, 0.12);
+        --text: #24160c;
+        --muted: #6c5b4d;
+        --accent: #c38a16;
+        --accent-dark: #8f5d00;
+        --success: #146c43;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        width: 1024px;
+        height: 500px;
+        overflow: hidden;
+        font-family: "SF Pro Display", "Inter", system-ui, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(195, 138, 22, 0.18), transparent 24%),
+          radial-gradient(circle at bottom right, rgba(54, 92, 73, 0.18), transparent 24%),
+          linear-gradient(135deg, #f8f5ef 0%, var(--bg) 48%, #efe8da 100%);
+      }
+
+      .frame {
+        width: 100%;
+        height: 100%;
+        padding: 24px;
+      }
+
+      .shell {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.55);
+        backdrop-filter: blur(12px);
+      }
+
+      aside {
+        padding: 22px 18px;
+        background: rgba(245, 240, 232, 0.8);
+        border-right: 1px solid var(--line);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      .brand img {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+      }
+
+      .brand b {
+        display: block;
+        font-size: 20px;
+      }
+
+      .brand span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 10px;
+      }
+
+      .nav-item {
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid transparent;
+        color: var(--muted);
+        background: transparent;
+        font-size: 14px;
+      }
+
+      .nav-item.active {
+        color: var(--text);
+        background: rgba(195, 138, 22, 0.12);
+        border-color: rgba(195, 138, 22, 0.2);
+        font-weight: 600;
+      }
+
+      main {
+        padding: 24px 28px;
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        gap: 18px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent-dark);
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 6px 0 0;
+        font-size: 34px;
+        line-height: 1.05;
+      }
+
+      .topbar .status {
+        padding: 10px 14px;
+        border: 1px solid rgba(20, 108, 67, 0.16);
+        background: rgba(20, 108, 67, 0.08);
+        color: var(--success);
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1.25fr 0.9fr;
+        gap: 18px;
+      }
+
+      .card {
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: 0 14px 36px rgba(42, 30, 10, 0.08);
+      }
+
+      .hero-copy {
+        padding: 22px;
+      }
+
+      .hero-copy p {
+        margin: 12px 0 18px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+      }
+
+      .btn {
+        padding: 12px 16px;
+        border-radius: 14px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .btn.primary {
+        background: linear-gradient(135deg, #cf941d, #a26b07);
+        color: white;
+      }
+
+      .btn.secondary {
+        background: rgba(36, 22, 12, 0.04);
+        border: 1px solid var(--line);
+      }
+
+      .hero-panel {
+        padding: 20px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .metric {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(36, 22, 12, 0.04);
+      }
+
+      .metric strong {
+        display: block;
+        font-size: 21px;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 16px;
+      }
+
+      .mini {
+        padding: 18px;
+      }
+
+      .mini h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+
+      .mini p {
+        margin: 0;
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .tag {
+        display: inline-flex;
+        margin-top: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(195, 138, 22, 0.12);
+        color: var(--accent-dark);
+        font-size: 12px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="shell">
+        <aside>
+          <div class="brand">
+            <img src="file:///Volumes/AnkitSSD/Projects/github/hushh-labs/hushh-research/hushh-webapp/assets/icon.png" alt="Hushh logo" />
+            <div>
+              <b>Kai</b>
+              <span>Consent-first investing copilot</span>
+            </div>
+          </div>
+          <div class="nav">
+            <div class="nav-item active">Portfolio Overview</div>
+            <div class="nav-item">Funding & Trade</div>
+            <div class="nav-item">Connected Sources</div>
+            <div class="nav-item">Research Notes</div>
+            <div class="nav-item">Privacy Controls</div>
+          </div>
+        </aside>
+        <main>
+          <div class="topbar">
+            <div>
+              <div class="eyebrow">Hushh Kai</div>
+              <h1>Your portfolio, funding, and decisions in one place</h1>
+            </div>
+            <div class="status">Consent active</div>
+          </div>
+          <div class="hero">
+            <div class="card hero-copy">
+              <div class="eyebrow">Connected workflows</div>
+              <p>
+                Kai helps users review portfolio positions, connect funding accounts, and
+                move into funding-aware trading flows with explicit, reviewable authorization.
+              </p>
+              <div class="actions">
+                <div class="btn primary">Connect brokerage</div>
+                <div class="btn secondary">Review funding status</div>
+              </div>
+            </div>
+            <div class="card hero-panel">
+              <div class="metric">
+                <div>
+                  <span>Portfolio value</span>
+                  <strong>$184,230</strong>
+                </div>
+                <span>Read-only sync</span>
+              </div>
+              <div class="metric">
+                <div>
+                  <span>Funding source</span>
+                  <strong>Verified bank</strong>
+                </div>
+                <span>Plaid-linked</span>
+              </div>
+              <div class="metric">
+                <div>
+                  <span>Execution destination</span>
+                  <strong>Alpaca account</strong>
+                </div>
+                <span>User-approved</span>
+              </div>
+            </div>
+          </div>
+          <div class="grid">
+            <div class="card mini">
+              <h3>Portfolio intelligence</h3>
+              <p>Kai organizes holdings and market context so users can inspect opportunities before acting.</p>
+              <div class="tag">Market data</div>
+            </div>
+            <div class="card mini">
+              <h3>Funding readiness</h3>
+              <p>Funding status shows when bank connectivity and brokerage destination are ready for transfers.</p>
+              <div class="tag">Consent-first</div>
+            </div>
+            <div class="card mini">
+              <h3>Trade workflows</h3>
+              <p>Orders remain user-directed and are only progressed after the required funding state is satisfied.</p>
+              <div class="tag">Algos & strategies</div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

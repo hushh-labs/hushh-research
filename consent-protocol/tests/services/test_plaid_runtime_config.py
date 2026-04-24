@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from hushh_mcp.integrations.plaid.config import PlaidRuntimeConfig
 
 
@@ -83,3 +85,23 @@ def test_from_env_https_frontend_derives_redirect_uri(monkeypatch):
     config = PlaidRuntimeConfig.from_env()
 
     assert config.redirect_uri == "https://kai.hushh.ai/kai/plaid/oauth/return"
+
+
+def test_from_env_production_environment_uses_production_host(monkeypatch):
+    _clear_plaid_env(monkeypatch)
+    monkeypatch.setenv("PLAID_ENVIRONMENT", "  PRODUCTION ")
+
+    config = PlaidRuntimeConfig.from_env()
+
+    assert config.environment == "production"
+    assert config.base_url == "https://production.plaid.com"
+
+
+def test_from_env_development_environment_does_not_assume_development_host(monkeypatch):
+    _clear_plaid_env(monkeypatch)
+    monkeypatch.setenv("PLAID_ENV", "development")
+
+    config = PlaidRuntimeConfig.from_env()
+
+    assert config.environment == "production"
+    assert config.base_url == "https://production.plaid.com"

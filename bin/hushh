@@ -636,7 +636,10 @@ EOF
       esac
     done
     [ -n "$mode" ] || die "doctor requires --mode"
-    exec bash "$REPO_ROOT/scripts/env/doctor.sh" "$mode" "${extra[@]}"
+    if [ "${#extra[@]}" -gt 0 ]; then
+      exec bash "$REPO_ROOT/scripts/env/doctor.sh" "$mode" "${extra[@]}"
+    fi
+    exec bash "$REPO_ROOT/scripts/env/doctor.sh" "$mode"
     ;;
   stack)
     mode=""

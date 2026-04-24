@@ -22,10 +22,37 @@ BACKEND_REQUIRED = (
     "REVIEWER_UID",
 )
 
+BACKEND_OPTIONAL = (
+    "RIA_INTELLIGENCE_VERIFY_API_KEY",
+    "RECAPTCHA_ENTERPRISE_SITE_KEY",
+)
+
 BACKEND_PLAID_REQUIRED = (
     "PLAID_CLIENT_ID",
     "PLAID_SECRET",
     "PLAID_TOKEN_ENCRYPTION_KEY",
+)
+
+BACKEND_PLAID_RUNTIME_REQUIRED = (
+    "PLAID_ENV",
+    "PLAID_CLIENT_NAME",
+    "PLAID_COUNTRY_CODES",
+    "PLAID_WEBHOOK_URL",
+    "PLAID_REDIRECT_PATH",
+    "PLAID_TX_HISTORY_DAYS",
+)
+
+BACKEND_ALPACA_FUNDING_REQUIRED = (
+    "ALPACA_CONNECT_CLIENT_ID",
+    "ALPACA_CONNECT_CLIENT_SECRET",
+    "FUNDING_SECRET_ENCRYPTION_KEY",
+)
+
+BACKEND_ALPACA_FUNDING_AUTH_ALTERNATIVES = (
+    ("ALPACA_BROKER_AUTH_TOKEN",),
+    ("ALPACA_BROKER_CLIENT_ID", "ALPACA_BROKER_CLIENT_SECRET"),
+    ("ALPACA_BROKER_KEY_ID", "ALPACA_BROKER_SECRET"),
+    ("ALPACA_API_KEY", "ALPACA_API_SECRET"),
 )
 
 BACKEND_MARKET_REQUIRED = (
@@ -52,6 +79,10 @@ FRONTEND_REQUIRED = (
     "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION",
     "NEXT_PUBLIC_GTM_ID_STAGING",
     "NEXT_PUBLIC_GTM_ID_PRODUCTION",
+)
+
+FRONTEND_OPTIONAL = (
+    "NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY",
 )
 
 NATIVE_RELEASE_REQUIRED = (
@@ -107,7 +138,7 @@ def _describe_run_service(project: str, region: str, service: str) -> dict | Non
     ]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:
-      return None
+        return None
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -180,6 +211,11 @@ def main() -> int:
         help="Also require backend market provider secrets for market-home parity.",
     )
     parser.add_argument(
+        "--require-alpaca-funding",
+        action="store_true",
+        help="Also require Alpaca funding secrets for Plaid -> Alpaca ACH orchestration.",
+    )
+    parser.add_argument(
         "--assert-runtime-env-contract",
         action="store_true",
         help="Also verify Cloud Run runtime env injection for hosted frontend/backend parity.",
@@ -189,6 +225,8 @@ def main() -> int:
     required = list(BACKEND_REQUIRED + FRONTEND_REQUIRED)
     if args.require_plaid:
         required.extend(BACKEND_PLAID_REQUIRED)
+    if args.require_alpaca_funding:
+        required.extend(BACKEND_ALPACA_FUNDING_REQUIRED)
     if args.require_market_data:
         required.extend(BACKEND_MARKET_REQUIRED)
     if args.require_native_artifacts:
@@ -196,12 +234,36 @@ def main() -> int:
     required = tuple(dict.fromkeys(required))
     missing = [name for name in required if not _has_secret(args.project, name)]
 
+    if args.require_alpaca_funding:
+        alpaca_auth_satisfied = any(
+            all(_has_secret(args.project, name) for name in option)
+            for option in BACKEND_ALPACA_FUNDING_AUTH_ALTERNATIVES
+        )
+        if not alpaca_auth_satisfied:
+            missing.append(
+                "ALPACA_BROKER_AUTH_TOKEN or (ALPACA_BROKER_KEY_ID, ALPACA_BROKER_SECRET)"
+                " or source-mapped (ALPACA_API_KEY, ALPACA_API_SECRET)"
+            )
+
     print(f"Project: {args.project}")
     print(f"Required backend secrets ({len(BACKEND_REQUIRED)}): {_format_names(BACKEND_REQUIRED)}")
+    print(f"Optional backend secrets ({len(BACKEND_OPTIONAL)}): {_format_names(BACKEND_OPTIONAL)}")
     if args.require_plaid:
         print(
             "Required Plaid backend secrets "
             f"({len(BACKEND_PLAID_REQUIRED)}): {_format_names(BACKEND_PLAID_REQUIRED)}"
+        )
+    if args.require_alpaca_funding:
+        print(
+            "Required Alpaca funding backend secrets "
+            f"({len(BACKEND_ALPACA_FUNDING_REQUIRED)}): "
+            f"{_format_names(BACKEND_ALPACA_FUNDING_REQUIRED)}"
+        )
+        print(
+            "Required Alpaca broker auth secret set (one option): "
+            "ALPACA_BROKER_AUTH_TOKEN OR ALPACA_BROKER_CLIENT_ID + ALPACA_BROKER_CLIENT_SECRET"
+            " OR ALPACA_BROKER_KEY_ID + ALPACA_BROKER_SECRET"
+            " OR source-mapped ALPACA_API_KEY + ALPACA_API_SECRET"
         )
     if args.require_market_data:
         print(
@@ -209,6 +271,10 @@ def main() -> int:
             f"({len(BACKEND_MARKET_REQUIRED)}): {_format_names(BACKEND_MARKET_REQUIRED)}"
         )
     print(f"Required frontend secrets ({len(FRONTEND_REQUIRED)}): {_format_names(FRONTEND_REQUIRED)}")
+    print(
+        "Optional frontend build-time values "
+        f"({len(FRONTEND_OPTIONAL)}): {_format_names(FRONTEND_OPTIONAL)}"
+    )
     if args.require_native_artifacts:
         print(
             "Required native release secrets "
@@ -244,6 +310,46 @@ def main() -> int:
 
         if "FRONTEND_URL" not in backend_env:
             runtime_failures.append("backend runtime env missing FRONTEND_URL")
+        if (
+            "RIA_INTELLIGENCE_VERIFY_BASE_URL" not in backend_env
+            and "RIA_INTELLIGENCE_VERIFY_URL" not in backend_env
+        ):
+            runtime_failures.append(
+                "backend runtime env missing RIA_INTELLIGENCE_VERIFY_BASE_URL or RIA_INTELLIGENCE_VERIFY_URL"
+            )
+        if args.require_plaid:
+            for key in BACKEND_PLAID_RUNTIME_REQUIRED:
+                if key not in backend_env:
+                    runtime_failures.append(f"backend runtime env missing {key}")
+            for key in BACKEND_PLAID_REQUIRED:
+                if key not in backend_env:
+                    runtime_failures.append(f"backend runtime env missing {key}")
+        if args.require_alpaca_funding:
+            if "ALPACA_ENV" not in backend_env and "ALPACA_BROKER_ENV" not in backend_env:
+                runtime_failures.append(
+                    "backend runtime env missing ALPACA_ENV or ALPACA_BROKER_ENV"
+                )
+            if "ALPACA_CONNECT_REDIRECT_URI" not in backend_env:
+                runtime_failures.append("backend runtime env missing ALPACA_CONNECT_REDIRECT_URI")
+            if "ALPACA_CONNECT_CLIENT_ID" not in backend_env:
+                runtime_failures.append("backend runtime env missing ALPACA_CONNECT_CLIENT_ID")
+            if "ALPACA_CONNECT_CLIENT_SECRET" not in backend_env:
+                runtime_failures.append(
+                    "backend runtime env missing ALPACA_CONNECT_CLIENT_SECRET"
+                )
+            if "FUNDING_SECRET_ENCRYPTION_KEY" not in backend_env:
+                runtime_failures.append(
+                    "backend runtime env missing FUNDING_SECRET_ENCRYPTION_KEY"
+                )
+            if "ALPACA_BROKER_AUTH_TOKEN" not in backend_env and not (
+                "ALPACA_BROKER_CLIENT_ID" in backend_env
+                and "ALPACA_BROKER_CLIENT_SECRET" in backend_env
+            ) and not (
+                "ALPACA_BROKER_KEY_ID" in backend_env and "ALPACA_BROKER_SECRET" in backend_env
+            ):
+                runtime_failures.append(
+                    "backend runtime env missing Alpaca broker auth injection"
+                )
 
         print(
             "Frontend runtime env contract:"
@@ -253,8 +359,29 @@ def main() -> int:
         )
         print(
             "Backend runtime env contract:"
-            f" FRONTEND_URL={_runtime_source_label(backend_env.get('FRONTEND_URL', {}))}"
+            f" FRONTEND_URL={_runtime_source_label(backend_env.get('FRONTEND_URL', {}))},"
+            f" RIA_INTELLIGENCE_VERIFY_BASE_URL={_runtime_source_label(backend_env.get('RIA_INTELLIGENCE_VERIFY_BASE_URL', {}))},"
+            f" RIA_INTELLIGENCE_VERIFY_URL={_runtime_source_label(backend_env.get('RIA_INTELLIGENCE_VERIFY_URL', {}))}"
         )
+        if args.require_plaid:
+            print(
+                "Backend Plaid runtime env contract:"
+                f" PLAID_ENV={_runtime_source_label(backend_env.get('PLAID_ENV', {}))},"
+                f" PLAID_WEBHOOK_URL={_runtime_source_label(backend_env.get('PLAID_WEBHOOK_URL', {}))},"
+                f" PLAID_REDIRECT_PATH={_runtime_source_label(backend_env.get('PLAID_REDIRECT_PATH', {}))},"
+                f" PLAID_CLIENT_ID={_runtime_source_label(backend_env.get('PLAID_CLIENT_ID', {}))},"
+                f" PLAID_SECRET={_runtime_source_label(backend_env.get('PLAID_SECRET', {}))},"
+                f" PLAID_TOKEN_ENCRYPTION_KEY={_runtime_source_label(backend_env.get('PLAID_TOKEN_ENCRYPTION_KEY', {}))}"
+            )
+        if args.require_alpaca_funding:
+            print(
+                "Backend Alpaca funding runtime env contract:"
+                f" ALPACA_ENV={_runtime_source_label(backend_env.get('ALPACA_ENV', {}))},"
+                f" ALPACA_CONNECT_REDIRECT_URI={_runtime_source_label(backend_env.get('ALPACA_CONNECT_REDIRECT_URI', {}))},"
+                f" ALPACA_CONNECT_CLIENT_ID={_runtime_source_label(backend_env.get('ALPACA_CONNECT_CLIENT_ID', {}))},"
+                f" ALPACA_BROKER_CLIENT_ID={_runtime_source_label(backend_env.get('ALPACA_BROKER_CLIENT_ID', {}))},"
+                f" FUNDING_SECRET_ENCRYPTION_KEY={_runtime_source_label(backend_env.get('FUNDING_SECRET_ENCRYPTION_KEY', {}))}"
+            )
 
         if runtime_failures:
             print(f"Runtime env contract failures ({len(runtime_failures)}): {_format_names(runtime_failures)}")

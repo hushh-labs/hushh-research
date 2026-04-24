@@ -37,6 +37,10 @@ class RIAOnboardingSubmitRequest(BaseModel):
     force_live_verification: bool = False
 
 
+class RIAOnboardingVerifyNameRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+
+
 class RIAConsentRequestCreate(BaseModel):
     subject_user_id: str = Field(..., min_length=1)
     requester_actor_type: str = Field(default="ria")
@@ -176,6 +180,19 @@ async def submit_onboarding(
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/onboarding/verify-name")
+async def verify_onboarding_name(
+    payload: RIAOnboardingVerifyNameRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        _ = firebase_uid
+        return await service.verify_ria_name(payload.query)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -461,6 +478,16 @@ async def renaissance_screening(firebase_uid: str = Depends(require_firebase_aut
     service = get_renaissance_service()
     criteria = await service.get_screening_criteria()
     return {"items": criteria}
+
+
+@router.get("/onboarding/dossier")
+async def onboarding_dossier(firebase_uid: str = Depends(require_firebase_auth)):
+    """Return cached dossier enrichment data for the RIA profile, if available."""
+    service = RIAIAMService()
+    try:
+        return await service.get_onboarding_dossier(firebase_uid)
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
 
 
 @router.get("/picks")

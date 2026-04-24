@@ -2928,7 +2928,7 @@ class PlaidPortfolioService:
             item_id
             and user_id
             and webhook_type == "TRANSACTIONS"
-            and webhook_code == "DEFAULT_UPDATE"
+            and webhook_code in {"DEFAULT_UPDATE", "SYNC_UPDATES_AVAILABLE"}
         ):
             try:
                 await self.sync_funding_transactions(
@@ -2982,7 +2982,10 @@ class PlaidPortfolioService:
             )
 
         user_id = _clean_text(row.get("user_id"))
-        if webhook_type == "HOLDINGS" and webhook_code == "DEFAULT_UPDATE":
+        if (
+            webhook_type in {"HOLDINGS", "INVESTMENTS_TRANSACTIONS"}
+            and webhook_code == "DEFAULT_UPDATE"
+        ):
             run = self._create_refresh_run(
                 user_id=user_id,
                 item_id=item_id,
@@ -3007,7 +3010,7 @@ class PlaidPortfolioService:
             return {"accepted": True, "handled": True, "run_id": _clean_text(run.get("run_id"))}
 
         if webhook_type == "ITEM":
-            if webhook_code == "PENDING_EXPIRATION":
+            if webhook_code in {"PENDING_EXPIRATION", "PENDING_DISCONNECT"}:
                 self._mark_item_sync_status(
                     item_id=item_id,
                     sync_status="action_required",
@@ -3015,7 +3018,7 @@ class PlaidPortfolioService:
                     webhook_type=webhook_type or None,
                     webhook_code=webhook_code or None,
                 )
-            elif webhook_code == "USER_PERMISSION_REVOKED":
+            elif webhook_code in {"USER_PERMISSION_REVOKED", "USER_ACCOUNT_REVOKED"}:
                 self._mark_item_sync_status(
                     item_id=item_id,
                     sync_status="failed",

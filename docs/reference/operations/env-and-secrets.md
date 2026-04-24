@@ -111,12 +111,13 @@ It checks that:
 4. `NEXT_PUBLIC_AUTH_FIREBASE_*` and `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` are the intentional shared-auth overrides when login remains pinned to the shared auth plane.
 5. When the auth override keys are set, they must stay internally aligned with the Firebase project that actually issues the web login tokens, and backend verification must use that same auth project.
 6. UAT and production share the live Plaid credential set; only local development should use sandbox Plaid secrets and `PLAID_ENV=sandbox`.
-7. Web consent delivery uses different defaults by environment:
+7. Kai's real-bank Plaid contract does not use a separate hosted `development` lane. Limited Production/trial and full production both run with `PLAID_ENV=production`.
+8. Web consent delivery uses different defaults by environment:
    - local development: `CONSENT_SSE_ENABLED=true`
    - UAT: `CONSENT_SSE_ENABLED=true`
    - production: `CONSENT_SSE_ENABLED=false` unless there is an explicit incident-response or rollout reason to enable it
-8. `ADVISORY_VERIFICATION_BYPASS_ENABLED` and `BROKER_VERIFICATION_BYPASS_ENABLED` are the capability-specific non-production bypass switches. Both must remain `false` in production.
-9. `RIA_DEV_BYPASS_ENABLED` remains only as a legacy compatibility alias for advisory bypass and should not be the primary switch in new configs.
+9. `ADVISORY_VERIFICATION_BYPASS_ENABLED` and `BROKER_VERIFICATION_BYPASS_ENABLED` are the capability-specific non-production bypass switches. Both must remain `false` in production.
+10. `RIA_DEV_BYPASS_ENABLED` remains only as a legacy compatibility alias for advisory bypass and should not be the primary switch in new configs.
 
 ### Environment divergence note (current)
 
@@ -317,7 +318,9 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 |-------------|-------------------------|
 | `FINNHUB_API_KEY` | `FINNHUB_API_KEY` (`api/routes/kai/market_insights.py`, `hushh_mcp/operons/kai/fetchers.py`) |
 | `PMP_API_KEY` | `PMP_API_KEY` (`api/routes/kai/market_insights.py`, `hushh_mcp/operons/kai/fetchers.py`) |
-**Not in Secret Manager (set as Cloud Run env vars in cloudbuild):** `DB_HOST`, `DB_PORT`, `DB_NAME`, `ENVIRONMENT`, `GOOGLE_GENAI_USE_VERTEXAI`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `CORS_ALLOWED_ORIGINS`.
+**Not in Secret Manager (set as Cloud Run env vars in cloudbuild):** `DB_HOST`, `DB_PORT`, `DB_NAME`, `ENVIRONMENT`, `GOOGLE_GENAI_USE_VERTEXAI`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `CORS_ALLOWED_ORIGINS`, `RIA_INTELLIGENCE_VERIFY_BASE_URL`, `RIA_INTELLIGENCE_VERIFY_ENDPOINT_PATH`, `RIA_INTELLIGENCE_VERIFY_URL`.
+
+**Optional RIA verification extra:** `RIA_INTELLIGENCE_VERIFY_API_KEY` may be sourced from Secret Manager when the Stage 1 verifier is protected. It is not part of the baseline required secret count.
 
 **Strict parity:** `DATABASE_URL` is not used anywhere. Migrations (`db/migrate.py`) use **DB_*** only, via `db.connection.get_database_url()`. Do **not** create or keep `DATABASE_URL` in Secret Manager; delete it if present.
 
@@ -366,7 +369,33 @@ echo -n "https://your-backend.run.app" | gcloud secrets versions add BACKEND_URL
 
 **Required backend 10:** `SECRET_KEY`, `VAULT_ENCRYPTION_KEY`, `GOOGLE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON`, `FRONTEND_URL`, `DB_USER`, `DB_PASSWORD`, `APP_REVIEW_MODE`, `REVIEWER_UID`.
 **Required backend Plaid secrets when brokerage is enabled:** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_TOKEN_ENCRYPTION_KEY`.
+**Plaid source-secret mapping note:** HushhTech source inventory may expose `PLAID_PRODUCTION_SECRET`, but Kai runtime consumes canonical `PLAID_SECRET`.
+**Required backend Alpaca funding secrets when Plaid -> Alpaca ACH is enabled:** `ALPACA_CONNECT_CLIENT_ID`, `ALPACA_CONNECT_CLIENT_SECRET`, `FUNDING_SECRET_ENCRYPTION_KEY`.
+**Required backend Alpaca broker auth secret set (pick one):** `ALPACA_BROKER_CLIENT_ID` + `ALPACA_BROKER_CLIENT_SECRET`, or `ALPACA_BROKER_AUTH_TOKEN`, or `ALPACA_BROKER_KEY_ID` + `ALPACA_BROKER_SECRET`, or source-secret compatibility pair `ALPACA_API_KEY` + `ALPACA_API_SECRET` which deploy wiring maps to the canonical legacy Basic runtime env names.
 **Required frontend 16:** `BACKEND_URL`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_VAPID_KEY`, `NEXT_PUBLIC_AUTH_FIREBASE_API_KEY`, `NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_AUTH_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION`, `NEXT_PUBLIC_GTM_ID_STAGING`, `NEXT_PUBLIC_GTM_ID_PRODUCTION`.
+
+Hosted Plaid + Alpaca runtime env vars live outside Secret Manager and are injected by `deploy/backend.cloudbuild.yaml`:
+- Plaid: `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_REDIRECT_URI`, `PLAID_TX_HISTORY_DAYS`
+- Alpaca funding: `ALPACA_ENV`, `ALPACA_BROKER_BASE_URL`, `ALPACA_DEFAULT_ACCOUNT_ID`, `ALPACA_CONNECT_REDIRECT_URI`, `ALPACA_CONNECT_AUTHORIZE_URL`, `ALPACA_CONNECT_TOKEN_URL`, `ALPACA_CONNECT_ACCOUNT_URL`, `ALPACA_CONNECT_SCOPES`, `ALPACA_CONNECT_ENV`, `ALPACA_CONNECT_STATE_TTL_SECONDS`
+
+Auth naming rule:
+
+- `ALPACA_ENV` selects Alpaca Broker API `sandbox|live` and still accepts `production` as a compatibility alias
+- `ALPACA_CONNECT_ENV` selects Alpaca Connect authorize `paper|live`
+- real-bank Plaid testing in UAT/production uses `PLAID_ENV=production`; there is no separate hosted `development.plaid.com` lane
+
+Hosted parity check commands:
+
+```bash
+python3 scripts/ops/verify-env-secrets-parity.py \
+  --project hushh-pda-uat \
+  --region us-central1 \
+  --backend-service consent-protocol \
+  --frontend-service hushh-webapp \
+  --require-plaid \
+  --require-alpaca-funding \
+  --assert-runtime-env-contract
+```
 
 Operational note:
 - The `NEXT_PUBLIC_AUTH_FIREBASE_*` values may intentionally differ from the primary `NEXT_PUBLIC_FIREBASE_*` values when login stays on the shared auth project. If they differ, keep the override quartet internally aligned and ensure backend auth verification uses that same shared auth project.

@@ -85,6 +85,17 @@ Notes:
 | Webhook-driven update | public webhook receiver | Next proxy -> backend Plaid service | `/api/kai/plaid/webhook` | server-side Plaid item snapshots | dashboard freshness and sync status update on reload |
 | Portfolio source selection | dashboard / analysis / optimize entry | `usePortfolioSources`, `kai-session-store` | `/api/kai/plaid/source` | active source preference row + derived `financial` source metadata | statement editable, Plaid immutable, Combined comparison-only |
 
+### 2c) Plaid Funding Bank Link -> Alpaca ACH -> Funded Trade
+
+| Step | Route/UI | Web Service Layer | Backend Route | Persistence | Cache / Sync |
+| --- | --- | --- | --- | --- | --- |
+| Bank link + OAuth start | funding / investments views | `PlaidPortfolioService.createFundingLinkToken`, opaque session helper | `/api/kai/plaid/funding/link-token`, `/api/kai/plaid/oauth/resume` | `kai_funding_plaid_link_sessions` | session-scoped opaque resume id only |
+| Public token exchange + funding account selection | same funding views | `PlaidPortfolioService.exchangeFundingPublicToken`, funding status hooks | `/api/kai/plaid/funding/exchange-public-token`, `/api/kai/plaid/funding/default-account` | `kai_funding_plaid_items`, `kai_funding_plaid_accounts`, `kai_funding_consent_records` | funding account projection refreshes after exchange |
+| Alpaca account connect / mapping | Alpaca connect return + investments master view | `PlaidPortfolioService.startAlpacaConnect`, `completeAlpacaConnect`, brokerage account setter | `/api/kai/alpaca/connect/start`, `/api/kai/alpaca/connect/complete`, `/api/kai/plaid/funding/brokerage-account` | `kai_funding_alpaca_connect_sessions`, `kai_funding_brokerage_accounts` | connected Alpaca account reflected in funding status |
+| Processor token -> ACH relationship | funding transfer form | funding service orchestration | `/api/kai/plaid/transfers/create` | `kai_funding_ach_relationships`, `kai_funding_transfers`, `kai_funding_transfer_events` | relationship approval + transfer status advance through polling / reconcile |
+| Funded trade intent | funding trade view | `PlaidPortfolioService.createFundedTrade`, trade status hooks | `/api/kai/plaid/trades/funded/create`, `/api/kai/plaid/trades/funded/{intent_id}/refresh` | `kai_funding_trade_intents`, `kai_funding_trade_events` | trade waits in `funding_pending` until transfer settles |
+| Reconciliation + support fallback | admin/operator or background refresh actions | funding status polling + reconciliation actions | `/api/kai/plaid/funding/reconcile`, `/api/kai/plaid/funding/admin/transfers/{transfer_id}/refresh`, `/api/kai/plaid/funding/admin/escalations` | `kai_funding_reconciliation_runs`, `kai_funding_support_escalations`, `kai_funding_webhook_events` | v1 is polling-driven; no Alpaca webhook/SSE dependency |
+
 ### 3) Kai Home (`/kai`) -> Token Guard -> Market Cache -> Providers
 
 | Step | Route/UI | Web Service Layer | Backend Route | Cache Layer | Provider Layer |

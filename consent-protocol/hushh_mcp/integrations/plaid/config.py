@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 _PLAID_BASE_URLS = {
     "sandbox": "https://sandbox.plaid.com",
-    "development": "https://development.plaid.com",
     "production": "https://production.plaid.com",
 }
 _TX_HISTORY_DAYS_DEFAULT = 730
@@ -51,6 +50,23 @@ def _to_int(value: Any, *, default: int = 0) -> int:
         return int(str(value).strip())
     except Exception:
         return default
+
+
+def _normalize_environment(value: Any, *, default: str = "sandbox") -> str:
+    environment = _clean_text(value, default=default).lower()
+    if environment in {
+        "production",
+        "prod",
+        "live",
+        "trial",
+        "limited_production",
+        "limited-production",
+    }:
+        return "production"
+    if environment == "development":
+        logger.warning("plaid.environment_development_normalized_to_production")
+        return "production"
+    return "sandbox"
 
 
 def _normalize_redirect_uri(value: str | None) -> str | None:
@@ -102,10 +118,10 @@ class PlaidRuntimeConfig:
 
     @classmethod
     def from_env(cls) -> "PlaidRuntimeConfig":
-        environment = _clean_text(
+        environment = _normalize_environment(
             os.getenv("PLAID_ENV") or os.getenv("PLAID_ENVIRONMENT"),
             default="sandbox",
-        ).lower()
+        )
         base_url = _PLAID_BASE_URLS.get(environment, _PLAID_BASE_URLS["sandbox"])
         frontend_url = _clean_text(os.getenv("FRONTEND_URL")) or None
         redirect_path = _clean_text(

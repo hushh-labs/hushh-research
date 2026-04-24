@@ -17,7 +17,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from db.db_client import DatabaseExecutionError, get_db
@@ -43,6 +43,7 @@ _NOTIFIABLE_TRANSFER_USER_STATUSES = {"completed", "failed", "returned", "cancel
 _RELATIONSHIP_APPROVED_STATUSES = {"APPROVED"}
 _RELATIONSHIP_PENDING_STATUSES = {"QUEUED", "PENDING", "SUBMITTED"}
 _RELATIONSHIP_TERMINAL_FAILURE_STATUSES = {"REJECTED", "CANCELED", "DISABLED", "ERROR"}
+_PLAID_AUTH_NETWORKS = ("ach", "eft", "international", "bacs")
 
 _ALPACA_ACCOUNT_ID_PATTERN = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -198,6 +199,11 @@ def _to_bool(value: Any, *, default: bool = False) -> bool:
     return default
 
 
+def _stable_json_sha256(payload: Any) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _direction_to_alpaca(direction: str) -> str:
     normalized = _clean_text(direction).lower()
     if normalized in {"from_brokerage", "outgoing", "withdraw", "withdrawal"}:
@@ -297,6 +303,20 @@ class BrokerFundingService:
             self._db = get_db()
         return self._db
 
+    @staticmethod
+    def _runtime_environment() -> str:
+        for name in ("APP_ENV", "ENVIRONMENT", "HUSHH_ENV", "ENV"):
+            value = _clean_text(os.getenv(name)).lower()
+            if value:
+                return value
+        return "development"
+
+    @classmethod
+    def _allow_local_secret_encryption_fallback(cls) -> bool:
+        if _clean_text(os.getenv("K_SERVICE")):
+            return False
+        return cls._runtime_environment() in {"development", "dev", "local", "test"}
+
     @property
     def plaid_config(self) -> PlaidRuntimeConfig:
         if self._plaid_runtime_config is None:
@@ -365,10 +385,17 @@ class BrokerFundingService:
             if len(configured.encode("utf-8")) in {16, 24, 32}:
                 return configured.encode("utf-8")
 
+        if not self._allow_local_secret_encryption_fallback():
+            raise FundingOrchestrationError(
+                "FUNDING_SECRET_ENCRYPTION_KEY or PLAID_TOKEN_ENCRYPTION_KEY is required for hosted funding secret storage.",
+                code="FUNDING_SECRET_ENCRYPTION_KEY_REQUIRED",
+                status_code=503,
+            )
+
         digest = hashlib.sha256(
             (
                 f"{self.plaid_config.client_id}::{self.plaid_config.secret}::"
-                f"{self.alpaca_config.auth_header}::{self.alpaca_config.base_url}"
+                f"{self.alpaca_config.auth_fingerprint_material}::{self.alpaca_config.base_url}"
             ).encode("utf-8")
         ).digest()
         if not self._warned_fallback_encryption_key:
@@ -579,6 +606,26 @@ class BrokerFundingService:
             status_code=422,
         )
 
+    async def _assert_alpaca_account_exists(self, *, alpaca_account_id: str) -> None:
+        if not self.alpaca_config.configured:
+            raise FundingOrchestrationError(
+                "Alpaca is not configured for funding.",
+                code="ALPACA_NOT_CONFIGURED",
+                status_code=503,
+            )
+
+        try:
+            await self._alpaca_get(f"/v1/accounts/{alpaca_account_id}")
+        except AlpacaApiError as exc:
+            if exc.status_code == 404:
+                raise FundingOrchestrationError(
+                    "Alpaca account not found for this partner environment.",
+                    code="ALPACA_ACCOUNT_NOT_FOUND",
+                    status_code=422,
+                    details={"alpaca_account_id": alpaca_account_id},
+                ) from exc
+            raise
+
     def _alpaca_connect_config(self) -> dict[str, Any]:
         client_id = _clean_text(os.getenv("ALPACA_CONNECT_CLIENT_ID"))
         client_secret = _clean_text(os.getenv("ALPACA_CONNECT_CLIENT_SECRET"))
@@ -613,7 +660,7 @@ class BrokerFundingService:
         ttl_seconds = max(120, min(ttl_seconds, 24 * 3600))
         oauth_env = _clean_text(os.getenv("ALPACA_CONNECT_ENV")).lower()
         if oauth_env not in {"paper", "live"}:
-            oauth_env = "live" if self.alpaca_config.environment == "production" else "paper"
+            oauth_env = "live" if self.alpaca_config.is_live else "paper"
 
         return {
             "configured": bool(
@@ -690,6 +737,96 @@ class BrokerFundingService:
             "expires_at": expires_at,
         }
 
+    def _create_funding_link_session(
+        self,
+        *,
+        user_id: str,
+        item_id: str | None,
+        mode: str,
+        redirect_uri: str,
+        link_token: str,
+        expires_at: str | None,
+    ) -> dict[str, Any]:
+        resume_session_id = f"plaid_funding_link_{uuid.uuid4().hex}"
+        result = self.db.execute_raw(
+            """
+            INSERT INTO kai_funding_plaid_link_sessions (
+                resume_session_id,
+                user_id,
+                item_id,
+                mode,
+                status,
+                redirect_uri,
+                link_token,
+                expires_at,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :resume_session_id,
+                :user_id,
+                :item_id,
+                :mode,
+                'active',
+                :redirect_uri,
+                :link_token,
+                CAST(:expires_at AS TIMESTAMPTZ),
+                NOW(),
+                NOW()
+            )
+            RETURNING *
+            """,
+            {
+                "resume_session_id": resume_session_id,
+                "user_id": user_id,
+                "item_id": item_id,
+                "mode": mode,
+                "redirect_uri": redirect_uri,
+                "link_token": link_token,
+                "expires_at": expires_at,
+            },
+        )
+        return result.data[0]
+
+    def _get_funding_link_session(
+        self,
+        *,
+        user_id: str,
+        resume_session_id: str,
+    ) -> dict[str, Any] | None:
+        result = self.db.execute_raw(
+            """
+            SELECT *
+            FROM kai_funding_plaid_link_sessions
+            WHERE user_id = :user_id
+              AND resume_session_id = :resume_session_id
+              AND status = 'active'
+              AND (expires_at IS NULL OR expires_at > NOW())
+            LIMIT 1
+            """,
+            {
+                "user_id": user_id,
+                "resume_session_id": resume_session_id,
+            },
+        )
+        return result.data[0] if result.data else None
+
+    def _complete_funding_link_session(self, *, user_id: str, resume_session_id: str) -> None:
+        self.db.execute_raw(
+            """
+            UPDATE kai_funding_plaid_link_sessions
+            SET status = 'completed',
+                completed_at = NOW(),
+                updated_at = NOW()
+            WHERE user_id = :user_id
+              AND resume_session_id = :resume_session_id
+            """,
+            {
+                "user_id": user_id,
+                "resume_session_id": resume_session_id,
+            },
+        )
+
     def _get_alpaca_connect_session(
         self,
         *,
@@ -753,6 +890,32 @@ class BrokerFundingService:
             {"user_id": user_id, "item_id": item_id},
         )
         return result.data[0] if result.data else None
+
+    def _assert_funding_item_transfer_ready(self, item_row: dict[str, Any]) -> None:
+        status = _clean_text(item_row.get("status"), default="active").lower()
+        if status == "active":
+            return
+        item_id = _clean_text(item_row.get("item_id")) or None
+        if status == "relink_required":
+            raise FundingOrchestrationError(
+                "Plaid funding access needs to be reconnected before transfers can continue.",
+                code="PLAID_FUNDING_RELINK_REQUIRED",
+                status_code=409,
+                details={"item_id": item_id, "status": status},
+            )
+        if status == "permission_revoked":
+            raise FundingOrchestrationError(
+                "Plaid funding access was revoked. Relink the bank account before funding Alpaca.",
+                code="PLAID_FUNDING_PERMISSION_REVOKED",
+                status_code=409,
+                details={"item_id": item_id, "status": status},
+            )
+        raise FundingOrchestrationError(
+            "Plaid funding item is not available for transfers.",
+            code="PLAID_FUNDING_ITEM_UNAVAILABLE",
+            status_code=409,
+            details={"item_id": item_id, "status": status},
+        )
 
     def _fetch_funding_item_by_item_id(self, *, item_id: str) -> dict[str, Any] | None:
         result = self.db.execute_raw(
@@ -1140,7 +1303,107 @@ class BrokerFundingService:
 
         return account_ids[0] if account_ids else None
 
-    def _normalize_plaid_accounts(self, payload_accounts: Any) -> list[dict[str, Any]]:
+    def _sanitize_auth_summary(self, payload: Any) -> dict[str, Any] | None:
+        if not isinstance(payload, dict):
+            return None
+        network_status_payload = (
+            payload.get("network_status") if isinstance(payload.get("network_status"), dict) else {}
+        )
+        network_status: dict[str, str] = {}
+        source_networks = list(network_status_payload) or list(_PLAID_AUTH_NETWORKS)
+        for network in source_networks:
+            raw_status = _clean_text(network_status_payload.get(network)).lower()
+            network_status[network] = (
+                "supported" if raw_status in {"available", "supported"} else "missing"
+            )
+        auth_summary = {
+            "has_ach_numbers": _to_bool(payload.get("has_ach_numbers")),
+            "verification_status": _clean_text(payload.get("verification_status")) or None,
+            "is_tokenized_account_number": _to_bool(payload.get("is_tokenized_account_number")),
+            "network_status": network_status,
+            "auth_fetched_at": _clean_text(payload.get("auth_fetched_at")) or None,
+            "auth_fingerprint": _clean_text(payload.get("auth_fingerprint")) or None,
+        }
+        if (
+            auth_summary["has_ach_numbers"]
+            or auth_summary["verification_status"] is not None
+            or auth_summary["is_tokenized_account_number"]
+            or auth_summary["auth_fetched_at"] is not None
+            or auth_summary["auth_fingerprint"] is not None
+        ):
+            return auth_summary
+        return None
+
+    def _auth_summary_has_ach_numbers(self, payload: Any) -> bool:
+        auth_summary = self._sanitize_auth_summary(payload)
+        if auth_summary is None:
+            return False
+        return bool(auth_summary.get("has_ach_numbers"))
+
+    def _build_plaid_auth_summaries(self, payload: Any) -> dict[str, dict[str, Any]]:
+        response = payload if isinstance(payload, dict) else {}
+        auth_accounts = _as_list_of_dicts(response.get("accounts"))
+        account_lookup = {
+            _clean_text(account.get("account_id")): account
+            for account in auth_accounts
+            if _clean_text(account.get("account_id"))
+        }
+        numbers_payload = response.get("numbers") if isinstance(response.get("numbers"), dict) else {}
+        number_entries = {
+            network: _as_list_of_dicts(numbers_payload.get(network))
+            for network in _PLAID_AUTH_NETWORKS
+        }
+
+        account_ids: set[str] = set(account_lookup)
+        for entries in number_entries.values():
+            for entry in entries:
+                account_id = _clean_text(entry.get("account_id"))
+                if account_id:
+                    account_ids.add(account_id)
+
+        auth_fetched_at = _utcnow_iso()
+        out: dict[str, dict[str, Any]] = {}
+        for account_id in account_ids:
+            network_status: dict[str, str] = {}
+            has_ach_numbers = False
+            is_tokenized_account_number = False
+            for network, entries in number_entries.items():
+                matching = [
+                    entry
+                    for entry in entries
+                    if _clean_text(entry.get("account_id")) == account_id
+                ]
+                network_status[network] = "supported" if matching else "missing"
+                if network == "ach" and matching:
+                    has_ach_numbers = True
+                if any(_to_bool(entry.get("is_tokenized_account_number")) for entry in matching):
+                    is_tokenized_account_number = True
+
+            summary = {
+                "has_ach_numbers": has_ach_numbers,
+                "verification_status": _clean_text(
+                    (account_lookup.get(account_id) or {}).get("verification_status")
+                )
+                or None,
+                "is_tokenized_account_number": is_tokenized_account_number,
+                "network_status": network_status,
+                "auth_fetched_at": auth_fetched_at,
+            }
+            summary["auth_fingerprint"] = _stable_json_sha256(
+                {
+                    "account_id": account_id,
+                    **summary,
+                }
+            )
+            out[account_id] = summary
+        return out
+
+    def _normalize_plaid_accounts(
+        self,
+        payload_accounts: Any,
+        *,
+        auth_summaries_by_account_id: dict[str, dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         accounts = _as_list_of_dicts(payload_accounts)
         depository = [
             account
@@ -1148,10 +1411,26 @@ class BrokerFundingService:
             if _clean_text(account.get("type")).lower() == "depository"
         ]
         source = depository if depository else accounts
+        auth_filter_enabled = auth_summaries_by_account_id is not None
+        auth_summaries = auth_summaries_by_account_id or {}
         out: list[dict[str, Any]] = []
         for account in source:
             account_id = _clean_text(account.get("account_id"))
             if not account_id:
+                continue
+            auth_summary = self._sanitize_auth_summary(auth_summaries.get(account_id))
+            if auth_summary and not auth_summary.get("verification_status"):
+                auth_summary = {
+                    **auth_summary,
+                    "verification_status": _clean_text(account.get("verification_status")) or None,
+                }
+                auth_summary["auth_fingerprint"] = _stable_json_sha256(
+                    {
+                        "account_id": account_id,
+                        **auth_summary,
+                    }
+                )
+            if auth_filter_enabled and not self._auth_summary_has_ach_numbers(auth_summary):
                 continue
             out.append(
                 {
@@ -1165,9 +1444,183 @@ class BrokerFundingService:
                     "balances": account.get("balances")
                     if isinstance(account.get("balances"), dict)
                     else {},
+                    "auth_summary": auth_summary,
+                    "is_funding_eligible": self._auth_summary_has_ach_numbers(auth_summary),
                 }
             )
         return out
+
+    def _update_funding_item_metadata(
+        self,
+        *,
+        user_id: str,
+        item_id: str,
+        updates: dict[str, Any],
+    ) -> None:
+        item_row = self._fetch_funding_item_row(user_id=user_id, item_id=item_id)
+        if item_row is None:
+            return
+        metadata = _json_load(item_row.get("latest_metadata_json"), fallback={})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata.update(updates)
+        self.db.execute_raw(
+            """
+            UPDATE kai_funding_plaid_items
+            SET latest_metadata_json = CAST(:latest_metadata_json AS JSONB),
+                updated_at = NOW()
+            WHERE user_id = :user_id
+              AND item_id = :item_id
+            """,
+            {
+                "user_id": user_id,
+                "item_id": item_id,
+                "latest_metadata_json": json.dumps(metadata),
+            },
+        )
+
+    def _build_funding_readiness(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        brokerage_accounts: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        selected_item = next(
+            (
+                item
+                for item in items
+                if _clean_text(item.get("selected_funding_account_id"))
+            ),
+            items[0] if items else None,
+        )
+        plaid_item_linked = selected_item is not None
+
+        selected_account: dict[str, Any] | None = None
+        selected_item_accounts = (
+            selected_item.get("accounts") if isinstance(selected_item.get("accounts"), list) else []
+        ) if isinstance(selected_item, dict) else []
+        for account in selected_item_accounts:
+            if not isinstance(account, dict):
+                continue
+            if account.get("is_selected_funding_account"):
+                selected_account = account
+                break
+        if selected_account is None and selected_item_accounts:
+            selected_account = next(
+                (
+                    account
+                    for account in selected_item_accounts
+                    if isinstance(account, dict)
+                ),
+                None,
+            )
+
+        auth_summary = (
+            self._sanitize_auth_summary(selected_account.get("auth_summary"))
+            if isinstance(selected_account, dict)
+            else None
+        )
+        eligible_funding_account_selected = bool(
+            selected_account and self._auth_summary_has_ach_numbers(auth_summary)
+        )
+        auth_snapshot_ready = bool(
+            auth_summary
+            and auth_summary.get("auth_fingerprint")
+            and auth_summary.get("auth_fetched_at")
+        )
+
+        selected_brokerage_account = next(
+            (
+                account
+                for account in brokerage_accounts
+                if isinstance(account, dict) and account.get("is_default")
+            ),
+            brokerage_accounts[0] if brokerage_accounts else None,
+        )
+        selected_alpaca_account_id = _clean_text(
+            (selected_brokerage_account or {}).get("alpaca_account_id")
+        ) or _clean_text(self.alpaca_config.default_account_id)
+        alpaca_account_linked = bool(selected_alpaca_account_id)
+        processor_handoff_ready = bool(
+            plaid_item_linked
+            and eligible_funding_account_selected
+            and auth_snapshot_ready
+            and alpaca_account_linked
+        )
+
+        selected_relationship: dict[str, Any] | None = None
+        selected_relationships = (
+            selected_item.get("relationships")
+            if isinstance(selected_item, dict) and isinstance(selected_item.get("relationships"), list)
+            else []
+        )
+        selected_account_id = (
+            _clean_text(selected_account.get("account_id")) if isinstance(selected_account, dict) else ""
+        )
+        for relationship in selected_relationships:
+            if not isinstance(relationship, dict):
+                continue
+            if selected_account_id and _clean_text(relationship.get("account_id")) != selected_account_id:
+                continue
+            if selected_alpaca_account_id and _clean_text(relationship.get("alpaca_account_id")) != selected_alpaca_account_id:
+                continue
+            selected_relationship = relationship
+            break
+        if selected_relationship is None and selected_relationships:
+            selected_relationship = next(
+                (
+                    relationship
+                    for relationship in selected_relationships
+                    if isinstance(relationship, dict)
+                    and (
+                        not selected_account_id
+                        or _clean_text(relationship.get("account_id")) == selected_account_id
+                    )
+                ),
+                None,
+            ) or next(
+                (
+                    relationship
+                    for relationship in selected_relationships
+                    if isinstance(relationship, dict)
+                ),
+                None,
+            )
+
+        relationship_status = _clean_text((selected_relationship or {}).get("status")).upper()
+        ach_relationship_ready = relationship_status in _RELATIONSHIP_APPROVED_STATUSES
+
+        blocking_reason: str | None = None
+        item_blocking_reason = _clean_text((selected_item or {}).get("_last_blocking_reason")) or None
+        if plaid_item_linked and not eligible_funding_account_selected:
+            blocking_reason = "NO_ELIGIBLE_ACH_ACCOUNT"
+        elif plaid_item_linked and eligible_funding_account_selected and not alpaca_account_linked:
+            if item_blocking_reason in {"ALPACA_ACCOUNT_REQUIRED", "ALPACA_ACCOUNT_NOT_MAPPED"}:
+                blocking_reason = item_blocking_reason
+            elif not self.alpaca_config.configured and not self._alpaca_connect_config().get(
+                "configured"
+            ):
+                blocking_reason = "ALPACA_CONNECT_NOT_CONFIGURED"
+            else:
+                blocking_reason = "ALPACA_ACCOUNT_REQUIRED"
+        elif processor_handoff_ready and relationship_status in _RELATIONSHIP_PENDING_STATUSES:
+            blocking_reason = "ACH_RELATIONSHIP_PENDING"
+        elif (
+            processor_handoff_ready
+            and relationship_status
+            and relationship_status not in _RELATIONSHIP_APPROVED_STATUSES
+        ):
+            blocking_reason = "ACH_RELATIONSHIP_FAILED"
+
+        return {
+            "plaid_item_linked": plaid_item_linked,
+            "eligible_funding_account_selected": eligible_funding_account_selected,
+            "auth_snapshot_ready": auth_snapshot_ready,
+            "alpaca_account_linked": alpaca_account_linked,
+            "processor_handoff_ready": processor_handoff_ready,
+            "ach_relationship_ready": ach_relationship_ready,
+            "blocking_reason": blocking_reason,
+        }
 
     async def create_funding_link_token(
         self,
@@ -1183,6 +1636,7 @@ class BrokerFundingService:
                 "mode": "unconfigured",
                 "link_token": None,
                 "expiration": None,
+                "resume_session_id": None,
             }
 
         payload: dict[str, Any] = {
@@ -1221,14 +1675,54 @@ class BrokerFundingService:
             mode = "update"
 
         response = await self._plaid_post("/link/token/create", payload)
+        link_token = _clean_text(response.get("link_token")) or None
+        expiration = _clean_text(response.get("expiration")) or None
+        resume_session_id = None
+        if link_token and resolved_redirect_uri:
+            session = self._create_funding_link_session(
+                user_id=user_id,
+                item_id=cleaned_item_id or None,
+                mode=mode,
+                redirect_uri=resolved_redirect_uri,
+                link_token=link_token,
+                expires_at=expiration,
+            )
+            resume_session_id = _clean_text(session.get("resume_session_id")) or None
         return {
             **self.configuration_status(),
             "flow_type": "funding",
             "mode": mode,
-            "link_token": _clean_text(response.get("link_token")) or None,
-            "expiration": _clean_text(response.get("expiration")) or None,
+            "link_token": link_token,
+            "expiration": expiration,
             "request_id": response.get("request_id"),
             "redirect_uri": resolved_redirect_uri,
+            "resume_session_id": resume_session_id,
+        }
+
+    async def get_oauth_resume(
+        self,
+        *,
+        user_id: str,
+        resume_session_id: str,
+    ) -> dict[str, Any] | None:
+        if not self.plaid_config.configured:
+            return None
+
+        session = self._get_funding_link_session(
+            user_id=user_id,
+            resume_session_id=resume_session_id,
+        )
+        if session is None:
+            return None
+        return {
+            **self.configuration_status(),
+            "flow_type": "funding",
+            "mode": _clean_text(session.get("mode"), default="create"),
+            "item_id": _clean_text(session.get("item_id")) or None,
+            "link_token": _clean_text(session.get("link_token")) or None,
+            "expiration": session.get("expires_at"),
+            "redirect_uri": _clean_text(session.get("redirect_uri")) or None,
+            "resume_session_id": _clean_text(session.get("resume_session_id")) or None,
         }
 
     async def _create_plaid_processor_token(
@@ -2087,7 +2581,8 @@ class BrokerFundingService:
         return None
 
     def _is_transfer_funded(self, status_value: str | None) -> bool:
-        return _user_facing_transfer_status(status_value) == "completed"
+        normalized = _clean_text(status_value).upper()
+        return normalized in {"SETTLED", "POSTED"}
 
     def _is_transfer_terminal_failure(self, status_value: str | None) -> bool:
         user_status = _user_facing_transfer_status(status_value)
@@ -2749,6 +3244,20 @@ class BrokerFundingService:
                 status_code=503,
             )
 
+        cleaned_resume_session_id = _clean_text(resume_session_id) or None
+        if cleaned_resume_session_id:
+            session = self._get_funding_link_session(
+                user_id=user_id,
+                resume_session_id=cleaned_resume_session_id,
+            )
+            if session is None:
+                raise FundingOrchestrationError(
+                    "No active Plaid funding OAuth resume session was found.",
+                    code="PLAID_FUNDING_OAUTH_RESUME_NOT_FOUND",
+                    status_code=404,
+                    details={"resume_session_id": cleaned_resume_session_id},
+                )
+
         exchange = await self._plaid_post(
             "/item/public_token/exchange",
             {"public_token": public_token},
@@ -2782,11 +3291,16 @@ class BrokerFundingService:
         )
 
         accounts_response = await self._plaid_post("/accounts/get", {"access_token": access_token})
-        normalized_accounts = self._normalize_plaid_accounts(accounts_response.get("accounts"))
+        auth_response = await self._plaid_post("/auth/get", {"access_token": access_token})
+        auth_summaries = self._build_plaid_auth_summaries(auth_response)
+        normalized_accounts = self._normalize_plaid_accounts(
+            accounts_response.get("accounts"),
+            auth_summaries_by_account_id=auth_summaries,
+        )
         if not normalized_accounts:
             raise FundingOrchestrationError(
-                "No eligible bank account was returned by Plaid.",
-                code="PLAID_FUNDING_ACCOUNT_NOT_FOUND",
+                "No eligible ACH funding account was returned by Plaid.",
+                code="NO_ELIGIBLE_ACH_ACCOUNT",
                 status_code=422,
             )
 
@@ -2809,6 +3323,24 @@ class BrokerFundingService:
             "funding_account_ids": [
                 _clean_text(account.get("account_id")) for account in normalized_accounts
             ],
+            "eligible_funding_account_ids": [
+                _clean_text(account.get("account_id"))
+                for account in normalized_accounts
+                if _clean_text(account.get("account_id"))
+            ],
+            "auth_snapshot_ready": True,
+            "auth_fetched_at": max(
+                (
+                    _clean_text(
+                        ((account.get("auth_summary") or {}) if isinstance(account, dict) else {}).get(
+                            "auth_fetched_at"
+                        )
+                    )
+                    for account in normalized_accounts
+                ),
+                default=None,
+            ),
+            "last_blocking_reason": None,
             "last_synced_at": _utcnow_iso(),
         }
         self._store_funding_item(
@@ -2825,6 +3357,26 @@ class BrokerFundingService:
             accounts=normalized_accounts,
             default_account_id=default_account_id,
         )
+
+        try:
+            await self.sync_funding_transactions(
+                user_id=user_id,
+                item_id=item_id,
+                cursor=None,
+            )
+        except FundingOrchestrationError as exc:
+            logger.warning(
+                "funding.transactions_sync_bootstrap_skipped user_id=%s item_id=%s code=%s",
+                user_id,
+                item_id,
+                exc.code,
+            )
+        except Exception:
+            logger.exception(
+                "funding.transactions_sync_bootstrap_failed user_id=%s item_id=%s",
+                user_id,
+                item_id,
+            )
 
         consent_row = self._record_consent(
             user_id=user_id,
@@ -2856,13 +3408,25 @@ class BrokerFundingService:
                     user_id=user_id,
                     requested_account_id=resolved_alpaca_account_id,
                 )
+                await self._assert_alpaca_account_exists(alpaca_account_id=alpaca_account)
             except FundingOrchestrationError as exc:
-                if exc.code not in {"ALPACA_ACCOUNT_REQUIRED", "ALPACA_ACCOUNT_NOT_MAPPED"}:
+                if exc.code not in {
+                    "ALPACA_ACCOUNT_REQUIRED",
+                    "ALPACA_ACCOUNT_NOT_MAPPED",
+                    "ALPACA_ACCOUNT_NOT_FOUND",
+                }:
                     raise
                 relationship_pending_reason = {
                     "code": exc.code,
                     "message": str(exc),
                 }
+                self._update_funding_item_metadata(
+                    user_id=user_id,
+                    item_id=item_id,
+                    updates={
+                        "last_blocking_reason": exc.code,
+                    },
+                )
             else:
                 self._upsert_brokerage_account(
                     user_id=user_id,
@@ -2881,6 +3445,13 @@ class BrokerFundingService:
                     "relationship_id": _clean_text(relationship.get("relationship_id")) or None,
                     "status": _clean_text(relationship.get("status")) or None,
                 }
+                self._update_funding_item_metadata(
+                    user_id=user_id,
+                    item_id=item_id,
+                    updates={
+                        "last_blocking_reason": None,
+                    },
+                )
 
         status_payload = await self.get_funding_status(user_id=user_id)
         status_payload["consent_record"] = {
@@ -2888,6 +3459,11 @@ class BrokerFundingService:
             "terms_version": _clean_text(consent_row.get("terms_version")) or None,
             "consented_at": _clean_text(consent_row.get("consented_at")) or None,
         }
+        if cleaned_resume_session_id:
+            self._complete_funding_link_session(
+                user_id=user_id,
+                resume_session_id=cleaned_resume_session_id,
+            )
         if relationship_payload:
             status_payload["ach_relationship"] = relationship_payload
         if relationship_pending_reason:
@@ -2941,6 +3517,14 @@ class BrokerFundingService:
         items: list[dict[str, Any]] = []
         account_count = 0
         institutions: list[str] = []
+        brokerage_accounts_payload = [
+            {
+                "alpaca_account_id": _clean_text(row.get("alpaca_account_id")) or None,
+                "status": _clean_text(row.get("status")) or None,
+                "is_default": bool(row.get("is_default")),
+            }
+            for row in brokerage_result.data
+        ]
 
         for item in item_rows:
             item_id = _clean_text(item.get("item_id"))
@@ -2962,6 +3546,9 @@ class BrokerFundingService:
             for account in accounts:
                 account_id = _clean_text(account.get("account_id")) or None
                 is_default = bool(account.get("is_default"))
+                account_metadata = _json_load(account.get("account_metadata_json"), fallback={})
+                if not isinstance(account_metadata, dict):
+                    account_metadata = {}
                 if is_default and default_account_id is None:
                     default_account_id = account_id
                 account_payloads.append(
@@ -2974,6 +3561,9 @@ class BrokerFundingService:
                         "subtype": _clean_text(account.get("account_subtype")) or None,
                         "is_default": is_default,
                         "is_selected_funding_account": False,
+                        "auth_summary": self._sanitize_auth_summary(
+                            account_metadata.get("auth_summary")
+                        ),
                     }
                 )
             if not selected_funding_account_id:
@@ -2999,6 +3589,8 @@ class BrokerFundingService:
                     or _clean_text(item_metadata.get("last_synced_at"))
                     or None,
                     "selected_funding_account_id": selected_funding_account_id,
+                    "_last_blocking_reason": _clean_text(item_metadata.get("last_blocking_reason"))
+                    or None,
                     "accounts": account_payloads,
                     "relationships": [
                         {
@@ -3046,18 +3638,19 @@ class BrokerFundingService:
             for transfer in transfer_result.data
         ]
 
+        readiness = self._build_funding_readiness(
+            items=items,
+            brokerage_accounts=brokerage_accounts_payload,
+        )
+        for item in items:
+            item.pop("_last_blocking_reason", None)
+
         return {
             **self.configuration_status(),
             "user_id": user_id,
             "items": items,
-            "brokerage_accounts": [
-                {
-                    "alpaca_account_id": _clean_text(row.get("alpaca_account_id")) or None,
-                    "status": _clean_text(row.get("status")) or None,
-                    "is_default": bool(row.get("is_default")),
-                }
-                for row in brokerage_result.data
-            ],
+            "readiness": readiness,
+            "brokerage_accounts": brokerage_accounts_payload,
             "latest_transfers": latest_transfers,
             "latest_trade_intents": [
                 self._serialize_trade_intent(row) for row in trade_intent_result.data
@@ -3205,17 +3798,7 @@ class BrokerFundingService:
                 status_code=503,
             )
 
-        try:
-            await self._alpaca_get(f"/v1/accounts/{cleaned_account_id}")
-        except AlpacaApiError as exc:
-            if exc.status_code == 404:
-                raise FundingOrchestrationError(
-                    "Alpaca account not found for this partner environment.",
-                    code="ALPACA_ACCOUNT_NOT_FOUND",
-                    status_code=422,
-                    details={"alpaca_account_id": cleaned_account_id},
-                ) from exc
-            raise
+        await self._assert_alpaca_account_exists(alpaca_account_id=cleaned_account_id)
 
         self._upsert_brokerage_account(
             user_id=user_id,
@@ -3512,7 +4095,17 @@ class BrokerFundingService:
                         "alpaca_account_id": account_id,
                     },
                 )
-        except FundingOrchestrationError:
+        except FundingOrchestrationError as exc:
+            if session_id and exc.code not in {
+                "ALPACA_CONNECT_STATE_REPLAY",
+                "ALPACA_CONNECT_STATE_EXPIRED",
+            }:
+                self._mark_alpaca_connect_session(
+                    session_id=session_id,
+                    status="failed",
+                    error_code=exc.code,
+                    error_message=str(exc),
+                )
             raise
         except Exception as exc:
             if session_id:
@@ -3572,6 +4165,7 @@ class BrokerFundingService:
                 code="PLAID_FUNDING_ITEM_NOT_FOUND",
                 status_code=404,
             )
+        self._assert_funding_item_transfer_ready(item_row)
 
         account_row = self._find_funding_account(
             user_id=user_id,
@@ -3653,6 +4247,7 @@ class BrokerFundingService:
             "transfer_type": "ach",
             "direction": alpaca_direction,
             "amount": amount_text,
+            "timing": "immediate",
         }
         cleaned_description = _clean_text(description)
         if cleaned_description:
@@ -4132,19 +4727,38 @@ class BrokerFundingService:
     def _payload_hash(self, raw_body: bytes) -> str:
         return hashlib.sha256(raw_body).hexdigest()
 
-    def _jwk_to_int(self, value: Any) -> int:
+    def _jwk_to_int(self, value: Any, *, field_name: str) -> int:
         if isinstance(value, int):
             return value
         text = _clean_text(value)
         if not text:
             raise PlaidWebhookVerificationError(
-                "Webhook verification key is missing RSA modulus/exponent."
+                f"Webhook verification key is missing {field_name}."
             )
         if text.isdigit():
             return int(text)
         padded = text + "=" * ((4 - (len(text) % 4)) % 4)
         decoded = base64.urlsafe_b64decode(padded.encode("utf-8"))
         return int.from_bytes(decoded, byteorder="big")
+
+    def _build_plaid_webhook_public_key(self, key_payload: dict[str, Any]):
+        key_type = _clean_text(key_payload.get("kty")).upper()
+        if key_type == "EC" or (
+            _clean_text(key_payload.get("crv")) and key_payload.get("x") and key_payload.get("y")
+        ):
+            curve = _clean_text(key_payload.get("crv"), default="P-256").upper()
+            if curve != "P-256":
+                raise PlaidWebhookVerificationError(
+                    "Plaid webhook verification curve is not supported.",
+                    details={"curve": curve},
+                )
+            x = self._jwk_to_int(key_payload.get("x"), field_name="x")
+            y = self._jwk_to_int(key_payload.get("y"), field_name="y")
+            return ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1()).public_key()
+
+        modulus = self._jwk_to_int(key_payload.get("n"), field_name="n")
+        exponent = self._jwk_to_int(key_payload.get("e"), field_name="e")
+        return rsa.RSAPublicNumbers(exponent, modulus).public_key()
 
     async def _verify_plaid_webhook(
         self,
@@ -4192,11 +4806,11 @@ class BrokerFundingService:
                 "Plaid webhook verification key payload is invalid."
             )
 
-        modulus = self._jwk_to_int(key_payload.get("n"))
-        exponent = self._jwk_to_int(key_payload.get("e"))
-        public_key = rsa.RSAPublicNumbers(exponent, modulus).public_key()
+        public_key = self._build_plaid_webhook_public_key(key_payload)
 
-        algorithm = _clean_text(unverified_header.get("alg"), default="RS256")
+        algorithm = _clean_text(unverified_header.get("alg")).upper()
+        if not algorithm:
+            algorithm = "ES256" if _clean_text(key_payload.get("kty")).upper() == "EC" else "RS256"
         try:
             claims = jwt.decode(
                 header_value,
@@ -4210,9 +4824,11 @@ class BrokerFundingService:
             ) from exc
 
         claim_hash = _clean_text(claims.get("request_body_sha256"))
-        expected_hash_hex = hashlib.sha256(raw_body).hexdigest()
-        expected_hash_b64 = base64.b64encode(hashlib.sha256(raw_body).digest()).decode("utf-8")
-        if claim_hash not in {expected_hash_hex, expected_hash_b64}:
+        digest = hashlib.sha256(raw_body).digest()
+        expected_hash_hex = digest.hex()
+        expected_hash_b64 = base64.b64encode(digest).decode("utf-8")
+        expected_hash_b64url = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+        if claim_hash not in {expected_hash_hex, expected_hash_b64, expected_hash_b64url}:
             raise PlaidWebhookVerificationError(
                 "Plaid webhook request body hash mismatch.",
                 details={"expected": expected_hash_hex},
@@ -4405,6 +5021,15 @@ class BrokerFundingService:
                     webhook_type = _clean_text(payload.get("webhook_type")) or None
                     webhook_code = _clean_text(payload.get("webhook_code")) or None
                     metadata = _json_load(row.get("latest_metadata_json"), fallback={})
+                    next_status = _clean_text(row.get("status"), default="active")
+                    if webhook_type == "ITEM":
+                        if webhook_code in {"PENDING_DISCONNECT", "PENDING_EXPIRATION"}:
+                            next_status = "relink_required"
+                        elif webhook_code in {
+                            "USER_PERMISSION_REVOKED",
+                            "USER_ACCOUNT_REVOKED",
+                        }:
+                            next_status = "permission_revoked"
                     merged = {
                         **metadata,
                         "last_webhook_at": _utcnow_iso(),
@@ -4412,7 +5037,8 @@ class BrokerFundingService:
                     self.db.execute_raw(
                         """
                         UPDATE kai_funding_plaid_items
-                        SET latest_metadata_json = CAST(:latest_metadata_json AS JSONB),
+                        SET status = :status,
+                            latest_metadata_json = CAST(:latest_metadata_json AS JSONB),
                             last_webhook_type = :webhook_type,
                             last_webhook_code = :webhook_code,
                             updated_at = NOW()
@@ -4420,6 +5046,7 @@ class BrokerFundingService:
                         """,
                         {
                             "item_id": item_id,
+                            "status": next_status,
                             "latest_metadata_json": json.dumps(merged),
                             "webhook_type": webhook_type,
                             "webhook_code": webhook_code,
@@ -4644,8 +5271,9 @@ class BrokerFundingService:
                         requested_ts = datetime.fromisoformat(
                             requested_at.replace("Z", "+00:00")
                         ).timestamp()
+                        current_status = next_status or previous_status
                         if (
-                            _clean_text(row.get("status")).upper() in _PENDING_TRANSFER_STATUSES
+                            current_status in _PENDING_TRANSFER_STATUSES
                             and (now_ts - requested_ts) > stale_seconds
                         ):
                             stale_pending += 1

@@ -8,6 +8,7 @@ hushh_starter_idea.md
 .idea/
 .cursor/
 .mcp.json
+.codex-worktrees/
 *.swp
 *.swo
 *.swx

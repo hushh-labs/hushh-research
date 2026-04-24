@@ -82,6 +82,10 @@ When contributing to Hushh, please follow these security guidelines:
 - Use environment variables for sensitive configuration
 - Review dependencies for known vulnerabilities
 - Follow the principle of least privilege
+- Enable the repo hooks locally: `git config core.hooksPath .githooks`
+- Keep local-only directories such as `.codex-worktrees/` and real `.env` files untracked
+- Expect the pre-commit hook to scan staged content for likely credentials before a commit is created
+- Do not commit Firebase app config files, service-account JSONs, or keystore/key material; the local hook blocks these paths by default
 
 ### Testing Security
 

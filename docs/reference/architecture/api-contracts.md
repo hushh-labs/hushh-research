@@ -189,6 +189,63 @@ Operational note:
 - webhook URLs are supplied to Plaid during Link token creation via backend configuration, not dashboard allowlisting
 - if `PLAID_WEBHOOK_URL` changes after Items exist, existing Items need a one-time `/item/webhook/update` maintenance pass
 
+#### Kai Plaid Funding and Alpaca Sandbox Activation
+
+This writable funding lane is distinct from the read-only Plaid brokerage sync above. It supports Plaid bank-linking, Alpaca ACH relationship creation, transfer submission, and funded-trade progression. Current v1 settlement progression is supervised and polling-driven, not webhook/SSE-driven.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/kai/plaid/funding/link-token` | Create a Plaid Auth Link token for funding-bank connectivity |
+| POST | `/api/kai/plaid/funding/exchange-public-token` | Exchange Plaid `public_token`, persist encrypted funding credentials, project eligible depository accounts, and return funding readiness |
+| GET | `/api/kai/plaid/funding/status/{user_id}` | Load funding-bank items, per-account auth summaries, readiness, brokerage mapping, and latest transfer/trade state |
+| POST | `/api/kai/plaid/funding/default-account` | Persist the selected default Plaid funding account |
+| POST | `/api/kai/plaid/funding/brokerage-account` | Persist the selected Alpaca brokerage account mapping |
+| POST | `/api/kai/alpaca/connect/start` | Start Alpaca Connect OAuth for brokerage account linking |
+| POST | `/api/kai/alpaca/connect/complete` | Complete Alpaca Connect OAuth and resolve the linked brokerage account |
+| POST | `/api/kai/plaid/transfers/create` | Create or reuse ACH relationship state and submit a funding transfer |
+| GET | `/api/kai/plaid/transfers/{transfer_id}` | Load a funding transfer snapshot |
+| POST | `/api/kai/plaid/trades/funded/create` | Create a funded trade intent tied to the selected Plaid funding account |
+| GET | `/api/kai/plaid/trades/funded/{intent_id}` | Load a funded trade intent snapshot |
+| POST | `/api/kai/plaid/trades/funded/{intent_id}/refresh` | Reconcile transfer/order state and advance eligible funded trades |
+| POST | `/api/kai/plaid/funding/reconcile` | Run funding reconciliation for stale transfers and pending trade intents |
+
+Funding response contract notes:
+
+- `POST /api/kai/plaid/funding/exchange-public-token` and `GET /api/kai/plaid/funding/status/{user_id}` return a top-level `readiness` object so the UI and operators can diagnose where the flow is blocked without inspecting internal state.
+- `readiness` currently communicates:
+  - `plaid_item_linked`
+  - `eligible_funding_account_selected`
+  - `auth_snapshot_ready`
+  - `alpaca_account_linked`
+  - `processor_handoff_ready`
+  - `ach_relationship_ready`
+  - `blocking_reason`
+- Canonical `blocking_reason` values are:
+  - `NO_ELIGIBLE_ACH_ACCOUNT`
+  - `ALPACA_ACCOUNT_REQUIRED`
+  - `ALPACA_ACCOUNT_NOT_MAPPED`
+  - `ALPACA_CONNECT_NOT_CONFIGURED`
+  - `ACH_RELATIONSHIP_PENDING`
+  - `ACH_RELATIONSHIP_FAILED`
+- Each funding account may include an `auth_summary` block with sanitized Plaid Auth-derived metadata only:
+  - `has_ach_numbers`
+  - `verification_status`
+  - `is_tokenized_account_number`
+  - summarized `network_status`
+  - `auth_fetched_at`
+  - `auth_fingerprint`
+- Raw ACH details are never part of the contract:
+  - no raw routing numbers
+  - no raw account numbers
+  - no full Plaid Auth payload echo
+  - backend may use Plaid Auth transiently for eligibility checks, but only sanitized metadata can be persisted or returned
+- Funded-trade progression is a supervised v1:
+  - create funding transfer
+  - create funded trade intent in `funding_pending`
+  - advance state through transfer refresh or `POST /api/kai/plaid/funding/reconcile`
+  - submit the Alpaca order only after funded settlement is confirmed
+  - progress may require client polling or operator reconciliation; this lane is not documented as fully unattended
+
 #### Kai Support Messaging
 
 | Method | Path | Description |
@@ -231,7 +288,7 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 Reserved future surface:
 
 - broker execution will live under a separate `/api/kai/brokers/*` or `/api/kai/execution/*` family
-- no live-trading routes exist today
+- the current `/api/kai/plaid/*` funding lane supports hosted sandbox/paper funding orchestration and funded-trade submission
 - trade execution will require distinct consent scopes, approval, and audit logging
 
 #### Vault Key Metadata (Setup/Get)

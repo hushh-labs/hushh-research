@@ -9,7 +9,12 @@ from typing import Any
 
 _ALPACA_BASE_URLS = {
     "sandbox": "https://broker-api.sandbox.alpaca.markets",
-    "production": "https://broker-api.alpaca.markets",
+    "live": "https://broker-api.alpaca.markets",
+}
+
+_ALPACA_AUTHX_TOKEN_URLS = {
+    "sandbox": "https://authx.sandbox.alpaca.markets/v1/oauth2/token",
+    "live": "https://authx.alpaca.markets/v1/oauth2/token",
 }
 
 
@@ -26,6 +31,13 @@ def _first_non_empty(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def _normalize_environment(value: Any, *, default: str = "sandbox") -> str:
+    normalized = _clean_text(value, default=default).lower()
+    if normalized in {"production", "prod", "live"}:
+        return "live"
+    return "sandbox"
 
 
 def _normalize_auth_header(
@@ -54,17 +66,56 @@ class AlpacaBrokerRuntimeConfig:
     base_url: str
     auth_header: str
     default_account_id: str | None
+    auth_mode: str = "none"
+    authx_token_url: str | None = None
+    authx_client_id: str | None = None
+    authx_client_secret: str | None = None
 
     @property
     def configured(self) -> bool:
-        return bool(self.base_url and self.auth_header)
+        return bool(
+            self.base_url
+            and (
+                self.auth_header
+                or (
+                    self.authx_client_id
+                    and self.authx_client_secret
+                    and self.authx_token_url
+                )
+            )
+        )
+
+    @property
+    def is_live(self) -> bool:
+        return self.environment in {"live", "production"}
+
+    @property
+    def auth_strategy(self) -> str:
+        if self.auth_mode and self.auth_mode != "none":
+            return self.auth_mode
+        if self.auth_header:
+            if self.auth_header.lower().startswith("bearer "):
+                return "static_bearer"
+            return "legacy_basic"
+        if self.authx_client_id and self.authx_client_secret and self.authx_token_url:
+            return "authx_client_credentials"
+        return "none"
+
+    @property
+    def auth_fingerprint_material(self) -> str:
+        if self.auth_header:
+            return self.auth_header
+        if self.authx_client_id and self.authx_client_secret:
+            token_url = _clean_text(self.authx_token_url)
+            return f"{self.authx_client_id}::{self.authx_client_secret}::{token_url}"
+        return ""
 
     @classmethod
     def from_env(cls) -> "AlpacaBrokerRuntimeConfig":
-        environment = _clean_text(
+        environment = _normalize_environment(
             os.getenv("ALPACA_ENV") or os.getenv("ALPACA_BROKER_ENV"),
             default="sandbox",
-        ).lower()
+        )
 
         explicit_base_url = _clean_text(
             os.getenv("ALPACA_BROKER_BASE_URL") or os.getenv("BROKER_API_BASE")
@@ -72,29 +123,44 @@ class AlpacaBrokerRuntimeConfig:
         mapped_base_url = _ALPACA_BASE_URLS.get(environment, _ALPACA_BASE_URLS["sandbox"])
         base_url = (explicit_base_url or mapped_base_url).rstrip("/")
 
-        auth_header = _normalize_auth_header(
-            auth_token=_first_non_empty(
-                os.getenv("ALPACA_BROKER_AUTH_TOKEN"),
-                os.getenv("BROKER_TOKEN"),
-                os.getenv("ALPACA_AUTH_TOKEN"),
-            )
-            or None,
-            key_id=_first_non_empty(
-                os.getenv("ALPACA_BROKER_KEY_ID"),
-                os.getenv("APCA_API_KEY_ID"),
-                os.getenv("ALPACA_API_KEY"),
-                os.getenv("ALPACA_KEY_ID"),
-            )
-            or None,
-            secret=_first_non_empty(
-                os.getenv("ALPACA_BROKER_SECRET"),
-                os.getenv("APCA_API_SECRET_KEY"),
-                os.getenv("ALPACA_API_SECRET"),
-                os.getenv("ALPACA_SECRET_KEY"),
-                os.getenv("ALPACA_API_SECRET_KEY"),
-            )
-            or None,
+        static_auth_token = _first_non_empty(
+            os.getenv("ALPACA_BROKER_AUTH_TOKEN"),
+            os.getenv("BROKER_TOKEN"),
+            os.getenv("ALPACA_AUTH_TOKEN"),
         )
+        authx_client_id = _first_non_empty(os.getenv("ALPACA_BROKER_CLIENT_ID"))
+        authx_client_secret = _first_non_empty(os.getenv("ALPACA_BROKER_CLIENT_SECRET"))
+        key_id = _first_non_empty(
+            os.getenv("ALPACA_BROKER_KEY_ID"),
+            os.getenv("APCA_API_KEY_ID"),
+            os.getenv("ALPACA_API_KEY"),
+            os.getenv("ALPACA_KEY_ID"),
+        )
+        secret = _first_non_empty(
+            os.getenv("ALPACA_BROKER_SECRET"),
+            os.getenv("APCA_API_SECRET_KEY"),
+            os.getenv("ALPACA_API_SECRET"),
+            os.getenv("ALPACA_SECRET_KEY"),
+            os.getenv("ALPACA_API_SECRET_KEY"),
+        )
+        auth_header = ""
+        authx_token_url = _ALPACA_AUTHX_TOKEN_URLS.get(environment)
+        auth_mode = "none"
+        if static_auth_token:
+            auth_header = _normalize_auth_header(auth_token=static_auth_token, key_id=None, secret=None)
+            auth_mode = (
+                "static_bearer" if auth_header.lower().startswith("bearer ") else "legacy_basic"
+            )
+        elif authx_client_id and authx_client_secret:
+            auth_mode = "authx_client_credentials"
+        else:
+            auth_header = _normalize_auth_header(
+                auth_token=None,
+                key_id=key_id or None,
+                secret=secret or None,
+            )
+            if auth_header:
+                auth_mode = "legacy_basic"
 
         default_account_id = _clean_text(os.getenv("ALPACA_DEFAULT_ACCOUNT_ID")) or None
         return cls(
@@ -102,6 +168,10 @@ class AlpacaBrokerRuntimeConfig:
             base_url=base_url,
             auth_header=auth_header,
             default_account_id=default_account_id,
+            auth_mode=auth_mode,
+            authx_token_url=authx_token_url if auth_mode == "authx_client_credentials" else None,
+            authx_client_id=authx_client_id or None,
+            authx_client_secret=authx_client_secret or None,
         )
 
     def to_status(self) -> dict[str, Any]:
@@ -110,4 +180,5 @@ class AlpacaBrokerRuntimeConfig:
             "alpaca_environment": self.environment,
             "alpaca_base_url": self.base_url,
             "alpaca_default_account_id": self.default_account_id,
+            "alpaca_auth_mode": self.auth_strategy,
         }

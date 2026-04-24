@@ -5,12 +5,15 @@ name = "hushh-consent-protocol"
 version = "1.0.0"
 description = "Consent-first backend for Hushh Personal Data Agents"
 requires-python = ">=3.13"
-license = { text = "MIT" }
+license = "MIT"
 readme = "README.md"
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hushh_mcp*", "api*", "mcp_modules*", "db*"]
 
 [tool.ruff]
 # Python 3.13 - aligned with CI and Dockerfile

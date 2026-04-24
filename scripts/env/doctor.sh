@@ -144,6 +144,10 @@ BACKEND_FRONTEND_TARGET="$(read_env_value "$BACKEND_SOURCE" "FRONTEND_URL")"
 BACKEND_DB_HOST="$(read_env_value "$BACKEND_SOURCE" "DB_HOST")"
 BACKEND_CLOUDSQL_INSTANCE="$(read_env_value "$BACKEND_SOURCE" "CLOUDSQL_INSTANCE_CONNECTION_NAME")"
 BACKEND_FIREBASE_JSON="$(read_env_value "$BACKEND_SOURCE" "FIREBASE_SERVICE_ACCOUNT_JSON")"
+BACKEND_RIA_VERIFY_BASE_URL="$(read_env_value "$BACKEND_SOURCE" "RIA_INTELLIGENCE_VERIFY_BASE_URL")"
+BACKEND_RIA_VERIFY_URL="$(read_env_value "$BACKEND_SOURCE" "RIA_INTELLIGENCE_VERIFY_URL")"
+BACKEND_RECAPTCHA_SITE_KEY="$(read_env_value "$BACKEND_SOURCE" "RECAPTCHA_ENTERPRISE_SITE_KEY")"
+FRONTEND_RECAPTCHA_SITE_KEY="$(read_env_value "$FRONTEND_SOURCE" "NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY")"
 
 if [ "$BACKEND_SOURCE_PROFILE" = "local" ]; then
   add_check "backend_source_profile" "pass" "backend local runtime mode preserved"
@@ -226,6 +230,30 @@ if [ -n "$BACKEND_FRONTEND_TARGET" ] && ! is_placeholder "$BACKEND_FRONTEND_TARG
 else
   add_check "backend_frontend_allowlist" "fail" "FRONTEND_URL is missing or still a template placeholder"
   RUNNABLE=false
+fi
+
+if { [ -n "$BACKEND_RIA_VERIFY_BASE_URL" ] && ! is_placeholder "$BACKEND_RIA_VERIFY_BASE_URL"; } || \
+   { [ -n "$BACKEND_RIA_VERIFY_URL" ] && ! is_placeholder "$BACKEND_RIA_VERIFY_URL"; }; then
+  add_check "ria_stage1_provider" "pass" "${BACKEND_RIA_VERIFY_URL:-$BACKEND_RIA_VERIFY_BASE_URL}"
+else
+  if [ "$PROFILE" = "local" ]; then
+    add_check "ria_stage1_provider" "fail" "RIA Stage 1 verifier is not configured. Set RIA_INTELLIGENCE_VERIFY_BASE_URL or RIA_INTELLIGENCE_VERIFY_URL."
+    RUNNABLE=false
+  else
+    add_check "ria_stage1_provider" "warn" "Local backend file has no RIA Stage 1 verifier configured. Remote backend may still be configured for $PROFILE."
+  fi
+fi
+
+if [ -n "$BACKEND_RECAPTCHA_SITE_KEY" ] && ! is_placeholder "$BACKEND_RECAPTCHA_SITE_KEY"; then
+  add_check "backend_recaptcha_enterprise" "pass" "RECAPTCHA_ENTERPRISE_SITE_KEY is configured"
+else
+  add_check "backend_recaptcha_enterprise" "warn" "RECAPTCHA_ENTERPRISE_SITE_KEY is unset; abuse protection will degrade after threshold crossings"
+fi
+
+if [ -n "$FRONTEND_RECAPTCHA_SITE_KEY" ] && ! is_placeholder "$FRONTEND_RECAPTCHA_SITE_KEY"; then
+  add_check "frontend_recaptcha_enterprise" "pass" "NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY is configured"
+else
+  add_check "frontend_recaptcha_enterprise" "warn" "NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY is unset; browser retry for captcha_required will be unavailable"
 fi
 
 case "$PROFILE" in

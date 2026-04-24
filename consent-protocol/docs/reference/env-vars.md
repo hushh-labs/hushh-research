@@ -55,7 +55,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py`, `mcp_server.py` | Optional | Self-serve developer token used by stdio MCP and token-auth `/api/user/lookup`. It is not part of the normal hosted runtime contract. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | No | Set `True` for Vertex AI in production. |
-| `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. |
+| `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. Kai's hosted real-bank contract uses `production` for both Limited Production/trial and full production. |
 | `PLAID_CLIENT_ID` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid client ID. |
 | `PLAID_SECRET` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid secret for the selected environment. |
 | `PLAID_CLIENT_NAME` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Link display name. Defaults to `Hushh Kai`. |
@@ -67,11 +67,13 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `PLAID_TX_HISTORY_DAYS` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Investment transaction lookback window. Default `730`. |
 | `PLAID_WEBHOOK_VERIFICATION_ENABLED` | `hushh_mcp/services/broker_funding_service.py` | Recommended | Enables Plaid webhook JWT signature verification (default `true`). |
 | `PLAID_WEBHOOK_MAX_SKEW_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Max allowed clock skew for Plaid webhook `iat` claim. Default `300`. |
-| `ALPACA_ENV` / `ALPACA_BROKER_ENV` | `hushh_mcp/integrations/alpaca/config.py` | No | Alpaca Broker environment. Defaults to `sandbox`. |
+| `ALPACA_ENV` / `ALPACA_BROKER_ENV` | `hushh_mcp/integrations/alpaca/config.py` | No | Alpaca Broker environment. Defaults to `sandbox`. Broker API uses `sandbox` or `production`; this is separate from `ALPACA_CONNECT_ENV` (`paper` or `live`). |
 | `ALPACA_BROKER_BASE_URL` / `BROKER_API_BASE` | `hushh_mcp/integrations/alpaca/config.py` | Optional | Override Alpaca Broker API base URL. |
-| `ALPACA_BROKER_AUTH_TOKEN` / `BROKER_TOKEN` / `ALPACA_AUTH_TOKEN` | `hushh_mcp/integrations/alpaca/config.py` | Optional | Pre-built Authorization header token (Basic or Bearer). |
-| `ALPACA_BROKER_KEY_ID` / `APCA_API_KEY_ID` / `ALPACA_API_KEY` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Alpaca API key ID for Basic auth generation. |
-| `ALPACA_BROKER_SECRET` / `APCA_API_SECRET_KEY` / `ALPACA_API_SECRET` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Alpaca API secret for Basic auth generation. |
+| `ALPACA_BROKER_AUTH_TOKEN` / `BROKER_TOKEN` / `ALPACA_AUTH_TOKEN` | `hushh_mcp/integrations/alpaca/config.py` | Optional | Pre-built Authorization header token (Bearer or Basic). |
+| `ALPACA_BROKER_CLIENT_ID` | `hushh_mcp/integrations/alpaca/config.py` | Optional | AuthX Broker OAuth client ID for `client_credentials`. Preferred live funding auth path. |
+| `ALPACA_BROKER_CLIENT_SECRET` | `hushh_mcp/integrations/alpaca/config.py` | Optional | AuthX Broker OAuth client secret paired with `ALPACA_BROKER_CLIENT_ID`. |
+| `ALPACA_BROKER_KEY_ID` / `APCA_API_KEY_ID` / `ALPACA_API_KEY` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Legacy Basic-auth key for Broker API access. Hosted deploy may source it from compatibility secret `ALPACA_API_KEY`. |
+| `ALPACA_BROKER_SECRET` / `APCA_API_SECRET_KEY` / `ALPACA_API_SECRET` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Legacy Basic-auth secret paired with `ALPACA_BROKER_KEY_ID`. Hosted deploy may source it from compatibility secret `ALPACA_API_SECRET`. |
 | `ALPACA_DEFAULT_ACCOUNT_ID` | `hushh_mcp/integrations/alpaca/config.py` | Recommended | Default Alpaca account ID for funding when user-specific mapping is absent. |
 | `ALPACA_CONNECT_CLIENT_ID` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client ID for user login flow. |
 | `ALPACA_CONNECT_CLIENT_SECRET` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client secret. |
@@ -82,7 +84,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `ALPACA_CONNECT_SCOPES` | `hushh_mcp/services/broker_funding_service.py` | No | Space-delimited OAuth scopes for authorize URL. Default `account:write trading`. |
 | `ALPACA_CONNECT_ENV` | `hushh_mcp/services/broker_funding_service.py` | No | Authorize URL env hint (`paper` or `live`). Defaults by Alpaca runtime env. |
 | `ALPACA_CONNECT_STATE_TTL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | OAuth state/session TTL in seconds. Default `900`. |
-| `FUNDING_SECRET_ENCRYPTION_KEY` | `hushh_mcp/services/broker_funding_service.py` | Recommended | Encryption key for stored Plaid access tokens and processor tokens in funding tables. |
+| `FUNDING_SECRET_ENCRYPTION_KEY` | `hushh_mcp/services/broker_funding_service.py` | Required in hosted funding runtimes | Encryption key for stored Plaid access tokens and processor tokens in funding tables. Hosted runtimes must set this or `PLAID_TOKEN_ENCRYPTION_KEY`; the derived fallback is now local/test-only. |
 | `FUNDING_ACH_RELATIONSHIP_POLL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Max seconds to poll Alpaca ACH relationship approval. Default `15`. |
 | `FUNDING_ACH_RELATIONSHIP_POLL_INTERVAL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Poll interval for ACH approval status. Default `2`. |
 | `FUNDING_TRANSFER_MAX_INCOMING_USD` | `hushh_mcp/services/broker_funding_service.py` | No | Max allowed incoming funding transfer amount. Default `250000`. |

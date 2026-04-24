@@ -138,7 +138,7 @@ Production analytics key migration is deferred intentionally and should be handl
      --frontend-service hushh-webapp
    ```
 
-   For brokerage-enabled environments such as UAT Plaid testing, include:
+   For hosted Plaid + Alpaca funding environments, include:
 
    ```bash
    python3 scripts/ops/verify-env-secrets-parity.py \
@@ -146,10 +146,11 @@ Production analytics key migration is deferred intentionally and should be handl
      --region us-central1 \
      --backend-service consent-protocol \
      --frontend-service hushh-webapp \
-     --require-plaid
+     --require-plaid \
+     --require-alpaca-funding
    ```
 
-   Required backend secrets (11):
+   Required backend secrets (10):
 
    - `SECRET_KEY`
    - `VAULT_ENCRYPTION_KEY`
@@ -162,16 +163,33 @@ Production analytics key migration is deferred intentionally and should be handl
    - `APP_REVIEW_MODE`
    - `REVIEWER_UID`
 
-   Optional when Plaid brokerage is enabled (3):
+   Required when Plaid brokerage is enabled (3):
 
    - `PLAID_CLIENT_ID`
    - `PLAID_SECRET`
    - `PLAID_TOKEN_ENCRYPTION_KEY`
 
+   Required when Plaid -> Alpaca funding is enabled (3 + broker auth option):
+
+   - `ALPACA_CONNECT_CLIENT_ID`
+   - `ALPACA_CONNECT_CLIENT_SECRET`
+   - `FUNDING_SECRET_ENCRYPTION_KEY`
+   - one auth option:
+     `ALPACA_BROKER_CLIENT_ID` + `ALPACA_BROKER_CLIENT_SECRET`
+     or
+     `ALPACA_BROKER_AUTH_TOKEN`
+     or `ALPACA_BROKER_KEY_ID` + `ALPACA_BROKER_SECRET`
+     or source-secret compatibility pair
+     `ALPACA_API_KEY` + `ALPACA_API_SECRET`
+
    **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
    Plaid webhook and callback settings are runtime env vars, not dashboard secrets:
-   `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`.
-   UAT and production use the live/shared Plaid credential set; local development stays on sandbox-only credentials.
+   `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_REDIRECT_URI`, `PLAID_TX_HISTORY_DAYS`.
+   Alpaca funding runtime wiring is also env-var based:
+   `ALPACA_ENV`, `ALPACA_BROKER_BASE_URL`, `ALPACA_DEFAULT_ACCOUNT_ID`, `ALPACA_CONNECT_REDIRECT_URI`, `ALPACA_CONNECT_AUTHORIZE_URL`, `ALPACA_CONNECT_TOKEN_URL`, `ALPACA_CONNECT_ACCOUNT_URL`, `ALPACA_CONNECT_SCOPES`, `ALPACA_CONNECT_ENV`, `ALPACA_CONNECT_STATE_TTL_SECONDS`.
+   Production deploy wiring injects canonical AuthX Broker client credentials from `ALPACA_BROKER_CLIENT_ID` and `ALPACA_BROKER_CLIENT_SECRET` when present. Legacy Basic auth remains supported through `ALPACA_BROKER_KEY_ID` + `ALPACA_BROKER_SECRET`, and current hosted deploy wiring still maps source secrets `ALPACA_API_KEY` -> runtime `ALPACA_BROKER_KEY_ID` and `ALPACA_API_SECRET` -> runtime `ALPACA_BROKER_SECRET` when canonical Basic secret names are absent.
+   Current Plaid parity note: HushhTech source inventory `PLAID_PRODUCTION_SECRET` is already synced into Kai runtime secret `PLAID_SECRET`; Kai still uses Kai-specific callback and webhook URLs.
+   Real-bank Plaid lanes use `PLAID_ENV=production` for both Limited Production/trial and full production. UAT keeps live Plaid credentials but may still target Alpaca Broker `sandbox` with Alpaca Connect `paper`; production uses `ALPACA_ENV=live` with Alpaca Connect `live`.
 
 4. **Configure production logical backup infrastructure** (GCP)
 
@@ -217,8 +235,9 @@ Deploys Python FastAPI backend to Cloud Run:
 - Pushes to Google Container Registry
 - Deploys to `consent-protocol` service
 - Uses DB host/port env wiring (optionally supports Cloud SQL Unix socket when configured)
-- Injects secrets from Secret Manager
+- Injects Plaid, Alpaca Broker, and funding encryption secrets from Secret Manager
 - Sets `ENVIRONMENT=production` and `GOOGLE_GENAI_USE_VERTEXAI=True` (Vertex AI for Gemini)
+- Wires hosted Plaid OAuth resume and Alpaca Connect callback env vars for Kai funding
 
 ### Frontend (`frontend.cloudbuild.yaml`)
 
@@ -303,10 +322,14 @@ All required secrets must exist in Google Cloud Secret Manager before deployment
 **Backend (10 baseline secrets):** `SECRET_KEY`, `VAULT_ENCRYPTION_KEY`, `GOOGLE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON`, `FRONTEND_URL`, `DB_USER`, `DB_PASSWORD`, `APP_REVIEW_MODE`, `REVIEWER_UID`
 **Backend market-data secrets when Kai market home is enabled (2):** `FINNHUB_API_KEY`, `PMP_API_KEY`
 **Backend Plaid secrets when brokerage is enabled (3):** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_TOKEN_ENCRYPTION_KEY`
+**Backend Plaid source-secret mapping note:** HushhTech source inventory uses `PLAID_PRODUCTION_SECRET`; Kai runtime still consumes canonical `PLAID_SECRET`.
 
 **Note:** 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets) in `backend.cloudbuild.yaml`
-- Plaid Cloud Run env remains env-var based: `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`
+- `RIA_INTELLIGENCE_VERIFY_BASE_URL` is a Cloud Run env var in `backend.cloudbuild.yaml` and defaults to the hosted Stage 1 verifier; `RIA_INTELLIGENCE_VERIFY_API_KEY` stays an optional secret
+- Plaid Cloud Run env remains env-var based: `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_REDIRECT_URI`, `PLAID_TX_HISTORY_DAYS`. Limited Production/trial and full production both use `PLAID_ENV=production`.
+- Hosted Alpaca broker auth now wires canonical AuthX client credentials `ALPACA_BROKER_CLIENT_ID` + `ALPACA_BROKER_CLIENT_SECRET` when present. Legacy Basic auth remains supported through `ALPACA_BROKER_KEY_ID` + `ALPACA_BROKER_SECRET`, and deploy wiring can still source the legacy runtime envs from `ALPACA_API_KEY` + `ALPACA_API_SECRET`
+- `ALPACA_ENV` selects Broker API `sandbox|live` and still accepts `production` as a compatibility alias, while `ALPACA_CONNECT_ENV` selects Connect authorize `paper|live`
 - Migrations use DB_* only (no DATABASE_URL). See docs/reference/operations/env-and-secrets.md.
 - **Action required:** Create `DB_USER` and `DB_PASSWORD` secrets in Secret Manager if they don't exist:
   ```bash

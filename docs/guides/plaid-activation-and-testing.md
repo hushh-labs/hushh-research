@@ -7,6 +7,8 @@ Canonical visual owner: [Guides Index](README.md). Use that map for the top-down
 
 Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost, UAT, and hosted domains.
 
+For the writable Plaid bank-link -> Alpaca funding path, use [alpaca-funding-activation-and-testing.md](./alpaca-funding-activation-and-testing.md).
+
 ## What This Enables
 
 - brokerage Link connect
@@ -35,7 +37,8 @@ Webhook URLs do not need dashboard allowlisting. They are supplied by the backen
 
 Set these in the backend runtime profile:
 
-- `PLAID_ENV=sandbox`
+- `PLAID_ENV=sandbox` for local sandbox testing only
+- `PLAID_ENV=production` for Limited Production/trial and production real-bank testing
 - `PLAID_CLIENT_ID=...`
 - `PLAID_SECRET=...`
 - `PLAID_CLIENT_NAME=Hushh Kai`
@@ -46,6 +49,11 @@ Set these in the backend runtime profile:
 - `PLAID_TX_HISTORY_DAYS=730`
 
 `FRONTEND_URL` must match the active frontend origin for the current profile.
+
+Kai real-bank rule:
+
+- there is no separate hosted `development.plaid.com` lane in the Kai deploy contract
+- real-bank UAT and production runs both use `PLAID_ENV=production`
 
 Webhook values to use:
 
@@ -80,6 +88,13 @@ Hosted webhook targets:
 - `https://kai.hushh.ai/api/kai/plaid/webhook`
 
 Backend must use the matching `FRONTEND_URL` for each profile so the callback origin validation succeeds.
+
+Hosted Plaid parity note:
+
+- Kai runtime consumes canonical secrets `PLAID_CLIENT_ID` and `PLAID_SECRET`
+- current HushhTech source inventory uses `PLAID_CLIENT_ID` plus `PLAID_PRODUCTION_SECRET`
+- Kai already carries the matching production Plaid secret material, but callback allowlists and webhook targets remain Kai-specific
+- real-bank hosted runs should keep `PLAID_ENV=production`; localhost sandbox remains `PLAID_ENV=sandbox`
 
 ## Activation Steps
 

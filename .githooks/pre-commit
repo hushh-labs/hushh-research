@@ -3,7 +3,12 @@
 # Wrapper that delegates to consent-protocol's shared monorepo hook logic.
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+SECRET_SCAN="$REPO_ROOT/scripts/ci/secret-scan-staged.sh"
 DELEGATE="$REPO_ROOT/consent-protocol/ops/monorepo/pre-commit.sh"
+
+if [ -f "$SECRET_SCAN" ]; then
+  bash "$SECRET_SCAN" "$@" || exit $?
+fi
 
 if [ ! -f "$DELEGATE" ]; then
   echo "[pre-commit] Missing delegate script: consent-protocol/ops/monorepo/pre-commit.sh"
