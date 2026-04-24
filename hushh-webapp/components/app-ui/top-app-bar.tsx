@@ -113,7 +113,7 @@ function getTopBarTitle(
   }
 
   if (pathname === ROUTES.RIA_ONBOARDING || pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)) {
-    return { label: "Set up RIA", interactive: false as const };
+    return { label: "Set up RIA", icon: BriefcaseBusiness, interactive: true as const };
   }
 
   if (pathname === ROUTES.DEVELOPERS) {
@@ -194,6 +194,9 @@ export function TopAppBar({ className }: TopAppBarProps) {
       });
 
       if (target === activePersona) {
+        if (pathname === ROUTES.RIA_ONBOARDING && target === "investor") {
+          router.push(nextRoute);
+        }
         return;
       }
 
@@ -214,7 +217,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
         setSwitchingPersona(null);
       }
     },
-    [activePersona, lastKaiPath, lastRiaPath, riaCapability, riaEntryRoute, router, switchPersona]
+    [activePersona, lastKaiPath, lastRiaPath, pathname, riaCapability, riaEntryRoute, router, switchPersona]
   );
 
   // Subscribe to scroll-direction store so top glass height follows tabs visibility.
