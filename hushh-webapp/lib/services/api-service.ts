@@ -1457,6 +1457,22 @@ export class ApiService {
     });
   }
 
+  static async refreshAccountIdentityShadow(idToken?: string): Promise<Response> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
+        status: 401,
+      });
+    }
+
+    return apiFetch("/api/account/identity/refresh", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+    });
+  }
+
   /**
    * Delete session (logout)
    */

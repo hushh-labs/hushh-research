@@ -126,6 +126,36 @@ class ActorIdentityService:
             if str(row.get("user_id") or "").strip()
         }
 
+    async def _get_many_without_phone_shadow(
+        self, user_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                  user_id,
+                  display_name,
+                  email,
+                  NULL::TEXT AS phone_number,
+                  photo_url,
+                  email_verified,
+                  FALSE AS phone_verified,
+                  source,
+                  last_synced_at,
+                  created_at,
+                  updated_at
+                FROM actor_identity_cache
+                WHERE user_id = ANY($1::text[])
+                """,
+                user_ids,
+            )
+        return {
+            str(row["user_id"]): self._normalize_row(row)
+            for row in rows
+            if str(row.get("user_id") or "").strip()
+        }
+
     @staticmethod
     def _normalize_row(row: Any) -> dict[str, Any]:
         if not row:
@@ -194,6 +224,11 @@ class ActorIdentityService:
         except asyncpg.UndefinedTableError:
             logger.debug("actor_identity_cache missing; using legacy identity fallback")
             return await self._get_many_fallback(normalized_ids)
+        except asyncpg.UndefinedColumnError as exc:
+            if "phone_number" not in str(exc) and "phone_verified" not in str(exc):
+                raise
+            logger.debug("actor_identity_cache phone shadow missing; using pre-047 projection")
+            return await self._get_many_without_phone_shadow(normalized_ids)
         return {
             str(row["user_id"]): self._normalize_row(row)
             for row in rows

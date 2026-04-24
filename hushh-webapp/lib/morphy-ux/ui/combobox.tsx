@@ -49,6 +49,10 @@ function ensureMorphyComboboxStyles() {
     // Base UI uses pointer events + press handling; on some mobile stacks the default
     // `cursor-default` can combine with overlays to make taps feel dead.
     "[data-slot='combobox-item']{cursor:pointer}",
+    // Keep the trigger chevron contrast-correct by inheriting the host button color.
+    // This avoids muted gray icons disappearing on stronger hover/fill surfaces.
+    "[data-slot='combobox-trigger-icon']{color:currentColor!important;opacity:.72;transition:opacity 160ms ease,color 160ms ease}",
+    "[data-slot='button']:hover [data-slot='combobox-trigger-icon'],[data-slot='button']:focus-visible [data-slot='combobox-trigger-icon'],[data-slot='button'][data-state='open'] [data-slot='combobox-trigger-icon'],[data-slot='button'][data-pressed] [data-slot='combobox-trigger-icon']{opacity:1}",
   ].join("\n");
 
   document.head.appendChild(style);
