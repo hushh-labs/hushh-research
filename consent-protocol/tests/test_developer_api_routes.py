@@ -586,7 +586,7 @@ def test_request_consent_reuses_exact_pending_request(monkeypatch):
     payload = response.json()
     assert payload["status"] == "pending"
     assert payload["request_id"] == "req_pending_existing"
-    assert payload["message"] == "Consent request already pending in the Hushh app."
+    assert payload["message"] == "Consent request already pending in the Hussh app."
 
 
 def test_request_consent_marks_scope_upgrade_metadata(monkeypatch):

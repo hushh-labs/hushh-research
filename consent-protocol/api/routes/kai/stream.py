@@ -1367,7 +1367,8 @@ async def analyze_stream_generator(
         )
         await asyncio.sleep(0.05)
 
-        # Signal start of fundamental analysis
+        # Emit agent starts before the concurrent provider work begins so the stream
+        # contract still reflects real analysis start, not work that already completed.
         yield create_event(
             "agent_start",
             {
@@ -1379,6 +1380,61 @@ async def analyze_stream_generator(
                 "phase": "analysis",
             },
         )
+        yield create_event(
+            "agent_start",
+            {
+                "agent": "sentiment",
+                "agent_name": "Sentiment Agent",
+                "color": "#8b5cf6",
+                "message": f"Analyzing market sentiment for {ticker}...",
+                "round": 1,
+                "phase": "analysis",
+            },
+        )
+        yield create_event(
+            "agent_start",
+            {
+                "agent": "valuation",
+                "agent_name": "Valuation Agent",
+                "color": "#10b981",
+                "message": f"Calculating valuation metrics for {ticker}...",
+                "round": 1,
+                "phase": "analysis",
+            },
+        )
+
+        # Parallelize the sequential agent calls to reduce 'Time-To-First-Token' for the debate engine.
+        concurrent_results = await asyncio.gather(
+            asyncio.wait_for(
+                fundamental_agent.analyze(
+                    ticker=ticker,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    context=context,
+                ),
+                timeout=remaining_timeout(),
+            ),
+            asyncio.wait_for(
+                sentiment_agent.analyze(
+                    ticker=ticker,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    context=context,
+                ),
+                timeout=remaining_timeout(),
+            ),
+            asyncio.wait_for(
+                valuation_agent.analyze(
+                    ticker=ticker,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    context=context,
+                ),
+                timeout=remaining_timeout(),
+            ),
+            return_exceptions=True,
+        )
+        fundamental_first_res, sentiment_first_res, valuation_first_res = concurrent_results
 
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
@@ -1409,15 +1465,20 @@ async def analyze_stream_generator(
             for attempt in range(1, max_agent_attempts + 1):
                 try:
                     provider_calls_count += 1
-                    fundamental_insight = await asyncio.wait_for(
-                        fundamental_agent.analyze(
-                            ticker=ticker,
-                            user_id=user_id,
-                            consent_token=consent_token,
-                            context=context,
-                        ),
-                        timeout=remaining_timeout(),
-                    )
+                    if attempt == 1:
+                        if isinstance(fundamental_first_res, Exception):
+                            raise fundamental_first_res
+                        fundamental_insight = fundamental_first_res
+                    else:
+                        fundamental_insight = await asyncio.wait_for(
+                            fundamental_agent.analyze(
+                                ticker=ticker,
+                                user_id=user_id,
+                                consent_token=consent_token,
+                                context=context,
+                            ),
+                            timeout=remaining_timeout(),
+                        )
                     fundamental_last_error = None
                     break
                 except Exception as agent_err:
@@ -1520,19 +1581,6 @@ async def analyze_stream_generator(
         if await request.is_disconnected():
             return
 
-        # Signal start of sentiment analysis
-        yield create_event(
-            "agent_start",
-            {
-                "agent": "sentiment",
-                "agent_name": "Sentiment Agent",
-                "color": "#8b5cf6",
-                "message": f"Analyzing market sentiment for {ticker}...",
-                "round": 1,
-                "phase": "analysis",
-            },
-        )
-
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
             # Optional pre-analysis thinking stream for debug visibility.
@@ -1562,15 +1610,20 @@ async def analyze_stream_generator(
             for attempt in range(1, max_agent_attempts + 1):
                 try:
                     provider_calls_count += 1
-                    sentiment_insight = await asyncio.wait_for(
-                        sentiment_agent.analyze(
-                            ticker=ticker,
-                            user_id=user_id,
-                            consent_token=consent_token,
-                            context=context,
-                        ),
-                        timeout=remaining_timeout(),
-                    )
+                    if attempt == 1:
+                        if isinstance(sentiment_first_res, Exception):
+                            raise sentiment_first_res
+                        sentiment_insight = sentiment_first_res
+                    else:
+                        sentiment_insight = await asyncio.wait_for(
+                            sentiment_agent.analyze(
+                                ticker=ticker,
+                                user_id=user_id,
+                                consent_token=consent_token,
+                                context=context,
+                            ),
+                            timeout=remaining_timeout(),
+                        )
                     sentiment_last_error = None
                     break
                 except Exception as agent_err:
@@ -1662,19 +1715,6 @@ async def analyze_stream_generator(
         if await request.is_disconnected():
             return
 
-        # Signal start of valuation analysis
-        yield create_event(
-            "agent_start",
-            {
-                "agent": "valuation",
-                "agent_name": "Valuation Agent",
-                "color": "#10b981",
-                "message": f"Calculating valuation metrics for {ticker}...",
-                "round": 1,
-                "phase": "analysis",
-            },
-        )
-
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
             # Optional pre-analysis thinking stream for debug visibility.
@@ -1704,15 +1744,20 @@ async def analyze_stream_generator(
             for attempt in range(1, max_agent_attempts + 1):
                 try:
                     provider_calls_count += 1
-                    valuation_insight = await asyncio.wait_for(
-                        valuation_agent.analyze(
-                            ticker=ticker,
-                            user_id=user_id,
-                            consent_token=consent_token,
-                            context=context,
-                        ),
-                        timeout=remaining_timeout(),
-                    )
+                    if attempt == 1:
+                        if isinstance(valuation_first_res, Exception):
+                            raise valuation_first_res
+                        valuation_insight = valuation_first_res
+                    else:
+                        valuation_insight = await asyncio.wait_for(
+                            valuation_agent.analyze(
+                                ticker=ticker,
+                                user_id=user_id,
+                                consent_token=consent_token,
+                                context=context,
+                            ),
+                            timeout=remaining_timeout(),
+                        )
                     valuation_last_error = None
                     break
                 except Exception as agent_err:

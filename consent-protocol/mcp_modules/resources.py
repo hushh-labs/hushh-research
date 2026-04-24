@@ -16,7 +16,7 @@ async def list_resources() -> list[Resource]:
         Resource(
             uri="hushh://info/server",
             name="Server Information",
-            description="Hushh MCP Server version and capabilities",
+            description="Hussh MCP Server version and capabilities",
             mimeType="application/json",
         ),
         Resource(
@@ -28,7 +28,7 @@ async def list_resources() -> list[Resource]:
         Resource(
             uri="hushh://info/connector",
             name="Connector usage and capabilities",
-            description="What the Hushh connector does, tool list, recommended flow, and supported scopes",
+            description="What the Hussh connector does, tool list, recommended flow, and supported scopes",
             mimeType="application/json",
         ),
     ]
@@ -73,7 +73,7 @@ async def read_resource(uri: str) -> str:
 
     elif uri_str == "hushh://info/connector":
         connector_info = {
-            "what": "The Hushh connector provides consent-first personal data access for AI agents. Data is only returned after explicit user approval. Zero-knowledge and scoped access apply where applicable.",
+            "what": "The Hussh connector provides consent-first personal data access for AI agents. Data is only returned after explicit user approval. Zero-knowledge and scoped access apply where applicable.",
             "tools": [
                 {
                     "name": "request_consent",
@@ -151,7 +151,7 @@ async def read_resource(uri: str) -> str:
             "supported_scopes": "world_model.read, world_model.write, attr.{domain}.*, and attr.{domain}.{subintent}.* when metadata exposes subintents. No fixed list.",
             "discover_scopes": "Call discover_user_domains(user_id) first to get this user's domains and scope strings. Backend uses GET /api/v1/user-scopes/{user_id} (developer-auth) and validates against world_model_index_v2 + domain_registry metadata.",
             "server_backend": "Backend: FastAPI consent API. Set CONSENT_API_URL if not using default (e.g. http://localhost:8000).",
-            "consent_ui_required": "When request_consent returns 'pending', the user must approve in the Hushh app (consents/dashboard). Delivery is FCM-first in production; consent SSE/polling is disabled for this flow.",
+            "consent_ui_required": "When request_consent returns 'pending', the user must approve in the Hussh app (consents/dashboard). Delivery is FCM-first in production; consent SSE/polling is disabled for this flow.",
         }
         return json.dumps(connector_info, indent=2)
 

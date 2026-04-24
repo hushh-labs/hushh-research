@@ -102,7 +102,7 @@ These are read by `mcp_server.py` (separate from the main FastAPI server):
 |----------|---------|-------------|
 | `CONSENT_API_URL` | `http://127.0.0.1:8000` | FastAPI backend URL. Defaults to loopback + `PORT` when unset. |
 | `APP_FRONTEND_ORIGIN` | `http://localhost:3000` | Backend-owned app origin for user-facing links. Do not add this to public MCP host configs. |
-| `PRODUCTION_MODE` | `true` | Require real user approval via Hushh app. |
+| `PRODUCTION_MODE` | `true` | Require real user approval via Hussh app. |
 | `HUSHH_DEVELOPER_TOKEN` | _(none)_ | Self-serve developer token for stdio MCP. |
 | `CONSENT_TIMEOUT_SECONDS` | `120` | Max wait for user consent approval. |
 

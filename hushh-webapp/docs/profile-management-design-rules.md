@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Hushh Webapp Docs](./README.md). Use that index for the package-level surface map; this page is the narrower profile-management rule beneath it.
+Canonical visual owner: [Hussh Webapp Docs](./README.md). Use that index for the package-level surface map; this page is the narrower profile-management rule beneath it.
 
 ## Purpose
 

@@ -2,7 +2,7 @@
  * Morphy-UX
  * 
  * A self-contained, portable physics-based UI library for React + Tailwind.
- * Built for the Hushh Agent Platform.
+ * Built for the Hussh agent platform.
  * 
  * @example
  * import { cn, useRipple, hushhColors, morphyGradients } from "@/lib/morphy-ux";

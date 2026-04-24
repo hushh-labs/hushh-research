@@ -32,6 +32,10 @@ export type RiaOnboardingStep = {
   description: string;
 };
 
+export type RiaOnboardingFlowOptions = {
+  nameVerificationSatisfied?: boolean;
+};
+
 const STEP_ORDER: RiaOnboardingStepId[] = [
   "capabilities",
   "display_name",
@@ -105,7 +109,10 @@ export function normalizeRiaOnboardingDraft(
   };
 }
 
-export function buildRiaOnboardingSteps(draft: RiaOnboardingDraft): RiaOnboardingStep[] {
+export function buildRiaOnboardingSteps(
+  draft: RiaOnboardingDraft,
+  _options?: RiaOnboardingFlowOptions
+): RiaOnboardingStep[] {
   const steps: RiaOnboardingStep[] = [
     {
       id: "capabilities",
@@ -117,28 +124,11 @@ export function buildRiaOnboardingSteps(draft: RiaOnboardingDraft): RiaOnboardin
     {
       id: "display_name",
       eyebrow: "Identity",
-      title: "What name should investors recognize immediately?",
+      title: "What name should Kai verify first?",
       description:
-        "This is the public name carried into discovery, invites, and consent surfaces.",
-    },
-    {
-      id: "legal_identity",
-      eyebrow: "Verification",
-      title: "Who should Kai verify against regulator records?",
-      description:
-        "We use your legal name and individual CRD to fail closed before any advisor workflow goes live.",
+        "Enter the advisor name once. Kai verifies it in the background before the rest of the RIA workflow opens.",
     },
   ];
-
-  if (draft.requestedCapabilities.includes("advisory")) {
-    steps.push({
-      id: "advisory_firm",
-      eyebrow: "Advisory Firm",
-      title: "Which advisory firm should Kai verify with your profile?",
-      description:
-        "Use the primary registered advisory firm and IAPD/IARD number investors should trust.",
-    });
-  }
 
   if (draft.requestedCapabilities.includes("brokerage")) {
     steps.push({
@@ -172,13 +162,14 @@ export function buildRiaOnboardingSteps(draft: RiaOnboardingDraft): RiaOnboardin
 
 export function canContinueRiaOnboardingStep(
   stepId: RiaOnboardingStepId,
-  draft: RiaOnboardingDraft
+  draft: RiaOnboardingDraft,
+  options?: RiaOnboardingFlowOptions
 ): boolean {
   switch (stepId) {
     case "capabilities":
       return draft.requestedCapabilities.length > 0;
     case "display_name":
-      return draft.displayName.trim().length > 0;
+      return draft.displayName.trim().length > 0 && Boolean(options?.nameVerificationSatisfied);
     case "legal_identity":
       return (
         draft.individualLegalName.trim().length > 0 &&
@@ -210,30 +201,36 @@ export function getRequestedCapabilityLabels(draft: RiaOnboardingDraft): string[
 
 export function resolveRiaOnboardingStepId(
   draft: RiaOnboardingDraft,
-  preferredStepId?: RiaOnboardingStepId | null
+  preferredStepId?: RiaOnboardingStepId | null,
+  options?: RiaOnboardingFlowOptions
 ): RiaOnboardingStepId {
-  const steps = buildRiaOnboardingSteps(draft);
+  const steps = buildRiaOnboardingSteps(draft, options);
   if (preferredStepId && steps.some((step) => step.id === preferredStepId)) {
     return preferredStepId;
   }
   if (preferredStepId) {
     return steps[0]?.id || "capabilities";
   }
-  return findFirstIncompleteRiaOnboardingStepId(draft);
+  return findFirstIncompleteRiaOnboardingStepId(draft, options);
 }
 
 export function findFirstIncompleteRiaOnboardingStepId(
-  draft: RiaOnboardingDraft
+  draft: RiaOnboardingDraft,
+  options?: RiaOnboardingFlowOptions
 ): RiaOnboardingStepId {
-  const steps = buildRiaOnboardingSteps(draft);
-  const incomplete = steps.find((step) => step.id !== "review" && !canContinueRiaOnboardingStep(step.id, draft));
+  const steps = buildRiaOnboardingSteps(draft, options);
+  const incomplete = steps.find(
+    (step) =>
+      step.id !== "review" && !canContinueRiaOnboardingStep(step.id, draft, options)
+  );
   return incomplete?.id || "review";
 }
 
 export function getRiaOnboardingStepIndex(
   draft: RiaOnboardingDraft,
-  currentStepId: RiaOnboardingStepId
+  currentStepId: RiaOnboardingStepId,
+  options?: RiaOnboardingFlowOptions
 ): number {
-  const index = buildRiaOnboardingSteps(draft).findIndex((step) => step.id === currentStepId);
+  const index = buildRiaOnboardingSteps(draft, options).findIndex((step) => step.id === currentStepId);
   return index >= 0 ? index : 0;
 }

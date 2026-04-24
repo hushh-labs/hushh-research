@@ -17,10 +17,17 @@ flowchart LR
 
 Canonical reference for how Kai handles brokerage connectivity today and how the model stays compatible with future broker execution.
 
+Founder-language framing:
+
+- this surface is governed by `Separation of Duties`: brokerage transport, app-facing context, and future execution adapters stay intentionally split
+- `Capability Tokens` gate portfolio access and source selection
+- `Cryptographic Primitives` keep private investor context encrypted while Plaid server-state stays outside PKM
+- future execution requires stronger approval flows beyond today's PCHP-backed read path
+
 ## North Stars
 
 - Consent before access and consent before action
-- BYOK and memory-only sensitive state
+- Cryptographic Primitives and memory-only sensitive state
 - Tri-flow parity across web, iOS, and Android
 - Low-friction investor answers, with debate remaining separate
 - Clear provenance: editable statement data vs immutable broker-sourced data

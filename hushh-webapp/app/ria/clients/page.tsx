@@ -30,7 +30,7 @@ import {
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
+import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria-page-shell";
 
 type ClientListItem = RiaClientAccess & {
   isTestProfile?: boolean;
@@ -153,6 +153,7 @@ export default function RiaClientsPage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
+        <RiaVerificationGate>
         <div className="flex flex-col gap-8">
           <SettingsGroup
             embedded
@@ -221,6 +222,7 @@ export default function RiaClientsPage() {
             )}
           </SettingsGroup>
         </div>
+        </RiaVerificationGate>
       </AppPageContentRegion>
     </AppPageShell>
   );

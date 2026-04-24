@@ -3,7 +3,7 @@ name: vault-pkm-governance
 description: Use when changing vault boundaries, PKM storage rules, encrypted data handling, or vault/PKM upgrade behavior inside the security-audit owner family.
 ---
 
-# Hushh Vault PKM Governance Skill
+# Hussh Vault PKM Governance Skill
 
 ## Purpose and Trigger
 

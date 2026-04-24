@@ -1,7 +1,7 @@
 {
   "id": "future-roadmap-plan",
   "title": "Future Roadmap Plan",
-  "goal": "Turn future-state product or architecture ideas into planning-only docs grounded in Hushh north stars, trust boundaries, and current repo reality.",
+  "goal": "Turn future-state product or architecture ideas into planning-only docs grounded in Hussh north stars, trust boundaries, and current repo reality.",
   "owner_skill": "future-planner",
   "default_spoke": null,
   "task_type": "future-roadmap-plan",

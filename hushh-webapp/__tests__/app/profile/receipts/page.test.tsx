@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
       listReceipts: vi.fn(),
       syncNow: vi.fn(),
     },
+    useVault: vi.fn(),
   };
 });
 
@@ -102,11 +103,7 @@ vi.mock("@/lib/navigation/routes", () => ({
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
-    vaultKey: null,
-    vaultOwnerToken: null,
-    isVaultUnlocked: false,
-  }),
+  useVault: mocks.useVault,
 }));
 
 vi.mock("@/lib/services/vault-service", () => ({
@@ -344,6 +341,11 @@ describe("ProfileReceiptsPage", () => {
       },
       loading: false,
     });
+    mocks.useVault.mockReturnValue({
+      vaultKey: "vault-key-123",
+      vaultOwnerToken: "vault-owner-token-123",
+      isVaultUnlocked: true,
+    });
     gmailView = buildGmailView();
     mocks.useGmailConnectorStatus.mockReturnValue(gmailView);
 
@@ -371,6 +373,22 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.toast.message).toHaveBeenCalledWith("Syncing your receipts now.");
   });
 
+  it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
+    mocks.useVault.mockReturnValue({
+      vaultKey: null,
+      vaultOwnerToken: null,
+      isVaultUnlocked: false,
+    });
+
+    render(<ProfileReceiptsPage />);
+
+    expect(
+      await screen.findByText("Unlock your vault to view and summarize synced receipts.")
+    ).toBeTruthy();
+    expect(vi.mocked(GmailReceiptsService.listReceipts)).not.toHaveBeenCalled();
+    expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
+  });
+
   it("keeps older receipts appended after loading the next page", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockImplementation(async ({ page }) => {
       if (page === 1) {
@@ -395,6 +413,13 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(await screen.findByText("Page One Shop")).toBeTruthy();
+    expect(vi.mocked(GmailReceiptsService.listReceipts)).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        idToken: "token-abc",
+        vaultOwnerToken: "vault-owner-token-123",
+      })
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /load older receipts/i }));
 

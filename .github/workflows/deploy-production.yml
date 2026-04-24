@@ -51,7 +51,7 @@ jobs:
     name: Deploy Production Scope
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
-    environment: production-owner-bypass
+    environment: production
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -91,7 +91,7 @@ jobs:
 
       - name: Report production deploy lane
         run: |
-          echo "Owner-only production deploy: using production-owner-bypass environment."
+          echo "Owner-only production deploy: using production environment."
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

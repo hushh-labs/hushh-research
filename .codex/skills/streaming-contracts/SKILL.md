@@ -3,7 +3,7 @@ name: streaming-contracts
 description: Use when changing SSE events, streaming payload contracts, parser behavior, degraded-state handling, or provider-specific streaming notes.
 ---
 
-# Hushh Streaming Contracts Skill
+# Hussh Streaming Contracts Skill
 
 ## Purpose and Trigger
 

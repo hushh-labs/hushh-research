@@ -103,7 +103,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     """
     Get the encrypted wrapped-key export package for any approved consent token.
 
-    Hushh never decrypts the payload inside the hosted MCP runtime.
+    Hussh never decrypts the payload inside the hosted MCP runtime.
     """
     user_id = args.get("user_id")
     consent_token = args.get("consent_token")
@@ -126,7 +126,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
                         **({"required_scope": expected_scope} if expected_scope else {}),
-                        "privacy_notice": "Hushh requires explicit scoped consent before accessing personal data.",
+                        "privacy_notice": "Hussh requires explicit scoped consent before accessing personal data.",
                         "remedy": "Call discover_user_domains first, then request_consent with one of the discovered scopes.",
                     }
                 ),
@@ -184,7 +184,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
                     "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),
                     "message": export_payload.get("message"),
                     "privacy_note": (
-                        "This payload is encrypted. Hushh returns ciphertext plus wrapped key metadata only; "
+                        "This payload is encrypted. Hussh returns ciphertext plus wrapped key metadata only; "
                         "the external connector decrypts and narrows it client-side."
                     ),
                     "zero_knowledge": True,
@@ -222,7 +222,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                     {
                         "status": "user_not_found",
                         "email": original_identifier,
-                        "message": f"No Hushh account found for {original_identifier}",
+                        "message": f"No Hussh account found for {original_identifier}",
                     }
                 ),
             )
@@ -245,7 +245,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
                         "required_scope": "attr.financial.*",
-                        "privacy_notice": "Hushh requires explicit consent before accessing any personal data.",
+                        "privacy_notice": "Hussh requires explicit consent before accessing any personal data.",
                         "remedy": "Call request_consent with scope='attr.financial.*' first",
                     }
                 ),
@@ -358,7 +358,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                         "scope": "attr.financial.*",
                         "consent_verified": True,
                         "message": "The user has not saved any financial data yet, or the data export was not included with consent approval.",
-                        "suggestion": "Ask the user to import their portfolio in the Hushh app and re-approve consent.",
+                        "suggestion": "Ask the user to import their portfolio in the Hussh app and re-approve consent.",
                     }
                 ),
             )
@@ -417,7 +417,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
                         "required_scope": "pkm.read",
-                        "privacy_notice": "Hushh requires explicit consent before accessing any personal data.",
+                        "privacy_notice": "Hussh requires explicit consent before accessing any personal data.",
                         "remedy": "Call request_consent with scope='pkm.read' first",
                     }
                 ),
@@ -501,7 +501,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                         "compatibility_wrapper": "get_food_preferences",
                         "consent_verified": True,
                         "message": "The user has not saved any food preferences yet, or the data export was not included with consent approval.",
-                        "suggestion": "Ask the user to update their food preferences in the Hushh app and re-approve consent.",
+                        "suggestion": "Ask the user to update their food preferences in the Hussh app and re-approve consent.",
                     }
                 ),
             )
@@ -634,7 +634,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
                         "compatibility_wrapper": "get_professional_profile",
                         "consent_verified": True,
                         "message": "The user has not saved any professional profile yet, or the data export was not included with consent approval.",
-                        "suggestion": "Ask the user to update their professional profile in the Hushh app and re-approve consent.",
+                        "suggestion": "Ask the user to update their professional profile in the Hussh app and re-approve consent.",
                     }
                 ),
             )

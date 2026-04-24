@@ -94,6 +94,7 @@ Usage:
   ./bin/hushh codex route-task <workflow-id> [--json|--text] [--verbose]
   ./bin/hushh codex impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]
+  ./bin/hushh codex pre-pr [--include-advisory] [--report-path <path>] [--json|--text]
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
   ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
@@ -476,6 +477,12 @@ run_codex() {
     impact)
       [ "${#args[@]}" -ge 1 ] || die "codex impact requires <workflow-id>"
       exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
+      ;;
+    pre-pr)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/pre_pr_readiness.py" "${args[@]}" "$format_flag"
+      fi
+      exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/pre_pr_readiness.py" "$format_flag"
       ;;
     ci-status)
       if [ "${#args[@]}" -gt 0 ]; then

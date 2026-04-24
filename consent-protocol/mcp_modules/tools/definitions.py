@@ -8,7 +8,7 @@ from mcp.types import Tool
 
 def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Tool]:
     """
-    Return all Hushh consent tools for MCP hosts.
+    Return all Hussh consent tools for MCP hosts.
 
     Compliance: MCP tools/list specification
     Privacy: Tools enforce consent before any data access
@@ -72,7 +72,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "type": "string",
                         "description": (
                             "Base64-encoded X25519 public key owned by the external connector. "
-                            "Hushh wraps the export key to this public key and never manages the private key."
+                            "Hussh wraps the export key to this public key and never manages the private key."
                         ),
                     },
                     "connector_key_id": {
@@ -129,7 +129,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "📦 Retrieve the encrypted wrapped-key export for any valid consent token. "
                 "This is the recommended dynamic data-access tool for all new integrations. "
-                "Hushh returns ciphertext plus wrapped key metadata only; the external connector decrypts client-side."
+                "Hussh returns ciphertext plus wrapped key metadata only; the external connector decrypts client-side."
             ),
             inputSchema={
                 "type": "object",

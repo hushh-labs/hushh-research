@@ -2,7 +2,6 @@
 
 import {
   Activity,
-  ArrowUpRight,
   ChartColumnIncreasing,
   TrendingDown,
   TrendingUp,
@@ -51,9 +50,6 @@ const FALLBACK_ICON: Record<MarketOverviewMetric["tone"], LucideIcon> = {
   warning: Activity,
 };
 
-const MARKET_ACTION_CARD_CLASSNAME =
-  "shadow-[var(--app-card-shadow-standard)]";
-
 export function MarketOverviewGrid({
   metrics = [],
   onMetricSelect,
@@ -72,7 +68,7 @@ export function MarketOverviewGrid({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
       {metrics.map((metric) => {
         const actionable = Boolean(metric.detailPanel && onMetricSelect);
 
@@ -82,9 +78,7 @@ export function MarketOverviewGrid({
             className={cn(
               "h-full",
               marketCardClassName,
-              actionable && MARKET_ACTION_CARD_CLASSNAME,
-              actionable &&
-                "transition-[transform,box-shadow,background-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:bg-[color:var(--app-card-surface-hero)] group-hover:shadow-[var(--app-card-shadow-feature)]"
+              actionable && "shadow-[var(--app-card-shadow-standard)]"
             )}
           >
             <SurfaceCardContent className="flex h-full min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
@@ -141,18 +135,6 @@ export function MarketOverviewGrid({
                   </p>
                 ) : null}
               </div>
-              {actionable ? (
-                <div className="flex items-center justify-between border-t border-[color:var(--app-card-border-standard)]/80 pt-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/72">
-                    View detail
-                  </p>
-                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground/72 shadow-[var(--shadow-xs)] transition-colors group-hover:text-foreground">
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </span>
-                </div>
-              ) : (
-                <div className="h-[38px]" />
-              )}
             </SurfaceCardContent>
           </SurfaceCard>
         );
