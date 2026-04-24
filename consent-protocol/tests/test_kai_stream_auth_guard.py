@@ -152,11 +152,24 @@ class TestStreamAuthUserMismatch:
 
 @pytest.fixture
 def client(vault_owner_token_for_user):
-    """Thin FastAPI test client wrapping only the Kai stream router."""
+    """Thin FastAPI test client wrapping only the Kai stream router.
+
+    Import the stream module directly via importlib to avoid triggering
+    api/routes/kai/__init__.py, which eagerly imports every sibling router
+    (analyze.py → middleware.py → hushh_mcp services → asyncpg).  The
+    stream module itself carries no asyncpg dependency.
+    """
+    import importlib.util
+    from pathlib import Path
+
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from api.routes.kai.stream import router
+    stream_path = Path(__file__).resolve().parents[1] / "api" / "routes" / "kai" / "stream.py"
+    spec = importlib.util.spec_from_file_location("api.routes.kai.stream", stream_path)
+    stream_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stream_mod)
+    router = stream_mod.router
 
     app = FastAPI()
     app.include_router(router)
