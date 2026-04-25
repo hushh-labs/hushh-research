@@ -283,6 +283,7 @@ async function navigateInApp(page, href) {
 }
 
 const analyticsRequestMeasurementIds = [];
+const analyticsCollectEvents = [];
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
@@ -294,17 +295,122 @@ await installAnalyticsCapture(page);
 
 page.on("request", (request) => {
   const url = request.url();
-  if (!/google-analytics\.com\/(?:g\/)?collect/.test(url)) return;
-  try {
-    const parsed = new URL(url);
-    const measurementId = parsed.searchParams.get("tid");
-    if (measurementId) analyticsRequestMeasurementIds.push(measurementId);
-  } catch {
-    // Request URL parsing failure is non-fatal; the final measurement checks still run.
+  if (!isAnalyticsCollectUrl(url)) return;
+  const collect = parseAnalyticsCollectRequest(request);
+  if (!collect) return;
+  analyticsRequestMeasurementIds.push(collect.measurementId);
+  if (collect.eventName) {
+    analyticsCollectEvents.push({ ...collect, status: "requested" });
   }
 });
 
+page.on("requestfinished", (request) => {
+  const collect = parseAnalyticsCollectRequest(request);
+  if (collect?.eventName) {
+    analyticsCollectEvents.push({ ...collect, status: "finished" });
+  }
+});
+
+page.on("requestfailed", (request) => {
+  const collect = parseAnalyticsCollectRequest(request);
+  if (collect?.eventName) {
+    analyticsCollectEvents.push({
+      ...collect,
+      status: "failed",
+      failureText: request.failure()?.errorText || "unknown",
+    });
+  }
+});
+
+function parseAnalyticsCollectRequest(request) {
+  const url = request.url();
+  if (!isAnalyticsCollectUrl(url)) return null;
+  try {
+    const parsed = new URL(url);
+    const measurementId = parsed.searchParams.get("tid");
+    const queryEventName = parsed.searchParams.get("en");
+    if (!measurementId) return null;
+    if (queryEventName) {
+      return { measurementId, eventName: queryEventName };
+    }
+    const postData =
+      request.postData() ||
+      (typeof request.postDataBuffer === "function"
+        ? request.postDataBuffer()?.toString("utf8")
+        : "") ||
+      "";
+    for (const line of postData.split(/\r?\n/)) {
+      const bodyParams = new URLSearchParams(line);
+      const bodyEventName = bodyParams.get("en");
+      if (bodyEventName) {
+        return { measurementId, eventName: bodyEventName };
+      }
+    }
+    return { measurementId, eventName: "" };
+  } catch {
+    return null;
+  }
+}
+
+function isAnalyticsCollectUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      (host.endsWith("google-analytics.com") || host.endsWith("analytics.google.com")) &&
+      parsed.pathname.includes("collect")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function waitForAnalyticsCollectEvents(eventNames) {
+  const required = new Set(eventNames);
+  await page.waitForFunction(
+    ({ expectedMeasurementId: measurementId, requiredEvents }) => {
+      const observed = window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
+      return requiredEvents.every((eventName) =>
+        observed.some(
+          (entry) =>
+            entry.measurementId === measurementId &&
+            entry.eventName === eventName &&
+            entry.status === "finished"
+        )
+      );
+    },
+    {
+      expectedMeasurementId,
+      requiredEvents: [...required],
+    },
+    { timeout: defaultTimeoutMs }
+  );
+}
+
 try {
+  await page.addInitScript(() => {
+    window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ = [];
+  });
+  const mirrorCollectEvent = async (entry) => {
+    await page.evaluate((value) => {
+      window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ =
+        window.__HUSHH_ANALYTICS_COLLECT_EVENTS__ || [];
+      window.__HUSHH_ANALYTICS_COLLECT_EVENTS__.push(value);
+    }, entry).catch(() => {});
+  };
+  page.on("request", (request) => {
+    const collect = parseAnalyticsCollectRequest(request);
+    if (collect?.eventName) {
+      void mirrorCollectEvent({ ...collect, status: "requested" });
+    }
+  });
+  page.on("requestfinished", (request) => {
+    const collect = parseAnalyticsCollectRequest(request);
+    if (collect?.eventName) {
+      void mirrorCollectEvent({ ...collect, status: "finished" });
+    }
+  });
+
   await page.goto(`${appOrigin}/login?redirect=${encodeURIComponent("/kai")}`, {
     waitUntil: "domcontentloaded",
   });
@@ -348,6 +454,12 @@ try {
     (payload) => payload.journey === "investor",
     defaultTimeoutMs
   );
+  await waitForAnalyticsCollectEvents([
+    "growth_funnel_step_completed",
+    "portfolio_viewed",
+    "recommendation_viewed",
+    "investor_activation_completed",
+  ]);
 
   const state = await getSmokeState(page);
   const measurementIds = new Set([
@@ -370,6 +482,18 @@ try {
         origin: appOrigin,
         expectedMeasurementId,
         observedMeasurementIds: [...measurementIds].sort(),
+        observedGaCollectEvents: [
+          ...new Set(
+            analyticsCollectEvents
+              .filter(
+                (entry) =>
+                  entry.measurementId === expectedMeasurementId &&
+                  entry.eventName &&
+                  entry.status !== "failed"
+              )
+              .map((entry) => entry.eventName)
+          ),
+        ].sort(),
         events: {
           growth_funnel_step_completed: growthEvent.payload,
           portfolio_viewed: portfolioEvent.payload,
@@ -401,6 +525,13 @@ try {
             ...analyticsRequestMeasurementIds,
           ]),
         ],
+        observedGaCollectEvents: [
+          ...new Set(
+            analyticsCollectEvents
+              .filter((entry) => entry.measurementId === expectedMeasurementId)
+              .map((entry) => `${entry.eventName}:${entry.status}`)
+          ),
+        ].sort(),
       },
       null,
       2

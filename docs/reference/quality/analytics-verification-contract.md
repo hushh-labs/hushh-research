@@ -49,10 +49,10 @@ What this proves:
 2. the growth helper emits the expected contract
 3. every first-party `app/**/page.tsx` route resolves to a stable non-`unknown` `route_id`
 4. native Firebase adapter still exists and is wired
-5. web transport still supports direct GA delivery without GTM being mandatory
+5. web transport pushes `dataLayer` for GTM compatibility and sends direct GA4 `gtag` events to the configured measurement ID
 6. docs and the implementation references remain aligned
 7. sandbox audit emits a local report for representative investor and RIA journeys without affecting GA4 numbers
-8. UAT smoke proves a real deployed UAT browser journey when maintainer-only smoke credentials are available
+8. UAT smoke proves a real deployed UAT browser journey and direct GA4 collect handoff when maintainer-only smoke credentials are available
 
 Repo verification fails if:
 
