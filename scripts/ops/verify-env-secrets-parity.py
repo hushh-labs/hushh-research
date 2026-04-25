@@ -44,6 +44,11 @@ BACKEND_VOICE_REQUIRED = (
     "VOICE_RUNTIME_CONFIG_JSON",
 )
 
+BACKEND_REVIEWER_SMOKE_REQUIRED = (
+    "REVIEWER_UID",
+    "REVIEWER_VAULT_PASSPHRASE",
+)
+
 FRONTEND_REQUIRED = (
     "BACKEND_URL",
     "APP_FRONTEND_ORIGIN",
@@ -338,6 +343,11 @@ def main() -> int:
         help="Also require backend voice runtime secrets for voice parity.",
     )
     parser.add_argument(
+        "--require-reviewer-smoke",
+        action="store_true",
+        help="Also require non-production reviewer smoke secrets on the backend runtime.",
+    )
+    parser.add_argument(
         "--assert-runtime-env-contract",
         action="store_true",
         help="Also verify Cloud Run runtime env injection for hosted frontend/backend parity.",
@@ -361,6 +371,8 @@ def main() -> int:
         required.extend(BACKEND_GMAIL_REQUIRED)
     if args.require_voice:
         required.extend(BACKEND_VOICE_REQUIRED)
+    if args.require_reviewer_smoke:
+        required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
@@ -376,6 +388,9 @@ def main() -> int:
             "frontend": list(FRONTEND_REQUIRED),
             "gmail": list(BACKEND_GMAIL_REQUIRED) if args.require_gmail else [],
             "voice": list(BACKEND_VOICE_REQUIRED) if args.require_voice else [],
+            "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
+            if args.require_reviewer_smoke
+            else [],
             "plaid": list(BACKEND_PLAID_REQUIRED) if args.require_plaid else [],
             "market": list(BACKEND_MARKET_REQUIRED) if args.require_market_data else [],
             "native_release": list(NATIVE_RELEASE_REQUIRED) if args.require_native_artifacts else [],
@@ -387,6 +402,7 @@ def main() -> int:
             "backend": [],
             "backend_gmail": [],
             "backend_voice": [],
+            "backend_reviewer_smoke": [],
         },
     }
 
@@ -411,6 +427,11 @@ def main() -> int:
         print(
             "Required voice backend secrets "
             f"({len(BACKEND_VOICE_REQUIRED)}): {_format_names(BACKEND_VOICE_REQUIRED)}"
+        )
+    if args.require_reviewer_smoke:
+        print(
+            "Required reviewer smoke backend secrets "
+            f"({len(BACKEND_REVIEWER_SMOKE_REQUIRED)}): {_format_names(BACKEND_REVIEWER_SMOKE_REQUIRED)}"
         )
     print(f"Required frontend secrets ({len(FRONTEND_REQUIRED)}): {_format_names(FRONTEND_REQUIRED)}")
     if args.require_native_artifacts:
@@ -470,17 +491,27 @@ def main() -> int:
                 )
                 for key in BACKEND_VOICE_REQUIRED
             ]
+        backend_reviewer_smoke_entries = []
+        if args.require_reviewer_smoke:
+            backend_reviewer_smoke_entries = [
+                _classify_runtime_key(backend_env, key)
+                for key in BACKEND_REVIEWER_SMOKE_REQUIRED
+            ]
 
         report["runtime_contract"]["frontend"] = frontend_entries
         report["runtime_contract"]["backend"] = backend_entries
         report["runtime_contract"]["backend_gmail"] = backend_gmail_entries
         report["runtime_contract"]["backend_voice"] = backend_voice_entries
+        report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
 
         runtime_classifications = []
         runtime_classifications.extend(_classifications_from_runtime_entries(frontend_entries))
         runtime_classifications.extend(_classifications_from_runtime_entries(backend_entries))
         runtime_classifications.extend(_classifications_from_runtime_entries(backend_gmail_entries))
         runtime_classifications.extend(_classifications_from_runtime_entries(backend_voice_entries))
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_reviewer_smoke_entries)
+        )
         report["classifications"].extend(runtime_classifications)
 
         print(_render_runtime_summary("Frontend runtime env contract", frontend_entries))
@@ -489,10 +520,23 @@ def main() -> int:
             print(_render_runtime_summary("Backend Gmail runtime env contract", backend_gmail_entries))
         if args.require_voice:
             print(_render_runtime_summary("Backend voice runtime env contract", backend_voice_entries))
+        if args.require_reviewer_smoke:
+            print(
+                _render_runtime_summary(
+                    "Backend reviewer smoke runtime env contract",
+                    backend_reviewer_smoke_entries,
+                )
+            )
 
         runtime_failures = [
             entry["key"]
-            for entry in frontend_entries + backend_entries + backend_gmail_entries + backend_voice_entries
+            for entry in (
+                frontend_entries
+                + backend_entries
+                + backend_gmail_entries
+                + backend_voice_entries
+                + backend_reviewer_smoke_entries
+            )
             if entry["status"] in {"legacy", "missing"}
         ]
         if runtime_failures:
