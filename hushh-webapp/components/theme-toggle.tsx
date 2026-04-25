@@ -113,8 +113,11 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
   if (!mounted) return null;
 
   const activeTheme = resolveActiveTheme(theme);
-  const activeOption =
-    THEME_OPTIONS.find((option) => option.value === activeTheme) ?? THEME_OPTIONS[2];
+  // resolveActiveTheme always returns one of the THEME_OPTIONS values, so
+  // .find() is guaranteed to hit. Assert with a non-null fallback for the
+  // type checker under noUncheckedIndexedAccess.
+  const activeOption: (typeof THEME_OPTIONS)[number] =
+    THEME_OPTIONS.find((option) => option.value === activeTheme) ?? THEME_OPTIONS[0]!;
   const isDark = resolvedTheme === "dark";
 
   return (
