@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Moon, Monitor, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +38,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   if (!mounted) return null;
 
   return (
-    <div className="relative">
+    <div className={cn("relative", className)}>
       {/* Main Icon Button */}
       <button
         type="button"
