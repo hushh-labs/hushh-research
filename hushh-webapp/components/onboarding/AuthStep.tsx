@@ -193,17 +193,13 @@ export function AuthStep({
       });
 
     if (user) {
-      trackEvent("auth_succeeded", {
-        action: "redirect",
-        result: "success",
-      });
       if (growthJourney) {
         trackGrowthFunnelStepCompleted({
           journey: growthJourney,
           step: "auth_completed",
           entrySurface: growthEntrySurface,
-          authMethod: "redirect",
-          dedupeKey: `growth:${growthJourney}:auth_completed:redirect`,
+          authMethod: "existing_session",
+          dedupeKey: `growth:${growthJourney}:auth_completed:existing_session`,
           dedupeWindowMs: 5_000,
         });
       }

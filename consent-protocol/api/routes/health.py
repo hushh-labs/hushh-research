@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Health"])
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
+REVIEWER_UID_KEY = "REVIEWER_UID"
+REVIEWER_VAULT_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE"  # noqa: S105
+DEPRECATED_REVIEWER_UID_KEYS = ("UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID")
+DEPRECATED_REVIEWER_PASSPHRASE_KEYS = (  # noqa: S105
+    "UAT_SMOKE_PASSPHRASE",
+    "KAI_TEST_PASSPHRASE",
+)
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -32,17 +39,38 @@ def _runtime_profile() -> str:
     return str(os.getenv("APP_RUNTIME_PROFILE", "")).strip().lower()
 
 
+def _is_production_runtime() -> bool:
+    environment = str(os.getenv("ENVIRONMENT", "")).strip().lower()
+    return _runtime_profile() == "production" or environment == "production"
+
+
+def _first_env(*keys: str) -> str:
+    for key in keys:
+        value = str(os.getenv(key, "")).strip()
+        if value:
+            return value
+    return ""
+
+
+def _resolve_reviewer_uid() -> str:
+    return _first_env(REVIEWER_UID_KEY, *DEPRECATED_REVIEWER_UID_KEYS)
+
+
+def _resolve_reviewer_vault_passphrase() -> str:
+    return _first_env(REVIEWER_VAULT_PASSPHRASE_KEY, *DEPRECATED_REVIEWER_PASSPHRASE_KEYS)
+
+
 def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, str] | None:
-    configured_uid = str(os.getenv("UAT_SMOKE_USER_ID", "")).strip()
-    configured_passphrase = str(os.getenv("UAT_SMOKE_PASSPHRASE", "")).strip()
+    configured_uid = _resolve_reviewer_uid()
+    configured_passphrase = _resolve_reviewer_vault_passphrase()
     provided_passphrase = str(smoke_passphrase or "").strip()
-    if _runtime_profile() == "production":
+    if _is_production_runtime():
         return None
     if not configured_uid or not configured_passphrase or not provided_passphrase:
         return None
     if not hmac.compare_digest(provided_passphrase, configured_passphrase):
         return None
-    return configured_uid, "uat_smoke"
+    return configured_uid, "reviewer_smoke"
 
 
 @router.get("/")
@@ -86,7 +114,7 @@ async def issue_app_review_mode_session(request: Request):
     failure_reason = "missing_reviewer_uid"
 
     if _is_app_review_mode_enabled():
-        reviewer_uid = str(os.getenv("REVIEWER_UID", "")).strip()
+        reviewer_uid = _resolve_reviewer_uid()
     else:
         smoke_overlay = _resolve_smoke_overlay_identity(payload.get("smoke_passphrase"))
         if smoke_overlay:

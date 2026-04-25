@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { BadgeCheck, Building2, ShieldCheck } from "lucide-react";
@@ -17,6 +17,7 @@ import {
 import {
   ConsentCenterService,
 } from "@/lib/services/consent-center-service";
+import { trackEvent } from "@/lib/observability/client";
 
 function verificationBadge(status: string) {
   const normalized = status.toLowerCase();
@@ -62,6 +63,7 @@ export default function MarketplaceRiaProfilePageClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const trackedProfileViewRef = useRef(false);
   const firmNames = Array.isArray(profile?.firms)
     ? profile.firms
         .map((firm) => String(firm?.legal_name || "").trim())
@@ -71,6 +73,7 @@ export default function MarketplaceRiaProfilePageClient({
 
   useEffect(() => {
     let cancelled = false;
+    trackedProfileViewRef.current = false;
 
     async function load() {
       if (!riaId) {
@@ -83,7 +86,16 @@ export default function MarketplaceRiaProfilePageClient({
         setLoading(true);
         setError(null);
         const next = await RiaService.getRiaPublicProfile(riaId);
-        if (!cancelled) setProfile(next);
+        if (!cancelled) {
+          setProfile(next);
+          if (!trackedProfileViewRef.current) {
+            trackedProfileViewRef.current = true;
+            trackEvent("marketplace_profile_viewed", {
+              action: "ria",
+              result: "success",
+            });
+          }
+        }
       } catch (loadError) {
         if (!cancelled) {
           setProfile(null);

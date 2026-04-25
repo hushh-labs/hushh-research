@@ -90,21 +90,24 @@ Non-owned surfaces:
 27. If `./bin/hushh terminal web` opens but the frontend never binds, inspect the actual package surface before retrying. A common failure mode is `npm run dev` -> `sh: next: command not found`, which means the frontend install surface is broken even if dependencies appear partially present.
 28. In that case, verify the local Next binary resolves from the `hushh-webapp` package context, for example by checking `npm exec next -- --version` or an equivalent package-local resolution step. If Next does not resolve, repair the workspace through the canonical bootstrap path (`./bin/hushh bootstrap`) before relaunching the web terminal.
 29. Do not claim the server restart succeeded until both backend and web have been probed successfully after relaunch (`:8000/health` and `:3000`).
-30. Default branch policy: continue work on the user's active development branch. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
-31. Create a new branch only when one of these is true:
+30. Default branch policy: continue work on the user's active development branch. At task start, identify and preserve that branch as the return target before any temporary hotfix, detached checkout, or merge/deploy operation.
+31. If the workspace is detached or sitting on a temporary branch and the user has an established development branch, switch back to that branch before starting new edits unless the user explicitly asks for a different base.
+32. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
+33. Create a new branch only when one of these is true:
    - the fix is a post-merge blocker and must start from the latest `main`
    - the repo workflow requires an isolated hotfix from `main`
    - the current branch contains unrelated in-flight work that would make the fix unsafe to ship
-32. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's normal working branch or `main`; do not leave Codex parked on a temporary branch.
-33. If the user has an active development branch, back-sync merged hotfixes into that branch before closing the task so the real working branch does not drift behind `main`.
-34. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
-35. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
-36. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
-37. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
-38. For Firebase Auth env parity work, verify the shared auth project, API key restrictions, auth domain, authorized domains, phone provider state, and app-verification flag separately; do not treat a local real-SMS `too-many-requests` throttle as proof that UAT is misconfigured.
-39. Before claiming a UAT auth rollout is ready, confirm the hosted UAT origin is authorized in Firebase Auth and that local origin changes did not break vault/passkey behavior.
-40. Do not conflate `Upstream Sync` with `Main Freshness Gate`. Freshness is branch-to-main currency; upstream sync is consent-protocol subtree state and must route through `subtree-upstream-governance`.
-41. When rendering or summarizing PR operations, show the actual subtree status from `scripts/ci/subtree-sync-check.sh`, not a generic freshness or status-gate description.
+34. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's preserved development branch; use `main` only when the user has no development branch.
+35. Back-sync merged hotfixes into the preserved development branch before closing the task so the real working branch does not drift behind `main`.
+36. Do not leave the workspace detached or parked on a temporary branch at handoff. If a branch switch is unsafe because of conflicts or local-only edits, state the blocker explicitly and leave the user on their development branch whenever possible.
+37. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
+38. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
+39. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
+40. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
+41. For Firebase Auth env parity work, verify the shared auth project, API key restrictions, auth domain, authorized domains, phone provider state, and app-verification flag separately; do not treat a local real-SMS `too-many-requests` throttle as proof that UAT is misconfigured.
+42. Before claiming a UAT auth rollout is ready, confirm the hosted UAT origin is authorized in Firebase Auth and that local origin changes did not break vault/passkey behavior.
+43. Do not conflate `Upstream Sync` with `Main Freshness Gate`. Freshness is branch-to-main currency; upstream sync is consent-protocol subtree state and must route through `subtree-upstream-governance`.
+44. When rendering or summarizing PR operations, show the actual subtree status from `scripts/ci/subtree-sync-check.sh`, not a generic freshness or status-gate description.
 
 ## Handoff Rules
 

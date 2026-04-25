@@ -27,7 +27,7 @@ The green `main` SHA is the deployment source of truth for a manual UAT dispatch
 5. reruns the read-only UAT schema contract gate after deploy
 6. runs the hosted runtime parity check
 7. records the deployment in the canonical `uat` GitHub environment
-8. loads the maintainer-only `UAT_SMOKE_*` overlay and runs semantic release verification with bounded retry/rollback
+8. loads the maintainer-only `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE` overlay and runs semantic release verification with bounded retry/rollback
 
 ### Backend Deployment
 

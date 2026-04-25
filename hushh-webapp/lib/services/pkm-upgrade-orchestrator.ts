@@ -138,11 +138,15 @@ function nowMs(): number {
 }
 
 function canUseRehearsalMode(userId: string): boolean {
-  const kaiTestUserId = String(process.env.NEXT_PUBLIC_KAI_TEST_USER_ID || "").trim();
+  const reviewerUid = String(
+    process.env.NEXT_PUBLIC_REVIEWER_UID ||
+      process.env.NEXT_PUBLIC_KAI_TEST_USER_ID ||
+      ""
+  ).trim();
   const rehearsalEnabled = process.env.NEXT_PUBLIC_PKM_UPGRADE_REHEARSAL === "true";
   const appEnv = String(process.env.NEXT_PUBLIC_APP_ENV || "").trim().toLowerCase();
   const rehearsalEligibleEnvironment = appEnv === "development" || appEnv === "uat";
-  return rehearsalEnabled && rehearsalEligibleEnvironment && Boolean(kaiTestUserId) && userId === kaiTestUserId;
+  return rehearsalEnabled && rehearsalEligibleEnvironment && Boolean(reviewerUid) && userId === reviewerUid;
 }
 
 function syncRehearsalRequestFromLocation(userId: string): void {

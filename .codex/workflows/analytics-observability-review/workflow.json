@@ -18,28 +18,38 @@
     "docs/reference/operations/observability-google-first.md",
     "docs/reference/operations/observability-event-matrix.md",
     "docs/reference/quality/analytics-verification-contract.md",
-    ".codex/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md"
+    ".codex/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md",
+    ".codex/skills/analytics-observability-governance/references/event-taxonomy-and-validation.md",
+    "consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql"
   ],
   "required_commands": [
     "./bin/hushh codex route-task analytics-observability-review",
-    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py summary",
     "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health",
     "cd hushh-webapp && npm run verify:analytics",
+    "cd hushh-webapp && npm run audit:analytics-sandbox",
+    "cd hushh-webapp && npm run smoke:analytics:uat",
+    "cd hushh-webapp && npm run verify:analytics:governed",
     "./bin/hushh docs verify"
   ],
   "verification_bundle": {
     "id": "analytics-observability-review",
-    "commands": [
-      "python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py",
-      "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py summary",
-      "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
-      "cd hushh-webapp && npm run verify:analytics",
-      "./bin/hushh docs verify"
-    ],
-    "tests": [
-      "cd hushh-webapp && npm run verify:analytics",
-      "./bin/hushh docs verify"
-    ]
+      "commands": [
+        "python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py",
+        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health",
+        "cd hushh-webapp && npm run verify:analytics",
+        "cd hushh-webapp && npm run audit:analytics-sandbox",
+        "cd hushh-webapp && npm run smoke:analytics:uat",
+        "cd hushh-webapp && npm run verify:analytics:governed",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:analytics",
+        "cd hushh-webapp && npm run audit:analytics-sandbox",
+        "cd hushh-webapp && npm run smoke:analytics:uat",
+        "./bin/hushh docs verify"
+      ]
   },
   "deliverables": [
     "property and stream topology summary",

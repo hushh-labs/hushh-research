@@ -115,7 +115,7 @@ def _service_revision(project: str, region: str, service: str) -> str:
 
 def _maybe_load_smoke_overlay(project: str, env: dict[str, str]) -> dict[str, str]:
     loaded: dict[str, str] = {}
-    for key in ("UAT_SMOKE_USER_ID", "UAT_SMOKE_PASSPHRASE"):
+    for key in ("REVIEWER_UID", "REVIEWER_VAULT_PASSPHRASE"):
         if env.get(key):
             continue
         value = _gcloud_secret(project, key)

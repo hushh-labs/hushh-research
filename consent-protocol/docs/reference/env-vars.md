@@ -131,15 +131,19 @@ Kai generation behavior for import/optimize/debate is also constants-driven (not
 
 Maintainer-only overlay vars used by release verification, migration/reset utilities, and review flows:
 
-- `UAT_SMOKE_USER_ID`
-- `UAT_SMOKE_PASSPHRASE`
 - `APP_REVIEW_MODE`
 - `REVIEWER_UID`
+- `REVIEWER_VAULT_PASSPHRASE`
 
 Notes:
 
 - These maintainer-only overlay vars are loaded by backend scripts and release verification at process start.
 - Changing them requires restarting the backend or rerunning the script; they are not hot-reloaded into an already running process.
+- `REVIEWER_UID` is the canonical non-production reviewer/test user id. The current fixture resolves to `s3xmA4lNSAQFrIaOytnSGAOzXlL2` from Firebase Auth email `jd77v9k4nx@privaterelay.appleid.com`.
+- `REVIEWER_VAULT_PASSPHRASE` is the canonical vault unlock secret for reviewer smoke and must remain in ignored local env files or Secret Manager/runtime overlays.
+- `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated one-release aliases for existing maintainer scripts.
+- UAT analytics smoke reuses the existing reviewer test fixture; do not create new Firebase users, reviewer users, app environments, or one-off analytics fixtures for validation.
+- If the reviewer test fixture lacks seeded portfolio or recommendation state, repair or reseed that same user rather than minting another account.
 
 Maintainer-only non-production bypass overlay:
 
