@@ -122,7 +122,7 @@ def test_user_scopes_accepts_authorization_bearer_header(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert captured["raw_token"] == "hdk_demo"
+    assert captured["raw_token"] == "hdk_demo"  # noqa: S105
     assert response.json()["app_id"] == "app_demo_123"
 
 
@@ -171,7 +171,7 @@ def test_user_scopes_authorization_bearer_takes_precedence_over_query(monkeypatc
     )
 
     assert response.status_code == 200
-    assert captured["raw_token"] == "from_header"
+    assert captured["raw_token"] == "from_header"  # noqa: S105
 
 
 def test_user_scopes_query_token_logs_url_leak_warning(monkeypatch, caplog):
