@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import HTTPException, Request, status
@@ -8,6 +9,8 @@ from hushh_mcp.services.developer_registry_service import (
     DeveloperPrincipal,
     DeveloperRegistryService,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -73,12 +76,48 @@ def _resolve_query_token(token: str | None = None) -> str:
     return str(token or "").strip()
 
 
-def _developer_token_query_required_error() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail={
-            "error_code": "DEVELOPER_TOKEN_QUERY_REQUIRED",
-            "message": "Use ?token=<developer-token> instead of Authorization header for developer access.",
+def _resolve_developer_token(
+    *,
+    token: str | None,
+    authorization: str | None,
+) -> tuple[str, str]:
+    """
+    Resolve the developer token from either an Authorization: Bearer header or
+    a ?token= query parameter, in that order of preference.
+
+    Returns a (raw_token, source) tuple where source is "bearer", "query", or
+    "" when neither carries a value. Bearer is preferred because tokens passed
+    in URLs leak via Referer headers, server access logs, browser history, and
+    proxy/CDN logs (CWE-598). Query support is retained so existing developer
+    API and remote MCP clients keep working.
+    """
+    bearer_token = _resolve_bearer_token(authorization)
+    if bearer_token:
+        return bearer_token, "bearer"
+
+    query_token = _resolve_query_token(token)
+    if query_token:
+        return query_token, "query"
+
+    return "", ""
+
+
+def _warn_query_token_leak_risk(*, request: Request | None) -> None:
+    path = ""
+    client_ip = ""
+    if request is not None:
+        try:
+            path = request.url.path
+        except Exception:
+            path = ""
+        client_ip = request.client.host if request.client else ""
+    logger.warning(
+        "Developer token received via query parameter; prefer Authorization: Bearer header "
+        "to avoid URL-leak vectors (Referer, access logs, browser history).",
+        extra={
+            "event_type": "developer_token_query_param_use",
+            "path": path,
+            "client_ip": client_ip,
         },
     )
 
@@ -92,17 +131,21 @@ def authenticate_developer_principal(
     if not developer_api_enabled():
         raise developer_api_disabled_error()
 
-    raw_token = _resolve_query_token(token)
+    raw_token, source = _resolve_developer_token(token=token, authorization=authorization)
     if not raw_token:
-        if _resolve_bearer_token(authorization):
-            raise _developer_token_query_required_error()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error_code": "DEVELOPER_TOKEN_REQUIRED",
-                "message": "Developer token is required. Pass ?token=<developer-token>.",
+                "message": (
+                    "Developer token is required. Pass it as 'Authorization: Bearer <token>' "
+                    "(preferred) or '?token=<token>' (legacy)."
+                ),
             },
         )
+
+    if source == "query":
+        _warn_query_token_leak_risk(request=request)
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
@@ -131,11 +174,12 @@ def try_authenticate_developer_principal(
     if not developer_api_enabled():
         return None
 
-    raw_token = _resolve_query_token(token)
+    raw_token, source = _resolve_developer_token(token=token, authorization=authorization)
     if not raw_token:
-        if _resolve_bearer_token(authorization):
-            raise _developer_token_query_required_error()
         return None
+
+    if source == "query":
+        _warn_query_token_leak_risk(request=request)
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
