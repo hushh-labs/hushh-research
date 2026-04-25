@@ -2688,7 +2688,7 @@ class RIAIAMService:
                       expires_at,
                       reference_metadata
                     )
-                    VALUES ($1, 'dev_allowlist', 'dev_allowlist', NOW(), NULL, $2::jsonb)
+                    VALUES ($1, 'dev_allowlist', 'bypassed', NOW(), NULL, $2::jsonb)
                     """,
                     ria["id"],
                     json.dumps({"source": "dev_allowlist", "user_id": user_id}),

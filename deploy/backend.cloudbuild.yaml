@@ -76,6 +76,8 @@ steps:
         append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
         append_optional_secret "${_VOICE_RUNTIME_CONFIG_JSON_SECRET}" "VOICE_RUNTIME_CONFIG_JSON"
         append_optional_secret "${_HUSHH_DEVELOPER_TOKEN_SECRET}" "HUSHH_DEVELOPER_TOKEN"
+        append_optional_secret "${_REVIEWER_UID_SECRET}" "REVIEWER_UID"
+        append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
@@ -130,6 +132,8 @@ substitutions:
   _OPENAI_API_KEY_SECRET: ""
   _VOICE_RUNTIME_CONFIG_JSON_SECRET: ""
   _HUSHH_DEVELOPER_TOKEN_SECRET: ""
+  _REVIEWER_UID_SECRET: ""
+  _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
   _IMAGE_TAG: v2.1.0
 
 # Options

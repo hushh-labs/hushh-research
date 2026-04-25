@@ -570,7 +570,11 @@ async def _print_counts(conn: asyncpg.Connection, users: MirrorUsers) -> None:
 
 async def _run(args: argparse.Namespace) -> int:
     config = dotenv_values(DEFAULT_ENV_PATH)
-    source_uid = args.source_uid or _require(config, "KAI_TEST_USER_ID")
+    source_uid = (
+        args.source_uid
+        or str(config.get("REVIEWER_UID") or os.getenv("REVIEWER_UID") or "").strip()
+        or _require(config, "KAI_TEST_USER_ID")
+    )
     target_email = args.target_email
     users = _resolve_users(config, source_uid, target_email, args.target_password)
     conn = await _connect_db(config)
@@ -590,7 +594,7 @@ def main() -> int:
     parser.add_argument(
         "--source-uid",
         default="",
-        help="Source Firebase UID to mirror from. Defaults to KAI_TEST_USER_ID from consent-protocol/.env.",
+        help="Source Firebase UID to mirror from. Defaults to REVIEWER_UID from consent-protocol/.env.",
     )
     parser.add_argument(
         "--target-email",

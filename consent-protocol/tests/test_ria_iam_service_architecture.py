@@ -308,6 +308,70 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
     assert result["individual_crd"] == "12345"
 
 
+@pytest.mark.asyncio
+async def test_dev_activation_records_allowed_bypass_event(monkeypatch):
+    service = RIAIAMService()
+    executed: list[tuple[str, tuple[object, ...]]] = []
+
+    class _FakeTransaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConn:
+        def transaction(self):
+            return _FakeTransaction()
+
+        async def fetchrow(self, query: str, *_args):
+            if "INSERT INTO ria_profiles" in query:
+                return {"id": "ria-profile-1", "user_id": "user-1", "display_name": "Advisor Alpha"}
+            return None
+
+        async def execute(self, query: str, *args):
+            executed.append((query, args))
+            return None
+
+        async def close(self):
+            return None
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_vault_user_row(_conn, _user_id):
+        return None
+
+    async def _fake_runtime_persona(_conn, _user_id, _persona):
+        return None
+
+    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("RIA_DEV_ALLOWLIST", raising=False)
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_ensure_vault_user_row", _fake_vault_user_row)
+    monkeypatch.setattr(service, "_set_runtime_last_persona", _fake_runtime_persona)
+
+    result = await service.activate_ria_dev_onboarding(
+        "user-1",
+        display_name="Advisor Alpha",
+        requested_capabilities=["advisory"],
+    )
+
+    assert result["verification_status"] == "active"
+    assert result["verification_outcome"] == "dev_allowlist"
+    event_queries = [
+        query for query, _args in executed if "INSERT INTO ria_verification_events" in query
+    ]
+    assert event_queries
+    assert "'bypassed'" in event_queries[0]
+    assert "'dev_allowlist', 'dev_allowlist'" not in event_queries[0]
+
+
 def test_renaissance_service_exposes_generic_security_list_descriptors():
     descriptors = RenaissanceService().list_descriptors()
     ids = {descriptor.list_id for descriptor in descriptors}

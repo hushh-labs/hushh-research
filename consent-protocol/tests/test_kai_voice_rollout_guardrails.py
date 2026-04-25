@@ -10,6 +10,15 @@ import pytest
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.testclient import TestClient
 
+
+class _UndefinedColumnError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
+class _UndefinedTableError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
 if "asyncpg" not in sys.modules:
     asyncpg_stub = types.ModuleType("asyncpg")
 
@@ -18,17 +27,23 @@ if "asyncpg" not in sys.modules:
 
     asyncpg_stub.Pool = _Pool
     sys.modules["asyncpg"] = asyncpg_stub
+if not hasattr(sys.modules["asyncpg"], "UndefinedColumnError"):
+    sys.modules["asyncpg"].UndefinedColumnError = _UndefinedColumnError
+if not hasattr(sys.modules["asyncpg"], "UndefinedTableError"):
+    sys.modules["asyncpg"].UndefinedTableError = _UndefinedTableError
 
 if "db" not in sys.modules:
     db_pkg = types.ModuleType("db")
     db_pkg.__path__ = []
     sys.modules["db"] = db_pkg
 
+
+class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
 if "db.db_client" not in sys.modules:
     db_client_stub = types.ModuleType("db.db_client")
-
-    class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
-        pass
 
     def _noop_get_db():  # pragma: no cover - import-time stub only
         raise RuntimeError("db not available in unit test")
@@ -36,6 +51,8 @@ if "db.db_client" not in sys.modules:
     db_client_stub.get_db = _noop_get_db
     db_client_stub.DatabaseExecutionError = _DatabaseExecutionError
     sys.modules["db.db_client"] = db_client_stub
+elif not hasattr(sys.modules["db.db_client"], "DatabaseExecutionError"):
+    sys.modules["db.db_client"].DatabaseExecutionError = _DatabaseExecutionError
 
 if "db.connection" not in sys.modules:
     db_conn_stub = types.ModuleType("db.connection")
@@ -67,6 +84,9 @@ if "sse_starlette.sse" not in sys.modules:
 
     sse_mod.EventSourceResponse = _EventSourceResponse
     sys.modules["sse_starlette.sse"] = sse_mod
+sys.modules["sse_starlette"].EventSourceResponse = sys.modules[
+    "sse_starlette.sse"
+].EventSourceResponse
 
 if "python_multipart" not in sys.modules:
     python_multipart_stub = types.ModuleType("python_multipart")
@@ -553,6 +573,8 @@ def test_voice_realtime_session_allows_rollout_included_user(
     assert payload["session_id"] == "sess_123"
     assert payload["model"] == "gpt-realtime"
     assert payload["voice"] == "alloy"
+    assert payload["transcription_model"] == "gpt-4o-mini-transcribe"
+    assert payload["transcription_language"] == "en"
     assert payload["client_secret"] == "ephemeral_secret"  # noqa: S105
 
 

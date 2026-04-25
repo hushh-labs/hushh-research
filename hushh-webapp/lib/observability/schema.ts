@@ -4,7 +4,13 @@ import type {
   PrimitiveEventValue,
 } from "@/lib/observability/events";
 
-const BASE_ALLOWED_KEYS = ["env", "platform", "route_id"] as const;
+const BASE_ALLOWED_KEYS = [
+  "env",
+  "platform",
+  "event_category",
+  "app_version",
+  "route_id",
+] as const;
 
 const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   page_view: [...BASE_ALLOWED_KEYS, "nav_type"],
@@ -25,6 +31,8 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "status_bucket",
     "duration_ms_bucket",
   ],
+  portfolio_viewed: [...BASE_ALLOWED_KEYS, "result", "portfolio_source"],
+  recommendation_viewed: [...BASE_ALLOWED_KEYS, "result", "portfolio_source"],
   profile_picks_loaded: [
     ...BASE_ALLOWED_KEYS,
     "result",
@@ -38,6 +46,8 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   consent_pending_loaded: [...BASE_ALLOWED_KEYS, "result"],
   consent_action_submitted: [...BASE_ALLOWED_KEYS, "action", "result"],
   consent_action_result: [...BASE_ALLOWED_KEYS, "action", "result", "status_bucket"],
+  phone_verification_started: [...BASE_ALLOWED_KEYS, "action", "result"],
+  phone_verification_completed: [...BASE_ALLOWED_KEYS, "action", "result"],
   persona_switched: [...BASE_ALLOWED_KEYS, "action", "result"],
   ria_onboarding_submitted: [...BASE_ALLOWED_KEYS, "result"],
   ria_verification_status_changed: [...BASE_ALLOWED_KEYS, "action", "result"],

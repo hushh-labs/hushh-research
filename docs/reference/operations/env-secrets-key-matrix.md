@@ -98,4 +98,4 @@ Profile bootstrap rule:
 - `legacy` keys must not appear in Secret Manager, deploy manifests, or live Cloud Run env refs.
 - Gmail and voice use the same backend key names across local, UAT, and production. Local bootstrap hydrates them into `consent-protocol/.env`; tracked files keep only placeholders/templates.
 - Native release/signing secrets are deploy-only inputs. They are not part of the canonical frontend runtime profile files under `hushh-webapp/.env*.local*`.
-- Maintainer-only overlays such as app-review, reviewer identities, local test users, rehearsal toggles, and native signing inputs are intentionally excluded from the canonical runtime matrix.
+- Maintainer-only overlays such as reviewer passphrases, rehearsal toggles, and native signing inputs are intentionally excluded from contributor env files. UAT still mounts `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE` from Secret Manager on the backend because app-review smoke cannot mint a reviewer Firebase token without those runtime bindings.

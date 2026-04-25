@@ -7,6 +7,15 @@ from pathlib import Path
 
 import pytest
 
+
+class _UndefinedColumnError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
+class _UndefinedTableError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
 if "asyncpg" not in sys.modules:
     asyncpg_stub = types.ModuleType("asyncpg")
 
@@ -15,11 +24,20 @@ if "asyncpg" not in sys.modules:
 
     asyncpg_stub.Pool = _Pool
     sys.modules["asyncpg"] = asyncpg_stub
+if not hasattr(sys.modules["asyncpg"], "UndefinedColumnError"):
+    sys.modules["asyncpg"].UndefinedColumnError = _UndefinedColumnError
+if not hasattr(sys.modules["asyncpg"], "UndefinedTableError"):
+    sys.modules["asyncpg"].UndefinedTableError = _UndefinedTableError
 
 if "db" not in sys.modules:
     db_pkg = types.ModuleType("db")
     db_pkg.__path__ = []
     sys.modules["db"] = db_pkg
+
+
+class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
 
 if "db.db_client" not in sys.modules:
     db_client_stub = types.ModuleType("db.db_client")
@@ -28,7 +46,10 @@ if "db.db_client" not in sys.modules:
         raise RuntimeError("db not available in unit test")
 
     db_client_stub.get_db = _noop_get_db
+    db_client_stub.DatabaseExecutionError = _DatabaseExecutionError
     sys.modules["db.db_client"] = db_client_stub
+elif not hasattr(sys.modules["db.db_client"], "DatabaseExecutionError"):
+    sys.modules["db.db_client"].DatabaseExecutionError = _DatabaseExecutionError
 
 ROOT = Path(__file__).resolve().parents[1]
 if "hushh_mcp.services" not in sys.modules:
@@ -40,7 +61,10 @@ import hushh_mcp.services.voice_intent_service as voice_intent_service_module  #
 from hushh_mcp.services.voice_intent_service import (  # noqa: E402
     _ALLOWED_COMMANDS,
     _ALLOWED_TOOL_NAMES,
+    _REALTIME_TRANSCRIPTION_PROMPT,
     _UNCLEAR_STT_MESSAGE,
+    _VOICE_ENGLISH_ONLY_INPUT_MESSAGE,
+    _VOICE_TTS_INSTRUCTIONS,
     VoiceIntentService,
     _compact_context,
 )
@@ -153,6 +177,45 @@ async def test_plan_voice_response_stt_unusable_returns_exact_retry(
     assert response["execution_allowed"] is False
     assert openai_http_ms == 0
     assert model == "deterministic"
+
+
+@pytest.mark.anyio
+async def test_transcribe_audio_pins_openai_stt_to_english(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+    async def _fake_post_with_model_fallback(**kwargs):
+        built = kwargs["body_builder"]("gpt-4o-mini-transcribe")
+        captured["data"] = built["data"]
+        captured["files"] = built["files"]
+        return _FakeResponse(), {"text": "open profile"}, 12, "gpt-4o-mini-transcribe"
+
+    monkeypatch.setattr(
+        voice_intent_service_module,
+        "_post_with_model_fallback",
+        _fake_post_with_model_fallback,
+    )
+
+    transcript, openai_http_ms, model = await voice_service.transcribe_audio(
+        audio_bytes=b"abc",
+        filename="voice.webm",
+        content_type="audio/webm",
+    )
+
+    assert transcript == "open profile"
+    assert openai_http_ms == 12
+    assert model == "gpt-4o-mini-transcribe"
+    assert captured["data"] == {
+        "model": "gpt-4o-mini-transcribe",
+        "language": "en",
+        "prompt": _REALTIME_TRANSCRIPTION_PROMPT,
+    }
+    assert "file" in captured["files"]
 
 
 @pytest.mark.anyio
@@ -1130,7 +1193,7 @@ async def test_plan_voice_response_stt_unusable_for_non_english(voice_service: V
 
     assert response["kind"] == "clarify"
     assert response["reason"] == "stt_unusable"
-    assert response["message"] == _UNCLEAR_STT_MESSAGE
+    assert response["message"] == _VOICE_ENGLISH_ONLY_INPUT_MESSAGE
 
 
 @pytest.mark.anyio
@@ -1503,6 +1566,59 @@ async def test_synthesize_speech_buffers_streaming_handle(
     assert stream.closed is True
 
 
+@pytest.mark.anyio
+async def test_open_tts_stream_sends_english_only_instructions(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+        headers = {"content-length": "0"}
+        content = b""
+
+        async def aiter_bytes(self):
+            if False:  # pragma: no cover - keeps this as an async generator
+                yield b""
+
+        async def aclose(self):
+            captured["response_closed"] = True
+
+    class _FakeStreamContext:
+        async def __aenter__(self):
+            return _FakeResponse()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    class _FakeAsyncClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        def stream(self, method, url, *, headers, json):
+            captured["method"] = method
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeStreamContext()
+
+        async def aclose(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(voice_intent_service_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    stream, mime_type, meta = await voice_service.open_tts_stream(
+        text="hello world",
+        voice="alloy",
+    )
+
+    assert mime_type == "audio/mpeg"
+    assert meta["model"] == "gpt-4o-mini-tts"
+    assert captured["json"]["instructions"] == _VOICE_TTS_INSTRUCTIONS
+    assert captured["json"]["input"] == "hello world"
+    await stream.aclose()
+
+
 def test_voice_tool_policy_whitelist_excludes_destructive_actions():
     assert "delete_account" not in _ALLOWED_TOOL_NAMES
     assert "delete_imported_data" not in _ALLOWED_TOOL_NAMES
@@ -1539,6 +1655,9 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
     assert "Relevant Manifest Actions" in prompt
     assert "Core Capabilities" in prompt
     assert "manual_only" in prompt
+    assert "Language Policy" in prompt
+    assert "English-language transcripts only" in prompt
+    assert "English only" in prompt
 
 
 def test_voice_response_composer_prompt_includes_identity_and_execution_grounding():
@@ -1593,6 +1712,8 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
     assert "Return JSON only" in prompt
     assert "nav.profile" in prompt
     assert "profile_account" in prompt
+    assert "Language Policy" in prompt
+    assert "spoken reply must be English only" in prompt
 
 
 @pytest.mark.anyio

@@ -9,6 +9,11 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 
 import { chromium } from "playwright";
+import {
+  defaultReviewerIdentityEnvFiles,
+  parseEnvFile,
+  resolveReviewerTestIdentity,
+} from "./reviewer-test-identity.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,28 +22,6 @@ const repoRoot = path.resolve(webDir, "..");
 const contractPath = path.join(webDir, "lib", "navigation", "app-route-layout.contract.json");
 const webEnvPath = path.join(webDir, ".env.local");
 const protocolEnvPath = path.join(repoRoot, "consent-protocol", ".env");
-
-function parseEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return {};
-  const parsed = {};
-  const content = fs.readFileSync(filePath, "utf8");
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex <= 0) continue;
-    const key = line.slice(0, separatorIndex).trim();
-    let value = line.slice(separatorIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    parsed[key] = value;
-  }
-  return parsed;
-}
 
 function seedProcessEnv(parsed) {
   for (const [key, value] of Object.entries(parsed)) {
@@ -53,23 +36,6 @@ const parsedProtocolEnv = parseEnvFile(protocolEnvPath);
 seedProcessEnv(parsedProtocolEnv);
 seedProcessEnv(parsedWebEnv);
 
-function readRawEnvLiteral(filePath, key) {
-  if (!fs.existsSync(filePath)) return "";
-  const pattern = new RegExp(`^${key}=(.*)$`, "m");
-  const match = fs.readFileSync(filePath, "utf8").match(pattern);
-  if (!match?.[1]) return "";
-  const rawValue = match[1].trim();
-  return rawValue.replace(/^['"]|['"]$/g, "");
-}
-
-function sanitizeConfiguredValue(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) return "";
-  if (/replace_with_/i.test(trimmed)) return "";
-  if (/your_[a-z0-9_]+_here/i.test(trimmed)) return "";
-  return trimmed;
-}
-
 const appOrigin = (
   process.env.HUSHH_APP_ORIGIN ||
   process.env.NEXT_PUBLIC_APP_URL ||
@@ -77,18 +43,11 @@ const appOrigin = (
 ).replace(/\/$/, "");
 const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "").trim().toLowerCase();
 const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "").trim().toLowerCase();
-const rawProtocolReviewerPassphrase = readRawEnvLiteral(protocolEnvPath, "UAT_SMOKE_PASSPHRASE");
-const reviewerPassphrase =
-  sanitizeConfiguredValue(process.env.HUSHH_REVIEWER_PASSPHRASE) ||
-  sanitizeConfiguredValue(process.env.UAT_SMOKE_PASSPHRASE) ||
-  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_PASSPHRASE) ||
-  sanitizeConfiguredValue(rawProtocolReviewerPassphrase) ||
-  "test#123";
-const smokeUserId =
-  sanitizeConfiguredValue(process.env.HUSHH_SMOKE_USER_ID) ||
-  sanitizeConfiguredValue(process.env.UAT_SMOKE_USER_ID) ||
-  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_USER_ID) ||
-  "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
+const reviewerIdentity = resolveReviewerTestIdentity({
+  envFiles: defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
+});
+const reviewerPassphrase = reviewerIdentity.reviewerVaultPassphrase;
+const smokeUserId = reviewerIdentity.reviewerUid;
 
 const VIEWPORTS = [
   { name: "phone", width: 390, height: 844, isMobile: true },

@@ -49,12 +49,17 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current examples:
+Current generated coverage includes 9 source contracts and 31 actions. Source contracts:
 
-- [kai-market-preview-view.voice-action-contract.json](../../../hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json)
-- [dashboard-master-view.voice-action-contract.json](../../../hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/kai/analysis/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/profile/page.voice-action-contract.json)
+- [page-client.voice-action-contract.json](../../../hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/profile/receipts/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/ria/page.voice-action-contract.json)
+- [consent-center-page.voice-action-contract.json](../../../hushh-webapp/components/consent/consent-center-page.voice-action-contract.json)
+- [kai-command-bar-global.voice-action-contract.json](../../../hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json)
+- [dashboard-master-view.voice-action-contract.json](../../../hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json)
+- [kai-market-preview-view.voice-action-contract.json](../../../hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json)
 
 These contracts are the authoring source of truth for capability existence.
 
