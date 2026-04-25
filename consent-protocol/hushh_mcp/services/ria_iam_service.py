@@ -54,7 +54,12 @@ _IAM_REQUIRED_TABLES: tuple[str, ...] = (
     "relationship_share_events",
 )
 _RUNTIME_PERSONA_STATE_TABLE = "runtime_persona_state"
-_TABLE_EXISTS_CACHE: dict[str, bool] = {}
+# TTL-aware cache: maps table_name -> expiry datetime (UTC).
+# Using a TTL (default 300 s) instead of a permanent boolean means a
+# newly-migrated schema is recognised within 5 minutes without a restart,
+# and avoids stale state across uvicorn worker respawns.
+_TABLE_EXISTS_CACHE_TTL = timedelta(seconds=300)
+_TABLE_EXISTS_CACHE: dict[str, datetime] = {}
 _IAM_SCHEMA_READY_CACHE = False
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
 _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
@@ -302,12 +307,67 @@ class RIAIAMService:
 
     @staticmethod
     async def _table_exists(conn: asyncpg.Connection, table_name: str) -> bool:
-        if _TABLE_EXISTS_CACHE.get(table_name):
+        """Check whether a single table exists in the public schema.
+
+        Uses a TTL-aware in-process cache so repeated calls within the TTL
+        window are free.  A TTL (rather than a permanent boolean) ensures
+        that a table added by a migration is recognised without a full
+        process restart.
+        """
+        now = datetime.now(tz=timezone.utc)
+        expiry = _TABLE_EXISTS_CACHE.get(table_name)
+        if expiry is not None and now < expiry:
             return True
         exists = bool(await conn.fetchval("SELECT to_regclass($1)", f"public.{table_name}"))
         if exists:
-            _TABLE_EXISTS_CACHE[table_name] = True
+            _TABLE_EXISTS_CACHE[table_name] = now + _TABLE_EXISTS_CACHE_TTL
         return exists
+
+    @staticmethod
+    async def _batch_tables_exist(
+        conn: asyncpg.Connection, table_names: tuple[str, ...]
+    ) -> set[str]:
+        """Return the subset of *table_names* that exist in the public schema.
+
+        Issues a **single** query instead of N individual round-trips.
+        Results are stored in the TTL cache so subsequent single-table
+        lookups within the TTL window are also free.
+
+        Performance: replaces the previous 11-query loop that caused ~1 300 ms
+        latency on the first ``/api/iam/marketplace/opt-in`` request
+        (each ``to_regclass`` round-trip costs ~50-80 ms over Cloud SQL proxy).
+        """
+        now = datetime.now(tz=timezone.utc)
+
+        # Fast path: all tables already cached and unexpired.
+        missing = [t for t in table_names if not (
+            (exp := _TABLE_EXISTS_CACHE.get(t)) is not None and now < exp
+        )]
+        if not missing:
+            return set(table_names)
+
+        # Single query: ask pg_catalog for all requested table names at once.
+        rows: list[asyncpg.Record] = await conn.fetch(
+            """
+            SELECT tablename
+            FROM   pg_catalog.pg_tables
+            WHERE  schemaname = 'public'
+              AND  tablename  = ANY($1::text[])
+            """,
+            list(missing),
+        )
+        found_in_db: set[str] = {r["tablename"] for r in rows}
+
+        # Populate TTL cache for every table we queried (hit or miss).
+        # Misses are intentionally *not* cached so a pending migration is
+        # picked up on the next call without waiting for the TTL to expire.
+        expiry = now + _TABLE_EXISTS_CACHE_TTL
+        for t in found_in_db:
+            _TABLE_EXISTS_CACHE[t] = expiry
+
+        # Return all tables that are confirmed present (cached + just found).
+        cached_present = {t for t in table_names if t not in missing}
+        return cached_present | found_in_db
 
     async def _investor_identity_projection(
         self,
@@ -343,11 +403,14 @@ class RIAIAMService:
         global _IAM_SCHEMA_READY_CACHE
         if _IAM_SCHEMA_READY_CACHE:
             return True
-        for table_name in _IAM_REQUIRED_TABLES:
-            if not await self._table_exists(conn, table_name):
-                return False
-        _IAM_SCHEMA_READY_CACHE = True
-        return True
+        # Single round-trip instead of N serial to_regclass() calls.
+        present = await self._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
+        if present >= set(_IAM_REQUIRED_TABLES):
+            _IAM_SCHEMA_READY_CACHE = True
+            return True
+        missing = set(_IAM_REQUIRED_TABLES) - present
+        logger.debug("IAM schema not ready. Missing tables: %s", missing)
+        return False
 
     async def _ensure_iam_schema_ready(self, conn: asyncpg.Connection) -> None:
         if not await self._is_iam_schema_ready(conn):
