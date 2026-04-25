@@ -65,7 +65,7 @@ Non-owned surfaces:
    - full document navigations and raw `page.goto(...)` reset React memory and may require re-unlock
 7. When the user explicitly asks for signed-in Playwright work, the default protected-route browser contract is:
    - reviewer-mode login
-   - vault unlock using the configured Kai/reviewer passphrase from env
+   - vault unlock using `REVIEWER_VAULT_PASSPHRASE` from a maintainer-only env or secret overlay
    - real in-app clicks for same-session route coverage
 8. Use direct deep links only when explicitly validating cold-entry behavior, redirect behavior, or re-unlock flows.
 9. Default frontend runtime launch behavior must be a visible OS terminal window, not a hidden Codex session.

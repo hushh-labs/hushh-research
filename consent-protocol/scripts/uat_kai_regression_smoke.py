@@ -55,8 +55,12 @@ DEFAULT_BACKEND_URL = "https://api.uat.hushh.ai"
 DEFAULT_PROTOCOL_ENV = str(PROJECT_ROOT / ".env")
 DEFAULT_WEBAPP_ENV = str(REPO_ROOT / "hushh-webapp" / ".env.uat.local")
 DEFAULT_TIMEOUT = 45
+REVIEWER_UID_KEY = "REVIEWER_UID"
+REVIEWER_VAULT_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE"  # noqa: S105
 UAT_SMOKE_USER_ID_KEY = "UAT_SMOKE_USER_ID"
 UAT_SMOKE_PASSPHRASE_KEY = "UAT_SMOKE_PASSPHRASE"  # noqa: S105
+KAI_TEST_USER_ID_KEY = "KAI_TEST_USER_ID"
+KAI_TEST_PASSPHRASE_KEY = "KAI_TEST_PASSPHRASE"  # noqa: S105
 
 
 def _b64encode(value: bytes) -> str:
@@ -74,6 +78,24 @@ def _require(config: dict[str, Any], key: str) -> str:
     value = str(config.get(key) or "").strip()
     if not value:
         raise RuntimeError(f"Missing required config value: {key}")
+    return value
+
+
+def _first_config(config: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = str(config.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _require_first(config: dict[str, Any], canonical_key: str, *deprecated_keys: str) -> str:
+    value = _first_config(config, canonical_key, *deprecated_keys)
+    if not value:
+        accepted = ", ".join((canonical_key, *deprecated_keys))
+        raise RuntimeError(
+            f"Missing required config value: {canonical_key}. Accepted migration aliases: {accepted}"
+        )
     return value
 
 
@@ -197,14 +219,30 @@ class UatKaiSmoke:
         protocol_cfg = dotenv_values(protocol_env)
         web_cfg = dotenv_values(web_env)
         overlay_cfg = {
+            REVIEWER_UID_KEY: str(os.getenv(REVIEWER_UID_KEY) or "").strip(),
+            REVIEWER_VAULT_PASSPHRASE_KEY: str(
+                os.getenv(REVIEWER_VAULT_PASSPHRASE_KEY) or ""
+            ).strip(),
             UAT_SMOKE_USER_ID_KEY: str(os.getenv(UAT_SMOKE_USER_ID_KEY) or "").strip(),
             UAT_SMOKE_PASSPHRASE_KEY: str(os.getenv(UAT_SMOKE_PASSPHRASE_KEY) or "").strip(),
+            KAI_TEST_USER_ID_KEY: str(os.getenv(KAI_TEST_USER_ID_KEY) or "").strip(),
+            KAI_TEST_PASSPHRASE_KEY: str(os.getenv(KAI_TEST_PASSPHRASE_KEY) or "").strip(),
         }
         self.config = {**protocol_cfg, **web_cfg, **overlay_cfg}
         self.backend_url = backend_url.rstrip("/")
         self.timeout = timeout
-        self.user_id = _require(self.config, UAT_SMOKE_USER_ID_KEY)
-        self.passphrase = _require(self.config, UAT_SMOKE_PASSPHRASE_KEY)
+        self.user_id = _require_first(
+            self.config,
+            REVIEWER_UID_KEY,
+            UAT_SMOKE_USER_ID_KEY,
+            KAI_TEST_USER_ID_KEY,
+        )
+        self.passphrase = _require_first(
+            self.config,
+            REVIEWER_VAULT_PASSPHRASE_KEY,
+            UAT_SMOKE_PASSPHRASE_KEY,
+            KAI_TEST_PASSPHRASE_KEY,
+        )
         self.developer_token = str(self.config.get("HUSHH_DEVELOPER_TOKEN") or "").strip() or None
         self.firebase_auth_service_account = json.loads(
             _require(self.config, "FIREBASE_ADMIN_CREDENTIALS_JSON")

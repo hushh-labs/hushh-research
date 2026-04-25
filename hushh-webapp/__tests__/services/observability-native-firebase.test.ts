@@ -26,6 +26,7 @@ describe("native Firebase analytics adapter", () => {
     await nativeFirebaseAdapter.track("growth_funnel_step_completed", {
       env: "uat",
       platform: "ios",
+      event_category: "funnel",
       journey: "ria",
       step: "workspace_ready",
       app_version: "2.1.0",
@@ -40,6 +41,7 @@ describe("native Firebase analytics adapter", () => {
       params: {
         env: "uat",
         platform: "ios",
+        event_category: "funnel",
         journey: "ria",
         step: "workspace_ready",
         app_version: "2.1.0",

@@ -29,6 +29,7 @@ import {
 } from "@/lib/constants/country-phone-options";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
+import { trackEvent } from "@/lib/observability/client";
 
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
@@ -249,6 +250,10 @@ export function PhoneVerificationFlow({
       }
 
       if (currentPhoneNumber && normalizedPhone === currentPhoneNumber) {
+        trackEvent("phone_verification_completed", {
+          action: "existing",
+          result: "success",
+        });
         morphyToast.success("This phone number is already linked to your account.");
         await onCompleted();
         return;
@@ -257,7 +262,15 @@ export function PhoneVerificationFlow({
       setBusy(true);
       try {
         const result = await startVerification(normalizedPhone, { resendCode });
+        trackEvent("phone_verification_started", {
+          action: mode,
+          result: "success",
+        });
         if (result.autoVerified) {
+          trackEvent("phone_verification_completed", {
+            action: mode,
+            result: "success",
+          });
           morphyToast.success(
             mode === "replace" ? "Phone number updated." : "Phone number verified."
           );
@@ -272,6 +285,10 @@ export function PhoneVerificationFlow({
         );
       } catch (error) {
         console.error("[PhoneVerificationFlow] Failed to start verification:", error);
+        trackEvent("phone_verification_started", {
+          action: mode,
+          result: "error",
+        });
         morphyToast.error(
           error instanceof Error ? error.message : "Failed to send verification code."
         );
@@ -292,10 +309,18 @@ export function PhoneVerificationFlow({
     setBusy(true);
     try {
       const verifiedUser = await confirmVerification(normalizedCode);
+      trackEvent("phone_verification_completed", {
+        action: mode,
+        result: "success",
+      });
       morphyToast.success(mode === "replace" ? "Phone number updated." : "Phone number verified.");
       await onCompleted(verifiedUser);
     } catch (error) {
       console.error("[PhoneVerificationFlow] Failed to confirm verification code:", error);
+      trackEvent("phone_verification_completed", {
+        action: mode,
+        result: "error",
+      });
       morphyToast.error(
         error instanceof Error ? error.message : "Failed to verify the phone number."
       );

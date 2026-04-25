@@ -117,7 +117,8 @@ It checks that:
    - local development: `CONSENT_SSE_ENABLED=true`
    - UAT: `CONSENT_SSE_ENABLED=true`
    - production: `CONSENT_SSE_ENABLED=false` unless there is an explicit incident-response or rollout reason to enable it
-6. App-review toggles, reviewer identities, bypass flags, and local test-user keys are maintainer-only overlays and are intentionally excluded from the canonical contributor runtime contract.
+6. App-review toggles, reviewer identity secrets, bypass flags, and rehearsal keys are maintainer-only overlays and are intentionally excluded from the canonical contributor runtime contract.
+7. The canonical non-production reviewer fixture is `REVIEWER_UID` plus `REVIEWER_VAULT_PASSPHRASE`; `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated migration aliases, and no `NEXT_PUBLIC_*` passphrase is allowed.
 
 ### Environment divergence note (current)
 

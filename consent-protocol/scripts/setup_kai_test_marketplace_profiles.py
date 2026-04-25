@@ -38,6 +38,14 @@ def _require(config: dict[str, str | None], key: str) -> str:
     return value
 
 
+def _require_first(config: dict[str, str | None], canonical_key: str, *deprecated_keys: str) -> str:
+    for key in (canonical_key, *deprecated_keys):
+        value = str(config.get(key) or os.getenv(key) or "").strip()
+        if value:
+            return value
+    raise RuntimeError(f"Missing required config: {canonical_key}")
+
+
 def log(msg: str) -> None:
     print(f"[setup-profiles] {msg}")
 
@@ -46,7 +54,7 @@ def authenticate(
     config: dict[str, str | None], backend_url: str, timeout: int = 30
 ) -> dict[str, str]:
     """Authenticate as the Kai test user and return auth headers."""
-    user_id = _require(config, "KAI_TEST_USER_ID")
+    user_id = _require_first(config, "REVIEWER_UID", "KAI_TEST_USER_ID")
     firebase_auth_sa = json.loads(_require(config, "FIREBASE_ADMIN_CREDENTIALS_JSON"))
     firebase_api_key = _require(config, "NEXT_PUBLIC_FIREBASE_API_KEY")
 
@@ -103,7 +111,7 @@ def _enrich_investor_marketplace_profile(config: dict[str, str | None]) -> None:
 
     import asyncpg
 
-    user_id = _require(config, "KAI_TEST_USER_ID")
+    user_id = _require_first(config, "REVIEWER_UID", "KAI_TEST_USER_ID")
     db_host = str(config.get("DB_HOST") or "127.0.0.1").strip()
     db_port = int(config.get("DB_PORT") or "6543")
     db_name = str(config.get("DB_NAME") or "postgres").strip()

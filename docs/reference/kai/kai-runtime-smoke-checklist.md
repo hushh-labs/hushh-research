@@ -21,7 +21,7 @@ Runtime truth note:
    - responsive layout, tabs, tooltips, styling, or animation
 3. When Playwright is required on a signed-in route:
    - use the reviewer flow
-   - unlock with the configured Kai/reviewer passphrase from env
+   - unlock with `REVIEWER_VAULT_PASSPHRASE` from a maintainer-only env or secret overlay
    - keep same-session proof on Next client navigation after unlock
 4. Treat direct deep links as a separate cold-entry contract, not the same as unlocked navigation.
 5. For local debate/history verification, run:

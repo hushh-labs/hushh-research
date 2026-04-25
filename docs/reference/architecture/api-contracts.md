@@ -65,7 +65,7 @@ Client surfaces
 | GET | `/api/tickers/all` | Full ticker universe export with enrichment metadata |
 | POST | `/api/validate-token` | Validate a consent token |
 | GET | `/api/app-config/review-mode` | Review mode toggle (enabled only) |
-| POST | `/api/app-config/review-mode/session` | Mint Firebase custom token for `REVIEWER_UID` when review mode enabled |
+| POST | `/api/app-config/review-mode/session` | Mint Firebase custom token for `REVIEWER_UID`; non-production smoke may use `REVIEWER_VAULT_PASSPHRASE` |
 
 ### Developer API (Developer Token / Developer API Enabled)
 

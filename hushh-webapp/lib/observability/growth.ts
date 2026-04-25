@@ -283,16 +283,6 @@ export function trackInvestorActivationCompleted({
     );
   const resolvedAuthMethod = authMethod || current.authMethod;
 
-  trackGrowthFunnelStepCompleted({
-    journey: "investor",
-    step: "activated",
-    entrySurface: resolvedEntrySurface,
-    authMethod: resolvedAuthMethod,
-    portfolioSource,
-    dedupeKey: dedupeKey ? `${dedupeKey}:step` : undefined,
-    dedupeWindowMs,
-  });
-
   trackEvent(
     "investor_activation_completed",
     {
@@ -324,16 +314,6 @@ export function trackRiaActivationCompleted({
       typeof window !== "undefined" ? window.location.pathname : ""
     );
   const resolvedAuthMethod = authMethod || current.authMethod;
-
-  trackGrowthFunnelStepCompleted({
-    journey: "ria",
-    step: "activated",
-    entrySurface: resolvedEntrySurface,
-    authMethod: resolvedAuthMethod,
-    workspaceSource,
-    dedupeKey: dedupeKey ? `${dedupeKey}:step` : undefined,
-    dedupeWindowMs,
-  });
 
   trackEvent(
     "ria_activation_completed",

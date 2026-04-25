@@ -10,7 +10,14 @@
     "docs/reference/operations/observability-event-matrix.md",
     "docs/reference/quality/analytics-verification-contract.md",
     "hushh-webapp/lib/observability",
-    "hushh-webapp/__tests__/services",
+    "hushh-webapp/__tests__/services/observability-schema.test.ts",
+    "hushh-webapp/__tests__/services/observability-route-map.test.ts",
+    "hushh-webapp/__tests__/services/observability-growth.test.ts",
+    "hushh-webapp/__tests__/services/observability-native-firebase.test.ts",
+    "hushh-webapp/__tests__/services/observability-web-transport.test.ts",
+    "hushh-webapp/__tests__/services/observability-sandbox-audit.test.ts",
+    "hushh-webapp/scripts/testing/run-observability-sandbox-audit.mjs",
+    "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs",
     "consent-protocol/scripts/observability",
     ".codex/skills/analytics-observability-governance"
   ],
@@ -35,9 +42,12 @@
   ],
   "required_commands": [
     "python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py",
-    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py summary",
     "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health",
     "cd hushh-webapp && npm run verify:analytics",
+    "cd hushh-webapp && npm run audit:analytics-sandbox",
+    "cd hushh-webapp && npm run smoke:analytics:uat",
+    "cd hushh-webapp && npm run verify:analytics:governed",
     "./bin/hushh docs verify"
   ],
   "verification_bundles": [
@@ -45,16 +55,25 @@
       "id": "analytics-observability-review",
       "commands": [
         "python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py",
-        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py summary",
         "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health",
         "cd hushh-webapp && npm run verify:analytics",
+        "cd hushh-webapp && npm run audit:analytics-sandbox",
+        "cd hushh-webapp && npm run smoke:analytics:uat",
+        "cd hushh-webapp && npm run verify:analytics:governed",
         "./bin/hushh docs verify"
       ],
       "tests": [
         "cd hushh-webapp && npm run verify:analytics",
+        "cd hushh-webapp && npm run audit:analytics-sandbox",
+        "cd hushh-webapp && npm run smoke:analytics:uat",
         "./bin/hushh docs verify"
       ]
     }
+  ],
+  "delegation_policy": [
+    "Spawn subagents only for independent, bounded, non-blocking observability lanes.",
+    "Do not spawn for the immediate critical-path task or for work whose result blocks the next local edit."
   ],
   "handoff_targets": [
     "repo-operations",
