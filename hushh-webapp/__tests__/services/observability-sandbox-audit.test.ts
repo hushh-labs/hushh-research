@@ -188,7 +188,12 @@ async function recordScenario(
     const gtagEntry = newGtagEntries[index]!;
 
     expect(dataLayerEntry.eventName).toBe(gtagEntry.eventName);
-    expect(dataLayerEntry.payload).toMatchObject(gtagEntry.payload);
+    const { event: dataLayerEvent, ...sharedDataLayerPayload } = dataLayerEntry.payload;
+    expect(dataLayerEvent).toBe(eventName);
+    expect(gtagEntry.payload).toMatchObject({
+      ...sharedDataLayerPayload,
+      send_to: resolveAnalyticsMeasurementId(),
+    });
 
     if (
       eventName === "growth_funnel_step_completed" ||

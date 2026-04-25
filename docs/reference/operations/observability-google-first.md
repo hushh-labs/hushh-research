@@ -333,7 +333,7 @@ This bundle is expected to fail until GA Admin API config, GA Data API event ava
 Route and smoke policy:
 
 1. `npm run verify:analytics` includes a strict all-routes route-ID test; first-party `app/**/page.tsx` routes must not resolve to `unknown`.
-2. `npm run smoke:analytics:uat` is the deployed UAT web proof. It reuses the existing reviewer test fixture through maintainer-only `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE`, validates `G-H1KGXGZTCF`, rejects production measurement leakage, and fails if the real app journey does not emit the required events.
+2. `npm run smoke:analytics:uat` is the deployed UAT web proof. It reuses the existing reviewer test fixture through maintainer-only `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE`, validates `G-H1KGXGZTCF`, rejects production measurement leakage, and fails if the real app journey does not emit the required events or direct GA4 collect handoff for the required UAT events.
 3. UAT smoke never fabricates GA4 events and never creates Firebase users, reviewer users, app environments, or one-off analytics fixtures.
 4. After the cold `/login` boot, protected-route smoke navigation must use Next client navigation so the in-memory vault key is not lost by full page reloads.
 5. Missing credentials, missing seeded portfolio state, or absent recommendation events are gate failures; fix or reseed the existing reviewer test fixture instead of minting another account.

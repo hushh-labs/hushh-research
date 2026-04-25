@@ -80,7 +80,9 @@ Non-owned surfaces:
 10. UAT analytics smoke must reuse the existing reviewer test fixture through `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE`; `UAT_SMOKE_*` and `KAI_TEST_*` are temporary migration aliases only.
 11. If the smoke fixture is missing portfolio or recommendation state, repair or reseed that same fixture rather than minting another account.
 12. After the cold `/login` boot, Playwright analytics smoke must use Next client navigation for protected route transitions so the in-memory vault key is preserved.
-13. Spawn subagents only for independent, bounded, non-blocking lanes such as read-only route coverage audits, docs/skill updates, or disjoint verification automation patches; keep the immediate critical-path task local.
+13. Web observability must push `dataLayer` for GTM compatibility and send direct GA4 `gtag` events to the configured measurement ID; do not let GTM trigger drift be the only path for governed KPI events.
+14. UAT smoke must verify direct GA4 collect handoff for required web events in addition to client-side `dataLayer` capture.
+15. Spawn subagents only for independent, bounded, non-blocking lanes such as read-only route coverage audits, docs/skill updates, or disjoint verification automation patches; keep the immediate critical-path task local.
 
 ## Handoff Rules
 
