@@ -272,10 +272,10 @@ async def test_validate_token_with_db_rejects_memory_revoked_token():
 
 
 @pytest.mark.asyncio
-async def test_validate_token_with_db_falls_back_on_db_error():
+async def test_validate_token_with_db_vault_owner_grace_period_on_db_error():
     """
-    If DB is unavailable, validation falls back to in-memory result.
-    This ensures DB downtime does not block all token validation.
+    VAULT_OWNER token gets grace period when DB is unreachable.
+    Users must not be locked out of their own vault during brief DB hiccups.
     """
     token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.VAULT_OWNER)
     token_str = token_obj.token
@@ -288,9 +288,39 @@ async def test_validate_token_with_db_falls_back_on_db_error():
     fake_module.ConsentDBService = lambda: mock_service_instance
 
     with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
-        valid, reason, token_result = await validate_token_with_db(token_str)
+        valid, reason, token_result = await validate_token_with_db(
+            token_str, ConsentScope.VAULT_OWNER
+        )
 
-    # Falls back to in-memory result (valid token)
+    # VAULT_OWNER gets grace period — user can still access their own vault
     assert valid is True
     assert reason is None
     assert token_result is not None
+
+
+@pytest.mark.asyncio
+async def test_validate_token_with_db_scoped_token_fails_closed_on_db_error():
+    """
+    Scoped tokens fail closed when DB is unreachable.
+    Third-party agent access must not be allowed when revocation
+    status cannot be confirmed — consent integrity takes priority.
+    """
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.PKM_READ)
+    token_str = token_obj.token
+
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(
+        side_effect=Exception("DB connection refused")
+    )
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, token_result = await validate_token_with_db(
+            token_str, ConsentScope.PKM_READ
+        )
+
+    # Scoped token fails closed — deny access when DB is unreachable
+    assert valid is False
+    assert reason == "Token revocation status could not be confirmed (DB unavailable)"
+    assert token_result is None
