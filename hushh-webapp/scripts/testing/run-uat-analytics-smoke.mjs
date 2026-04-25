@@ -109,54 +109,12 @@ function validateRequiredParams(eventName, payload) {
 async function installAnalyticsCapture(page) {
   await page.addInitScript(
     ({ expectedUserId, vaultPassphrase }) => {
-      const smokeState = {
-        events: [],
-        measurementIds: [],
-      };
-      window.__HUSHH_ANALYTICS_SMOKE__ = smokeState;
       window.__HUSHH_NATIVE_TEST__ = {
         ...(window.__HUSHH_NATIVE_TEST__ || {}),
         enabled: true,
         autoReviewerLogin: true,
         expectedUserId,
         vaultPassphrase,
-      };
-
-      const recordEvent = (eventName, payload, source) => {
-        if (!eventName) return;
-        smokeState.events.push({
-          event: eventName,
-          source,
-          payload: payload && typeof payload === "object" ? { ...payload } : {},
-          at: Date.now(),
-        });
-      };
-      const recordGtagArgs = (rawArgs, source) => {
-        const args = Array.from(rawArgs || []);
-        if (args[0] === "config" && typeof args[1] === "string") {
-          smokeState.measurementIds.push(args[1]);
-          return;
-        }
-        if (args[0] === "event" && typeof args[1] === "string") {
-          recordEvent(args[1], args[2], source);
-        }
-      };
-
-      window.dataLayer = window.dataLayer || [];
-      const originalPush = window.dataLayer.push.bind(window.dataLayer);
-      window.dataLayer.push = (...items) => {
-        for (const item of items) {
-          if (item && typeof item === "object" && typeof item.event === "string") {
-            recordEvent(item.event, item, "dataLayer");
-            continue;
-          }
-          recordGtagArgs(item, "dataLayer_gtag_args");
-        }
-        return originalPush(...items);
-      };
-      window.gtag = (...args) => {
-        recordGtagArgs(args, "gtag");
-        return window.dataLayer.push(args);
       };
     },
     {
@@ -168,10 +126,37 @@ async function installAnalyticsCapture(page) {
 
 async function getSmokeState(page) {
   return page.evaluate(() => {
-    const state = window.__HUSHH_ANALYTICS_SMOKE__ || {};
+    const events = [];
+    const measurementIds = [];
+    const dataLayer = Array.isArray(window.dataLayer) ? window.dataLayer : [];
+    for (const item of dataLayer) {
+      if (item && typeof item === "object" && typeof item.event === "string") {
+        events.push({
+          event: item.event,
+          source: "dataLayer",
+          payload: { ...item },
+          at: 0,
+        });
+        continue;
+      }
+      const args = Array.from(item || []);
+      if (args[0] === "config" && typeof args[1] === "string") {
+        measurementIds.push(args[1]);
+        continue;
+      }
+      if (args[0] === "event" && typeof args[1] === "string") {
+        const payload = args[2] && typeof args[2] === "object" ? { ...args[2] } : {};
+        events.push({
+          event: args[1],
+          source: "dataLayer_gtag_args",
+          payload,
+          at: 0,
+        });
+      }
+    }
     return {
-      events: state.events || [],
-      measurementIds: state.measurementIds || [],
+      events,
+      measurementIds,
       scriptMeasurementIds: Array.from(document.scripts)
         .map((script) => script.src || "")
         .filter((src) => src.includes("googletagmanager.com/gtag/js?id="))
@@ -184,8 +169,14 @@ async function getSmokeState(page) {
 async function waitForMeasurementId(page) {
   await page.waitForFunction(
     (expected) => {
-      const state = window.__HUSHH_ANALYTICS_SMOKE__ || {};
-      const captured = new Set(state.measurementIds || []);
+      const captured = new Set();
+      const dataLayer = Array.isArray(window.dataLayer) ? window.dataLayer : [];
+      for (const item of dataLayer) {
+        const args = Array.from(item || []);
+        if (args[0] === "config" && typeof args[1] === "string") {
+          captured.add(args[1]);
+        }
+      }
       for (const script of Array.from(document.scripts)) {
         const src = script.src || "";
         if (!src.includes("googletagmanager.com/gtag/js?id=")) continue;
@@ -296,24 +287,24 @@ await installAnalyticsCapture(page);
 page.on("request", (request) => {
   const url = request.url();
   if (!isAnalyticsCollectUrl(url)) return;
-  const collect = parseAnalyticsCollectRequest(request);
-  if (!collect) return;
-  analyticsRequestMeasurementIds.push(collect.measurementId);
-  if (collect.eventName) {
+  const collectEvents = parseAnalyticsCollectRequests(request);
+  for (const collect of collectEvents) {
+    analyticsRequestMeasurementIds.push(collect.measurementId);
+    if (!collect.eventName) continue;
     analyticsCollectEvents.push({ ...collect, status: "requested" });
   }
 });
 
 page.on("requestfinished", (request) => {
-  const collect = parseAnalyticsCollectRequest(request);
-  if (collect?.eventName) {
+  for (const collect of parseAnalyticsCollectRequests(request)) {
+    if (!collect.eventName) continue;
     analyticsCollectEvents.push({ ...collect, status: "finished" });
   }
 });
 
 page.on("requestfailed", (request) => {
-  const collect = parseAnalyticsCollectRequest(request);
-  if (collect?.eventName) {
+  for (const collect of parseAnalyticsCollectRequests(request)) {
+    if (!collect.eventName) continue;
     analyticsCollectEvents.push({
       ...collect,
       status: "failed",
@@ -322,16 +313,16 @@ page.on("requestfailed", (request) => {
   }
 });
 
-function parseAnalyticsCollectRequest(request) {
+function parseAnalyticsCollectRequests(request) {
   const url = request.url();
-  if (!isAnalyticsCollectUrl(url)) return null;
+  if (!isAnalyticsCollectUrl(url)) return [];
   try {
     const parsed = new URL(url);
     const measurementId = parsed.searchParams.get("tid");
     const queryEventName = parsed.searchParams.get("en");
-    if (!measurementId) return null;
+    if (!measurementId) return [];
     if (queryEventName) {
-      return { measurementId, eventName: queryEventName };
+      return [{ measurementId, eventName: queryEventName }];
     }
     const postData =
       request.postData() ||
@@ -339,16 +330,17 @@ function parseAnalyticsCollectRequest(request) {
         ? request.postDataBuffer()?.toString("utf8")
         : "") ||
       "";
+    const bodyEvents = [];
     for (const line of postData.split(/\r?\n/)) {
       const bodyParams = new URLSearchParams(line);
       const bodyEventName = bodyParams.get("en");
       if (bodyEventName) {
-        return { measurementId, eventName: bodyEventName };
+        bodyEvents.push({ measurementId, eventName: bodyEventName });
       }
     }
-    return { measurementId, eventName: "" };
+    return bodyEvents.length > 0 ? bodyEvents : [{ measurementId, eventName: "" }];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -375,7 +367,7 @@ async function waitForAnalyticsCollectEvents(eventNames) {
           (entry) =>
             entry.measurementId === measurementId &&
             entry.eventName === eventName &&
-            entry.status === "finished"
+            (entry.status === "requested" || entry.status === "finished")
         )
       );
     },
@@ -399,14 +391,14 @@ try {
     }, entry).catch(() => {});
   };
   page.on("request", (request) => {
-    const collect = parseAnalyticsCollectRequest(request);
-    if (collect?.eventName) {
+    for (const collect of parseAnalyticsCollectRequests(request)) {
+      if (!collect.eventName) continue;
       void mirrorCollectEvent({ ...collect, status: "requested" });
     }
   });
   page.on("requestfinished", (request) => {
-    const collect = parseAnalyticsCollectRequest(request);
-    if (collect?.eventName) {
+    for (const collect of parseAnalyticsCollectRequests(request)) {
+      if (!collect.eventName) continue;
       void mirrorCollectEvent({ ...collect, status: "finished" });
     }
   });
@@ -494,6 +486,13 @@ try {
               .map((entry) => entry.eventName)
           ),
         ].sort(),
+        observedGaCollectStatuses: analyticsCollectEvents
+          .filter((entry) => entry.measurementId === expectedMeasurementId && entry.eventName)
+          .map((entry) => ({
+            eventName: entry.eventName,
+            status: entry.status,
+            failureText: entry.failureText,
+          })),
         events: {
           growth_funnel_step_completed: growthEvent.payload,
           portfolio_viewed: portfolioEvent.payload,
