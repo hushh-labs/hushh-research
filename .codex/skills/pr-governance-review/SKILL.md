@@ -35,7 +35,8 @@ Non-owned surfaces:
 2. Distinguishing stale failed checks from the current head SHA before judging a contributor response.
 3. Flagging backend contract changes that do not carry matching caller, proxy, docs, or test updates.
 4. Flagging auth, vault, consent, runtime, deploy, Docker, `.gitignore`, or secret-surface changes that could quietly degrade the repo.
-5. Drafting concise maintainer-ready markdown that acknowledges the contributor, explains what was adopted or patched, and keeps blocker reasoning explicit.
+5. Detecting "right direction, wrong size" PRs where the idea is aligned but the implementation adds duplicate paths, broad dependencies, false-positive tests, or extra product surface.
+6. Drafting concise maintainer-ready markdown that acknowledges the contributor, explains what was adopted or patched, and keeps blocker reasoning explicit.
 
 ## Do Not Use
 
@@ -47,9 +48,11 @@ Non-owned surfaces:
 
 1. `README.md`
 2. `docs/reference/operations/ci.md`
-3. `.codex/skills/repo-operations/SKILL.md`
-4. `.codex/skills/quality-contracts/SKILL.md`
-5. `.codex/skills/pr-governance-review/references/review-axes.md`
+3. `docs/reference/quality/pr-impact-checklist.md`
+4. `docs/reference/architecture/api-contracts.md`
+5. `.codex/skills/repo-operations/SKILL.md`
+6. `.codex/skills/quality-contracts/SKILL.md`
+7. `.codex/skills/pr-governance-review/references/review-axes.md`
 
 ## Workflow
 
@@ -62,6 +65,8 @@ Non-owned surfaces:
    - extracted PR summary / issue linkage
    - owned surfaces touched
    - recommended lane
+   - lean/core bloat risk (`low`, `medium`, `high`, `duplicate`, or `non-runtime`)
+   - whether the PR removes complexity, proves an existing contract, or adds a new product/runtime surface
    - cross-PR file overlap with other PRs in the batch
    - helper-detected main-overlap and parallel-architecture findings when a concept already exists on `main` in a different file family
 5. Batch helper output is intake, not final merge authority. Before recommending consolidation or merge order, manually verify:
@@ -70,11 +75,13 @@ Non-owned surfaces:
    - whether the change is product-semantic rather than purely code-local
    - whether an apparently isolated PR still changes a trust boundary, user-visible truth model, or external ingress surface
    - whether the helper found a concept-level overlap that requires `patch_then_merge` or `block` even when exact file overlap is zero
+   - whether the PR is overbuilt relative to the core repo model: small contributor surface, consent-first access, BYOK/zero-knowledge boundaries, canonical routes, and meaningful tests
 6. For every lane, perform two explicit verification passes and say which pass you are in:
    - Pass 1: repo and product verification against current `main`, current head SHA, changed surfaces, and architectural truth
    - Pass 2: authoritative workflow verification after action, including current PR checks, merge queue validation, and post-merge smoke where applicable
 7. Review findings in this order:
    - north-star drift
+   - lean/core bloat or duplicate architecture
    - trust-boundary or auth regression
    - backend/frontend/proxy contract mismatch
    - deploy/runtime reproducibility drift
@@ -87,27 +94,36 @@ Non-owned surfaces:
    - `.gitignore`, secret, or credential-surface changes that can hide risk
    - event-stream or async changes that alter user-visible semantics while claiming performance gains
    - a second product or component architecture path for a concept already implemented on `main`
+   - broad package, dependency, or platform updates without install/build/runtime smoke tied to the changed surface
+   - tests that cannot fail, duplicate production logic inside tests, or proof that only exercises mocks while claiming contract coverage
+   - a new agent, service, reducer, export path, ingestion path, or PKM write surface without explicit consent-scope and caller-contract proof
    - a public ingress surface that lacks explicit rollout, abuse-control, or authority-model proof
-9. If the PR touches multiple domains, hand off to the right owner skills for deeper verification, but keep this skill as the merge-readiness authority.
-10. Classify the result into one lane only:
+9. For batch reports, include a lean/core section before the per-PR register:
+   - the core baseline used from `README.md`, PR impact checklist, and API contracts
+   - a bloat risk matrix for every green-gate PR
+   - a lean-first merge rule
+   - an overkill watchlist for duplicate solutions, new trust surfaces, broad dependencies, and product-surface drift
+10. When a PR is directionally right but overbuilt, do not call it `merge_now`. Use `patch_then_merge` if the excess surface is bounded and maintainer-fixable; use `block` when it requires a product decision, split, or duplicate closure.
+11. If the PR touches multiple domains, hand off to the right owner skills for deeper verification, but keep this skill as the merge-readiness authority.
+12. Classify the formal merge result into one lane only:
    - `merge_now`
    - `patch_then_merge`
    - `block`
-11. Use `patch_then_merge` when the direction is good but the current head is not merge-safe. In that lane, do not merge the contributor head directly; integrate the smallest maintainer patch first, rerun checks, then communicate clearly with the author.
-12. When a maintainer patch is needed, prefer patching the contributor branch directly if `maintainerCanModify=true`. Only create a short-lived `temp/pr-<number>-patch` branch when direct patching is not possible or the fix needs isolated maintainer staging. Delete the temp branch after the merge path is resolved.
-13. Do not imply approval or recommend merge while blocker findings remain on the current merge candidate. A short acknowledgment of the contributor or the good direction is fine, but it must not soften or hide blocker findings.
-14. Before Codex triggers merge, auto-merge, or merge-queue entry, prepare a contributor-facing markdown draft for the current lane. Keep that draft in the turn output for operator visibility, but do not wait for separate posting confirmation once the policy is finalized.
-15. When communicating back on a PR, prefer this concise markdown shape:
+13. Use `patch_then_merge` when the direction is good but the current head is not merge-safe. In that lane, do not merge the contributor head directly; integrate the smallest maintainer patch first, rerun checks, then communicate clearly with the author.
+14. When a maintainer patch is needed, prefer patching the contributor branch directly if `maintainerCanModify=true`. Only create a short-lived `temp/pr-<number>-patch` branch when direct patching is not possible or the fix needs isolated maintainer staging. Delete the temp branch after the merge path is resolved.
+15. Do not imply approval or recommend merge while blocker findings remain on the current merge candidate. A short acknowledgment of the contributor or the good direction is fine, but it must not soften or hide blocker findings.
+16. Before Codex triggers merge, auto-merge, or merge-queue entry, prepare a contributor-facing markdown draft for the current lane. Keep that draft in the turn output for operator visibility, but do not wait for separate posting confirmation once the policy is finalized.
+17. When communicating back on a PR, prefer this concise markdown shape:
    - `## Acknowledgment`
    - `## What We Adopted`
    - `## Merge Decision`, `## Maintainer Patch`, or `## Blockers`
    - `## Related Surfaces` when concrete file and higher-level doc references materially help future readers understand the landed boundary; use clickable GitHub links and add a one-line note per entry so future readers know why each file or doc matters
    - `## Why`
    - `## Next` only when there is still contributor action or maintainer follow-up to explain
-16. After the merge path is monitored to the required terminal state, post the contributor-facing note automatically. Do not treat the merge trigger or queue entry itself as the posting point.
-17. Monitoring is part of execution, not an optional follow-up. Once Codex triggers merge, auto-merge, or queue entry, it must stay attached to the workflow chain until the required terminal state is known. Stopping at queue placement, green PR checks, or "already queued" is workflow failure unless the user explicitly limited the task to queue placement only.
-18. If the user asks for a batch, produce a comprehensive overview before recommending any merge order. The overview must make overlap, duplication, domain boundaries, and isolation strategy explicit enough that the merge plan is auditable.
-19. If the PR is clear, say why it is safe in concrete terms: current head SHA, current gate result, blocker count, chosen lane, the result of both verification passes, and any remaining residual risk.
+18. After the merge path is monitored to the required terminal state, post the contributor-facing note automatically. Do not treat the merge trigger or queue entry itself as the posting point.
+19. Monitoring is part of execution, not an optional follow-up. Once Codex triggers merge, auto-merge, or queue entry, it must stay attached to the workflow chain until the required terminal state is known. Stopping at queue placement, green PR checks, or "already queued" is workflow failure unless the user explicitly limited the task to queue placement only.
+20. If the user asks for a batch, produce a comprehensive overview before recommending any merge order. The overview must make overlap, duplication, domain boundaries, lean/core bloat risk, and isolation strategy explicit enough that the merge plan is auditable.
+21. If the PR is clear, say why it is safe in concrete terms: current head SHA, current gate result, blocker count, chosen lane, lean/core risk, the result of both verification passes, and any remaining residual risk.
 
 ## Handoff Rules
 
