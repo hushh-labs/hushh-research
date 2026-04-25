@@ -173,14 +173,10 @@ export const Navbar = () => {
   if (!isAuthenticated || useOnboardingChrome) {
     return (
       <nav
-        className="fixed left-0 right-0 z-50 flex justify-center px-4 pointer-events-none"
-        style={{
-          bottom:
-            "calc(max(var(--app-safe-area-bottom-effective), 0.5rem) + var(--app-bottom-chrome-lift, 0px))",
-        }}
+        className="fixed top-4 right-4 z-50 pointer-events-none"
       >
         <div ref={pillRef} className="pointer-events-auto">
-          <ThemeToggle className="bg-white/85 dark:bg-black/85" />
+          <ThemeToggle className="bg-white/85 dark:bg-black/85 w-auto" />
         </div>
       </nav>
     );
