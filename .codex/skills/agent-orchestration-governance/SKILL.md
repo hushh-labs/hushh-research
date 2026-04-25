@@ -61,22 +61,26 @@ Non-owned surfaces:
    - route domain knowledge back to existing repo skills instead of copying it into agent files
    - let model and reasoning inherit from the parent Codex session by default
 3. Keep wave-1 repo custom agents read-only by default and leave edits to the parent session or the built-in `worker`.
-4. Keep global limits bounded in `.codex/config.toml`:
+4. Keep branch authority with the parent session and `repo-operations`:
+   - delegated agents must not create, switch, delete, or push branches unless the parent explicitly scopes that as their task
+   - handoffs must report if they observed branch drift, detached HEAD state, or temporary-branch risk
+   - workers that edit files inherit the parent branch and must not use branch isolation as a default safety mechanism
+5. Keep global limits bounded in `.codex/config.toml`:
    - `max_threads = 6`
    - `max_depth = 1`
-5. Encode the authority boundary directly:
+6. Encode the authority boundary directly:
    - only `governor` produces final merge, deploy, or plan recommendations inside delegated workflows
    - child agents return evidence and judgments, not final authority
-6. Require every delegated handoff to include:
+7. Require every delegated handoff to include:
    - scope covered
    - files or surfaces inspected
    - findings or conclusion
    - assumptions
    - validations run
    - unresolved risks
-7. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
-8. Treat self-maintenance as drift detection plus CI enforcement, not autonomous self-rewrite or bot mutation.
-9. Run the dedicated agent-orchestration validation first, then the repo governance check, skill lint, and audit.
+8. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
+9. Treat self-maintenance as drift detection plus CI enforcement, not autonomous self-rewrite or bot mutation.
+10. Run the dedicated agent-orchestration validation first, then the repo governance check, skill lint, and audit.
 
 ## Handoff Rules
 
