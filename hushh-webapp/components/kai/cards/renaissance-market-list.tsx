@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
+import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -662,6 +663,7 @@ export function RiaPicksList({
       >
         {selectedRow ? (
           <div className="space-y-4">
+            <RenaissanceVerdictCard row={selectedRow} />
             <SurfaceInset className="flex items-start gap-3 p-4">
               <SymbolAvatar
                 symbol={String(selectedRow.quote_symbol || selectedRow.symbol || "—")}
