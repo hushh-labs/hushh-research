@@ -41,6 +41,9 @@ Before One/Nav becomes current-state runtime, the repo needs these primitives:
 5. Nav-owned action inventory for consent, vault, deletion, revocation, and scope review.
 6. Analytics/event fields that distinguish workspace persona from speaking agent.
 7. Verification that `nav.*` means Nav guardian capability, while `route.*` means navigation.
+8. One-owned memory portability, export, and retention contracts that separate relationship memory from Kai finance memory and Nav trust memory.
+9. BYO AI / BYO model policy that distinguishes user-held keys from provider routing, model availability, and local-device capability.
+10. Action-receipt privacy rules that define which receipts are encrypted for the user, which audit rows are visible to platform services, and which metadata remains operationally necessary.
 
 ## Promotion Criteria
 
@@ -52,6 +55,20 @@ Move this plan into execution docs only when:
 - shell and design-system docs define which copy surfaces belong to One, Kai, and Nav
 - tests cover route actions, finance actions, and privacy/consent actions with the correct speaker persona
 - UAT can prove that finance workflows still execute through Kai while consent/privacy workflows are framed by Nav
+- PKM docs can truthfully describe One-owned relationship memory, Kai finance memory, and Nav privacy memory without contradicting the checked-in storage and unlock path
+- claims such as on-device memory, no platform-controlled backdoor recovery, portable One memory export, BYO model execution, and user-private action receipts are backed by implementation references and tests
+
+## Founder Claims Held Here Until Shipped
+
+The founder drafts are directionally important, but the following claims remain planning-only until implementation proof exists:
+
+| Founder-language claim | Required proof before current-state docs may claim it |
+| --- | --- |
+| One memory lives on device and is portable | PKM/storage docs, client unlock path, export format, and tests prove relationship-memory portability |
+| There is no platform-controlled recovery path | Vault/key-management docs and recovery UX prove the exact no-backdoor model |
+| Users can bring any model or key | Provider routing, key storage, local execution, and failure-mode docs prove BYO AI behavior |
+| Every action leaves a receipt only the user can read | Receipt schema, encryption boundary, audit visibility, and support/debug metadata rules are documented and tested |
+| One can act across messages, calendar, accounts, finance, and consent | Route/action contracts and consent scopes exist for those domains |
 
 ## Phases
 
@@ -96,6 +113,8 @@ Move this plan into execution docs only when:
 | One/Nav copy overclaims shipped runtime | Docs governance requires current-state versus future-state wording |
 | Personality work weakens trust controls | Speaker persona never changes guards, tokens, vault policy, or consent enforcement |
 | Duplicate action paths appear during migration | Straight rename only; no legacy alias, no dual-write, no compatibility acceptance path |
+| BYO AI language implies unsupported providers or local inference | Provider/model claims stay future-state until backed by runtime config, docs, and tests |
+| Private receipt language hides necessary audit metadata | Receipt privacy rules must distinguish user-private contents from operational audit metadata |
 
 ## Verification Gates
 

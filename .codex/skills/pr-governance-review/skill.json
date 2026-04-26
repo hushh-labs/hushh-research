@@ -70,6 +70,9 @@
     "lean-core-bloat-risk",
     "trust-boundary-regression",
     "merge-readiness-false-positive",
-    "malicious-degradation-risk"
+    "malicious-degradation-risk",
+    "founder-copy-drift",
+    "one-kai-nav-role-blur",
+    "future-state-overclaim"
   ]
 }

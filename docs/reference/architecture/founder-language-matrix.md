@@ -47,8 +47,23 @@ Approved phrasing pattern:
 | `Consent Protocol` | `consent-protocol`, FastAPI consent routes, token validation middleware, consent scope catalog | The current backend system that realizes Hussh trust, approval, and scoped access behavior | platform docs, repo maps, founder-aware backend docs | backend package docs, code references, route docs, implementation sections | `Consent Protocol (the current backend system that realizes the platform trust model)` |
 | `Developer API / MCP` | `/api/v1`, `/mcp/?token=<developer-token>`, `@hushh/mcp` | The public developer-access lane into Hussh | architecture overviews, founder brief sections, external-platform framing | setup guides, host examples, path tables, package commands | `Developer API / MCP (implemented today through /api/v1, the hosted MCP endpoint, and @hushh/mcp)` |
 | `One` | Current Kai-first voice/action runtime, future top personal-agent layer | The approved top relationship layer for greetings, memory, notifications, cross-domain help, and specialist handoffs | vision docs, future roadmap, founder briefs, shell/copy governance | current runtime docs unless explicitly marked as approved direction | `One (approved direction for the top personal-agent layer; the current voice/action runtime is still Kai-first)` |
+| `Agent One` | One, current Kai-first runtime, future One relationship layer | Founder-facing name for the user's top personal agent, not a second product ontology | founder story, product narrative, future-roadmap framing | current runtime docs unless explicitly marked as approved direction | `Agent One / One (approved direction for the personal agent the user owns; the current runtime remains Kai-first)` |
 | `Kai` | Kai finance surfaces, generated Kai action gateway, portfolio/market/analysis services | The current shipped finance specialist that One will summon for finance workflows | investor/RIA product docs, finance workflow docs, architecture narratives | code paths, route docs, generated contract names, package-local implementation docs | `Kai (implemented today as the finance assistant runtime across portfolio, market, analysis, voice, and search surfaces)` |
 | `Nav` | Consent center, vault/privacy/deletion/scope-review surfaces; future Nav-owned `nav.*` actions | The approved privacy and consent guardian that One will summon for trust-sensitive flows | vision docs, future roadmap, consent/privacy founder language | current runtime docs unless the checked-in action or copy surface is actually Nav-owned | `Nav (approved direction for privacy, consent, vault, deletion, and scope-review flows; not a separate current runtime yet)` |
+| `BYOA / Bring your own AI` | Provider routing, BYOK, local model execution planning, user-held provider credentials | Directional product language for using the user's chosen models and keys with Hussh-owned memory and consent boundaries | vision docs and future roadmap | current setup guides, supported-provider docs, key-management docs unless implementation exists | `BYOA (future direction for user-chosen AI/model routing; current docs must name the supported provider and key path explicitly)` |
+| `hu_ssh / SSH for humans` | Hussh, Consent Protocol, PCHP, scoped consent, audit history | Founder metaphor for the Hussh trust handshake; not a replacement for Human Secure Socket Host | founder briefs, vision docs, trust narratives | exact architecture definitions unless paired with the canonical name | `hu_ssh / SSH for humans (founder metaphor for Human Secure Socket Host: ask, approve, audit through scoped consent)` |
+| `Ask. Approve. Audit.` | Consent request, approval/revocation, consent audit, export revision | Public explanation of the consent loop | vision docs, consent/trust overviews, founder briefs | endpoint docs, payload examples, database/audit table references | `Ask / Approve / Audit (implemented today through consent request, approval/revocation, scoped export, and audit rows)` |
+| `Your agents. Yours to own.` | One/Kai/Nav ontology, BYOK, consent, PKM, scoped export | Durable product line for user-owned agent relationships | vision docs, community updates, founder briefs | runtime docs that need exact implementation proof | `Your agents. Yours to own. (product thesis; current implementation remains Kai-first until One/Nav runtime ships)` |
+
+## Retired Founder Draft Phrases
+
+These phrases appeared in founder source material but are not approved canonical wording:
+
+| Retired phrase | Why it is retired | Approved replacement |
+| --- | --- | --- |
+| `Hussh is your personal MCP server and AI agent.` | Blurs platform infrastructure with the user's personal agent. | `Hussh is the platform and trust infrastructure. One is the personal agent.` |
+| `One has two faces.` | Makes Kai and Nav sound like alternate identities instead of specialists below One. | `One holds the relationship. Kai and Nav are specialists One summons.` |
+| `Kai is the One who remembers.` | Moves One-owned relationship memory into the finance specialist. | `One remembers. Kai owns finance memory and finance reasoning.` |
 
 ## Scope Notes
 
@@ -91,11 +106,14 @@ Before merging a terminology-heavy docs change, verify:
 7. `One` is capitalized when it refers to the top personal agent and is not described as fully shipped until the runtime proves it.
 8. `Kai` remains the current finance specialist and is not described as the whole Hussh platform identity.
 9. `Nav` is reserved for privacy, consent, vault, deletion, and scope-review meaning; ordinary navigation uses `route.*`, not `nav.*`.
+10. `hu_ssh` and `SSH for humans` remain founder metaphors and do not replace the canonical `Human Secure Socket Host` expansion.
+11. `Ask. Approve. Audit.` maps back to consent request, approval/revocation, scoped export, and audit rows.
+12. BYOA/BYO model claims stay future-state unless the doc names the shipped provider and key-management path.
 
 Suggested sweep:
 
 ```bash
-rg -n "PCHP|Capability Tokens|Cryptographic Primitives|Separation of Duties|Tamper-Evident History|TrustLink|A2A delegation|developer token|consent token|VAULT_OWNER|scoped export|Consent Protocol" docs consent-protocol/docs hushh-webapp/docs packages/hushh-mcp -S
+rg -n "PCHP|Capability Tokens|Cryptographic Primitives|Separation of Duties|Tamper-Evident History|TrustLink|A2A delegation|developer token|consent token|VAULT_OWNER|scoped export|Consent Protocol|One|Kai|Nav|hu_ssh|SSH for humans|Ask\\. Approve\\. Audit|BYOA" docs consent-protocol/docs hushh-webapp/docs packages/hushh-mcp -S
 ```
 
 ## Related References

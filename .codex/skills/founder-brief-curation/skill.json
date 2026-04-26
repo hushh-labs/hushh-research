@@ -59,6 +59,9 @@
   "risk_tags": [
     "founder-brief-drift",
     "shared-artifact-overclaim",
+    "founder-copy-drift",
+    "one-kai-nav-role-blur",
+    "future-state-overclaim",
     "diagram-overflow",
     "reference-link-drift"
   ]

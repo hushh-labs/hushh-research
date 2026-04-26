@@ -12,6 +12,8 @@ This document defines the public documentation rebrand from `Hushh` to `Hussh (H
 
 The architecture meaning is defined in [../architecture/architecture.md](../architecture/architecture.md): Hussh is the governed host where human authority, private data, AI agents, apps, and consented access connect through scoped, auditable infrastructure.
 
+Founder-facing copy may also use `hu_ssh` or `SSH for humans` as a metaphor for the same trust handshake: ask for a named scope, approve it explicitly, and audit what happened. That metaphor does not replace `Human Secure Socket Host` as the canonical expansion.
+
 This contract does **not** rename code, package names, CLI commands, repo slugs, deployed URLs, env vars, bundle IDs, or service identifiers. Those remain literal compatibility surfaces until a separate engineering rebrand program lands.
 
 ## Public Brand Rule

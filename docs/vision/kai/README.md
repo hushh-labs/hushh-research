@@ -108,15 +108,15 @@ Kai embodies the finance part of this philosophy:
 | One-size-fits-all         | Risk-persona aligned           |
 | No explanation            | Complete audit trail           |
 | Serves the institution    | **Serves only you**            |
-| Requires cloud            | **Runs on your device**        |
+| Requires cloud            | **Can graduate toward on-device execution where supported** |
 
 ---
 
-## 📱 On-Device AI & Hybrid Mode
+## 📱 On-Device AI & Hybrid Mode Direction
 
-Kai operates in two modes depending on user preference and device capabilities:
+Kai's long-term direction supports two modes depending on user preference and device capabilities. Current implementation remains cloud-primary unless a linked current-state reference proves a specific on-device path.
 
-### Mode 1: Fully On-Device (Privacy-First)
+### Mode 1: Future Target — Fully On-Device (Privacy-First)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -157,7 +157,7 @@ Kai operates in two modes depending on user preference and device capabilities:
 
 **When to use**: Maximum privacy, offline scenarios, general analysis.
 
-### Mode 2: Hybrid (Full Featured)
+### Mode 2: Future Target — Hybrid (Full Featured)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -648,7 +648,9 @@ MLX (iOS) and Gemma (Android) now enable powerful LLM inference directly on mobi
 
 ---
 
-## 🏗️ Technical Architecture
+## 🏗️ Target Technical Architecture
+
+The diagrams below describe the Kai vision target. Treat on-device inference, offline decision review, and fully local processing lanes as future-state unless a current implementation reference explicitly proves the shipped surface.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐

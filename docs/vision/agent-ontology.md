@@ -29,11 +29,26 @@ flowchart TB
 
 Future specialists slot below One. Do not add a second top-level personal agent unless the product ontology itself changes.
 
+## One Motions
+
+One's durable product model is four motions:
+
+| Motion | One owns | Guardrail |
+| --- | --- | --- |
+| Listens | Reading files, messages, calendars, accounts, and connected surfaces only after the user grants scope | No silent reads and no implied platform access |
+| Remembers | The relationship memory: context, preferences, decisions, trusted people, and questions the user already answered | Current PKM is Kai-first; do not claim full One memory runtime until shipped |
+| Decides | Cross-domain reasoning and specialist selection | Specialist judgment stays with the specialist, especially Kai for finance and Nav for privacy |
+| Acts | Bounded execution, follow-through, and receipts | Actions must stay inside consent, vault, persona, workspace, and route guards |
+
+One holds the relationship. The specialists hold the craft. Product copy should make this division obvious instead of asking users to know which specialist to invoke.
+
 ## Current-State Boundary
 
 The current checked-in runtime is still Kai-first. Kai voice, action grounding, and generated gateway contracts are the live implementation surface today.
 
 One and Nav are approved direction, not a claim that the current app already runs a full One/Nav runtime. Current-state docs must say this plainly when discussing implementation.
+
+Current memory wording must be equally precise: PKM is the checked-in encrypted memory architecture, and today it is described through Kai-first implementation docs. The durable direction is One-owned relationship memory with Kai finance memory as a specialist slice and Nav consent/privacy memory as a guardian slice.
 
 ## Tone And Copy Ownership
 
@@ -85,6 +100,24 @@ Approved pattern:
 4. One returns only when the cross-domain or relationship layer needs closure.
 
 Do not blur ownership by letting Kai explain vault policy, letting Nav make finance recommendations, or making Hussh speak as a personal assistant.
+
+## Founder Copy Rules
+
+Approved founder-facing rewrites:
+
+- `Hussh is the platform and trust infrastructure. One is the personal agent.`
+- `One listens, remembers, decides, and acts under consent.`
+- `Kai is the finance specialist One summons.`
+- `Nav is the privacy and consent guardian One summons.`
+- `Your agents. Yours to own.`
+
+Retired or stale wording:
+
+- `Hussh is your personal MCP server and AI agent.`
+- `One has two faces.`
+- `Kai is the One who remembers.`
+
+Those phrases blur the product ontology. Use them only when quoting old source material for migration analysis, not as approved product language.
 
 ## Action Namespace Contract
 

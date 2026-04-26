@@ -5,7 +5,15 @@
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-The Personal Knowledge Model (PKM) is Kai's canonical user-memory architecture.
+The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. Today, the implementation docs describe it through the Kai-first runtime because Kai is the shipped finance specialist and voice/action surface.
+
+The approved product direction is One-owned relationship memory with specialist slices beneath it:
+
+- One owns cross-domain relationship memory such as context, preferences, trusted people, decisions, and previously answered questions.
+- Kai owns finance memory and finance reasoning over the protected finance lane.
+- Nav owns privacy, consent, vault, deletion, and scope-review memory once Nav runtime surfaces are implemented.
+
+Until that migration lands, do not describe One-owned PKM as current-state runtime behavior. Use the One/Nav roadmap for future-state claims about portable One memory, user-private action receipts, BYO model execution, or no platform-controlled recovery.
 
 ## Canonical tables
 

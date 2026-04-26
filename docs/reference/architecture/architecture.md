@@ -23,6 +23,8 @@ Hussh should be read as a governed personal-intelligence platform, not as a sing
 
 `Hussh` stands for **Human Secure Socket Host**. In architecture terms, the host is the governed infrastructure layer where human authority, private data, AI agents, external apps, and consented access connect without collapsing the trust boundary. The name is therefore an operating model, not just a public label: Hussh hosts personal intelligence through scoped consent, encrypted knowledge, auditable delegation, and deployable product surfaces.
 
+The founder shorthand `hu_ssh` reads this as `SSH for humans`: ask, approve, and audit before private context moves. That shorthand is a metaphor for the same Consent Protocol-backed trust model, not a separate architecture name.
+
 Kai is the primary investor-facing intelligence surface, but the architecture is broader than Kai. The repo already contains the trust boundary, the data boundary, the developer lane, the mobile lane, and the agent lane that make the platform coherent.
 
 The canonical terminology contract for this architecture lives in [founder-language-matrix.md](./founder-language-matrix.md). The canonical public naming and compatibility rule lives in [../operations/brand-and-compatibility-contract.md](../operations/brand-and-compatibility-contract.md).

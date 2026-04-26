@@ -67,6 +67,16 @@ Non-owned surfaces:
     - Nav is reserved for privacy, consent, vault, deletion, and scope-review language, not ordinary navigation.
 12. Keep navigation action ids under `route.*` in docs. Treat `nav.*` as valid only for true Nav guardian capabilities or clearly marked future-roadmap prose.
 13. Do not introduce celebrity voice references or personal numeric preferences into canonical docs.
+14. Normalize founder draft language before promoting it into canonical docs:
+    - approved: `Hussh is the platform and trust infrastructure. One is the personal agent.`
+    - approved: `One listens, remembers, decides, and acts under consent.`
+    - approved: `Kai is the finance specialist One summons.`
+    - approved: `Nav is the privacy and consent guardian One summons.`
+    - retired: `Hussh is your personal MCP server and AI agent.`
+    - retired: `One has two faces.`
+    - retired: `Kai is the One who remembers.`
+15. Treat `hu_ssh` and `SSH for humans` as secondary founder metaphors only. Keep `Human Secure Socket Host` as the canonical architecture expansion.
+16. Keep strong claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private action receipts in `docs/future/` until implementation docs and tests prove them.
 
 ## Handoff Rules
 

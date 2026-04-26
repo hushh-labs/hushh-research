@@ -82,6 +82,10 @@ Non-owned surfaces:
    - whether the helper found a concept-level overlap that requires `patch_then_merge` or `block` even when exact file overlap is zero
    - whether the PR is overbuilt relative to the core repo model: small contributor surface, consent-first access, BYOK/zero-knowledge boundaries, canonical routes, and meaningful tests
    - whether the PR blurs Hussh / One / Kai / Nav ownership by making Hussh speak as a character, treating Kai as the full platform identity, using One as a shipped-runtime claim without proof, or using `nav.*` for ordinary navigation
+   - whether founder-copy updates preserve the canonical ontology: Hussh as platform, One as personal agent, Kai as finance specialist, and Nav as privacy/consent guardian
+   - whether the PR imports retired founder-draft wording such as `Hussh is your personal MCP server and AI agent`, `One has two faces`, or `Kai is the One who remembers`
+   - whether `hu_ssh`, `SSH for humans`, or `Ask. Approve. Audit.` are mapped back to Human Secure Socket Host and the current Consent Protocol instead of replacing implementation truth
+   - whether BYO AI, portable One memory, no platform-controlled recovery, or user-private receipt claims are supported by checked-in runtime docs and tests before being described as shipped
 7. For every lane, perform two explicit verification passes and say which pass you are in:
    - Pass 1: repo and product verification against current `main`, current head SHA, changed surfaces, and architectural truth
    - Pass 2: authoritative workflow verification after action, including current PR checks, merge queue validation, and post-merge smoke where applicable
