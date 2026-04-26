@@ -2434,7 +2434,7 @@ async def analyze_stream(
     """
     ticker = _normalize_ticker_or_422(ticker)
 
-    # Auth uses the DB-backed revocation check inside _require_vault_owner_token().
+    # Auth uses validate_token_with_db inside _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(user_id=user_id, authorization=authorization)
 
     # Log operation for audit trail (shows what vault.owner token was used for)
@@ -2472,7 +2472,7 @@ async def analyze_stream_post(
     """
     ticker = _normalize_ticker_or_422(body.ticker)
 
-    # Auth uses the DB-backed revocation check inside _require_vault_owner_token().
+    # Auth uses validate_token_with_db inside _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(
         user_id=body.user_id,
         authorization=authorization,
