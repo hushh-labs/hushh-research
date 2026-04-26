@@ -30,7 +30,7 @@ from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent, FundamentalInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent, SentimentInsight
 from hushh_mcp.agents.kai.valuation_agent import ValuationAgent, ValuationInsight
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.kai.llm import (
     get_gemini_unavailable_reason,
@@ -54,19 +54,31 @@ _RUN_MANAGER = KaiAnalyzeRunManager()
 async def _require_vault_owner_token(
     *,
     user_id: str,
-    authorization: Optional[str],
+    authorization: str | None,
 ) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Missing consent token. Call /api/consent/owner-token first.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    consent_token = authorization.replace("Bearer ", "")
-    valid, reason, payload = validate_token(consent_token, ConsentScope.VAULT_OWNER)
+    # Use removeprefix (not replace) so "Bearer " is stripped only from the start,
+    # preventing accidental token corruption when the token value itself contains
+    # the substring "Bearer ".
+    consent_token = authorization.removeprefix("Bearer ").strip()
+
+    # validate_token_with_db performs both the offline JWT check AND a DB-backed
+    # revocation lookup, matching the canonical pattern in api/middleware.py.
+    # validate_token (offline-only) was the previous, weaker check.
+    valid, reason, payload = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid or not payload:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {reason}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid token: {reason}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if payload.user_id != user_id:
         raise HTTPException(status_code=403, detail="Token user mismatch")
@@ -2409,7 +2421,7 @@ async def analyze_stream(
     - decision: Final decision card
     - error: Fatal error
     """
-    # Auth path includes validate_token() inside _require_vault_owner_token().
+    # Auth: validate_token_with_db (DB-backed revocation check) via _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(user_id=user_id, authorization=authorization)
 
     # Log operation for audit trail (shows what vault.owner token was used for)
@@ -2445,7 +2457,7 @@ async def analyze_stream_post(
     POST version of streaming analysis (allows context in body).
     Also supports streaming an existing resumable run via run_id.
     """
-    # Auth path includes validate_token() inside _require_vault_owner_token().
+    # Auth: validate_token_with_db (DB-backed revocation check) via _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(
         user_id=body.user_id,
         authorization=authorization,
