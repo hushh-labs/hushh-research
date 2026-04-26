@@ -42,13 +42,20 @@ async def issue_session_token(
         # Ensure request userId matches verified token
         if request.userId != verified_uid:
             logger.warning("session_token.user_mismatch")
-            raise HTTPException(status_code=403, detail="userId does not match authenticated user")
+            raise HTTPException(status_code=403, detail="userId mismatch")
 
         logger.info("session_token.firebase_verified")
 
+    except HTTPException:
+        raise  # keep original error
+
+    except ValueError as e:
+        logger.warning("session_token.invalid_token: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid token")
+
     except Exception as e:
-        logger.error("session_token.verification_failed: %s", e)
-        raise HTTPException(status_code=401, detail="Token verification failed")
+        logger.error("session_token.internal_error: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     try:
         # Issue token with session scope
