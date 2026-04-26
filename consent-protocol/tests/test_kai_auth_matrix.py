@@ -325,7 +325,9 @@ class TestKaiAnalyzeStreamRoutes:
         )
         assert response.status_code == 403
 
-    def test_analyze_stream_get_invalid_ticker_returns_422(self, client, vault_owner_token_for_user):
+    def test_analyze_stream_get_invalid_ticker_returns_422(
+        self, client, vault_owner_token_for_user
+    ):
         token = vault_owner_token_for_user("user_a")
         response = client.get(
             "/api/kai/analyze/stream",
