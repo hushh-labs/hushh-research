@@ -602,9 +602,7 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    valid, reason, token_obj = await validate_token_with_db(
-        consent_token, ConsentScope.VAULT_OWNER
-    )
+    valid, reason, token_obj = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid:
         logger.warning(f"Invalid consent token: {reason}")
