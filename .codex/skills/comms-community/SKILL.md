@@ -31,6 +31,7 @@ Non-owned surfaces:
 2. Distinguishing clearly between current behavior and future direction.
 3. Selecting only the smallest set of evidence-bearing docs needed for the answer.
 4. Drafting repo-backed internal Q&A replies where the question may reference files, test failures, or implementation concerns that need verification before answering.
+5. Drafting Discord-ready announcements or replies that intentionally use native Discord markdown for pacing, emphasis, quotes, lists, and compact calls to action.
 
 ## Do Not Use
 
@@ -57,11 +58,17 @@ Non-owned surfaces:
    - `Default`: sendable now, short, human-facing, evidence-backed
    - `Detailed`: same answer with one more layer of reasoning or context
    - `Firmer`: include only when the premise is wrong, the user asks for sharper wording, or a decision boundary needs correction
-6. Choose evidence format by audience:
+6. When the user asks for a Discord-formatted post, announcement, cinematic cadence, launch note, or channel message, use native Discord formatting deliberately:
+   - bold only the anchor phrase or headline
+   - use short line breaks for cadence
+   - use a blockquote for a motto or defining sentence when it improves readability
+   - use bullets only when they make the message easier to scan
+   - avoid tables and heavy headings unless the user explicitly asks for a longer post
+7. Choose evidence format by audience:
    - public/community and internal shareable Q&A: prefer canonical GitHub markdown doc links on `main`, not repo-relative paths
    - internal repo-debug Q&A: file links or GitHub issue/PR links are allowed when they directly prove the point
-7. If the question asks for the current architecture doc, cite the maintained top-level doc first and only then mention narrower subsystem docs.
-8. Do not invent certainty from a vague teammate report. If the concern is branch-local or not present in the current tree, say so and ask for the exact path, log, or PR.
+8. If the question asks for the current architecture doc, cite the maintained top-level doc first and only then mention narrower subsystem docs.
+9. Do not invent certainty from a vague teammate report. If the concern is branch-local or not present in the current tree, say so and ask for the exact path, log, or PR.
 
 ## Handoff Rules
 

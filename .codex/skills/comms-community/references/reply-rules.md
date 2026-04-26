@@ -2,9 +2,9 @@
 
 Use these rules for public community responses:
 
-1. Keep it readable in one screen. Hard cap: 3 to 4 lines of prose. If the point does not fit, it is not the point. Signature sits on its own line after that.
+1. Keep it readable in one screen. Default hard cap: 3 to 4 lines of prose. If the user asks for an announcement, product update, launch note, or cinematic cadence, the reply may use more line breaks for rhythm but should still stay short enough to post without editing.
 2. Casual thread register, not memo register. Contractions are fine. Short sentences. Read it out loud, if it sounds like a memo it is wrong, if it sounds like a thread message it is right.
-3. No section headers, no bold sub-labels like `**On X:**`. Fold sub-points into the prose.
+3. No memo-style section headers or bold sub-labels like `**On X:**` in normal replies. For Discord announcements, one bold headline or anchor phrase is allowed when it improves scanability.
 4. Lead with the answer in the same breath as the correction if the premise is off. First sentence is the conclusion. Evidence or doc pointer follows in one line.
 5. Be explicit about current state vs future plan.
 6. Prefer `today / currently / right now` when answering present-state questions.
@@ -71,6 +71,39 @@ Use these rules for public community responses:
    - source-file links for internal Q&A
    - issue/PR links when the concern is tied to open review or active branch work
    - no links when they add clutter without proof value
+
+## Discord Native Formatting Mode
+
+Use this mode when the user asks for Discord formatting, a channel post, product update, launch note, announcement, founder voice, cinematic cadence, or a message meant to be pasted directly into Discord.
+
+Allowed Discord formatting:
+
+1. `**bold**` for one headline, name, or promise. Do not bold every important noun.
+2. Short line breaks to create rhythm.
+3. `>` blockquote for a motto, thesis, or one defining sentence.
+4. Bullets for quick scan lists, especially ontology or release notes.
+5. Inline code only for exact repo, API, command, token, or package identifiers.
+6. One link max unless the user asks for sources.
+
+Avoid:
+
+1. Markdown tables. They read poorly in Discord.
+2. Long section headings.
+3. Nested bullets.
+4. Decorative emoji unless the user explicitly wants brand/launch energy.
+5. Formatting that hides the current-state versus future-state boundary.
+
+Discord announcement pattern:
+
+```md
+**<cinematic anchor>.**
+
+<one short line that says what changed>
+
+<one short line that explains why it matters>
+
+> <optional motto or thesis>
+```
 
 Common framing:
 
