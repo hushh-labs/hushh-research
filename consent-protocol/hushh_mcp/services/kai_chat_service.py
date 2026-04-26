@@ -12,6 +12,7 @@ This service handles:
 7. Intent classification for workflow triggers
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -374,11 +375,19 @@ class KaiChatService:
             # 8. Generate response via LLM
             response_text, tokens = await self._generate_response(system_prompt, message)
 
-            # 9. Extract and store any learned attributes (async, don't block)
-            learned = await self.attribute_learner.extract_and_store(
-                user_id=user_id,
-                user_message=message,
-                assistant_response=response_text,
+            # 9. Fire attribute extraction in the background — do NOT await it.
+            # The LLM call inside extract_and_store adds ~300-800ms of latency
+            # that the caller never benefits from (learned_attributes in the API
+            # response is informational only and nothing downstream blocks on it).
+            # asyncio.create_task schedules it concurrently; the response is
+            # returned to the client immediately after step 8.
+            asyncio.create_task(
+                self.attribute_learner.extract_and_store(
+                    user_id=user_id,
+                    user_message=message,
+                    assistant_response=response_text,
+                ),
+                name=f"attr_learn:{user_id}",
             )
 
             # 10. Store messages in chat history
@@ -410,7 +419,7 @@ class KaiChatService:
                 response=response_text,
                 component_type=component.type if component else None,
                 component_data=component.data if component else None,
-                learned_attributes=learned,
+                learned_attributes=[],  # populated async in background; not available synchronously
                 tokens_used=tokens,
             )
 
