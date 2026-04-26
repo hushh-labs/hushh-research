@@ -316,9 +316,7 @@ async def test_validate_token_with_db_scoped_token_fails_closed_on_db_error():
     fake_module.ConsentDBService = lambda: mock_service_instance
 
     with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
-        valid, reason, token_result = await validate_token_with_db(
-            token_str, ConsentScope.PKM_READ
-        )
+        valid, reason, token_result = await validate_token_with_db(token_str, ConsentScope.PKM_READ)
 
     # Scoped token fails closed — deny access when DB is unreachable
     assert valid is False

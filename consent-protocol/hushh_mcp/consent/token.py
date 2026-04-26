@@ -212,23 +212,21 @@ async def validate_token_with_db(
         # out of their own vault during brief DB hiccups.
         # All other scoped tokens fail closed immediately — when revocation
         # status cannot be confirmed, access to third-party data is denied.
-        is_vault_owner = (
-            token_obj is not None
-            and (
-                token_obj.scope_str == "vault.owner"
-                or token_obj.scope == ConsentScope.VAULT_OWNER
-            )
+        is_vault_owner = token_obj is not None and (
+            token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
         )
         if is_vault_owner:
             logger.warning(
                 "DB revocation check failed for VAULT_OWNER token, "
-                "applying grace period fallback: %s", e
+                "applying grace period fallback: %s",
+                e,
             )
             return valid, reason, token_obj
 
         logger.error(
             "DB revocation check failed for scoped token, "
-            "failing closed to protect consent integrity: %s", e
+            "failing closed to protect consent integrity: %s",
+            e,
         )
         return False, "Token revocation status could not be confirmed (DB unavailable)", None
 
