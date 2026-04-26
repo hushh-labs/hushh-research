@@ -79,9 +79,41 @@ def test_user_scopes_requires_developer_key(monkeypatch):
     assert detail["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
 
 
-def test_user_scopes_rejects_authorization_header(monkeypatch):
+class _EmptyScopeGenerator:
+    async def get_available_scopes(self, user_id: str) -> list[str]:
+        return []
+
+    async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+        return []
+
+
+class _EmptyIndex:
+    available_domains: list[str] = []
+
+
+class _EmptyPkmService:
+    scope_generator = _EmptyScopeGenerator()
+
+    async def resolve_metadata_index(self, user_id: str):
+        return _EmptyIndex()
+
+
+def test_user_scopes_accepts_authorization_bearer_header(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    captured: dict[str, object] = {}
+
+    def _fake_authenticate_token(self, raw_token, *, ip_address=None, user_agent=None):
+        captured["raw_token"] = raw_token
+        return _fake_principal()
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        _fake_authenticate_token,
+    )
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
 
     client = TestClient(_build_app())
     response = client.get(
@@ -89,9 +121,82 @@ def test_user_scopes_rejects_authorization_header(monkeypatch):
         headers={"Authorization": "Bearer hdk_demo"},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert captured["raw_token"] == "hdk_demo"  # noqa: S105
+    assert response.json()["app_id"] == "app_demo_123"
+
+
+def test_user_scopes_invalid_authorization_bearer_returns_403(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        lambda self, *_args, **_kwargs: None,
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/user-scopes/user_123",
+        headers={"Authorization": "Bearer not-a-real-token"},
+    )
+
+    assert response.status_code == 403
     detail = response.json()["detail"]
-    assert detail["error_code"] == "DEVELOPER_TOKEN_QUERY_REQUIRED"
+    assert detail["error_code"] == "DEVELOPER_TOKEN_INVALID"
+
+
+def test_user_scopes_authorization_bearer_takes_precedence_over_query(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    captured: dict[str, object] = {}
+
+    def _fake_authenticate_token(self, raw_token, *, ip_address=None, user_agent=None):
+        captured["raw_token"] = raw_token
+        return _fake_principal()
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        _fake_authenticate_token,
+    )
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/user-scopes/user_123?token=from_query",
+        headers={"Authorization": "Bearer from_header"},
+    )
+
+    assert response.status_code == 200
+    assert captured["raw_token"] == "from_header"  # noqa: S105
+
+
+def test_user_scopes_query_token_logs_url_leak_warning(monkeypatch, caplog):
+    import logging as _logging
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        lambda self, *_args, **_kwargs: _fake_principal(),
+    )
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
+
+    client = TestClient(_build_app())
+    with caplog.at_level(_logging.WARNING, logger="api.developer_auth"):
+        response = client.get("/api/v1/user-scopes/user_123?token=hdk_demo")
+
+    assert response.status_code == 200
+    assert any(
+        getattr(rec, "event_type", "") == "developer_token_query_param_use"
+        or "Authorization: Bearer" in rec.getMessage()
+        for rec in caplog.records
+    )
 
 
 def test_user_scopes_returns_discovered_domains(monkeypatch):
@@ -291,9 +396,15 @@ def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):
     assert "list_ria_profiles" not in tool_names
 
 
-def test_tool_catalog_rejects_authorization_header(monkeypatch):
+def test_tool_catalog_accepts_authorization_bearer_header(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        lambda self, *_args, **_kwargs: _fake_principal(),
+    )
 
     client = TestClient(_build_app())
     response = client.get(
@@ -301,9 +412,7 @@ def test_tool_catalog_rejects_authorization_header(monkeypatch):
         headers={"Authorization": "Bearer hdk_demo"},
     )
 
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error_code"] == "DEVELOPER_TOKEN_QUERY_REQUIRED"
+    assert response.status_code == 200
 
 
 def test_request_consent_creates_pending_request(monkeypatch):
