@@ -18,7 +18,7 @@ from hushh_mcp.consent.scope_helpers import (
     get_scope_display_metadata,
     resolve_scope_to_enum,
 )
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import AGENT_PORTS
 from hushh_mcp.trust.link import create_trust_link, verify_trust_link
 from hushh_mcp.types import AgentID, UserID
@@ -46,8 +46,8 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
     if expected_scope_str:
         expected_scope = resolve_scope_to_enum(expected_scope_str)
 
-    # Use existing validation logic
-    valid, reason, token_obj = validate_token(token_str, expected_scope)
+    # Use DB-backed validation logic for cross-instance revocation consistency
+    valid, reason, token_obj = await validate_token_with_db(token_str, expected_scope)
 
     if not valid:
         logger.warning(f"❌ Token INVALID: {reason}")
@@ -81,7 +81,7 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
                     "checks_passed": [
                         "✅ Signature valid (HMAC-SHA256)",
                         "✅ Not expired",
-                        "✅ Not revoked",
+                        "✅ Not revoked (DB-backed cross-instance check)",
                         "✅ Scope matches" if expected_scope else "ℹ️ Scope not checked",
                     ],
                 }

@@ -207,8 +207,28 @@ async def validate_token_with_db(
                 logger.warning(f"Token revoked in DB but not in memory: {token_str[:30]}...")
                 return False, "Token has been revoked (DB check)", None
     except Exception as e:
-        # Log but don't fail - in-memory check is sufficient for single instance
-        logger.warning(f"DB revocation check failed, using in-memory only: {e}")
+        # DB is unreachable — apply fail-closed policy based on token scope.
+        # VAULT_OWNER tokens get a short grace period to avoid locking users
+        # out of their own vault during brief DB hiccups.
+        # All other scoped tokens fail closed immediately — when revocation
+        # status cannot be confirmed, access to third-party data is denied.
+        is_vault_owner = token_obj is not None and (
+            token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
+        )
+        if is_vault_owner:
+            logger.warning(
+                "DB revocation check failed for VAULT_OWNER token, "
+                "applying grace period fallback: %s",
+                e,
+            )
+            return valid, reason, token_obj
+
+        logger.error(
+            "DB revocation check failed for scoped token, "
+            "failing closed to protect consent integrity: %s",
+            e,
+        )
+        return False, "Token revocation status could not be confirmed (DB unavailable)", None
 
     return valid, reason, token_obj
 

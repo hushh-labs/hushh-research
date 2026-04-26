@@ -457,6 +457,7 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 - No data access without valid VAULT_OWNER token
 - Token proves user has unlocked their vault (consented)
 - All routes enforce token validation at middleware level
+- Async MCP tool auth paths and async ADK tools use DB-backed validation (`validate_token_with_db`) to reject revoked tokens consistently across Cloud Run instances. Sync-decorated tools remain memory-only until they migrate to async execution.
 
 ### 2. BYOK (Bring Your Own Key)
 
