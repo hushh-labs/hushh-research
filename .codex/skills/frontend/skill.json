@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "frontend",
   "primary_scope": "frontend-intake",
-  "description": "Use when the request is broadly about the Hushh web frontend and the correct frontend specialist skill is not yet clear.",
+  "description": "Use when the request is broadly about the Hussh web frontend and the correct frontend specialist skill is not yet clear.",
   "owned_paths": [
     "hushh-webapp/app",
     "hushh-webapp/components",

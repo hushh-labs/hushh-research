@@ -14,7 +14,7 @@ Canonical visual owner: [Kai Future Roadmap](./README.md). Use that map for the 
 
 This concept keeps Kai as the primary assistant and adds a Kai-owned delegated email/KYC specialist that can execute narrow workflow tasks after on-demand scoped consent.
 
-The goal is not a generic email bot or a public inbox-first workflow. The goal is a trust-bound workflow component that fits Hushh's existing architecture:
+The goal is not a generic email bot or a public inbox-first workflow. The goal is a trust-bound workflow component that fits Hussh's existing architecture:
 
 - Kai remains the user-facing orchestrator
 - PKM remains the durable personal memory layer
@@ -23,7 +23,7 @@ The goal is not a generic email bot or a public inbox-first workflow. The goal i
 
 ## North-Star Alignment
 
-This concept aligns with existing Hushh north stars when it keeps these invariants intact:
+This concept aligns with existing Hussh north stars when it keeps these invariants intact:
 
 1. consent-first access
 2. BYOK and zero-knowledge boundaries

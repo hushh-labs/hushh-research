@@ -549,6 +549,7 @@ export class VoiceTtsPlaybackManager {
         requestedVoice: fallbackMeta.requestedVoice,
       });
       const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US";
       utterance.onstart = () => {
         if (!this.isRunActive(runId)) return;
         this.emitTraceEvent(

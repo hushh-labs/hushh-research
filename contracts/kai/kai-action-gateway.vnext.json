@@ -1,0 +1,2192 @@
+{
+  "schema_version": "kai.action_gateway.vnext",
+  "generator": "hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs",
+  "source_contracts": [
+    "hushh-webapp/app/kai/analysis/page.voice-action-contract.json",
+    "hushh-webapp/app/profile/page.voice-action-contract.json",
+    "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
+    "hushh-webapp/app/profile/receipts/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/page.voice-action-contract.json",
+    "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
+    "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
+    "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
+    "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json"
+  ],
+  "surfaces": [
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_analysis",
+      "surface_title": "Kai Analysis Workspace",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/kai/analysis/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "profile_account",
+      "surface_title": "Profile Workspace",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/profile/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "profile_pkm_agent_lab",
+      "surface_title": "PKM Agent Lab",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "profile_receipts",
+      "surface_title": "Profile Receipts",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/profile/receipts/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_home",
+      "surface_title": "RIA Workspace Home",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "consents",
+      "surface_title": "Consent Center",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_command_bar",
+      "surface_title": "Kai Global Command Bar",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_portfolio_dashboard",
+      "surface_title": "Kai Portfolio Dashboard",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_market",
+      "surface_title": "Kai Market Home",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ]
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "route.kai_analysis",
+      "surface_id": "kai_analysis",
+      "label": "Open Analysis Surface",
+      "aliases": [
+        "open analysis",
+        "go to analysis"
+      ],
+      "search_keywords": [
+        "analysis",
+        "research"
+      ],
+      "meaning": "Navigates directly to the Kai analysis workspace and history route.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/analysis"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/kai/analysis/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.analysis_history",
+      "surface_id": "kai_analysis",
+      "label": "Open Analysis History",
+      "aliases": [
+        "open analysis history",
+        "show past analysis"
+      ],
+      "search_keywords": [
+        "analysis history",
+        "history"
+      ],
+      "meaning": "Navigates to analysis page history context.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/analysis",
+          "/kai/analysis?tab=history"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "history"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.start",
+      "surface_id": "kai_analysis",
+      "label": "Start Stock Analysis",
+      "aliases": [
+        "analyze stock",
+        "start stock analysis",
+        "research stock"
+      ],
+      "search_keywords": [
+        "analyze",
+        "analysis",
+        "stock"
+      ],
+      "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "analysis_idle_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "analyze",
+        "params": {
+          "requires_symbol": true
+        }
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.resume_active",
+      "surface_id": "kai_analysis",
+      "label": "Resume Active Analysis Run",
+      "aliases": [
+        "resume analysis",
+        "open active analysis"
+      ],
+      "search_keywords": [
+        "resume",
+        "active analysis"
+      ],
+      "meaning": "Attaches to currently running debate task and opens focused analysis route.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/analysis",
+          "/kai/analysis?focus=active"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "active debate run must exist for this user"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "active_analysis_required",
+        "vault_unlocked"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "resume_active_analysis"
+      },
+      "control_ids": [
+        "analysis_open_active"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.cancel_active",
+      "surface_id": "kai_analysis",
+      "label": "Cancel Active Analysis Run",
+      "aliases": [
+        "cancel analysis",
+        "stop analysis"
+      ],
+      "search_keywords": [
+        "cancel",
+        "stop analysis"
+      ],
+      "meaning": "Cancels running debate task and returns to history view.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "active debate run must exist for this user"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "active_analysis_required",
+        "explicit_user_confirmation",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "cancel_active_analysis"
+      },
+      "control_ids": [
+        "analysis_cancel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.open_transcript_tab_legacy",
+      "surface_id": "kai_analysis",
+      "label": "Legacy Transcript Tab Route",
+      "aliases": [
+        "open transcript tab",
+        "show transcript tab"
+      ],
+      "search_keywords": [
+        "analysis transcript"
+      ],
+      "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/analysis?tab=transcript"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "analysis route must be loaded"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "dead",
+        "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "lib/voice/voice-json-validator.ts",
+        "app/kai/analysis/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/analysis?tab=transcript"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile",
+      "surface_id": "profile_account",
+      "label": "Open Profile",
+      "aliases": [
+        "open profile",
+        "go to profile"
+      ],
+      "search_keywords": [
+        "profile",
+        "account"
+      ],
+      "meaning": "Navigates to profile landing route.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_preferences",
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "profile"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_gmail_panel",
+      "surface_id": "profile_account",
+      "label": "Open Gmail Connector Panel",
+      "aliases": [
+        "open gmail settings",
+        "open gmail panel"
+      ],
+      "search_keywords": [
+        "gmail",
+        "gmail panel"
+      ],
+      "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query param panel=gmail"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?panel=gmail"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile?panel=gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_support_panel",
+      "surface_id": "profile_account",
+      "label": "Open Support Panel",
+      "aliases": [
+        "open support",
+        "contact support"
+      ],
+      "search_keywords": [
+        "support"
+      ],
+      "meaning": "Navigates to hidden support panel in Profile > Account.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile?tab=account&panel=support"
+        ],
+        "screens": [
+          "profile_support_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=account & panel=support"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?tab=account&panel=support"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile?tab=account&panel=support"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_security_panel",
+      "surface_id": "profile_account",
+      "label": "Open Vault Security Panel",
+      "aliases": [
+        "open security",
+        "vault security"
+      ],
+      "search_keywords": [
+        "security",
+        "vault"
+      ],
+      "meaning": "Navigates to hidden security panel in Profile > Privacy.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/profile?tab=privacy&panel=security"
+        ],
+        "screens": [
+          "profile_security_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=privacy & panel=security"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile?tab=privacy&panel=security"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile?tab=privacy&panel=security"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_pkm_agent_lab",
+      "surface_id": "profile_account",
+      "label": "Open PKM Agent Lab",
+      "aliases": [
+        "open pkm lab",
+        "open memory lab"
+      ],
+      "search_keywords": [
+        "pkm",
+        "memory lab"
+      ],
+      "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile/pkm-agent-lab"
+        ],
+        "screens": [
+          "profile_pkm_agent_lab"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "localhost developer access to PKM Agent Lab must be enabled"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile/pkm-agent-lab"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/pkm-agent-lab/page-client.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile/pkm-agent-lab"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.support.submit_message",
+      "surface_id": "profile_account",
+      "label": "Submit Support Message",
+      "aliases": [
+        "send support message",
+        "submit support message"
+      ],
+      "search_keywords": [
+        "support message",
+        "contact support"
+      ],
+      "meaning": "Sends support/bug/developer feedback email via support service.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile?tab=account&panel=support"
+        ],
+        "screens": [
+          "profile_support_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile?tab=account&panel=support"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/support/message (proxied)",
+            "effect": "Routes support payload to support_email_service."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.marketplace_visibility.toggle",
+      "surface_id": "profile_account",
+      "label": "Toggle Marketplace Visibility",
+      "aliases": [
+        "toggle marketplace visibility",
+        "change marketplace visibility"
+      ],
+      "search_keywords": [
+        "marketplace visibility"
+      ],
+      "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/profile?tab=privacy"
+        ],
+        "screens": [
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only handled by local Switch in ProfilePage.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile?tab=privacy"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.sign_out",
+      "surface_id": "profile_account",
+      "label": "Sign Out",
+      "aliases": [
+        "sign out",
+        "log out"
+      ],
+      "search_keywords": [
+        "sign out",
+        "logout"
+      ],
+      "meaning": "Ends current session and redirects to home route.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.delete_account",
+      "surface_id": "profile_account",
+      "label": "Delete Account",
+      "aliases": [
+        "delete my account",
+        "remove account"
+      ],
+      "search_keywords": [
+        "delete account"
+      ],
+      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "vault unlock may be required before delete confirmation"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "explicit_user_confirmation",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.pkm.preview_capture",
+      "surface_id": "profile_pkm_agent_lab",
+      "label": "Generate PKM capture preview",
+      "aliases": [
+        "preview pkm capture",
+        "generate pkm preview"
+      ],
+      "search_keywords": [
+        "pkm preview",
+        "memory preview"
+      ],
+      "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile/pkm-agent-lab"
+        ],
+        "screens": [
+          "profile_pkm_agent_lab"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "vault_unlocked"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Generate preview is currently handled only by local PKM Agent Lab state.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "generate_pkm_preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/pkm-agent-lab/page-client.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile/pkm-agent-lab"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.pkm.save_capture",
+      "surface_id": "profile_pkm_agent_lab",
+      "label": "Save PKM capture",
+      "aliases": [
+        "save pkm capture",
+        "save memory capture"
+      ],
+      "search_keywords": [
+        "save pkm",
+        "save capture"
+      ],
+      "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile/pkm-agent-lab"
+        ],
+        "screens": [
+          "profile_pkm_agent_lab"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "a saveable PKM capture preview must already exist"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Save encrypted capture is currently handled only inside PKM Agent Lab.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "save_pkm_capture"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/pkm-agent-lab/page-client.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile/pkm-agent-lab"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_receipts",
+      "surface_id": "profile_receipts",
+      "label": "Open Receipts Page",
+      "aliases": [
+        "open receipts",
+        "open gmail receipts"
+      ],
+      "search_keywords": [
+        "receipts",
+        "gmail receipts"
+      ],
+      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile/receipts"
+        ],
+        "screens": [
+          "profile_receipts"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to profile surface if route is currently outside profile scope"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/profile/receipts"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/receipts/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile/receipts"
+        ],
+        "backend_effects": [
+          {
+            "api": "GET /api/kai/gmail/status/{user_id} (proxied)",
+            "effect": "Reads Gmail connector status on mount."
+          },
+          {
+            "api": "GET /api/kai/gmail/receipts/{user_id} (proxied)",
+            "effect": "Reads paginated receipt items."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.connect",
+      "surface_id": "profile_receipts",
+      "label": "Connect Gmail",
+      "aliases": [
+        "connect gmail",
+        "link gmail"
+      ],
+      "search_keywords": [
+        "gmail connect",
+        "gmail"
+      ],
+      "meaning": "Starts OAuth flow for Gmail receipts connector.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/profile",
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "gmail_configured"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "open_gmail_connector"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/connect/start (proxied)",
+            "effect": "Generates OAuth authorize URL and state nonce."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.sync_now",
+      "surface_id": "profile_receipts",
+      "label": "Sync Gmail Receipts Now",
+      "aliases": [
+        "sync gmail receipts",
+        "refresh gmail receipts"
+      ],
+      "search_keywords": [
+        "gmail sync",
+        "refresh receipts"
+      ],
+      "meaning": "Queues and polls Gmail receipt sync run.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile/receipts",
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_receipts",
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "gmail_connected"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "sync_gmail_receipts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx",
+        "app/profile/receipts/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile/receipts"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/sync (proxied)",
+            "effect": "Queues sync job."
+          },
+          {
+            "api": "GET /api/kai/gmail/sync/{run_id} (proxied)",
+            "effect": "Polls sync run status."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.receipts_memory.preview",
+      "surface_id": "profile_receipts",
+      "label": "Build receipts memory preview",
+      "aliases": [
+        "preview receipts memory",
+        "generate receipts memory preview"
+      ],
+      "search_keywords": [
+        "receipts memory",
+        "preview receipts"
+      ],
+      "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile/receipts"
+        ],
+        "screens": [
+          "profile_receipts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "edit_receipts_summary"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/receipts/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile/receipts"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/receipts-memory/preview (proxied)",
+            "effect": "Builds or refreshes the receipts memory artifact preview."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.receipts_memory.save",
+      "surface_id": "profile_receipts",
+      "label": "Save receipts memory to PKM",
+      "aliases": [
+        "save receipts memory",
+        "save receipts to memory"
+      ],
+      "search_keywords": [
+        "save receipts memory"
+      ],
+      "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/profile/receipts"
+        ],
+        "screens": [
+          "profile_receipts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "receipt memory preview must exist before save"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Save to PKM is currently implemented only inside the receipts page.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "save_receipts_memory"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/receipts/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile/receipts"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.disconnect",
+      "surface_id": "profile_receipts",
+      "label": "Disconnect Gmail",
+      "aliases": [
+        "disconnect gmail",
+        "unlink gmail"
+      ],
+      "search_keywords": [
+        "disconnect gmail"
+      ],
+      "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "gmail_connected",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "No global action dispatcher for Gmail disconnect yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /profile?panel=gmail"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/disconnect (proxied)",
+            "effect": "Revokes connector state in backend."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_home",
+      "surface_id": "ria_home",
+      "label": "Open RIA Home",
+      "aliases": [
+        "open ria workspace",
+        "go to ria home"
+      ],
+      "search_keywords": [
+        "ria",
+        "advisor workspace"
+      ],
+      "meaning": "Navigates to the RIA workspace home route.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/ria"
+        ],
+        "screens": [
+          "ria_home"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "RIA workspace must be available for this account."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": true
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/runtime-surface.md"
+      ],
+      "workflow": {
+        "workflow_id": "route.ria_home.entry",
+        "confirmation_required": true,
+        "failure_message": null,
+        "blocked_guidance": "Complete or unlock RIA setup before entering the RIA workspace.",
+        "steps": [
+          {
+            "type": "persona_switch",
+            "preconditions": [],
+            "postconditions": [],
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "persona": "ria"
+            },
+            "target_persona": "ria",
+            "confirmation_required": true
+          },
+          {
+            "type": "route_switch",
+            "preconditions": [],
+            "postconditions": [],
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria",
+              "screen": "ria_home"
+            },
+            "href": "/ria"
+          }
+        ]
+      },
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.consents",
+      "surface_id": "consents",
+      "label": "Open Consent Center",
+      "aliases": [
+        "open consent center",
+        "open consents"
+      ],
+      "search_keywords": [
+        "consents",
+        "consent center"
+      ],
+      "meaning": "Navigates to consents route.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/consents"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "consent"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /consents"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.back",
+      "surface_id": "kai_command_bar",
+      "label": "Go Back",
+      "aliases": [
+        "go back",
+        "back"
+      ],
+      "search_keywords": [
+        "back"
+      ],
+      "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/kai",
+          "/kai/analysis",
+          "/profile"
+        ],
+        "screens": [
+          "kai_market",
+          "kai_analysis",
+          "profile_account"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "client browser history must have a previous entry",
+          "current route must already be inside a signed-in Kai or profile surface"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "navigate_back"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/lib/voice/voice-action-dispatcher.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_dashboard",
+      "surface_id": "kai_portfolio_dashboard",
+      "label": "Open Portfolio Dashboard",
+      "aliases": [
+        "open portfolio dashboard",
+        "open portfolio",
+        "go to holdings"
+      ],
+      "search_keywords": [
+        "portfolio",
+        "dashboard",
+        "holdings"
+      ],
+      "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/portfolio"
+        ],
+        "screens": [
+          "kai_portfolio_dashboard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "dashboard"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/portfolio"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_import",
+      "surface_id": "kai_portfolio_dashboard",
+      "label": "Open Portfolio Import",
+      "aliases": [
+        "import portfolio",
+        "open import"
+      ],
+      "search_keywords": [
+        "import",
+        "portfolio import"
+      ],
+      "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/import"
+        ],
+        "screens": [
+          "kai_portfolio_dashboard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "import"
+      },
+      "control_ids": [
+        "import_portfolio"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/import"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_investments",
+      "surface_id": "kai_portfolio_dashboard",
+      "label": "Open Investments Surface",
+      "aliases": [
+        "open investments",
+        "show investments"
+      ],
+      "search_keywords": [
+        "investments"
+      ],
+      "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/investments"
+        ],
+        "screens": [
+          "kai_investments"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/investments"
+      },
+      "control_ids": [
+        "view_investments"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/views/dashboard-master-view.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/investments"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_optimize",
+      "surface_id": "kai_portfolio_dashboard",
+      "label": "Open Optimize Surface",
+      "aliases": [
+        "optimize portfolio",
+        "open optimize"
+      ],
+      "search_keywords": [
+        "optimize",
+        "rebalance"
+      ],
+      "meaning": "Navigates to optimize workspace route directly.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai/optimize"
+        ],
+        "screens": [
+          "kai_optimize"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "optimization context should be prepared from portfolio source"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/optimize"
+      },
+      "control_ids": [
+        "optimize_portfolio"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/kai/optimize/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai/optimize"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_home",
+      "surface_id": "kai_market",
+      "label": "Open Market Home",
+      "aliases": [
+        "open kai home",
+        "open market home",
+        "go to market home"
+      ],
+      "search_keywords": [
+        "kai",
+        "market",
+        "home"
+      ],
+      "meaning": "Navigates to the Investor Kai market home surface.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/kai",
+          "/kai/home"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "home"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /kai"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    }
+  ]
+}

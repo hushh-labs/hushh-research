@@ -9,6 +9,36 @@ This document is the canonical contract for app-facing surfaces across Kai, RIA,
 
 Profile remains the reference implementation for settings rows. This document expands that language into the broader page-shell, header, and content-surface system.
 
+## Agent Copy Ownership
+
+The app uses the Hussh / One / Kai / Nav ontology from [../../vision/agent-ontology.md](../../vision/agent-ontology.md).
+
+Rules:
+
+1. Hussh is the platform and should not speak as a character in product UI.
+2. One owns shared shell copy:
+   - greetings
+   - general empty states
+   - memory framing
+   - background-task notifications
+   - specialist handoff copy
+3. Kai owns finance copy:
+   - portfolio analysis
+   - market intelligence
+   - investment debate
+   - decision receipts
+   - RIA/investor finance workflows
+4. Nav owns privacy and consent copy:
+   - consent requests
+   - scope review
+   - vault and key friction
+   - deletion and revocation
+   - suspicious-access or trust-state warnings
+5. Route navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions, not navigation.
+6. Local voice/action contracts must set `speaker_persona` to `one`, `kai`, or `nav` using the same ownership rules.
+7. Persona switching changes the workspace context. It does not change the top relationship agent; One stays the default shell voice.
+8. Canonical app copy uses neutral voice descriptors. Do not encode celebrity references or personal numeric preferences in maintained UI copy or docs.
+
 ## Shell Contract
 
 1. The top shell is the single authority for header clearance.

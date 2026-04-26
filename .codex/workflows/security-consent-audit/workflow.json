@@ -1,7 +1,7 @@
 {
   "id": "security-consent-audit",
   "title": "Security Consent Audit",
-  "goal": "Audit IAM, consent, vault, PKM, and delegated access boundaries against Hushh trust invariants.",
+  "goal": "Audit IAM, consent, vault, PKM, and delegated access boundaries against Hussh trust invariants.",
   "owner_skill": "security-audit",
   "default_spoke": "iam-consent-governance",
   "task_type": "security-consent-audit",

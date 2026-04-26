@@ -1,0 +1,103 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "profile_pkm_agent_lab",
+  "surface_title": "PKM Agent Lab",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "profile.pkm.preview_capture",
+      "label": "Generate PKM capture preview",
+      "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
+      "aliases": [
+        "preview pkm capture",
+        "generate pkm preview"
+      ],
+      "search_keywords": [
+        "pkm preview",
+        "memory preview"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile/pkm-agent-lab"
+        ],
+        "screens": [
+          "profile_pkm_agent_lab"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "vault_unlocked"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Generate preview is currently handled only by local PKM Agent Lab state.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "generate_pkm_preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/pkm-agent-lab/page-client.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.pkm.save_capture",
+      "label": "Save PKM capture",
+      "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
+      "aliases": [
+        "save pkm capture",
+        "save memory capture"
+      ],
+      "search_keywords": [
+        "save pkm",
+        "save capture"
+      ],
+      "reachability": {
+        "routes": [
+          "/profile/pkm-agent-lab"
+        ],
+        "screens": [
+          "profile_pkm_agent_lab"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "a saveable PKM capture preview must already exist"
+        ]
+      },
+      "guard_ids": [
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Save encrypted capture is currently handled only inside PKM Agent Lab.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "save_pkm_capture"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/pkm-agent-lab/page-client.tsx"
+      ],
+      "speaker_persona": "one"
+    }
+  ]
+}

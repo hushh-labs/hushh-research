@@ -8,37 +8,47 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - Does it preserve consent-first, trust-boundary clarity, and local-first contributor ergonomics?
 - Does it remove friction or add invisible complexity?
 
-## 2. Trust Boundary Integrity
+## 2. Lean/Core Bloat Control
+
+- Is the PR solving a core product/runtime/docs problem, or adding optional surface before the canonical path is stable?
+- Is it the smallest implementation that preserves correctness, security, maintainability, and contributor clarity?
+- Does it duplicate another open PR, an existing `main` concept, or a maintainer patch that should be the canonical path?
+- Are broad dependency/package/platform changes isolated and proven by install, build, and smoke checks?
+- Are tests meaningful enough to fail on regression, or are they coverage theater such as tautological assertions and copied production logic?
+- For new agents, services, reducers, exports, ingestion paths, or PKM writes, are consent scopes, caller contracts, and docs explicit?
+- If the change is directionally good but overbuilt, is the right action a narrow maintainer patch, a split, or duplicate closure?
+
+## 3. Trust Boundary Integrity
 
 - Are auth, vault, consent, PKM, Gmail, Plaid, Firebase, or role surfaces changed?
 - Does the caller still provide the correct credential or token shape?
 - Is one header or state channel now asked to carry two incompatible identities?
 
-## 3. Contract Symmetry
+## 4. Contract Symmetry
 
 - If a backend route changes, did the frontend caller or Next proxy change too?
 - If the runtime contract changes, did bootstrap, docs, and tests move with it?
 - If event semantics change, do clients still interpret them correctly?
 
-## 4. Main Overlap and Architecture Path Integrity
+## 5. Main Overlap and Architecture Path Integrity
 
 - Does `main` already implement the concept in a different file family or route family?
 - Is the PR adding a second architecture path for the same product concept instead of extending the canonical one?
 - Is the right outcome `patch_then_merge` or `block` even though exact file overlap is zero?
 
-## 5. Deploy and Runtime Integrity
+## 6. Deploy and Runtime Integrity
 
 - Did the PR change Docker, deploy YAML, CI, runtime entrypoints, or package install paths?
 - Are new runtime dependencies pinned in the real dependency surface instead of injected ad hoc?
 - Does the change make builds more reproducible or less reproducible?
 
-## 6. Proof Quality
+## 7. Proof Quality
 
 - Are there targeted tests or contract checks for the changed behavior?
 - Did the PR only make the existing gate green, or did it prove the new behavior?
 - Are stale runs or old comments being mistaken for the current head state?
 
-## 7. Malicious or Low-Signal Degradation Signals
+## 8. Malicious or Low-Signal Degradation Signals
 
 - `.gitignore` expanded around credentials, secrets, generated artifacts, or local scripts
 - auth tightened or widened without matching caller changes
@@ -47,10 +57,12 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - docs/tests omitted on a sensitive contract change
 - public ingress added without explicit rollout and abuse-control proof
 - a second product surface added when `main` already has the concept
+- tests that cannot fail, broad package churn without proof, or a new trust surface without explicit scope/caller contract
 
 ## Decision Rule
 
 - Block merge if any high-severity finding remains.
+- Do not use `merge_now` for a PR that is directionally right but overbuilt; use `patch_then_merge` for bounded cleanup or `block` for split/product-decision/duplicate-closure cases.
 - Do not thank, approve, or recommend merge while blockers remain.
 - For `merge_now` and `patch_then_merge`, always prepare the contributor-facing acknowledgment draft before the merge action.
 - Post that note only after the monitored merge path reaches the required terminal state.

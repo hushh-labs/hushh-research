@@ -3,7 +3,7 @@ name: codex-skill-authoring
 description: Use when creating, renaming, retrofitting, linting, or scaffolding repo-local Codex skills for hushh-research.
 ---
 
-# Hushh Codex Skill Authoring Skill
+# Hussh Codex Skill Authoring Skill
 
 ## Purpose and Trigger
 

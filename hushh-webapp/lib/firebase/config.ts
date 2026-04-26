@@ -2,7 +2,7 @@
  * Firebase Configuration
  * ======================
  * 
- * Production-grade Firebase setup for Hushh webapp.
+ * Production-grade Firebase setup for Hussh webapp.
  * Uses Phone Authentication for consent-first user identification.
  */
 
@@ -35,8 +35,25 @@ if (
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 
+const disablePhoneAuthAppVerificationForTesting =
+  process.env.NEXT_PUBLIC_APP_ENV === "development" &&
+  process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION === "true";
+
+if (disablePhoneAuthAppVerificationForTesting) {
+  auth.settings.appVerificationDisabledForTesting = true;
+}
+
 // Store reCAPTCHA verifier
 let recaptchaVerifier: RecaptchaVerifier | null = null;
+let recaptchaWidgetId: number | null = null;
+
+function getWindowWithRecaptcha() {
+  return window as typeof window & {
+    grecaptcha?: {
+      reset: (widgetId?: number) => void;
+    };
+  };
+}
 
 export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   if (typeof window === "undefined") {
@@ -51,6 +68,7 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
       // Ignore clear errors
     }
     recaptchaVerifier = null;
+    recaptchaWidgetId = null;
   }
 
   // Make sure the container exists
@@ -58,6 +76,7 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   if (!container) {
     throw new Error(`reCAPTCHA container '${containerId}' not found in DOM`);
   }
+  container.replaceChildren();
   
   recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
     size: "invisible",
@@ -73,14 +92,24 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   return recaptchaVerifier;
 }
 
+export async function prepareRecaptchaVerifier(containerId: string): Promise<RecaptchaVerifier> {
+  const verifier = getRecaptchaVerifier(containerId);
+  recaptchaWidgetId = await verifier.render();
+  return verifier;
+}
+
 export function resetRecaptcha() {
   if (recaptchaVerifier) {
     try {
+      if (recaptchaWidgetId !== null) {
+        getWindowWithRecaptcha().grecaptcha?.reset(recaptchaWidgetId);
+      }
       recaptchaVerifier.clear();
     } catch {
       // Ignore errors
     }
     recaptchaVerifier = null;
+    recaptchaWidgetId = null;
   }
 }
 

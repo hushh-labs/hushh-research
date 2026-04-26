@@ -1003,7 +1003,7 @@ class DeveloperRegistryService:
             "notes": [
                 "Developers enable access themselves from /developers with Kai sign-in.",
                 "User-specific access is determined by dynamic scope discovery plus explicit consent.",
-                "Use get_encrypted_scoped_export for all consented reads; Hushh does not return plaintext user data to developer callers.",
+                "Use get_encrypted_scoped_export for all consented reads; Hussh does not return plaintext user data to developer callers.",
                 "RIA and marketplace reads stay partner-only unless explicitly granted to the app.",
             ],
         }

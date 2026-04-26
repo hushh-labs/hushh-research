@@ -7,6 +7,8 @@ Canonical visual owner: [Mobile Index](README.md). Use that map for the top-down
 
 Last audited: March 29, 2026
 
+Founder-language note: this report is evidence for `Separation of Duties`, not a new architecture concept. It confirms that the mobile delivery boundary stayed aligned with the shared platform contract at the audit date above.
+
 ## Overall Status
 
 Current status: release-gate pass with no accepted parity exceptions.

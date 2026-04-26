@@ -563,7 +563,7 @@ export default function ProfileReceiptsPage() {
         id: "open_gmail_connector",
         label: "Connect Gmail",
         purpose: "opens the Gmail connector so you can connect or reconnect Gmail.",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         role: "button",
         voiceAliases: ["connect gmail", "open gmail connector", "open gmail"],
       },
@@ -931,7 +931,7 @@ export default function ProfileReceiptsPage() {
               disabled={isConnected ? syncing : gmail.status?.configured === false}
               className="min-w-[140px]"
               data-voice-control-id={isConnected ? "sync_gmail_receipts" : "open_gmail_connector"}
-              data-voice-action-id={isConnected ? "profile.gmail.sync_now" : "nav.profile_gmail_panel"}
+              data-voice-action-id={isConnected ? "profile.gmail.sync_now" : "route.profile_gmail_panel"}
               data-voice-label={primaryActionLabel}
               data-voice-purpose={
                 isConnected
@@ -994,7 +994,7 @@ export default function ProfileReceiptsPage() {
                 <Button
                   onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}
                   data-voice-control-id="open_gmail_connector"
-                  data-voice-action-id="nav.profile_gmail_panel"
+                  data-voice-action-id="route.profile_gmail_panel"
                   data-voice-label={primaryActionLabel}
                   data-voice-purpose="opens the Gmail connector so you can connect or reconnect Gmail."
                 >

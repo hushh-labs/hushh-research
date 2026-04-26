@@ -25,15 +25,20 @@ Supporting event families:
    - `import_*`
 4. analysis:
    - `market_insights_loaded`
+   - `portfolio_viewed`
+   - `recommendation_viewed`
    - `profile_picks_loaded`
    - `analysis_stream_*`
 5. consent and account:
    - `consent_*`
    - `account_delete_*`
    - `profile_method_switch_result`
+   - `phone_verification_*`
 6. RIA:
+   - `persona_switched`
    - `ria_onboarding_submitted`
    - `ria_verification_status_changed`
+   - `marketplace_profile_viewed`
    - `ria_request_created`
    - `ria_workspace_opened`
 7. Gmail:
@@ -43,10 +48,8 @@ Supporting event families:
 
 Declared-only events that should not back dashboards until they have emitters:
 
-1. `persona_switched`
-2. `marketplace_profile_viewed`
-3. `ria_request_blocked_policy`
-4. `mcp_ria_read_tool_called`
+1. `ria_request_blocked_policy`
+2. `mcp_ria_read_tool_called`
 
 ## Parameter policy
 
@@ -60,7 +63,34 @@ Allowed growth parameters:
 - `workspace_source`
 - `env`
 - `platform`
+- `event_category`
 - `app_version`
+
+Category policy:
+
+- `funnel` for `growth_funnel_step_completed`, `investor_activation_completed`, and `ria_activation_completed`
+- `feature` for high-intent product events such as `market_insights_loaded`, `portfolio_viewed`, and `recommendation_viewed`
+- `system` for request, account, consent, auth, Gmail, and runtime health events
+
+Investor funnel steps:
+
+- `entered`
+- `auth_completed`
+- `vault_ready`
+- `onboarding_completed`
+- `portfolio_ready`
+
+`investor_activation_completed` is the terminal conversion event. Do not model activation as `step = activated`.
+
+RIA funnel steps:
+
+- `entered`
+- `auth_completed`
+- `profile_submitted`
+- `request_created`
+- `workspace_ready`
+
+Authenticated RIA persona entry uses `auth_method = existing_session` for growth continuity and must not emit a fresh `auth_succeeded`.
 
 Do not add:
 
@@ -75,11 +105,17 @@ Do not add:
 
 1. Repo:
    - `cd hushh-webapp && npm run verify:analytics`
+   - route-ID coverage must fail when any first-party app route maps to `unknown`
+   - `cd hushh-webapp && npm run audit:analytics-sandbox`
+   - `cd hushh-webapp && npm run smoke:analytics:uat`
+   - UAT smoke must reuse the existing reviewer test fixture via `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE`; missing fixture data should be repaired on that user, not solved by creating another account
+   - protected-route smoke transitions after login must use Next client navigation, not raw `page.goto(...)`
 2. Web runtime:
    - GA DebugView
    - measurement-ID presence
 3. Native runtime:
    - Firebase / GA DebugView on iOS and Android
+   - UAT native validation requires TestFlight/internal-track or dev-device debug builds; current store builds are production-facing
 4. Export:
    - BigQuery link exists
    - GA-managed dataset materializes
@@ -93,6 +129,6 @@ Do not add:
 1. `(direct) / (not set)` dominating tagged traffic
 2. platform mix collapsing to one platform
 3. activation key events flatlined at zero
-4. missing `journey`, `step`, `env`, or `app_version`
+4. missing `journey`, `step`, `env`, `event_category`, or `app_version`
 5. UAT traffic appearing in prod DebugView or prod export
 6. `HushhVoice` appearing in Kai growth models

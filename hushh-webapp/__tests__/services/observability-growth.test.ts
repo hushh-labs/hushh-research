@@ -56,25 +56,26 @@ describe("growth observability contract", () => {
       dedupeWindowMs: 10_000,
     });
 
-    expect(window.dataLayer).toHaveLength(4);
+    expect(window.dataLayer).toHaveLength(3);
     expect(window.dataLayer?.map((entry) => entry.event)).toEqual([
-      "growth_funnel_step_completed",
       "growth_funnel_step_completed",
       "growth_funnel_step_completed",
       "investor_activation_completed",
     ]);
 
-    const [entered, authed, activatedStep, activated] = window.dataLayer as Array<
+    const [entered, authed, activated] = window.dataLayer as Array<
       Record<string, unknown>
     >;
 
     expect(entered.event_source).toBe("observability_v2");
+    expect(entered.event_category).toBe("funnel");
     expect(entered.entry_surface).toBe("login");
+    expect(authed.event_category).toBe("funnel");
     expect(authed.auth_method).toBe("google");
     expect(authed.entry_surface).toBe("login");
-    expect(activatedStep.step).toBe("activated");
-    expect(activatedStep.portfolio_source).toBe("statement");
+    expect(activated.event_category).toBe("funnel");
     expect(activated.journey).toBe("investor");
+    expect(activated.portfolio_source).toBe("statement");
     expect(activated.app_version).toBe("2.1.0");
   });
 });

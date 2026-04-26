@@ -3,7 +3,7 @@ name: quality-contracts
 description: Use when changing cross-surface verification policy, contract-test placement, test selection, or quality gates across frontend and backend.
 ---
 
-# Hushh Quality Contracts Skill
+# Hussh Quality Contracts Skill
 
 ## Purpose and Trigger
 
@@ -65,7 +65,7 @@ Non-owned surfaces:
 6. Do not let a single Playwright script conflate these two contracts when the vault is memory-only.
 7. When Playwright is required for a signed-in protected route, the default browser contract is:
    - reviewer-mode login
-   - vault unlock using the configured Kai/reviewer passphrase from env
+   - vault unlock using `REVIEWER_VAULT_PASSPHRASE` from a maintainer-only env or secret overlay
    - Next client navigation for same-session proof
 8. Treat raw `page.goto(...)` to a protected route as cold-entry proof only, not same-session proof.
 9. For PKM work, verify the same user across all truth surfaces that matter:

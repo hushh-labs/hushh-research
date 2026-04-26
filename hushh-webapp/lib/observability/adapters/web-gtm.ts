@@ -3,10 +3,7 @@ import type {
   ObservabilityEventName,
   PrimitiveEventValue,
 } from "@/lib/observability/events";
-import {
-  resolveAnalyticsMeasurementId,
-  resolveGtmContainerId,
-} from "@/lib/observability/env";
+import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 
 declare global {
   interface Window {
@@ -40,17 +37,14 @@ export const webGtmAdapter: ObservabilityAdapter = {
     };
     window.dataLayer.push(transportPayload);
 
-    // If a real GTM container is configured, let GTM own downstream forwarding.
-    if (resolveGtmContainerId()) {
-      return;
-    }
-
-    if (!resolveAnalyticsMeasurementId()) {
+    const measurementId = resolveAnalyticsMeasurementId();
+    if (!measurementId) {
       return;
     }
 
     if (typeof window.gtag === "function") {
       window.gtag("event", eventName, {
+        send_to: measurementId,
         event_source: "observability_v2",
         ...payload,
       });

@@ -5,7 +5,7 @@ import { toast } from "sonner";
  * Cross-platform file download utility
  *
  * Platform behavior:
- * - iOS: Saves to app's Documents folder, visible in Files app under "On My iPhone" > "Hushh"
+ * - iOS: Saves to app's Documents folder, visible in Files app under "On My iPhone" > "Hussh"
  *        (Requires UIFileSharingEnabled=true in Info.plist)
  * - Android: Saves to app's Documents folder, visible in file manager
  * - Web: Standard browser download to Downloads folder
@@ -45,7 +45,7 @@ export async function downloadTextFile(
       // Show platform-specific success message
       if (platform === "ios") {
         toast.success("Saved to Files app", {
-          description: `Check "On My iPhone" → "Hushh" → ${filename}`,
+          description: `Check "On My iPhone" → "Hussh" → ${filename}`,
           duration: 5000,
         });
       } else {

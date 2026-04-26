@@ -181,7 +181,7 @@ class KaiChatResponse:
 
 
 # System prompt for Kai
-SYSTEM_PROMPT = """You are Kai, a friendly and knowledgeable personal AI assistant from Hushh. You help users manage their personal data, analyze investments, and provide personalized insights.
+SYSTEM_PROMPT = """You are Kai, a friendly and knowledgeable personal AI assistant from Hussh. You help users manage their personal data, analyze investments, and provide personalized insights.
 
 Your personality:
 - Warm, approachable, and professional
@@ -303,7 +303,7 @@ class KaiChatService:
 
                 # Return proactive portfolio import prompt
                 welcome_response = (
-                    "Hi! I'm Kai, your personal investment advisor from Hushh. "
+                    "Hi! I'm Kai, your personal investment advisor from Hussh. "
                     "To give you the best personalized insights, I can analyze your portfolio. "
                     "Would you like to import your brokerage statement? "
                     "You can upload a CSV or PDF, or skip for now and we can chat about anything else!"

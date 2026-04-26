@@ -1,5 +1,5 @@
 /**
- * Hushh Auth - Web Implementation
+ * Hussh Auth - Web Implementation
  * 
  * Web fallback for HushhAuthPlugin that uses Firebase signInWithPopup.
  * This is used on web browsers where native authentication is not available.

@@ -184,7 +184,7 @@ class KaiInviteEmailService:
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:28px;overflow:hidden;border:1px solid rgba(15,23,42,0.06);box-shadow:0 24px 80px rgba(15,23,42,0.08);">
             <tr>
               <td style="padding:36px 36px 28px;background:linear-gradient(135deg,#eff6ff 0%,#ffffff 45%,#ecfeff 100%);">
-                <p style="margin:0 0 14px;font-size:12px;letter-spacing:0.24em;text-transform:uppercase;color:#2563eb;font-weight:700;">Kai by Hushh</p>
+                <p style="margin:0 0 14px;font-size:12px;letter-spacing:0.24em;text-transform:uppercase;color:#2563eb;font-weight:700;">Kai by Hussh</p>
                 <h1 style="margin:0;font-size:34px;line-height:1.05;font-weight:700;letter-spacing:-0.04em;color:#020617;">An advisor invited you to join Kai</h1>
                 <p style="margin:18px 0 0;font-size:17px;line-height:1.75;color:#475569;">
                   Hi {recipient_name}, {advisor} invited you into Kai so you can connect, review the relationship, and manage any consented access in one place.
@@ -242,7 +242,7 @@ class KaiInviteEmailService:
 
         message = EmailMessage()
         message["To"] = recipient
-        message["From"] = f"Kai by Hushh <{cfg.from_email}>"
+        message["From"] = f"Kai by Hussh <{cfg.from_email}>"
         message["Subject"] = self._build_subject(advisor_name.strip() or "Your advisor")
         if cfg.from_email:
             message["Reply-To"] = cfg.from_email

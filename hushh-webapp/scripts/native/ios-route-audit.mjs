@@ -3,9 +3,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, execSync } from "node:child_process";
-import dotenv from "dotenv";
+import {
+  defaultReviewerIdentityEnvFiles,
+  resolveReviewerTestIdentity,
+} from "../testing/reviewer-test-identity.mjs";
 
 const repoRoot = process.cwd();
+const webDir = repoRoot;
+const monorepoRoot = path.resolve(webDir, "..");
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
 const reportPath = path.join(repoRoot, "native-ios-parity-report.json");
 const appPath =
@@ -21,103 +26,11 @@ const routeFilter = (process.env.IOS_ROUTE_FILTER || "").trim();
 const xcodeProject = "ios/App/App.xcodeproj";
 const xcodeScheme = "App";
 
-function sanitizeConfiguredValue(value) {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "";
-  }
-  const lower = normalized.toLowerCase();
-  if (
-    lower.includes("replace_with") ||
-    lower.includes("your_") ||
-    lower === "placeholder"
-  ) {
-    return "";
-  }
-  return normalized;
-}
-
-function readRawEnvValue(filePath, key) {
-  if (!fs.existsSync(filePath)) {
-    return "";
-  }
-  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
-  for (const line of lines) {
-    if (!line.startsWith(`${key}=`)) {
-      continue;
-    }
-    return line.slice(key.length + 1).trim();
-  }
-  return "";
-}
-
-function resolveKaiTestPassphrase() {
-  const direct = sanitizeConfiguredValue(
-    process.env.KAI_TEST_PASSPHRASE || process.env.NEXT_PUBLIC_KAI_TEST_PASSPHRASE || ""
-  );
-  if (direct) {
-    return direct;
-  }
-
-  const envCandidates = [
-    path.join(repoRoot, ".env.local.local"),
-    path.join(repoRoot, "..", "consent-protocol", ".env"),
-    path.join(repoRoot, ".env.local"),
-    path.join(repoRoot, ".env"),
-  ];
-
-  for (const candidate of envCandidates) {
-    if (!fs.existsSync(candidate)) continue;
-    const parsed = dotenv.parse(fs.readFileSync(candidate, "utf8"));
-    const value = sanitizeConfiguredValue(
-      readRawEnvValue(candidate, "KAI_TEST_PASSPHRASE") ||
-        parsed.KAI_TEST_PASSPHRASE ||
-        parsed.NEXT_PUBLIC_KAI_TEST_PASSPHRASE ||
-        ""
-    );
-    if (value) {
-      return value;
-    }
-  }
-
-  return "";
-}
-
-const kaiTestPassphrase = resolveKaiTestPassphrase();
-
-function resolveReviewerUserId() {
-  const direct = sanitizeConfiguredValue(
-    process.env.REVIEWER_UID ||
-    process.env.KAI_TEST_USER_ID ||
-    process.env.NEXT_PUBLIC_KAI_TEST_USER_ID ||
-    ""
-  );
-  if (direct) {
-    return direct;
-  }
-
-  const envCandidates = [
-    path.join(repoRoot, ".env.local.local"),
-    path.join(repoRoot, "..", "consent-protocol", ".env"),
-    path.join(repoRoot, ".env.local"),
-    path.join(repoRoot, ".env"),
-  ];
-
-  for (const candidate of envCandidates) {
-    if (!fs.existsSync(candidate)) continue;
-    const parsed = dotenv.parse(fs.readFileSync(candidate, "utf8"));
-    const value = sanitizeConfiguredValue(
-      parsed.REVIEWER_UID || parsed.KAI_TEST_USER_ID || parsed.NEXT_PUBLIC_KAI_TEST_USER_ID || ""
-    );
-    if (value) {
-      return value;
-    }
-  }
-
-  return "";
-}
-
-const kaiTestUserId = resolveReviewerUserId();
+const reviewerIdentity = resolveReviewerTestIdentity({
+  envFiles: defaultReviewerIdentityEnvFiles({ repoRoot: monorepoRoot, webDir }),
+});
+const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
+const reviewerUid = reviewerIdentity.reviewerUid;
 
 function run(cmd, args, options = {}) {
   return execFileSync(cmd, args, {
@@ -195,12 +108,8 @@ function launchRoute(route) {
     args.push("-UITestExpectedRoute", route.expectedRoute);
   }
   args.push("-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false");
-  if (kaiTestPassphrase) {
-    args.push("-UITestVaultPassphrase", kaiTestPassphrase);
-  }
-  if (kaiTestUserId) {
-    args.push("-UITestExpectedUserId", kaiTestUserId);
-  }
+  args.push("-UITestVaultPassphrase", reviewerVaultPassphrase);
+  args.push("-UITestExpectedUserId", reviewerUid);
   run("xcrun", args);
 }
 

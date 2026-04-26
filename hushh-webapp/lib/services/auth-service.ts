@@ -13,17 +13,22 @@
 
 import { Capacitor } from "@capacitor/core";
 import {
+  type ApplicationVerifier,
+  type ConfirmationResult,
   GoogleAuthProvider,
   OAuthProvider,
+  PhoneAuthProvider,
+  linkWithCredential,
   signInWithCredential,
   signInWithCustomToken as firebaseSignInWithCustomToken,
   signInWithPopup,
   signOut as firebaseSignOut,
+  updatePhoneNumber,
   User,
   onAuthStateChanged,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
-import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
+import { FirebaseAuthentication, ProviderId } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { toast } from "sonner";
 
@@ -32,6 +37,15 @@ export interface AuthResult {
   idToken: string;
   accessToken?: string;
 }
+
+export interface PhoneVerificationStartResult {
+  autoVerified: boolean;
+  confirmationResult?: ConfirmationResult;
+  verificationId?: string;
+  user?: User | null;
+}
+
+type PhoneVerificationIntent = "link" | "replace";
 
 /**
  * Platform-aware authentication service
@@ -355,6 +369,7 @@ export class AuthService {
     const email = this.getNativeUserField(nativeUser, ["email"]);
     const displayName = this.getNativeUserField(nativeUser, ["displayName"]);
     const photoURL = this.getNativeUserField(nativeUser, ["photoUrl", "photoURL"]);
+    const phoneNumber = this.getNativeUserField(nativeUser, ["phoneNumber"]);
     const emailVerified =
       typeof nativeUser?.emailVerified === "boolean"
         ? nativeUser.emailVerified
@@ -379,7 +394,7 @@ export class AuthService {
           uid,
           displayName,
           email,
-          phoneNumber: null,
+          phoneNumber: phoneNumber || null,
           photoURL,
         },
       ],
@@ -402,7 +417,7 @@ export class AuthService {
       },
       reload: async () => {},
       toJSON: () => ({}),
-      phoneNumber: null,
+      phoneNumber: phoneNumber || null,
       providerId,
     } as unknown as User;
   }
@@ -623,6 +638,371 @@ export class AuthService {
       toast.error("SignOut Failed: " + error);
       throw error;
     }
+  }
+
+  static async startPhoneLinkVerification(
+    phoneNumber: string,
+    options?: {
+      recaptchaVerifier?: ApplicationVerifier;
+      resendCode?: boolean;
+      timeout?: number;
+    }
+  ): Promise<PhoneVerificationStartResult> {
+    return this.startPhoneVerification("link", phoneNumber, options);
+  }
+
+  static async startPhoneReplacementVerification(
+    phoneNumber: string,
+    options?: {
+      recaptchaVerifier?: ApplicationVerifier;
+      resendCode?: boolean;
+      timeout?: number;
+    }
+  ): Promise<PhoneVerificationStartResult> {
+    return this.startPhoneVerification("replace", phoneNumber, options);
+  }
+
+  private static async startPhoneVerification(
+    intent: PhoneVerificationIntent,
+    phoneNumber: string,
+    options?: {
+      recaptchaVerifier?: ApplicationVerifier;
+      resendCode?: boolean;
+      timeout?: number;
+    }
+  ): Promise<PhoneVerificationStartResult> {
+    const normalizedPhoneNumber = String(phoneNumber ?? "").trim();
+    if (!normalizedPhoneNumber) {
+      throw new Error("Phone number is required.");
+    }
+
+    const currentPhoneNumber = String(auth.currentUser?.phoneNumber ?? "").trim();
+    if (currentPhoneNumber && currentPhoneNumber === normalizedPhoneNumber) {
+      throw this.createPhoneVerificationError(
+        "phone-already-linked-to-current-user",
+        "This phone number is already linked to your account."
+      );
+    }
+
+    if (intent === "link" && currentPhoneNumber && currentPhoneNumber !== normalizedPhoneNumber) {
+      throw this.createPhoneVerificationError(
+        "phone-replace-required",
+        "Use Change phone number to replace the current number."
+      );
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      if (!(await this.isSignedIn())) {
+        throw new Error(
+          intent === "replace"
+            ? "You must be signed in before changing the phone number."
+            : "You must be signed in before linking a phone number."
+        );
+      }
+
+      const handles: Array<{ remove: () => Promise<void> }> = [];
+      const cleanup = async () => {
+        await Promise.all(handles.map((handle) => handle.remove().catch(() => undefined)));
+      };
+
+      return await new Promise<PhoneVerificationStartResult>((resolve, reject) => {
+        let settled = false;
+
+        const settle = async (
+          next:
+            | { type: "resolve"; value: PhoneVerificationStartResult }
+            | { type: "reject"; error: Error }
+        ) => {
+          if (settled) return;
+          settled = true;
+          await cleanup();
+          if (next.type === "resolve") {
+            resolve(next.value);
+            return;
+          }
+          reject(next.error);
+        };
+
+        void (async () => {
+          try {
+            handles.push(
+              await FirebaseAuthentication.addListener("phoneCodeSent", async (event) => {
+                await settle({
+                  type: "resolve",
+                  value: {
+                    autoVerified: false,
+                    verificationId: event.verificationId,
+                  },
+                });
+              })
+            );
+            handles.push(
+              await FirebaseAuthentication.addListener(
+                "phoneVerificationFailed",
+                async (event) => {
+                  await settle({
+                    type: "reject",
+                    error: new Error(event.message || "Phone verification failed."),
+                  });
+                }
+              )
+            );
+            handles.push(
+              await FirebaseAuthentication.addListener(
+                "phoneVerificationCompleted",
+                async () => {
+                  const restoredUser = await this.restoreNativeSession();
+                  await settle({
+                    type: "resolve",
+                    value: {
+                      autoVerified: true,
+                      user: restoredUser,
+                    },
+                  });
+                }
+              )
+            );
+
+            if (intent === "replace" && currentPhoneNumber) {
+              await FirebaseAuthentication.unlink({ providerId: ProviderId.PHONE });
+            }
+
+            await FirebaseAuthentication.linkWithPhoneNumber({
+              phoneNumber: normalizedPhoneNumber,
+              resendCode: options?.resendCode,
+              timeout: options?.timeout,
+            });
+          } catch (error) {
+            await settle({
+              type: "reject",
+              error: this.normalizePhoneVerificationError(
+                error,
+                intent === "replace" ? "replace_start" : "link_start"
+              ),
+            });
+          }
+        })();
+      });
+    }
+
+    if (!auth.currentUser) {
+      throw new Error(
+        intent === "replace"
+          ? "You must be signed in before changing the phone number."
+          : "You must be signed in before linking a phone number."
+      );
+    }
+
+    try {
+      this.debugLog("[AuthService] Starting phone verification", {
+        intent,
+        host: typeof window === "undefined" ? "server" : window.location.host,
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      });
+
+      const provider = new PhoneAuthProvider(auth);
+      const verificationId = await provider.verifyPhoneNumber(
+        normalizedPhoneNumber,
+        options?.recaptchaVerifier
+      );
+
+      return {
+        autoVerified: false,
+        verificationId,
+      };
+    } catch (error) {
+      throw this.normalizePhoneVerificationError(
+        error,
+        intent === "replace" ? "replace_start" : "link_start"
+      );
+    }
+  }
+
+  static async confirmPhoneLinkVerification(params: {
+    verificationCode: string;
+    confirmationResult?: ConfirmationResult | null;
+    verificationId?: string | null;
+  }): Promise<User> {
+    return this.confirmPhoneVerification("link", params);
+  }
+
+  static async confirmPhoneReplacementVerification(params: {
+    verificationCode: string;
+    confirmationResult?: ConfirmationResult | null;
+    verificationId?: string | null;
+  }): Promise<User> {
+    return this.confirmPhoneVerification("replace", params);
+  }
+
+  private static async confirmPhoneVerification(
+    intent: PhoneVerificationIntent,
+    params: {
+      verificationCode: string;
+      confirmationResult?: ConfirmationResult | null;
+      verificationId?: string | null;
+    }
+  ): Promise<User> {
+    const verificationCode = String(params.verificationCode ?? "").trim();
+    if (!verificationCode) {
+      throw new Error("Verification code is required.");
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      const verificationId = String(params.verificationId ?? "").trim();
+      if (!verificationId) {
+        throw new Error("Verification ID is required.");
+      }
+
+      try {
+        await FirebaseAuthentication.confirmVerificationCode({
+          verificationId,
+          verificationCode,
+        });
+      } catch (error) {
+        throw this.normalizePhoneVerificationError(
+          error,
+          intent === "replace" ? "replace_confirm" : "link_confirm"
+        );
+      }
+
+      const restoredUser = await this.restoreNativeSession();
+      if (!restoredUser) {
+        throw new Error("Phone verification completed but the native session could not be refreshed.");
+      }
+
+      return restoredUser;
+    }
+
+    try {
+      if (!auth.currentUser) {
+        throw new Error(
+          intent === "replace"
+            ? "You must be signed in before changing the phone number."
+            : "You must be signed in before linking a phone number."
+        );
+      }
+
+      const verificationId = String(params.verificationId ?? "").trim();
+      if (!verificationId) {
+        throw new Error("Verification ID is required.");
+      }
+
+      const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+
+      if (intent === "replace") {
+        await updatePhoneNumber(auth.currentUser, credential);
+        await auth.currentUser.reload().catch(() => undefined);
+        return auth.currentUser;
+      }
+
+      const linkedCredential = await linkWithCredential(auth.currentUser, credential);
+      await linkedCredential.user.reload().catch(() => undefined);
+      return linkedCredential.user;
+    } catch (error) {
+      throw this.normalizePhoneVerificationError(
+        error,
+        intent === "replace" ? "replace_confirm" : "link_confirm"
+      );
+    }
+  }
+
+  private static createPhoneVerificationError(code: string, message: string): Error {
+    const error = new Error(message) as Error & { code?: string };
+    error.code = code;
+    return error;
+  }
+
+  private static getPhoneVerificationErrorCode(error: unknown): string {
+    const explicitCode =
+      typeof (error as { code?: unknown })?.code === "string"
+        ? String((error as { code?: string }).code)
+        : "";
+    if (explicitCode) {
+      return explicitCode.replace(/^auth\//, "");
+    }
+
+    const message = String((error as { message?: unknown })?.message ?? "").toLowerCase();
+    if (message.includes("credential-already-in-use")) return "credential-already-in-use";
+    if (message.includes("provider-already-linked")) return "provider-already-linked";
+    if (message.includes("requires-recent-login")) return "requires-recent-login";
+    if (message.includes("invalid-app-credential")) return "invalid-app-credential";
+    if (message.includes("captcha-check-failed")) return "captcha-check-failed";
+    if (message.includes("too-many-requests")) return "too-many-requests";
+    return "";
+  }
+
+  private static normalizePhoneVerificationError(
+    error: unknown,
+    context: "link_start" | "link_confirm" | "replace_start" | "replace_confirm"
+  ): Error {
+    const code = this.getPhoneVerificationErrorCode(error);
+
+    if (code === "phone-already-linked-to-current-user") {
+      return this.createPhoneVerificationError(
+        code,
+        "This phone number is already linked to your account."
+      );
+    }
+
+    if (code === "phone-replace-required") {
+      return this.createPhoneVerificationError(
+        code,
+        "Use Change phone number to replace the current number."
+      );
+    }
+
+    if (code === "credential-already-in-use") {
+      return this.createPhoneVerificationError(
+        code,
+        "This phone number is already associated with another account."
+      );
+    }
+
+    if (code === "provider-already-linked") {
+      return this.createPhoneVerificationError(
+        code,
+        context.startsWith("replace")
+          ? "This account already has a phone number linked. Use Change phone number to replace it."
+          : "This account already has a phone number linked."
+      );
+    }
+
+    if (code === "requires-recent-login") {
+      return this.createPhoneVerificationError(
+        code,
+        "For security, sign in again before changing your phone number."
+      );
+    }
+
+    if (code === "too-many-requests") {
+      return this.createPhoneVerificationError(
+        code,
+        "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number."
+      );
+    }
+
+    if (code === "invalid-app-credential" || code === "captcha-check-failed") {
+      const hostname = typeof window === "undefined" ? "" : window.location.hostname;
+      const host = typeof window === "undefined" ? "" : window.location.host;
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      return this.createPhoneVerificationError(
+        code,
+        host
+          ? `Firebase could not verify phone auth from ${host}. Open ${appUrl} and check that ${hostname} is in Firebase Authentication authorized domains.`
+          : "Firebase could not verify this app for phone auth. Check Firebase Authentication authorized domains and reCAPTCHA configuration."
+      );
+    }
+
+    if (error instanceof Error) {
+      return error;
+    }
+
+    return new Error(
+      context.startsWith("replace")
+        ? "Failed to change the phone number."
+        : "Failed to verify the phone number."
+    );
   }
 
   /**

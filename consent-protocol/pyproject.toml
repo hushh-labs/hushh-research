@@ -1,9 +1,9 @@
-# pyproject.toml - Python tooling configuration for Hushh Consent Protocol
+# pyproject.toml - Python tooling configuration for Hussh Consent Protocol
 
 [project]
 name = "hushh-consent-protocol"
 version = "1.0.0"
-description = "Consent-first backend for Hushh Personal Data Agents"
+description = "Consent-first backend for Hussh Personal Data Agents"
 requires-python = ">=3.13"
 license = "Apache-2.0"
 readme = "README.md"
@@ -46,6 +46,8 @@ dependencies = [
     "uvicorn>=0.34.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",
+    "phonenumbers>=9.0.28",
+    "pycountry>=26.2.16",
 ]
 
 [dependency-groups]
