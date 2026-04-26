@@ -21,7 +21,9 @@ class TestStreamAuthMissingToken:
     """Missing or malformed Authorization header must return 401."""
 
     @pytest.mark.asyncio
-    async def test_missing_authorization_header_returns_401(self, client, vault_owner_token_for_user):
+    async def test_missing_authorization_header_returns_401(
+        self, client, vault_owner_token_for_user
+    ):
         """No Authorization header → 401 with WWW-Authenticate: Bearer."""
         response = client.get(
             "/analyze/stream",
