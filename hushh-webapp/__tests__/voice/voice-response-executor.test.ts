@@ -379,7 +379,7 @@ describe("executeVoiceResponse", () => {
       },
       groundedPlan: {
         status: "resolved",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         actionLabel: "Open Gmail Connector Panel",
         destructive: false,
         message: null,
@@ -406,7 +406,7 @@ describe("executeVoiceResponse", () => {
       responseKind: "speak_only",
       actionResult: {
         status: "succeeded",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         routeBefore: "/kai/dashboard",
         routeAfter: "/profile?panel=gmail",
         screenBefore: "dashboard",
@@ -434,7 +434,7 @@ describe("executeVoiceResponse", () => {
       },
       groundedPlan: {
         status: "resolved",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         actionLabel: "Open Gmail Connector Panel",
         destructive: false,
         message: null,
@@ -457,7 +457,7 @@ describe("executeVoiceResponse", () => {
     expect(emitTelemetry).toHaveBeenCalledWith(
       "speak_only_execution_skipped_missing_canonical",
       expect.objectContaining({
-        action_id: "nav.profile_gmail_panel",
+        action_id: "route.profile_gmail_panel",
         resolution_source: "transcript",
       })
     );
@@ -468,7 +468,7 @@ describe("executeVoiceResponse", () => {
       responseKind: "speak_only",
       actionResult: {
         status: "noop",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         routeBefore: "/kai/dashboard",
         routeAfter: null,
         screenBefore: "dashboard",
@@ -497,7 +497,7 @@ describe("executeVoiceResponse", () => {
       },
       groundedPlan: {
         status: "resolved",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         actionLabel: "Open Gmail Connector Panel",
         destructive: false,
         message: null,
@@ -519,7 +519,7 @@ describe("executeVoiceResponse", () => {
     expect(emitTelemetry).toHaveBeenCalledWith(
       "speak_only_execution_compatibility_fallback_used",
       expect.objectContaining({
-        action_id: "nav.profile_gmail_panel",
+        action_id: "route.profile_gmail_panel",
         resolution_source: "transcript",
       })
     );

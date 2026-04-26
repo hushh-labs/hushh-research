@@ -7,6 +7,7 @@ import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
+export type KaiActionSpeakerPersona = "one" | "kai" | "nav";
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
@@ -94,6 +95,7 @@ export type KaiActionDefinition = {
   aliases: string[];
   search_keywords: string[];
   meaning: string;
+  speaker_persona: KaiActionSpeakerPersona;
   reachability: {
     routes: string[];
     screens: string[];
@@ -173,6 +175,12 @@ function cleanString(value: unknown): string | null {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function validateSpeakerPersona(value: unknown): KaiActionSpeakerPersona {
+  const normalized = cleanString(value);
+  if (normalized === "kai" || normalized === "nav") return normalized;
+  return "one";
 }
 
 function validateExecutionTarget(value: unknown): KaiActionExecutionTarget | null {
@@ -330,6 +338,7 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     aliases: isStringArray(value.aliases) ? value.aliases : [],
     search_keywords: isStringArray(value.search_keywords) ? value.search_keywords : [],
     meaning,
+    speaker_persona: validateSpeakerPersona(value.speaker_persona),
     reachability: {
       routes: value.reachability.routes,
       screens: value.reachability.screens,

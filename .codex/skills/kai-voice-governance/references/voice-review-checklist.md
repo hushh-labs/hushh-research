@@ -6,6 +6,8 @@ Use this when reviewing Kai voice or typed-search changes.
 
 - Does each new discoverable capability have a local `.voice-action-contract.json` entry?
 - Is the `action_id` stable and reused across voice, search, and UI actionables?
+- Does every action declare `speaker_persona` as `one`, `kai`, or `nav`?
+- Are ordinary navigation actions under `route.*`, with `nav.*` reserved for true Nav guardian actions?
 - Are `control_ids` present for UI affordances that should map back to the action?
 
 ## Workflow And Gating
@@ -13,6 +15,7 @@ Use this when reviewing Kai voice or typed-search changes.
 - If the action needs prerequisites, is the workflow explicitly authored?
 - Does each workflow step have a clear settlement target or an intentional reason not to?
 - Are persona, workspace, vault, auth, consent, and onboarding constraints modeled centrally?
+- Is speaker persona treated as copy/prompt ownership rather than authority?
 - Does an earned-but-inactive workspace require ask-before-switch?
 - Does a locked capability block and guide instead of pretending to execute?
 

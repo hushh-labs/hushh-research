@@ -646,7 +646,7 @@ async def test_plan_voice_response_explains_gmail_receipts_from_profile_surface(
                             "id": "gmail_receipts",
                             "label": "Gmail receipts",
                             "purpose": "opens Gmail receipt sync and receipt-memory import.",
-                            "action_id": "nav.profile_receipts",
+                            "action_id": "route.profile_receipts",
                             "role": "card",
                             "voice_aliases": ["gmail receipts", "receipts"],
                         }
@@ -694,7 +694,7 @@ async def test_plan_voice_response_explains_current_button_from_surface_definiti
                             "id": "pkm_agent_lab",
                             "label": "PKM Agent Lab",
                             "purpose": "opens the workspace for previewing and saving encrypted PKM captures.",
-                            "action_id": "nav.profile_pkm_agent_lab",
+                            "action_id": "route.profile_pkm_agent_lab",
                             "role": "card",
                             "voice_aliases": ["pkm agent lab", "pkm"],
                         }
@@ -1065,7 +1065,7 @@ async def test_plan_voice_response_optimize_routes_to_canonical_command(
         "tool_name": "execute_kai_command",
         "args": {"command": "optimize"},
     }
-    assert response["action_id"] == "nav.kai_optimize"
+    assert response["action_id"] == "route.kai_optimize"
 
 
 @pytest.mark.anyio
@@ -1311,7 +1311,7 @@ async def test_plan_voice_response_analysis_navigation_executes(
     )
 
     assert response["kind"] == "execute"
-    assert response["action_id"] == "nav.analysis_history"
+    assert response["action_id"] == "route.analysis_history"
     assert response["mode"] == "execute_and_wait"
     assert response["tool_call"] == {
         "tool_name": "execute_kai_command",
@@ -1639,8 +1639,8 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
                 "surface": {
                     "screen_id": "profile_account",
                     "controls": [
-                        {"id": "gmail", "label": "Gmail", "action_id": "nav.profile_gmail_panel"},
-                        {"id": "pkm", "label": "PKM", "action_id": "nav.profile_pkm_agent_lab"},
+                        {"id": "gmail", "label": "Gmail", "action_id": "route.profile_gmail_panel"},
+                        {"id": "pkm", "label": "PKM", "action_id": "route.profile_pkm_agent_lab"},
                     ],
                 },
             }
@@ -1651,7 +1651,7 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
 
     assert "Kai is the app" in prompt
     assert "voice assistant" in prompt.lower()
-    assert "nav.profile" in prompt
+    assert "route.profile" in prompt
     assert "Relevant Manifest Actions" in prompt
     assert "Core Capabilities" in prompt
     assert "manual_only" in prompt
@@ -1678,7 +1678,7 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
                         {
                             "id": "open_gmail",
                             "label": "Open Gmail",
-                            "action_id": "nav.profile_gmail_panel",
+                            "action_id": "route.profile_gmail_panel",
                         }
                     ],
                 },
@@ -1686,7 +1686,7 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
         },
         plan_payload={
             "mode": "execute_and_wait",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "slots": {},
             "guards": [],
             "reply_strategy": "llm",
@@ -1698,7 +1698,7 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
         },
         action_result={
             "status": "succeeded",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "route_after": "/profile",
             "screen_after": "profile_account",
             "result_summary": "Opened your profile.",
@@ -1710,7 +1710,7 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
     assert "voice assistant inside the Kai app" in prompt
     assert "execution result is authoritative" in prompt
     assert "Return JSON only" in prompt
-    assert "nav.profile" in prompt
+    assert "route.profile" in prompt
     assert "profile_account" in prompt
     assert "Language Policy" in prompt
     assert "spoken reply must be English only" in prompt
@@ -1758,7 +1758,7 @@ async def test_compose_voice_reply_uses_llm_json_result(
         context={},
         plan_payload={
             "mode": "execute_and_wait",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "slots": {},
             "guards": [],
             "reply_strategy": "llm",
@@ -1770,7 +1770,7 @@ async def test_compose_voice_reply_uses_llm_json_result(
         },
         action_result={
             "status": "succeeded",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "route_after": "/profile",
             "screen_after": "profile_account",
             "result_summary": "Opened your profile.",
@@ -1806,7 +1806,7 @@ async def test_plan_voice_response_open_gmail_sets_canonical_navigation_contract
     assert response["execution_allowed"] is True
     assert response["schema_version"] == "kai_voice_plan.v1"
     assert response["mode"] == "execute_and_wait"
-    assert response["action_id"] == "nav.profile_gmail_panel"
+    assert response["action_id"] == "route.profile_gmail_panel"
     assert response["reply_strategy"] == "llm"
     assert response["guards"] == []
     assert response.get("tool_call") is None
@@ -1827,7 +1827,7 @@ async def test_plan_voice_response_go_back_sets_manifest_back_contract(
     assert response["execution_allowed"] is True
     assert response["schema_version"] == "kai_voice_plan.v1"
     assert response["mode"] == "execute_and_wait"
-    assert response["action_id"] == "nav.back"
+    assert response["action_id"] == "route.back"
     assert response["action_completion"] == "route_settle"
     assert response["tool_call"] == {"tool_name": "navigate_back", "args": {}}
 
@@ -1884,7 +1884,7 @@ async def test_plan_voice_response_analysis_navigation_still_executes_when_portf
     )
 
     assert response["kind"] == "execute"
-    assert response["action_id"] == "nav.analysis_history"
+    assert response["action_id"] == "route.analysis_history"
     assert response["execution_allowed"] is True
     assert response["mode"] == "execute_and_wait"
     assert response["guards"] == []

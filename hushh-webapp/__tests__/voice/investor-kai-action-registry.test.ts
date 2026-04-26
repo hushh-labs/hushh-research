@@ -54,7 +54,7 @@ describe("investor-kai-action-registry", () => {
 
   it("exposes command and voice lookup for wired map entries", () => {
     const commandAction = getInvestorKaiActionByKaiCommand("dashboard");
-    expect(commandAction?.id).toBe("nav.kai_dashboard");
+    expect(commandAction?.id).toBe("route.kai_dashboard");
     expect(commandAction?.wiring.status).toBe("wired");
 
     const voiceAction = getInvestorKaiActionByVoiceToolCall({
@@ -77,7 +77,7 @@ describe("investor-kai-action-registry", () => {
 
   it("keeps Gmail and support backend effect paths aligned with live profile APIs", () => {
     expect(
-      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "nav.profile_receipts")
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "route.profile_receipts")
         ?.expectedEffects.backendEffects
     ).toEqual([
       {
@@ -154,7 +154,7 @@ describe("investor-kai-action-registry", () => {
 
     expect(gmailActions).toEqual(
       expect.arrayContaining([
-        "nav.profile_gmail_panel",
+        "route.profile_gmail_panel",
         "profile.gmail.connect",
         "profile.gmail.sync_now",
       ])
@@ -168,7 +168,7 @@ describe("investor-kai-action-registry", () => {
 
     expect(pkmActions).toEqual(
       expect.arrayContaining([
-        "nav.profile_pkm_agent_lab",
+        "route.profile_pkm_agent_lab",
         "profile.pkm.preview_capture",
         "profile.pkm.save_capture",
       ])

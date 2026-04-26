@@ -416,13 +416,13 @@ export function KaiCommandPalette({
                 ? `Switch to ${availability.target_persona?.toUpperCase()}`
                 : availability.reason;
             const icon =
-              action.action_id === "nav.profile"
+              action.action_id === "route.profile"
                 ? UserRound
-                : action.action_id === "nav.consents"
+                : action.action_id === "route.consents"
                   ? ShieldCheck
-                  : action.action_id === "nav.analysis_history"
+                  : action.action_id === "route.analysis_history"
                     ? History
-                    : action.action_id === "nav.kai_home"
+                    : action.action_id === "route.kai_home"
                       ? Compass
                       : Activity;
             return (

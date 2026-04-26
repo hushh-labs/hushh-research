@@ -35,6 +35,7 @@ def _clear_caches() -> None:
 # Fake connections
 # ---------------------------------------------------------------------------
 
+
 def _make_serial_conn(present_tables: list[str]) -> AsyncMock:
     """Simulates the OLD approach: one fetchval() call per table."""
     conn = AsyncMock()
@@ -65,13 +66,12 @@ def _make_batch_conn(present_tables: list[str]) -> AsyncMock:
 # Old approach re-implemented inline for comparison
 # ---------------------------------------------------------------------------
 
+
 async def _old_is_iam_schema_ready(conn: AsyncMock) -> tuple[bool, int]:
     """Mirrors the pre-fix implementation exactly."""
     query_count = 0
     for table_name in _IAM_REQUIRED_TABLES:
-        exists = bool(
-            await conn.fetchval("SELECT to_regclass($1)", f"public.{table_name}")
-        )
+        exists = bool(await conn.fetchval("SELECT to_regclass($1)", f"public.{table_name}"))
         query_count += 1
         if not exists:
             return False, query_count
@@ -81,6 +81,7 @@ async def _old_is_iam_schema_ready(conn: AsyncMock) -> tuple[bool, int]:
 # ---------------------------------------------------------------------------
 # Benchmark tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_benchmark_query_count():
@@ -105,9 +106,7 @@ async def test_benchmark_query_count():
     assert old_query_count == TABLE_COUNT, (
         f"Old approach should issue {TABLE_COUNT} queries, issued {old_query_count}"
     )
-    assert new_query_count == 1, (
-        f"New approach should issue 1 query, issued {new_query_count}"
-    )
+    assert new_query_count == 1, f"New approach should issue 1 query, issued {new_query_count}"
 
 
 @pytest.mark.asyncio
@@ -148,8 +147,7 @@ async def test_benchmark_wall_clock_with_simulated_latency():
 
     # New must be at least 5× faster (conservatively — real gain is ~11×).
     assert speedup >= 5, (
-        f"Expected ≥5× speedup, got {speedup:.1f}×. "
-        f"old={old_ms:.1f}ms new={new_ms:.1f}ms"
+        f"Expected ≥5× speedup, got {speedup:.1f}×. old={old_ms:.1f}ms new={new_ms:.1f}ms"
     )
 
 
@@ -183,9 +181,7 @@ async def test_benchmark_ttl_cache_eliminates_db_on_repeat_calls():
         f"\n  DB queries on second call: {batch_conn2.fetch.call_count}"
     )
 
-    assert batch_conn2.fetch.call_count == 0, (
-        "Second call within TTL should issue zero DB queries"
-    )
+    assert batch_conn2.fetch.call_count == 0, "Second call within TTL should issue zero DB queries"
     assert second_ms < first_ms / 5, (
         f"Cached call should be much faster than first call. "
         f"first={first_ms:.1f}ms second={second_ms:.1f}ms"

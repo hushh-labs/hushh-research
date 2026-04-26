@@ -1743,7 +1743,7 @@ export function KaiMarketPreviewView() {
       ...(showConnectPortfolio
         ? [
             {
-              id: "nav.portfolio",
+              id: "route.kai_dashboard",
               label: "Connect portfolio",
               purpose: "Opens portfolio setup so Kai can personalize this market surface.",
               voiceAliases: ["connect portfolio", "open portfolio"],
@@ -1774,7 +1774,7 @@ export function KaiMarketPreviewView() {
               id: "connect_portfolio",
               label: "Connect portfolio",
               purpose: "Opens portfolio connection so this surface can use your positions.",
-              actionId: "nav.portfolio",
+              actionId: "route.kai_dashboard",
               role: "button",
               voiceAliases: ["connect portfolio"],
             },

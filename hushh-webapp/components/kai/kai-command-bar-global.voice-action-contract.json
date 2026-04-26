@@ -15,7 +15,7 @@
   },
   "actions": [
     {
-      "action_id": "nav.back",
+      "action_id": "route.back",
       "label": "Go Back",
       "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
       "aliases": [
@@ -54,7 +54,8 @@
       "state_exposure": [],
       "docs_references": [
         "hushh-webapp/lib/voice/voice-action-dispatcher.ts"
-      ]
+      ],
+      "speaker_persona": "one"
     }
   ]
 }

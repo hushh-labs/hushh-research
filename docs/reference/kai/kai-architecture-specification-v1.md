@@ -75,7 +75,9 @@ Use this document when a founder, operator, or contributor needs the repo-backed
 
 This document uses founder language first while staying current-state correct:
 
-- `Kai` is the platform's user-facing intelligence surface, not a separate runtime from the rest of the repo
+- `Kai` is the current finance assistant runtime and product surface, not the whole Hussh platform identity
+- `One` is approved direction for the top personal-agent layer; it is not yet the default checked-in runtime identity
+- `Nav` is approved direction for privacy, consent, vault, deletion, and scope-review flows; it is not yet a separate checked-in runtime process
 - `PCHP` is implemented today through the Consent Protocol developer API + MCP consent/export flow that Kai presents for approval
 - `Capability Tokens` are implemented today as `VAULT_OWNER`, consent tokens, scoped tokens, and developer tokens
 - `Cryptographic Primitives` are implemented today through BYOK, encrypted PKM, wrapped export keys, and local key derivation
@@ -99,7 +101,7 @@ This spec is grounded in the checked-in docs and runtime contracts, especially:
 
 ## Executive Summary
 
-Kai today is an integrated investor product surface and runtime spanning:
+Kai today is an integrated investor finance specialist and runtime spanning:
 
 1. signed-in route surfaces in `hushh-webapp`
 2. a typed frontend service and cache layer that preserves web/iOS/Android parity
@@ -107,7 +109,7 @@ Kai today is an integrated investor product surface and runtime spanning:
 4. encrypted PKM-backed portfolio and profile state
 5. a generated action plane that unifies voice, search, and UI actionables
 
-Kai is not currently implemented as a separate Kai/Nav dual-process security architecture. The checked-in system instead enforces trust through Cryptographic Primitives, vault-gated encrypted data access, Capability Tokens, persona and route guards, typed service boundaries, and explicit fail-closed behavior on decision-critical paths.
+The repo is moving toward the Hussh / One / Kai / Nav ontology: Hussh as platform, One as top relationship layer, Kai as finance specialist, and Nav as privacy guardian. That is approved direction, not a current-state claim. Kai is not currently implemented as a separate One/Nav dual-process security architecture. The checked-in system instead enforces trust through Cryptographic Primitives, vault-gated encrypted data access, Capability Tokens, persona and route guards, typed service boundaries, and explicit fail-closed behavior on decision-critical paths.
 
 ## Product Surface Model
 
@@ -183,7 +185,7 @@ Plaid tokens do not live in the PKM, and the active portfolio source determines 
 
 ## Voice, Search, And Action Architecture
 
-Kai voice is an in-app assistant runtime, not a separate external assistant.
+Kai voice is an in-app assistant runtime, not a separate external assistant. Until the One/Nav migration lands, it remains the current checked-in assistant runtime for finance and adjacent app actions.
 
 The current actionability model is contract-first:
 
@@ -191,6 +193,8 @@ The current actionability model is contract-first:
 2. the gateway generator emits `contracts/kai/kai-action-gateway.vnext.json`
 3. frontend and backend load that gateway through adapters
 4. voice, typed search, UI actionables, analytics, and docs share one stable `action_id`
+5. pure route navigation actions use `route.*`; `nav.*` is reserved for future Nav privacy/consent guardian actions
+6. generated actions carry `speaker_persona` with allowed values `one`, `kai`, and `nav`
 
 Current runtime loop:
 
@@ -208,6 +212,7 @@ Important current constraints:
 - transcript heuristics are compatibility fallback, not the desired authority plane
 - durable voice memory remains encrypted and vault-gated
 - persona, workspace, auth, consent, and onboarding guards remain central preconditions
+- `speaker_persona` describes who should own the spoken framing; it does not grant authority or bypass guards
 
 ## Brokerage, Portfolio, And Analysis Architecture
 

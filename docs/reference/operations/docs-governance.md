@@ -38,6 +38,14 @@ This governance contract also owns the repo-wide dual-label terminology rule:
 3. Do not rename current endpoints, packages, token types, or code symbols in docs prose.
 4. Do not describe future-state Kai/Nav separation, Merkle sealing, threshold signing, or other unshipped controls as implemented truth.
 5. When a doc introduces a new architecture-heavy term, reconcile it against the founder-language matrix in the same PR.
+6. Treat Hussh / One / Kai / Nav as a role contract, not interchangeable voice labels:
+   - Hussh is platform, trust model, and infrastructure.
+   - One is the personal agent and relationship layer.
+   - Kai is the finance specialist.
+   - Nav is the privacy, consent, vault, deletion, and scope-review guardian.
+7. Founder draft phrases must be normalized through [../architecture/founder-language-matrix.md](../architecture/founder-language-matrix.md) before becoming canonical docs. Do not preserve stale wording such as `Hussh is your personal MCP server and AI agent`, `One has two faces`, or `Kai is the One who remembers`.
+8. `hu_ssh` and `SSH for humans` are secondary founder metaphors. The canonical expansion remains `Human Secure Socket Host`.
+9. Strong claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, or user-private action receipts require implementation references before they can leave `docs/future/`.
 
 ## Placement Rules
 

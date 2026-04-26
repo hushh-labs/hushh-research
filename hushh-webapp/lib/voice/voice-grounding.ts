@@ -304,45 +304,45 @@ function inferActionIdFromTranscript(transcript: string): InvestorKaiActionId | 
   }
 
   if (/\b(open|show|go to|take me to)\b.*\bgmail\b/.test(text)) {
-    return "nav.profile_gmail_panel";
+    return "route.profile_gmail_panel";
   }
   if (/\b(open|show|go to|take me to)\b.*\b(pkm|pkm agent lab|memory lab)\b/.test(text)) {
-    return "nav.profile_pkm_agent_lab";
+    return "route.profile_pkm_agent_lab";
   }
   if (/\b(open|show|go to|take me to)\b.*\bsupport\b/.test(text)) {
-    return "nav.profile_support_panel";
+    return "route.profile_support_panel";
   }
   if (/\b(open|show|go to|take me to)\b.*\b(receipts?)\b/.test(text)) {
-    return "nav.profile_receipts";
+    return "route.profile_receipts";
   }
   if (
     /\b(add|build|refresh|save)\b.*\b(receipts?)\b.*\bpkm\b/.test(text) ||
     /\b(receipts?)\b.*\b(memory|preview)\b/.test(text)
   ) {
-    return "nav.profile_receipts";
+    return "route.profile_receipts";
   }
   if (/\b(open|show|go to|take me to)\b.*\b(security|vault security)\b/.test(text)) {
-    return "nav.profile_security_panel";
+    return "route.profile_security_panel";
   }
   if (
     /\b(open|show|go to|take me to)\b.*\b(analysis history|analysis tab history|past analys(?:is|es)|analysis archive)\b/.test(
       text
     )
   ) {
-    return "nav.analysis_history";
+    return "route.analysis_history";
   }
   if (
     /\b(open|show|go to|take me to)\b.*\b(analysis|analysis section|analysis screen|research)\b/.test(
       text
     )
   ) {
-    return "nav.kai_analysis";
+    return "route.kai_analysis";
   }
   if (/\b(open|show|go to|take me to)\b.*\binvestments?\b/.test(text)) {
-    return "nav.kai_investments";
+    return "route.kai_investments";
   }
   if (/\b(open|show|go to|take me to)\b.*\boptimi[sz]e\b/.test(text)) {
-    return "nav.kai_optimize";
+    return "route.kai_optimize";
   }
   if (/\b(sync|refresh)\b.*\bgmail\b.*\b(receipts?)?\b/.test(text)) {
     return "profile.gmail.sync_now";
@@ -359,7 +359,7 @@ function resolveActionFromResponse(response: VoiceResponse): InvestorKaiActionDe
     response.tool_call.tool_name === "execute_kai_command" &&
     response.tool_call.args.command === "optimize"
   ) {
-    return getInvestorKaiActionById("nav.kai_optimize");
+    return getInvestorKaiActionById("route.kai_optimize");
   }
 
   return null;

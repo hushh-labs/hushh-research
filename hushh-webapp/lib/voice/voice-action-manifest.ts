@@ -3,6 +3,7 @@ import manifestJson from "@/contracts/kai/voice-action-manifest.v1.json";
 export type VoiceActionManifestRiskLevel = "low" | "medium" | "high";
 export type VoiceActionManifestExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
 export type VoiceActionManifestExecutionPath = "kai_command" | "voice_tool" | "route";
+export type VoiceActionManifestSpeakerPersona = "one" | "kai" | "nav";
 export type VoiceActionManifestExecutionHint =
   | {
       status: "wired";
@@ -33,6 +34,7 @@ export type VoiceActionManifestAction = {
   id: string;
   label: string;
   meaning: string;
+  speaker_persona: VoiceActionManifestSpeakerPersona;
   scope: {
     routes: string[];
     screens: string[];
@@ -58,6 +60,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function validateSpeakerPersona(value: unknown): VoiceActionManifestSpeakerPersona {
+  if (value === "kai" || value === "nav") return value;
+  return "one";
 }
 
 function validateExecutionHint(input: unknown): VoiceActionManifestExecutionHint | null {
@@ -154,6 +161,7 @@ function validateAction(input: unknown): VoiceActionManifestAction | null {
     id: input.id.trim(),
     label: input.label.trim(),
     meaning: input.meaning.trim(),
+    speaker_persona: validateSpeakerPersona(input.speaker_persona),
     scope: {
       routes: input.scope.routes.map((route) => route.trim()),
       screens: input.scope.screens.map((screen) => screen.trim()),

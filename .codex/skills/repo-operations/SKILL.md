@@ -54,6 +54,17 @@ Non-owned surfaces:
 
 ## Workflow
 
+### Branch Preservation Gate
+
+Run this gate before CI, deploy, PR, hotfix, or validation work:
+
+1. Inspect and record the current branch before making edits, dispatching CI, merging, or deploying.
+2. Treat the user's active development branch as the return target. Continue on that branch for incremental fixes, validation follow-up, and polish whenever it can safely carry the work.
+3. Do not create a temporary branch for routine follow-up work. Create one only when the user explicitly asks for branch isolation, the repo workflow requires an isolated hotfix from latest `main`, or unrelated in-flight changes on the current branch make the fix unsafe to ship.
+4. If a temporary branch is unavoidable, record the preserved development branch before switching. After merge and rollout validation, delete the temporary branch locally and remotely when safe, switch back to the preserved development branch, and back-sync the landed `main` commits into it.
+5. If a fix lands directly on `main`, update the preserved development branch from `origin/main` before handoff so developer work does not drift behind the deployed fix.
+6. Do not leave the workspace detached, parked on `main`, or parked on a temporary branch at handoff unless the user explicitly asked for that state. If conflicts or local-only edits prevent restoration, state the blocker and the exact branch left checked out.
+
 1. Prefer live verification over assumptions for GitHub, CI, deploy, and ruleset state.
 2. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state.
 3. Move from diagnosis into fix-and-rerun for failures inside the repo-operations surface.

@@ -14,7 +14,7 @@
   },
   "actions": [
     {
-      "action_id": "nav.ria_home",
+      "action_id": "route.ria_home",
       "label": "Open RIA Home",
       "meaning": "Navigates to the RIA workspace home route.",
       "aliases": [
@@ -58,7 +58,7 @@
         "docs/reference/iam/runtime-surface.md"
       ],
       "workflow": {
-        "workflow_id": "nav.ria_home.entry",
+        "workflow_id": "route.ria_home.entry",
         "confirmation_required": true,
         "blocked_guidance": "Complete or unlock RIA setup before entering the RIA workspace.",
         "steps": [
@@ -81,7 +81,8 @@
             "failure_behavior": "stop"
           }
         ]
-      }
+      },
+      "speaker_persona": "one"
     }
   ]
 }

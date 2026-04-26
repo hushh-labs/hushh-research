@@ -165,7 +165,7 @@
   ],
   "actions": [
     {
-      "action_id": "nav.kai_analysis",
+      "action_id": "route.kai_analysis",
       "surface_id": "kai_analysis",
       "label": "Open Analysis Surface",
       "aliases": [
@@ -177,6 +177,7 @@
         "research"
       ],
       "meaning": "Navigates directly to the Kai analysis workspace and history route.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/analysis"
@@ -223,7 +224,7 @@
       }
     },
     {
-      "action_id": "nav.analysis_history",
+      "action_id": "route.analysis_history",
       "surface_id": "kai_analysis",
       "label": "Open Analysis History",
       "aliases": [
@@ -235,6 +236,7 @@
         "history"
       ],
       "meaning": "Navigates to analysis page history context.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/analysis",
@@ -296,6 +298,7 @@
         "stock"
       ],
       "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/analysis"
@@ -359,6 +362,7 @@
         "active analysis"
       ],
       "meaning": "Attaches to currently running debate task and opens focused analysis route.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/analysis",
@@ -425,6 +429,7 @@
         "stop analysis"
       ],
       "meaning": "Cancels running debate task and returns to history view.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/analysis"
@@ -490,6 +495,7 @@
         "analysis transcript"
       ],
       "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/analysis?tab=transcript"
@@ -538,7 +544,7 @@
       }
     },
     {
-      "action_id": "nav.profile",
+      "action_id": "route.profile",
       "surface_id": "profile_account",
       "label": "Open Profile",
       "aliases": [
@@ -550,6 +556,7 @@
         "account"
       ],
       "meaning": "Navigates to profile landing route.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile"
@@ -599,7 +606,7 @@
       }
     },
     {
-      "action_id": "nav.profile_gmail_panel",
+      "action_id": "route.profile_gmail_panel",
       "surface_id": "profile_account",
       "label": "Open Gmail Connector Panel",
       "aliases": [
@@ -611,6 +618,7 @@
         "gmail panel"
       ],
       "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile?panel=gmail"
@@ -661,7 +669,7 @@
       }
     },
     {
-      "action_id": "nav.profile_support_panel",
+      "action_id": "route.profile_support_panel",
       "surface_id": "profile_account",
       "label": "Open Support Panel",
       "aliases": [
@@ -672,6 +680,7 @@
         "support"
       ],
       "meaning": "Navigates to hidden support panel in Profile > Account.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile?tab=account&panel=support"
@@ -722,7 +731,7 @@
       }
     },
     {
-      "action_id": "nav.profile_security_panel",
+      "action_id": "route.profile_security_panel",
       "surface_id": "profile_account",
       "label": "Open Vault Security Panel",
       "aliases": [
@@ -734,6 +743,7 @@
         "vault"
       ],
       "meaning": "Navigates to hidden security panel in Profile > Privacy.",
+      "speaker_persona": "nav",
       "reachability": {
         "routes": [
           "/profile?tab=privacy&panel=security"
@@ -784,7 +794,7 @@
       }
     },
     {
-      "action_id": "nav.profile_pkm_agent_lab",
+      "action_id": "route.profile_pkm_agent_lab",
       "surface_id": "profile_account",
       "label": "Open PKM Agent Lab",
       "aliases": [
@@ -796,6 +806,7 @@
         "memory lab"
       ],
       "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile/pkm-agent-lab"
@@ -857,6 +868,7 @@
         "contact support"
       ],
       "meaning": "Sends support/bug/developer feedback email via support service.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile?tab=account&panel=support"
@@ -922,6 +934,7 @@
         "marketplace visibility"
       ],
       "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
+      "speaker_persona": "nav",
       "reachability": {
         "routes": [
           "/profile?tab=privacy"
@@ -984,6 +997,7 @@
         "logout"
       ],
       "meaning": "Ends current session and redirects to home route.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile"
@@ -1044,6 +1058,7 @@
         "delete account"
       ],
       "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "speaker_persona": "nav",
       "reachability": {
         "routes": [
           "/profile"
@@ -1108,6 +1123,7 @@
         "memory preview"
       ],
       "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile/pkm-agent-lab"
@@ -1171,6 +1187,7 @@
         "save capture"
       ],
       "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile/pkm-agent-lab"
@@ -1225,7 +1242,7 @@
       }
     },
     {
-      "action_id": "nav.profile_receipts",
+      "action_id": "route.profile_receipts",
       "surface_id": "profile_receipts",
       "label": "Open Receipts Page",
       "aliases": [
@@ -1237,6 +1254,7 @@
         "gmail receipts"
       ],
       "meaning": "Navigates directly to receipts page from any investor surface.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile/receipts"
@@ -1307,6 +1325,7 @@
         "gmail"
       ],
       "meaning": "Starts OAuth flow for Gmail receipts connector.",
+      "speaker_persona": "nav",
       "reachability": {
         "routes": [
           "/profile",
@@ -1376,6 +1395,7 @@
         "refresh receipts"
       ],
       "meaning": "Queues and polls Gmail receipt sync run.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile/receipts",
@@ -1451,6 +1471,7 @@
         "preview receipts"
       ],
       "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile/receipts"
@@ -1516,6 +1537,7 @@
         "save receipts memory"
       ],
       "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/profile/receipts"
@@ -1581,6 +1603,7 @@
         "disconnect gmail"
       ],
       "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
+      "speaker_persona": "nav",
       "reachability": {
         "routes": [
           "/profile?panel=gmail"
@@ -1636,7 +1659,7 @@
       }
     },
     {
-      "action_id": "nav.ria_home",
+      "action_id": "route.ria_home",
       "surface_id": "ria_home",
       "label": "Open RIA Home",
       "aliases": [
@@ -1648,6 +1671,7 @@
         "advisor workspace"
       ],
       "meaning": "Navigates to the RIA workspace home route.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/ria"
@@ -1682,7 +1706,7 @@
         "docs/reference/iam/runtime-surface.md"
       ],
       "workflow": {
-        "workflow_id": "nav.ria_home.entry",
+        "workflow_id": "route.ria_home.entry",
         "confirmation_required": true,
         "failure_message": null,
         "blocked_guidance": "Complete or unlock RIA setup before entering the RIA workspace.",
@@ -1728,7 +1752,7 @@
       }
     },
     {
-      "action_id": "nav.consents",
+      "action_id": "route.consents",
       "surface_id": "consents",
       "label": "Open Consent Center",
       "aliases": [
@@ -1740,6 +1764,7 @@
         "consent center"
       ],
       "meaning": "Navigates to consents route.",
+      "speaker_persona": "nav",
       "reachability": {
         "routes": [
           "/consents"
@@ -1787,7 +1812,7 @@
       }
     },
     {
-      "action_id": "nav.back",
+      "action_id": "route.back",
       "surface_id": "kai_command_bar",
       "label": "Go Back",
       "aliases": [
@@ -1798,6 +1823,7 @@
         "back"
       ],
       "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
+      "speaker_persona": "one",
       "reachability": {
         "routes": [
           "/kai",
@@ -1852,7 +1878,7 @@
       }
     },
     {
-      "action_id": "nav.kai_dashboard",
+      "action_id": "route.kai_dashboard",
       "surface_id": "kai_portfolio_dashboard",
       "label": "Open Portfolio Dashboard",
       "aliases": [
@@ -1866,6 +1892,7 @@
         "holdings"
       ],
       "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/portfolio"
@@ -1912,7 +1939,7 @@
       }
     },
     {
-      "action_id": "nav.kai_import",
+      "action_id": "route.kai_import",
       "surface_id": "kai_portfolio_dashboard",
       "label": "Open Portfolio Import",
       "aliases": [
@@ -1924,6 +1951,7 @@
         "portfolio import"
       ],
       "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/import"
@@ -1972,7 +2000,7 @@
       }
     },
     {
-      "action_id": "nav.kai_investments",
+      "action_id": "route.kai_investments",
       "surface_id": "kai_portfolio_dashboard",
       "label": "Open Investments Surface",
       "aliases": [
@@ -1983,6 +2011,7 @@
         "investments"
       ],
       "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/investments"
@@ -2035,7 +2064,7 @@
       }
     },
     {
-      "action_id": "nav.kai_optimize",
+      "action_id": "route.kai_optimize",
       "surface_id": "kai_portfolio_dashboard",
       "label": "Open Optimize Surface",
       "aliases": [
@@ -2047,6 +2076,7 @@
         "rebalance"
       ],
       "meaning": "Navigates to optimize workspace route directly.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai/optimize"
@@ -2097,7 +2127,7 @@
       }
     },
     {
-      "action_id": "nav.kai_home",
+      "action_id": "route.kai_home",
       "surface_id": "kai_market",
       "label": "Open Market Home",
       "aliases": [
@@ -2111,6 +2141,7 @@
         "home"
       ],
       "meaning": "Navigates to the Investor Kai market home surface.",
+      "speaker_persona": "kai",
       "reachability": {
         "routes": [
           "/kai",
