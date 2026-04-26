@@ -7,12 +7,11 @@ while enforcing:
 2. Scope validation against the current consent token
 """
 
-import asyncio
 import functools
 import logging
 from typing import Callable, Optional
 
-from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.consent.token import validate_token
 from hushh_mcp.hushh_adk.context import HushhContext
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
         tool_name = name or func.__name__
 
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        def wrapper(*args, **kwargs):
             # 1. Get Active Context
             ctx = HushhContext.current()
             if not ctx:
@@ -43,13 +42,9 @@ def hushh_tool(scope: str, name: Optional[str] = None):
                 logger.critical(error_msg)
                 raise PermissionError(error_msg)
 
-            # 2. Validate Token Scope with DB-backed revocation check
-            # Uses validate_token_with_db for cross-instance revocation consistency.
-            # Falls back to in-memory check if DB is unavailable.
-            valid, reason, token_obj = await validate_token_with_db(
-                ctx.consent_token,
-                expected_scope=scope,
-            )
+            # 2. Validate Token Scope
+            # We validate that the token CARRIED by the context allows this specific tool action
+            valid, reason, token_obj = validate_token(ctx.consent_token, expected_scope=scope)
 
             if not valid:
                 error_msg = f"⛔ Consent Denied for '{tool_name}': {reason}"
@@ -65,10 +60,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             # 4. Execute Tool
             logger.info(f"🔧 Tool '{tool_name}' executing for {ctx.user_id} [Scope: {scope}]")
             try:
-                return await func(*args, **kwargs) if asyncio.iscoroutinefunction(func) else func(
-                    *args,
-                    **kwargs,
-                )
+                return func(*args, **kwargs)
             except Exception as e:
                 logger.error(f"⚠️ Tool '{tool_name}' failed: {str(e)}")
                 raise e
