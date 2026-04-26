@@ -34,6 +34,7 @@ This document defines:
 - how voice, search, UI actionables, analytics, and docs share the same action identity
 - how persona, workspace, vault, consent, and onboarding constraints are enforced centrally
 - how authored multi-step workflows are executed safely
+- how One, Kai, and Nav speaker ownership is declared without changing execution authority
 
 ## Founder Language Mapping
 
@@ -115,6 +116,7 @@ Each local contract can define one surface plus its actions.
 Required action fields:
 
 - `action_id`
+- `speaker_persona`
 - `surface_id`
 - `label`
 - `aliases`
@@ -132,6 +134,25 @@ Optional but recommended action fields:
 - `docs_references`
 - `expected_effects`
 - `workflow`
+
+## Speaker Persona And Namespace Rules
+
+Each action declares `speaker_persona`:
+
+| Value | Meaning |
+| --- | --- |
+| `one` | One owns the spoken framing. Use for generic, route, shell, memory, notification, and handoff actions. |
+| `kai` | Kai owns the spoken framing. Use for finance, analysis, portfolio, market, and RIA finance actions. |
+| `nav` | Nav owns the spoken framing. Use for privacy, consent, vault, deletion, revocation, and scope-review actions. |
+
+Speaker persona is presentation and prompt ownership only. It does not create authorization and must never bypass auth, vault, consent, persona, workspace, or rollout gates.
+
+Action namespace rules:
+
+- `route.*` is the namespace for navigation and route changes.
+- `analysis.*` and `kai.*` remain finance/Kai specialist namespaces.
+- `nav.*` is reserved for true Nav privacy/consent guardian actions.
+- Do not add legacy aliases from old navigation `nav.*` ids. This migration is a straight rename.
 
 ## Multi-Step Workflow Model
 

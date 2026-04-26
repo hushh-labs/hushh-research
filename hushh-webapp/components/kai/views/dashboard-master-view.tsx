@@ -2154,7 +2154,7 @@ export function DashboardMasterView({
         voiceAliases: ["optimize portfolio", "open optimize"],
       },
       {
-        id: "nav.investments",
+        id: "route.kai_investments",
         label: "View investments",
         purpose: "Opens the investments workspace for the current portfolio source.",
         voiceAliases: ["view investments", "open investments"],
@@ -2215,7 +2215,7 @@ export function DashboardMasterView({
         id: "view_investments",
         label: "View investments",
         purpose: "Opens the investments workspace from portfolio.",
-        actionId: "nav.investments",
+        actionId: "route.kai_investments",
         role: "button",
         voiceAliases: ["view investments", "open investments"],
       },

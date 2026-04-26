@@ -33,9 +33,9 @@ This document describes how the Kai voice runtime works in the checked-in codeba
 
 Product truth:
 
-- Kai is the app.
-- The voice assistant lives inside Kai.
-- The assistant should speak as Kai's in-app voice interface, not as a generic external assistant.
+- The checked-in voice runtime is still Kai-first.
+- The voice assistant lives inside the Kai app surfaces today.
+- One/Nav is approved direction: One becomes the default relationship speaker, Kai remains the finance specialist, and Nav owns privacy/consent/vault/deletion/scope-review language after the migration lands.
 
 Use this file as the maintained architecture reference. The older [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md) remains useful as the original migration/audit document, but it is no longer the best source for current runtime behavior.
 
@@ -45,6 +45,18 @@ Use this file as the maintained architecture reference. The older [kai-voice-ass
 - `Capability Tokens`: voice never bypasses `VAULT_OWNER`, consent, persona, or workspace gates
 - `Cryptographic Primitives`: durable voice memory stays vault-gated and encrypted; plaintext browser storage is not a valid fallback
 - `TrustLink / A2A delegation`: delegated agent paths must inherit the same consent boundary rather than minting broader voice authority
+
+## One/Nav Migration Boundary
+
+This file documents current state. Do not read the One/Nav ontology as already shipped in the runtime.
+
+The approved migration direction is:
+
+- `One` owns generic speech, shell greetings, memory framing, notifications, and specialist handoffs
+- `Kai` owns finance analysis, portfolio, market, RIA finance, and decision-receipt speech
+- `Nav` owns consent, scope review, vault, deletion, privacy, and trust-friction speech
+
+Action contracts carry `speaker_persona` so the runtime can move toward that model without changing authority. Speaker persona never bypasses `VAULT_OWNER`, consent, vault, persona, workspace, route, rollout, or kill-switch checks.
 
 ## Source Of Truth
 
@@ -284,6 +296,14 @@ Runtime consumption:
 - frontend registry adapter: [investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
 
 The older [voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json) still exists, but it is now a generated compatibility artifact rather than the primary authored source.
+
+Generated actions include `speaker_persona`:
+
+- `one`: general, route, shell, memory, and handoff framing
+- `kai`: finance and analysis actions
+- `nav`: privacy, consent, vault, deletion, revocation, and scope-review actions
+
+Navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions and must not be used for ordinary route changes.
 
 If the generated manifest is missing, the backend manifest loader degrades to an empty `source: "missing"` manifest instead of failing import. That is a degraded prompt-selection state, not a valid release state; `verify:voice-gateway` and docs/runtime verification should catch it. When a manifest is present but no action ranks for the current screen/transcript, prompt selection falls back to the first generated actions.
 

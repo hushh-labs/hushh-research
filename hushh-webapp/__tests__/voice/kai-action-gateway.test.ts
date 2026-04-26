@@ -66,15 +66,25 @@ describe("kai-action-gateway", () => {
     const ids = KAI_ACTION_GATEWAY.actions.map((action) => action.action_id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(KAI_ACTION_GATEWAY.source_contracts?.length).toBeGreaterThan(0);
+    const reservedNavPrefix = ["nav", ""].join(".");
+    expect(ids.every((id) => !id.startsWith(reservedNavPrefix))).toBe(true);
+    expect(
+      KAI_ACTION_GATEWAY.actions.every((action) =>
+        ["one", "kai", "nav"].includes(action.speaker_persona)
+      )
+    ).toBe(true);
+    expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");
+    expect(getKaiActionById("route.consents")?.speaker_persona).toBe("nav");
+    expect(getKaiActionById("route.profile")?.speaker_persona).toBe("one");
   });
 
   it("maps control ids and authored workflows back to canonical actions", () => {
     const activeAnalysisActions = getKaiActionsForControlId("analysis_open_active");
     expect(activeAnalysisActions.map((action) => action.action_id)).toContain("analysis.resume_active");
 
-    const riaHome = getKaiActionById("nav.ria_home");
+    const riaHome = getKaiActionById("route.ria_home");
     expect(riaHome).not.toBeNull();
-    expect(riaHome?.workflow?.workflow_id).toBe("nav.ria_home.entry");
+    expect(riaHome?.workflow?.workflow_id).toBe("route.ria_home.entry");
     expect(riaHome?.workflow?.steps).toEqual([
       expect.objectContaining({
         type: "persona_switch",
@@ -89,7 +99,7 @@ describe("kai-action-gateway", () => {
   });
 
   it("requires an explicit persona switch for earned RIA actions", () => {
-    const action = getKaiActionById("nav.ria_home");
+    const action = getKaiActionById("route.ria_home");
     const availability = evaluateKaiActionAvailability({
       action: action!,
       appRuntimeState: makeRuntimeState({
@@ -113,7 +123,7 @@ describe("kai-action-gateway", () => {
   });
 
   it("blocks locked RIA actions with guidance instead of exposing them as executable", () => {
-    const action = getKaiActionById("nav.ria_home");
+    const action = getKaiActionById("route.ria_home");
     const availability = evaluateKaiActionAvailability({
       action: action!,
       appRuntimeState: makeRuntimeState({
@@ -141,7 +151,7 @@ describe("kai-action-gateway", () => {
       query: "dashboard",
       appRuntimeState: makeRuntimeState(),
     });
-    expect(dashboardResults[0]?.action.action_id).toBe("nav.kai_dashboard");
+    expect(dashboardResults[0]?.action.action_id).toBe("route.kai_dashboard");
     expect(dashboardResults[0]?.availability.status).toBe("available");
 
     const riaResults = searchKaiActions({
@@ -157,9 +167,9 @@ describe("kai-action-gateway", () => {
         },
       }),
     });
-    expect(riaResults.some((entry) => entry.action.action_id === "nav.ria_home")).toBe(true);
+    expect(riaResults.some((entry) => entry.action.action_id === "route.ria_home")).toBe(true);
     expect(
-      riaResults.find((entry) => entry.action.action_id === "nav.ria_home")?.availability.status
+      riaResults.find((entry) => entry.action.action_id === "route.ria_home")?.availability.status
     ).toBe("requires_persona_switch");
   });
 });

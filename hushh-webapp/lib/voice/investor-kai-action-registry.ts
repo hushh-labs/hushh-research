@@ -10,6 +10,7 @@ import {
   type KaiActionExecutionPolicy,
   type KaiActionExecutionTarget,
   type KaiActionRiskLevel,
+  type KaiActionSpeakerPersona,
   type KaiActionWorkflow,
 } from "@/lib/voice/kai-action-gateway";
 
@@ -64,6 +65,7 @@ export type InvestorKaiActionDefinition = {
   aliases: readonly string[];
   searchKeywords: readonly string[];
   meaning: string;
+  speakerPersona: KaiActionSpeakerPersona;
   scope: {
     routes: readonly string[];
     screens: readonly InvestorKaiScreenScope[];
@@ -223,6 +225,7 @@ function toRegistryAction(action: KaiActionDefinition): InvestorKaiActionDefinit
     aliases: action.aliases,
     searchKeywords: action.search_keywords,
     meaning: action.meaning,
+    speakerPersona: action.speaker_persona,
     scope: {
       routes: action.reachability.routes,
       screens: action.reachability.screens,

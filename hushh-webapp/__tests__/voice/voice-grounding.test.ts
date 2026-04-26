@@ -202,7 +202,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.kai_optimize");
+    expect(plan.actionId).toBe("route.kai_optimize");
     expect(plan.actionLabel).toBe("Open Optimize Surface");
     expect(plan.destructive).toBe(false);
     expect(plan.message).toBeNull();
@@ -234,7 +234,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.kai_analysis");
+    expect(plan.actionId).toBe("route.kai_analysis");
     expect(plan.execution.mode).toBe("navigate_only");
     expect(plan.execution.steps).toEqual([
       {
@@ -293,7 +293,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.kai_dashboard");
+    expect(plan.actionId).toBe("route.kai_dashboard");
     expect(plan.execution.mode).toBe("direct_tool");
     expect(plan.execution.steps).toEqual([
       {
@@ -323,7 +323,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.profile_pkm_agent_lab");
+    expect(plan.actionId).toBe("route.profile_pkm_agent_lab");
     expect(plan.execution.mode).toBe("navigate_only");
     expect(plan.execution.steps).toEqual([
       {
@@ -350,11 +350,11 @@ describe("resolveGroundedVoicePlan", () => {
       transcript: "open gmail receipts",
       response,
       structuredContext: makeContext("/kai"),
-      canonicalActionId: "nav.profile",
+      canonicalActionId: "route.profile",
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.profile");
+    expect(plan.actionId).toBe("route.profile");
     expect(plan.resolutionSource).toBe("canonical");
     expect(plan.execution.mode).toBe("direct_tool");
     expect(plan.execution.steps).toEqual([
@@ -382,11 +382,11 @@ describe("resolveGroundedVoicePlan", () => {
       transcript: "open gmail",
       response,
       structuredContext: makeContext("/kai"),
-      canonicalActionId: "nav.not_real",
+      canonicalActionId: "route.not_real",
     });
 
     expect(plan.status).toBe("unavailable");
-    expect(plan.actionId).toBe("nav.not_real");
+    expect(plan.actionId).toBe("route.not_real");
     expect(plan.actionLabel).toBeNull();
     expect(plan.resolutionSource).toBe("canonical");
     expect(plan.execution.mode).toBe("unavailable");

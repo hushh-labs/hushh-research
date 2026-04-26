@@ -168,7 +168,7 @@ describe("VoiceTurnOrchestrator", () => {
     mockPlanningResponse(
       makePlannerEnvelope({
         mode: "execute_and_wait",
-        action_id: "nav.profile",
+        action_id: "route.profile",
         reply_strategy: "llm",
         final_text: "Opening profile.",
       })
@@ -182,7 +182,7 @@ describe("VoiceTurnOrchestrator", () => {
       shortTermMemoryWrite: true,
       actionResult: {
         status: "succeeded",
-        action_id: "nav.profile",
+        action_id: "route.profile",
         result_summary: "You're on your profile now.",
         route_after: "/profile",
         screen_after: "profile",
@@ -432,7 +432,7 @@ describe("VoiceTurnOrchestrator", () => {
       "grounding_fallback_resolution_used",
       expect.objectContaining({
         resolution_source: "response",
-        action_id: "nav.kai_dashboard",
+        action_id: "route.kai_dashboard",
       })
     );
   });
@@ -446,7 +446,7 @@ describe("VoiceTurnOrchestrator", () => {
     mockPlanningResponse(
       makePlannerEnvelope({
         mode: "execute_and_wait",
-        action_id: "nav.not_real",
+        action_id: "route.not_real",
         response: {
           kind: "speak_only",
           message: "Opening Gmail.",
@@ -476,12 +476,12 @@ describe("VoiceTurnOrchestrator", () => {
     });
 
     expect(result?.groundedPlan.status).toBe("unavailable");
-    expect(result?.groundedPlan.actionId).toBe("nav.not_real");
+    expect(result?.groundedPlan.actionId).toBe("route.not_real");
     expect(result?.groundedPlan.resolutionSource).toBe("canonical");
     expect(onDebug).toHaveBeenCalledWith(
       "grounding_canonical_action_unavailable",
       expect.objectContaining({
-        canonical_action_id: "nav.not_real",
+        canonical_action_id: "route.not_real",
       })
     );
     expect(onDebug).not.toHaveBeenCalledWith(
@@ -494,7 +494,7 @@ describe("VoiceTurnOrchestrator", () => {
     mockPlanningResponse(
       makePlannerEnvelope({
         mode: "execute_and_wait",
-        action_id: "nav.profile",
+        action_id: "route.profile",
         reply_strategy: "llm",
         final_text: "Opening profile.",
       })
@@ -512,7 +512,7 @@ describe("VoiceTurnOrchestrator", () => {
         shortTermMemoryWrite: true,
         actionResult: {
           status: "succeeded",
-          action_id: "nav.profile",
+          action_id: "route.profile",
           result_summary: "You're on your profile now.",
           route_after: "/profile",
           screen_after: "profile",

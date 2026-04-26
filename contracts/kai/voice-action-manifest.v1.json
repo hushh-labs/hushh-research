@@ -4,9 +4,10 @@
   "source_gateway": "contracts/kai/kai-action-gateway.vnext.json",
   "actions": [
     {
-      "id": "nav.kai_analysis",
+      "id": "route.kai_analysis",
       "label": "Open Analysis Surface",
       "meaning": "Navigates directly to the Kai analysis workspace and history route.",
+      "speaker_persona": "kai",
       "aliases": [
         "open analysis",
         "go to analysis"
@@ -35,9 +36,10 @@
       ]
     },
     {
-      "id": "nav.analysis_history",
+      "id": "route.analysis_history",
       "label": "Open Analysis History",
       "meaning": "Navigates to analysis page history context.",
+      "speaker_persona": "kai",
       "aliases": [
         "open analysis history",
         "show past analysis"
@@ -70,6 +72,7 @@
       "id": "analysis.start",
       "label": "Start Stock Analysis",
       "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "speaker_persona": "kai",
       "aliases": [
         "analyze stock",
         "start stock analysis",
@@ -107,6 +110,7 @@
       "id": "analysis.resume_active",
       "label": "Resume Active Analysis Run",
       "meaning": "Attaches to currently running debate task and opens focused analysis route.",
+      "speaker_persona": "kai",
       "aliases": [
         "resume analysis",
         "open active analysis"
@@ -144,6 +148,7 @@
       "id": "analysis.cancel_active",
       "label": "Cancel Active Analysis Run",
       "meaning": "Cancels running debate task and returns to history view.",
+      "speaker_persona": "kai",
       "aliases": [
         "cancel analysis",
         "stop analysis"
@@ -181,6 +186,7 @@
       "id": "analysis.open_transcript_tab_legacy",
       "label": "Legacy Transcript Tab Route",
       "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
+      "speaker_persona": "kai",
       "aliases": [
         "open transcript tab",
         "show transcript tab"
@@ -211,9 +217,10 @@
       ]
     },
     {
-      "id": "nav.profile",
+      "id": "route.profile",
       "label": "Open Profile",
       "meaning": "Navigates to profile landing route.",
+      "speaker_persona": "one",
       "aliases": [
         "open profile",
         "go to profile"
@@ -244,9 +251,10 @@
       ]
     },
     {
-      "id": "nav.profile_gmail_panel",
+      "id": "route.profile_gmail_panel",
       "label": "Open Gmail Connector Panel",
       "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
+      "speaker_persona": "one",
       "aliases": [
         "open gmail settings",
         "open gmail panel"
@@ -278,9 +286,10 @@
       ]
     },
     {
-      "id": "nav.profile_support_panel",
+      "id": "route.profile_support_panel",
       "label": "Open Support Panel",
       "meaning": "Navigates to hidden support panel in Profile > Account.",
+      "speaker_persona": "one",
       "aliases": [
         "open support",
         "contact support"
@@ -312,9 +321,10 @@
       ]
     },
     {
-      "id": "nav.profile_security_panel",
+      "id": "route.profile_security_panel",
       "label": "Open Vault Security Panel",
       "meaning": "Navigates to hidden security panel in Profile > Privacy.",
+      "speaker_persona": "nav",
       "aliases": [
         "open security",
         "vault security"
@@ -346,9 +356,10 @@
       ]
     },
     {
-      "id": "nav.profile_pkm_agent_lab",
+      "id": "route.profile_pkm_agent_lab",
       "label": "Open PKM Agent Lab",
       "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
+      "speaker_persona": "one",
       "aliases": [
         "open pkm lab",
         "open memory lab"
@@ -382,6 +393,7 @@
       "id": "profile.support.submit_message",
       "label": "Submit Support Message",
       "meaning": "Sends support/bug/developer feedback email via support service.",
+      "speaker_persona": "one",
       "aliases": [
         "send support message",
         "submit support message"
@@ -415,6 +427,7 @@
       "id": "profile.marketplace_visibility.toggle",
       "label": "Toggle Marketplace Visibility",
       "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
+      "speaker_persona": "nav",
       "aliases": [
         "toggle marketplace visibility",
         "change marketplace visibility"
@@ -449,6 +462,7 @@
       "id": "profile.sign_out",
       "label": "Sign Out",
       "meaning": "Ends current session and redirects to home route.",
+      "speaker_persona": "one",
       "aliases": [
         "sign out",
         "log out"
@@ -482,6 +496,7 @@
       "id": "profile.delete_account",
       "label": "Delete Account",
       "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "speaker_persona": "nav",
       "aliases": [
         "delete my account",
         "remove account"
@@ -518,6 +533,7 @@
       "id": "profile.pkm.preview_capture",
       "label": "Generate PKM capture preview",
       "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
+      "speaker_persona": "one",
       "aliases": [
         "preview pkm capture",
         "generate pkm preview"
@@ -551,6 +567,7 @@
       "id": "profile.pkm.save_capture",
       "label": "Save PKM capture",
       "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
+      "speaker_persona": "one",
       "aliases": [
         "save pkm capture",
         "save memory capture"
@@ -584,9 +601,10 @@
       ]
     },
     {
-      "id": "nav.profile_receipts",
+      "id": "route.profile_receipts",
       "label": "Open Receipts Page",
       "meaning": "Navigates directly to receipts page from any investor surface.",
+      "speaker_persona": "one",
       "aliases": [
         "open receipts",
         "open gmail receipts"
@@ -620,6 +638,7 @@
       "id": "profile.gmail.connect",
       "label": "Connect Gmail",
       "meaning": "Starts OAuth flow for Gmail receipts connector.",
+      "speaker_persona": "nav",
       "aliases": [
         "connect gmail",
         "link gmail"
@@ -654,6 +673,7 @@
       "id": "profile.gmail.sync_now",
       "label": "Sync Gmail Receipts Now",
       "meaning": "Queues and polls Gmail receipt sync run.",
+      "speaker_persona": "one",
       "aliases": [
         "sync gmail receipts",
         "refresh gmail receipts"
@@ -690,6 +710,7 @@
       "id": "profile.receipts_memory.preview",
       "label": "Build receipts memory preview",
       "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
+      "speaker_persona": "one",
       "aliases": [
         "preview receipts memory",
         "generate receipts memory preview"
@@ -721,6 +742,7 @@
       "id": "profile.receipts_memory.save",
       "label": "Save receipts memory to PKM",
       "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
+      "speaker_persona": "one",
       "aliases": [
         "save receipts memory",
         "save receipts to memory"
@@ -757,6 +779,7 @@
       "id": "profile.gmail.disconnect",
       "label": "Disconnect Gmail",
       "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
+      "speaker_persona": "nav",
       "aliases": [
         "disconnect gmail",
         "unlink gmail"
@@ -788,9 +811,10 @@
       ]
     },
     {
-      "id": "nav.ria_home",
+      "id": "route.ria_home",
       "label": "Open RIA Home",
       "meaning": "Navigates to the RIA workspace home route.",
+      "speaker_persona": "one",
       "aliases": [
         "open ria workspace",
         "go to ria home"
@@ -824,9 +848,10 @@
       ]
     },
     {
-      "id": "nav.consents",
+      "id": "route.consents",
       "label": "Open Consent Center",
       "meaning": "Navigates to consents route.",
+      "speaker_persona": "nav",
       "aliases": [
         "open consent center",
         "open consents"
@@ -855,9 +880,10 @@
       ]
     },
     {
-      "id": "nav.back",
+      "id": "route.back",
       "label": "Go Back",
       "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
+      "speaker_persona": "one",
       "aliases": [
         "go back",
         "back"
@@ -893,9 +919,10 @@
       ]
     },
     {
-      "id": "nav.kai_dashboard",
+      "id": "route.kai_dashboard",
       "label": "Open Portfolio Dashboard",
       "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "speaker_persona": "kai",
       "aliases": [
         "open portfolio dashboard",
         "open portfolio",
@@ -925,9 +952,10 @@
       ]
     },
     {
-      "id": "nav.kai_import",
+      "id": "route.kai_import",
       "label": "Open Portfolio Import",
       "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
+      "speaker_persona": "kai",
       "aliases": [
         "import portfolio",
         "open import"
@@ -956,9 +984,10 @@
       ]
     },
     {
-      "id": "nav.kai_investments",
+      "id": "route.kai_investments",
       "label": "Open Investments Surface",
       "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
+      "speaker_persona": "kai",
       "aliases": [
         "open investments",
         "show investments"
@@ -991,9 +1020,10 @@
       ]
     },
     {
-      "id": "nav.kai_optimize",
+      "id": "route.kai_optimize",
       "label": "Open Optimize Surface",
       "meaning": "Navigates to optimize workspace route directly.",
+      "speaker_persona": "kai",
       "aliases": [
         "optimize portfolio",
         "open optimize"
@@ -1024,9 +1054,10 @@
       ]
     },
     {
-      "id": "nav.kai_home",
+      "id": "route.kai_home",
       "label": "Open Market Home",
       "meaning": "Navigates to the Investor Kai market home surface.",
+      "speaker_persona": "kai",
       "aliases": [
         "open kai home",
         "open market home",

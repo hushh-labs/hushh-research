@@ -21,6 +21,8 @@ flowchart TB
 
 Hussh should be read as a governed personal-intelligence platform, not as a single app and not as a loose collection of packages.
 
+`Hussh` stands for **Human Secure Socket Host**. In architecture terms, the host is the governed infrastructure layer where human authority, private data, AI agents, external apps, and consented access connect without collapsing the trust boundary. The name is therefore an operating model, not just a public label: Hussh hosts personal intelligence through scoped consent, encrypted knowledge, auditable delegation, and deployable product surfaces.
+
 Kai is the primary investor-facing intelligence surface, but the architecture is broader than Kai. The repo already contains the trust boundary, the data boundary, the developer lane, the mobile lane, and the agent lane that make the platform coherent.
 
 The canonical terminology contract for this architecture lives in [founder-language-matrix.md](./founder-language-matrix.md). The canonical public naming and compatibility rule lives in [../operations/brand-and-compatibility-contract.md](../operations/brand-and-compatibility-contract.md).
@@ -40,6 +42,8 @@ The canonical terminology contract for this architecture lives in [founder-langu
 ## 1. Infrastructure Layer
 
 **Purpose:** provide the runtime substrate on which every higher layer depends.
+
+This is the literal platform meaning behind Human Secure Socket Host: infrastructure that lets humans, agents, apps, and consent-gated data meet through governed sockets instead of ad hoc integrations.
 
 - What belongs here:
   - runtime profiles and environment shape

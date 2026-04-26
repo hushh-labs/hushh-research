@@ -22,8 +22,9 @@ Owned repo surfaces:
 2. `.codex/config.toml`
 3. `.codex/skills/agent-orchestration-governance`
 4. `.codex/workflows/agent-orchestration-governance`
-5. `docs/reference/operations/README.md`
-6. `docs/reference/operations/coding-agent-mcp.md`
+5. `AGENTS.md`
+6. `docs/reference/operations/README.md`
+7. `docs/reference/operations/coding-agent-mcp.md`
 
 Non-owned surfaces:
 
@@ -49,38 +50,44 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `.codex/skills/agent-orchestration-governance/references/delegation-contract.md`
-2. `.codex/skills/codex-skill-authoring/references/skill-contract.md`
-3. `docs/reference/operations/coding-agent-mcp.md`
+1. `AGENTS.md`
+2. `.codex/skills/agent-orchestration-governance/references/delegation-contract.md`
+3. `.codex/skills/codex-skill-authoring/references/skill-contract.md`
+4. `docs/reference/operations/coding-agent-mcp.md`
 
 ## Workflow
 
 1. Verify that a repo-scoped custom agent is actually justified before adding one; prefer skills and workflows when role specialization is not needed.
-2. Keep custom-agent TOML files thin:
+2. Preserve the project-wide delegation checkpoint in `AGENTS.md` before narrowing behavior in any skill or workflow:
+   - use subagents only when the user explicitly allows delegation or a workflow has an approved delegation step
+   - require independent evidence lanes and a concrete handoff shape
+   - keep final authority with the parent session or `governor`
+   - record why delegation was skipped when a high-stakes workflow stays local
+3. Keep custom-agent TOML files thin:
    - define role, sandbox, nicknames, and concise behavioral instructions
    - route domain knowledge back to existing repo skills instead of copying it into agent files
    - let model and reasoning inherit from the parent Codex session by default
-3. Keep wave-1 repo custom agents read-only by default and leave edits to the parent session or the built-in `worker`.
-4. Keep branch authority with the parent session and `repo-operations`:
+4. Keep wave-1 repo custom agents read-only by default and leave edits to the parent session or the built-in `worker`.
+5. Keep branch authority with the parent session and `repo-operations`:
    - delegated agents must not create, switch, delete, or push branches unless the parent explicitly scopes that as their task
    - handoffs must report if they observed branch drift, detached HEAD state, or temporary-branch risk
    - workers that edit files inherit the parent branch and must not use branch isolation as a default safety mechanism
-5. Keep global limits bounded in `.codex/config.toml`:
+6. Keep global limits bounded in `.codex/config.toml`:
    - `max_threads = 6`
    - `max_depth = 1`
-6. Encode the authority boundary directly:
+7. Encode the authority boundary directly:
    - only `governor` produces final merge, deploy, or plan recommendations inside delegated workflows
    - child agents return evidence and judgments, not final authority
-7. Require every delegated handoff to include:
+8. Require every delegated handoff to include:
    - scope covered
    - files or surfaces inspected
    - findings or conclusion
    - assumptions
    - validations run
    - unresolved risks
-8. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
-9. Treat self-maintenance as drift detection plus CI enforcement, not autonomous self-rewrite or bot mutation.
-10. Run the dedicated agent-orchestration validation first, then the repo governance check, skill lint, and audit.
+9. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
+10. Treat self-maintenance as drift detection plus CI enforcement, not autonomous self-rewrite or bot mutation.
+11. Run the dedicated agent-orchestration validation first, then the repo governance check, skill lint, and audit.
 
 ## Handoff Rules
 

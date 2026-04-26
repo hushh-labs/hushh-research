@@ -608,13 +608,13 @@ def _build_execute_message(tool_call: dict[str, Any] | None) -> str:
 
 
 _COMMAND_TO_CANONICAL_ACTION_ID = {
-    "home": "nav.kai_home",
-    "dashboard": "nav.kai_dashboard",
-    "history": "nav.analysis_history",
-    "import": "nav.kai_import",
-    "consent": "nav.consents",
-    "profile": "nav.profile",
-    "optimize": "nav.kai_optimize",
+    "home": "route.kai_home",
+    "dashboard": "route.kai_dashboard",
+    "history": "route.analysis_history",
+    "import": "route.kai_import",
+    "consent": "route.consents",
+    "profile": "route.profile",
+    "optimize": "route.kai_optimize",
     "analyze": "analysis.start",
 }
 _VOICE_TOOL_TO_CANONICAL_ACTION_ID = {
@@ -696,7 +696,7 @@ def _legacy_tool_call_from_action(
     normalized_slots = dict(slots or {})
     if not normalized_action_id:
         return None
-    if normalized_action_id == "nav.back":
+    if normalized_action_id == "route.back":
         return {"tool_name": "navigate_back", "args": {}}
 
     voice_tool_name = _CANONICAL_ACTION_ID_TO_VOICE_TOOL.get(normalized_action_id)
@@ -748,7 +748,10 @@ def _heuristic_completion_mode(action_id: str | None, *, mode: str) -> str:
         return "none"
     if normalized_action_id == "analysis.start":
         return "background_start"
-    if normalized_action_id.startswith("nav.") or normalized_action_id == "analysis.resume_active":
+    if (
+        normalized_action_id.startswith("route.")
+        or normalized_action_id == "analysis.resume_active"
+    ):
         return "route_settle"
     return "none"
 
@@ -2961,7 +2964,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.profile_gmail_panel",
+                    action_id_override="route.profile_gmail_panel",
                 ),
                 0,
                 "deterministic",
@@ -2974,7 +2977,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.profile_receipts",
+                    action_id_override="route.profile_receipts",
                 ),
                 0,
                 "deterministic",
@@ -2987,7 +2990,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.profile_pkm_agent_lab",
+                    action_id_override="route.profile_pkm_agent_lab",
                 ),
                 0,
                 "deterministic",
@@ -3000,7 +3003,7 @@ class VoiceIntentService:
                 else "Opening receipts. Use Add receipts to memory there."
             )
             action_id_override = (
-                None if current_screen == "profile_receipts" else "nav.profile_receipts"
+                None if current_screen == "profile_receipts" else "route.profile_receipts"
             )
             return (
                 self._finalize_response(
@@ -3248,7 +3251,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.back",
+                    action_id_override="route.back",
                 ),
                 0,
                 "deterministic",
@@ -3365,7 +3368,7 @@ class VoiceIntentService:
                 gate_state=gate_state,
                 has_active_analysis=has_active_analysis,
                 has_portfolio_data=has_portfolio_data,
-                action_id_override="nav.back"
+                action_id_override="route.back"
                 if _coerce_str(validated.get("tool_name")) == "navigate_back"
                 else None,
             ),

@@ -60,6 +60,13 @@ Non-owned surfaces:
 8. Route founder or board-facing shared briefs, architecture PDFs, and paper-style founder artifacts to `founder-brief-curation` after docs-home scope is clear.
 9. Keep public prose on the Hussh brand while preserving exact compatibility identifiers such as `./bin/hushh`, `hushh-webapp`, and `@hushh/mcp`.
 10. Treat diagram quality and shareable-link hygiene as blocking issues for shared artifacts, not optional polish.
+11. Enforce current-state versus future-state wording for the Hussh / One / Kai / Nav ontology:
+    - Hussh is platform, trust model, and infrastructure.
+    - One is approved top personal-agent direction unless a checked-in runtime surface proves current implementation.
+    - Kai is the current finance specialist, not the platform-level identity.
+    - Nav is reserved for privacy, consent, vault, deletion, and scope-review language, not ordinary navigation.
+12. Keep navigation action ids under `route.*` in docs. Treat `nav.*` as valid only for true Nav guardian capabilities or clearly marked future-roadmap prose.
+13. Do not introduce celebrity voice references or personal numeric preferences into canonical docs.
 
 ## Handoff Rules
 

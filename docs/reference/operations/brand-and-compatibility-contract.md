@@ -10,6 +10,8 @@ This document defines the public documentation rebrand from `Hushh` to `Hussh (H
 
 `Hussh` is the public documentation and architecture brand for this repository.
 
+The architecture meaning is defined in [../architecture/architecture.md](../architecture/architecture.md): Hussh is the governed host where human authority, private data, AI agents, apps, and consented access connect through scoped, auditable infrastructure.
+
 This contract does **not** rename code, package names, CLI commands, repo slugs, deployed URLs, env vars, bundle IDs, or service identifiers. Those remain literal compatibility surfaces until a separate engineering rebrand program lands.
 
 ## Public Brand Rule

@@ -354,7 +354,7 @@ def test_voice_plan_surfaces_canonical_fields_alongside_legacy_contract(
                 "memory": {"allow_durable_write": True},
                 "schema_version": "kai_voice_plan.v1",
                 "mode": "execute_and_wait",
-                "action_id": "nav.profile_gmail_panel",
+                "action_id": "route.profile_gmail_panel",
                 "slots": {},
                 "guards": [],
                 "reply_strategy": "llm",
@@ -378,14 +378,14 @@ def test_voice_plan_surfaces_canonical_fields_alongside_legacy_contract(
     assert payload["execution_allowed"] is True
     assert payload["schema_version"] == "kai_voice_plan.v1"
     assert payload["mode"] == "execute_and_wait"
-    assert payload["action_id"] == "nav.profile_gmail_panel"
+    assert payload["action_id"] == "route.profile_gmail_panel"
     assert payload["reply_strategy"] == "llm"
     assert payload["guards"] == []
     assert payload["tool_call"]["tool_name"] == "clarify"
     assert payload["intent"]["name"] == "execute_and_wait"
     assert payload["intent"]["legacy_kind"] == "speak_only"
     assert payload["action"]["type"] == "canonical"
-    assert payload["action"]["payload"]["action_id"] == "nav.profile_gmail_panel"
+    assert payload["action"]["payload"]["action_id"] == "route.profile_gmail_panel"
     assert payload["action"]["payload"]["mode"] == "execute_and_wait"
     assert payload["action"]["payload"].get("legacy_tool_call") is None
 
@@ -413,7 +413,7 @@ def test_voice_plan_kill_switch_downgrades_canonical_only_execute_and_wait(
                 "memory": {"allow_durable_write": True},
                 "schema_version": "kai_voice_plan.v1",
                 "mode": "execute_and_wait",
-                "action_id": "nav.profile_gmail_panel",
+                "action_id": "route.profile_gmail_panel",
                 "slots": {},
                 "guards": [],
                 "reply_strategy": "llm",
@@ -1059,11 +1059,11 @@ def test_voice_compose_returns_backend_llm_spoken_reply(
             },
             "app_state": _plan_body()["app_state"],
             "mode": "execute_and_wait",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "reply_strategy": "llm",
             "action_result": {
                 "status": "succeeded",
-                "action_id": "nav.profile",
+                "action_id": "route.profile",
                 "route_after": "/profile",
                 "screen_after": "profile_account",
                 "result_summary": "Opened your profile.",

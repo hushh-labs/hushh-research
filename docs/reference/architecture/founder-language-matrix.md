@@ -46,6 +46,9 @@ Approved phrasing pattern:
 | `TrustLink / A2A delegation` | TrustLink, delegated access, relationship share flows, A2A entry points | Delegated authority that inherits scope and never bypasses consent | agent docs, IAM narratives, platform overview docs | plugin APIs, A2A route contracts, delegated access code paths | `TrustLink / A2A delegation (implemented today through delegated access links, relationship grants, and A2A-compatible entry points)` |
 | `Consent Protocol` | `consent-protocol`, FastAPI consent routes, token validation middleware, consent scope catalog | The current backend system that realizes Hussh trust, approval, and scoped access behavior | platform docs, repo maps, founder-aware backend docs | backend package docs, code references, route docs, implementation sections | `Consent Protocol (the current backend system that realizes the platform trust model)` |
 | `Developer API / MCP` | `/api/v1`, `/mcp/?token=<developer-token>`, `@hushh/mcp` | The public developer-access lane into Hussh | architecture overviews, founder brief sections, external-platform framing | setup guides, host examples, path tables, package commands | `Developer API / MCP (implemented today through /api/v1, the hosted MCP endpoint, and @hushh/mcp)` |
+| `One` | Current Kai-first voice/action runtime, future top personal-agent layer | The approved top relationship layer for greetings, memory, notifications, cross-domain help, and specialist handoffs | vision docs, future roadmap, founder briefs, shell/copy governance | current runtime docs unless explicitly marked as approved direction | `One (approved direction for the top personal-agent layer; the current voice/action runtime is still Kai-first)` |
+| `Kai` | Kai finance surfaces, generated Kai action gateway, portfolio/market/analysis services | The current shipped finance specialist that One will summon for finance workflows | investor/RIA product docs, finance workflow docs, architecture narratives | code paths, route docs, generated contract names, package-local implementation docs | `Kai (implemented today as the finance assistant runtime across portfolio, market, analysis, voice, and search surfaces)` |
+| `Nav` | Consent center, vault/privacy/deletion/scope-review surfaces; future Nav-owned `nav.*` actions | The approved privacy and consent guardian that One will summon for trust-sensitive flows | vision docs, future roadmap, consent/privacy founder language | current runtime docs unless the checked-in action or copy surface is actually Nav-owned | `Nav (approved direction for privacy, consent, vault, deletion, and scope-review flows; not a separate current runtime yet)` |
 
 ## Scope Notes
 
@@ -72,7 +75,7 @@ This terminology contract does not:
 - rename endpoints
 - rename packages
 - rename tokens or code symbols
-- assert a separate Kai/Nav runtime as currently implemented
+- assert a separate One/Nav runtime as currently implemented
 - assert Merkle-style sealing, threshold signing, or future PCHP mechanics that are not checked into the repo
 
 ## Terminology Audit Checklist
@@ -85,6 +88,9 @@ Before merging a terminology-heavy docs change, verify:
 4. `Capability Tokens` never replace literal runtime labels such as `VAULT_OWNER`, `developer token`, or `consent_token` inside examples.
 5. `Tamper-Evident History` never overclaims Merkle-style or hardware-backed sealing.
 6. `TrustLink` and `A2A delegation` are described as inherited-scope delegation, not scope escalation.
+7. `One` is capitalized when it refers to the top personal agent and is not described as fully shipped until the runtime proves it.
+8. `Kai` remains the current finance specialist and is not described as the whole Hussh platform identity.
+9. `Nav` is reserved for privacy, consent, vault, deletion, and scope-review meaning; ordinary navigation uses `route.*`, not `nav.*`.
 
 Suggested sweep:
 

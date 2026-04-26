@@ -7,13 +7,19 @@
 ```mermaid
 flowchart TD
   root["Hussh"]
+  one["One<br/>top personal agent"]
+  kai["Kai<br/>finance specialist"]
+  nav["Nav<br/>privacy guardian"]
   trust["Consent + scoped access"]
   vault["BYOK + zero-knowledge"]
-  product["Kai, consent, RIA, PKM"]
+  product["One, Kai, Nav,<br/>RIA, consent, PKM"]
   repo["Small public surface<br/>integrated backbone"]
 
   root --> trust
   root --> vault
+  root --> one
+  one --> kai
+  one --> nav
   root --> product
   root --> repo
 ```
@@ -28,6 +34,10 @@ The product thesis is:
 - the server stores ciphertext
 - access is granted through scoped consent
 - agents work for the person whose data they touch
+
+The durable product line is:
+
+> **Your agents. Yours to own.**
 
 Where the shorthand helps, the trust model can be read as:
 
@@ -44,6 +54,19 @@ Hussh is a platform for personal agents and agent-assisted workflows where:
 - consent tokens define the allowed scope
 - apps and agents execute only within that scope
 
+## Agent Ontology
+
+The canonical product ontology is:
+
+| Name | Role | Current-state boundary |
+| --- | --- | --- |
+| **Hussh** | Platform, trust model, infrastructure | Owns consent, scoped access, BYOK, zero-knowledge, PKM, developer access, and audit boundaries. Hussh has values, not a character voice. |
+| **One** | Top-level personal agent and relationship layer | Approved north-star layer for shell greetings, memory, notifications, cross-domain help, and specialist handoff framing. Current runtime is still Kai-first until the One/Nav migration lands. |
+| **Kai** | Finance specialist summoned by One | Current shipped investor/RIA finance assistant, voice/search/action gateway, portfolio analysis, market intelligence, and receipts-backed decisions. |
+| **Nav** | Privacy and consent guardian summoned by One | Approved direction for consent, scope review, vault, deletion, privacy, and trust-friction copy. Nav is not yet a separate runtime. |
+
+See [agent-ontology.md](./agent-ontology.md) for the maintained role, tone, copy, and handoff contract.
+
 ## Why This Matters
 
 | Old model | Hussh model |
@@ -57,7 +80,9 @@ Hussh is a platform for personal agents and agent-assisted workflows where:
 
 Near-term product direction stays the same:
 
+- One as the user-facing relationship layer
 - Kai for investor workflows
+- Nav for privacy, consent, vault, deletion, and scope-review workflows
 - consent center and scoped sharing
 - RIA and collaboration surfaces
 - multi-domain PKM growth on top of the same trust boundary
