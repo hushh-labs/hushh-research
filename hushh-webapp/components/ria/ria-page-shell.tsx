@@ -2,12 +2,15 @@
 
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { BriefcaseBusiness, ShieldCheck, TriangleAlert } from "lucide-react";
+import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
+
+import { usePersonaState } from "@/lib/persona/persona-context";
 
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
   AppPageShell,
+  type AppPageShellWidth,
 } from "@/components/app-ui/app-page-shell";
 import {
   PageHeader,
@@ -30,6 +33,7 @@ export function RiaPageShell({
   icon = BriefcaseBusiness,
   statusPanel,
   children,
+  width = "standard",
   className,
   headerClassName,
   contentClassName,
@@ -43,6 +47,7 @@ export function RiaPageShell({
   icon?: LucideIcon;
   statusPanel?: ReactNode;
   children: ReactNode;
+  width?: AppPageShellWidth;
   className?: string;
   headerClassName?: string;
   contentClassName?: string;
@@ -66,8 +71,8 @@ export function RiaPageShell({
   return (
     <AppPageShell
       as="main"
-      width="content"
-      className={cn("pb-28", className)}
+      width={width}
+      className={cn("pb-24 sm:pb-28", className)}
       nativeTest={nativeTest}
     >
       <AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>
@@ -77,6 +82,7 @@ export function RiaPageShell({
           description={description}
           actions={actions}
           icon={icon}
+          accent="ria"
         />
       </AppPageHeaderRegion>
 
@@ -160,10 +166,10 @@ type RiaStatusItem = {
 };
 
 const STATUS_TONE_STYLES: Record<RiaStatusTone, string> = {
-  neutral: "border-border/60 bg-background/75 text-foreground",
-  warning: "border-primary/20 bg-primary/6 text-foreground",
-  success: "border-emerald-500/20 bg-emerald-500/8 text-foreground",
-  critical: "border-red-500/20 bg-red-500/8 text-foreground",
+  neutral: "border-border/60 bg-[color:var(--app-card-surface-compact)] text-foreground",
+  warning: "border-amber-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
+  success: "border-emerald-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
+  critical: "border-red-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
 };
 
 export function RiaStatusPanel({
@@ -185,17 +191,17 @@ export function RiaStatusPanel({
 }) {
   return (
     <RiaSurface
-      accent="sky"
+      accent="ria"
       className={cn("space-y-5 p-5 sm:p-6", className)}
       data-testid={dataTestId}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 space-y-1.5">
           <div className="flex items-center gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-sky-200/80 bg-sky-500/[0.08] text-sky-700 shadow-[0_18px_38px_-28px_rgba(56,189,248,0.38)] dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-200 dark:shadow-[0_22px_40px_-28px_rgba(56,189,248,0.22)]">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-[color:var(--app-card-border-strong)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]">
               <ShieldCheck className="h-4 w-4" />
             </span>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700/90 dark:text-sky-300/90">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
               {eyebrow}
             </p>
           </div>
@@ -213,12 +219,12 @@ export function RiaStatusPanel({
         {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
       </div>
 
-      <div className="grid gap-px overflow-hidden rounded-[20px] bg-border/60 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item) => (
           <div
             key={`${item.label}-${item.value}`}
             className={cn(
-              "px-4 py-3.5 sm:px-5",
+              "rounded-[var(--app-card-radius-compact)] border px-4 py-3.5 shadow-[var(--shadow-xs)] sm:px-5",
               STATUS_TONE_STYLES[item.tone || "neutral"]
             )}
           >
@@ -231,5 +237,50 @@ export function RiaStatusPanel({
         ))}
       </div>
     </RiaSurface>
+  );
+}
+
+const _VERIFIED_STATUSES = new Set(["active", "verified", "bypassed", "finra_verified"]);
+
+export function isRiaVerified(status?: string | null): boolean {
+  return _VERIFIED_STATUSES.has(String(status || "").toLowerCase());
+}
+
+export function RiaVerificationGate({ children }: { children: ReactNode }) {
+  const { riaOnboardingStatus, devRiaBypassAllowed, loading } = usePersonaState();
+  const status = riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
+
+  if (loading) return null;
+
+  if (!isRiaVerified(status) && !devRiaBypassAllowed) {
+    return (
+      <section className="space-y-3">
+        <SectionHeader
+          eyebrow="Verification required"
+          title="Complete advisor verification first"
+          description="Non-verified advisors cannot access investor data. Finish the verification flow in onboarding, then come back."
+          icon={ShieldAlert}
+        />
+        <RiaSurface tone="warning" className="border-dashed">
+          <p className="text-sm leading-6 text-muted-foreground">
+            Investor data, client workspaces, and consent requests are locked until
+            regulatory verification is complete.
+          </p>
+        </RiaSurface>
+      </section>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+export function RiaDevAllowlistBadge() {
+  const { devRiaBypassAllowed } = usePersonaState();
+  if (!devRiaBypassAllowed) return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-300">
+      <ShieldCheck className="h-3 w-3" />
+      Dev allowlist
+    </span>
   );
 }

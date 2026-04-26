@@ -15,6 +15,8 @@ flowchart TD
 
 This is the release-gate contract for calling iOS/Android parity complete.
 
+Founder-language note: this audit is one of the concrete proofs behind the platform's `Separation of Duties` claim. It shows that changing the transport boundary from Next.js proxy to native plugin does not change the visible product contract.
+
 ## Source Of Truth
 
 - Canonical app routes: `hushh-webapp/lib/navigation/routes.ts`
@@ -76,6 +78,17 @@ Parity is not complete until both projects still load structurally:
 
 - iOS: `xcodebuild -list -project ios/App/App.xcodeproj`
 - Android: `./gradlew tasks --all`
+
+## Authentication Provider Parity
+
+Native parity for authenticated flows now includes the verified phone mandate after login.
+
+- `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
+- `/register-phone` is a contract route even though it bypasses the standard shell.
+- Web, iOS, and Android must all produce the same product truth: a signed-in user without
+  `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
+- Android still requires a documented OTP smoke on device or UAT because the repo does not
+  currently ship a dedicated Android OTP automation harness.
 
 ## Release Standard
 

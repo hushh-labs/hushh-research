@@ -15,7 +15,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
@@ -47,6 +47,7 @@ import {
   clearPlaidOAuthResumeSession,
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
+import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
@@ -59,6 +60,11 @@ import {
 } from "@/lib/utils/session-storage";
 import { toInvestorLoading, toInvestorStreamText } from "@/lib/copy/investor-language";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
+import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
+import { trackEvent } from "@/lib/observability/client";
 
 // =============================================================================
 // TYPES
@@ -725,6 +731,10 @@ export function KaiFlow({
   const [resumePreloadAfterVault, setResumePreloadAfterVault] = useState(false);
   const [isPreloadingSchema, setIsPreloadingSchema] = useState(false);
   const [isConnectingPlaid, setIsConnectingPlaid] = useState(false);
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
   const [plaidStatus, setPlaidStatus] = useState<PlaidPortfolioStatusResponse | null>(null);
   const {
     data: financialResource,
@@ -764,6 +774,226 @@ export function KaiFlow({
       ? plaidStatus.aggregate.portfolio_data
       : null;
   const plaidConfigured = plaidStatus?.configured ?? true;
+  const kaiFlowVoiceSurfaceMetadata = useMemo(() => {
+    const screenIdByState: Record<FlowState, string> = {
+      checking: "kai_portfolio_bootstrap",
+      import_required: "kai_portfolio_import",
+      importing: "kai_portfolio_import_progress",
+      import_complete: "kai_portfolio_import_complete",
+      reviewing: "kai_portfolio_review",
+      dashboard: "kai_portfolio_dashboard",
+      analysis: "kai_portfolio_analysis",
+    };
+    const parsedHoldingsCount = flowData.parsedPortfolio?.holdings?.length || 0;
+    const savedHoldingsCount = flowData.portfolioData?.holdings?.length || 0;
+    const plaidHoldingsCount = plaidPortfolioData?.holdings?.length || 0;
+
+    const sections =
+      state === "import_required"
+        ? [
+            {
+              id: "portfolio_import",
+              title: "Portfolio import",
+              purpose: "Starts a statement import or a Plaid brokerage connection.",
+            },
+          ]
+        : state === "importing"
+          ? [
+              {
+                id: "import_progress",
+                title: "Import progress",
+                purpose: "Shows live import progress, holdings extraction, and stream status.",
+              },
+            ]
+          : state === "import_complete"
+            ? [
+                {
+                  id: "import_ready",
+                  title: "Import ready for review",
+                  purpose: "Shows the completed import and lets you continue into review.",
+                },
+              ]
+            : state === "reviewing"
+              ? [
+                  {
+                    id: "portfolio_review",
+                    title: "Review imported portfolio",
+                    purpose: "Lets you inspect parsed holdings before saving them into Kai.",
+                  },
+                ]
+              : [
+                  {
+                    id: "portfolio_dashboard",
+                    title: "Portfolio dashboard",
+                    purpose: "Shows the saved or connected portfolio workspace.",
+                  },
+                ];
+
+    const actions = [
+      ...(state === "import_required"
+        ? [
+            {
+              id: "kai.portfolio.connect_plaid",
+              label: "Connect Plaid",
+              purpose: "Starts the Plaid brokerage connection flow.",
+              voiceAliases: ["connect plaid", "connect brokerage"],
+            },
+            {
+              id: "kai.portfolio.import_statement",
+              label: "Upload statement",
+              purpose: "Starts statement import for an editable portfolio source.",
+              voiceAliases: ["upload statement", "import portfolio"],
+            },
+            {
+              id: "kai.portfolio.preload_sample",
+              label: "Load sample portfolio",
+              purpose: "Loads sample portfolio data into the import flow.",
+              voiceAliases: ["load sample portfolio", "use sample portfolio"],
+            },
+          ]
+        : []),
+      ...(state === "importing"
+        ? [
+            {
+              id: "kai.portfolio.cancel_import",
+              label: "Cancel import",
+              purpose: "Stops the current statement import stream.",
+              voiceAliases: ["cancel import"],
+            },
+          ]
+        : []),
+      ...(state === "import_complete"
+        ? [
+            {
+              id: "kai.portfolio.review_import",
+              label: "Review imported portfolio",
+              purpose: "Opens the parsed portfolio review before save.",
+              voiceAliases: ["review portfolio", "continue to review"],
+            },
+          ]
+        : []),
+      ...(state === "reviewing"
+        ? [
+            {
+              id: "kai.portfolio.save_review",
+              label: "Save imported portfolio",
+              purpose: "Persists the reviewed portfolio into Kai.",
+              voiceAliases: ["save portfolio"],
+            },
+            {
+              id: "kai.portfolio.reimport",
+              label: "Reimport portfolio",
+              purpose: "Returns to portfolio import to restart the flow.",
+              voiceAliases: ["reimport portfolio", "start over"],
+            },
+          ]
+        : []),
+    ];
+
+    const visibleModules =
+      state === "import_required"
+        ? ["Portfolio import"]
+        : state === "importing"
+          ? ["Import progress", "Live holdings preview"]
+          : state === "import_complete"
+            ? ["Import ready for review"]
+            : state === "reviewing"
+              ? ["Review imported portfolio"]
+              : state === "dashboard"
+                ? ["Portfolio dashboard"]
+                : ["Analysis result"];
+
+    return {
+      screenId: screenIdByState[state],
+      title: "Portfolio",
+      purpose:
+        "This route manages portfolio import, review, and the transition into the portfolio workspace.",
+      sections,
+      actions,
+      controls: actions.map((action) => ({
+        id: action.id.replaceAll(".", "_"),
+        label: action.label,
+        purpose: action.purpose,
+        actionId: action.id,
+        role: "button",
+        voiceAliases: action.voiceAliases,
+      })),
+      concepts: [
+        {
+          id: "portfolio",
+          label: "Portfolio",
+          explanation:
+            "Portfolio is the workspace for import, review, holdings context, and optimization readiness.",
+          aliases: ["portfolio", "holdings", "portfolio import"],
+        },
+      ],
+      activeSection:
+        state === "import_required"
+          ? "Portfolio import"
+          : state === "importing"
+            ? "Import progress"
+            : state === "import_complete"
+              ? "Import ready for review"
+              : state === "reviewing"
+                ? "Review imported portfolio"
+                : state === "dashboard"
+                  ? "Portfolio dashboard"
+                  : "Analysis result",
+      visibleModules,
+      focusedWidget:
+        state === "importing"
+          ? "Import progress"
+          : state === "reviewing"
+            ? "Review imported portfolio"
+            : "Portfolio import",
+      availableActions: actions.map((action) => action.label),
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+      busyOperations: [
+        ...(financialResourceLoading ? ["portfolio_bootstrap"] : []),
+        ...(isConnectingPlaid ? ["plaid_link"] : []),
+        ...(isPreloadingSchema ? ["sample_schema_preload"] : []),
+        ...(resumeImportAfterVault ? ["vault_resume_import"] : []),
+        ...(state === "importing" ? ["portfolio_import"] : []),
+      ],
+      screenMetadata: {
+        flow_state: state,
+        has_financial_data: flowData.hasFinancialData,
+        saved_holdings_count: savedHoldingsCount,
+        parsed_holdings_count: parsedHoldingsCount,
+        plaid_holdings_count: plaidHoldingsCount,
+        plaid_connected_institution_count: plaidStatus?.aggregate?.item_count || 0,
+        plaid_configured: plaidConfigured,
+        import_stage: streaming.stage,
+        import_progress_pct: streaming.progressPct,
+        import_status_message: streaming.statusMessage,
+        holdings_extracted: streaming.holdingsExtracted,
+        holdings_total: streaming.holdingsTotal,
+        import_error_message: streaming.errorMessage,
+      },
+    };
+  }, [
+    activeVoiceControlId,
+    financialResourceLoading,
+    flowData.hasFinancialData,
+    flowData.parsedPortfolio?.holdings?.length,
+    flowData.portfolioData?.holdings?.length,
+    isConnectingPlaid,
+    isPreloadingSchema,
+    lastVoiceControlId,
+    plaidConfigured,
+    plaidPortfolioData?.holdings?.length,
+    plaidStatus?.aggregate?.item_count,
+    resumeImportAfterVault,
+    state,
+    streaming.errorMessage,
+    streaming.holdingsExtracted,
+    streaming.holdingsTotal,
+    streaming.progressPct,
+    streaming.stage,
+    streaming.statusMessage,
+  ]);
+  usePublishVoiceSurfaceMetadata(kaiFlowVoiceSurfaceMetadata);
 
   useEffect(() => {
     if (mode !== "import") return;
@@ -1662,6 +1892,23 @@ export function KaiFlow({
       }
       importStartInFlightRef.current = true;
       userRequestedImportCancelRef.current = false;
+      let importTerminalTelemetryRecorded = false;
+      const trackImportTerminalTelemetry = (result: "success" | "error") => {
+        if (importTerminalTelemetryRecorded) return;
+        importTerminalTelemetryRecorded = true;
+        trackEvent("import_parse_completed", {
+          result,
+        });
+        if (result === "success") {
+          trackEvent("import_quality_gate_passed", {
+            result: "success",
+          });
+        } else {
+          trackEvent("import_quality_gate_failed", {
+            result: "error",
+          });
+        }
+      };
 
       try {
         // Fresh import intent: proactively cancel any lingering active backend run.
@@ -2409,6 +2656,7 @@ export function KaiFlow({
         );
 
         if (terminalStreamFailureMessage) {
+          trackImportTerminalTelemetry("error");
           persistBackgroundSnapshot("failed", {
             errorMessage: terminalStreamFailureMessage,
           });
@@ -2435,6 +2683,7 @@ export function KaiFlow({
           throw new Error("No portfolio data was detected in this file.");
         }
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
+        trackImportTerminalTelemetry("success");
 
         console.log("[KaiFlow] Portfolio parsed via streaming:", {
           holdings: parsedPortfolioData.holdings?.length || 0,
@@ -2469,6 +2718,7 @@ export function KaiFlow({
           if (streamStallAbortTriggered) {
             const stalledMessage =
               "Import stalled with no backend updates. Please retry this statement.";
+            trackImportTerminalTelemetry("error");
             setError(stalledMessage);
             toast.error(stalledMessage);
             setStreaming((prev) => ({
@@ -2488,6 +2738,7 @@ export function KaiFlow({
           }
           if (!userInitiatedCancel) {
             const interruptedMessage = "Import was interrupted before completion. Please retry.";
+            trackImportTerminalTelemetry("error");
             setError(interruptedMessage);
             toast.error(interruptedMessage);
             setStreaming((prev) => ({
@@ -2544,6 +2795,7 @@ export function KaiFlow({
             : err instanceof Error
             ? sanitizeInvestorCopy(err.message, err.message)
             : "We could not import your portfolio. Please try again.";
+        trackImportTerminalTelemetry("error");
         setError(safeError);
         toast.error(
           safeError
@@ -2776,6 +3028,9 @@ export function KaiFlow({
       AppBackgroundTaskService.dismissTask(activeImportTaskIdRef.current);
       activeImportTaskIdRef.current = null;
     }
+    trackEvent("import_save_completed", {
+      result: "success",
+    });
 
     if (mode === "import") {
       setOnboardingFlowActiveCookie(false);
@@ -2810,10 +3065,7 @@ export function KaiFlow({
 
     setIsConnectingPlaid(true);
     try {
-      const redirectUri =
-        typeof window !== "undefined"
-          ? new URL(ROUTES.KAI_PLAID_OAUTH_RETURN, window.location.origin).toString()
-          : undefined;
+      const redirectUri = resolvePlaidRedirectUri();
       const linkToken = await PlaidPortfolioService.createLinkToken({
         userId,
         vaultOwnerToken: effectiveVaultOwnerToken,

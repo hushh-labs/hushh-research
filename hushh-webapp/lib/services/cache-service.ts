@@ -191,6 +191,7 @@ class CacheService {
     for (const key of this.cache.keys()) {
       if (
         key.startsWith(`pkm_domain_resource_${userId}_`) ||
+        key.startsWith(`domain_manifest_${userId}_`) ||
         key.startsWith(`domain_data_${userId}_`) ||
         key.startsWith(`domain_blob_${userId}_`) ||
         key.startsWith(`stock_context_${userId}_`) ||
@@ -267,6 +268,7 @@ export const CACHE_KEYS = {
   PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,
   PKM_BLOB: (userId: string) => `pkm_blob_${userId}`,
   PKM_DECRYPTED_BLOB: (userId: string) => `pkm_decrypted_blob_${userId}`,
+  DOMAIN_MANIFEST: (userId: string, domain: string) => `domain_manifest_${userId}_${domain}`,
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
   PRE_VAULT_BOOTSTRAP: (userId: string) => `pre_vault_bootstrap_${userId}`,

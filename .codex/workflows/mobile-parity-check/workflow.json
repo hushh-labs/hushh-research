@@ -1,0 +1,59 @@
+{
+  "id": "mobile-parity-check",
+  "title": "Mobile Parity Check",
+  "goal": "Verify iOS, Android, web-bridge, and docs parity for native-facing routes and plugin surfaces.",
+  "owner_skill": "mobile-native",
+  "default_spoke": "mobile-parity-audit",
+  "task_type": "mobile-parity-check",
+  "affected_surfaces": [
+    "hushh-webapp/ios",
+    "hushh-webapp/android",
+    "hushh-webapp/lib/capacitor",
+    "hushh-webapp/scripts",
+    "docs/reference/mobile"
+  ],
+  "required_reads": [
+    "docs/reference/mobile/README.md",
+    "docs/reference/mobile/capacitor-parity-audit.md",
+    "docs/project_context_map.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task mobile-parity-check",
+    "./bin/hushh native ios --mode uat",
+    "./bin/hushh native android --mode uat"
+  ],
+  "verification_bundle": {
+    "id": "mobile-parity-check",
+    "commands": [
+      "./bin/hushh native ios --mode uat",
+      "./bin/hushh native android --mode uat",
+      "cd hushh-webapp && npm run verify:routes"
+    ],
+    "tests": [
+      "cd hushh-webapp && npm run verify:routes"
+    ]
+  },
+  "deliverables": [
+    "parity audit summary",
+    "route/plugin contract check",
+    "platform-specific exceptions list"
+  ],
+  "impact_fields": [
+    "Routes touched",
+    "Mobile parity impacts",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "mobile-native",
+    "mobile-parity-audit",
+    "mobile-plugin-contracts",
+    "quality-contracts",
+    "repo-operations"
+  ],
+  "common_failures": [
+    "updating web path without native parity review",
+    "forgetting plugin registration",
+    "allowing docs/runtime/native route drift"
+  ]
+}

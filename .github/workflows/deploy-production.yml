@@ -34,12 +34,13 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
-  PRODUCTION_DEPLOY_OWNER: kushaltrivedi
+  APP_FRONTEND_ORIGIN: https://kai.hushh.ai
   CLOUD_RUN_REVISION_RETENTION: "10"
   BACKUP_BUCKET: hushh-pda-prod-db-backups
   BACKUP_PREFIX: prod/supabase-logical
   BACKUP_MAX_AGE_HOURS: "30"
   BACKUP_JOB_NAME: prod-supabase-logical-backup
+  PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
   group: deploy-production-${{ github.event.inputs.sha || github.run_id }}
@@ -50,7 +51,7 @@ jobs:
     name: Deploy Production Scope
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
-    environment: production-owner-bypass
+    environment: production
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -68,12 +69,18 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Assert production dispatch actor policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
+
       - name: Validate deployment SHA against main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "CI Status Gate"
+          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ github.event.inputs.sha }}"
 
       - name: Checkout deployment SHA
@@ -82,13 +89,9 @@ jobs:
           set -euo pipefail
           git checkout --detach "${{ github.event.inputs.sha }}"
 
-      - name: Report deployment approval lane
+      - name: Report production deploy lane
         run: |
-          if [ "${GITHUB_ACTOR}" = "${{ env.PRODUCTION_DEPLOY_OWNER }}" ]; then
-            echo "Owner-triggered production deploy: using owner-bypass environment."
-          else
-            echo "Non-owner production deploy: using approval-gated environment."
-          fi
+          echo "Owner-only production deploy: using production environment."
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -141,15 +144,42 @@ jobs:
           echo "deploy_backend=$DEPLOY_BACKEND" >> "$GITHUB_OUTPUT"
           echo "deploy_frontend=$DEPLOY_FRONTEND" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Python for DB governance gates
-        if: steps.scope.outputs.deploy_backend == 'true'
-        uses: actions/setup-python@v6
+      - name: Set up Python + uv runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: "3.13"
+          protocol-dir: ./consent-protocol
 
-      - name: Install DB governance dependencies
-        if: steps.scope.outputs.deploy_backend == 'true'
-        run: python3 -m pip install --disable-pip-version-check asyncpg google-cloud-storage
+      - name: Sync canonical hosted runtime secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --environment production \
+            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --db-host "aws-1-us-east-1.pooler.supabase.com" \
+            --db-port "5432" \
+            --db-name "postgres" \
+            --consent-sse-enabled "false" \
+            --sync-remote-enabled "false" \
+            --developer-api-enabled "false" \
+            --remote-mcp-enabled "false" \
+            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --obs-data-stale-ratio-threshold "0.25" \
+            --passkey-allowed-rp-ids "localhost,127.0.0.1,kai.hushh.ai" \
+            --plaid-env "production" \
+            --plaid-client-name "Hushh Kai" \
+            --plaid-country-codes "US" \
+            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
+            --plaid-redirect-path "/kai/plaid/oauth/return" \
+            --plaid-tx-history-days "730" \
+            > /tmp/prod-runtime-secret-sync.json
+
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --environment production \
+            > /tmp/prod-frontend-runtime-secret-sync.json
 
       - name: Optional predeploy logical backup run
         if: steps.scope.outputs.deploy_backend == 'true' && github.event.inputs.run_predeploy_backup_job == 'true'
@@ -166,7 +196,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ops/logical_backup_freshness_check.py \
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/logical_backup_freshness_check.py \
             --project-id "${GCP_PROJECT_ID}" \
             --bucket "${BACKUP_BUCKET}" \
             --prefix "${BACKUP_PREFIX}" \
@@ -206,7 +236,7 @@ jobs:
           export DB_HOST DB_USER DB_PASSWORD
           export DB_PORT="${DB_PORT:-5432}"
           export DB_NAME="${DB_NAME:-postgres}"
-          python3 scripts/ops/db_migration_release_guard.py \
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
             --report-path /tmp/db-migration-guard-report.json
 
       - name: Generate production migration release manifest
@@ -214,14 +244,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ops/generate_migration_release_manifest.py \
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/generate_migration_release_manifest.py \
             --output /tmp/prod-migration-release-manifest.json \
             --environment production \
             --backup-report-path /tmp/backup-posture-report.json
 
       - name: Upload production DB governance artifacts
         if: always() && steps.scope.outputs.deploy_backend == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-db-governance-${{ github.run_id }}
           if-no-files-found: ignore
@@ -236,7 +266,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ENVIRONMENT=production,_DB_HOST=aws-1-us-east-1.pooler.supabase.com,_DB_PORT=5432,_DB_NAME=postgres,_CORS_ALLOWED_ORIGINS=https://kai.hushh.ai,_OBS_DATA_STALE_RATIO_THRESHOLD=0.25,_CONSENT_SSE_ENABLED=false,_SYNC_REMOTE_ENABLED=false,_DEVELOPER_API_ENABLED=false,_REMOTE_MCP_ENABLED=false,_PLAID_ENV=production,_PLAID_CLIENT_NAME=Hushh Kai,_PLAID_COUNTRY_CODES=US,_PLAID_WEBHOOK_URL=https://kai.hushh.ai/api/kai/plaid/webhook,_PLAID_REDIRECT_PATH=/kai/plaid/oauth/return,_PLAID_TX_HISTORY_DAYS=730,_RIA_DEV_BYPASS_ENABLED=false,_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_TOKEN_ENCRYPTION_KEY_SECRET=PLAID_TOKEN_ENCRYPTION_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_FIREBASE_SERVICE_ACCOUNT_SECRET=FIREBASE_SERVICE_ACCOUNT_JSON"
+            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -266,12 +296,12 @@ jobs:
         if: steps.scope.outputs.deploy_frontend == 'true'
         id: frontend-url
         run: |
-          FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
+          FRONTEND_ORIGIN=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
             --project=${{ env.GCP_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
             --format='value(status.url)')
-          echo "url=$FRONTEND_URL" >> $GITHUB_OUTPUT
-          echo "Frontend URL: $FRONTEND_URL"
+          echo "url=$FRONTEND_ORIGIN" >> $GITHUB_OUTPUT
+          echo "Frontend URL: $FRONTEND_ORIGIN"
 
       - name: Retain latest frontend revisions
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -288,6 +318,8 @@ jobs:
             --frontend-service "${{ env.FRONTEND_SERVICE }}" \
             --require-plaid \
             --require-market-data \
+            --require-gmail \
+            --require-voice \
             --assert-runtime-env-contract
 
       - name: Deployment Summary

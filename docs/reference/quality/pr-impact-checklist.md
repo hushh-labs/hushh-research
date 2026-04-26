@@ -45,9 +45,8 @@ Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile par
   - ...
 
 - Verification run:
-  - [ ] `npm run verify:routes`
-  - [ ] `npm run verify:parity`
-  - [ ] `npm run verify:capacitor:routes`
+  - [ ] `cd hushh-webapp && npm run typecheck`
+  - [ ] `./bin/hushh native ios --mode uat` and/or `./bin/hushh native android --mode uat` when mobile behavior changes
   - [ ] `npm run verify:cache`
   - [ ] `npm run verify:docs`
 ```

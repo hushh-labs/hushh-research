@@ -114,7 +114,7 @@ export default function LogoutPage() {
   return (
     <AppPageShell
       as="div"
-      width="content"
+      width="reading"
       className="flex min-h-72 items-center justify-center"
       nativeTest={{
         routeId: "/logout",

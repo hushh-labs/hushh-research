@@ -5,6 +5,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  BadgeDollarSign,
   Building2,
   Plus,
   RefreshCw,
@@ -64,6 +65,7 @@ import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { getTickerUniverseSnapshot, preloadTickerUniverse } from "@/lib/kai/ticker-universe-cache";
+import { trackEvent } from "@/lib/observability/client";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -79,6 +81,7 @@ import {
   clearPlaidOAuthResumeSession,
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
+import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -86,6 +89,10 @@ import {
   buildPortfolioSharePayloadFromDashboardModel,
   exportPortfolioPdf,
 } from "@/lib/portfolio-share/client";
+import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
 
 interface DashboardMasterViewProps {
   userId: string;
@@ -164,7 +171,7 @@ function describeTransferDecisionRationale(value: unknown): string {
     ) as string | undefined;
     if (message) return message.trim();
   }
-  return "Plaid returned a non-approved transfer decision.";
+  return "The funding provider returned a non-approved transfer decision.";
 }
 
 const FINANCIAL_INTENT_MAP = [
@@ -409,6 +416,7 @@ export function DashboardMasterView({
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const setLosersInput = useKaiSession((s) => s.setLosersInput);
   const baselineBySourceRef = useRef<Map<string, ComparableHolding>>(new Map());
+  const portfolioViewedKeyRef = useRef<string | null>(null);
   const {
     isLoading: isSourcesLoading,
     error: sourcesError,
@@ -459,14 +467,40 @@ export function DashboardMasterView({
   const [isLinkingPlaid, setIsLinkingPlaid] = useState(false);
   const [isLinkingFunding, setIsLinkingFunding] = useState(false);
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
+  const [isReconcilingFunding, setIsReconcilingFunding] = useState(false);
   const [isSharingPortfolioPdf, setIsSharingPortfolioPdf] = useState(false);
   const [dashboardMainTab, setDashboardMainTab] = useState<DashboardMainTab>("overview");
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
   const statementEditablePortfolio = statementPortfolio ?? portfolioData ?? null;
   const canEditStatement = activeSource === "statement" && Boolean(statementEditablePortfolio);
   const displayedPortfolio = activeSource === "statement" ? statementEditablePortfolio : activePortfolio;
   const isPlaidView = activeSource === "plaid";
   const hasPlaidConnections = (plaidStatus?.aggregate?.item_count || 0) > 0;
   const plaidConfigured = plaidStatus?.configured ?? true;
+
+  useEffect(() => {
+    const holdingsCount = displayedPortfolio?.holdings?.length || 0;
+    if (holdingsCount <= 0) return;
+
+    const viewedKey = `${activeSource}:${holdingsCount}`;
+    if (portfolioViewedKeyRef.current === viewedKey) return;
+    portfolioViewedKeyRef.current = viewedKey;
+
+    trackEvent(
+      "portfolio_viewed",
+      {
+        result: "success",
+        portfolio_source: activeSource,
+      },
+      {
+        dedupeKey: `feature:portfolio_viewed:${viewedKey}`,
+        dedupeWindowMs: 5_000,
+      }
+    );
+  }, [activeSource, displayedPortfolio]);
 
   useEffect(() => {
     const sourceHoldings = (statementEditablePortfolio?.holdings || []) as PortfolioHolding[];
@@ -734,10 +768,7 @@ export function DashboardMasterView({
 
       setIsLinkingPlaid(true);
       try {
-        const redirectUri =
-          typeof window !== "undefined"
-            ? new URL(ROUTES.KAI_PLAID_OAUTH_RETURN, window.location.origin).toString()
-            : undefined;
+        const redirectUri = resolvePlaidRedirectUri();
         const linkToken = await PlaidPortfolioService.createLinkToken({
           userId,
           vaultOwnerToken,
@@ -874,6 +905,7 @@ export function DashboardMasterView({
                 vaultOwnerToken,
                 metadata,
                 resumeSessionId: linkToken.resume_session_id || null,
+                consentTimestamp: new Date().toISOString(),
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -922,6 +954,58 @@ export function DashboardMasterView({
     [reload, userId, vaultOwnerToken]
   );
 
+  const handleConnectFundingBrokerage = useCallback(async () => {
+    if (!vaultOwnerToken) {
+      toast.error("Please unlock your Vault and try again.");
+      return;
+    }
+
+    try {
+      await PlaidPortfolioService.setFundingBrokerageAccount({
+        userId,
+        vaultOwnerToken,
+        setDefault: true,
+      });
+      await reload();
+      toast.success("Brokerage funding destination is ready.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Please try again.";
+      const shouldStartOAuth =
+        /No Alpaca brokerage account is configured/i.test(message) ||
+        /ALPACA_ACCOUNT_REQUIRED/i.test(message);
+
+      if (!shouldStartOAuth) {
+        toast.error("Could not prepare brokerage funding destination.", {
+          description: message,
+        });
+        return;
+      }
+
+      try {
+        const connect = await PlaidPortfolioService.startAlpacaConnect({
+          userId,
+          vaultOwnerToken,
+        });
+        if (!connect.authorization_url || !connect.state) {
+          throw new Error("Alpaca OAuth is not configured for this environment.");
+        }
+        saveAlpacaOAuthResumeSession({
+          version: 1,
+          userId,
+          state: connect.state,
+          returnPath: ROUTES.KAI_PORTFOLIO,
+          startedAt: new Date().toISOString(),
+        });
+        window.location.assign(connect.authorization_url);
+      } catch (oauthError) {
+        toast.error("Could not start Alpaca login.", {
+          description:
+            oauthError instanceof Error ? oauthError.message : "Please try again.",
+        });
+      }
+    }
+  }, [reload, userId, vaultOwnerToken]);
+
   const handleCreateFundingTransfer = useCallback(
     async (payload: {
       fundingItemId: string;
@@ -930,6 +1014,7 @@ export function DashboardMasterView({
       brokerageAccountId?: string | null;
       amount: number;
       userLegalName: string;
+      direction: "to_brokerage" | "from_brokerage";
       idempotencyKey: string;
     }) => {
       if (!vaultOwnerToken) {
@@ -946,6 +1031,7 @@ export function DashboardMasterView({
           fundingAccountId: payload.fundingAccountId,
           amount: payload.amount,
           userLegalName: payload.userLegalName,
+          direction: payload.direction,
           idempotencyKey: payload.idempotencyKey,
           brokerageItemId: payload.brokerageItemId || null,
           brokerageAccountId: payload.brokerageAccountId || null,
@@ -975,6 +1061,7 @@ export function DashboardMasterView({
                     vaultOwnerToken,
                     metadata,
                     resumeSessionId: actionLink.resume_session_id || null,
+                    consentTimestamp: new Date().toISOString(),
                   })
                     .then(() => resolve())
                     .catch((err) => reject(err))
@@ -996,7 +1083,7 @@ export function DashboardMasterView({
           await reload();
           return;
         }
-        toast.success("Sandbox transfer created.");
+        toast.success("Transfer submitted.");
         await reload();
       } catch (error) {
         toast.error("Transfer could not be created.", {
@@ -1013,7 +1100,7 @@ export function DashboardMasterView({
     async (transferId: string) => {
       if (!vaultOwnerToken) return;
       try {
-        await PlaidPortfolioService.getTransfer({
+        await PlaidPortfolioService.refreshFundingTransferStatus({
           userId,
           transferId,
           vaultOwnerToken,
@@ -1027,6 +1114,46 @@ export function DashboardMasterView({
     },
     [reload, userId, vaultOwnerToken]
   );
+
+  const handleSetDefaultFundingAccount = useCallback(
+    async (payload: { itemId: string; accountId: string }) => {
+      if (!vaultOwnerToken) return;
+      try {
+        await PlaidPortfolioService.setDefaultFundingAccount({
+          userId,
+          itemId: payload.itemId,
+          accountId: payload.accountId,
+          vaultOwnerToken,
+        });
+        await reload();
+      } catch (error) {
+        toast.error("Could not update default funding account.", {
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      }
+    },
+    [reload, userId, vaultOwnerToken]
+  );
+
+  const handleRunFundingReconciliation = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    setIsReconcilingFunding(true);
+    try {
+      await PlaidPortfolioService.runFundingReconciliation({
+        userId,
+        vaultOwnerToken,
+        triggerSource: "dashboard_ui",
+      });
+      toast.success("Funding reconciliation completed.");
+      await reload();
+    } catch (error) {
+      toast.error("Funding reconciliation failed.", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsReconcilingFunding(false);
+    }
+  }, [reload, userId, vaultOwnerToken]);
 
   const handleCancelTransfer = useCallback(
     async (transferId: string) => {
@@ -1046,6 +1173,49 @@ export function DashboardMasterView({
       }
     },
     [reload, userId, vaultOwnerToken]
+  );
+
+  const handleSearchFundingRecords = useCallback(
+    async (payload: {
+      transferId?: string;
+      relationshipId?: string;
+      limit?: number;
+    }) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Please unlock your Vault and try again.");
+      }
+      return await PlaidPortfolioService.searchFundingRecords({
+        userId,
+        vaultOwnerToken,
+        transferId: payload.transferId || null,
+        relationshipId: payload.relationshipId || null,
+        limit: payload.limit,
+      });
+    },
+    [userId, vaultOwnerToken]
+  );
+
+  const handleCreateFundingEscalation = useCallback(
+    async (payload: {
+      transferId?: string;
+      relationshipId?: string;
+      severity: "low" | "normal" | "high" | "urgent";
+      notes: string;
+    }) => {
+      if (!vaultOwnerToken) {
+        throw new Error("Please unlock your Vault and try again.");
+      }
+      await PlaidPortfolioService.createFundingEscalation({
+        userId,
+        vaultOwnerToken,
+        transferId: payload.transferId || null,
+        relationshipId: payload.relationshipId || null,
+        severity: payload.severity,
+        notes: payload.notes,
+      });
+      toast.success("Support escalation created.");
+    },
+    [userId, vaultOwnerToken]
   );
 
   const handleAnalyzeFromDashboard = useCallback(
@@ -1947,6 +2117,258 @@ export function DashboardMasterView({
     [plaidStatus]
   );
   const sourceDisplayLabel = activeSource === "statement" ? "Statement" : "Plaid";
+  const dashboardVoiceSurfaceMetadata = useMemo(() => {
+    const activeTabLabel =
+      dashboardMainTab === "overview"
+        ? "Overview"
+        : dashboardMainTab === "holdings"
+          ? "Holdings"
+          : "Deep Dive";
+    const sections = [
+      {
+        id: "source_overview",
+        title: "Source overview",
+        purpose: "Summarizes the active portfolio source, value, and top actions.",
+      },
+      {
+        id: "overview",
+        title: "Overview",
+        purpose: "Shows brokerage summary, transfers, allocation, transactions, and investor snapshot.",
+      },
+      {
+        id: "holdings",
+        title: "Holdings",
+        purpose: "Shows current holdings, editability, and source-specific holding actions.",
+      },
+      {
+        id: "deep_dive",
+        title: "Deep Dive",
+        purpose: "Shows charts, picks, and deeper portfolio recommendations.",
+      },
+    ];
+    const actions = [
+      {
+        id: "kai.portfolio.optimize",
+        label: "Optimize portfolio",
+        purpose: "Opens the optimization workspace with the current source context.",
+        voiceAliases: ["optimize portfolio", "open optimize"],
+      },
+      {
+        id: "route.kai_investments",
+        label: "View investments",
+        purpose: "Opens the investments workspace for the current portfolio source.",
+        voiceAliases: ["view investments", "open investments"],
+      },
+      {
+        id: "kai.portfolio.connect_plaid",
+        label: hasPlaidConnections ? "Connect another brokerage" : "Connect Plaid",
+        purpose: "Starts or updates the Plaid brokerage connection flow.",
+        voiceAliases: ["connect plaid", "connect brokerage"],
+      },
+      {
+        id: "kai.portfolio.refresh_plaid",
+        label: "Refresh Plaid",
+        purpose: "Refreshes the current brokerage snapshot from Plaid.",
+        voiceAliases: ["refresh plaid", "refresh brokerage"],
+      },
+      {
+        id: "kai.portfolio.share_pdf",
+        label: "Share portfolio PDF",
+        purpose: "Exports the current portfolio view as a shareable PDF.",
+        voiceAliases: ["share portfolio pdf", "export pdf"],
+      },
+      ...(canEditStatement
+        ? [
+            {
+              id: "kai.portfolio.import_statement",
+              label: "Import portfolio",
+              purpose: "Returns to portfolio import for the editable statement source.",
+              voiceAliases: ["import portfolio", "upload statement"],
+            },
+            {
+              id: "kai.portfolio.delete_imported_data",
+              label: "Delete imported data",
+              purpose: "Deletes the imported statement portfolio from Kai.",
+              voiceAliases: ["delete imported data"],
+            },
+          ]
+        : []),
+    ];
+    const controls = [
+      {
+        id: "share_portfolio_pdf",
+        label: "Share portfolio PDF",
+        purpose: "Exports the current portfolio as a shareable PDF.",
+        actionId: "kai.portfolio.share_pdf",
+        role: "button",
+        voiceAliases: ["share portfolio pdf", "share pdf"],
+      },
+      {
+        id: "optimize_portfolio",
+        label: "Optimize portfolio",
+        purpose: "Opens the optimization workspace with the current source context.",
+        actionId: "kai.portfolio.optimize",
+        role: "button",
+        voiceAliases: ["optimize portfolio", "open optimize"],
+      },
+      {
+        id: "view_investments",
+        label: "View investments",
+        purpose: "Opens the investments workspace from portfolio.",
+        actionId: "route.kai_investments",
+        role: "button",
+        voiceAliases: ["view investments", "open investments"],
+      },
+      {
+        id: "connect_plaid",
+        label: hasPlaidConnections ? "Connect another brokerage" : "Connect Plaid",
+        purpose: "Starts or updates the Plaid brokerage connection flow.",
+        actionId: "kai.portfolio.connect_plaid",
+        role: "button",
+        voiceAliases: ["connect plaid", "connect brokerage"],
+      },
+      {
+        id: "portfolio_tab_overview",
+        label: "Overview tab",
+        purpose: "Shows source status, transfers, allocation, and investor snapshot.",
+        role: "tab",
+      },
+      {
+        id: "portfolio_tab_holdings",
+        label: "Holdings tab",
+        purpose: "Shows holdings, editability, and source-specific holding actions.",
+        role: "tab",
+      },
+      {
+        id: "portfolio_tab_deep_dive",
+        label: "Deep Dive tab",
+        purpose: "Shows deeper charts, picks, and recommendation context.",
+        role: "tab",
+      },
+      ...(canEditStatement
+        ? [
+            {
+              id: "import_portfolio",
+              label: "Import portfolio",
+              purpose: "Returns to statement import for an editable portfolio source.",
+              actionId: "kai.portfolio.import_statement",
+              role: "button",
+            },
+            {
+              id: "delete_imported_data",
+              label: "Delete imported data",
+              purpose: "Deletes the imported statement portfolio from Kai.",
+              actionId: "kai.portfolio.delete_imported_data",
+              role: "button",
+            },
+          ]
+        : [
+            {
+              id: "refresh_plaid",
+              label: "Refresh Plaid",
+              purpose: "Refreshes the current Plaid brokerage snapshot.",
+              actionId: "kai.portfolio.refresh_plaid",
+              role: "button",
+            },
+          ]),
+    ];
+
+    let visibleModules = ["Source overview", activeTabLabel];
+    if (!displayedPortfolio) {
+      visibleModules = ["Source overview", "Portfolio setup"];
+    } else if (dashboardMainTab === "overview") {
+      visibleModules = [
+        "Source overview",
+        "Brokerage summary",
+        "Funding transfers",
+        "Investor snapshot",
+        "Recent transactions",
+      ];
+    } else if (dashboardMainTab === "holdings") {
+      visibleModules = ["Source overview", "Current holdings", "Holdings actions"];
+    } else {
+      visibleModules = ["Source overview", "Portfolio insights", "Recommendations"];
+    }
+
+    return {
+      screenId: "kai_portfolio_dashboard",
+      title: "Portfolio",
+      purpose:
+        "This screen is the holdings workspace for source switching, portfolio context, and optimization.",
+      primaryEntity: sourceDisplayLabel,
+      sections,
+      actions,
+      controls,
+      concepts: [
+        {
+          id: "portfolio",
+          label: "Portfolio",
+          explanation:
+            "Portfolio is the holdings workspace for source switching, imported data, and optimization context.",
+          aliases: ["portfolio", "holdings", "portfolio dashboard"],
+        },
+      ],
+      activeSection: displayedPortfolio ? activeTabLabel : "Source overview",
+      activeTab: displayedPortfolio ? dashboardMainTab : null,
+      visibleModules,
+      focusedWidget: displayedPortfolio ? activeTabLabel : "Portfolio setup",
+      availableActions: actions.map((action) => action.label),
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+      busyOperations: [
+        ...(isSourcesLoading ? ["portfolio_sources_load"] : []),
+        ...(isPlaidRefreshing ? ["plaid_refresh"] : []),
+        ...(isLinkingPlaid ? ["plaid_link"] : []),
+        ...(isLinkingFunding ? ["funding_link"] : []),
+        ...(isSubmittingTransfer ? ["funding_transfer"] : []),
+        ...(isSavingHoldings ? ["holdings_save"] : []),
+        ...(isDeletingImportedData ? ["delete_imported_data"] : []),
+        ...(isSharingPortfolioPdf ? ["portfolio_share_pdf"] : []),
+      ],
+      screenMetadata: {
+        source_label: sourceDisplayLabel,
+        active_source: activeSource,
+        dashboard_tab: dashboardMainTab,
+        has_displayed_portfolio: Boolean(displayedPortfolio),
+        holdings_count: displayedPortfolio?.holdings?.length || 0,
+        investable_holdings_count: model.hero.investableHoldingsCount,
+        total_value: model.hero.totalValue,
+        has_plaid_connections: hasPlaidConnections,
+        plaid_connected_institution_count: plaidStatus?.aggregate?.item_count || 0,
+        statement_snapshot_count: statementSnapshots.length,
+        can_edit_statement: canEditStatement,
+        plaid_refreshing: isPlaidRefreshing,
+        plaid_view: isPlaidView,
+        sync_status: freshness?.syncStatus || null,
+        last_synced_at: freshness?.lastSyncedAt || null,
+      },
+    };
+  }, [
+    activeVoiceControlId,
+    activeSource,
+    canEditStatement,
+    dashboardMainTab,
+    displayedPortfolio,
+    freshness?.lastSyncedAt,
+    freshness?.syncStatus,
+    hasPlaidConnections,
+    isDeletingImportedData,
+    isLinkingFunding,
+    isLinkingPlaid,
+    isPlaidView,
+    isPlaidRefreshing,
+    isSavingHoldings,
+    isSharingPortfolioPdf,
+    isSourcesLoading,
+    isSubmittingTransfer,
+    lastVoiceControlId,
+    model.hero.investableHoldingsCount,
+    model.hero.totalValue,
+    plaidStatus?.aggregate?.item_count,
+    sourceDisplayLabel,
+    statementSnapshots.length,
+  ]);
+  usePublishVoiceSurfaceMetadata(dashboardVoiceSurfaceMetadata);
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
@@ -2030,6 +2452,7 @@ export function DashboardMasterView({
             className="h-10 w-10 rounded-full border border-transparent bg-[var(--app-card-surface-compact)] p-0 text-foreground shadow-[var(--shadow-xs)] hover:bg-[var(--app-card-surface-default)]"
             aria-label="Share portfolio PDF"
             title={hasShareablePortfolioData ? "Share portfolio PDF" : "No shareable portfolio data yet"}
+            data-voice-control-id="share_portfolio_pdf"
           >
             {isSharingPortfolioPdf ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -2134,6 +2557,7 @@ export function DashboardMasterView({
               variant="blue-gradient"
               effect="fill"
               onClick={handleOptimizePortfolio}
+              data-voice-control-id="optimize_portfolio"
             >
               <ArrowRight className="mr-2 h-4 w-4" />
               Optimize Portfolio
@@ -2142,6 +2566,7 @@ export function DashboardMasterView({
               variant="none"
               effect="fade"
               onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}
+              data-voice-control-id="view_investments"
             >
               <Building2 className="mr-2 h-4 w-4" />
               View Investments
@@ -2152,6 +2577,7 @@ export function DashboardMasterView({
                 effect="fade"
                 onClick={() => void openPlaidLinkFlow()}
                 disabled={isLinkingPlaid}
+                data-voice-control-id="connect_plaid"
               >
                 {isLinkingPlaid ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -2161,6 +2587,14 @@ export function DashboardMasterView({
                 {hasPlaidConnections ? "Connect Another Brokerage" : "Connect Plaid"}
               </MorphyButton>
             ) : null}
+            <MorphyButton
+              variant="none"
+              effect="fade"
+              onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}
+            >
+              <BadgeDollarSign className="mr-2 h-4 w-4" />
+              Fund + Trade
+            </MorphyButton>
           </div>
         </SurfaceCardContent>
       </SurfaceCard>
@@ -2197,15 +2631,20 @@ export function DashboardMasterView({
           />
 
           <PlaidFundingTransfersSection
+            className="hidden"
             fundingStatus={plaidFundingStatus}
-            brokerageItems={plaidItems}
-            onManageBrokerage={() => void openPlaidLinkFlow()}
+            onManageBrokerage={() => void handleConnectFundingBrokerage()}
             onConnectFunding={(itemId) => void openPlaidFundingLinkFlow(itemId)}
+            onSetDefaultFundingAccount={(payload) => void handleSetDefaultFundingAccount(payload)}
+            onRunReconciliation={() => void handleRunFundingReconciliation()}
             onCreateTransfer={(payload) => void handleCreateFundingTransfer(payload)}
             onRefreshTransfer={(transferId) => void handleRefreshTransfer(transferId)}
             onCancelTransfer={(transferId) => void handleCancelTransfer(transferId)}
+            onSearchFundingRecords={(payload) => handleSearchFundingRecords(payload)}
+            onCreateFundingEscalation={(payload) => handleCreateFundingEscalation(payload)}
             isConnectingFunding={isLinkingFunding}
             isSubmittingTransfer={isSubmittingTransfer}
+            isReconciling={isReconcilingFunding}
           />
 
           <section className="space-y-4">
@@ -2324,6 +2763,7 @@ export function DashboardMasterView({
                     effect="fade"
                     size="sm"
                     onClick={openAddHoldingModal}
+                    data-voice-control-id="add_holding"
                   >
                     <Icon icon={Plus} size="sm" className="mr-1" />
                     Add Holding
@@ -2401,6 +2841,7 @@ export function DashboardMasterView({
                     onClick={() => void persistHoldingsChanges()}
                     disabled={isSavingHoldings}
                     className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
+                    data-voice-control-id="save_holdings_changes"
                   >
                     <Icon icon={Save} size="sm" className="mr-2" />
                     {isSavingHoldings ? "Saving Holdings..." : "Save Holdings Changes"}
@@ -2425,6 +2866,7 @@ export function DashboardMasterView({
                   fullWidth
                   disabled={isDeletingImportedData}
                   onClick={canEditStatement ? onReupload : () => void openPlaidLinkFlow()}
+                  data-voice-control-id="import_portfolio"
                 >
                   {canEditStatement ? "Import Portfolio" : "Connect Another Brokerage"}
                 </MorphyButton>
@@ -2437,6 +2879,7 @@ export function DashboardMasterView({
                     className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
                     disabled={isDeletingImportedData}
                     onClick={() => setDeleteImportedDialogOpen(true)}
+                    data-voice-control-id="delete_imported_data"
                   >
                     {isDeletingImportedData ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -2453,6 +2896,7 @@ export function DashboardMasterView({
                     fullWidth
                     onClick={() => handleRefreshPlaid()}
                     disabled={isPlaidRefreshing}
+                    data-voice-control-id="refresh_plaid"
                   >
                     <RefreshCw className={`mr-1 h-4 w-4 ${isPlaidRefreshing ? "animate-spin" : ""}`} />
                     Refresh Plaid

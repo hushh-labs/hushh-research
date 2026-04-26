@@ -1,11 +1,15 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.renaissance_service import RenaissanceService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
-from hushh_mcp.services.ria_verification import validate_regulated_runtime_configuration
+from hushh_mcp.services.ria_verification import (
+    NameVerificationResult,
+    validate_regulated_runtime_configuration,
+)
 
 
 def test_runtime_persona_only_overrides_for_setup_mode():
@@ -119,6 +123,28 @@ def test_professional_inputs_accept_dual_capability_payload():
     assert payload["disclosures_url"] == "https://example.com/disclosures"
 
 
+def test_name_first_inputs_allow_missing_manual_regulatory_identity():
+    payload = RIAIAMService._prepare_professional_onboarding_inputs(
+        display_name="Advisor Alpha",
+        requested_capabilities=["advisory"],
+        individual_legal_name="",
+        individual_crd="",
+        advisory_firm_legal_name="",
+        advisory_firm_iapd_number="",
+        broker_firm_legal_name=None,
+        broker_firm_crd=None,
+        bio=None,
+        strategy=None,
+        disclosures_url=None,
+        require_regulatory_identity=False,
+        require_advisory_firm_identifiers=False,
+    )
+
+    assert payload["display_name"] == "Advisor Alpha"
+    assert payload["individual_legal_name"] is None
+    assert payload["advisory_firm_iapd_number"] is None
+
+
 def test_ria_verified_status_helper_matches_expected_statuses():
     assert RIAIAMService._is_verified_ria_status("verified") is True
     assert RIAIAMService._is_verified_ria_status("active") is True
@@ -154,6 +180,196 @@ def test_regulated_runtime_guard_rejects_prod_bypass(monkeypatch):
         assert "BYPASS" in str(exc)
     else:
         raise AssertionError("Expected production runtime guard to reject bypass flags")
+
+
+@pytest.mark.asyncio
+async def test_verify_ria_name_serializes_verified_stage1_lookup(monkeypatch):
+    service = RIAIAMService()
+
+    async def _mock_lookup(*, query: str, use_cache: bool = True):
+        assert query == "Advisor Alpha"
+        assert use_cache is True
+        return NameVerificationResult(
+            status="verified",
+            matched_name="Advisor Alpha",
+            crd_number="12345",
+            current_firm="Advisor Alpha LLC",
+            sec_number="801-12345",
+            provider="ria_intelligence_stage1",
+        )
+
+    monkeypatch.setattr(service._name_verification_gateway, "verify_name", _mock_lookup)
+
+    result = await service.verify_ria_name("Advisor Alpha")
+
+    assert result["status"] == "verified"
+    assert result["matched_name"] == "Advisor Alpha"
+    assert result["crd_number"] == "12345"
+
+
+@pytest.mark.asyncio
+async def test_verify_ria_name_serializes_reason_code_for_broad_queries(monkeypatch):
+    service = RIAIAMService()
+
+    async def _mock_lookup(*, query: str, use_cache: bool = True):
+        assert query == "Andrew G"
+        assert use_cache is True
+        return NameVerificationResult(
+            status="not_verified",
+            matched_name=None,
+            crd_number=None,
+            current_firm=None,
+            sec_number=None,
+            reason=(
+                "The query 'Andrew G' is too broad and lacks a full last name or firm context."
+            ),
+            reason_code="query_too_broad",
+            suggested_names=["Andrew Garrett Kirkland"],
+            provider="ria_intelligence_stage1",
+        )
+
+    monkeypatch.setattr(service._name_verification_gateway, "verify_name", _mock_lookup)
+
+    result = await service.verify_ria_name("Andrew G")
+
+    assert result["status"] == "not_verified"
+    assert result["reason_code"] == "query_too_broad"
+    assert result["suggested_names"] == ["Andrew Garrett Kirkland"]
+
+
+@pytest.mark.asyncio
+async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(monkeypatch):
+    service = RIAIAMService()
+
+    class _FakeTransaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConn:
+        def transaction(self):
+            return _FakeTransaction()
+
+        async def fetchrow(self, query: str, *_args):
+            if "INSERT INTO ria_profiles" in query:
+                return {"id": "ria-profile-1", "user_id": "user-1", "display_name": "Advisor Alpha"}
+            if "INSERT INTO ria_firms" in query:
+                return {"id": "firm-1"}
+            return None
+
+        async def execute(self, *_args, **_kwargs):
+            return None
+
+        async def close(self):
+            return None
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_vault_user_row(_conn, _user_id):
+        return None
+
+    async def _fake_runtime_persona(_conn, _user_id, _persona):
+        return None
+
+    async def _fake_verify_name_result(query: str, *, use_cache: bool = True):
+        assert query == "Advisor Alpha"
+        assert use_cache is True
+        return NameVerificationResult(
+            status="verified",
+            matched_name="Advisor Alpha",
+            crd_number="12345",
+            current_firm="Advisor Alpha LLC",
+            sec_number="801-12345",
+            provider="ria_intelligence_stage1",
+        )
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_ensure_vault_user_row", _fake_vault_user_row)
+    monkeypatch.setattr(service, "_set_runtime_last_persona", _fake_runtime_persona)
+    monkeypatch.setattr(service, "_verify_ria_name_result", _fake_verify_name_result)
+
+    result = await service.submit_ria_onboarding(
+        "user-1",
+        display_name="Advisor Alpha",
+        requested_capabilities=["advisory"],
+        strategy="Long-term planning",
+    )
+
+    assert result["verification_status"] == "verified"
+    assert result["advisory_status"] == "verified"
+    assert result["professional_access_granted"] is True
+    assert result["individual_crd"] == "12345"
+
+
+@pytest.mark.asyncio
+async def test_dev_activation_records_allowed_bypass_event(monkeypatch):
+    service = RIAIAMService()
+    executed: list[tuple[str, tuple[object, ...]]] = []
+
+    class _FakeTransaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConn:
+        def transaction(self):
+            return _FakeTransaction()
+
+        async def fetchrow(self, query: str, *_args):
+            if "INSERT INTO ria_profiles" in query:
+                return {"id": "ria-profile-1", "user_id": "user-1", "display_name": "Advisor Alpha"}
+            return None
+
+        async def execute(self, query: str, *args):
+            executed.append((query, args))
+            return None
+
+        async def close(self):
+            return None
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_vault_user_row(_conn, _user_id):
+        return None
+
+    async def _fake_runtime_persona(_conn, _user_id, _persona):
+        return None
+
+    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("RIA_DEV_ALLOWLIST", raising=False)
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_ensure_vault_user_row", _fake_vault_user_row)
+    monkeypatch.setattr(service, "_set_runtime_last_persona", _fake_runtime_persona)
+
+    result = await service.activate_ria_dev_onboarding(
+        "user-1",
+        display_name="Advisor Alpha",
+        requested_capabilities=["advisory"],
+    )
+
+    assert result["verification_status"] == "active"
+    assert result["verification_outcome"] == "dev_allowlist"
+    event_queries = [
+        query for query, _args in executed if "INSERT INTO ria_verification_events" in query
+    ]
+    assert event_queries
+    assert "'bypassed'" in event_queries[0]
+    assert "'dev_allowlist', 'dev_allowlist'" not in event_queries[0]
 
 
 def test_renaissance_service_exposes_generic_security_list_descriptors():
@@ -680,3 +896,88 @@ async def test_sync_relationship_from_consent_action_uses_active_tokens_over_lat
 
     assert updates == [("relationship_1", "approved")]
     assert materialized and materialized[0]["relationship_id"] == "relationship_1"
+
+
+@pytest.mark.asyncio
+async def test_queue_ria_invite_email_delivery_records_queue_and_success_metadata(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    service = ria_module.RIAIAMService()
+    metadata_updates: list[tuple[str, dict[str, object]]] = []
+    captured: dict[str, object] = {}
+
+    class _FakeConfig:
+        configured = True
+        delivery_mode = "test"
+        test_to_email = "qa@example.com"
+        from_email = "kai@hushh.ai"
+        support_to_email = "support@hushh.ai"
+        delegated_user = "support@hushh.ai"
+
+    class _FakeInviteEmailService:
+        config = _FakeConfig()
+
+        def _effective_recipient(self, target_email: str) -> str:
+            _ = target_email
+            return "qa@example.com"
+
+        def send_ria_invite(self, **kwargs):  # noqa: ANN003
+            captured["send_kwargs"] = kwargs
+            return SimpleNamespace(
+                accepted=True,
+                message_id="msg_1",
+                recipient="qa@example.com",
+                intended_recipient=kwargs["target_email"],
+                delivery_mode="test",
+                from_email="kai@hushh.ai",
+            )
+
+    class _FakeQueue:
+        async def enqueue(self, **kwargs):  # noqa: ANN003
+            captured["enqueue_kwargs"] = kwargs
+            return {
+                "accepted": True,
+                "delivery_status": "queued",
+                "job_id": "job_1",
+                "kind": kwargs["kind"],
+                "queued_at": "2026-04-13T00:00:00Z",
+            }
+
+    async def _record_update(self, invite_id: str, metadata_patch: dict[str, object]):
+        metadata_updates.append((invite_id, metadata_patch))
+
+    monkeypatch.setattr(
+        ria_module, "get_kai_invite_email_service", lambda: _FakeInviteEmailService()
+    )
+    monkeypatch.setattr(ria_module, "get_email_delivery_queue_service", lambda: _FakeQueue())
+    monkeypatch.setattr(
+        ria_module.RIAIAMService,
+        "_update_ria_invite_email_delivery_metadata",
+        _record_update,
+    )
+
+    created_item: dict[str, object] = {}
+    sample_invite_code = "invite-fixture-1"
+    await service._queue_ria_invite_email_delivery(
+        invite_id="invite_1",
+        invite_token=sample_invite_code,
+        invite_path=f"/kai/onboarding?invite={sample_invite_code}",
+        target_email="investor@example.com",
+        target_display_name="Taylor",
+        advisor_name="Advisor Alpha",
+        firm_name="Advisor Alpha LLC",
+        expires_at="2026-05-01T00:00:00Z",
+        reason="Come join Kai",
+        created_item=created_item,
+    )
+
+    assert created_item["delivery_status"] == "queued"
+    assert metadata_updates[0][1]["status"] == "queued"
+    assert captured["enqueue_kwargs"]["kind"] == "invite_email"
+
+    send_result = captured["enqueue_kwargs"]["send_callable"]()
+    await captured["enqueue_kwargs"]["on_success"](send_result)
+
+    assert created_item["delivery_status"] == "sent"
+    assert created_item["delivery_message_id"] == "msg_1"
+    assert metadata_updates[-1][1]["status"] == "sent"

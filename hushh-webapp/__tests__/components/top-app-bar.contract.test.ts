@@ -20,4 +20,14 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain('className="shrink-0 text-current"');
     expect(source).toContain('className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current"');
   });
+
+  it("keeps RIA onboarding persona switching interactive", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain(
+      'return { label: "Set up RIA", icon: BriefcaseBusiness, interactive: true as const };'
+    );
+    expect(source).toContain('pathname === ROUTES.RIA_ONBOARDING && target === "investor"');
+    expect(source).toContain("router.push(nextRoute);");
+  });
 });

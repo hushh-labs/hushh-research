@@ -39,6 +39,10 @@ import { ApiService } from "@/lib/services/api-service";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
+  getPersistablePreviewCards,
+  getReviewRequiredPreviewCount,
+} from "@/lib/profile/pkm-agent-lab-preview";
+import {
   getDeveloperAccess,
   type DeveloperPortalAccess,
 } from "@/lib/services/developer-portal-service";
@@ -55,6 +59,10 @@ import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { VaultService } from "@/lib/services/vault-service";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
+import {
+  usePublishVoiceSurfaceMetadata,
+  useVoiceSurfaceControlTracking,
+} from "@/lib/voice/voice-surface-metadata";
 import {
   resolveVaultAvailabilityState,
   resolveVaultCapabilityState,
@@ -127,6 +135,13 @@ type PermissionSection = {
   description: string;
   exposureEnabled: boolean;
 };
+
+function buildScopeToggleKey(
+  domainKey: string,
+  change: { scopeHandle?: string; topLevelScopePath?: string }
+): string {
+  return `${domainKey}:${change.scopeHandle || change.topLevelScopePath || "all"}`;
+}
 
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -211,6 +226,48 @@ function getScopeSections(manifest: DomainManifest | null | undefined): Permissi
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
+function applyManifestExposureChanges(
+  manifest: DomainManifest | null | undefined,
+  changes: Array<{
+    scopeHandle?: string;
+    topLevelScopePath?: string;
+    exposureEnabled: boolean;
+  }>
+): DomainManifest | null {
+  if (!manifest) {
+    return null;
+  }
+
+  const nextManifest =
+    typeof globalThis.structuredClone === "function"
+      ? globalThis.structuredClone(manifest)
+      : (JSON.parse(JSON.stringify(manifest)) as DomainManifest);
+  const registry = Array.isArray(nextManifest.scope_registry) ? nextManifest.scope_registry : [];
+
+  for (const change of changes) {
+    const targetScopeHandle = String(change.scopeHandle || "").trim();
+    const targetTopLevel = normalizePath(change.topLevelScopePath);
+    for (const entry of registry) {
+      const summaryProjection =
+        entry.summary_projection && typeof entry.summary_projection === "object"
+          ? (entry.summary_projection as Record<string, unknown>)
+          : {};
+      const topLevelScopePath =
+        typeof summaryProjection.top_level_scope_path === "string"
+          ? normalizePath(summaryProjection.top_level_scope_path)
+          : "";
+      if (
+        (targetScopeHandle && entry.scope_handle === targetScopeHandle) ||
+        (targetTopLevel && topLevelScopePath === targetTopLevel)
+      ) {
+        entry.exposure_enabled = change.exposureEnabled;
+      }
+    }
+  }
+
+  return nextManifest;
+}
+
 function buildPreviewCards(
   response: AgentLabResponse | null,
   message: string
@@ -281,7 +338,7 @@ export default function PkmAgentLabPageClient() {
     [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
   );
   const environment = resolveAppEnvironment();
-  const _nonProdLabel = environment === "uat" ? "UAT" : "development";
+  const nonProdLabel = environment === "uat" ? "UAT" : "development";
 
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
@@ -299,9 +356,21 @@ export default function PkmAgentLabPageClient() {
   const [saving, setSaving] = useState(false);
   const [selectedDomainKey, setSelectedDomainKey] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [togglingKey, setTogglingKey] = useState<string | null>(null);
+  const [pendingToggleKeys, setPendingToggleKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const isScopeTogglePending = useCallback(
+    (domainKey: string, change: { scopeHandle?: string; topLevelScopePath?: string }) =>
+      pendingToggleKeys.has(buildScopeToggleKey(domainKey, change)),
+    [pendingToggleKeys]
+  );
+
+  const isDomainTogglePending = useCallback(
+    (domainKey: string) =>
+      Array.from(pendingToggleKeys).some((key) => key.startsWith(`${domainKey}:`)),
+    [pendingToggleKeys]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -445,6 +514,14 @@ export default function PkmAgentLabPageClient() {
     () => buildPreviewCards(response, message),
     [message, response]
   );
+  const persistableCards = useMemo(
+    () => getPersistablePreviewCards(previewCards),
+    [previewCards]
+  );
+  const reviewRequiredCount = useMemo(
+    () => getReviewRequiredPreviewCount(persistableCards),
+    [persistableCards]
+  );
 
   const domains = useMemo(() => metadata?.domains || [], [metadata?.domains]);
   const totalSections = useMemo(
@@ -477,14 +554,177 @@ export default function PkmAgentLabPageClient() {
   const upgradeNeedsBackgroundResume =
     upgradeStatus?.upgradeStatus === "ready" ||
     upgradeStatus?.upgradeStatus === "awaiting_local_auth_resume";
-  const _showUpgradeRecoveryAction = upgradeStatus?.upgradeStatus === "failed";
+  const developerReady = Boolean(access?.access_enabled);
+  const canUseTooling = Boolean(user && developerReady && vaultAccess.canMutateSecureData);
+  const {
+    activeControlId: activeVoiceControlId,
+    lastInteractedControlId: lastVoiceControlId,
+  } = useVoiceSurfaceControlTracking();
+  const pkmVoiceSurfaceMetadata = useMemo(() => {
+    const visibleModules = [
+      "Upgrade status",
+      "Summary",
+      "Domain permissions",
+      "Recent captures",
+      "Capture composer",
+      "Readable PKM view",
+      "Explorer",
+    ];
+    if (detailOpen) {
+      visibleModules.push("Domain permissions panel");
+    }
+
+    const availableActions = [
+      ...(vaultAccess.canMutateSecureData ? ["Generate PKM preview", "Save PKM capture"] : []),
+      ...(upgradeNeedsBackgroundResume ? ["Resume PKM upgrade"] : []),
+      ...(selectedDomain ? ["Review domain permissions"] : []),
+    ];
+    const controls = [
+      {
+        id: "generate_pkm_preview",
+        label: "Generate PKM preview",
+        purpose: "builds a preview of the current PKM capture without saving it.",
+        actionId: "profile.pkm.preview_capture",
+        role: "button",
+        voiceAliases: ["generate pkm preview", "preview pkm capture"],
+      },
+      {
+        id: "save_pkm_capture",
+        label: "Save PKM capture",
+        purpose: "persists the current capture into encrypted PKM storage.",
+        actionId: "profile.pkm.save_capture",
+        role: "button",
+        voiceAliases: ["save pkm capture", "save pkm"],
+      },
+      {
+        id: "resume_pkm_upgrade",
+        label: "Resume PKM upgrade",
+        purpose: "continues a pending local PKM upgrade flow.",
+        actionId: "profile.pkm.resume_upgrade",
+        role: "button",
+        voiceAliases: ["resume pkm upgrade"],
+      },
+    ];
+    const surfaceDefinition = {
+      screenId: "profile_pkm_agent_lab",
+      title: "PKM Agent Lab",
+      purpose:
+        "This workspace previews, saves, and inspects encrypted PKM captures and permissions.",
+      sections: [
+        {
+          id: "pkm_overview",
+          title: "PKM overview",
+          purpose: "This section summarizes current PKM state, domains, and capture context.",
+        },
+        {
+          id: "capture_preview",
+          title: "Latest capture preview",
+          purpose: "This section previews candidate PKM writes before they are saved.",
+        },
+        {
+          id: "domain_permissions",
+          title: "Domain permissions",
+          purpose: "This section manages permission exposure for PKM domains and scopes.",
+        },
+      ],
+      actions: availableActions.map((action) => ({
+        id: action.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+        label: action,
+        purpose: `${action} from PKM Agent Lab.`,
+      })),
+      controls,
+      concepts: [
+        {
+          id: "pkm",
+          label: "PKM",
+          explanation:
+            "PKM is your encrypted personal memory layer. Kai uses it to store durable user memory safely.",
+          aliases: ["pkm", "personal knowledge model"],
+        },
+      ],
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+    };
+    const activeControl =
+      controls.find((control) => control.id === activeVoiceControlId) ||
+      controls.find((control) => control.id === lastVoiceControlId) ||
+      null;
+
+    return {
+      surfaceDefinition,
+      activeSection: detailOpen
+        ? "Domain permissions"
+        : previewCards.length > 0
+          ? "Latest capture preview"
+          : "PKM overview",
+      selectedEntity: selectedDomain?.displayName || null,
+      focusedWidget:
+        activeControl?.label ||
+        (detailOpen
+          ? "Domain permissions panel"
+          : previewCards.length > 0
+            ? "Latest capture preview"
+            : "PKM summary"),
+      modalState: detailOpen ? "domain_permissions" : null,
+      visibleModules,
+      availableActions,
+      activeControlId: activeVoiceControlId,
+      lastInteractedControlId: lastVoiceControlId,
+      busyOperations: [
+        ...(bootstrapLoading ? ["pkm_bootstrap"] : []),
+        ...(upgradeLoading ? ["pkm_upgrade_status_refresh"] : []),
+        ...(upgradeBusy ? ["pkm_upgrade_resume"] : []),
+        ...(submitting ? ["pkm_capture_preview"] : []),
+        ...(saving ? ["pkm_capture_save"] : []),
+        ...(pendingToggleKeys.size > 0 ? ["pkm_permission_update"] : []),
+      ],
+      screenMetadata: {
+        environment: nonProdLabel,
+        domain_count: domains.length,
+        enabled_sections: enabledSections,
+        total_sections: totalSections,
+        upgrade_status: upgradeStatus?.upgradeStatus || null,
+        upgradable_domain_count: upgradableDomains.length,
+        preview_card_count: previewCards.length,
+        selected_domain_key: selectedDomain?.key || null,
+        selected_domain_needs_upgrade: selectedDomainNeedsUpgrade,
+        developer_ready: developerReady,
+        can_use_tooling: canUseTooling,
+        detail_panel_open: detailOpen,
+      },
+    };
+  }, [
+    activeVoiceControlId,
+    bootstrapLoading,
+    canUseTooling,
+    detailOpen,
+    developerReady,
+    domains.length,
+    enabledSections,
+    previewCards.length,
+    saving,
+    pendingToggleKeys,
+    selectedDomain,
+    selectedDomainNeedsUpgrade,
+    submitting,
+    totalSections,
+    upgradeBusy,
+    upgradeLoading,
+    upgradeNeedsBackgroundResume,
+    upgradeStatus?.upgradeStatus,
+    upgradableDomains.length,
+    lastVoiceControlId,
+    nonProdLabel,
+    vaultAccess.canMutateSecureData,
+  ]);
+  usePublishVoiceSurfaceMetadata(pkmVoiceSurfaceMetadata);
 
   const openDomain = useCallback((domainKey: string) => {
     setSelectedDomainKey(domainKey);
     setDetailOpen(true);
   }, []);
   const openPrivacySecurity = useCallback(() => {
-    router.push("/profile?tab=privacy&panel=security");
+    router.push("/profile?panel=security");
   }, [router]);
   const handleVaultAccessRequired = useCallback(
     (message: string) => {
@@ -608,9 +848,8 @@ export default function PkmAgentLabPageClient() {
       return;
     }
 
-    const saveableCards = previewCards.filter((card) => card.write_mode === "can_save");
-    if (saveableCards.length === 0) {
-      setError("This preview does not contain any saveable PKM changes.");
+    if (persistableCards.length === 0) {
+      setError("This preview does not contain any PKM changes that can be saved.");
       return;
     }
 
@@ -619,7 +858,7 @@ export default function PkmAgentLabPageClient() {
       setError(null);
       setSaveMessage(null);
 
-      for (const card of saveableCards) {
+      for (const card of persistableCards) {
         const candidatePayload =
           card.candidate_payload && typeof card.candidate_payload === "object"
             ? card.candidate_payload
@@ -712,9 +951,9 @@ export default function PkmAgentLabPageClient() {
       await loadBootstrap(true);
       setNaturalRefreshToken((value) => value + 1);
       setSaveMessage(
-        saveableCards.length === 1
+        persistableCards.length === 1
           ? "Saved 1 PKM capture. The encrypted revision and permission metadata are now live."
-          : `Saved ${saveableCards.length} PKM captures. The encrypted revisions and permission metadata are now live.`
+          : `Saved ${persistableCards.length} PKM captures. The encrypted revisions and permission metadata are now live.`
       );
     } catch (nextError) {
       setError(
@@ -727,7 +966,7 @@ export default function PkmAgentLabPageClient() {
     handleVaultAccessRequired,
     loadBootstrap,
     message,
-    previewCards,
+    persistableCards,
     user,
     vaultCapability.canMutateSecureData,
     vaultKey,
@@ -753,12 +992,20 @@ export default function PkmAgentLabPageClient() {
         return;
       }
 
-      setTogglingKey(
-        `${domainKey}:${changes.map((change) => change.scopeHandle || change.topLevelScopePath).join(",")}`
-      );
+      const previousManifest = manifest;
+      const toggleKeys = changes.map((change) => buildScopeToggleKey(domainKey, change));
+      setPendingToggleKeys((current) => {
+        const next = new Set(current);
+        for (const key of toggleKeys) next.add(key);
+        return next;
+      });
       setError(null);
+      setManifests((current) => ({
+        ...current,
+        [domainKey]: applyManifestExposureChanges(current[domainKey], changes),
+      }));
 
-      // Fire in background — don't block UI
+      // Keep server sync in the background while the UI reflects the intended state immediately.
       void (async () => {
         try {
           const result = await PersonalKnowledgeModelService.updateScopeExposure({
@@ -775,7 +1022,7 @@ export default function PkmAgentLabPageClient() {
           });
           setManifests((current) => ({
             ...current,
-            [domainKey]: result.manifest,
+            [domainKey]: result.manifest ?? current[domainKey] ?? previousManifest,
           }));
           void loadBootstrap(true);
           setNaturalRefreshToken((value) => value + 1);
@@ -785,13 +1032,21 @@ export default function PkmAgentLabPageClient() {
               : "Permissions updated"
           );
         } catch (nextError) {
+          setManifests((current) => ({
+            ...current,
+            [domainKey]: previousManifest,
+          }));
           toast.error(
             nextError instanceof Error
               ? nextError.message
               : "Failed to update PKM scope exposure"
           );
         } finally {
-          setTogglingKey(null);
+          setPendingToggleKeys((current) => {
+            const next = new Set(current);
+            for (const key of toggleKeys) next.delete(key);
+            return next;
+          });
         }
       })();
     },
@@ -805,13 +1060,10 @@ export default function PkmAgentLabPageClient() {
     ]
   );
 
-  const developerReady = Boolean(access?.access_enabled);
-  const canUseTooling = Boolean(user && developerReady && vaultAccess.canMutateSecureData);
-
   return (
     <>
       <NativeTestBeacon
-        routeId="/profile/pkm"
+        routeId="/profile/pkm-agent-lab"
         marker="native-route-profile-pkm"
         authState={user ? "authenticated" : "pending"}
         dataState={loading || bootstrapLoading || accessLoading ? "loading" : "loaded"}
@@ -873,7 +1125,7 @@ export default function PkmAgentLabPageClient() {
             ) : !developerReady ? (
               <SettingsRow
                 title="Developer access required"
-                description="PKM Agent Lab stays non-production and developer-gated during this phase."
+                description="PKM Agent Lab is restricted to localhost developer runs during this phase."
                 leading={<Code2 className="h-4 w-4 text-amber-500" />}
                 trailing={
                   <Button variant="none" effect="fade" onClick={() => router.push("/developers")}>
@@ -945,7 +1197,7 @@ export default function PkmAgentLabPageClient() {
                           disabled={
                             sections.length === 0 ||
                             upgradeBlocked ||
-                            togglingKey !== null ||
+                            isDomainTogglePending(domain.key) ||
                             !vaultAccess.canReadSecureData
                           }
                           onCheckedChange={(checked) =>
@@ -1022,6 +1274,10 @@ export default function PkmAgentLabPageClient() {
                         effect="fade"
                         disabled={!canUseTooling || submitting}
                         onClick={() => void handlePreview()}
+                        data-voice-control-id="generate_pkm_preview"
+                        data-voice-action-id="profile.pkm.preview_capture"
+                        data-voice-label="Generate PKM preview"
+                        data-voice-purpose="builds a preview of the current PKM capture without saving it."
                       >
                         {submitting ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1033,11 +1289,15 @@ export default function PkmAgentLabPageClient() {
                       <Button
                         variant="none"
                         effect="fade"
-                        disabled={!canUseTooling || saving || previewCards.every((card) => card.write_mode !== "can_save")}
+                        disabled={!canUseTooling || saving || persistableCards.length === 0}
                         onClick={() => void persistPreview()}
+                        data-voice-control-id="save_pkm_capture"
+                        data-voice-action-id="profile.pkm.save_capture"
+                        data-voice-label="Save PKM capture"
+                        data-voice-purpose="persists the current capture into encrypted PKM storage."
                       >
                         {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        Save encrypted capture
+                        {reviewRequiredCount > 0 ? "Save reviewed capture" : "Save encrypted capture"}
                       </Button>
                     </div>
                     <SettingsGroup embedded title="Save protocol" description="PKM writes now use a version-aware save path that upgrades stale manifests first, retries bounded conflicts, and keeps encrypted history plus read-model projections in sync.">
@@ -1172,7 +1432,7 @@ export default function PkmAgentLabPageClient() {
                     disabled={
                       selectedSections.length === 0 ||
                       selectedDomainNeedsUpgrade ||
-                      togglingKey !== null
+                      isDomainTogglePending(selectedDomain.key)
                     }
                     onCheckedChange={(checked) =>
                       void applyScopeExposureChange(
@@ -1201,7 +1461,13 @@ export default function PkmAgentLabPageClient() {
                     trailing={
                       <Switch
                         checked={section.exposureEnabled}
-                        disabled={selectedDomainNeedsUpgrade || togglingKey !== null}
+                        disabled={
+                          selectedDomainNeedsUpgrade ||
+                          isScopeTogglePending(selectedDomain.key, {
+                            scopeHandle: section.scopeHandle,
+                            topLevelScopePath: section.topLevelScopePath,
+                          })
+                        }
                         onCheckedChange={(checked) =>
                           void applyScopeExposureChange(selectedDomain.key, [
                             {

@@ -8,6 +8,7 @@ export const ROUTES = {
   DEVELOPERS: "/developers",
   LOGIN: "/login",
   LOGOUT: "/logout",
+  PHONE_MANDATE: "/register-phone",
   LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
   PROFILE_PKM: "/profile/pkm",
@@ -29,8 +30,10 @@ export const ROUTES = {
   KAI_ONBOARDING: "/kai/onboarding",
   KAI_IMPORT: "/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
+  KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
   KAI_PORTFOLIO: "/kai/portfolio",
   KAI_INVESTMENTS: "/kai/investments",
+  KAI_FUNDING_TRADE: "/kai/funding-trade",
   KAI_DASHBOARD: "/kai/portfolio",
   KAI_ANALYSIS: "/kai/analysis",
   KAI_OPTIMIZE: "/kai/optimize",
@@ -54,11 +57,15 @@ export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
 }
 
+export function buildPhoneMandateRoute(redirect?: string | null) {
+  return withQuery(ROUTES.PHONE_MANDATE, { redirect });
+}
+
 export function buildMarketplaceConnectionsRoute(entries?: {
   tab?: "pending" | "active" | "previous" | null;
   selected?: string | null;
 }) {
-  return withQuery(ROUTES.MARKETPLACE_CONNECTIONS, {
+  return withQuery(ROUTES.CONSENTS, {
     tab: entries?.tab,
     selected: entries?.selected,
   });
@@ -66,12 +73,73 @@ export function buildMarketplaceConnectionsRoute(entries?: {
 
 export function buildMarketplaceConnectionPortfolioRoute(connectionId?: string | null) {
   const normalized = String(connectionId ?? "").trim();
-  if (!normalized) return ROUTES.MARKETPLACE_CONNECTIONS;
-  return withQuery(`${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`, { connectionId: normalized });
+  if (!normalized) return ROUTES.RIA_CLIENTS;
+  return buildRiaClientWorkspaceRoute(normalized, { tab: "kai" });
 }
 
-export function buildRiaWorkspaceRoute(clientId?: string | null) {
-  return withQuery(ROUTES.RIA_WORKSPACE, { clientId });
+export function buildRiaClientWorkspaceRoute(
+  clientId?: string | null,
+  entries?: {
+    tab?: "overview" | "access" | "kai" | "explorer" | null;
+    testProfile?: boolean | null;
+  }
+) {
+  const normalized = String(clientId ?? "").trim();
+  if (!normalized) return ROUTES.RIA_CLIENTS;
+  return withQuery(`${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalized)}`, {
+    tab: entries?.tab,
+    test_profile: entries?.testProfile ? "1" : null,
+  });
+}
+
+export function buildRiaClientAccountRoute(
+  clientId?: string | null,
+  accountId?: string | null,
+  entries?: {
+    testProfile?: boolean | null;
+  }
+) {
+  const normalizedClientId = String(clientId ?? "").trim();
+  const normalizedAccountId = String(accountId ?? "").trim();
+  if (!normalizedClientId || !normalizedAccountId) return ROUTES.RIA_CLIENTS;
+  return withQuery(
+    `${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalizedClientId)}/accounts/${encodeURIComponent(
+      normalizedAccountId
+    )}`,
+    {
+      test_profile: entries?.testProfile ? "1" : null,
+    }
+  );
+}
+
+export function buildRiaClientRequestRoute(
+  clientId?: string | null,
+  requestId?: string | null,
+  entries?: {
+    testProfile?: boolean | null;
+  }
+) {
+  const normalizedClientId = String(clientId ?? "").trim();
+  const normalizedRequestId = String(requestId ?? "").trim();
+  if (!normalizedClientId || !normalizedRequestId) return ROUTES.RIA_CLIENTS;
+  return withQuery(
+    `${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalizedClientId)}/requests/${encodeURIComponent(
+      normalizedRequestId
+    )}`,
+    {
+      test_profile: entries?.testProfile ? "1" : null,
+    }
+  );
+}
+
+export function buildRiaWorkspaceRoute(
+  clientId?: string | null,
+  entries?: {
+    tab?: "overview" | "access" | "kai" | "explorer" | null;
+    testProfile?: boolean | null;
+  }
+) {
+  return buildRiaClientWorkspaceRoute(clientId, entries);
 }
 
 export function buildKaiAnalysisPreviewRoute(entries?: {
@@ -96,6 +164,7 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.HOME ||
     pathname === ROUTES.DEVELOPERS ||
     pathname === ROUTES.LOGIN ||
+    pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
     pathname === ROUTES.PROFILE
   );

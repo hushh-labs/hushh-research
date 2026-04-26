@@ -24,7 +24,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.middleware import require_firebase_auth, verify_user_id_match
-from hushh_mcp.consent.token import validate_token
+from db.connection import DatabaseUnavailableError
+from db.db_client import DatabaseExecutionError
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
@@ -74,6 +76,30 @@ def _check_client_version_or_raise(http_request: Request) -> None:
                 "minimum_version": MIN_VAULT_WRITE_CLIENT_VERSION,
             },
         )
+
+
+def _raise_database_http_exception(exc: Exception) -> None:
+    if isinstance(exc, DatabaseUnavailableError):
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "error": "Database is temporarily unavailable.",
+                "code": exc.code,
+                **({"hint": exc.hint} if exc.hint else {}),
+            },
+        ) from exc
+    if isinstance(exc, DatabaseExecutionError):
+        status_code = getattr(exc, "status_code", 500)
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "error": "Database is temporarily unavailable."
+                if status_code == 503
+                else "Database error",
+                "code": getattr(exc, "code", "DATABASE_EXECUTION_ERROR"),
+                **({"hint": getattr(exc, "hint", None)} if getattr(exc, "hint", None) else {}),
+            },
+        ) from exc
 
 
 # ============================================================================
@@ -220,6 +246,7 @@ async def vault_check(
 
     except Exception as e:
         logger.error(f"vault/check error: {e}")
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -260,6 +287,7 @@ async def vault_bootstrap_state(
         )
     except Exception as e:
         logger.error("vault/bootstrap-state error user=%s: %s", _mask_user_id(user_id), e)
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -306,6 +334,7 @@ async def vault_pre_vault_state(
         )
     except Exception as e:
         logger.error("vault/pre-vault-state error user=%s: %s", _mask_user_id(user_id), e)
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -337,6 +366,7 @@ async def vault_get(
         raise
     except Exception as e:
         logger.error(f"vault/get error: {e}")
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -400,6 +430,7 @@ async def vault_setup(
             methods,
             e,
         )
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -457,6 +488,7 @@ async def vault_wrapper_upsert(
             request.method,
             e,
         )
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -501,6 +533,7 @@ async def vault_primary_set(
             request.primaryMethod,
             e,
         )
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -551,6 +584,7 @@ async def vault_integrity(
         )
     except Exception as e:
         logger.error("vault/integrity error user=%s: %s", _mask_user_id(request.userId), e)
+        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -559,23 +593,32 @@ async def vault_integrity(
 # ============================================================================
 
 
-def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
-    """Validate VAULT_OWNER consent token."""
+async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
+    """Validate VAULT_OWNER consent token with DB-backed revocation check."""
     if not consent_token:
         raise HTTPException(
             status_code=401,
             detail="Missing consent token. Vault owner must provide VAULT_OWNER token.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    valid, reason, token_obj = validate_token(consent_token)
+    valid, reason, token_obj = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid:
         logger.warning(f"Invalid consent token: {reason}")
-        raise HTTPException(status_code=401, detail=f"Invalid consent token: {reason}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid consent token: {reason}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if token_obj is None:
         logger.error("Consent token validated but payload missing")
-        raise HTTPException(status_code=401, detail="Invalid consent token: missing token payload")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid consent token: missing token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if token_obj.scope != ConsentScope.VAULT_OWNER:
         logger.warning(
@@ -617,6 +660,7 @@ async def get_vault_status(
 
         # Use VaultKeysService (handles consent validation internally)
         service = VaultKeysService()
+        await validate_vault_owner_token(consent_token, user_id)
         status = await service.get_vault_status(user_id, consent_token)
 
         return status

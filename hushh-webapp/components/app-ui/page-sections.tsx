@@ -8,6 +8,15 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
 type SectionAccent =
+  | "neutral"
+  | "kai"
+  | "ria"
+  | "consent"
+  | "marketplace"
+  | "developers"
+  | "success"
+  | "warning"
+  | "critical"
   | "default"
   | "sky"
   | "emerald"
@@ -20,9 +29,56 @@ const ACCENT_STYLES: Record<SectionAccent, {
   icon: string;
   divider: string;
 }> = {
+  neutral: {
+    eyebrow: "text-muted-foreground",
+    icon:
+      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
+    divider: "bg-border/50",
+  },
+  kai: {
+    eyebrow: "text-violet-700 dark:text-violet-300",
+    icon: "border border-violet-500/12 bg-violet-500/[0.06] text-violet-700 shadow-[var(--shadow-xs)] dark:border-violet-400/16 dark:bg-violet-400/[0.08] dark:text-violet-200",
+    divider: "bg-violet-300/50 dark:bg-violet-400/30",
+  },
+  ria: {
+    eyebrow: "text-emerald-700 dark:text-emerald-300",
+    icon: "border border-emerald-500/12 bg-emerald-500/[0.06] text-emerald-700 shadow-[var(--shadow-xs)] dark:border-emerald-400/16 dark:bg-emerald-400/[0.08] dark:text-emerald-200",
+    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
+  },
+  consent: {
+    eyebrow: "text-amber-700 dark:text-amber-300",
+    icon: "border border-amber-500/12 bg-amber-500/[0.06] text-amber-700 shadow-[var(--shadow-xs)] dark:border-amber-400/16 dark:bg-amber-400/[0.08] dark:text-amber-200",
+    divider: "bg-amber-300/50 dark:bg-amber-400/30",
+  },
+  marketplace: {
+    eyebrow: "text-sky-700 dark:text-sky-300",
+    icon: "border border-sky-500/12 bg-sky-500/[0.06] text-sky-700 shadow-[var(--shadow-xs)] dark:border-sky-400/16 dark:bg-sky-400/[0.08] dark:text-sky-200",
+    divider: "bg-sky-300/50 dark:bg-sky-400/30",
+  },
+  developers: {
+    eyebrow: "text-rose-700 dark:text-rose-300",
+    icon: "border border-rose-500/12 bg-rose-500/[0.06] text-rose-700 shadow-[var(--shadow-xs)] dark:border-rose-400/16 dark:bg-rose-400/[0.08] dark:text-rose-200",
+    divider: "bg-rose-300/50 dark:bg-rose-400/30",
+  },
+  success: {
+    eyebrow: "text-emerald-700 dark:text-emerald-300",
+    icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
+    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
+  },
+  warning: {
+    eyebrow: "text-amber-700 dark:text-amber-300",
+    icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
+    divider: "bg-amber-300/50 dark:bg-amber-400/30",
+  },
+  critical: {
+    eyebrow: "text-rose-700 dark:text-rose-300",
+    icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
+    divider: "bg-rose-300/50 dark:bg-rose-400/30",
+  },
   default: {
     eyebrow: "text-muted-foreground",
-    icon: "bg-muted/60 text-foreground dark:bg-white/8",
+    icon:
+      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
     divider: "bg-border/50",
   },
   sky: {
@@ -46,9 +102,9 @@ const ACCENT_STYLES: Record<SectionAccent, {
     divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   violet: {
-    eyebrow: "text-muted-foreground",
-    icon: "bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]",
-    divider: "bg-border/50",
+    eyebrow: "text-violet-700 dark:text-violet-300",
+    icon: "bg-violet-500/10 text-violet-700 dark:bg-violet-400/10 dark:text-violet-200",
+    divider: "bg-violet-300/50 dark:bg-violet-400/30",
   },
 };
 
@@ -83,6 +139,8 @@ export function PageHeader({
   title,
   description,
   actions,
+  actionsInlineMobile = false,
+  descriptionFullWidth = false,
   icon,
   leading,
   accent = "default",
@@ -92,6 +150,8 @@ export function PageHeader({
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  actionsInlineMobile?: boolean;
+  descriptionFullWidth?: boolean;
   icon?: LucideIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
@@ -118,7 +178,10 @@ export function PageHeader({
         ) : null}
         <div className="min-w-0 flex-1">
           <div
-            className="flex flex-col gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between"
+            className={cn(
+              "gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between",
+              actionsInlineMobile ? "flex items-start justify-between" : "flex flex-col"
+            )}
             data-slot="page-header-row"
           >
             <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
@@ -135,7 +198,7 @@ export function PageHeader({
               <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
                 {title}
               </h1>
-              {description ? (
+              {description && !descriptionFullWidth ? (
                 <div
                   className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
                   data-slot="page-header-description"
@@ -146,7 +209,10 @@ export function PageHeader({
             </div>
             {actions ? (
               <div
-                className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
+                className={cn(
+                  "flex flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center",
+                  actionsInlineMobile ? "w-auto shrink-0 justify-end self-start" : "w-full"
+                )}
                 data-slot="page-header-actions"
               >
                 {actions}
@@ -155,6 +221,14 @@ export function PageHeader({
           </div>
         </div>
       </div>
+      {description && descriptionFullWidth ? (
+        <div
+          className="text-sm leading-6 text-muted-foreground"
+          data-slot="page-header-description"
+        >
+          {description}
+        </div>
+      ) : null}
       <div className={cn("h-px w-full", styles.divider)} />
     </header>
   );

@@ -37,6 +37,12 @@ import {
   REQUEST_ID_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
+import {
+  resolveRuntimeBackendUrl,
+  resolveVoiceDirectBackendPreference,
+  resolveVoiceFailFastPolicy,
+  resolveVoiceForceProxyPreference,
+} from "@/lib/runtime/settings";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
@@ -48,7 +54,7 @@ type VaultOwnerAuthFailure = {
 };
 
 const getEnvBackendUrl = (): string => {
-  return (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim().replace(/\/$/, "");
+  return resolveRuntimeBackendUrl();
 };
 
 const LOCAL_NATIVE_HOSTS = new Set(["localhost", "127.0.0.1", "10.0.2.2"]);
@@ -146,13 +152,11 @@ function getVoiceTransportMode(): VoiceTransportMode {
   if (!backend) {
     return { mode: "nextjs_proxy", reason: "missing_backend_url" };
   }
-  const explicitProxy =
-    String(process.env.NEXT_PUBLIC_VOICE_FORCE_PROXY || "").toLowerCase() === "true";
+  const explicitProxy = resolveVoiceForceProxyPreference();
   if (explicitProxy) {
     return { mode: "nextjs_proxy", reason: "explicit_proxy", backendUrl: backend };
   }
-  const explicitDirect =
-    String(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND || "").toLowerCase() === "true";
+  const explicitDirect = resolveVoiceDirectBackendPreference();
   if (explicitDirect) {
     return { mode: "direct_backend", reason: "explicit_direct", backendUrl: backend };
   }
@@ -177,28 +181,14 @@ function getVoiceTransportMode(): VoiceTransportMode {
   return { mode: "nextjs_proxy", reason: "proxy_default", backendUrl: backend };
 }
 
-function isTruthyEnvFlag(raw: string | undefined): boolean {
-  return ["1", "true", "yes", "on", "enabled"].includes(String(raw || "").trim().toLowerCase());
-}
-
 function isVoiceFailFastEnabled(): boolean {
-  const disableFallbacks =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_DISABLE_VOICE_FALLBACKS) ||
-    isTruthyEnvFlag(process.env.DISABLE_VOICE_FALLBACKS);
-  const failFast =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FAIL_FAST_VOICE) ||
-    isTruthyEnvFlag(process.env.FAIL_FAST_VOICE);
-  const forceRealtime =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE) ||
-    isTruthyEnvFlag(process.env.FORCE_REALTIME_VOICE);
-  return disableFallbacks || failFast || forceRealtime;
+  return resolveVoiceFailFastPolicy();
 }
 
 function isVoiceDirectBackendRequired(): boolean {
   if (Capacitor.isNativePlatform()) return false;
-  const explicitDirect = isTruthyEnvFlag(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND);
-  const devDefaultDirectOnly = process.env.NODE_ENV === "development";
-  return explicitDirect || isVoiceFailFastEnabled() || devDefaultDirectOnly;
+  const explicitDirect = resolveVoiceDirectBackendPreference();
+  return explicitDirect || isVoiceFailFastEnabled();
 }
 
 function normalizeVoiceAudioMimeType(rawMimeType: string | null | undefined): string {
@@ -595,7 +585,6 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
             (options.headers as Record<string, string>)["x-voice-turn-id"]
           : undefined;
   const turnIdHeader = turnIdHeaderRaw || undefined;
-  const finalizeTrace = /\/api\/kai\/voice\/tts$/.test(path);
   if (directRequired && transport.mode !== "direct_backend") {
     const reason = `VOICE_DIRECT_BACKEND_REQUIRED:${transport.reason}`;
     emitVoiceTransportStage(turnIdHeader, "transport_config_invalid", {
@@ -627,7 +616,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
           mode: "nextjs_proxy",
           status: response.status,
         },
-        { finalize: finalizeTrace || !response.ok }
+        { finalize: true }
       );
       return response;
     } catch (error) {
@@ -705,7 +694,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
         mode: "direct_backend",
         status: response.status,
       },
-      { finalize: finalizeTrace || !response.ok }
+      { finalize: true }
     );
     return response;
   } catch (error) {
@@ -1013,6 +1002,8 @@ export interface KaiDashboardProfilePicksResponse {
  * API Service for platform-aware API calls
  */
 export class ApiService {
+  private static appReviewModeSessionInflight: Promise<{ token: string }> | null = null;
+
   private static readonly dashboardProfilePicksInflight = new Map<
     string,
     Promise<KaiDashboardProfilePicksResponse>
@@ -1212,6 +1203,59 @@ export class ApiService {
     });
   }
 
+  static async composeKaiVoiceReply(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    transcript: string;
+    response: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    context?: Record<string, unknown>;
+    structuredContext?: unknown;
+    turnId?: string;
+    responseId?: string;
+    mode?: string;
+    actionId?: string | null;
+    slots?: Record<string, unknown>;
+    guards?: string[];
+    replyStrategy?: string;
+    clarification?: Record<string, unknown> | null;
+    actionCompletion?: string | null;
+    actionResult?: Record<string, unknown> | null;
+    memoryShort?: unknown[];
+    memoryRetrieved?: unknown[];
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/kai/voice/compose", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        transcript: data.transcript,
+        response: data.response,
+        app_state: data.appState,
+        context: data.context || {},
+        context_structured: data.structuredContext || {},
+        turn_id: data.turnId,
+        response_id: data.responseId,
+        mode: data.mode,
+        action_id: data.actionId,
+        slots: data.slots || {},
+        guards: data.guards || [],
+        reply_strategy: data.replyStrategy,
+        clarification: data.clarification ?? null,
+        action_completion: data.actionCompletion ?? null,
+        action_result: data.actionResult ?? null,
+        memory_short: data.memoryShort || [],
+        memory_retrieved: data.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
   static async synthesizeKaiVoice(data: {
     userId: string;
     vaultOwnerToken: string;
@@ -1341,35 +1385,56 @@ export class ApiService {
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side.
    */
-  static async createAppReviewModeSession(subject: "reviewer" = "reviewer"): Promise<{ token: string }> {
-    const response = await apiFetch("/api/app-config/review-mode/session", {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ subject }),
-    });
-
-    const payload = (await response.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-
-    if (!response.ok) {
-      const msg =
-        (typeof payload.error === "string" && payload.error) ||
-        (typeof payload.detail === "string" && payload.detail) ||
-        "Reviewer login unavailable";
-      throw new Error(msg);
+  static async createAppReviewModeSession(
+    subject: "reviewer" = "reviewer",
+    options?: { smokePassphrase?: string | null }
+  ): Promise<{ token: string }> {
+    if (this.appReviewModeSessionInflight) {
+      return this.appReviewModeSessionInflight;
     }
 
-    const token = payload.token;
-    if (typeof token !== "string" || token.length === 0) {
-      throw new Error("Invalid reviewer session token");
-    }
+    this.appReviewModeSessionInflight = (async () => {
+      const response = await apiFetch("/api/app-config/review-mode/session", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          subject,
+          smoke_passphrase:
+            typeof options?.smokePassphrase === "string" && options.smokePassphrase.trim().length > 0
+              ? options.smokePassphrase
+              : undefined,
+        }),
+      });
 
-    return { token };
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+
+      if (!response.ok) {
+        const msg =
+          (typeof payload.error === "string" && payload.error) ||
+          (typeof payload.detail === "string" && payload.detail) ||
+          "Reviewer login unavailable";
+        throw new Error(msg);
+      }
+
+      const token = payload.token;
+      if (typeof token !== "string" || token.length === 0) {
+        throw new Error("Invalid reviewer session token");
+      }
+
+      return { token };
+    })();
+
+    try {
+      return await this.appReviewModeSessionInflight;
+    } finally {
+      this.appReviewModeSessionInflight = null;
+    }
   }
 
   // ==================== Auth ====================
@@ -1389,6 +1454,22 @@ export class ApiService {
     return apiFetch("/api/auth/session", {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  }
+
+  static async refreshAccountIdentityShadow(idToken?: string): Promise<Response> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
+        status: 401,
+      });
+    }
+
+    return apiFetch("/api/account/identity/refresh", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
     });
   }
 

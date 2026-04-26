@@ -1,18 +1,31 @@
-# Hushh Webapp Docs
+# Hussh Webapp Docs
 
 
 ## Visual Map
 
 ```mermaid
 flowchart TD
-  root["Hushh Webapp Docs"]
+  root["Hussh Webapp Docs"]
   n1["Kai Analysis Layout And Review Mode"]
   root --> n1
   n2["Plugin Api Reference"]
   root --> n2
+  n3["Profile Management Design Rules"]
+  root --> n3
 ```
 
 Frontend and native-client implementation references for the webapp package.
+
+This docs home is package-local. It should stay focused on frontend/native implementation material that does not belong in cross-cutting root `docs/`.
+
+It still follows the repo-wide founder-language contract:
+
+- `Separation of Duties` frames the shared React shell, Next.js proxies, and native plugin boundary
+- `Cryptographic Primitives` frame vault and secure-storage surfaces
+- exact method names, route names, and plugin params remain implementation-primary in package-local docs
+
+Canonical mapping: [`docs/reference/architecture/founder-language-matrix.md`](../../docs/reference/architecture/founder-language-matrix.md)
+Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`](../../docs/reference/operations/brand-and-compatibility-contract.md)
 
 ## Documents
 
@@ -20,6 +33,7 @@ Frontend and native-client implementation references for the webapp package.
 | -------- | ----- |
 | [plugin-api-reference.md](./plugin-api-reference.md) | Capacitor plugin contracts and parameter parity |
 | [kai-analysis-layout-and-review-mode.md](./kai-analysis-layout-and-review-mode.md) | Kai analysis UI layout and app-review runtime behavior |
+| [profile-management-design-rules.md](./profile-management-design-rules.md) | Guardrails for Profile IA, page navigation, and non-analytical summary usage |
 
 ## Source Tree Indexes
 
@@ -32,4 +46,6 @@ Frontend and native-client implementation references for the webapp package.
 ## Related References
 
 - Cross-cutting docs entry: [`docs/README.md`](../../docs/README.md)
+- Kai voice runtime architecture: [`docs/reference/kai/kai-voice-runtime-architecture.md`](../../docs/reference/kai/kai-voice-runtime-architecture.md)
+- Documentation homes map: [`docs/reference/operations/documentation-architecture-map.md`](../../docs/reference/operations/documentation-architecture-map.md)
 - Backend docs entry: [`consent-protocol/docs/README.md`](../../consent-protocol/docs/README.md)

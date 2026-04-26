@@ -1,8 +1,9 @@
 "use client";
 
-import { Bug, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Bug, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import type { VoiceUiState } from "@/lib/voice/voice-ui-state-machine";
 import { cn } from "@/lib/utils";
@@ -161,6 +162,56 @@ export function VoiceDebugDrawer({
     };
   }, [debugEvents, lastTurnId, recentEvents]);
 
+  const copyPayload = useMemo(
+    () =>
+      JSON.stringify(
+        {
+          state: currentState,
+          session_id: sessionId,
+          turn_id: lastTurnId ?? null,
+          route,
+          screen,
+          auth_status: authStatus,
+          vault_status: vaultStatus,
+          voice_availability: voiceAvailabilityReason,
+          summary: {
+            stt_model: turnSummary.sttModel,
+            planner_model: turnSummary.plannerModel,
+            tts_model: turnSummary.ttsModel,
+            tts_source: turnSummary.ttsSource,
+            fallback_used: turnSummary.fallbackUsed,
+            fallback_reason: turnSummary.fallbackReason,
+            realtime_ready: turnSummary.realtimeReady,
+            total_ms: turnSummary.totalMs,
+          },
+          recent_events: recentEvents,
+        },
+        null,
+        2
+      ),
+    [
+      authStatus,
+      currentState,
+      lastTurnId,
+      recentEvents,
+      route,
+      screen,
+      sessionId,
+      turnSummary,
+      vaultStatus,
+      voiceAvailabilityReason,
+    ]
+  );
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(copyPayload);
+      toast.success("Voice debug copied");
+    } catch {
+      toast.error("Could not copy voice debug");
+    }
+  }, [copyPayload]);
+
   if (!enabled) return null;
 
   return (
@@ -228,14 +279,24 @@ export function VoiceDebugDrawer({
               <span className="font-semibold text-foreground">Voice:</span> {voiceAvailabilityReason}
             </p>
           </div>
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={clearDebugEvents}
-            aria-label="Clear debug events"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => void handleCopy()}
+              aria-label="Copy voice debug"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={clearDebugEvents}
+              aria-label="Clear debug events"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
 
         <div className="max-h-[45vh] overflow-auto px-3 py-2">

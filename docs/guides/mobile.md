@@ -43,7 +43,13 @@ flowchart TB
 
 ## Overview
 
-The Hushh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
+The Hussh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
+
+Founder-language mapping:
+
+- `Separation of Duties` is implemented on mobile through the split between shared React runtime, native plugin boundary, and backend policy enforcement
+- `Cryptographic Primitives` are implemented through client-held vault control, secure native storage, and ciphertext-only backend persistence
+- `Capability Tokens` remain explicit in this guide as `VAULT_OWNER`, Firebase tokens, and consent tokens where the runtime contract requires them
 
 Program parity is enforced against the **entire visible route tree**, not only Kai core pages. The current source of truth is:
 
@@ -61,7 +67,7 @@ Every visible page route must be documented as either native-supported or explic
 
 Recommended commands:
 
-- Terminal A (repo root): `./bin/hushh backend`
+- Terminal A (repo root): `./bin/hushh terminal backend --mode local --reload`
 - Terminal B (repo root):
   - Android: `./bin/hushh native android --mode local --fresh`
   - iOS: `./bin/hushh native ios --mode local --fresh`
@@ -91,6 +97,8 @@ Required configuration:
 - `ANDROID_SHA256_CERT_FINGERPRINTS` (comma-separated SHA-256)
 - `NEXT_PUBLIC_ANDROID_APP_ID` (default `com.hushh.app`)
 - Backend allowlist: `PASSKEY_ALLOWED_RP_IDS` in `consent-protocol/.env`
+
+These are deploy/native configuration inputs, not part of the canonical frontend runtime profile files under `hushh-webapp/.env.local*`.
 
 Notes:
 
@@ -129,10 +137,11 @@ Accepted parity exceptions currently documented in the registry:
 
 ### Firebase artifact safety (no secret leak in git)
 
-- `hushh-webapp/android/app/google-services.json` is committed as a template placeholder.
-- Real artifacts should be injected at build time with:
-  - `npm run inject:mobile-firebase`
-- Root-level local files like `google-services.json` are ignored and must remain untracked.
+- `hushh-webapp/ios/App/App/GoogleService-Info-README.md` documents the untracked iOS Firebase plist workflow.
+- Android Firebase config is treated as generated build input, not a committed source artifact.
+- `./bin/hushh bootstrap` only hydrates the runtime profiles. It does not materialize native Firebase artifacts into the active frontend env files.
+- Native build/release flows should handle platform Firebase artifacts explicitly and keep them out of git.
+- Root-level local Firebase artifacts must remain untracked.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -763,26 +772,25 @@ Required rule:
 
 ---
 
-## Capacitor E2E Verification (Hard-Fail)
+## Native Verification Surface
 
 Run from `hushh-webapp`:
 
 ```bash
-npm run verify:capacitor:e2e
+npm run cap:build
+npm run cap:sync:ios
+npm run cap:sync:android
+npm run ios:test
 ```
 
-This runs:
-1. `verify:routes`
-2. `verify:parity`
-3. `verify:mobile-firebase`
-4. `cap:build:mobile`
-5. `verify:capacitor:routes`
+Repo-level wrappers remain the canonical contributor path:
 
-Expected outcome:
-- All commands pass with exit code `0`.
-- Any missing fallback route page, plugin method parity drift, or mobile artifact issue fails the gate immediately.
+```bash
+./bin/hushh native ios --mode uat
+./bin/hushh native android --mode uat
+```
 
-Manual smoke on device/simulator is still required after this CI gate.
+Manual smoke on a simulator/device is still required after the build/sync checks.
 
 ---
 

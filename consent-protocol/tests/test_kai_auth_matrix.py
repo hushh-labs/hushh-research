@@ -9,6 +9,8 @@ These tests focus on auth-gate behavior for protected Kai endpoints:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import Response
@@ -34,6 +36,17 @@ def _portfolio_files(filename: str = "statement.csv"):
 
 
 class _StubChatDB:
+    @dataclass
+    class _Conversation:
+        user_id: str
+
+    async def get_conversation(self, conversation_id: str):
+        if conversation_id == "missing":
+            return None
+        if conversation_id.startswith("conv_user_b"):
+            return self._Conversation(user_id="user_b")
+        return self._Conversation(user_id="user_a")
+
     async def list_conversations(self, user_id: str, limit: int = 20, offset: int = 0):
         return []
 
@@ -111,8 +124,13 @@ def stub_kai_stream(monkeypatch):
     async def _fake_generator(*args, **kwargs):
         yield {"event": "ping", "data": "{}", "id": "1"}
 
+    def _fake_event_source_response(*args, **kwargs):
+        headers = kwargs.get("headers") or {}
+        return Response(content="stubbed", media_type="text/event-stream", headers=headers)
+
     monkeypatch.setattr(stream_routes.ConsentDBService, "log_operation", _noop_log_operation)
     monkeypatch.setattr(stream_routes, "analyze_stream_generator", _fake_generator)
+    monkeypatch.setattr(stream_routes, "EventSourceResponse", _fake_event_source_response)
 
 
 @pytest.fixture
@@ -307,6 +325,17 @@ class TestKaiAnalyzeStreamRoutes:
         )
         assert response.status_code == 403
 
+    def test_analyze_stream_get_invalid_ticker_returns_422(
+        self, client, vault_owner_token_for_user
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get(
+            "/api/kai/analyze/stream",
+            params={"ticker": "invalid_symbol!", "user_id": "user_a"},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
     def test_analyze_stream_get_valid_token_passes_auth_gate(
         self,
         client,
@@ -346,6 +375,17 @@ class TestKaiAnalyzeStreamRoutes:
             headers=_auth(token),
         )
         assert response.status_code == 403
+
+    def test_analyze_stream_post_invalid_ticker_returns_422(
+        self, client, vault_owner_token_for_user
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.post(
+            "/api/kai/analyze/stream",
+            json={"ticker": "1INVALIDLONG", "user_id": "user_a"},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
 
     def test_analyze_stream_post_valid_token_passes_auth_gate(
         self,
@@ -410,6 +450,20 @@ class TestKaiChatKeyEndpoints:
         response = client.get("/api/kai/chat/history/conv_123", headers=_auth(token))
         assert response.status_code not in {401, 403}
 
+    def test_chat_history_user_mismatch_returns_403(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get("/api/kai/chat/history/conv_user_b_123", headers=_auth(token))
+        assert response.status_code == 403
+
+    def test_chat_history_missing_conversation_returns_404(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get("/api/kai/chat/history/missing", headers=_auth(token))
+        assert response.status_code == 404
+
     def test_chat_conversations_missing_token_returns_401(self, client):
         response = client.get("/api/kai/chat/conversations/user_a")
         assert response.status_code == 401
@@ -449,6 +503,61 @@ class TestKaiChatKeyEndpoints:
         token = vault_owner_token_for_user("user_a")
         response = client.get("/api/kai/chat/initial-state/user_a", headers=_auth(token))
         assert response.status_code not in {401, 403}
+
+
+def test_support_message_is_queued(monkeypatch):
+    from api.middleware import require_firebase_auth
+    from api.routes.kai import support as support_routes
+
+    queued_calls: list[dict[str, object]] = []
+
+    class _FakeConfig:
+        configured = True
+        delivery_mode = "live"
+        effective_recipient = "support@hushh.ai"
+        support_to_email = "support@hushh.ai"
+        from_email = "kai@hushh.ai"
+
+    class _FakeSupportService:
+        config = _FakeConfig()
+
+        def send_message(self, **kwargs):  # noqa: ANN003
+            raise AssertionError("send_message should not run inline")
+
+    class _FakeQueue:
+        async def enqueue(self, **kwargs):  # noqa: ANN003
+            queued_calls.append(kwargs)
+            return {
+                "accepted": True,
+                "delivery_status": "queued",
+                "job_id": "job_1",
+                "kind": kwargs["kind"],
+                "queued_at": "2026-04-13T00:00:00Z",
+            }
+
+    monkeypatch.setattr(support_routes, "get_support_email_service", lambda: _FakeSupportService())
+    monkeypatch.setattr(support_routes, "get_email_delivery_queue_service", lambda: _FakeQueue())
+
+    app = FastAPI()
+    app.include_router(kai_router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "user_a"
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/kai/support/message",
+        json={
+            "user_id": "user_a",
+            "kind": "support_request",
+            "subject": "Queue check",
+            "message": "Please queue this support request instead of sending inline.",
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["delivery_status"] == "queued"
+    assert payload["recipient"] == "support@hushh.ai"
+    assert queued_calls[0]["kind"] == "support_message"
 
 
 def test_fixture_token_is_deterministically_valid(vault_owner_token_for_user):

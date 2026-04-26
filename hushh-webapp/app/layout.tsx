@@ -3,7 +3,10 @@ import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { RootLayoutClient } from "./layout-client";
-import { resolveGtmContainerId } from "@/lib/observability/env";
+import {
+  resolveAnalyticsMeasurementId,
+  resolveGtmContainerId,
+} from "@/lib/observability/env";
 
 const geistSans = Geist({
   subsets: ["latin"],
@@ -24,13 +27,14 @@ const headingSans = Inter({
 });
 
 const gtmContainerId = resolveGtmContainerId();
+const analyticsMeasurementId = resolveAnalyticsMeasurementId();
 
 export const metadata: Metadata = {
   title: "Kai: Your Personal Agent",
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
   keywords: ["AI agents", "personal AI", "Kai", "consent-first", "privacy"],
-  authors: [{ name: "Hushh Labs" }],
+  authors: [{ name: "Hussh Labs" }],
   openGraph: {
     title: "Kai: Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
@@ -46,7 +50,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+    { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },
   ],
 };
 
@@ -64,6 +68,29 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
+        <style>{`
+          html.dark body,
+          html.dark .morphy-app-bg {
+            background-color: rgb(28 28 30) !important;
+            background-image: none !important;
+          }
+        `}</style>
+        {analyticsMeasurementId ? (
+          <>
+            <Script
+              id="ga-base"
+              strategy="afterInteractive"
+              dangerouslySetInnerHTML={{
+                __html: `window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function(){window.dataLayer.push(arguments);}; window.gtag('js', new Date()); window.gtag('config', '${analyticsMeasurementId}', { send_page_view: false });`,
+              }}
+            />
+            <Script
+              id="ga-loader"
+              strategy="afterInteractive"
+              src={`https://www.googletagmanager.com/gtag/js?id=${analyticsMeasurementId}`}
+            />
+          </>
+        ) : null}
         {gtmContainerId ? (
           <Script
             id="gtm-base"

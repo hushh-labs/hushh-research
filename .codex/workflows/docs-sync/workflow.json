@@ -1,0 +1,51 @@
+{
+  "id": "docs-sync",
+  "title": "Docs Sync",
+  "goal": "Update canonical docs homes and keep runtime, references, and contributor guidance aligned after changes.",
+  "owner_skill": "docs-governance",
+  "default_spoke": null,
+  "task_type": "docs-sync",
+  "affected_surfaces": [
+    "docs",
+    "consent-protocol/docs",
+    "hushh-webapp/docs"
+  ],
+  "required_reads": [
+    "docs/reference/operations/documentation-architecture-map.md",
+    "docs/reference/operations/docs-governance.md",
+    "docs/reference/quality/pr-impact-checklist.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task docs-sync",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "docs-sync",
+    "commands": [
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "canonical docs-home decision",
+    "exact docs file list",
+    "runtime/docs parity note"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "docs-governance",
+    "frontend",
+    "backend",
+    "repo-operations"
+  ],
+  "common_failures": [
+    "documenting helper details in the wrong docs home",
+    "leaving stale doc paths after refactor",
+    "writing new docs instead of updating canonical docs"
+  ]
+}

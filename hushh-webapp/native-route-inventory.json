@@ -125,6 +125,16 @@
       "allowedDataStates": ["redirect-valid", "unavailable-valid"]
     },
     {
+      "route": "/kai/alpaca/oauth/return",
+      "classification": "native-required-callback",
+      "initialRoute": "/login?redirect=%2Fkai%2Falpaca%2Foauth%2Freturn",
+      "expectedMarker": "native-route-kai-alpaca-return",
+      "expectedRoute": "/kai/alpaca/oauth/return",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["redirect-valid", "unavailable-valid"]
+    },
+    {
       "route": "/kai/portfolio",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",

@@ -26,11 +26,10 @@ import React, {
 import { useRouter } from "next/navigation";
 import {
   User,
-  signInWithPhoneNumber,
   ConfirmationResult,
   onAuthStateChanged,
 } from "firebase/auth";
-import { auth, getRecaptchaVerifier, resetRecaptcha } from "./config";
+import { auth, prepareRecaptchaVerifier, resetRecaptcha } from "./config";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -63,11 +62,20 @@ interface AuthContextType {
   isAuthenticated: boolean;
   userId: string | null;
   // Methods
-  sendOTP: (phoneNumber: string) => Promise<ConfirmationResult>;
-  verifyOTP: (otp: string) => Promise<User>;
+  startPhoneVerification: (
+    phoneNumber: string,
+    options?: { resendCode?: boolean }
+  ) => Promise<{ autoVerified: boolean; user?: User | null }>;
+  confirmPhoneVerification: (otp: string) => Promise<User>;
+  startPhoneReplacement: (
+    phoneNumber: string,
+    options?: { resendCode?: boolean }
+  ) => Promise<{ autoVerified: boolean; user?: User | null }>;
+  confirmPhoneReplacement: (otp: string) => Promise<User>;
   signOut: (options?: { redirectTo?: string }) => Promise<void>;
   checkAuth: () => Promise<void>; // Manually trigger auth check (e.g. after native login)
   setNativeUser: (user: User | null) => void; // Helper to manually set user state
+  refreshUser: () => Promise<User | null>;
 }
 
 // ============================================================================
@@ -89,23 +97,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
   const [confirmationResult, setConfirmationResult] =
     useState<ConfirmationResult | null>(null);
+  const [nativeVerificationId, setNativeVerificationId] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
 
-  // Hushh State
+  // Hussh state
   const [userId, setUserId] = useState<string | null>(null);
 
   const router = useRouter();
+  const userRef = useRef<User | null>(null);
+  const authRecoveryInFlightRef = useRef(false);
 
-  // Helper: Timeout wrapper
-  const withTimeout = <T,>(
-    promise: Promise<T>,
-    ms: number
-  ): Promise<T | null> => {
-    return Promise.race([
-      promise,
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-    ]);
-  };
+  const applyAuthUser = useCallback((nextUser: User | null) => {
+    userRef.current = nextUser;
+    setUser(nextUser);
+    setUserId(nextUser?.uid ?? null);
+    setPhoneNumber(nextUser?.phoneNumber ?? null);
+  }, []);
+
+  const refreshUser = useCallback(async (): Promise<User | null> => {
+    if (Capacitor.isNativePlatform()) {
+      const nativeUser = await AuthService.restoreNativeSession();
+      applyAuthUser(nativeUser);
+      setLoading(false);
+      return nativeUser;
+    }
+
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      await currentUser.reload().catch(() => undefined);
+    }
+    const refreshedUser = auth.currentUser;
+    applyAuthUser(refreshedUser);
+    setLoading(false);
+    return refreshedUser;
+  }, [applyAuthUser]);
 
   /**
    * Core Auth Check Logic
@@ -118,24 +143,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // 1. Native Session Restoration
     if (Capacitor.isNativePlatform()) {
       try {
-        // Use timeout to avoid hanging
-        const nativeUser = await withTimeout(
-          AuthService.restoreNativeSession(),
-          5000
-        );
+        const nativeUser = await AuthService.restoreNativeSession();
 
         if (nativeUser) {
           console.log(
             "🍎 [AuthProvider] Native session restored:",
             nativeUser.uid
           );
-          setUser(nativeUser);
-          setUserId(nativeUser.uid);
+          applyAuthUser(nativeUser);
         } else {
           console.log("🍎 [AuthProvider] No native session found");
+          applyAuthUser(null);
         }
       } catch (e) {
-        console.warn("🍎 [AuthProvider] Native restore error/timeout:", e);
+        console.warn("🍎 [AuthProvider] Native restore error:", e);
+        applyAuthUser(null);
         // User will need to log in again
       } finally {
         // ✅ CRITICAL: Always set loading to false after native check
@@ -159,10 +181,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return current;
       });
     }, 10000); // 10s safety timeout for web
-  }, []);
-
-  // Ref to track current user for null-safety check without causing re-renders
-  const userRef = useRef<User | null>(null);
+  }, [applyAuthUser]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -191,6 +210,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
               // Reactive state will handle UI updates (e.g. VaultLockGuard will see locked vault)
               // No need to force reload, which causes loops on some Android devices
+              return;
+            }
+
+            if (!userRef.current) {
+              console.log("🍎 [AuthProvider] App active with no in-memory user - rechecking native auth");
+              void checkAuth();
             }
           });
         } catch (error) {
@@ -218,11 +243,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
       }
 
-      setUser(firebaseUser);
-      setUserId(firebaseUser?.uid ?? null);
-      if (firebaseUser?.phoneNumber) {
-        setPhoneNumber(firebaseUser.phoneNumber);
-      }
+      applyAuthUser(firebaseUser);
       // Only stop loading if we actually got a user or valid null (web)
       setLoading(false);
     });
@@ -231,7 +252,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       mounted = false;
       unsubscribe();
     };
-  }, [checkAuth]); // FIXED: Removed `user` from dependencies to prevent render loop
+  }, [applyAuthUser, checkAuth]); // Do not depend on `user`; that would re-run auth init on every user state update.
 
   // Sign out
   const signOut = useCallback(async (options?: { redirectTo?: string }): Promise<void> => {
@@ -259,10 +280,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await UserLocalStateService.clearForUser(currentUid);
       }
 
-      setUser(null);
-      setPhoneNumber(null);
+      userRef.current = null;
+      applyAuthUser(null);
       setConfirmationResult(null);
-      setUserId(null);
+      setNativeVerificationId(null);
 
       // Reset landing/onboarding entry markers so sign-out returns to Intro on "/".
       await OnboardingLocalService.clearMarketingSeen();
@@ -278,7 +299,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       router.push(redirectTo);
     }
-  }, [router, user]);
+  }, [applyAuthUser, router, user]);
 
   useEffect(() => {
     const handleAuthInvalidated = (event: Event) => {
@@ -287,30 +308,188 @@ export function AuthProvider({ children }: AuthProviderProps) {
         "🔒 [AuthProvider] Auth session invalidated:",
         customEvent.detail?.reason || "unknown reason"
       );
-      void signOut({ redirectTo: ROUTES.LOGIN });
+      if (authRecoveryInFlightRef.current) {
+        return;
+      }
+
+      const recoverOrSignOut = async () => {
+        authRecoveryInFlightRef.current = true;
+        try {
+          if (Capacitor.isNativePlatform()) {
+            const [nativeUser, refreshedToken] = await Promise.all([
+              AuthService.restoreNativeSession(),
+              AuthService.getIdToken(true),
+            ]);
+
+            if (nativeUser && refreshedToken) {
+              console.info("🍎 [AuthProvider] Recovered native session after auth invalidation");
+              applyAuthUser(nativeUser);
+              setLoading(false);
+              return;
+            }
+          }
+
+          await signOut({ redirectTo: ROUTES.LOGIN });
+        } finally {
+          authRecoveryInFlightRef.current = false;
+        }
+      };
+
+      void recoverOrSignOut();
     };
 
     window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, handleAuthInvalidated);
     return () =>
       window.removeEventListener(AUTH_SESSION_INVALIDATED_EVENT, handleAuthInvalidated);
-  }, [signOut]);
+  }, [applyAuthUser, signOut]);
 
-  // OTP Stubs (unchanged)
-  const sendOTP = async (phone: string): Promise<ConfirmationResult> => {
-    // ... same as before
-    const recaptchaVerifier = getRecaptchaVerifier("recaptcha-container");
-    const result = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
-    setConfirmationResult(result);
-    setPhoneNumber(phone);
-    return result;
-  };
+  const startPhoneVerification = useCallback(
+    async (
+      phone: string,
+      options?: { resendCode?: boolean }
+    ): Promise<{ autoVerified: boolean; user?: User | null }> => {
+      return await (async () => {
+        setConfirmationResult(null);
+        setNativeVerificationId(null);
+        const isNative = Capacitor.isNativePlatform();
 
-  const verifyOTP = async (otp: string): Promise<User> => {
-    if (!confirmationResult) throw new Error("No confirmation result.");
-    const credential = await confirmationResult.confirm(otp);
-    resetRecaptcha();
-    return credential.user;
-  };
+        let result: Awaited<ReturnType<typeof AuthService.startPhoneLinkVerification>>;
+        try {
+          result = await AuthService.startPhoneLinkVerification(phone, {
+            resendCode: options?.resendCode,
+            recaptchaVerifier: isNative
+              ? undefined
+              : await prepareRecaptchaVerifier("recaptcha-container"),
+          });
+        } catch (error) {
+          if (!isNative) {
+            resetRecaptcha();
+          }
+          throw error;
+        }
+
+        if (result.confirmationResult) {
+          setConfirmationResult(result.confirmationResult);
+        }
+
+        if (result.verificationId) {
+          setNativeVerificationId(result.verificationId);
+        }
+
+        if (result.autoVerified) {
+          if (!isNative) {
+            resetRecaptcha();
+          }
+          const refreshedUser = result.user ?? (await refreshUser());
+          applyAuthUser(refreshedUser);
+          return {
+            autoVerified: true,
+            user: refreshedUser,
+          };
+        }
+
+        return { autoVerified: false };
+      })();
+    },
+    [applyAuthUser, refreshUser]
+  );
+
+  const startPhoneReplacement = useCallback(
+    async (
+      phone: string,
+      options?: { resendCode?: boolean }
+    ): Promise<{ autoVerified: boolean; user?: User | null }> => {
+      setConfirmationResult(null);
+      setNativeVerificationId(null);
+      const isNative = Capacitor.isNativePlatform();
+
+      let result: Awaited<ReturnType<typeof AuthService.startPhoneReplacementVerification>>;
+      try {
+        result = await AuthService.startPhoneReplacementVerification(phone, {
+          resendCode: options?.resendCode,
+          recaptchaVerifier: isNative
+            ? undefined
+            : await prepareRecaptchaVerifier("recaptcha-container"),
+        });
+      } catch (error) {
+        if (!isNative) {
+          resetRecaptcha();
+        }
+        throw error;
+      }
+
+      if (result.confirmationResult) {
+        setConfirmationResult(result.confirmationResult);
+      }
+
+      if (result.verificationId) {
+        setNativeVerificationId(result.verificationId);
+      }
+
+      if (result.autoVerified) {
+        if (!isNative) {
+          resetRecaptcha();
+        }
+        const refreshedUser = result.user ?? (await refreshUser());
+        applyAuthUser(refreshedUser);
+        return {
+          autoVerified: true,
+          user: refreshedUser,
+        };
+      }
+
+      return { autoVerified: false };
+    },
+    [applyAuthUser, refreshUser]
+  );
+
+  const confirmPhoneVerification = useCallback(
+    async (otp: string): Promise<User> => {
+      return await (async () => {
+        const verifiedUser = await AuthService.confirmPhoneLinkVerification({
+          verificationCode: otp,
+          confirmationResult,
+          verificationId: nativeVerificationId,
+        });
+        if (!Capacitor.isNativePlatform()) {
+          resetRecaptcha();
+        }
+        setConfirmationResult(null);
+        setNativeVerificationId(null);
+
+        const refreshedUser = verifiedUser ?? (await refreshUser());
+        applyAuthUser(refreshedUser);
+        if (!refreshedUser) {
+          throw new Error("Phone verification completed but the session could not be refreshed.");
+        }
+        return refreshedUser;
+      })();
+    },
+    [applyAuthUser, confirmationResult, nativeVerificationId, refreshUser]
+  );
+
+  const confirmPhoneReplacement = useCallback(
+    async (otp: string): Promise<User> => {
+      const verifiedUser = await AuthService.confirmPhoneReplacementVerification({
+        verificationCode: otp,
+        confirmationResult,
+        verificationId: nativeVerificationId,
+      });
+      if (!Capacitor.isNativePlatform()) {
+        resetRecaptcha();
+      }
+      setConfirmationResult(null);
+      setNativeVerificationId(null);
+
+      const refreshedUser = verifiedUser ?? (await refreshUser());
+      applyAuthUser(refreshedUser);
+      if (!refreshedUser) {
+        throw new Error("Phone verification completed but the session could not be refreshed.");
+      }
+      return refreshedUser;
+    },
+    [applyAuthUser, confirmationResult, nativeVerificationId, refreshUser]
+  );
 
   const value: AuthContextType = {
     user,
@@ -321,17 +500,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: !!user,
     userId,
     // Methods
-    sendOTP,
-    verifyOTP,
+    startPhoneVerification,
+    confirmPhoneVerification,
+    startPhoneReplacement,
+    confirmPhoneReplacement,
     signOut,
     checkAuth,
+    refreshUser,
     setNativeUser: (user: User | null) => {
       console.log("🍎 [AuthContext] Manually setting Native User:", user?.uid);
-      setUser(user);
-      if (user) {
-        setUserId(user.uid);
-        setLoading(false);
-      }
+      applyAuthUser(user);
+      setLoading(false);
     },
   };
 

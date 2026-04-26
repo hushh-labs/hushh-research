@@ -21,6 +21,7 @@ npm ci
 
 npm run verify:design-system
 npm run verify:docs
+npm run verify:analytics
 npm run verify:cache
 npm run typecheck
 npm run lint

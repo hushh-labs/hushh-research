@@ -15,11 +15,16 @@
     "035_strict_zero_knowledge_consent_exports.sql",
     "036_relationship_share_grants.sql",
     "037_actor_identity_cache.sql",
+    "038_kai_alpaca_funding_orchestration.sql",
     "039_kai_gmail_watch_history_sync.sql",
     "040_kai_receipt_memory_artifacts.sql",
     "041_ria_pick_package_metadata.sql",
     "042_ria_pick_single_active_record.sql",
-    "043_ria_pick_share_artifacts.sql"
+    "043_ria_pick_share_artifacts.sql",
+    "044_kai_alpaca_connect_sessions.sql",
+    "045_kai_funding_trade_intents.sql",
+    "046_kai_gmail_receipt_total.sql",
+    "047_actor_identity_phone_shadow.sql"
   ],
   "groups": {
     "iam": [
@@ -31,6 +36,7 @@
       "028_professional_regulatory_capabilities.sql",
       "036_relationship_share_grants.sql",
       "037_actor_identity_cache.sql",
+      "047_actor_identity_phone_shadow.sql",
       "041_ria_pick_package_metadata.sql",
       "042_ria_pick_single_active_record.sql",
       "043_ria_pick_share_artifacts.sql"

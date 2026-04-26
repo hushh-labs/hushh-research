@@ -1,0 +1,91 @@
+{
+  "id": "repo-context",
+  "role": "owner",
+  "owner_family": "repo-context",
+  "primary_scope": "repo-context-intake",
+  "description": "Use when a request starts with scanning the Hussh repository, establishing repo context, mapping code/docs/skills, or deciding which owner skill should own the next step.",
+  "owned_paths": [
+    "README.md",
+    "data"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "mobile-native",
+    "backend",
+    "security-audit",
+    "docs-governance",
+    "repo-operations",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
+  ],
+  "task_types": [
+    "repo-orientation",
+    "bug-triage",
+    "skill-authoring"
+  ],
+  "required_reads": [
+    ".codex/skills/repo-context/references/index-contract.md",
+    ".codex/skills/repo-context/references/ownership-map.md",
+    "docs/project_context_map.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex scan summary",
+    "./bin/hushh codex list-workflows",
+    "./bin/hushh codex route-task repo-orientation",
+    "./bin/hushh codex impact repo-orientation",
+    "./bin/hushh codex audit",
+    "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
+  ],
+  "verification_bundles": [
+    {
+      "id": "repo-context-core",
+      "commands": [
+        "./bin/hushh codex scan summary",
+        "./bin/hushh codex list-workflows",
+        "./bin/hushh codex route-task repo-orientation",
+        "./bin/hushh codex impact repo-orientation",
+        "./bin/hushh codex audit",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
+      ],
+      "tests": [
+        "./bin/hushh codex audit",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "mobile-native",
+    "backend",
+    "security-audit",
+    "docs-governance",
+    "analytics-observability-governance",
+    "repo-operations",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
+    "codex-skill-authoring",
+    "planning-board",
+    "comms-community"
+  ],
+  "adjacent_skills": [
+    "frontend",
+    "mobile-native",
+    "backend",
+    "security-audit",
+    "docs-governance",
+    "analytics-observability-governance",
+    "repo-operations",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
+    "codex-skill-authoring"
+  ],
+  "risk_tags": [
+    "coverage-drift",
+    "routing-drift",
+    "orphaned-surfaces"
+  ]
+}

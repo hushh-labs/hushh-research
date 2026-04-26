@@ -1,4 +1,4 @@
-# Hushh Frontend Design System
+# Hussh Frontend Design System
 
 
 ## Visual Context
@@ -12,9 +12,9 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 | Layer | Location | Ownership | Rules |
 |---|---|---|---|
 | Stock primitives | `hushh-webapp/components/ui/*` | shadcn registry | Registry-backed only. Treat as vendor code. |
-| Morphy UX | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hushh | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
-| App reusable components | `hushh-webapp/components/app-ui/*` | Hushh | App-specific semantic composition belongs here, never in `components/ui`. |
-| Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Hushh | Compose Morphy and app-ui layers; do not create parallel primitives. |
+| Morphy UX | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hussh | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
+| App reusable components | `hushh-webapp/components/app-ui/*` | Hussh | App-specific semantic composition belongs here, never in `components/ui`. |
+| Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Hussh | Compose Morphy and app-ui layers; do not create parallel primitives. |
 
 ## Canonical Policies
 1. Default to stock shadcn imports for baseline controls.
@@ -24,6 +24,18 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition.
 6. Morphy button, card, and surface primitives must compose stock primitives.
 7. The liquid-glass lab is experimental and not part of the Kai production design contract.
+8. `AppPageShell` and `FullscreenFlowShell` own the route container contract; feature files must not replace that contract with route-local `max-w-* mx-auto px-*` wrappers.
+9. The canonical width model is semantic, not Tailwind-sized:
+   - `reading`
+   - `standard`
+   - `expanded`
+10. The canonical header accent model is semantic, not raw color-family naming:
+   - `neutral`
+   - `kai`
+   - `ria`
+   - `consent`
+   - `marketplace`
+   - `developers`
 
 ## Morphy Extension Allowlist
 1. CTA-level behavior on top of stock button semantics.
@@ -66,6 +78,14 @@ Forbidden:
 1. Keep color, typography, radius, and motion centralized through existing tokens and CSS variables.
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.
+4. Shared shell and surface layout tokens live in `hushh-webapp/app/globals.css`.
+5. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
+   - `--app-shell-reading`
+   - `--app-shell-standard`
+   - `--app-shell-expanded`
+6. Use shared gutter tokens instead of route-local page padding:
+   - `--page-inline-gutter-standard`
+   - `--page-surface-overscan`
 
 ## Guardrails
 Use these commands from `hushh-webapp`:
@@ -98,9 +118,10 @@ After regeneration:
 
 Project-local UI skills live in `.codex/skills/`:
 
-1. `design-system`
+1. `frontend`
+2. `frontend-design-system`
 3. `frontend-architecture`
-4. `frontend-surface-governance`
+4. `frontend-surface-placement`
 
 These skills must stay aligned with this document, `frontend-ui-architecture-map.md`, and the runtime verification commands.
 

@@ -4,13 +4,23 @@ import type { ComponentPropsWithoutRef, ElementType } from "react";
 
 import { cn } from "@/lib/utils";
 
-export type FullscreenFlowShellWidth = "narrow" | "content" | "wide" | "profile";
+export type FullscreenFlowShellWidth =
+  | "reading"
+  | "standard"
+  | "expanded"
+  | "narrow"
+  | "content"
+  | "wide"
+  | "profile";
 
 const WIDTH_CLASS_MAP: Record<FullscreenFlowShellWidth, string> = {
-  narrow: "max-w-xl",
-  content: "max-w-4xl",
-  wide: "max-w-5xl",
-  profile: "max-w-[860px]",
+  reading: "54rem",
+  standard: "90rem",
+  expanded: "96rem",
+  narrow: "54rem",
+  content: "90rem",
+  wide: "96rem",
+  profile: "54rem",
 };
 
 type FullscreenFlowShellProps<T extends ElementType> = {
@@ -20,8 +30,9 @@ type FullscreenFlowShellProps<T extends ElementType> = {
 
 export function FullscreenFlowShell<T extends ElementType = "main">({
   as,
-  width = "content",
+  width = "standard",
   className,
+  style,
   ...props
 }: FullscreenFlowShellProps<T>) {
   const Component = as ?? "main";
@@ -30,9 +41,10 @@ export function FullscreenFlowShell<T extends ElementType = "main">({
     <Component
       className={cn(
         "fullscreen-flow-shell mx-auto flex w-full flex-col",
-        WIDTH_CLASS_MAP[width],
         className
       )}
+      style={{ maxWidth: WIDTH_CLASS_MAP[width], ...style }}
+      data-fullscreen-flow-shell-width={width}
       data-fullscreen-flow-shell="true"
       data-top-content-anchor="true"
       {...props}

@@ -51,15 +51,10 @@ describe("ApiService voice planning contract", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    delete process.env.BACKEND_URL;
     delete process.env.NEXT_PUBLIC_BACKEND_URL;
     delete process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND;
     delete process.env.NEXT_PUBLIC_VOICE_FORCE_PROXY;
-    delete process.env.NEXT_PUBLIC_DISABLE_VOICE_FALLBACKS;
-    delete process.env.NEXT_PUBLIC_FAIL_FAST_VOICE;
-    delete process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE;
-    delete process.env.DISABLE_VOICE_FALLBACKS;
-    delete process.env.FAIL_FAST_VOICE;
-    delete process.env.FORCE_REALTIME_VOICE;
     process.env.NODE_ENV = originalEnv.NODE_ENV;
     trackApiRequestCompleted.mockReset();
   });
@@ -278,6 +273,7 @@ describe("ApiService voice planning contract", () => {
 
   it("prefers direct backend transport for local backend in production mode", async () => {
     process.env.NODE_ENV = "production";
+    process.env.BACKEND_URL = "http://localhost:8000";
     process.env.NEXT_PUBLIC_BACKEND_URL = "http://localhost:8000";
     const { ApiService } = await import("@/lib/services/api-service");
     const mode = ApiService.getVoiceTransportMode();
@@ -309,10 +305,10 @@ describe("ApiService voice planning contract", () => {
     expect(headers["X-Voice-Turn-Id"]).toBe("vturn_realtime_1");
   });
 
-  it("does not fallback to proxy when fail-fast voice is enabled", async () => {
+  it("does not fallback to proxy when direct backend mode is selected", async () => {
+    process.env.BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "true";
-    process.env.NEXT_PUBLIC_FAIL_FAST_VOICE = "true";
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("DIRECT_BACKEND_DOWN"));
 
@@ -328,10 +324,10 @@ describe("ApiService voice planning contract", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("does not fallback to proxy when force realtime voice is enabled", async () => {
+  it("does not fallback to proxy when the backend is hosted and direct transport is explicit", async () => {
+    process.env.BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "true";
-    process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE = "true";
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("DIRECT_BACKEND_DOWN"));
 
@@ -348,6 +344,7 @@ describe("ApiService voice planning contract", () => {
   });
 
   it("does not fallback to proxy after direct backend failure even without fail-fast flags", async () => {
+    process.env.BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "true";
     const { ApiService } = await import("@/lib/services/api-service");
@@ -365,6 +362,7 @@ describe("ApiService voice planning contract", () => {
   });
 
   it("records api completion metrics and request id headers for direct voice fetches", async () => {
+    process.env.BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://voice.example.com";
     process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "true";
     window.history.pushState({}, "", "/profile/receipts");
@@ -398,7 +396,7 @@ describe("ApiService voice planning contract", () => {
     );
   });
 
-  it("requires direct backend in development when backend URL is missing", async () => {
+  it("falls back to the Next.js proxy in development when backend URL is missing", async () => {
     process.env.NODE_ENV = "development";
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -408,19 +406,19 @@ describe("ApiService voice planning contract", () => {
       })
     );
 
-    await expect(
-      ApiService.planKaiVoiceIntent({
-        userId: "user_1",
-        vaultOwnerToken: "vault_token",
-        transcript: "Analyze NVDA",
-      })
-    ).rejects.toThrow("VOICE_DIRECT_BACKEND_REQUIRED:missing_backend_url");
+    await ApiService.planKaiVoiceIntent({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      transcript: "Analyze NVDA",
+    });
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("/api/kai/voice/plan");
   });
 
-  it("rejects proxy override for voice in development", async () => {
+  it("honors explicit proxy routing in development without forcing direct backend", async () => {
     process.env.NODE_ENV = "development";
+    process.env.BACKEND_URL = "http://localhost:8000";
     process.env.NEXT_PUBLIC_BACKEND_URL = "http://localhost:8000";
     process.env.NEXT_PUBLIC_VOICE_FORCE_PROXY = "true";
     const { ApiService } = await import("@/lib/services/api-service");
@@ -431,14 +429,13 @@ describe("ApiService voice planning contract", () => {
       })
     );
 
-    await expect(
-      ApiService.createKaiRealtimeSession({
-        userId: "user_1",
-        vaultOwnerToken: "vault_token",
-        voice: "alloy",
-      })
-    ).rejects.toThrow("VOICE_DIRECT_BACKEND_REQUIRED:explicit_proxy");
+    await ApiService.createKaiRealtimeSession({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      voice: "alloy",
+    });
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("/api/kai/voice/realtime/session");
   });
 });

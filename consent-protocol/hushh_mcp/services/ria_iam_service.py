@@ -19,15 +19,14 @@ from hushh_mcp.services.consent_request_links import (
     build_connection_request_url,
     build_consent_request_url,
 )
+from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
+    NameVerificationResult,
+    RIAIntelligenceStage1LookupAdapter,
     VerificationGateway,
     VerificationResult,
-)
-from hushh_mcp.services.support_email_service import (
-    SupportEmailNotConfiguredError,
-    SupportEmailSendError,
 )
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
@@ -55,7 +54,12 @@ _IAM_REQUIRED_TABLES: tuple[str, ...] = (
     "relationship_share_events",
 )
 _RUNTIME_PERSONA_STATE_TABLE = "runtime_persona_state"
-_TABLE_EXISTS_CACHE: dict[str, bool] = {}
+# TTL-aware cache: maps table_name -> expiry datetime (UTC).
+# Using a TTL (default 300 s) instead of a permanent boolean means a
+# newly-migrated schema is recognised within 5 minutes without a restart,
+# and avoids stale state across uvicorn worker respawns.
+_TABLE_EXISTS_CACHE_TTL = timedelta(seconds=300)
+_TABLE_EXISTS_CACHE: dict[str, datetime] = {}
 _IAM_SCHEMA_READY_CACHE = False
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
 _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
@@ -68,6 +72,21 @@ _RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
     "automatic_avoid_triggers",
     "the_math",
 )
+_RIA_KAI_SPECIALIZED_TEMPLATE_ID = "ria_kai_specialized_v1"
+_RIA_KAI_SPECIALIZED_BUNDLE_KEY = "ria_kai_specialized"
+_RIA_KAI_SPECIALIZED_LABEL = "Kai specialized access"
+_RIA_KAI_SPECIALIZED_DESCRIPTION = (
+    "Advisor-side Kai and explorer access for portfolio, profile, analysis history, "
+    "and runtime context."
+)
+_RIA_KAI_SPECIALIZED_PRESENTATIONS: tuple[str, ...] = ("kai", "explorer")
+_RIA_KAI_SPECIALIZED_SCOPES: tuple[str, ...] = (
+    "attr.financial.portfolio.*",
+    "attr.financial.profile.*",
+    "attr.financial.analysis_history.*",
+    "attr.financial.runtime.*",
+)
+_RIA_KAI_SPECIALIZED_SCOPE_SET = set(_RIA_KAI_SPECIALIZED_SCOPES)
 
 
 class RIAIAMPolicyError(Exception):
@@ -81,7 +100,7 @@ class IAMSchemaNotReadyError(Exception):
         self,
         message: str = (
             "IAM schema is not ready. Run `python db/migrate.py --iam` and "
-            "`python scripts/verify_iam_schema.py`."
+            "`python db/verify/verify_iam_schema.py`."
         ),
     ):
         super().__init__(message)
@@ -120,6 +139,7 @@ class _PooledAsyncpgConnection:
 class RIAIAMService:
     def __init__(self) -> None:
         self._verification_gateway = VerificationGateway(FinraVerificationAdapter())
+        self._name_verification_gateway = RIAIntelligenceStage1LookupAdapter()
 
     @staticmethod
     def _runtime_environment() -> str:
@@ -184,8 +204,58 @@ class RIAIAMService:
         return self._runtime_environment() not in {"prod", "production"}
 
     def _is_dev_bypass_allowed(self, user_id: str) -> bool:
-        _ = user_id
-        return self._is_ria_dev_bypass_enabled()
+        if not self._is_ria_dev_bypass_enabled():
+            return False
+        allowlist_raw = str(os.getenv("RIA_DEV_ALLOWLIST", "")).strip()
+        if not allowlist_raw:
+            return True
+        allowed_ids = {uid.strip() for uid in allowlist_raw.split(",") if uid.strip()}
+        return user_id in allowed_ids
+
+    _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset(
+        {"active", "verified", "bypassed", "finra_verified"}
+    )
+
+    async def require_ria_verified(self, user_id: str) -> None:
+        """Fail-closed check: raises 403 if the RIA is not verified.
+
+        Checked before any endpoint that exposes investor data.
+        """
+        if self._is_dev_bypass_allowed(user_id):
+            return
+        try:
+            conn = await self._conn()
+        except Exception as exc:
+            raise IAMSchemaNotReadyError() from exc
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            status_val = await conn.fetchval(
+                """
+                SELECT COALESCE(advisory_status, verification_status, 'draft')
+                FROM ria_profiles
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedColumnError:
+            status_val = await conn.fetchval(
+                "SELECT verification_status FROM ria_profiles WHERE user_id = $1",
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        except IAMSchemaNotReadyError:
+            raise
+        except Exception as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        if str(status_val or "").strip().lower() not in self._RIA_VERIFIED_STATUSES:
+            raise RIAIAMPolicyError(
+                "RIA verification incomplete. Non-verified advisors cannot access investor data.",
+                status_code=403,
+            )
 
     @staticmethod
     def _normalize_persona(value: str) -> PersonaType:
@@ -237,12 +307,69 @@ class RIAIAMService:
 
     @staticmethod
     async def _table_exists(conn: asyncpg.Connection, table_name: str) -> bool:
-        if _TABLE_EXISTS_CACHE.get(table_name):
+        """Check whether a single table exists in the public schema.
+
+        Uses a TTL-aware in-process cache so repeated calls within the TTL
+        window are free.  A TTL (rather than a permanent boolean) ensures
+        that a table added by a migration is recognised without a full
+        process restart.
+        """
+        now = datetime.now(tz=timezone.utc)
+        expiry = _TABLE_EXISTS_CACHE.get(table_name)
+        if expiry is not None and now < expiry:
             return True
         exists = bool(await conn.fetchval("SELECT to_regclass($1)", f"public.{table_name}"))
         if exists:
-            _TABLE_EXISTS_CACHE[table_name] = True
+            _TABLE_EXISTS_CACHE[table_name] = now + _TABLE_EXISTS_CACHE_TTL
         return exists
+
+    @staticmethod
+    async def _batch_tables_exist(
+        conn: asyncpg.Connection, table_names: tuple[str, ...]
+    ) -> set[str]:
+        """Return the subset of *table_names* that exist in the public schema.
+
+        Issues a **single** query instead of N individual round-trips.
+        Results are stored in the TTL cache so subsequent single-table
+        lookups within the TTL window are also free.
+
+        Performance: replaces the previous 11-query loop that caused ~1 300 ms
+        latency on the first ``/api/iam/marketplace/opt-in`` request
+        (each ``to_regclass`` round-trip costs ~50-80 ms over Cloud SQL proxy).
+        """
+        now = datetime.now(tz=timezone.utc)
+
+        # Fast path: all tables already cached and unexpired.
+        missing = [
+            t
+            for t in table_names
+            if not ((exp := _TABLE_EXISTS_CACHE.get(t)) is not None and now < exp)
+        ]
+        if not missing:
+            return set(table_names)
+
+        # Single query: ask pg_catalog for all requested table names at once.
+        rows: list[asyncpg.Record] = await conn.fetch(
+            """
+            SELECT tablename
+            FROM   pg_catalog.pg_tables
+            WHERE  schemaname = 'public'
+              AND  tablename  = ANY($1::text[])
+            """,
+            list(missing),
+        )
+        found_in_db: set[str] = {r["tablename"] for r in rows}
+
+        # Populate TTL cache for every table we queried (hit or miss).
+        # Misses are intentionally *not* cached so a pending migration is
+        # picked up on the next call without waiting for the TTL to expire.
+        expiry = now + _TABLE_EXISTS_CACHE_TTL
+        for t in found_in_db:
+            _TABLE_EXISTS_CACHE[t] = expiry
+
+        # Return all tables that are confirmed present (cached + just found).
+        cached_present = {t for t in table_names if t not in missing}
+        return cached_present | found_in_db
 
     async def _investor_identity_projection(
         self,
@@ -278,11 +405,14 @@ class RIAIAMService:
         global _IAM_SCHEMA_READY_CACHE
         if _IAM_SCHEMA_READY_CACHE:
             return True
-        for table_name in _IAM_REQUIRED_TABLES:
-            if not await self._table_exists(conn, table_name):
-                return False
-        _IAM_SCHEMA_READY_CACHE = True
-        return True
+        # Single round-trip instead of N serial to_regclass() calls.
+        present = await self._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
+        if present >= set(_IAM_REQUIRED_TABLES):
+            _IAM_SCHEMA_READY_CACHE = True
+            return True
+        missing = set(_IAM_REQUIRED_TABLES) - present
+        logger.debug("IAM schema not ready. Missing tables: %s", missing)
+        return False
 
     async def _ensure_iam_schema_ready(self, conn: asyncpg.Connection) -> None:
         if not await self._is_iam_schema_ready(conn):
@@ -378,7 +508,13 @@ class RIAIAMService:
     @staticmethod
     def _verification_provider_label(result: VerificationResult) -> str:
         provider = str((result.metadata or {}).get("provider") or "").strip().lower()
-        if provider in {"ria_intelligence", "iapd", "dev_allowlist", "advisory_bypass"}:
+        if provider in {
+            "ria_intelligence",
+            "ria_intelligence_stage1",
+            "iapd",
+            "dev_allowlist",
+            "advisory_bypass",
+        }:
             return provider
         return "regulatory_verification"
 
@@ -397,6 +533,7 @@ class RIAIAMService:
         strategy: str | None,
         disclosures_url: str | None,
         require_regulatory_identity: bool,
+        require_advisory_firm_identifiers: bool = True,
     ) -> dict[str, Any]:
         normalized_display_name = (display_name or "").strip()
         if not normalized_display_name:
@@ -448,7 +585,7 @@ class RIAIAMService:
                     status_code=400,
                 )
 
-        if "advisory" in normalized_capabilities:
+        if "advisory" in normalized_capabilities and require_advisory_firm_identifiers:
             if not normalized_advisory_firm_legal_name:
                 raise RIAIAMPolicyError(
                     "advisory_firm_legal_name is required when advisory capability is requested",
@@ -486,6 +623,41 @@ class RIAIAMService:
             "disclosures_url": RIAIAMService._normalize_optional_text(disclosures_url),
             "require_regulatory_identity": bool(require_regulatory_identity),
         }
+
+    @staticmethod
+    def _serialize_name_verification_result(result: NameVerificationResult) -> dict[str, Any]:
+        return {
+            "status": result.status,
+            "matched_name": result.matched_name,
+            "crd_number": result.crd_number,
+            "current_firm": result.current_firm,
+            "sec_number": result.sec_number,
+            "reason": result.reason,
+            "reason_code": result.reason_code,
+            "suggested_names": list(result.suggested_names or []),
+            "provider": result.provider,
+        }
+
+    async def _verify_ria_name_result(
+        self,
+        query: str,
+        *,
+        use_cache: bool = True,
+    ) -> NameVerificationResult:
+        normalized_query = str(query or "").strip()
+        if not normalized_query:
+            raise RIAIAMPolicyError("query is required", status_code=400)
+        return await self._name_verification_gateway.verify_name(
+            query=normalized_query,
+            use_cache=use_cache,
+        )
+
+    async def verify_ria_name(
+        self,
+        query: str,
+    ) -> dict[str, Any]:
+        result = await self._verify_ria_name_result(query, use_cache=True)
+        return self._serialize_name_verification_result(result)
 
     @staticmethod
     def _advisory_status_from_row(row: Any) -> str:
@@ -840,6 +1012,8 @@ class RIAIAMService:
         conn: asyncpg.Connection,
         template_id: str,
     ) -> ScopeTemplate:
+        if template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
+            return self._kai_specialized_template()
         row = await conn.fetchrow(
             """
             SELECT
@@ -1313,16 +1487,19 @@ class RIAIAMService:
     @staticmethod
     def _scope_metadata(scope: str) -> dict[str, Any]:
         normalized_scope = str(scope or "").strip()
+        is_kai_specialized = normalized_scope in _RIA_KAI_SPECIALIZED_SCOPE_SET
         return {
             "scope": normalized_scope,
             "label": get_scope_description(normalized_scope),
             "description": get_scope_description(normalized_scope),
             "kind": "pkm"
             if normalized_scope == "pkm.read"
+            else "kai_specialized"
+            if is_kai_specialized
             else "portfolio_domain"
             if normalized_scope.startswith("attr.financial.")
             else "profile_domain",
-            "summary_only": normalized_scope != "pkm.read",
+            "summary_only": normalized_scope not in {"pkm.read", *_RIA_KAI_SPECIALIZED_SCOPES},
         }
 
     @classmethod
@@ -1359,8 +1536,262 @@ class RIAIAMService:
                     "domain_key": domain_key,
                 }
             )
+            if domain_key == "financial":
+                for specialized_scope in _RIA_KAI_SPECIALIZED_SCOPES:
+                    items.append(
+                        {
+                            **cls._scope_metadata(specialized_scope),
+                            "available": True,
+                            "domain_key": domain_key,
+                            "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                            "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                            "requires_account_selection": True,
+                        }
+                    )
 
         return items
+
+    @staticmethod
+    def _normalize_account_ids(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            cleaned = str(value or "").strip()
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            out.append(cleaned)
+        return out
+
+    @classmethod
+    def _kai_specialized_template(cls) -> ScopeTemplate:
+        return ScopeTemplate(
+            template_id=_RIA_KAI_SPECIALIZED_TEMPLATE_ID,
+            requester_actor_type="ria",
+            subject_actor_type="investor",
+            template_name=_RIA_KAI_SPECIALIZED_LABEL,
+            allowed_scopes=list(_RIA_KAI_SPECIALIZED_SCOPES),
+            default_duration_hours=24 * 7,
+            max_duration_hours=24 * 365,
+        )
+
+    @staticmethod
+    def _parse_list_of_dicts(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return []
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)]
+        return []
+
+    async def _list_linked_account_branches(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        investor_user_id: str,
+    ) -> list[dict[str, Any]]:
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT item_id, institution_name, latest_accounts_json
+                FROM kai_plaid_items
+                WHERE user_id = $1
+                  AND COALESCE(status, '') <> 'permission_revoked'
+                ORDER BY updated_at DESC
+                """,
+                investor_user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError:
+            return []
+
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            item_id = str(row["item_id"] or "").strip() or None
+            institution_name = str(row["institution_name"] or "").strip() or None
+            accounts = self._parse_list_of_dicts(row["latest_accounts_json"])
+            for account in accounts:
+                account_id = str(account.get("account_id") or "").strip()
+                persistent_account_id = (
+                    str(account.get("persistent_account_id") or "").strip() or None
+                )
+                branch_id = persistent_account_id or account_id
+                if not branch_id or branch_id in seen:
+                    continue
+                seen.add(branch_id)
+                out.append(
+                    {
+                        "branch_id": branch_id,
+                        "account_id": account_id or branch_id,
+                        "persistent_account_id": persistent_account_id,
+                        "item_id": item_id,
+                        "institution_name": institution_name
+                        or str(account.get("institution_name") or "").strip()
+                        or None,
+                        "name": str(
+                            account.get("name") or account.get("official_name") or branch_id
+                        ).strip(),
+                        "official_name": str(account.get("official_name") or "").strip() or None,
+                        "mask": str(account.get("mask") or "").strip() or None,
+                        "type": str(account.get("type") or "").strip() or None,
+                        "subtype": str(account.get("subtype") or "").strip() or None,
+                    }
+                )
+
+        out.sort(
+            key=lambda item: (
+                str(item.get("institution_name") or "").lower(),
+                str(item.get("name") or "").lower(),
+                str(item.get("mask") or "").lower(),
+            )
+        )
+        return out
+
+    @staticmethod
+    def _bundle_scope_state(
+        scope: str,
+        *,
+        granted_scope_keys: set[str],
+        pending_scope_keys: set[str],
+    ) -> str:
+        if (
+            scope in granted_scope_keys
+            or "pkm.read" in granted_scope_keys
+            or "attr.financial.*" in granted_scope_keys
+        ):
+            return "active"
+        if (
+            scope in pending_scope_keys
+            or "pkm.read" in pending_scope_keys
+            or "attr.financial.*" in pending_scope_keys
+        ):
+            return "pending"
+        return "available"
+
+    @classmethod
+    def _build_kai_specialized_bundle_state(
+        cls,
+        *,
+        account_branches: list[dict[str, Any]],
+        granted_payloads: list[dict[str, Any]],
+        pending_payloads: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        granted_scope_keys = {
+            str(payload.get("scope") or "").strip() for payload in granted_payloads
+        }
+        pending_scope_keys = {
+            str(payload.get("scope") or "").strip() for payload in pending_payloads
+        }
+
+        approved_account_ids: list[str] = []
+        pending_account_ids: list[str] = []
+        legacy_full_access = False
+
+        for payload in granted_payloads:
+            scope = str(payload.get("scope") or "").strip()
+            metadata = cls._parse_metadata(payload.get("metadata"))
+            if scope not in _RIA_KAI_SPECIALIZED_SCOPE_SET and scope not in {
+                "attr.financial.*",
+                "pkm.read",
+            }:
+                continue
+            selected = cls._normalize_account_ids(metadata.get("selected_account_ids"))
+            if selected:
+                approved_account_ids.extend(selected)
+            elif scope in {"attr.financial.*", "pkm.read"}:
+                legacy_full_access = True
+
+        for payload in pending_payloads:
+            scope = str(payload.get("scope") or "").strip()
+            metadata = cls._parse_metadata(payload.get("metadata"))
+            template_id = str(metadata.get("scope_template_id") or "").strip()
+            if (
+                template_id != _RIA_KAI_SPECIALIZED_TEMPLATE_ID
+                and scope not in _RIA_KAI_SPECIALIZED_SCOPE_SET
+            ):
+                continue
+            pending_account_ids.extend(
+                cls._normalize_account_ids(metadata.get("selected_account_ids"))
+            )
+
+        approved_account_ids = list(dict.fromkeys(approved_account_ids))
+        pending_account_ids = list(dict.fromkeys(pending_account_ids))
+        if legacy_full_access:
+            approved_account_ids = [
+                str(item.get("branch_id") or item.get("account_id") or "").strip()
+                for item in account_branches
+                if str(item.get("branch_id") or item.get("account_id") or "").strip()
+            ]
+
+        scoped_account_branches: list[dict[str, Any]] = []
+        approved_set = set(approved_account_ids)
+        pending_set = set(pending_account_ids)
+        for branch in account_branches:
+            branch_id = str(branch.get("branch_id") or branch.get("account_id") or "").strip()
+            status = (
+                "approved"
+                if branch_id in approved_set
+                else "pending"
+                if branch_id in pending_set
+                else "approval_required"
+            )
+            scoped_account_branches.append(
+                {
+                    **branch,
+                    "status": status,
+                    "granted_by_bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY
+                    if status == "approved"
+                    else None,
+                }
+            )
+
+        scope_states = [
+            {
+                **cls._scope_metadata(scope),
+                "status": cls._bundle_scope_state(
+                    scope,
+                    granted_scope_keys=granted_scope_keys,
+                    pending_scope_keys=pending_scope_keys,
+                ),
+            }
+            for scope in _RIA_KAI_SPECIALIZED_SCOPES
+        ]
+
+        if any(item["status"] == "active" for item in scope_states):
+            bundle_status = (
+                "partial"
+                if scoped_account_branches
+                and any(item["status"] != "approved" for item in scoped_account_branches)
+                else "active"
+            )
+        elif any(item["status"] == "pending" for item in scope_states):
+            bundle_status = "pending"
+        else:
+            bundle_status = "available"
+
+        return (
+            {
+                "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                "template_id": _RIA_KAI_SPECIALIZED_TEMPLATE_ID,
+                "label": _RIA_KAI_SPECIALIZED_LABEL,
+                "description": _RIA_KAI_SPECIALIZED_DESCRIPTION,
+                "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                "requires_account_selection": True,
+                "status": bundle_status,
+                "approved_account_ids": approved_account_ids,
+                "pending_account_ids": pending_account_ids,
+                "selected_account_ids": approved_account_ids or pending_account_ids,
+                "legacy_grant_compatible": legacy_full_access,
+                "scopes": scope_states,
+            },
+            scoped_account_branches,
+        )
 
     async def list_requestable_scope_templates(self, user_id: str) -> list[dict[str, Any]]:
         conn = await self._conn()
@@ -1401,6 +1832,33 @@ class RIAIAMService:
                         "scopes": [self._scope_metadata(scope) for scope in allowed_scopes],
                     }
                 )
+            if not any(
+                str(item.get("template_id") or "").strip() == _RIA_KAI_SPECIALIZED_TEMPLATE_ID
+                for item in items
+            ):
+                template = self._kai_specialized_template()
+                items.append(
+                    {
+                        "template_id": template.template_id,
+                        "template_name": template.template_name,
+                        "description": _RIA_KAI_SPECIALIZED_DESCRIPTION,
+                        "default_duration_hours": template.default_duration_hours,
+                        "max_duration_hours": template.max_duration_hours,
+                        "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                        "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                        "requires_account_selection": True,
+                        "scopes": [
+                            {
+                                **self._scope_metadata(scope),
+                                "bundle_key": _RIA_KAI_SPECIALIZED_BUNDLE_KEY,
+                                "presentations": list(_RIA_KAI_SPECIALIZED_PRESENTATIONS),
+                                "requires_account_selection": True,
+                            }
+                            for scope in template.allowed_scopes
+                        ],
+                    }
+                )
+            items.sort(key=lambda item: str(item.get("template_name") or "").lower())
             return items
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
@@ -1423,6 +1881,7 @@ class RIAIAMService:
         bundle_id: str | None,
         bundle_label: str | None,
         bundle_scope_count: int | None,
+        selected_account_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         request_id = uuid.uuid4().hex
         now_ms = self._now_ms()
@@ -1438,6 +1897,13 @@ class RIAIAMService:
             or f"RIA {str(ria_map['id'])[:8]}"
         )
         requester_website_url = str(ria_map.get("disclosures_url") or "").strip() or None
+        normalized_account_ids = self._normalize_account_ids(selected_account_ids)
+        account_summary = (
+            f"{len(normalized_account_ids)} linked account"
+            f"{'' if len(normalized_account_ids) == 1 else 's'} pending investor approval"
+            if normalized_account_ids
+            else None
+        )
 
         metadata = {
             "requester_actor_type": "ria",
@@ -1461,9 +1927,10 @@ class RIAIAMService:
             "bundle_label": bundle_label,
             "bundle_scope_count": bundle_scope_count or 1,
             "request_url": request_url,
-            "additional_access_summary": self._relationship_share_summary(
-                _RELATIONSHIP_SHARE_ACTIVE_PICKS
-            ),
+            "selected_account_ids": normalized_account_ids,
+            "account_branch_mode": "explicit_snapshot" if normalized_account_ids else "unspecified",
+            "additional_access_summary": account_summary
+            or self._relationship_share_summary(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
             "included_relationship_shares": [
                 {
                     **self._relationship_share_descriptor(_RELATIONSHIP_SHARE_ACTIVE_PICKS),
@@ -1606,8 +2073,9 @@ class RIAIAMService:
         subject_user_id: str,
         scope_template_id: str,
         selected_scopes: list[str],
-        firm_id: str | None,
-        reason: str | None,
+        selected_account_ids: list[str] | None = None,
+        firm_id: str | None = None,
+        reason: str | None = None,
     ) -> dict[str, Any]:
         conn = await self._conn()
         try:
@@ -1637,6 +2105,30 @@ class RIAIAMService:
                     raise RIAIAMPolicyError(
                         "Selected scope is not allowed for this template", status_code=400
                     )
+
+                normalized_account_ids = self._normalize_account_ids(selected_account_ids)
+                if template.template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
+                    account_branches = await self._list_linked_account_branches(
+                        conn,
+                        investor_user_id=subject_user_id,
+                    )
+                    available_account_ids = {
+                        str(item.get("branch_id") or item.get("account_id") or "").strip()
+                        for item in account_branches
+                        if str(item.get("branch_id") or item.get("account_id") or "").strip()
+                    }
+                    if not normalized_account_ids and available_account_ids:
+                        normalized_account_ids = sorted(available_account_ids)
+                    invalid_account_ids = [
+                        account_id
+                        for account_id in normalized_account_ids
+                        if account_id not in available_account_ids
+                    ]
+                    if invalid_account_ids:
+                        raise RIAIAMPolicyError(
+                            "Selected account is not available for this investor workspace",
+                            status_code=400,
+                        )
 
                 if firm_id:
                     membership = await conn.fetchrow(
@@ -1672,6 +2164,7 @@ class RIAIAMService:
                             bundle_id=bundle_id,
                             bundle_label=bundle_label,
                             bundle_scope_count=len(deduped_scopes),
+                            selected_account_ids=normalized_account_ids,
                         )
                     )
 
@@ -1689,6 +2182,7 @@ class RIAIAMService:
                     "requests": created_requests,
                     "request_ids": [item["request_id"] for item in created_requests],
                     "selected_scopes": [item["scope"] for item in created_requests],
+                    "selected_account_ids": normalized_account_ids,
                     "expires_at": expires_at,
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:
@@ -1718,56 +2212,73 @@ class RIAIAMService:
         primary_firm_role: str | None = None,
         force_live_verification: bool = False,
     ) -> dict[str, Any]:
-        if not display_name.strip():
-            raise RIAIAMPolicyError("display_name is required", status_code=400)
-
-        normalized_requested_capabilities: list[str] = []
-        for capability in requested_capabilities or []:
-            candidate = str(capability or "").strip().lower()
-            if not candidate:
-                continue
-            if candidate not in _ALLOWED_PROFESSIONAL_CAPABILITIES:
-                raise RIAIAMPolicyError(
-                    "requested_capabilities contains unsupported capability",
-                    status_code=400,
-                )
-            if candidate not in normalized_requested_capabilities:
-                normalized_requested_capabilities.append(candidate)
-        if not normalized_requested_capabilities:
-            normalized_requested_capabilities = ["advisory"]
+        prepared = self._prepare_professional_onboarding_inputs(
+            display_name=display_name,
+            requested_capabilities=requested_capabilities or ["advisory"],
+            individual_legal_name=individual_legal_name or legal_name,
+            individual_crd=individual_crd or finra_crd,
+            advisory_firm_legal_name=advisory_firm_legal_name or primary_firm_name,
+            advisory_firm_iapd_number=advisory_firm_iapd_number or sec_iard,
+            broker_firm_legal_name=broker_firm_legal_name,
+            broker_firm_crd=broker_firm_crd,
+            bio=bio,
+            strategy=strategy,
+            disclosures_url=disclosures_url,
+            require_regulatory_identity=False,
+            require_advisory_firm_identifiers=False,
+        )
+        normalized_display_name = str(prepared["display_name"])
+        normalized_requested_capabilities = list(prepared["requested_capabilities"])
+        name_lookup = await self._verify_ria_name_result(normalized_display_name, use_cache=True)
+        if name_lookup.status == "provider_unavailable":
+            raise RIAIAMPolicyError(
+                name_lookup.reason or "RIA name verification provider unavailable.",
+                status_code=503,
+            )
+        if name_lookup.status != "verified" or not self._normalize_optional_text(
+            name_lookup.crd_number
+        ):
+            raise RIAIAMPolicyError(
+                name_lookup.reason
+                or "Advisor name could not be verified against a CRD-backed registration.",
+                status_code=400,
+            )
 
         effective_legal_name = (
-            self._normalize_optional_text(individual_legal_name)
-            or self._normalize_optional_text(legal_name)
-            or display_name.strip()
+            self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
         )
-        effective_finra_crd = self._normalize_optional_text(
-            individual_crd
-        ) or self._normalize_optional_text(finra_crd)
+        effective_finra_crd = self._normalize_optional_text(name_lookup.crd_number)
         effective_sec_iard = self._normalize_optional_text(
-            advisory_firm_iapd_number
-        ) or self._normalize_optional_text(sec_iard)
-        effective_primary_firm_name = self._normalize_optional_text(
-            advisory_firm_legal_name
-        ) or self._normalize_optional_text(primary_firm_name)
-        effective_broker_firm_name = self._normalize_optional_text(broker_firm_legal_name)
-        effective_broker_firm_crd = self._normalize_optional_text(broker_firm_crd)
-
-        if not effective_legal_name:
-            raise RIAIAMPolicyError(
-                "individual_legal_name is required for regulatory verification",
-                status_code=400,
-            )
-        if not effective_finra_crd:
-            raise RIAIAMPolicyError(
-                "individual_crd is required for regulatory verification",
-                status_code=400,
-            )
-        if "advisory" in normalized_requested_capabilities and not effective_sec_iard:
-            raise RIAIAMPolicyError(
-                "advisory_firm_iapd_number is required for regulatory verification",
-                status_code=400,
-            )
+            name_lookup.sec_number
+        ) or self._normalize_optional_text(prepared.get("advisory_firm_iapd_number"))
+        effective_primary_firm_name = (
+            self._normalize_optional_text(name_lookup.current_firm)
+            or self._normalize_optional_text(prepared.get("advisory_firm_legal_name"))
+            or self._normalize_optional_text(primary_firm_name)
+        )
+        effective_broker_firm_name = self._normalize_optional_text(
+            prepared.get("broker_firm_legal_name")
+        )
+        effective_broker_firm_crd = self._normalize_optional_text(prepared.get("broker_firm_crd"))
+        verification_result = VerificationResult(
+            verified=True,
+            rejected=False,
+            outcome="verified",
+            message="RIA verification succeeded from the Stage 1 name lookup.",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            metadata={
+                "provider": name_lookup.provider,
+                "matched_name": name_lookup.matched_name,
+                "crd_number": name_lookup.crd_number,
+                "current_firm": name_lookup.current_firm,
+                "sec_number": name_lookup.sec_number,
+                "reason_code": name_lookup.reason_code,
+                "suggested_names": list(name_lookup.suggested_names or []),
+                **dict(name_lookup.metadata or {}),
+            },
+        )
+        verification_provider = self._verification_provider_label(verification_result)
+        next_status = "verified"
 
         conn = await self._conn()
         try:
@@ -1837,13 +2348,13 @@ class RIAIAMService:
                     RETURNING id, user_id, display_name, legal_name, finra_crd, sec_iard, verification_status
                     """,
                     user_id,
-                    display_name.strip(),
+                    normalized_display_name,
                     effective_legal_name,
                     effective_finra_crd,
                     effective_sec_iard or "",
-                    (bio or "").strip(),
-                    (strategy or "").strip(),
-                    (disclosures_url or "").strip(),
+                    str(prepared.get("bio") or ""),
+                    str(prepared.get("strategy") or ""),
+                    str(prepared.get("disclosures_url") or ""),
                 )
                 if ria is None:
                     raise RuntimeError("Failed to create RIA profile")
@@ -1884,21 +2395,7 @@ class RIAIAMService:
                             (primary_firm_role or "").strip(),
                         )
 
-                verification_result: VerificationResult = await self._verification_gateway.verify(
-                    legal_name=effective_legal_name,
-                    finra_crd=effective_finra_crd,
-                    sec_iard=effective_sec_iard,
-                    force_live=force_live_verification,
-                )
-                verification_provider = self._verification_provider_label(verification_result)
-
-                next_status = "submitted"
-                if verification_result.outcome == "bypassed":
-                    next_status = "bypassed"
-                elif verification_result.verified:
-                    next_status = "finra_verified"
-                elif verification_result.rejected:
-                    next_status = "rejected"
+                _ = force_live_verification
 
                 await conn.execute(
                     """
@@ -1915,6 +2412,46 @@ class RIAIAMService:
                     verification_provider,
                     verification_result.expires_at,
                 )
+                try:
+                    await conn.execute(
+                        """
+                        UPDATE ria_profiles
+                        SET
+                          requested_capabilities = $2::text[],
+                          individual_legal_name = NULLIF($3, ''),
+                          individual_crd = NULLIF($4, ''),
+                          advisory_firm_legal_name = NULLIF($5, ''),
+                          advisory_firm_iapd_number = NULLIF($6, ''),
+                          broker_firm_legal_name = NULLIF($7, ''),
+                          broker_firm_crd = NULLIF($8, ''),
+                          advisory_status = $9,
+                          brokerage_status = $10,
+                          advisory_provider = $11,
+                          brokerage_provider = $12,
+                          advisory_verification_expires_at = $13,
+                          brokerage_verification_expires_at = $14,
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        ria["id"],
+                        normalized_requested_capabilities,
+                        effective_legal_name or "",
+                        effective_finra_crd or "",
+                        effective_primary_firm_name or "",
+                        effective_sec_iard or "",
+                        effective_broker_firm_name or "",
+                        effective_broker_firm_crd or "",
+                        "verified",
+                        "draft",
+                        verification_provider,
+                        None,
+                        verification_result.expires_at,
+                        None,
+                    )
+                except asyncpg.exceptions.UndefinedColumnError:
+                    logger.warning(
+                        "ria_profiles capability columns unavailable during onboarding write; using legacy verification fields only"
+                    )
 
                 await conn.execute(
                     """
@@ -1980,20 +2517,18 @@ class RIAIAMService:
                       strategy_summary = EXCLUDED.strategy_summary,
                       verification_badge = EXCLUDED.verification_badge,
                       is_discoverable = TRUE,
-                      updated_at = NOW()
+                    updated_at = NOW()
                     """,
                     user_id,
-                    display_name.strip(),
-                    (bio or "").strip(),
-                    (strategy or "").strip(),
+                    normalized_display_name,
+                    str(prepared.get("bio") or ""),
+                    str(prepared.get("strategy") or ""),
                     next_status,
                 )
 
-                advisory_status = self._normalize_legacy_verification_status(next_status)
-                brokerage_status = (
-                    "draft" if "brokerage" in normalized_requested_capabilities else "draft"
-                )
-                professional_access_granted = advisory_status in {"verified", "active", "bypassed"}
+                advisory_status = "verified"
+                brokerage_status = "draft"
+                professional_access_granted = True
                 brokerage_outcome = (
                     "not_requested"
                     if "brokerage" not in normalized_requested_capabilities
@@ -2218,7 +2753,7 @@ class RIAIAMService:
                       expires_at,
                       reference_metadata
                     )
-                    VALUES ($1, 'dev_allowlist', 'dev_allowlist', NOW(), NULL, $2::jsonb)
+                    VALUES ($1, 'dev_allowlist', 'bypassed', NOW(), NULL, $2::jsonb)
                     """,
                     ria["id"],
                     json.dumps({"source": "dev_allowlist", "user_id": user_id}),
@@ -2979,6 +3514,28 @@ class RIAIAMService:
                 available_domains=available_domains,
                 total_attributes=total_attributes,
             )
+            granted_payloads = [
+                payload
+                for payload in latest_by_scope.values()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+            pending_payloads = [
+                payload
+                for payload in latest_by_request.values()
+                if payload.get("action") == "REQUESTED"
+            ]
+            account_branches = await self._list_linked_account_branches(
+                conn,
+                investor_user_id=investor_user_id,
+            )
+            kai_specialized_bundle, scoped_account_branches = (
+                self._build_kai_specialized_bundle_state(
+                    account_branches=account_branches,
+                    granted_payloads=granted_payloads,
+                    pending_payloads=pending_payloads,
+                )
+            )
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
@@ -3061,6 +3618,8 @@ class RIAIAMService:
             ],
             "requestable_scope_templates": requestable_scope_templates,
             "available_scope_metadata": available_scope_metadata,
+            "kai_specialized_bundle": kai_specialized_bundle,
+            "account_branches": scoped_account_branches,
             "available_domains": available_domains,
             # Relationship detail only exposes metadata-level availability before consent.
             "domain_summaries": raw_domain_summaries if reveal_workspace_metadata else {},
@@ -3347,7 +3906,11 @@ class RIAIAMService:
                 payload.pop("metadata", None)
                 if delivery:
                     payload["delivery_status"] = delivery.get("status")
-                    payload["delivery_message"] = delivery.get("error") or delivery.get("recipient")
+                    payload["delivery_message"] = (
+                        delivery.get("message")
+                        or delivery.get("error")
+                        or delivery.get("recipient")
+                    )
                     payload["delivery_message_id"] = delivery.get("message_id")
                 items.append(payload)
             return items
@@ -4588,6 +5151,7 @@ class RIAIAMService:
         conn = await self._conn()
         created_items: list[dict[str, Any]] = []
         pending_email_deliveries: list[dict[str, Any]] = []
+        skipped_email_deliveries: list[dict[str, Any]] = []
         try:
             async with conn.transaction():
                 await self._ensure_vault_user_row(conn, user_id)
@@ -4786,95 +5350,215 @@ class RIAIAMService:
                                     "created_item": created_item,
                                 }
                             )
-                            created_item["delivery_status"] = "pending"
                         else:
                             created_item["delivery_status"] = "skipped"
                             created_item["delivery_message"] = (
                                 "Email delivery requires a target email address."
                             )
+                            skipped_email_deliveries.append(
+                                {
+                                    "invite_id": str(invite_row["id"]),
+                                    "created_item": created_item,
+                                    "message": "Email delivery requires a target email address.",
+                                }
+                            )
+
+            if skipped_email_deliveries:
+                for delivery in skipped_email_deliveries:
+                    await self._update_ria_invite_email_delivery_metadata(
+                        str(delivery["invite_id"]),
+                        {
+                            "status": "skipped",
+                            "message": str(delivery["message"]),
+                            "attempted_at": datetime.now(tz=timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                        },
+                    )
 
             if pending_email_deliveries:
-                invite_email_service = get_kai_invite_email_service()
                 for delivery in pending_email_deliveries:
-                    delivery_patch: dict[str, Any]
                     try:
-                        result = invite_email_service.send_ria_invite(
+                        await self._queue_ria_invite_email_delivery(
+                            invite_id=str(delivery["invite_id"]),
+                            invite_token=str(delivery["invite_token"]),
+                            invite_path=str(delivery["invite_path"]),
                             target_email=str(delivery["target_email"]),
                             target_display_name=delivery.get("target_display_name"),
                             advisor_name=str(delivery["advisor_name"]),
                             firm_name=delivery.get("firm_name"),
-                            invite_token=str(delivery["invite_token"]),
-                            invite_path=str(delivery["invite_path"]),
                             expires_at=delivery.get("expires_at"),
                             reason=delivery.get("reason"),
+                            created_item=delivery["created_item"],
                         )
-                        delivery["created_item"]["delivery_status"] = "sent"
-                        delivery["created_item"]["delivery_message"] = (
-                            f"Email sent to {result.recipient}."
-                        )
-                        delivery["created_item"]["delivery_message_id"] = result.message_id
-                        delivery_patch = {
-                            "invite_email_delivery": {
-                                "status": "sent",
-                                "message_id": result.message_id,
-                                "recipient": result.recipient,
-                                "intended_recipient": result.intended_recipient,
-                                "delivery_mode": result.delivery_mode,
-                                "from_email": result.from_email,
-                                "delivered_at": datetime.now(tz=timezone.utc)
-                                .isoformat()
-                                .replace("+00:00", "Z"),
-                            }
-                        }
-                    except (SupportEmailNotConfiguredError, SupportEmailSendError) as exc:
-                        logger.warning(
-                            "ria.invite_email.failed invite_id=%s reason=%s",
-                            delivery["invite_id"],
-                            str(exc),
-                        )
-                        delivery["created_item"]["delivery_status"] = "failed"
-                        delivery["created_item"]["delivery_message"] = str(exc)
-                        delivery_patch = {
-                            "invite_email_delivery": {
-                                "status": "failed",
-                                "error": str(exc),
-                                "attempted_at": datetime.now(tz=timezone.utc)
-                                .isoformat()
-                                .replace("+00:00", "Z"),
-                            }
-                        }
                     except Exception as exc:  # noqa: BLE001
                         logger.exception(
-                            "ria.invite_email.unexpected_failure invite_id=%s",
+                            "ria.invite_email.queue_failed invite_id=%s",
                             delivery["invite_id"],
                         )
                         delivery["created_item"]["delivery_status"] = "failed"
                         delivery["created_item"]["delivery_message"] = str(exc)
-                        delivery_patch = {
-                            "invite_email_delivery": {
+                        await self._update_ria_invite_email_delivery_metadata(
+                            str(delivery["invite_id"]),
+                            {
                                 "status": "failed",
                                 "error": str(exc),
                                 "attempted_at": datetime.now(tz=timezone.utc)
                                 .isoformat()
                                 .replace("+00:00", "Z"),
-                            }
-                        }
-
-                    await conn.execute(
-                        """
-                        UPDATE ria_client_invites
-                        SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-                        WHERE id = $1::uuid
-                        """,
-                        delivery["invite_id"],
-                        json.dumps(delivery_patch),
-                    )
+                            },
+                        )
 
             return {"items": created_items}
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
+
+    async def _update_ria_invite_email_delivery_metadata(
+        self, invite_id: str, metadata_patch: dict[str, Any]
+    ) -> None:
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await conn.execute(
+                    """
+                    UPDATE ria_client_invites
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                    WHERE id = $1::uuid
+                    """,
+                    invite_id,
+                    json.dumps({"invite_email_delivery": metadata_patch}),
+                )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _queue_ria_invite_email_delivery(
+        self,
+        *,
+        invite_id: str,
+        invite_token: str,
+        invite_path: str,
+        target_email: str,
+        target_display_name: str | None,
+        advisor_name: str,
+        firm_name: str | None,
+        expires_at: datetime | str | None,
+        reason: str | None,
+        created_item: dict[str, Any],
+    ) -> None:
+        invite_email_service = get_kai_invite_email_service()
+        cfg = invite_email_service.config
+        normalized_target_email = target_email.strip().lower()
+        if not cfg.configured:
+            error_message = (
+                "Kai invite email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON, plus SUPPORT_EMAIL_* variables."
+            )
+            logger.warning("ria.invite_email.not_configured invite_id=%s", invite_id)
+            created_item["delivery_status"] = "failed"
+            created_item["delivery_message"] = error_message
+            await self._update_ria_invite_email_delivery_metadata(
+                invite_id,
+                {
+                    "status": "failed",
+                    "error": error_message,
+                    "attempted_at": datetime.now(tz=timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
+            )
+            return
+
+        queued_at = datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        actual_recipient = invite_email_service._effective_recipient(normalized_target_email)
+        created_item["delivery_status"] = "queued"
+        created_item["delivery_message"] = "Email queued for background delivery."
+        await self._update_ria_invite_email_delivery_metadata(
+            invite_id,
+            {
+                "status": "queued",
+                "message": "Email queued for background delivery.",
+                "queued_at": queued_at,
+                "recipient": actual_recipient,
+                "intended_recipient": normalized_target_email,
+                "delivery_mode": cfg.delivery_mode,
+                "from_email": cfg.from_email,
+            },
+        )
+
+        queue_service = get_email_delivery_queue_service()
+
+        def _result_value(result: Any, key: str, default: Any = None) -> Any:
+            if isinstance(result, dict):
+                return result.get(key, default)
+            return getattr(result, key, default)
+
+        async def _mark_success(result: Any) -> None:
+            recipient = _result_value(result, "recipient", actual_recipient)
+            message_id = _result_value(result, "message_id")
+            intended_recipient = _result_value(
+                result, "intended_recipient", normalized_target_email
+            )
+            delivery_mode = _result_value(result, "delivery_mode", cfg.delivery_mode)
+            from_email = _result_value(result, "from_email", cfg.from_email)
+            created_item["delivery_status"] = "sent"
+            created_item["delivery_message"] = f"Email sent to {recipient}."
+            created_item["delivery_message_id"] = message_id
+            await self._update_ria_invite_email_delivery_metadata(
+                invite_id,
+                {
+                    "status": "sent",
+                    "message": f"Email sent to {recipient}.",
+                    "message_id": message_id,
+                    "recipient": recipient,
+                    "intended_recipient": intended_recipient,
+                    "delivery_mode": delivery_mode,
+                    "from_email": from_email,
+                    "delivered_at": datetime.now(tz=timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
+            )
+
+        async def _mark_failure(exc: Exception) -> None:
+            logger.warning("ria.invite_email.failed invite_id=%s reason=%s", invite_id, str(exc))
+            created_item["delivery_status"] = "failed"
+            created_item["delivery_message"] = str(exc)
+            await self._update_ria_invite_email_delivery_metadata(
+                invite_id,
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                    "attempted_at": datetime.now(tz=timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
+            )
+
+        await queue_service.enqueue(
+            kind="invite_email",
+            send_callable=lambda: invite_email_service.send_ria_invite(
+                target_email=normalized_target_email,
+                target_display_name=target_display_name,
+                advisor_name=advisor_name,
+                firm_name=firm_name,
+                invite_token=invite_token,
+                invite_path=invite_path,
+                expires_at=expires_at,
+                reason=reason,
+            ),
+            on_success=_mark_success,
+            on_failure=_mark_failure,
+            context={
+                "invite_id": invite_id,
+                "invite_token": invite_token,
+                "target_email": normalized_target_email,
+            },
+        )
 
     async def set_ria_marketplace_discoverability(
         self,
@@ -5526,7 +6210,7 @@ class RIAIAMService:
             agent_id = f"ria:{ria['id']}"
             consent_rows = await conn.fetch(
                 """
-                SELECT scope, action, expires_at, issued_at
+                SELECT scope, action, expires_at, issued_at, metadata
                 FROM consent_audit
                 WHERE user_id = $1
                   AND agent_id = $2
@@ -5541,7 +6225,9 @@ class RIAIAMService:
                 scope = str(row["scope"] or "").strip()
                 if not scope or scope in latest_by_scope:
                     continue
-                latest_by_scope[scope] = dict(row)
+                payload = dict(row)
+                payload["metadata"] = self._parse_metadata(payload.get("metadata"))
+                latest_by_scope[scope] = payload
 
             now_ms = self._now_ms()
             granted_scopes = [
@@ -5589,6 +6275,23 @@ class RIAIAMService:
             )
             granted_scope_keys = {str(item["scope"]) for item in granted_scopes}
             if metadata is None:
+                account_branches = await self._list_linked_account_branches(
+                    conn,
+                    investor_user_id=investor_user_id,
+                )
+                granted_payloads = [
+                    payload
+                    for payload in latest_by_scope.values()
+                    if payload.get("action") == "CONSENT_GRANTED"
+                    and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+                ]
+                kai_specialized_bundle, scoped_account_branches = (
+                    self._build_kai_specialized_bundle_state(
+                        account_branches=account_branches,
+                        granted_payloads=granted_payloads,
+                        pending_payloads=[],
+                    )
+                )
                 return {
                     "investor_user_id": investor_user_id,
                     "workspace_ready": False,
@@ -5616,6 +6319,8 @@ class RIAIAMService:
                         (item["expires_at"] for item in granted_scopes if item.get("expires_at")),
                         default=None,
                     ),
+                    "kai_specialized_bundle": kai_specialized_bundle,
+                    "account_branches": scoped_account_branches,
                 }
 
             available_domains = self._parse_string_list(metadata["available_domains"])
@@ -5636,6 +6341,24 @@ class RIAIAMService:
                 else:
                     available_domains = []
                     domain_summaries = {}
+
+            account_branches = await self._list_linked_account_branches(
+                conn,
+                investor_user_id=investor_user_id,
+            )
+            granted_payloads = [
+                payload
+                for payload in latest_by_scope.values()
+                if payload.get("action") == "CONSENT_GRANTED"
+                and (payload.get("expires_at") is None or int(payload["expires_at"]) > now_ms)
+            ]
+            kai_specialized_bundle, scoped_account_branches = (
+                self._build_kai_specialized_bundle_state(
+                    account_branches=account_branches,
+                    granted_payloads=granted_payloads,
+                    pending_payloads=[],
+                )
+            )
 
             return {
                 "investor_user_id": investor_user_id,
@@ -5663,6 +6386,8 @@ class RIAIAMService:
                     (item["expires_at"] for item in granted_scopes if item.get("expires_at")),
                     default=None,
                 ),
+                "kai_specialized_bundle": kai_specialized_bundle,
+                "account_branches": scoped_account_branches,
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc

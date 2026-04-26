@@ -1925,6 +1925,24 @@ export default function RiaPicksPage() {
     return data.items;
   }
 
+  async function ensureKaiAvoidRowsLoaded(): Promise<RiaAvoidRow[]> {
+    if (!user) return [];
+    if (avoidRows.length > 0) return avoidRows;
+    const idToken = await user.getIdToken();
+    const data = await RiaService.getRenaissanceAvoid(idToken);
+    setAvoidRows(data.items);
+    return data.items;
+  }
+
+  async function ensureKaiScreeningRowsLoaded(): Promise<RiaScreeningRow[]> {
+    if (!user) return [];
+    if (screeningRows.length > 0) return screeningRows;
+    const idToken = await user.getIdToken();
+    const data = await RiaService.getRenaissanceScreening(idToken);
+    setScreeningRows(data.items);
+    return data.items;
+  }
+
   async function savePackage(payload: ReturnType<typeof draftToPayload>, nextLabel?: string) {
     if (!user) return;
     const idToken = await user.getIdToken();
@@ -1944,7 +1962,11 @@ export default function RiaPicksPage() {
   async function saveKaiAsMyList() {
     try {
       setSavingToMyList(true);
-      const topPicks = await ensureKaiRowsLoaded();
+      const [topPicks, kaiAvoidRows, kaiScreeningRows] = await Promise.all([
+        ensureKaiRowsLoaded(),
+        ensureKaiAvoidRowsLoaded(),
+        ensureKaiScreeningRowsLoaded(),
+      ]);
       if (topPicks.length === 0) {
         toast.error("Kai list is not available yet");
         return;
@@ -1953,16 +1975,23 @@ export default function RiaPicksPage() {
       const nextDraft = {
         ...basePackage,
         top_picks: topPicks.map((row) => createTopPickRow(row)),
+        avoid_rows: kaiAvoidRows.map((row) => createAvoidRow(row)),
+        screening_sections: SCREENING_SECTIONS.map((section) => ({
+          section: section.key,
+          rows: normalizeScreeningDisplayRows<RiaScreeningRow>(
+            kaiScreeningRows.filter((row) => row.section === section.key),
+            section.key
+          ).map((row) => createScreeningRow(row)),
+        })),
       };
       setDraftPackage(nextDraft);
       setShowIssuesOnly(false);
       setFocusedIssueRowId(null);
       setValidationState({ packageErrors: [], rowErrors: {} });
       setSource("my");
-      setCategory("top-picks");
       setEditing(true);
       setUploadOpen(false);
-      toast.success("Copied from Kai. Save to publish it to My list.");
+      toast.success("Copied all Kai tabs into My list. Save to publish it.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to copy list");
     } finally {
@@ -2048,7 +2077,7 @@ export default function RiaPicksPage() {
   return (
     <AppPageShell
       as="main"
-      width="wide"
+      width="expanded"
       className="pb-16 sm:pb-24"
       nativeTest={{
         routeId: "/ria/picks",
@@ -2069,7 +2098,7 @@ export default function RiaPicksPage() {
           title="Stock universe"
           description="Switch between Kai's reference package and your live advisor package without losing the avoid or screening context that feeds linked-investor debates."
           icon={FileSpreadsheet}
-          accent="emerald"
+          accent="ria"
         />
       </AppPageHeaderRegion>
 

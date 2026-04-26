@@ -13,6 +13,8 @@ from typing import Literal, Optional
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
+from hushh_mcp.runtime_settings import get_firebase_credential_settings
+
 logger = logging.getLogger(__name__)
 
 SupportMessageKind = Literal["bug_report", "support_request", "developer_reachout"]
@@ -97,9 +99,10 @@ class SupportEmailConfig:
 
     @classmethod
     def from_env(cls) -> "SupportEmailConfig":
+        firebase_credentials = get_firebase_credential_settings()
         service_account_info = _load_service_account_json(
             os.getenv("SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON")
-        ) or _load_service_account_json(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+        ) or _load_service_account_json(firebase_credentials.admin_credentials_json)
         service_account_email = (
             _clean_text(service_account_info.get("client_email"))
             if service_account_info
@@ -195,7 +198,7 @@ class SupportEmailService:
         if not cfg.configured:
             raise SupportEmailNotConfiguredError(
                 "Support email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_SERVICE_ACCOUNT_JSON, plus SUPPORT_EMAIL_* variables."
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON, plus SUPPORT_EMAIL_* variables."
             )
         if self._session is None:
             credentials = service_account.Credentials.from_service_account_info(
@@ -237,7 +240,7 @@ class SupportEmailService:
         cfg = self.config
         msg = EmailMessage()
         msg["To"] = cfg.effective_recipient
-        msg["From"] = f"Hushh Support <{cfg.from_email}>"
+        msg["From"] = f"Hussh Support <{cfg.from_email}>"
         msg["Subject"] = self._build_subject(
             kind=kind,
             subject=subject,

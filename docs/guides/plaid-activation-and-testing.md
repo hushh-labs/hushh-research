@@ -38,14 +38,14 @@ Set these in the backend runtime profile:
 - `PLAID_ENV=sandbox`
 - `PLAID_CLIENT_ID=...`
 - `PLAID_SECRET=...`
-- `PLAID_CLIENT_NAME=Hushh Kai`
+- `PLAID_CLIENT_NAME=Hussh Kai`
 - `PLAID_COUNTRY_CODES=US`
 - `PLAID_REDIRECT_PATH=/kai/plaid/oauth/return`
 - `PLAID_WEBHOOK_URL=https://<public-domain-or-tunnel>/api/kai/plaid/webhook`
-- `PLAID_TOKEN_ENCRYPTION_KEY=<recommended but optional>`
+- `PLAID_ACCESS_TOKEN_KEY=<recommended but optional>`
 - `PLAID_TX_HISTORY_DAYS=730`
 
-`FRONTEND_URL` must match the active frontend origin for the current profile.
+`APP_FRONTEND_ORIGIN` must match the active frontend origin for the current profile.
 
 Webhook values to use:
 
@@ -79,7 +79,7 @@ Hosted webhook targets:
 - `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
 - `https://kai.hushh.ai/api/kai/plaid/webhook`
 
-Backend must use the matching `FRONTEND_URL` for each profile so the callback origin validation succeeds.
+Backend must use the matching `APP_FRONTEND_ORIGIN` for each profile so the callback origin validation succeeds.
 
 ## Activation Steps
 
@@ -87,7 +87,7 @@ Backend must use the matching `FRONTEND_URL` for each profile so the callback or
 2. Set `PLAID_WEBHOOK_URL` for the active backend:
    - localhost/local: your current tunnel URL ending in `/api/kai/plaid/webhook`
    - UAT: `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
-3. Set a stable `PLAID_TOKEN_ENCRYPTION_KEY`.
+3. Set a stable `PLAID_ACCESS_TOKEN_KEY`.
 4. Restart the backend so the new Plaid env values load.
 5. Start the frontend on the matching origin.
 6. Open Kai import or dashboard.
@@ -161,8 +161,8 @@ BYOK note:
 
 - `python3 -m py_compile consent-protocol/hushh_mcp/services/plaid_portfolio_service.py consent-protocol/api/routes/kai/plaid.py consent-protocol/api/routes/kai/__init__.py`
 - `cd hushh-webapp && npm run typecheck`
-- `cd hushh-webapp && npm run verify:routes`
+- manual runtime smoke for `/kai/import` and `/kai/portfolio`
 
 ## Capability Reminder
 
-Plaid is only the read-only brokerage ingestion layer. Future trade execution must use broker-specific APIs behind a separate Hushh execution contract.
+Plaid is only the read-only brokerage ingestion layer. Future trade execution must use broker-specific APIs behind a separate Hussh execution contract.

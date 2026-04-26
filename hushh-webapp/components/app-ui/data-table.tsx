@@ -352,7 +352,7 @@ export function DataTable<TData, TValue>({
                       key={cell.id}
                       className={cn(
                         compact
-                          ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2.5 align-top"
+                          ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2.5 align-middle"
                           : "px-[var(--data-table-cell-px)] py-[var(--data-table-cell-py)]"
                       )}
                     >

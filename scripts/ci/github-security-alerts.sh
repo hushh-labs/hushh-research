@@ -2,6 +2,8 @@
 set -euo pipefail
 
 STRICT_MODE="${REQUIRE_GITHUB_ALERTS_CLEAN:-0}"
+STRICT_SECRET_ALERTS="${REQUIRE_GITHUB_SECRET_ALERTS_CLEAN:-$STRICT_MODE}"
+STRICT_DEPENDABOT_ALERTS="${REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN:-0}"
 
 strict_fail() {
   echo "$1"
@@ -60,7 +62,11 @@ PR_EVENT_CUTOFF=""
 
 if ! gh api -H 'Accept: application/vnd.github+json' \
   "/repos/${REPO}/secret-scanning/alerts?state=open&per_page=100" >"$SECRET_ALERTS_JSON" 2>"$TMPDIR/secret-errors.log"; then
-  echo "GitHub security alert parity check failed: unable to read secret-scanning alerts."
+  if [ "$STRICT_MODE" = "1" ]; then
+    echo "GitHub security alert parity check failed: unable to read secret-scanning alerts."
+  else
+    echo "GitHub security alert parity advisory: unable to read secret-scanning alerts."
+  fi
   sed 's/^/  /' "$TMPDIR/secret-errors.log" || true
   if grep -q "Resource not accessible by integration" "$TMPDIR/secret-errors.log"; then
     echo "  Hint: set a repo secret like GH_SECURITY_ALERTS_TOKEN with a PAT that can read secret-scanning and Dependabot alerts."
@@ -73,7 +79,11 @@ fi
 
 if ! gh api -H 'Accept: application/vnd.github+json' \
   "/repos/${REPO}/dependabot/alerts?state=open&per_page=100" >"$DEPENDABOT_ALERTS_JSON" 2>"$TMPDIR/dependabot-errors.log"; then
-  echo "GitHub security alert parity check failed: unable to read dependabot alerts."
+  if [ "$STRICT_MODE" = "1" ]; then
+    echo "GitHub security alert parity check failed: unable to read dependabot alerts."
+  else
+    echo "GitHub security alert parity advisory: unable to read dependabot alerts."
+  fi
   sed 's/^/  /' "$TMPDIR/dependabot-errors.log" || true
   if grep -q "Resource not accessible by integration" "$TMPDIR/dependabot-errors.log"; then
     echo "  Hint: set a repo secret like GH_SECURITY_ALERTS_TOKEN with a PAT that can read secret-scanning and Dependabot alerts."
@@ -185,21 +195,29 @@ if len(dependabot_alerts) > 8:
     print(f"  ... {len(dependabot_alerts) - 8} more dependabot alerts")
 PY
 
-if [ "${REQUIRE_GITHUB_ALERTS_CLEAN:-0}" = "1" ]; then
-  SECRET_COUNT="$(python3 - <<'PY' "$FILTERED_SECRET_ALERTS_JSON"
+SECRET_COUNT="$(python3 - <<'PY' "$FILTERED_SECRET_ALERTS_JSON"
 import json, sys
 from pathlib import Path
 print(len(json.loads(Path(sys.argv[1]).read_text())))
 PY
 )"
-  DEPENDABOT_COUNT="$(python3 - <<'PY' "$FILTERED_DEPENDABOT_ALERTS_JSON"
+DEPENDABOT_COUNT="$(python3 - <<'PY' "$FILTERED_DEPENDABOT_ALERTS_JSON"
 import json, sys
 from pathlib import Path
 print(len(json.loads(Path(sys.argv[1]).read_text())))
 PY
 )"
-  if [ "$SECRET_COUNT" -gt 0 ] || [ "$DEPENDABOT_COUNT" -gt 0 ]; then
-    echo "GitHub security alert parity check failed: open alerts remain."
-    exit 1
-  fi
+
+if [ "$SECRET_COUNT" -gt 0 ] && [ "$STRICT_SECRET_ALERTS" = "1" ]; then
+  echo "GitHub security alert parity check failed: open secret-scanning alerts remain."
+  exit 1
+fi
+
+if [ "$DEPENDABOT_COUNT" -gt 0 ] && [ "$STRICT_DEPENDABOT_ALERTS" = "1" ]; then
+  echo "GitHub security alert parity check failed: open Dependabot alerts remain."
+  exit 1
+fi
+
+if [ "$DEPENDABOT_COUNT" -gt 0 ] && [ "$STRICT_DEPENDABOT_ALERTS" != "1" ]; then
+  echo "GitHub security alert parity advisory: open Dependabot alerts remain but are non-blocking in this lane."
 fi

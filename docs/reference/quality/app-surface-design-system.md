@@ -9,6 +9,36 @@ This document is the canonical contract for app-facing surfaces across Kai, RIA,
 
 Profile remains the reference implementation for settings rows. This document expands that language into the broader page-shell, header, and content-surface system.
 
+## Agent Copy Ownership
+
+The app uses the Hussh / One / Kai / Nav ontology from [../../vision/agent-ontology.md](../../vision/agent-ontology.md).
+
+Rules:
+
+1. Hussh is the platform and should not speak as a character in product UI.
+2. One owns shared shell copy:
+   - greetings
+   - general empty states
+   - memory framing
+   - background-task notifications
+   - specialist handoff copy
+3. Kai owns finance copy:
+   - portfolio analysis
+   - market intelligence
+   - investment debate
+   - decision receipts
+   - RIA/investor finance workflows
+4. Nav owns privacy and consent copy:
+   - consent requests
+   - scope review
+   - vault and key friction
+   - deletion and revocation
+   - suspicious-access or trust-state warnings
+5. Route navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions, not navigation.
+6. Local voice/action contracts must set `speaker_persona` to `one`, `kai`, or `nav` using the same ownership rules.
+7. Persona switching changes the workspace context. It does not change the top relationship agent; One stays the default shell voice.
+8. Canonical app copy uses neutral voice descriptors. Do not encode celebrity references or personal numeric preferences in maintained UI copy or docs.
+
 ## Shell Contract
 
 1. The top shell is the single authority for header clearance.
@@ -25,6 +55,24 @@ Profile remains the reference implementation for settings rows. This document ex
 10. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks.
 11. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent.
 12. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior.
+13. `AppPageShell` owns route width and horizontal gutters for signed-in routes.
+14. The canonical shell widths are:
+   - `reading`
+   - `standard`
+   - `expanded`
+15. The canonical container tokens are:
+   - `--app-shell-reading: 54rem`
+   - `--app-shell-standard: 90rem`
+   - `--app-shell-expanded: 96rem`
+16. Signed-in app routes default to `standard`; use `reading` only for narrow detail/settings pages and `expanded` for dashboard/table-heavy routes.
+17. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
+18. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
+19. Mobile uses page gutters, not a second outer card container. Surface padding belongs inside cards, lists, sheets, and insets.
+20. `SurfaceStack` overscan is allowed only as shared shell breathing on tablet/desktop; mobile defaults stay edge-aware and minimal.
+21. Signed-in nested routes must expose a back affordance through the shared top bar when they drill below a parent workspace route.
+22. Route-local inline back buttons are reserved for contexts that do not participate in the shared shell, such as modal, sheet, or fullscreen-flow surfaces.
+23. Signed-in route verification is contract-driven. `hushh-webapp/lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth for `npm run verify:routes`.
+24. Signed-in route work is not complete until the route-contract Playwright sweep passes with the reviewer login and vault-unlock path.
 
 ## Page Header Contract
 
@@ -41,6 +89,23 @@ Rules:
 5. Do not stack a second decorative icon inside the same header block.
 6. If a section already has a header icon, omit redundant per-row decorative icons unless the row needs them for real semantic distinction.
 7. Accent divider lines stay constant across the full width; do not fade them to transparent.
+8. Header accents must come from the shared semantic accent map, not route-local color recipes.
+9. Approved route-role accents are:
+   - `kai`
+   - `ria`
+   - `consent`
+   - `marketplace`
+   - `developers`
+   - `neutral`
+10. Success, warning, and critical accents are reserved for explicit status communication, not page identity.
+11. Standard route headers must use `PageHeader`'s `icon` slot for the leading visual by default.
+12. `leading` is reserved for semantic non-icon content such as badges, avatars, or endpoint method pills; it must not be used to recreate a custom route-header icon well.
+13. The chosen `accent` must match the surface identity, not the broader product parent. For example, a market workspace uses `marketplace`, not `kai`.
+14. Standard mobile route headers should default to a three-row composition when they include both description and actions:
+   - title block
+   - actions
+   - full-width description
+15. `actionsInlineMobile` is reserved for short utility headers; do not use it on primary route headers with full-width descriptive copy.
 
 ## Row and Card Interaction Contract
 
@@ -115,6 +180,8 @@ Rules:
 11. Outer app-facing surface shells must not rely on `overflow-hidden`; clipping is allowed only on inner media/chart/inset containers.
 12. Do not stack glass-inside-glass for list managers. Row-based managers should use one outer shell and flatter rows inside it.
 13. Compact density is the default for signed-in surface cards; if a route needs more space, opt into `comfortable` density explicitly instead of hardcoding larger padding at the page level.
+14. On mobile, do not wrap entire routes in a passive outer card just to create breathing room. Use page gutters plus real inner surfaces.
+15. Prefer flatter list/tape layouts for browse-heavy signed-in surfaces. Reserve cards for premium summaries, carousels, charts, and clearly grouped data.
 
 ### Card Depth Model
 
@@ -141,6 +208,26 @@ Use the `Subtle Apple` depth model:
 6. Default outer shells are borderless glass. Do not add visible outline borders to make cards pop.
 7. Do not tint outer card chrome to communicate state.
 8. If a surface needs more presence, move from `surface` to `surface-feature` or `hero`; do not invent a new route-local shadow recipe.
+9. Analysis/workspace sections should avoid duplicate summary chrome. Use one primary card for the main read and then secondary cards only when they add new information.
+
+### Information Density And Evidence
+
+1. Concrete detail beats vague summary.
+2. If a surface says `44 names`, the detail state should reveal the names cleanly.
+3. Counts are only useful when they open into inspectable evidence.
+4. One idea per card. Do not mix primary read, secondary status, and supporting explanation in the same card unless the grouping is essential.
+5. Avoid stacked framing chrome:
+   - header inside header
+   - card inside card without semantic separation
+   - repeated helper copy above and inside the same module
+6. Text grouping must communicate meaning, not just fit data. Avoid arbitrary line-broken symbol dumps and vague “read” summaries when clearer structured presentation is available.
+7. Modals and control surfaces should be information-dense, focused, and interaction-smooth:
+   - narrower than full page shells by default
+   - content remains mounted through close animation
+   - close affordances stay tactile and reliable
+8. Responsive composition is not width-only responsiveness. Recompose boards for tablet and desktop instead of stretching mobile stacks.
+9. Persona-facing surfaces should bias toward shorter, clearer, more descriptive copy over decorative narrative.
+10. The design system should challenge poor UX proactively; weak hierarchy, vague detail, or obvious asymmetry should be treated as design defects, not stylistic preferences.
 
 ### Ripple Ownership and Clipping
 
@@ -224,6 +311,9 @@ Rules:
    - available scope metadata
    - current grants
 8. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
+9. Persona-facing profile copy should use plain-language terms such as `Personal Data`; keep `PKM` for developer-only surfaces.
+10. Profile-family vault actions should live in the shared top app bar instead of route-local hero chrome.
+11. Settings/menu group treatment should stay compositionally consistent from mobile through desktop rather than switching into a separate desktop card language.
 
 ## Documentation References
 

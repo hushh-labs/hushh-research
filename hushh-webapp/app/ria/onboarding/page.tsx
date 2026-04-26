@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type InputHTMLAttributes } from "react";
+import { useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -9,11 +9,10 @@ import {
   CheckCircle2,
   Loader2,
   ShieldCheck,
-  ShieldQuestion,
 } from "lucide-react";
 
 import { PopupTextEditorField } from "@/components/app-ui/command-fields";
-import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader, SurfaceInset } from "@/components/app-ui/surfaces";
+import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader } from "@/components/app-ui/surfaces";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +25,7 @@ import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
   getRequestedCapabilityLabels,
+  type RiaOnboardingFlowOptions,
   getRiaOnboardingStepIndex,
   normalizeRiaOnboardingDraft,
   resolveRiaOnboardingStepId,
@@ -37,41 +37,27 @@ import {
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import {
   isIAMSchemaNotReadyError,
+  RiaApiError,
   RiaService,
   type MarketplaceRia,
+  type RiaNameVerificationResult,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { trackEvent } from "@/lib/observability/client";
+import {
+  trackGrowthFunnelStepCompleted,
+  trackRiaActivationCompleted,
+} from "@/lib/observability/growth";
 
-function formatVerificationStatus(
-  status?: string | null,
-  loading?: boolean,
-  lane: "advisory" | "brokerage" = "advisory"
-) {
-  if (loading) return "Loading";
-  switch (status) {
-    case "verified":
-      return lane === "brokerage" ? "Broker verified" : "IAPD verified";
-    case "active":
-      return "Active";
-    case "bypassed":
-      return "Bypassed";
-    case "submitted":
-      return "Submitted";
-    case "rejected":
-      return "Rejected";
-    case "draft":
-    default:
-      return "Draft";
-  }
-}
+type NameVerificationState =
+  | "idle"
+  | "verifying"
+  | "verified"
+  | "not_verified"
+  | "provider_unavailable";
 
-function compactDate(value?: string | null): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString();
-}
+const NAME_VERIFICATION_VISIBLE_TIMEOUT_MS = 90_000;
 
 const FALLBACK_STEP: RiaOnboardingStep = {
   id: "capabilities",
@@ -114,7 +100,8 @@ function buildSubmitPayload(draft: RiaOnboardingDraft) {
     requested_capabilities: draft.requestedCapabilities,
     individual_legal_name: draft.individualLegalName.trim() || undefined,
     individual_crd: draft.individualCrd.trim() || undefined,
-    advisory_firm_legal_name: advisoryEnabled ? draft.advisoryFirmName.trim() || undefined : undefined,
+    advisory_firm_legal_name:
+      advisoryEnabled ? draft.advisoryFirmName.trim() || undefined : undefined,
     advisory_firm_iapd_number:
       advisoryEnabled ? draft.advisoryFirmIapdNumber.trim() || undefined : undefined,
     broker_firm_legal_name: brokerageEnabled ? draft.brokerFirmName.trim() || undefined : undefined,
@@ -123,12 +110,57 @@ function buildSubmitPayload(draft: RiaOnboardingDraft) {
   };
 }
 
-function latestVerificationCopy(status: RiaOnboardingStatus | null): string {
-  const latest = status?.latest_advisory_event || status?.latest_verification_event;
-  if (!latest) return "Verification starts after you submit this trust profile.";
-  const outcome = latest.outcome || "latest check";
-  const checkedAt = compactDate(latest.checked_at);
-  return checkedAt ? `${outcome} on ${checkedAt}` : outcome;
+function isAdvisoryAccessReady(status?: string | null): boolean {
+  return status === "active" || status === "verified" || status === "bypassed";
+}
+
+async function waitForNameVerificationResult<T>(
+  promise: Promise<T | null>,
+  options: { timeoutMs: number; onTimeout?: () => void }
+): Promise<{ timedOut: boolean; value: T | null }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      options.onTimeout?.();
+      resolve({ timedOut: true, value: null });
+    }, options.timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve({ timedOut: false, value });
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
+
+function resolvedVerifiedIdentity(
+  status: RiaOnboardingStatus | null,
+  result: RiaNameVerificationResult | null,
+  draft: RiaOnboardingDraft
+) {
+  return {
+    matchedName:
+      result?.matched_name ||
+      status?.individual_legal_name ||
+      status?.legal_name ||
+      draft.displayName.trim() ||
+      null,
+    crdNumber: result?.crd_number || status?.individual_crd || status?.finra_crd || null,
+    currentFirm: result?.current_firm || status?.advisory_firm_legal_name || null,
+    secNumber:
+      result?.sec_number || status?.advisory_firm_iapd_number || status?.sec_iard || null,
+  };
 }
 
 function StepChoice({
@@ -171,12 +203,14 @@ function TextField({
   value,
   onChange,
   inputMode,
+  onKeyDown,
 }: {
   label: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
   inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
+  onKeyDown?: InputHTMLAttributes<HTMLInputElement>["onKeyDown"];
 }) {
   return (
     <label className="space-y-2">
@@ -187,6 +221,7 @@ function TextField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         inputMode={inputMode}
+        onKeyDown={onKeyDown}
         className="min-h-12 w-full rounded-[22px] border border-border/70 bg-background/90 px-4 text-sm outline-none transition-[border-color,box-shadow] focus:border-foreground/30 focus:shadow-[0_0_0_4px_rgba(15,23,42,0.06)]"
         placeholder={placeholder}
       />
@@ -230,6 +265,12 @@ export default function RiaOnboardingPage() {
   const [iamUnavailable, setIamUnavailable] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const [shouldPersistDraft, setShouldPersistDraft] = useState(false);
+  const [nameVerificationStatus, setNameVerificationStatus] = useState<NameVerificationState>("idle");
+  const [nameVerificationResult, setNameVerificationResult] = useState<RiaNameVerificationResult | null>(null);
+  const [lastVerifiedQuery, setLastVerifiedQuery] = useState<string | null>(null);
+  const verificationRequestIdRef = useRef(0);
+  const verificationAbortRef = useRef<AbortController | null>(null);
+  const latestDisplayNameRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -240,6 +281,9 @@ export default function RiaOnboardingPage() {
           setLoading(false);
           setDraftReady(true);
           setShouldPersistDraft(false);
+          setNameVerificationStatus("idle");
+          setNameVerificationResult(null);
+          setLastVerifiedQuery(null);
         }
         return;
       }
@@ -262,10 +306,36 @@ export default function RiaOnboardingPage() {
           ...draftFromStatus(nextStatus, publicProfile),
           ...localDraft,
         });
-        const currentStepId = resolveRiaOnboardingStepId(seeded, localDraft?.currentStepId);
+        const seededIdentity = resolvedVerifiedIdentity(nextStatus, null, seeded);
+        const persistedDisplayName = nextStatus?.display_name?.trim() || "";
+        const seededVerified =
+          isAdvisoryAccessReady(nextStatus?.advisory_status || nextStatus?.verification_status) &&
+          Boolean(seededIdentity.crdNumber) &&
+          Boolean(persistedDisplayName) &&
+          persistedDisplayName === seeded.displayName.trim();
+        const currentStepId = resolveRiaOnboardingStepId(seeded, localDraft?.currentStepId, {
+          nameVerificationSatisfied: seededVerified,
+        });
 
         setStatus(nextStatus);
         setDraft({ ...seeded, currentStepId });
+        if (seededVerified) {
+          setNameVerificationStatus("verified");
+          setNameVerificationResult({
+            status: "verified",
+            matched_name: seededIdentity.matchedName,
+            crd_number: seededIdentity.crdNumber,
+            current_firm: seededIdentity.currentFirm,
+            sec_number: seededIdentity.secNumber,
+            provider: nextStatus?.verification_provider || "ria_intelligence_stage1",
+            suggested_names: [],
+          });
+          setLastVerifiedQuery(seeded.displayName.trim() || seededIdentity.matchedName);
+        } else {
+          setNameVerificationStatus("idle");
+          setNameVerificationResult(null);
+          setLastVerifiedQuery(null);
+        }
         setShouldPersistDraft(true);
       } catch (loadError) {
         if (!cancelled) {
@@ -298,25 +368,201 @@ export default function RiaOnboardingPage() {
     void RiaOnboardingDraftLocalService.save(user.uid, draft);
   }, [draft, draftReady, iamUnavailable, shouldPersistDraft, user]);
 
-  const steps = useMemo(() => buildRiaOnboardingSteps(draft), [draft]);
+  useEffect(
+    () => () => {
+      verificationAbortRef.current?.abort();
+    },
+    []
+  );
+
+  const advisoryVerificationStatus = status?.advisory_status || status?.verification_status || "draft";
+  const advisoryAccessReady = isAdvisoryAccessReady(advisoryVerificationStatus);
+  const displayNameQuery = draft.displayName.trim();
+  latestDisplayNameRef.current = displayNameQuery;
+  const persistedVerifiedDisplayName = status?.display_name?.trim() || "";
+  const persistedVerificationSatisfied =
+    isAdvisoryAccessReady(status?.advisory_status || status?.verification_status) &&
+    Boolean(status?.individual_crd || status?.finra_crd) &&
+    Boolean(persistedVerifiedDisplayName) &&
+    persistedVerifiedDisplayName === displayNameQuery;
+  const nameVerificationSatisfied =
+    persistedVerificationSatisfied ||
+    (nameVerificationStatus === "verified" &&
+      Boolean(nameVerificationResult?.crd_number) &&
+      Boolean(displayNameQuery) &&
+      lastVerifiedQuery === displayNameQuery);
+  const flowOptions = useMemo<RiaOnboardingFlowOptions>(
+    () => ({ nameVerificationSatisfied }),
+    [nameVerificationSatisfied]
+  );
+  const verifiedIdentity = useMemo(
+    () => resolvedVerifiedIdentity(status, nameVerificationResult, draft),
+    [draft, nameVerificationResult, status]
+  );
+  const canVerifyName =
+    Boolean(user) &&
+    displayNameQuery.length > 0 &&
+    nameVerificationStatus !== "verifying" &&
+    !(nameVerificationStatus === "verified" && lastVerifiedQuery === displayNameQuery);
+  const isBroadNameQuery =
+    nameVerificationStatus === "not_verified" &&
+    nameVerificationResult?.reason_code === "query_too_broad";
+  const steps = useMemo(() => buildRiaOnboardingSteps(draft, flowOptions), [draft, flowOptions]);
   const currentStepIndex = useMemo(
-    () => getRiaOnboardingStepIndex(draft, draft.currentStepId),
-    [draft]
+    () => getRiaOnboardingStepIndex(draft, draft.currentStepId, flowOptions),
+    [draft, flowOptions]
   );
   const currentStep = steps[currentStepIndex] ?? steps[0] ?? FALLBACK_STEP;
-  const canContinue = canContinueRiaOnboardingStep(currentStep.id, draft);
-  const advisoryVerificationStatus = status?.advisory_status || status?.verification_status || "draft";
-  const brokerageVerificationStatus = status?.brokerage_status || "draft";
-  const advisoryAccessReady =
-    advisoryVerificationStatus === "active" ||
-    advisoryVerificationStatus === "verified" ||
-    advisoryVerificationStatus === "bypassed";
-  const brokerageAccessReady =
-    brokerageVerificationStatus === "active" ||
-    brokerageVerificationStatus === "verified" ||
-    brokerageVerificationStatus === "bypassed";
+  const canContinue = canContinueRiaOnboardingStep(currentStep.id, draft, flowOptions);
   const capabilityLabels = getRequestedCapabilityLabels(draft);
   const progressValue = Math.round(((currentStepIndex + 1) / Math.max(steps.length, 1)) * 100);
+
+  useEffect(() => {
+    setDraft((current) => {
+      const nextStepId = resolveRiaOnboardingStepId(current, current.currentStepId, flowOptions);
+      if (nextStepId === current.currentStepId) {
+        return current;
+      }
+      return {
+        ...current,
+        currentStepId: nextStepId,
+      };
+    });
+  }, [flowOptions]);
+
+  function cancelActiveVerification() {
+    verificationRequestIdRef.current += 1;
+    verificationAbortRef.current?.abort();
+    verificationAbortRef.current = null;
+  }
+
+  function applyVerifiedIdentityToDraft(result: RiaNameVerificationResult) {
+    setShouldPersistDraft(true);
+    setDraft((current) => ({
+      ...current,
+      individualLegalName: result.matched_name || "",
+      individualCrd: result.crd_number || "",
+      advisoryFirmName: result.current_firm || "",
+      advisoryFirmIapdNumber: result.sec_number || "",
+    }));
+  }
+
+  function handleDisplayNameChange(value: string) {
+    cancelActiveVerification();
+    setNameVerificationStatus("idle");
+    setNameVerificationResult(null);
+    setLastVerifiedQuery(null);
+    latestDisplayNameRef.current = value.trim();
+    updateDraft({
+      displayName: value,
+      individualLegalName: "",
+      individualCrd: "",
+      advisoryFirmName: "",
+      advisoryFirmIapdNumber: "",
+    });
+  }
+
+  function handleSuggestedNameSelect(value: string) {
+    handleDisplayNameChange(value);
+    window.setTimeout(() => {
+      void handleVerifyName(value);
+    }, 0);
+  }
+
+  async function handleVerifyName(overrideQuery?: string) {
+    if (!user) return;
+    const normalizedQuery = (overrideQuery || draft.displayName).trim();
+    if (!normalizedQuery) return;
+
+    cancelActiveVerification();
+    const requestId = verificationRequestIdRef.current;
+    const controller = new AbortController();
+    verificationAbortRef.current = controller;
+
+    setNotice(null);
+    setError(null);
+    setNameVerificationStatus("verifying");
+    setNameVerificationResult(null);
+    setLastVerifiedQuery(null);
+
+    try {
+      const idToken = await user.getIdToken();
+      const initialResolution = await waitForNameVerificationResult(
+        RiaService.verifyOnboardingName(
+          idToken,
+          { query: normalizedQuery },
+          { signal: controller.signal }
+        ),
+        {
+          timeoutMs: NAME_VERIFICATION_VISIBLE_TIMEOUT_MS,
+          onTimeout: () => {
+            controller.abort();
+          },
+        }
+      );
+      if (initialResolution.timedOut || !initialResolution.value) {
+        setNameVerificationResult({
+          status: "provider_unavailable",
+          reason:
+            "This advisor lookup is taking longer than expected. Retry in a moment.",
+          provider: "ria_intelligence_stage1",
+          suggested_names: [],
+        });
+        setNameVerificationStatus("provider_unavailable");
+        setLastVerifiedQuery(null);
+        return;
+      }
+
+      const result = initialResolution.value;
+      if (
+        controller.signal.aborted ||
+        requestId !== verificationRequestIdRef.current ||
+        latestDisplayNameRef.current !== normalizedQuery
+      ) {
+        return;
+      }
+      setNameVerificationResult(result);
+      setNameVerificationStatus(result.status);
+      if (result.status === "verified") {
+        applyVerifiedIdentityToDraft(result);
+        setLastVerifiedQuery(normalizedQuery);
+      } else {
+        setLastVerifiedQuery(null);
+      }
+    } catch (verificationError) {
+      if (
+        controller.signal.aborted ||
+        (verificationError &&
+          typeof verificationError === "object" &&
+          "name" in verificationError &&
+          verificationError.name === "AbortError")
+      ) {
+        return;
+      }
+      if (verificationError instanceof RiaApiError && verificationError.status === 429) {
+        setError(verificationError.message);
+        setNameVerificationStatus("idle");
+        setNameVerificationResult(null);
+        setLastVerifiedQuery(null);
+        return;
+      }
+      setNameVerificationResult({
+        status: "provider_unavailable",
+        reason:
+          verificationError instanceof Error
+            ? verificationError.message
+            : "Could not verify this RIA name right now.",
+        provider: "ria_intelligence_stage1",
+        suggested_names: [],
+      });
+      setNameVerificationStatus("provider_unavailable");
+      setLastVerifiedQuery(null);
+    } finally {
+      if (requestId === verificationRequestIdRef.current) {
+        verificationAbortRef.current = null;
+      }
+    }
+  }
 
   function updateDraft(patch: Partial<RiaOnboardingDraft>) {
     setNotice(null);
@@ -329,7 +575,7 @@ export default function RiaOnboardingPage() {
       });
       return {
         ...next,
-        currentStepId: resolveRiaOnboardingStepId(next, next.currentStepId),
+        currentStepId: resolveRiaOnboardingStepId(next, next.currentStepId, flowOptions),
       };
     });
   }
@@ -337,7 +583,7 @@ export default function RiaOnboardingPage() {
   function moveToStep(stepId: RiaOnboardingStepId) {
     setDraft((current) => ({
       ...current,
-      currentStepId: resolveRiaOnboardingStepId(current, stepId),
+      currentStepId: resolveRiaOnboardingStepId(current, stepId, flowOptions),
     }));
   }
 
@@ -363,6 +609,9 @@ export default function RiaOnboardingPage() {
     setNotice(null);
     try {
       const idToken = await user.getIdToken();
+      if (mode === "submit" && !nameVerificationSatisfied) {
+        throw new Error("Verify the advisor name and wait for a CRD-backed result before continuing.");
+      }
       const payload = buildSubmitPayload(draft);
       const result =
         mode === "submit"
@@ -373,17 +622,40 @@ export default function RiaOnboardingPage() {
         ...(current || { exists: true }),
         display_name: draft.displayName.trim(),
         requested_capabilities: result.requested_capabilities,
-        individual_legal_name: draft.individualLegalName.trim() || undefined,
-        individual_crd: draft.individualCrd.trim() || undefined,
-        advisory_firm_legal_name: draft.advisoryFirmName.trim() || undefined,
-        advisory_firm_iapd_number: draft.advisoryFirmIapdNumber.trim() || undefined,
-        broker_firm_legal_name: draft.brokerFirmName.trim() || undefined,
-        broker_firm_crd: draft.brokerFirmCrd.trim() || undefined,
+        individual_legal_name: result.individual_legal_name || undefined,
+        individual_crd: result.individual_crd || undefined,
+        advisory_firm_legal_name: result.advisory_firm_legal_name || undefined,
+        advisory_firm_iapd_number: result.advisory_firm_iapd_number || undefined,
+        broker_firm_legal_name: result.broker_firm_legal_name || draft.brokerFirmName.trim() || undefined,
+        broker_firm_crd: result.broker_firm_crd || draft.brokerFirmCrd.trim() || undefined,
         verification_status: result.verification_status,
         advisory_status: result.advisory_status,
         brokerage_status: result.brokerage_status,
         dev_ria_bypass_allowed: mode === "dev_activate" ? true : current?.dev_ria_bypass_allowed,
       }));
+      if (mode === "submit" && result.advisory_status === "verified") {
+        setNameVerificationStatus("verified");
+        setNameVerificationResult({
+          status: "verified",
+          matched_name: result.individual_legal_name || draft.displayName.trim() || null,
+          crd_number: result.individual_crd || null,
+          current_firm: result.advisory_firm_legal_name || null,
+          sec_number: result.advisory_firm_iapd_number || null,
+          provider: result.verification_provider || "ria_intelligence_stage1",
+          suggested_names: [],
+        });
+        setLastVerifiedQuery(draft.displayName.trim());
+      }
+      trackEvent("ria_onboarding_submitted", {
+        result: "success",
+      });
+      trackGrowthFunnelStepCompleted({
+        journey: "ria",
+        step: "profile_submitted",
+        entrySurface: "ria_onboarding",
+        dedupeKey: "growth:ria:profile_submitted",
+        dedupeWindowMs: 5_000,
+      });
 
       const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
       const verificationOutcome = (result.verification_outcome || "").toLowerCase();
@@ -405,28 +677,58 @@ export default function RiaOnboardingPage() {
       }
 
       if (mode === "dev_activate") {
+        trackEvent("ria_verification_status_changed", {
+          action: "bypassed",
+          result: "success",
+        });
+        trackGrowthFunnelStepCompleted({
+          journey: "ria",
+          step: "workspace_ready",
+          entrySurface: "ria_onboarding",
+          workspaceSource: "developer_activation",
+          dedupeKey: "growth:ria:workspace_ready:developer_activation",
+          dedupeWindowMs: 5_000,
+        });
+        trackRiaActivationCompleted({
+          entrySurface: "ria_onboarding",
+          workspaceSource: "developer_activation",
+          dedupeKey: "growth:ria:activation:developer_activation",
+          dedupeWindowMs: 10_000,
+        });
         toast.success("Developer activation completed", {
           description: "The RIA workspace is ready in this environment.",
         });
         setNotice("Developer activation completed. The RIA workspace is ready in this environment.");
       } else if (advisoryOutcome === "rejected") {
+        trackEvent("ria_verification_status_changed", {
+          action: "rejected",
+          result: "error",
+        });
         toast.error("Verification failed", {
           description:
             result.verification_message ||
-            "The Individual CRD and Firm IAPD / IARD details did not verify.",
+            "The advisor name could not be verified against a CRD-backed registration.",
         });
         setNotice(
           result.verification_message ||
-            "Verification was rejected. Please verify legal name and CRD and submit again."
+            "Verification was rejected. Retry the advisor name."
         );
       } else if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
+        trackEvent("ria_verification_status_changed", {
+          action: advisoryOutcome === "active" ? "active" : "verified",
+          result: "success",
+        });
         toast.success("Credentials verified", {
           description:
             result.verification_message ||
-            "Your Individual CRD and Firm IAPD / IARD checks passed.",
+            "Your advisor name resolved to a verified CRD-backed RIA record.",
         });
         setNotice("Verification passed. Your RIA workspace is ready.");
       } else if (advisoryOutcome === "bypassed") {
+        trackEvent("ria_verification_status_changed", {
+          action: "bypassed",
+          result: "success",
+        });
         toast.warning("Verification bypass active", {
           description:
             result.verification_message ||
@@ -437,6 +739,10 @@ export default function RiaOnboardingPage() {
             "Verification bypass is active in this environment. Your RIA workspace is ready for flow testing."
         );
       } else if (verificationOutcome === "provider_unavailable") {
+        trackEvent("ria_verification_status_changed", {
+          action: "submitted",
+          result: "error",
+        });
         toast.error("Verification service unavailable", {
           description:
             result.verification_message ||
@@ -447,13 +753,17 @@ export default function RiaOnboardingPage() {
             "Regulatory verification is unavailable in this environment. Onboarding stays blocked until the verification provider is healthy."
         );
       } else {
+        trackEvent("ria_verification_status_changed", {
+          action: "submitted",
+          result: "success",
+        });
         toast.info("Verification submitted", {
           description:
             result.verification_message ||
-            "We are still validating the Individual CRD and Firm IAPD / IARD details.",
+            "Kai is still validating the advisor name.",
         });
         setNotice(
-          "Onboarding submitted. Kai will keep the verification lane fail-closed until trust clears."
+          "Onboarding submitted. Kai will keep this profile locked until verification clears."
         );
       }
       moveToStep("review");
@@ -461,6 +771,9 @@ export default function RiaOnboardingPage() {
       if (isIAMSchemaNotReadyError(submitError)) {
         setIamUnavailable(true);
       }
+      trackEvent("ria_onboarding_submitted", {
+        result: "error",
+      });
       setError(
         submitError instanceof Error ? submitError.message : "Failed to submit onboarding."
       );
@@ -494,7 +807,7 @@ export default function RiaOnboardingPage() {
               <StepChoice
                 active={draft.requestedCapabilities.includes("advisory")}
                 label="Advisory"
-                description="Unlock the current RIA workflow once IAPD verification passes."
+                description="Unlock the current RIA workflow once the advisor name is verified."
                 onClick={() => {
                   const next: RiaCapability[] = draft.requestedCapabilities.includes("advisory")
                     ? draft.requestedCapabilities.filter((value) => value !== "advisory")
@@ -524,51 +837,211 @@ export default function RiaOnboardingPage() {
         return (
           <div className="space-y-4">
             <TextField
-              label="Display name"
-              placeholder="Manish Sainani"
+              label="Advisor name"
+              placeholder="Ana Roumenova Carter"
               value={draft.displayName}
-              onChange={(value) => updateDraft({ displayName: value })}
+              onChange={handleDisplayNameChange}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                void handleVerifyName();
+              }}
             />
+            {nameVerificationStatus === "idle" ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                Kai verifies your identity against FINRA and SEC records before unlocking the advisory workflow.
+              </p>
+            ) : null}
+            {nameVerificationStatus !== "idle" ? (
+            <div
+              className={cn(
+                "rounded-[24px] border px-4 py-4 text-sm",
+                nameVerificationStatus === "verified"
+                  ? "border-emerald-500/20 bg-emerald-500/8"
+                  : nameVerificationStatus === "not_verified"
+                    ? "border-amber-500/20 bg-amber-500/8"
+                    : nameVerificationStatus === "provider_unavailable"
+                      ? "border-rose-500/20 bg-rose-500/8"
+                      : "border-border/70 bg-background/70"
+              )}
+            >
+              {displayNameQuery.length > 0 && nameVerificationStatus === "verifying" ? (
+                  <div className="flex items-start gap-3">
+                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-muted-foreground" />
+                    <div className="space-y-1">
+                      <p className="leading-6 text-muted-foreground">
+                        Verifying this advisor name now.
+                      </p>
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        This can take a few moments the first time.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              {nameVerificationStatus === "verified" && verifiedIdentity.crdNumber ? (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+                    <div className="space-y-1">
+                      <p className="font-medium text-foreground">
+                        RIA verified: {verifiedIdentity.matchedName || draft.displayName.trim()}
+                      </p>
+                      <p className="leading-6 text-muted-foreground">
+                        CRD {verifiedIdentity.crdNumber}
+                        {verifiedIdentity.currentFirm ? ` · ${verifiedIdentity.currentFirm}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <ReviewField
+                      label="Verified name"
+                      value={verifiedIdentity.matchedName || "Not returned"}
+                    />
+                    <ReviewField
+                      label="CRD"
+                      value={verifiedIdentity.crdNumber || "Not returned"}
+                    />
+                    <ReviewField
+                      label="Advisory firm"
+                      value={verifiedIdentity.currentFirm || "Not returned"}
+                    />
+                    <ReviewField
+                      label="IAPD / IARD"
+                      value={verifiedIdentity.secNumber || "Not returned"}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {nameVerificationStatus === "not_verified" ? (
+                <div className="space-y-2">
+                  <p className="font-medium text-foreground">
+                    {isBroadNameQuery
+                      ? "Kai needs a more specific advisor name before verification can continue."
+                      : "Kai could not verify this advisor name yet."}
+                  </p>
+                  <p className="leading-6 text-muted-foreground">
+                    {isBroadNameQuery
+                      ? "Try the advisor's full legal name so Kai can narrow to one registered professional."
+                      : nameVerificationResult?.reason ||
+                        "No confident FINRA or SEC match was found for the query."}
+                  </p>
+                  {isBroadNameQuery && nameVerificationResult?.reason ? (
+                    <p className="leading-6 text-muted-foreground">{nameVerificationResult.reason}</p>
+                  ) : null}
+                  {nameVerificationResult?.suggested_names?.length ? (
+                    <div className="space-y-2">
+                      <p className="leading-6 text-muted-foreground">
+                        {isBroadNameQuery
+                          ? "Try one of these fuller names:"
+                          : "Suggested matches:"}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {nameVerificationResult.suggested_names.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => handleSuggestedNameSelect(suggestion)}
+                            className="inline-flex min-h-9 items-center rounded-full border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-muted/40"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {nameVerificationStatus === "provider_unavailable" ? (
+                <div className="space-y-2">
+                  <p className="font-medium text-foreground">
+                    Kai could not complete verification right now.
+                  </p>
+                  <p className="leading-6 text-muted-foreground">
+                    {nameVerificationResult?.reason ||
+                      "The verification service is unavailable right now."}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              {nameVerificationStatus !== "verified" ? (
+                <button
+                  type="button"
+                  onClick={() => void handleVerifyName()}
+                  disabled={!canVerifyName}
+                  className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {nameVerificationStatus === "verifying"
+                    ? "Verifying..."
+                    : nameVerificationStatus === "not_verified" ||
+                        nameVerificationStatus === "provider_unavailable"
+                      ? "Retry verification"
+                      : "Verify"}
+                </button>
+              ) : null}
+              {devRiaBypassAllowed && !nameVerificationSatisfied ? (
+                <button
+                  type="button"
+                  onClick={() => void handleDevActivate()}
+                  disabled={saving || displayNameQuery.length === 0}
+                  className="inline-flex min-h-10 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? "Activating..." : "Bypass verification"}
+                </button>
+              ) : null}
+            </div>
+
             <p className="text-sm leading-6 text-muted-foreground">
-              Investors should recognize this name immediately on discovery cards, connection
-              requests, and consent prompts.
+              Advisory access requires a verified CRD-backed identity. If the name does not resolve to a unique registration, update it and retry verification.
             </p>
           </div>
         );
       case "legal_identity":
         return (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <TextField
-              label="Individual legal name"
-              placeholder="Full legal adviser or broker name"
-              value={draft.individualLegalName}
-              onChange={(value) => updateDraft({ individualLegalName: value })}
-            />
-            <TextField
-              label="Individual CRD"
-              placeholder="CRD number"
-              value={draft.individualCrd}
-              inputMode="numeric"
-              onChange={(value) => updateDraft({ individualCrd: value })}
-            />
+          <div className="space-y-4">
+            <div className="rounded-[20px] border border-border/70 bg-background/70 px-4 py-4 text-sm text-muted-foreground">
+              Manual fallback is only for cases where the name-first Stage 1 lookup cannot verify the advisor cleanly.
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="Individual legal name"
+                placeholder="Full legal adviser or broker name"
+                value={draft.individualLegalName}
+                onChange={(value) => updateDraft({ individualLegalName: value })}
+              />
+              <TextField
+                label="Individual CRD"
+                placeholder="CRD number"
+                value={draft.individualCrd}
+                inputMode="numeric"
+                onChange={(value) => updateDraft({ individualCrd: value })}
+              />
+            </div>
           </div>
         );
       case "advisory_firm":
         return (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <TextField
-              label="Advisory firm name"
-              placeholder="Registered advisory firm name"
-              value={draft.advisoryFirmName}
-              onChange={(value) => updateDraft({ advisoryFirmName: value })}
-            />
-            <TextField
-              label="Firm IAPD / IARD"
-              placeholder="IAPD / IARD number"
-              value={draft.advisoryFirmIapdNumber}
-              inputMode="numeric"
-              onChange={(value) => updateDraft({ advisoryFirmIapdNumber: value })}
-            />
+          <div className="space-y-4">
+            <p className="text-sm leading-6 text-muted-foreground">
+              Kai only asks for firm IAPD / IARD when you explicitly choose the manual fallback path.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="Advisory firm name"
+                placeholder="Registered advisory firm name"
+                value={draft.advisoryFirmName}
+                onChange={(value) => updateDraft({ advisoryFirmName: value })}
+              />
+              <TextField
+                label="Firm IAPD / IARD"
+                placeholder="IAPD / IARD number"
+                value={draft.advisoryFirmIapdNumber}
+                inputMode="numeric"
+                onChange={(value) => updateDraft({ advisoryFirmIapdNumber: value })}
+              />
+            </div>
           </div>
         );
       case "broker_firm":
@@ -643,17 +1116,17 @@ export default function RiaOnboardingPage() {
               title="Regulatory identity Kai will verify"
             >
               <SettingsRow
-                title={draft.displayName.trim() || "Display name missing"}
+                title={verifiedIdentity.matchedName || draft.displayName.trim() || "Display name missing"}
                 description="Investor-facing professional identity"
               />
               <SettingsRow
-                title={draft.individualLegalName.trim() || "Legal name missing"}
-                description={`CRD ${draft.individualCrd.trim() || "not provided yet"}`}
+                title={verifiedIdentity.matchedName || "Name verification pending"}
+                description={`CRD ${verifiedIdentity.crdNumber || "not verified yet"}`}
               />
-              {draft.requestedCapabilities.includes("advisory") ? (
+              {draft.requestedCapabilities.includes("advisory") && verifiedIdentity.currentFirm ? (
                 <SettingsRow
-                  title={draft.advisoryFirmName.trim() || "Advisory firm missing"}
-                  description={`IAPD / IARD ${draft.advisoryFirmIapdNumber.trim() || "not provided yet"}`}
+                  title={verifiedIdentity.currentFirm || "Advisory firm not returned"}
+                  description={`IAPD / IARD ${verifiedIdentity.secNumber || "not returned"}`}
                 />
               ) : null}
               {draft.requestedCapabilities.includes("brokerage") ? (
@@ -740,71 +1213,6 @@ export default function RiaOnboardingPage() {
 
       {!iamUnavailable ? (
         <div className="space-y-5">
-          <SurfaceInset className="space-y-4 px-4 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-                  Trust summary
-                </p>
-                <h2 className="text-sm font-semibold">Keep the verification state visible, not heavy</h2>
-                <p className="max-w-3xl text-sm text-muted-foreground">
-                  This summary stays persistent while the wizard keeps attention on one decision at a time.
-                </p>
-              </div>
-              {loading ? (
-                <Badge variant="secondary">
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  Loading
-                </Badge>
-              ) : (
-                <Badge variant="secondary">
-                  {formatVerificationStatus(advisoryVerificationStatus, false)}
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">
-                {capabilityLabels.length > 0 ? capabilityLabels.join(" + ") : "No capabilities selected"}
-              </Badge>
-              <Badge variant="secondary">
-                {advisoryAccessReady
-                  ? "RIA workspace ready"
-                  : brokerageAccessReady
-                    ? "Broker lane verified"
-                    : "Activation still gated"}
-              </Badge>
-              {draft.displayName.trim() ? (
-                <Badge variant="secondary">{draft.displayName.trim()}</Badge>
-              ) : null}
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <ReviewField
-                label="Verification"
-                value={formatVerificationStatus(advisoryVerificationStatus, loading)}
-                helper={latestVerificationCopy(status)}
-              />
-              {draft.requestedCapabilities.includes("brokerage") ? (
-                <ReviewField
-                  label="Brokerage"
-                  value={formatVerificationStatus(brokerageVerificationStatus, false, "brokerage")}
-                  helper="Broker capability stays isolated from advisory access."
-                />
-              ) : null}
-              <ReviewField
-                label="Current focus"
-                value={`Step ${currentStepIndex + 1} of ${steps.length}`}
-                helper={currentStep?.title}
-              />
-              <ReviewField
-                label="Investor identity"
-                value={draft.displayName.trim() || user?.displayName || user?.email || "Not set yet"}
-                helper="The name carried into invites and consent prompts."
-              />
-            </div>
-          </SurfaceInset>
-
           <SurfaceCard className="mx-auto w-full max-w-3xl">
             <SurfaceCardHeader className="space-y-4 border-b border-border/60">
               <div className="flex items-center justify-between gap-3">
@@ -905,17 +1313,6 @@ export default function RiaOnboardingPage() {
             </SurfaceCardContent>
           </SurfaceCard>
 
-          <SurfaceInset className="space-y-3 px-4 py-4">
-            <div className="flex items-start gap-3">
-              <ShieldQuestion className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Deferred for later settings</p>
-                <p className="text-sm text-muted-foreground">
-                  Long bio, disclosures URL, firm role, communication style, and alert cadence now stay out of onboarding so activation feels shorter and clearer.
-                </p>
-              </div>
-            </div>
-          </SurfaceInset>
         </div>
       ) : null}
     </RiaPageShell>

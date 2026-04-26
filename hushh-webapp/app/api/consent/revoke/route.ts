@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] Revoking consent for user: ${userId}, scope: ${scope}`);
+    console.log(`[API] Revoking consent for scope: ${scope}`);
 
     const backendUrl = `${BACKEND_URL}/api/consent/revoke`;
     console.log(`[API] Calling backend: ${backendUrl}`);

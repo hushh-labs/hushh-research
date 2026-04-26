@@ -1,4 +1,4 @@
-# Hushh Documentation
+# Hussh Documentation
 
 > Canonical entry point for durable repo knowledge.
 
@@ -6,11 +6,12 @@
 
 ```mermaid
 flowchart TB
-  hub["docs/<br/>canonical repo knowledge"]
+  hub["docs/<br/>canonical Hussh knowledge"]
   guides["guides/<br/>bootstrap + runtime"]
-  architecture["architecture/<br/>trust boundaries + contracts"]
+  architecture["architecture/<br/>7-layer stack + contracts"]
   operations["operations/<br/>governance + release"]
   vision["vision/<br/>product thesis"]
+  future["future/<br/>roadmap + R&D planning"]
   frontend["hushh-webapp/docs/<br/>frontend implementation"]
   backend["consent-protocol/docs/<br/>backend implementation"]
 
@@ -18,13 +19,14 @@ flowchart TB
   hub --> architecture
   hub --> operations
   hub --> vision
+  hub --> future
   hub --> frontend
   hub --> backend
 ```
 
 ## The Story in One Screen
 
-Hushh is a consent-and-scope platform built on a strict trust model:
+Hussh is a consent-and-scope platform built on a strict trust model:
 
 - **identity** decides who is acting
 - **vault** holds encrypted user data
@@ -33,10 +35,13 @@ Hushh is a consent-and-scope platform built on a strict trust model:
 
 The platform invariants are:
 
-1. **BYOK**
-2. **zero-knowledge**
-3. **consent + scoped access**
-4. **tri-flow parity across web, iOS, and Android**
+1. **Cryptographic Primitives** (implemented today through BYOK, local key control, and ciphertext-at-rest)
+2. **Capability Tokens** (implemented today through `VAULT_OWNER`, consent tokens, and developer tokens)
+3. **PCHP** (implemented today through the Consent Protocol developer API + MCP consent/export flow)
+4. **Separation of Duties** (implemented today through the frontend/backend trust boundary and tri-flow parity across web, iOS, and Android)
+
+The canonical term mapping lives in [reference/architecture/founder-language-matrix.md](./reference/architecture/founder-language-matrix.md).
+The canonical brand rule lives in [reference/operations/brand-and-compatibility-contract.md](./reference/operations/brand-and-compatibility-contract.md).
 
 ## Documentation Surface
 
@@ -45,9 +50,13 @@ Start here:
 - [../README.md](../README.md): product and repo orientation
 - [guides/getting-started.md](./guides/getting-started.md): first-run path
 - [guides/environment-model.md](./guides/environment-model.md): runtime profiles
-- [reference/architecture/architecture.md](./reference/architecture/architecture.md): runtime and trust boundaries
+- [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md): canonical docs-home map
+- [reference/architecture/architecture.md](./reference/architecture/architecture.md): canonical seven-layer Hussh platform architecture, integration model, deployment model, and runtime sequences
+- [reference/architecture/founder-language-matrix.md](./reference/architecture/founder-language-matrix.md): founder-language terminology contract
+- [reference/operations/brand-and-compatibility-contract.md](./reference/operations/brand-and-compatibility-contract.md): public naming rule and compatibility boundary
 - [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model
 - [vision/README.md](./vision/README.md): product thesis and positioning
+- [future/README.md](./future/README.md): future roadmap and R&D planning home
 
 ## Domain Indexes
 
@@ -63,6 +72,7 @@ Start here:
 | Quality | [reference/quality/README.md](./reference/quality/README.md) |
 | Streaming | [reference/streaming/README.md](./reference/streaming/README.md) |
 | Vision | [vision/README.md](./vision/README.md) |
+| Future | [future/README.md](./future/README.md) |
 
 ## Implementation Indexes
 
@@ -76,12 +86,23 @@ Start here:
 | Service layer and platform-aware calls | [../hushh-webapp/lib/services/README.md](../hushh-webapp/lib/services/README.md) |
 | Backend implementation docs | [../consent-protocol/docs/README.md](../consent-protocol/docs/README.md) |
 
+## Documentation Homes
+
+This repo uses a strict documentation-home model:
+
+1. root markdowns stay thin and point downward
+2. `docs/` owns cross-cutting repo contracts
+3. `consent-protocol/docs/` owns backend/protocol package docs
+4. `hushh-webapp/docs/` owns frontend/native package docs
+
+See [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md).
+
 ## Active Docs Contract
 
 Contributor-facing docs should stay small and stable:
 
 - use one canonical setup path
-- use npm-first commands in public docs
+- use the canonical public command surface (`bin/hushh` at repo root, package-local commands only when the doc is package-local)
 - keep maintainer-only workflows out of first-run guides
 - prefer durable references over one-time runbooks
 

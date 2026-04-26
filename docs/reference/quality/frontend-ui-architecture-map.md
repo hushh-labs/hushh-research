@@ -1,12 +1,16 @@
 # Frontend UI Architecture Map
 
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](./README.md). Use that map for the top-down quality and UI-system surface; this page is the narrower frontend architecture contract beneath it.
+
 ## Canonical Map
 
 | Layer | Location | Purpose | Rules |
 |---|---|---|---|
 | Stock primitives | `hushh-webapp/components/ui/*` | Registry-backed baseline controls | Keep overwrite-safe. No app semantics here. |
 | Morphy UX | `hushh-webapp/lib/morphy-ux/*` | Standalone design-system root | Own tokens, primitive surface shells, motion, and reusable interaction layers. Do not pull in feature or app-ui code. |
-| App surfaces | `hushh-webapp/components/app-ui/*` | Hushh shell chrome and semantic shared compositions | Own shell, settings, page chrome, and semantic wrappers built on Morphy primitives. |
+| App surfaces | `hushh-webapp/components/app-ui/*` | Hussh shell chrome and semantic shared compositions | Own shell, settings, page chrome, and semantic wrappers built on Morphy primitives. |
 | Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Route-level composition and feature behavior | Reuse stock or app-ui primitives before inventing new surfaces. |
 | Labs | `hushh-webapp/app/labs/*`, `hushh-webapp/components/labs/*`, `hushh-webapp/lib/labs/*` | Experimental visual exploration | Never import directly into production Kai routes without graduation. |
 
@@ -18,6 +22,17 @@ The production baseline is the current solved shell and settings language on loc
 2. Rounded segmented tabs with a clear active border and elevated highlight.
 3. Single interaction owner per actionable row or shell surface.
 4. Neutral premium surfaces built from shared tokens, not route-local chrome recipes.
+5. One semantic route-container system:
+   - `reading`
+   - `standard`
+   - `expanded`
+6. One curated header accent map:
+   - `neutral`
+   - `kai`
+   - `ria`
+   - `consent`
+   - `marketplace`
+   - `developers`
 
 Reference implementations:
 
@@ -39,6 +54,7 @@ Reference implementations:
    - settings/list rows
    - shared product-level composition
 4. Do not create feature-local one-off primitives when a shared semantic surface should exist.
+5. Do not create route-local outer width shells when `AppPageShell` or `FullscreenFlowShell` should own the container.
 
 ## Labs Graduation Rule
 
@@ -54,8 +70,9 @@ A lab pattern graduates into production only after it has:
 
 Project skills live under `.codex/skills/`:
 
-1. `design-system`
+1. `frontend`
+2. `frontend-design-system`
 3. `frontend-architecture`
-4. `frontend-surface-governance`
+4. `frontend-surface-placement`
 
 These skills must stay aligned with the docs and verification commands in this quality section.

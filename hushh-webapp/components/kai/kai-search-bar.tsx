@@ -11,18 +11,22 @@ import {
 } from "react";
 import { Bug, Loader2, Mic, Search } from "lucide-react";
 
-import { KaiCommandPalette } from "@/components/kai/kai-command-palette";
+import {
+  KaiCommandPalette,
+  type KaiCommandPaletteSelection,
+} from "@/components/kai/kai-command-palette";
 import { VoiceCompactStatus } from "@/components/kai/voice/voice-compact-status";
 import { VoiceConsoleSheet } from "@/components/kai/voice/voice-console-sheet";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
-import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
-import { Button } from "@/lib/morphy-ux/button";
+import { getVariantStyles } from "@/lib/morphy-ux/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
 import { cn } from "@/lib/utils";
+import { useVault } from "@/lib/vault/vault-context";
 import { useAmplitudeMeter } from "@/lib/voice/use-amplitude-meter";
+import { composeVoiceSpeechAfterExecution } from "@/lib/voice/voice-response-composer";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import { createVoiceTurnId } from "@/lib/voice/voice-telemetry";
 import {
@@ -42,7 +46,9 @@ import {
 } from "@/lib/voice/voice-turn-orchestrator";
 import type {
   AppRuntimeState,
+  VoiceActionResult,
   VoiceMemoryHint,
+  VoicePlanPayload,
   VoiceResponse,
 } from "@/lib/voice/voice-types";
 
@@ -57,19 +63,19 @@ const DEV_VOICE_DEBUG_ENABLED =
 const VOICE_V2_FLAGS = getVoiceV2Flags();
 
 interface KaiSearchBarProps {
-  onCommand: (command: KaiCommandAction, params?: Record<string, unknown>) => void;
+  onSelectAction: (selection: KaiCommandPaletteSelection) => void;
   onVoiceResponse?: (payload: {
     turnId: string;
     responseId: string;
     transcript: string;
     response: VoiceResponse;
+    plan: VoicePlanPayload;
     groundedPlan?: GroundedVoicePlan;
     memory?: VoiceMemoryHint;
     executionAllowed?: boolean;
     needsConfirmation?: boolean;
   }) => Promise<unknown> | unknown;
   disabled?: boolean;
-  hasPortfolioData?: boolean;
   userId?: string;
   vaultOwnerToken?: string;
   voiceAvailable?: boolean;
@@ -130,6 +136,63 @@ function describeVoiceConnectStage(permissionStatus: string): string {
   return "Connecting realtime voice session...";
 }
 
+const VOICE_STATUS_PREVIEW_MESSAGES = new Set([
+  "",
+  "Listening...",
+  "Audio detected...",
+  "Connecting realtime voice session...",
+  "Waiting for microphone access...",
+  "Creating realtime session...",
+  "Opening realtime voice connection...",
+]);
+
+const VOICE_BARGE_IN_SHORT_COMMANDS = new Set([
+  "back",
+  "cancel",
+  "dashboard",
+  "market",
+  "mute",
+  "no",
+  "open",
+  "portfolio",
+  "profile",
+  "repeat",
+  "resume",
+  "show",
+  "stop",
+  "wait",
+  "yes",
+]);
+
+function normalizeVoicePreviewText(value: string): string {
+  return String(value || "").trim();
+}
+
+export function shouldShowAmbientListeningStatus(preview: string): boolean {
+  const normalized = normalizeVoicePreviewText(preview);
+  return VOICE_STATUS_PREVIEW_MESSAGES.has(normalized);
+}
+
+export function shouldTriggerVoiceBargeIn(partialTranscript: string): boolean {
+  const normalized = String(partialTranscript || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  if (VOICE_BARGE_IN_SHORT_COMMANDS.has(normalized)) return true;
+
+  const compact = normalized.replace(/\s+/g, "");
+  if (compact.length >= 8) return true;
+
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length >= 2) {
+    const meaningfulChars = words.reduce((sum, word) => sum + word.length, 0);
+    return meaningfulChars >= 6;
+  }
+  return false;
+}
+
 type TimerRefLike = {
   current: number | null;
 };
@@ -183,10 +246,9 @@ export function runAutoTurnDispatchSafely(input: {
 }
 
 export function KaiSearchBar({
-  onCommand,
   onVoiceResponse,
   disabled = false,
-  hasPortfolioData = true,
+  onSelectAction,
   userId,
   vaultOwnerToken,
   voiceAvailable = true,
@@ -197,6 +259,7 @@ export function KaiSearchBar({
   voiceContext,
   portfolioTickers = [],
 }: KaiSearchBarProps) {
+  const { getVaultOwnerToken, vaultKey } = useVault();
   const [open, setOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
   const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(null);
@@ -217,7 +280,7 @@ export function KaiSearchBar({
     () => `voice_scope_${createVoiceTurnId().replace("vturn_", "")}`
   );
 
-  const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } =
+  const { progress: hideBottomChromeProgress } =
     useKaiBottomChromeVisibility(true);
 
   const appendDebugEvent = useVoiceSession((s) => s.appendDebugEvent);
@@ -232,6 +295,7 @@ export function KaiSearchBar({
   const voiceUiStateRef = useRef<VoiceUiState>("idle");
   const partialFallbackTimerRef = useRef<number | null>(null);
   const lastFinalTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
+  const transcriptPreviewRef = useRef<string>("");
   const sessionMutedRef = useRef<boolean>(true);
   const ttsPlaybackStateRef = useRef<"idle" | "loading" | "playing">("idle");
   const onVoiceResponseRef = useRef<KaiSearchBarProps["onVoiceResponse"]>(onVoiceResponse);
@@ -338,8 +402,8 @@ export function KaiSearchBar({
     }
     if (sessionMuted) {
       clearClientVadFallbackTimer(partialFallbackTimerRef);
-      transitionVoiceState("idle", "session_muted");
-      setTranscriptPreview("");
+      transitionVoiceState("sheet_muted", "session_muted");
+      setTranscriptPreview("Microphone muted. Tap mic to continue.");
       setProcessingStageText(null);
       return;
     }
@@ -522,13 +586,13 @@ export function KaiSearchBar({
     emitDebug("stt", "debug_submit_commit_sent", {}, currentVoiceTurnIdRef.current);
   }, [emitDebug, realtimeSessionReady]);
 
-  const togglePauseListening = useCallback(() => {
+  const toggleMuteListening = useCallback(() => {
     const nextMuted = voiceSessionManager.toggleMuted();
     setSessionMuted(nextMuted);
     if (nextMuted) {
       clearClientVadFallbackTimer(partialFallbackTimerRef);
-      transitionVoiceState("sheet_paused", "mic_muted");
-      setTranscriptPreview("Listening paused. Tap resume to continue.");
+      transitionVoiceState("sheet_muted", "mic_muted");
+      setTranscriptPreview("Microphone muted. Tap mic to continue.");
       return;
     }
     transitionVoiceState("sheet_listening", "mic_unmuted");
@@ -610,6 +674,7 @@ export function KaiSearchBar({
         scopeId: sessionScopeId,
         userId,
         vaultOwnerToken,
+        getVaultOwnerToken,
         voice: DEFAULT_TTS_VOICE,
         activate: true,
       });
@@ -639,7 +704,7 @@ export function KaiSearchBar({
       setVoiceErrorMessage(message);
       return "failed";
     }
-  }, [sessionScopeId, setVoiceError, userId, vaultOwnerToken, voiceAvailable]);
+  }, [getVaultOwnerToken, sessionScopeId, setVoiceError, userId, vaultOwnerToken, voiceAvailable]);
 
   const startListening = useCallback(async () => {
     if (micDisabled) {
@@ -730,21 +795,70 @@ export function KaiSearchBar({
             speak: true as const,
             tool_call: pendingConfirmation.toolCall,
           };
+    const plan: VoicePlanPayload = {
+      mode: "execute_and_wait",
+      action_id: null,
+      reply_strategy: "template",
+      response,
+      execution_allowed: true,
+      needs_confirmation: false,
+    };
 
     setPendingConfirmation(null);
     setProcessingStageText("Executing action...");
     transitionVoiceState("processing_compact", "confirmation_accepted");
     try {
-      await Promise.resolve(
+      const outcome = await Promise.resolve(
         onVoiceResponseRef.current({
           turnId,
           responseId,
           transcript: pendingConfirmation.transcript,
           response,
+          plan,
           executionAllowed: true,
           needsConfirmation: false,
         })
       );
+      const actionResult =
+        outcome &&
+        typeof outcome === "object" &&
+        "actionResult" in outcome &&
+        outcome.actionResult &&
+        typeof outcome.actionResult === "object"
+          ? (outcome.actionResult as VoiceActionResult)
+          : null;
+      const speech = composeVoiceSpeechAfterExecution({
+        response,
+        plan,
+        actionResult,
+        plannerFinalText: response.message,
+      });
+      if (speech?.text) {
+        currentVoiceTurnIdRef.current = turnId;
+        setLastReplyText(speech.text);
+        if (speech.segmentType !== "ack") {
+          setFinalTranscript(speech.text);
+        }
+        setLastAssistantReplyRef.current({
+          message: speech.text,
+          kind: speech.segmentType === "ack" ? "speak_only" : response.kind,
+          turnId,
+        });
+        emitDebug("tts", "assistant_text_scheduled", {
+          response_id: responseId,
+          segment_type: speech.segmentType,
+          kind: speech.segmentType === "ack" ? "ack" : response.kind,
+          text_chars: speech.text.length,
+        }, turnId);
+        setProcessingStageText("Kai is speaking...");
+        transitionVoiceState("speaking_compact", "confirmation_speech_scheduled");
+        await speakAssistantMessageRef.current({
+          text: speech.text,
+          turnId,
+          responseId,
+          segmentType: speech.segmentType,
+        });
+      }
       moveToListeningOrIdle();
     } catch (error) {
       setRetryReadyError(
@@ -753,6 +867,7 @@ export function KaiSearchBar({
       );
     }
   }, [
+    emitDebug,
     moveToListeningOrIdle,
     pendingConfirmation,
     setPendingConfirmation,
@@ -800,8 +915,8 @@ export function KaiSearchBar({
       voiceSessionManager.setMuted(true);
       clearClientVadFallbackTimer(partialFallbackTimerRef);
       setSessionMuted(true);
-      transitionVoiceState("sheet_paused", "mic_muted_from_button");
-      setTranscriptPreview("Listening paused. Tap mic to resume.");
+      transitionVoiceState("sheet_muted", "mic_muted_from_button");
+      setTranscriptPreview("Microphone muted. Tap mic to continue.");
     },
     [
       micHidden,
@@ -816,6 +931,10 @@ export function KaiSearchBar({
   useEffect(() => {
     sessionMutedRef.current = sessionMuted;
   }, [sessionMuted]);
+
+  useEffect(() => {
+    transcriptPreviewRef.current = transcriptPreview;
+  }, [transcriptPreview]);
 
   useEffect(() => {
     ttsPlaybackStateRef.current = ttsPlaybackState;
@@ -876,7 +995,7 @@ export function KaiSearchBar({
   useLayoutEffect(() => {
     const root = document.documentElement;
     const update = () => {
-      const barHeight = barRef.current?.getBoundingClientRect().height ?? 48;
+      const barHeight = barRef.current?.getBoundingClientRect().height ?? 40;
       const cssGap = Number.parseFloat(getComputedStyle(root).getPropertyValue("--kai-command-bottom-gap"));
       const gap = Number.isFinite(cssGap) ? cssGap : 12;
       const total = Math.round(barHeight + gap);
@@ -936,6 +1055,7 @@ export function KaiSearchBar({
     const orchestratorConfig: VoiceTurnOrchestratorConfig = {
       userId,
       vaultOwnerToken,
+      vaultKey: vaultKey || undefined,
       getAppRuntimeState: () => appRuntimeStateRef.current,
       getVoiceContext: () => voiceContextRef.current,
       onVoiceResponse: (payload) => {
@@ -948,7 +1068,8 @@ export function KaiSearchBar({
           payload.response.kind === "execute" &&
           (payload.response.tool_call.tool_name === "cancel_active_analysis" ||
             payload.response.tool_call.tool_name === "execute_kai_command" ||
-            payload.response.tool_call.tool_name === "resume_active_analysis")
+            payload.response.tool_call.tool_name === "resume_active_analysis" ||
+            payload.response.tool_call.tool_name === "switch_persona")
         ) {
           setPendingConfirmation({
             kind: payload.response.tool_call.tool_name,
@@ -1023,7 +1144,7 @@ export function KaiSearchBar({
       return;
     }
     orchestratorRef.current = new VoiceTurnOrchestrator(orchestratorConfig);
-  }, [onVoiceResponse, setPendingConfirmation, userId, vaultOwnerToken]);
+  }, [onVoiceResponse, setPendingConfirmation, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     const unsubscribe = voiceSessionManager.subscribe((event) => {
@@ -1125,7 +1246,10 @@ export function KaiSearchBar({
 
       const transcriptEvent = event.transcript;
       if (transcriptEvent.kind === "partial") {
-        if (ttsPlaybackStateRef.current === "playing" || ttsPlaybackStateRef.current === "loading") {
+        if (
+          ttsPlaybackStateRef.current === "playing" &&
+          shouldTriggerVoiceBargeIn(transcriptEvent.text)
+        ) {
           ttsPlaybackManagerRef.current?.stop();
           voiceSessionManager.cancelSpeech("VOICE_BARGE_IN");
           orchestratorRef.current?.cancelActiveTurn("barge_in");
@@ -1216,6 +1340,9 @@ export function KaiSearchBar({
     if (voiceUiState !== "sheet_listening") return;
     if (!realtimeSessionReady) return;
     const timer = window.setInterval(() => {
+      if (!shouldShowAmbientListeningStatus(transcriptPreviewRef.current)) {
+        return;
+      }
       const activity = smoothedLevel > 0.06 ? "Audio detected..." : "Listening...";
       setTranscriptPreview(activity);
     }, 280);
@@ -1225,7 +1352,7 @@ export function KaiSearchBar({
   }, [realtimeSessionReady, smoothedLevel, voiceUiState]);
 
   const showVoiceSheet =
-    voiceUiState === "sheet_listening" || voiceUiState === "sheet_paused";
+    voiceUiState === "sheet_listening" || voiceUiState === "sheet_muted";
   const showProcessingCompact = voiceUiState === "processing_compact";
   const showSpeakingCompact = voiceUiState === "speaking_compact";
   const showRetryCompact = voiceUiState === "retry_ready";
@@ -1245,32 +1372,34 @@ export function KaiSearchBar({
   const commandBarBottomOffset = isElevatedVoiceSurface
     ? "calc(var(--app-bottom-inset) + 58px)"
     : "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
+  const visibleCommandBarBottomOffset = isElevatedVoiceSurface
+    ? commandBarBottomOffset
+    : `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
   const realtimeConnecting = sessionStateText === "connecting" && !realtimeSessionReady;
 
       return (
     <>
       <div
         className={cn(
-          "fixed inset-x-0 z-[136] flex justify-center px-4",
-          hideBottomChrome ? "pointer-events-none opacity-0" : "pointer-events-none opacity-100"
+          "fixed inset-x-0 z-[136] flex justify-center px-4 pointer-events-none"
         )}
         style={{
-          bottom: commandBarBottomOffset,
-          transform: `translate3d(0, calc(${100 * hideBottomChromeProgress}% + ${12 * hideBottomChromeProgress}px), 0)`,
-          opacity: Math.max(0, 1 - hideBottomChromeProgress),
+          bottom: visibleCommandBarBottomOffset,
+          transform: `translate3d(0, ${6 * hideBottomChromeProgress}px, 0)`,
+          opacity: 1,
         }}
       >
-        <div ref={barRef} className="pointer-events-auto w-full max-w-[460px]">
+        <div ref={barRef} className="pointer-events-auto w-full max-w-[360px] sm:max-w-[392px]">
           {showVoiceSheet ? (
             <VoiceConsoleSheet
               open={showVoiceSheet}
-              paused={sessionMuted && realtimeSessionReady}
+              muted={sessionMuted && realtimeSessionReady}
               submitting={false}
               submitEnabled={VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady}
               showSubmit={VOICE_V2_FLAGS.submitDebugVisible}
               transcriptPreview={transcriptPreview}
               smoothedLevel={smoothedLevel}
-              onPauseToggle={togglePauseListening}
+              onMuteToggle={toggleMuteListening}
               onSubmit={submitDebugTurn}
               onCancel={cancelListening}
               onExamplePrompt={handleExamplePrompt}
@@ -1299,22 +1428,22 @@ export function KaiSearchBar({
               cancelLabel="Not now"
             />
           ) : showBaseCommandSurface ? (
-            <div className="relative h-12">
-              <Button
-                variant="none"
-                effect="fade"
-                fullWidth
-                size="default"
+            <div className="relative h-9">
+              <button
+                type="button"
                 data-tour-id="kai-command-bar"
                 className={cn(
-                  "h-12 justify-start rounded-full px-4 pr-12 text-sm text-muted-foreground",
+                  "flex h-9 w-full items-center justify-start overflow-hidden rounded-full px-3 pr-11 text-[12px] text-muted-foreground",
+                  getVariantStyles("none", "fade"),
                   disabled && "pointer-events-none opacity-50"
                 )}
                 onClick={() => setOpen(true)}
               >
-                <Icon icon={Search} size="sm" className="mr-2 text-muted-foreground" />
-                Analyze, dashboard, consent with Kai
-              </Button>
+                <Icon icon={Search} size="sm" className="shrink-0 text-muted-foreground" />
+                <span className="ml-2 min-w-0 flex-1 truncate text-left">
+                  Analyze, dashboard, consent with Kai
+                </span>
+              </button>
               {!micHidden ? (
                 <button
                   type="button"
@@ -1329,7 +1458,7 @@ export function KaiSearchBar({
                         : "Mute microphone"
                   }
                   className={cn(
-                    "absolute right-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
+                    "absolute right-1 top-1/2 z-10 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
                     micDisabled && "cursor-not-allowed opacity-60"
                   )}
                   onClick={handleMicTap}
@@ -1356,8 +1485,8 @@ export function KaiSearchBar({
       <KaiCommandPalette
         open={open}
         onOpenChange={setOpen}
-        onCommand={onCommand}
-        hasPortfolioData={hasPortfolioData}
+        onSelectAction={onSelectAction}
+        appRuntimeState={appRuntimeState}
         portfolioTickers={portfolioTickers}
       />
 

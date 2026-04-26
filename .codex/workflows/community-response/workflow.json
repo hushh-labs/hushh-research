@@ -1,0 +1,51 @@
+{
+  "id": "community-response",
+  "title": "Community Response",
+  "goal": "Draft short public or community responses grounded in shipped repo truth and current technical boundaries.",
+  "owner_skill": "comms-community",
+  "default_spoke": null,
+  "task_type": "community-response",
+  "affected_surfaces": [
+    ".codex/skills/comms-community",
+    "docs/reference/iam",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_reads": [
+    ".codex/skills/comms-community/references/reply-rules.md",
+    "docs/reference/iam/README.md",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task community-response"
+  ],
+  "verification_bundle": {
+    "id": "community-response",
+    "commands": [
+      "./bin/hushh codex route-task community-response"
+    ],
+    "tests": []
+  },
+  "deliverables": [
+    "default reply variant",
+    "detailed reply variant",
+    "optional firmer reply variant when correction is needed",
+    "shipped-vs-future distinction",
+    "repo-backed GitHub doc citations"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "GitHub doc links used",
+    "Reply variants provided"
+  ],
+  "handoff_chain": [
+    "comms-community",
+    "docs-governance",
+    "repo-context"
+  ],
+  "common_failures": [
+    "overstating shipped functionality",
+    "mixing roadmap with runtime truth",
+    "repo-relative paths instead of canonical GitHub doc links",
+    "missing required drafted-reply variants"
+  ]
+}

@@ -6,10 +6,15 @@ Kai's higher-level brokerage orchestration service.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+
+from hushh_mcp.runtime_settings import get_app_runtime_settings
+
+logger = logging.getLogger(__name__)
 
 _PLAID_BASE_URLS = {
     "sandbox": "https://sandbox.plaid.com",
@@ -23,6 +28,7 @@ _DEFAULT_CLIENT_NAME = "Hushh Kai"
 _DEFAULT_MANUAL_ENTRY_ENABLED = False
 _DEFAULT_CRYPTO_WALLET_ENABLED = False
 _DEFAULT_REDIRECT_PATH = "/kai/plaid/oauth/return"
+_DEFAULT_WEBHOOK_PATH = "/api/kai/plaid/webhook"
 
 
 def _clean_text(value: Any, *, default: str = "") -> str:
@@ -54,9 +60,24 @@ def _normalize_redirect_uri(value: str | None) -> str | None:
     if not raw:
         return None
     parsed = urlsplit(raw)
-    if not parsed.scheme or not parsed.netloc:
+    if parsed.scheme != "https" or not parsed.netloc:
         return None
     path = parsed.path or "/"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _normalize_webhook_url(value: str | None) -> str | None:
+    raw = _clean_text(value)
+    if not raw:
+        return None
+    if any(marker in raw for marker in ("<", ">", "{", "}", "${")):
+        return None
+    parsed = urlsplit(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    if any(char.isspace() for char in parsed.netloc):
+        return None
+    path = parsed.path or _DEFAULT_WEBHOOK_PATH
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
@@ -83,12 +104,13 @@ class PlaidRuntimeConfig:
 
     @classmethod
     def from_env(cls) -> "PlaidRuntimeConfig":
+        app_runtime = get_app_runtime_settings()
         environment = _clean_text(
             os.getenv("PLAID_ENV") or os.getenv("PLAID_ENVIRONMENT"),
             default="sandbox",
         ).lower()
         base_url = _PLAID_BASE_URLS.get(environment, _PLAID_BASE_URLS["sandbox"])
-        frontend_url = _clean_text(os.getenv("FRONTEND_URL")) or None
+        frontend_url = app_runtime.app_frontend_origin or None
         redirect_path = _clean_text(
             os.getenv("PLAID_REDIRECT_PATH"),
             default=_DEFAULT_REDIRECT_PATH,
@@ -97,13 +119,19 @@ class PlaidRuntimeConfig:
             redirect_path = f"/{redirect_path}"
         redirect_path = redirect_path or _DEFAULT_REDIRECT_PATH
 
-        explicit_redirect_uri = _normalize_redirect_uri(
+        raw_explicit_redirect_uri = _clean_text(
             os.getenv("PLAID_REDIRECT_URI") or os.getenv("PLAID_OAUTH_REDIRECT_URI")
         )
+        explicit_redirect_uri = _normalize_redirect_uri(raw_explicit_redirect_uri)
+        if raw_explicit_redirect_uri and explicit_redirect_uri is None:
+            logger.warning(
+                "plaid.redirect_uri_invalid_ignored raw_value=%s",
+                raw_explicit_redirect_uri,
+            )
         redirect_uri = explicit_redirect_uri
         if redirect_uri is None and frontend_url:
             parsed = urlsplit(frontend_url)
-            if parsed.scheme and parsed.netloc:
+            if parsed.scheme == "https" and parsed.netloc:
                 redirect_uri = urlunsplit((parsed.scheme, parsed.netloc, redirect_path, "", ""))
 
         raw_country_codes = _clean_text(os.getenv("PLAID_COUNTRY_CODES"))
@@ -122,6 +150,28 @@ class PlaidRuntimeConfig:
             ),
         )
 
+        raw_webhook_url = _clean_text(os.getenv("PLAID_WEBHOOK_URL"))
+        webhook_url = _normalize_webhook_url(raw_webhook_url)
+        if raw_webhook_url and webhook_url is None:
+            logger.warning(
+                "plaid.webhook_url_invalid_ignored raw_value=%s",
+                raw_webhook_url,
+            )
+
+        if webhook_url is None and frontend_url:
+            frontend_parts = urlsplit(frontend_url)
+            if frontend_parts.scheme == "https" and frontend_parts.netloc:
+                derived_webhook_url = urlunsplit(
+                    (
+                        frontend_parts.scheme,
+                        frontend_parts.netloc,
+                        _DEFAULT_WEBHOOK_PATH,
+                        "",
+                        "",
+                    )
+                )
+                webhook_url = _normalize_webhook_url(derived_webhook_url)
+
         return cls(
             environment=environment,
             base_url=base_url,
@@ -133,7 +183,7 @@ class PlaidRuntimeConfig:
                 os.getenv("PLAID_CLIENT_NAME"),
                 default=_DEFAULT_CLIENT_NAME,
             ),
-            webhook_url=_clean_text(os.getenv("PLAID_WEBHOOK_URL")) or None,
+            webhook_url=webhook_url,
             frontend_url=frontend_url,
             redirect_path=redirect_path,
             redirect_uri=redirect_uri,

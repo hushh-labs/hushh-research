@@ -1,5 +1,5 @@
 /**
- * Hushh Consent Protocol - Capacitor Plugin Type Definitions
+ * Hussh Consent Protocol - Capacitor Plugin Type Definitions
  *
  * These types mirror the consent-protocol Python types for parity:
  * - hushh_mcp/consent/token.py → HushhConsentPlugin

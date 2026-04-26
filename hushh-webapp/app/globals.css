@@ -6,6 +6,9 @@ body {
   height: 100%;
   overflow-x: hidden;
   overscroll-behavior: none;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
 }
 
 html body[data-scroll-locked] {
@@ -162,6 +165,9 @@ html body[data-scroll-locked] {
   --page-top-start: 32px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
+  --app-shell-reading: 54rem;
+  --app-shell-standard: 90rem;
+  --app-shell-expanded: 96rem;
   --top-systembar-row-gap: 4px;
   --top-shell-row-gap: var(--top-systembar-row-gap);
   --top-shell-reserved-height: calc(
@@ -182,10 +188,10 @@ html body[data-scroll-locked] {
   --top-content-pad: calc(
     var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap)
   );
-  --page-inline-gutter-standard: 20px;
-  --page-surface-overscan: 14px;
-  --page-surface-gap-standard: 18px;
-  --page-surface-gap-compact: 14px;
+  --page-inline-gutter-standard: 12px;
+  --page-surface-overscan: 0px;
+  --page-surface-gap-standard: 16px;
+  --page-surface-gap-compact: 12px;
   --page-header-stack-gap: 10px;
   --page-header-row-gap: 10px;
   --page-header-copy-gap: 4px;
@@ -196,15 +202,15 @@ html body[data-scroll-locked] {
   --section-header-copy-gap: 6px;
   --section-header-actions-gap: 10px;
   --surface-shadow-overscan: 14px;
-  --surface-stack-gap-standard: 22px;
-  --surface-stack-gap-compact: 18px;
-  --surface-card-header-px: 16px;
+  --surface-stack-gap-standard: 18px;
+  --surface-stack-gap-compact: 14px;
+  --surface-card-header-px: 14px;
   --surface-card-header-pt: 16px;
   --surface-card-header-pb: 8px;
-  --surface-card-content-px: 16px;
+  --surface-card-content-px: 14px;
   --surface-card-content-pb: 16px;
-  --surface-inset-p: 16px;
-  --settings-group-stack-gap: 8px;
+  --surface-inset-p: 14px;
+  --settings-group-stack-gap: 6px;
   --settings-heading-stack-gap: 4px;
   --settings-row-px: 12px;
   --settings-row-py: 14px;
@@ -315,7 +321,7 @@ html body[data-scroll-locked] {
   --activeShadowColor: var(--shadow1);
   --fadeGrey: #e5e7eb80;
 
-  /* Hushh Brand Color Tokens - Apple Blue */
+  /* Hussh Brand Color Tokens - Apple Blue */
   --morphy-primary-start: #0071e3;
   --morphy-primary-mid: #2d86ff;
   --morphy-primary-end: #3b82f6;
@@ -362,17 +368,27 @@ html body[data-scroll-locked] {
   --app-card-radius-standard: 22px;
   --app-card-radius-feature: 24px;
   --app-card-surface-data: #f7f7fa;
-  --app-card-surface-compact: #ffffff;
+  --app-card-surface-compact: #fcfcfd;
   --app-card-surface-default: #ffffff;
   --app-card-surface-default-solid: #ffffff;
-  --app-card-surface-surface: #ffffff;
+  --app-card-surface-surface: #fbfbfd;
   --app-card-surface-hero: #ffffff;
-  --app-card-surface-sticky-header: #f7f7fa;
-  --app-card-surface-sticky-header-solid: #f7f7fa;
-  --app-card-border-standard: transparent;
-  --app-card-border-strong: transparent;
-  --app-card-shadow-standard: 0 11px 34px 0 rgba(120, 120, 128, 0.16);
-  --app-card-shadow-feature: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
+  --app-card-surface-sticky-header: #f6f7fb;
+  --app-card-surface-sticky-header-solid: #f6f7fb;
+  --app-card-border-standard: rgba(60, 60, 67, 0.09);
+  --app-card-border-strong: rgba(60, 60, 67, 0.18);
+  --app-card-shadow-standard:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 14px 32px -18px rgba(15, 23, 42, 0.18),
+    0 10px 18px -14px rgba(120, 120, 128, 0.16);
+  --app-card-shadow-feature:
+    0 2px 4px rgba(15, 23, 42, 0.06),
+    0 22px 48px -24px rgba(15, 23, 42, 0.22),
+    0 14px 24px -18px rgba(120, 120, 128, 0.18);
+  --app-list-row-surface: color-mix(in srgb, var(--app-card-surface-default-solid) 90%, transparent);
+  --app-segmented-active-surface: #ffffff;
+  --app-segmented-active-foreground: #000000;
+  --app-segmented-active-border: #000000;
   --app-shell-surface-bg: rgba(255, 255, 255, 0.9);
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.98);
   --app-shell-surface-border: rgba(255, 255, 255, 0.68);
@@ -404,8 +420,8 @@ html body[data-scroll-locked] {
     --app-top-body-start-gap: 32px;
     --bottom-chrome-fade-overscan: 22px;
     --top-subnav-gap: 14px;
-    --page-inline-gutter-standard: 28px;
-    --page-surface-overscan: 18px;
+    --page-inline-gutter-standard: 20px;
+    --page-surface-overscan: 8px;
     --page-surface-gap-standard: 22px;
     --page-surface-gap-compact: 18px;
     --page-header-stack-gap: 12px;
@@ -438,13 +454,70 @@ html body[data-scroll-locked] {
   }
 }
 
+@media (min-width: 1024px) {
+  :root {
+    --page-inline-gutter-standard: 24px;
+    --page-surface-overscan: 12px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --page-inline-gutter-standard: 28px;
+    --page-surface-overscan: 16px;
+  }
+}
+
 .native-ios {
   --app-top-safe-offset: 2px;
 }
 
 .app-page-shell {
+  width: 100%;
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
+}
+
+.app-page-shell--reading {
+  max-width: 54rem;
+}
+
+.app-page-shell--standard {
+  max-width: 90rem;
+}
+
+.app-page-shell--expanded {
+  max-width: 96rem;
+}
+
+.app-shell-frame {
+  width: 100%;
+  max-width: 90rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-inline-gutter-standard);
+  padding-right: var(--page-inline-gutter-standard);
+}
+
+.app-reading-measure {
+  width: 100%;
+  max-width: 54rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.app-standard-measure {
+  width: 100%;
+  max-width: 90rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.app-expanded-measure {
+  width: 100%;
+  max-width: 96rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .app-page-shell[data-app-density="compact"] {
@@ -515,10 +588,23 @@ html body[data-scroll-locked] {
 
 .fullscreen-flow-shell {
   min-height: calc(100dvh - var(--app-fullscreen-flow-content-offset, 0px));
+  width: 100%;
   padding-top: var(--app-fullscreen-flow-content-offset);
   padding-bottom: var(--app-screen-footer-pad);
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
+}
+
+.fullscreen-flow-shell--reading {
+  max-width: 54rem;
+}
+
+.fullscreen-flow-shell--standard {
+  max-width: 90rem;
+}
+
+.fullscreen-flow-shell--expanded {
+  max-width: 96rem;
 }
 
 .app-page-header-region {
@@ -529,6 +615,18 @@ html body[data-scroll-locked] {
 .app-page-content-region {
   width: 100%;
   min-width: 0;
+}
+
+.app-page-shell[data-app-shell-width="reading"] {
+  max-width: var(--app-shell-reading);
+}
+
+.app-page-shell[data-app-shell-width="standard"] {
+  max-width: var(--app-shell-standard);
+}
+
+.app-page-shell[data-app-shell-width="expanded"] {
+  max-width: var(--app-shell-expanded);
 }
 
 .app-page-header-region + .app-page-content-region,
@@ -583,7 +681,7 @@ html.native-ios {
   );
 }
 
-/* Hushh Brand Text */
+/* Hussh Brand Text */
 .text-hushh-brand {
   background: linear-gradient(135deg, #0071e3 0%, #3b82f6 100%);
   -webkit-background-clip: text;
@@ -699,9 +797,12 @@ html.native-ios {
   --app-card-surface-sticky-header: #2f2f31;
   --app-card-surface-sticky-header-solid: #2f2f31;
   --app-card-border-standard: transparent;
-  --app-card-border-strong: transparent;
+  --app-card-border-strong: rgba(255, 255, 255, 0.18);
   --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
   --app-card-shadow-feature: 0 11px 34px 0 rgba(0, 0, 0, 0.75);
+  --app-segmented-active-surface: #2c2c2e;
+  --app-segmented-active-foreground: #ffffff;
+  --app-segmented-active-border: #ffffff;
   --app-shell-surface-bg: rgba(38, 38, 41, 0.9);
   --app-shell-surface-bg-hover: rgba(48, 48, 52, 0.96);
   --app-shell-surface-border: rgba(255, 255, 255, 0.08);
@@ -1203,20 +1304,8 @@ md-ripple.morphy-md-ripple {
     color 200ms ease-in-out;
 }
 
-/* Root-controlled theme transition layer (single source of truth). */
-.theme-switching *,
-.theme-switching *::before,
-.theme-switching *::after {
-  transition:
-    color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
-    background-color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
-    border-color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
-    fill var(--motion-duration-md) var(--motion-ease-standard) 0ms,
-    stroke var(--motion-duration-md) var(--motion-ease-standard) 0ms;
-  transition-delay: 0ms !important;
-}
-
-/* Preserve ThemeToggle pill motion while theme colors transition app-wide. */
+/* Theme toggle motion stays local to the control instead of forcing
+ * whole-document transitions, which caused noticeable lag on signed-in pages. */
 .theme-switching [data-theme-control],
 .theme-switching [data-theme-control] *,
 .theme-switching [data-theme-control] *::before,
@@ -1225,16 +1314,15 @@ md-ripple.morphy-md-ripple {
     color,
     background-color,
     border-color,
-    box-shadow,
     transform,
     opacity !important;
-  transition-duration: var(--motion-duration-lg) !important;
+  transition-duration: 180ms !important;
   transition-timing-function: var(--motion-ease-standard) !important;
 }
 
 .theme-switching [data-theme-control] [data-segment-indicator] {
-  transition-property: transform, background-color, box-shadow, border-color !important;
-  transition-duration: var(--motion-duration-xl) !important;
+  transition-property: transform, background-color, border-color !important;
+  transition-duration: 200ms !important;
   transition-timing-function: var(--motion-ease-emphasized) !important;
 }
 

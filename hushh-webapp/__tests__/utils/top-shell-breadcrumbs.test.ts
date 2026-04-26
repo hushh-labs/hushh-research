@@ -44,4 +44,71 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
+
+  it("owns profile query-state panels from the shared top bar", () => {
+    const panelParams = new URLSearchParams();
+    panelParams.set("panel", "my-data");
+
+    expect(resolveTopShellBreadcrumb("/profile", panelParams)).toEqual({
+      backHref: "/profile",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "My Data", href: undefined },
+      ],
+    });
+
+    const detailParams = new URLSearchParams();
+    detailParams.set("panel", "security");
+    detailParams.set("detail", "vault");
+
+    expect(resolveTopShellBreadcrumb("/profile", detailParams)).toEqual({
+      backHref: "/profile?panel=security",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "Security", href: "/profile?panel=security" },
+        { label: "Vault methods" },
+      ],
+    });
+  });
+
+  it("owns ria client workspace back navigation from the shared top bar", () => {
+    expect(resolveTopShellBreadcrumb("/ria/clients/user_123")).toEqual({
+      backHref: "/ria/clients",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "RIA", href: "/ria" },
+        { label: "Clients", href: "/ria/clients" },
+        { label: "Workspace" },
+      ],
+    });
+
+    expect(resolveTopShellBreadcrumb("/ria/clients/user_123/accounts/account_456")).toEqual({
+      backHref: "/ria/clients/user_123",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "RIA", href: "/ria" },
+        { label: "Clients", href: "/ria/clients" },
+        { label: "Workspace", href: "/ria/clients/user_123" },
+        { label: "Account detail" },
+      ],
+    });
+
+    expect(resolveTopShellBreadcrumb("/ria/clients/user_123/requests/request_789")).toEqual({
+      backHref: "/ria/clients/user_123",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "RIA", href: "/ria" },
+        { label: "Clients", href: "/ria/clients" },
+        { label: "Workspace", href: "/ria/clients/user_123" },
+        { label: "Request detail" },
+      ],
+    });
+  });
 });

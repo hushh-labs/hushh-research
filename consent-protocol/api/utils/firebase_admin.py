@@ -4,21 +4,29 @@ Firebase Admin initialization helpers.
 Goal: a single, reliable initialization path for local dev + Cloud Run.
 
 Credential sources (in priority order):
-1) FIREBASE_SERVICE_ACCOUNT_JSON  (JSON string)
+1) FIREBASE_ADMIN_CREDENTIALS_JSON
 2) GOOGLE_APPLICATION_CREDENTIALS / ADC
 """
 
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Optional, Tuple
 
-DEFAULT_SERVICE_ACCOUNT_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
+from hushh_mcp.runtime_settings import (
+    FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
+    get_firebase_credential_settings,
+)
+
+DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
-    raw = os.environ.get(var_name)
+    credential_settings = get_firebase_credential_settings()
+    if var_name == DEFAULT_SERVICE_ACCOUNT_ENV:
+        raw = credential_settings.admin_credentials_json
+    else:
+        raw = None
     if not raw:
         return None
 
@@ -53,6 +61,17 @@ def _project_id_from_service_account(service_account: Optional[dict[str, Any]]) 
     return None
 
 
+def _get_existing_app(name: str | None = None):
+    import firebase_admin
+
+    try:
+        if name:
+            return firebase_admin.get_app(name)
+        return firebase_admin.get_app()
+    except ValueError:
+        return None
+
+
 def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     """
     Ensure Firebase Admin SDK is initialized.
@@ -64,15 +83,11 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     from firebase_admin import credentials
 
     # Already initialized
-    try:
-        app = firebase_admin.get_app()
+    app = _get_existing_app()
+    if app is not None:
         proj = app.project_id if hasattr(app, "project_id") else None
         return True, proj
-    except ValueError:
-        pass
 
-    # Single shared Firebase project model:
-    # auth verification and FCM/admin operations both use the default app.
     sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
     if sa:
         cred = credentials.Certificate(sa)
@@ -90,23 +105,15 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:
-    """
-    Backward-compatible alias for the single shared Firebase Admin app.
-    """
     return ensure_firebase_admin()
 
 
 def get_firebase_auth_app():
     """
-    Return the default Firebase app used for both ID token verification and FCM.
+    Return the Firebase app used for auth-only operations.
     """
-    import firebase_admin
-
     configured, _ = ensure_firebase_auth_admin()
     if not configured:
         return None
 
-    try:
-        return firebase_admin.get_app()
-    except ValueError:
-        return None
+    return _get_existing_app()

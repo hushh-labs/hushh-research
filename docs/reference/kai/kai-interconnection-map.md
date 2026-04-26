@@ -51,6 +51,12 @@ flowchart TB
 
 Single source map for how Kai surfaces are connected across routes, service layer, cache, PKM, providers, and mobile parity paths.
 
+Founder-language lens:
+
+- this map is one slice of the platform's `Separation of Duties`
+- Kai route surfaces consume `Capability Tokens` and encrypted PKM rather than owning an independent trust model
+- developer and delegated access flows join this same map through `PCHP` and `TrustLink / A2A delegation`, not through a separate Kai-only authority plane
+
 ## Core Flows
 
 ### 1) Onboarding/Profile -> `financial.profile`
@@ -145,7 +151,7 @@ Notes:
 
 | Change Surface | Immediate Impact | Downstream Risk | Required Validation |
 | --- | --- | --- | --- |
-| Route or payload schema change | API service parse and UI render paths | Silent undefined fields in cards/charts | `verify:routes`, stream contract checks, manual `/kai` + dashboard smoke |
+| Route or payload schema change | API service parse and UI render paths | Silent undefined fields in cards/charts | `cd hushh-webapp && npm run typecheck`, stream contract checks, manual `/kai` + dashboard smoke |
 | Cache key/TTL change | stale/fresh behavior in home/dashboard | hidden over-fetch or stale UI claims | `verify:cache`, `scripts/verify-pre-launch.sh`, cache logs |
 | Unlock warm orchestration change | initial route readiness after vault unlock | duplicate warm calls, repeated `/db/vault/get`, delayed first paint | unlock-to-ready smoke + cache-hit logs |
 | PKM summary change | context counters and dashboard hero values | false-zero context or missing counts | PKM audit script + debate context smoke |

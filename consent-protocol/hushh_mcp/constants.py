@@ -51,6 +51,7 @@ class ConsentScope(str, Enum):
     AGENT_KAI_DEBATE = "agent.kai.debate"
     AGENT_KAI_INFER = "agent.kai.infer"
     AGENT_KAI_CHAT = "agent.kai.chat"
+    AGENT_KAI_EXECUTE = "agent.kai.execute"
 
     # ==================== EXTERNAL DATA SOURCES ====================
     # Hybrid mode - per-request consent
@@ -190,6 +191,7 @@ class ConsentScope(str, Enum):
             cls.AGENT_KAI_DEBATE,
             cls.AGENT_KAI_INFER,
             cls.AGENT_KAI_CHAT,
+            cls.AGENT_KAI_EXECUTE,
         ]
 
     @classmethod

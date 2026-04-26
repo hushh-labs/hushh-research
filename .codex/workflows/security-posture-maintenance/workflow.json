@@ -1,0 +1,61 @@
+{
+  "id": "security-posture-maintenance",
+  "title": "Security Posture Maintenance",
+  "goal": "Review live GitHub security drift and Codex-system integrity when security posture work needs a focused repo-level audit.",
+  "owner_skill": "security-audit",
+  "default_spoke": null,
+  "task_type": "security-posture-maintenance",
+  "affected_surfaces": [
+    ".github/workflows",
+    ".github/dependabot.yml",
+    "scripts/ci",
+    "docs/reference/operations",
+    ".codex/workflows/security-posture-maintenance"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/project_context_map.md",
+    "docs/reference/iam/README.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task security-posture-maintenance",
+    "./bin/hushh codex audit --json",
+    "./scripts/ci/github-security-alerts.sh"
+  ],
+  "verification_bundle": {
+    "id": "security-posture-maintenance",
+    "commands": [
+      "./bin/hushh codex audit --json",
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh docs verify",
+      "./scripts/ci/github-security-alerts.sh"
+    ],
+    "tests": [
+      "./bin/hushh codex audit --json",
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "security severity snapshot",
+    "Codex audit scorecard",
+    "repo security posture review",
+    "verification summary"
+  ],
+  "impact_fields": [
+    "Security findings",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "security-audit",
+    "repo-operations",
+    "codex-skill-authoring",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "letting open high-severity backlog age outside normal PR traffic",
+    "treating workflow drift as separate from security posture",
+    "ignoring live GitHub security alerts during repo-level audits"
+  ]
+}

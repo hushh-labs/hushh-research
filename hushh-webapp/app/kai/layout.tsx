@@ -11,6 +11,7 @@ import { KaiOnboardingGuard } from "@/components/kai/onboarding/kai-onboarding-g
 import { KaiNavTour } from "@/components/kai/onboarding/kai-nav-tour";
 import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
+import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -29,7 +30,9 @@ export default function KaiLayout({
   const onOnboardingRoute = pathname.startsWith("/kai/onboarding");
   const onImportRoute = pathname.startsWith("/kai/import");
   const onPlaidOauthReturnRoute = pathname === ROUTES.KAI_PLAID_OAUTH_RETURN;
-  const shouldEnableMethodPrompt = !onOnboardingRoute && !onImportRoute && !onPlaidOauthReturnRoute;
+  const onAlpacaOauthReturnRoute = pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN;
+  const onOauthReturnRoute = onPlaidOauthReturnRoute || onAlpacaOauthReturnRoute;
+  const shouldEnableMethodPrompt = !onOnboardingRoute && !onImportRoute && !onOauthReturnRoute;
 
   useEffect(() => {
     if (onOnboardingRoute || onImportRoute) return;
@@ -87,18 +90,20 @@ export default function KaiLayout({
           {children}
         </main>
         <VaultMethodPrompt enabled={shouldEnableMethodPrompt} />
-        {onPlaidOauthReturnRoute ? null : <KaiNavTour />}
+        {onOauthReturnRoute ? null : <KaiNavTour />}
       </div>
     </RouteErrorBoundary>
   );
 
-  if (onPlaidOauthReturnRoute) {
+  if (onOauthReturnRoute) {
     return shell;
   }
 
   return (
     <VaultLockGuard>
-      <KaiOnboardingGuard>{shell}</KaiOnboardingGuard>
+      <PhoneMandateGuard>
+        <KaiOnboardingGuard>{shell}</KaiOnboardingGuard>
+      </PhoneMandateGuard>
     </VaultLockGuard>
   );
 }

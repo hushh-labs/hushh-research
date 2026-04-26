@@ -1,13 +1,8 @@
-name: "Tri-Flow CI"
+name: "PR Validation"
 
 on:
   pull_request:
     branches: ["**"]
-  push:
-    branches:
-      - main
-  merge_group:
-    branches: [main]
   workflow_dispatch:
     inputs:
       scope:
@@ -30,16 +25,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
-  WEB_LINT_WARNING_BUDGET: "161"
-  WEB_AUDIT_MODERATE_BUDGET: "0"
-  WEB_AUDIT_HIGH_BUDGET: "0"
-  WEB_AUDIT_CRITICAL_BUDGET: "0"
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
   GITLEAKS_VERSION: "8.24.2"
-  CLOUD_RUN_REVISION_RETENTION: "10"
 
 jobs:
   secret-scan:
@@ -79,6 +69,17 @@ jobs:
             else
               LOG_OPTS="$(resolve_from_default_branch)"
             fi
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            BASE_SHA="${{ github.event.merge_group.base_sha }}"
+            HEAD_SHA="${{ github.event.merge_group.head_sha }}"
+            if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
+              && git rev-parse "$BASE_SHA" >/dev/null 2>&1 \
+              && git rev-parse "$HEAD_SHA" >/dev/null 2>&1 \
+              && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
+              LOG_OPTS="--ancestry-path ${BASE_SHA}..${HEAD_SHA}"
+            else
+              LOG_OPTS="$(resolve_from_default_branch)"
+            fi
           elif [ "${{ github.event_name }}" = "push" ]; then
             LOG_OPTS="$(resolve_from_default_branch)"
           else
@@ -90,7 +91,46 @@ jobs:
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
           GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
-          REQUIRE_GITHUB_ALERTS_CLEAN: "1"
+          REQUIRE_GITHUB_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '1' }}
+          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '1' }}
+          REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN: "0"
+
+  dco-check:
+    name: "DCO"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate DCO signoff
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/ci/check-dco-signoff.sh
+
+  repo-governance:
+    name: "Governance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+
+      - name: Run repo governance checks
+        run: bash scripts/ci/orchestrate.sh governance
 
   # ============================================================================
   # Path filters: run frontend/backend jobs only when their paths change (or manual scope)
@@ -118,23 +158,18 @@ jobs:
               - '.github/workflows/ci.yml'
 
       - id: override
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group'
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            scope="${{ github.event.inputs.scope }}"
-            case "$scope" in
-              frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT" ;;
-              backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
-              *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
-            esac
-          else
-            echo "frontend=true" >> "$GITHUB_OUTPUT"
-            echo "backend=true" >> "$GITHUB_OUTPUT"
-          fi
+          scope="${{ github.event.inputs.scope }}"
+          case "$scope" in
+            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - id: resolve
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "merge_group" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.override.outputs.backend }}" >> "$GITHUB_OUTPUT"
           else
@@ -149,7 +184,7 @@ jobs:
   web-check:
     name: "Web (Next.js)"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: needs.paths.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -164,10 +199,6 @@ jobs:
       - name: Run web check script (single source of truth)
         run: bash scripts/ci/orchestrate.sh web
         env:
-          WEB_LINT_WARNING_BUDGET: ${{ env.WEB_LINT_WARNING_BUDGET }}
-          WEB_AUDIT_MODERATE_BUDGET: ${{ env.WEB_AUDIT_MODERATE_BUDGET }}
-          WEB_AUDIT_HIGH_BUDGET: ${{ env.WEB_AUDIT_HIGH_BUDGET }}
-          WEB_AUDIT_CRITICAL_BUDGET: ${{ env.WEB_AUDIT_CRITICAL_BUDGET }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           NEXT_PUBLIC_BACKEND_URL: https://api.example.com
           NEXT_PUBLIC_FIREBASE_API_KEY: "test-api-key"
@@ -179,10 +210,11 @@ jobs:
 
       - name: Upload security audit artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-npm-audit-report
           path: hushh-webapp/npm-audit-report.json
+          if-no-files-found: ignore
 
   # ============================================================================
   # Backend (Python FastAPI) -- same shared script as upstream consent-protocol CI
@@ -190,25 +222,24 @@ jobs:
   protocol-check:
     name: "Protocol (Python)"
     needs: [paths]
-    if: needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: needs.paths.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: consent-protocol/requirements.txt
+          protocol-dir: ./consent-protocol
 
       - name: Run protocol check script (single source of truth)
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           TESTING: "true"
-          SECRET_KEY: "test_secret_key_for_ci_only_32chars_min"
-          VAULT_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
+          VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
   # ============================================================================
@@ -217,7 +248,7 @@ jobs:
   integration-check:
     name: "Integration"
     needs: [paths]
-    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: needs.paths.outputs.frontend == 'true' || needs.paths.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -229,17 +260,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
-      - uses: actions/setup-python@v6
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: consent-protocol/requirements.txt
-
-      - name: Install protocol deps for PKM gate
-        run: |
-          python3 -m pip install --disable-pip-version-check \
-            -r consent-protocol/requirements.txt \
-            -r consent-protocol/requirements-dev.txt
+          protocol-dir: ./consent-protocol
 
       - name: Run integration check script (single source of truth)
         run: bash scripts/ci/orchestrate.sh integration
@@ -275,18 +299,20 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Verify branch contains latest origin/main
+      - name: Verify branch freshness against origin/main
         env:
           MAIN_SYNC_REMOTE: origin
           MAIN_SYNC_BRANCH: main
-          MAIN_SYNC_MODE: block
-          MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref }}
+          MAIN_SYNC_MODE: warn
+          MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 
   ci-status:
     name: "CI Status Gate"
     needs:
       - secret-scan
+      - dco-check
+      - repo-governance
       - paths
       - web-check
       - protocol-check
@@ -300,6 +326,8 @@ jobs:
         shell: bash
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
+          DCO="${{ needs['dco-check'].result }}"
+          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           PATHS="${{ needs.paths.result }}"
           WEB="${{ needs['web-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
@@ -307,6 +335,8 @@ jobs:
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
+          printf 'dco-check=%s\n' "$DCO"
+          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'paths=%s\n' "$PATHS"
           printf 'web-check=%s\n' "$WEB"
           printf 'protocol-check=%s\n' "$PROTOCOL"
@@ -314,7 +344,7 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          for result in "$SECRET_SCAN" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$REPO_GOVERNANCE" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

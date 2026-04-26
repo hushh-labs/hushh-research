@@ -1,0 +1,74 @@
+{
+  "id": "new-feature-tri-flow",
+  "title": "New Feature Tri-Flow",
+  "goal": "Ship a new feature across web, native, backend, docs, and verification surfaces without route or contract drift.",
+  "owner_skill": "frontend",
+  "default_spoke": "frontend-architecture",
+  "task_type": "new-feature-tri-flow",
+  "affected_surfaces": [
+    "hushh-webapp/app",
+    "hushh-webapp/components",
+    "hushh-webapp/lib/services",
+    "hushh-webapp/app/api",
+    "hushh-webapp/ios",
+    "hushh-webapp/android",
+    "consent-protocol/api",
+    "docs/reference/architecture/api-contracts.md"
+  ],
+  "required_reads": [
+    "docs/guides/new-feature.md",
+    "docs/project_context_map.md",
+    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/reference/architecture/api-contracts.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task new-feature-tri-flow",
+    "cd hushh-webapp && npm run typecheck",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "new-feature-tri-flow",
+    "commands": [
+      "cd hushh-webapp && npm run typecheck",
+      "cd hushh-webapp && npm run verify:routes",
+      "./bin/hushh protocol test-ci",
+      "./bin/hushh native ios --mode uat",
+      "./bin/hushh native android --mode uat",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "cd hushh-webapp && npm run typecheck",
+      "cd hushh-webapp && npm run verify:routes",
+      "./bin/hushh protocol test-ci"
+    ]
+  },
+  "deliverables": [
+    "tri-flow implementation map",
+    "API contract update",
+    "route governance update",
+    "PR impact checklist entry"
+  ],
+  "impact_fields": [
+    "Routes touched",
+    "API/schema/type changes",
+    "Cache keys touched",
+    "PKM effects",
+    "Mobile parity impacts",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "frontend",
+    "frontend-architecture",
+    "backend-api-contracts",
+    "mobile-plugin-contracts",
+    "docs-governance",
+    "quality-contracts"
+  ],
+  "common_failures": [
+    "shipping web work without native parity review",
+    "adding fetch calls directly in components",
+    "forgetting API/route-contract doc updates",
+    "missing service-layer or proxy alignment"
+  ]
+}
