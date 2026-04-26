@@ -357,9 +357,7 @@ class TestFinancialIntentMap:
 
 class TestBuildDomainIntent:
     def test_build_with_primary_only(self) -> None:
-        intent = build_domain_intent(
-            primary="financial", source="user", updated_at="2026-04-21"
-        )
+        intent = build_domain_intent(primary="financial", source="user", updated_at="2026-04-21")
         assert intent["primary"] == "financial"
         assert intent["source"] == "user"
         assert intent["updated_at"] == "2026-04-21"
@@ -375,7 +373,5 @@ class TestBuildDomainIntent:
         assert intent["secondary"] == "portfolio"
 
     def test_build_normalizes_primary(self) -> None:
-        intent = build_domain_intent(
-            primary="Financial", source="user", updated_at="2026-04-21"
-        )
+        intent = build_domain_intent(primary="Financial", source="user", updated_at="2026-04-21")
         assert intent["primary"] == "financial"

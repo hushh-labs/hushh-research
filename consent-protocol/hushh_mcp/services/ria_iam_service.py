@@ -340,9 +340,11 @@ class RIAIAMService:
         now = datetime.now(tz=timezone.utc)
 
         # Fast path: all tables already cached and unexpired.
-        missing = [t for t in table_names if not (
-            (exp := _TABLE_EXISTS_CACHE.get(t)) is not None and now < exp
-        )]
+        missing = [
+            t
+            for t in table_names
+            if not ((exp := _TABLE_EXISTS_CACHE.get(t)) is not None and now < exp)
+        ]
         if not missing:
             return set(table_names)
 

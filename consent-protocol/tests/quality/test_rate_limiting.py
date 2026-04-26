@@ -79,9 +79,7 @@ class TestRateLimitKeyTrustBoundary:
     def test_rotating_x_user_id_does_not_create_new_buckets(self):
         attacker_ip = "203.0.113.7"
         keys = {
-            get_rate_limit_key(
-                MockRequest(headers={"X-User-ID": f"spoof_{i}"}, ip=attacker_ip)
-            )
+            get_rate_limit_key(MockRequest(headers={"X-User-ID": f"spoof_{i}"}, ip=attacker_ip))
             for i in range(25)
         }
 
@@ -95,9 +93,7 @@ class TestRateLimitKeyTrustBoundary:
             MockRequest(headers={"Authorization": f"Bearer {victim_token}"})
         )
 
-        attacker_request = MockRequest(
-            headers={"X-User-ID": "victim_user"}, ip="203.0.113.7"
-        )
+        attacker_request = MockRequest(headers={"X-User-ID": "victim_user"}, ip="203.0.113.7")
         attacker_key = get_rate_limit_key(attacker_request)
 
         assert victim_key == "user:victim_user"
