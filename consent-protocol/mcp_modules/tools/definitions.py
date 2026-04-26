@@ -385,6 +385,143 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "required": ["user_id", "consent_token"],
             },
         ),
+        # ── Kai Voice Action Tools ─────────────────────────────────────────────
+        # These tools are triggered by the Kai voice agent to perform discrete
+        # UI actions inside the Kai mobile application.
+        # Each tool returns a KaiAction payload with:
+        #   action_id   – canonical action identifier (matches kai-action-gateway)
+        #   message     – human-readable voice confirmation
+        #   slots       – optional structured parameters for the mobile client
+        #   completion_mode – "route_settle" | "background_start" | "none"
+        # ──────────────────────────────────────────────────────────────────────
+        Tool(
+            name="kai_analyze_stock",
+            description=(
+                "📊 Start a stock analysis inside the Kai app for a given ticker symbol or company name. "
+                "The analysis runs in the background and the result is shown in the Analysis History tab. "
+                "Use this when the user says 'analyze Apple', 'run analysis on TSLA', etc. "
+                "Returns action_id=analysis.start with the resolved ticker in slots."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": (
+                            "Stock ticker (e.g. AAPL) or company name (e.g. Apple). "
+                            "Company names are resolved to tickers automatically."
+                        ),
+                    },
+                    "analysis_type": {
+                        "type": "string",
+                        "enum": ["fundamental", "sentiment", "valuation", "full"],
+                        "description": "Type of analysis to run. Defaults to 'full'.",
+                    },
+                },
+                "required": ["symbol"],
+            },
+        ),
+        Tool(
+            name="kai_open_dashboard",
+            description=(
+                "📈 Navigate to the Portfolio / Dashboard tab in the Kai app. "
+                "Use when the user says 'open dashboard', 'show my portfolio', 'go to portfolio', etc. "
+                "Returns action_id=nav.kai_dashboard."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_open_import",
+            description=(
+                "📥 Navigate to the Import / Upload Statement tab in the Kai app. "
+                "Use when the user says 'import', 'upload statement', 'scan portfolio statement', etc. "
+                "Returns action_id=nav.kai_import."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_open_history",
+            description=(
+                "🕒 Navigate to the Analysis History tab in the Kai app. "
+                "Use when the user says 'analysis history', 'show my history', 'open history', etc. "
+                "Returns action_id=nav.analysis_history. "
+                "Optional: specify a sub-tab (history, debate, summary, transcript)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tab": {
+                        "type": "string",
+                        "enum": ["history", "debate", "summary", "transcript"],
+                        "description": "Sub-tab to open. Defaults to 'history'.",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="kai_open_consent",
+            description=(
+                "🔐 Navigate to the Consents / Privacy tab in the Kai app. "
+                "Use when the user says 'consents', 'privacy', 'data permissions', etc. "
+                "Returns action_id=nav.consents."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_open_profile",
+            description=(
+                "👤 Navigate to the Profile tab in the Kai app. "
+                "Use when the user says 'profile', 'my profile', 'open my account', etc. "
+                "Returns action_id=nav.profile."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_open_optimize",
+            description=(
+                "⚡ Navigate to the Portfolio Optimization tab in the Kai app. "
+                "Use when the user says 'optimize', 'optimize my portfolio', 'portfolio optimization', etc. "
+                "Returns action_id=nav.kai_optimize."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_open_home",
+            description=(
+                "🏠 Navigate to the Market / Home tab in the Kai app. "
+                "Use when the user says 'home', 'market', 'go home', 'back to market', etc. "
+                "Returns action_id=nav.kai_home."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_navigate_back",
+            description=(
+                "⬅ Navigate back one screen in the Kai app. "
+                "Use when the user says 'go back', 'back', 'previous screen', etc. "
+                "Returns action_id=nav.back."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_resume_active_analysis",
+            description=(
+                "▶ Resume the currently running analysis in the Kai app. "
+                "Use when the user says 'resume analysis', 'continue analysis', 'open active analysis', etc. "
+                "Returns action_id=analysis.resume_active."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="kai_cancel_active_analysis",
+            description=(
+                "⏹ Cancel / stop the currently running analysis in the Kai app. "
+                "Use when the user says 'cancel analysis', 'stop analysis', 'stop the analysis', etc. "
+                "Returns action_id=analysis.cancel_active."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
     ]
     if allowed_tool_names is None:
         return definitions
