@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Rows3, Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
@@ -106,27 +106,6 @@ function sourceStateTone(source: KaiHomePickSource): string {
   return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
 }
 
-function pickSourceSummary(source: KaiHomePickSource | null): string {
-  if (!source) {
-    return "Using the app-wide default list until advisor picks are linked.";
-  }
-  if (source.kind === "ria" && source.share_origin === "relationship_implicit") {
-    if (source.state === "ready") {
-      return "This advisor feed is included through your approved advisor relationship.";
-    }
-    if (source.state === "pending") {
-      return "Your advisor relationship includes this feed, but the advisor has not uploaded an active list yet.";
-    }
-  }
-  if (source.kind === "ria" && source.state !== "ready") {
-    return "Advisor-specific picks are not available yet, so Kai is still using the default list.";
-  }
-  if (source.kind === "ria") {
-    return "This list reflects the currently selected advisor source.";
-  }
-  return "Using the app-wide default list until advisor picks are linked.";
-}
-
 function rowSearchText(row: KaiHomeRenaissanceItem): string {
   return [
     row.symbol,
@@ -140,6 +119,25 @@ function rowSearchText(row: KaiHomeRenaissanceItem): string {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+function MarketListControlField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0 space-y-2", className)}>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        {label}
+      </p>
+      {children}
+    </div>
+  );
 }
 
 export function RiaPicksList({
@@ -162,7 +160,9 @@ export function RiaPicksList({
     : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
   const defaultPageSize = pageSizeOptions[0] ?? 6;
   const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(null);
-  const [controlsOpen, setControlsOpen] = useState(false);
+  const [activeMobileControl, setActiveMobileControl] = useState<"search" | "filters" | "rows" | null>(
+    null
+  );
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
@@ -240,6 +240,22 @@ export function RiaPicksList({
   }, [filteredRows, page, pageSize]);
 
   const pageNumbers = useMemo(() => {
+    if (isMobile) {
+      if (totalPages <= 3) {
+        return Array.from({ length: totalPages }, (_, index) => index + 1);
+      }
+
+      if (page <= 2) {
+        return [1, 2, "ellipsis-end", totalPages] as const;
+      }
+
+      if (page >= totalPages - 1) {
+        return [1, "ellipsis-start", totalPages - 1, totalPages] as const;
+      }
+
+      return [1, "ellipsis-start", page, "ellipsis-end", totalPages] as const;
+    }
+
     if (totalPages <= 7) {
       return Array.from({ length: totalPages }, (_, index) => index + 1);
     }
@@ -253,7 +269,7 @@ export function RiaPicksList({
     }
 
     return [1, "ellipsis-start", page - 1, page, page + 1, "ellipsis-end", totalPages] as const;
-  }, [page, totalPages]);
+  }, [isMobile, page, totalPages]);
 
   const visibleStart = filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const visibleEnd = Math.min(page * pageSize, filteredRows.length);
@@ -303,65 +319,149 @@ export function RiaPicksList({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 sm:mx-auto sm:w-full sm:max-w-[1040px]">
       <SettingsGroup>
         <div className="space-y-3 px-4 py-3 sm:px-4">
-          <SettingsRow
-            title="List source"
-            description={pickSourceSummary(displaySource)}
-            stackTrailingOnMobile={useAdaptiveSurfaceControls}
-            onClick={useAdaptiveSurfaceControls ? () => setControlsOpen(true) : undefined}
-            chevron={useAdaptiveSurfaceControls}
-            trailing={
-              useAdaptiveSurfaceControls ? (
-                <div className="min-w-0 text-left sm:text-right">
-                  <p
-                    className={cn(
-                      "truncate text-sm font-semibold tracking-tight text-foreground",
-                      displaySource ? sourceStateTone(displaySource) : undefined,
-                      "inline-flex max-w-full items-center rounded-full border px-3 py-2"
-                    )}
-                  >
-                    {displaySource?.label || "Default list"}
-                  </p>
-                </div>
-              ) : (
-                <Select
-                  value={activeSource?.id || "default"}
-                  onValueChange={(nextValue) => {
-                    if (!onSourceChange || nextValue === activeSource?.id) return;
-                    onSourceChange(nextValue);
-                  }}
-                >
-                  <SelectTrigger
-                    className={cn(
-                      "h-10 min-w-[176px] max-w-[240px] rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
-                      displaySource ? sourceStateTone(displaySource) : undefined
-                    )}
-                  >
-                    <SelectValue placeholder="Default list" />
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    {availableSources.map((source) => (
-                      <SelectItem key={source.id} value={source.id}>
-                        {source.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )
-            }
-          />
-
           {useAdaptiveSurfaceControls ? (
-            <SurfaceInset className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  Search and filters
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {activeFilterLabels.length ? (
-                    activeFilterLabels.map((label) => (
+            <>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      value={activeSource?.id || "default"}
+                      onValueChange={(nextValue) => {
+                        if (!onSourceChange || nextValue === activeSource?.id) return;
+                        onSourceChange(nextValue);
+                      }}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          "h-10 w-full rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
+                          displaySource ? sourceStateTone(displaySource) : undefined
+                        )}
+                      >
+                        <SelectValue placeholder="Default list" />
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        {availableSources.map((source) => (
+                          <SelectItem key={source.id} value={source.id}>
+                            {source.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveMobileControl((current) => (current === "search" ? null : "search"))
+                    }
+                    className={cn(
+                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      activeMobileControl === "search" && "bg-primary/10 text-primary"
+                    )}
+                    aria-label="Search list"
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveMobileControl((current) => (current === "filters" ? null : "filters"))
+                    }
+                    className={cn(
+                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      activeMobileControl === "filters" && "bg-primary/10 text-primary"
+                    )}
+                    aria-label="Filter list"
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveMobileControl((current) => (current === "rows" ? null : "rows"))
+                    }
+                    className={cn(
+                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      activeMobileControl === "rows" && "bg-primary/10 text-primary"
+                    )}
+                    aria-label="Rows per page"
+                  >
+                    <Rows3 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {activeMobileControl === "search" ? (
+                  <SurfaceInset className="px-3 py-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Search symbol, company, sector, or thesis"
+                        className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
+                      />
+                    </div>
+                  </SurfaceInset>
+                ) : null}
+
+                {activeMobileControl === "filters" ? (
+                  <SurfaceInset className="grid gap-3 px-3 py-3">
+                    <Select value={tierFilter} onValueChange={setTierFilter}>
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                        <SelectValue placeholder="All tiers" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
+                        <SelectItem value="ACE">ACE</SelectItem>
+                        <SelectItem value="KING">KING</SelectItem>
+                        <SelectItem value="QUEEN">QUEEN</SelectItem>
+                        <SelectItem value="JACK">JACK</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                        <SelectValue placeholder="All sectors" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
+                        {sectors.map((sector) => (
+                          <SelectItem key={sector} value={sector}>
+                            {sector}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </SurfaceInset>
+                ) : null}
+
+                {activeMobileControl === "rows" ? (
+                  <SurfaceInset className="px-3 py-3">
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(value) => {
+                        setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
+                        <SelectValue placeholder={`${defaultPageSize} per page`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pageSizeOptions.map((option) => (
+                          <SelectItem key={option} value={String(option)}>
+                            {option} per page
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </SurfaceInset>
+                ) : null}
+
+                {activeFilterLabels.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {activeFilterLabels.map((label) => (
                       <Badge
                         key={label}
                         variant="outline"
@@ -369,57 +469,106 @@ export function RiaPicksList({
                       >
                         {label}
                       </Badge>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">All names in the active source.</p>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => setControlsOpen(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-[color:var(--app-card-border-standard)] bg-background/80 px-3 py-2 text-sm font-medium text-foreground shadow-[var(--shadow-xs)] transition-colors hover:bg-background"
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                Refine
-              </button>
-            </SurfaceInset>
+            </>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1.35fr)_180px_180px]">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search symbol, company, sector, or thesis"
-                  className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
-                />
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <MarketListControlField label="List source">
+                  <Select
+                    value={activeSource?.id || "default"}
+                    onValueChange={(nextValue) => {
+                      if (!onSourceChange || nextValue === activeSource?.id) return;
+                      onSourceChange(nextValue);
+                    }}
+                  >
+                    <SelectTrigger
+                      className={cn(
+                        "h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
+                        displaySource ? sourceStateTone(displaySource) : undefined
+                      )}
+                    >
+                      <SelectValue placeholder="Default list" />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {availableSources.map((source) => (
+                        <SelectItem key={source.id} value={source.id}>
+                          {source.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
+
+                <MarketListControlField label="Tier">
+                  <Select value={tierFilter} onValueChange={setTierFilter}>
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                      <SelectValue placeholder="All tiers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
+                      <SelectItem value="ACE">ACE</SelectItem>
+                      <SelectItem value="KING">KING</SelectItem>
+                      <SelectItem value="QUEEN">QUEEN</SelectItem>
+                      <SelectItem value="JACK">JACK</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
+
+                <MarketListControlField label="Sector">
+                  <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                      <SelectValue placeholder="All sectors" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
+                      {sectors.map((sector) => (
+                        <SelectItem key={sector} value={sector}>
+                          {sector}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
               </div>
-              <Select value={tierFilter} onValueChange={setTierFilter}>
-                <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                  <SelectValue placeholder="All tiers" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
-                  <SelectItem value="ACE">ACE</SelectItem>
-                  <SelectItem value="KING">KING</SelectItem>
-                  <SelectItem value="QUEEN">QUEEN</SelectItem>
-                  <SelectItem value="JACK">JACK</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={sectorFilter} onValueChange={setSectorFilter}>
-                <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                  <SelectValue placeholder="All sectors" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
-                  {sectors.map((sector) => (
-                    <SelectItem key={sector} value={sector}>
-                      {sector}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                <MarketListControlField label="Search">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search symbol, company, sector, or thesis"
+                      className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
+                    />
+                  </div>
+                </MarketListControlField>
+
+                <MarketListControlField label="Rows">
+                  <Select
+                    value={String(pageSize)}
+                    onValueChange={(value) => {
+                      setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
+                      <SelectValue placeholder={`${defaultPageSize} per page`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pageSizeOptions.map((option) => (
+                        <SelectItem key={option} value={String(option)}>
+                          {option} per page
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
+              </div>
             </div>
           )}
 
@@ -430,24 +579,6 @@ export function RiaPicksList({
                 : `Showing 0 matching names · ${rows.length} total investable names.`}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={String(pageSize)}
-                onValueChange={(value) => {
-                  setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="h-8 min-w-[112px] rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-xs shadow-[var(--shadow-xs)]">
-                  <SelectValue placeholder={`${defaultPageSize} per page`} />
-                </SelectTrigger>
-                <SelectContent>
-                  {pageSizeOptions.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option} per page
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               {tierFilter !== ALL_FILTER ? (
                 <Badge
                   variant="outline"
@@ -596,7 +727,7 @@ export function RiaPicksList({
               ) : null}
             </div>
             <Pagination className="mx-0 w-full sm:w-auto sm:justify-end">
-              <PaginationContent className="flex-wrap justify-start sm:justify-end">
+              <PaginationContent className="flex-nowrap justify-start sm:justify-end">
                 <PaginationItem>
                   <PaginationPrevious
                     href="#"
@@ -795,122 +926,6 @@ export function RiaPicksList({
         ) : null}
       </KaiControlSurface>
 
-      <KaiControlSurface
-        open={controlsOpen}
-        onOpenChange={setControlsOpen}
-        eyebrow="Advisor ideas"
-        title="Refine the active list"
-        description="Switch the active source and tighten the names shown in this market lane."
-      >
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              List Source
-            </p>
-            <Select
-              value={activeSource?.id || "default"}
-              onValueChange={(nextValue) => {
-                if (!onSourceChange || nextValue === activeSource?.id) return;
-                onSourceChange(nextValue);
-              }}
-            >
-              <SelectTrigger
-                className={cn(
-                  "h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
-                  displaySource ? sourceStateTone(displaySource) : undefined
-                )}
-              >
-                <SelectValue placeholder="Default list" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableSources.map((source) => (
-                  <SelectItem key={source.id} value={source.id}>
-                    {source.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Search
-            </p>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search symbol, company, sector, or thesis"
-                className="h-11 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Tier
-              </p>
-              <Select value={tierFilter} onValueChange={setTierFilter}>
-                <SelectTrigger className="h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                  <SelectValue placeholder="All tiers" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
-                  <SelectItem value="ACE">ACE</SelectItem>
-                  <SelectItem value="KING">KING</SelectItem>
-                  <SelectItem value="QUEEN">QUEEN</SelectItem>
-                  <SelectItem value="JACK">JACK</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Sector
-              </p>
-              <Select value={sectorFilter} onValueChange={setSectorFilter}>
-                <SelectTrigger className="h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                  <SelectValue placeholder="All sectors" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
-                  {sectors.map((sector) => (
-                    <SelectItem key={sector} value={sector}>
-                      {sector}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Rows per page
-            </p>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(value) => {
-                setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="h-11 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                <SelectValue placeholder={`${defaultPageSize} per page`} />
-              </SelectTrigger>
-              <SelectContent>
-                {pageSizeOptions.map((option) => (
-                  <SelectItem key={option} value={String(option)}>
-                    {option} per page
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </KaiControlSurface>
     </div>
   );
 }

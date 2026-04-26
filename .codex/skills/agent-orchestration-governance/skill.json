@@ -1,0 +1,83 @@
+{
+  "id": "agent-orchestration-governance",
+  "role": "owner",
+  "owner_family": "agent-orchestration-governance",
+  "primary_scope": "agent-orchestration-governance-intake",
+  "description": "Use when changing repo-scoped Codex custom agents, subagent concurrency or depth, delegation policy, or handoff verification rules in hushh-research.",
+  "owned_paths": [
+    ".codex/agents",
+    ".codex/config.toml",
+    ".codex/skills/agent-orchestration-governance",
+    ".codex/workflows/agent-orchestration-governance",
+    "AGENTS.md",
+    "docs/reference/operations/README.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "non_owned_paths": [
+    "repo-context",
+    "codex-skill-authoring",
+    "repo-operations",
+    "future-planner"
+  ],
+  "task_types": [
+    "agent-orchestration-governance"
+  ],
+  "required_reads": [
+    "AGENTS.md",
+    ".codex/skills/agent-orchestration-governance/references/delegation-contract.md",
+    ".codex/skills/codex-skill-authoring/references/skill-contract.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+    "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+    "./scripts/ci/repo-governance-check.sh",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "./bin/hushh codex list-workflows",
+    "./bin/hushh codex audit",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "agent-orchestration-governance",
+      "commands": [
+        "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "./scripts/ci/repo-governance-check.sh",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex list-workflows",
+        "./bin/hushh codex audit",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "./scripts/ci/repo-governance-check.sh",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex audit",
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "codex-skill-authoring",
+    "repo-operations",
+    "future-planner",
+    "quality-contracts"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "codex-skill-authoring",
+    "repo-operations",
+    "future-planner",
+    "quality-contracts"
+  ],
+  "risk_tags": [
+    "delegation-drift",
+    "authority-drift",
+    "workflow-routing-drift",
+    "context-rot",
+    "token-cost-drift"
+  ]
+}

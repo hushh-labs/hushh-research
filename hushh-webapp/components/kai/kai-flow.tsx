@@ -64,6 +64,7 @@ import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
 } from "@/lib/voice/voice-surface-metadata";
+import { trackEvent } from "@/lib/observability/client";
 
 // =============================================================================
 // TYPES
@@ -1891,6 +1892,23 @@ export function KaiFlow({
       }
       importStartInFlightRef.current = true;
       userRequestedImportCancelRef.current = false;
+      let importTerminalTelemetryRecorded = false;
+      const trackImportTerminalTelemetry = (result: "success" | "error") => {
+        if (importTerminalTelemetryRecorded) return;
+        importTerminalTelemetryRecorded = true;
+        trackEvent("import_parse_completed", {
+          result,
+        });
+        if (result === "success") {
+          trackEvent("import_quality_gate_passed", {
+            result: "success",
+          });
+        } else {
+          trackEvent("import_quality_gate_failed", {
+            result: "error",
+          });
+        }
+      };
 
       try {
         // Fresh import intent: proactively cancel any lingering active backend run.
@@ -2638,6 +2656,7 @@ export function KaiFlow({
         );
 
         if (terminalStreamFailureMessage) {
+          trackImportTerminalTelemetry("error");
           persistBackgroundSnapshot("failed", {
             errorMessage: terminalStreamFailureMessage,
           });
@@ -2664,6 +2683,7 @@ export function KaiFlow({
           throw new Error("No portfolio data was detected in this file.");
         }
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
+        trackImportTerminalTelemetry("success");
 
         console.log("[KaiFlow] Portfolio parsed via streaming:", {
           holdings: parsedPortfolioData.holdings?.length || 0,
@@ -2698,6 +2718,7 @@ export function KaiFlow({
           if (streamStallAbortTriggered) {
             const stalledMessage =
               "Import stalled with no backend updates. Please retry this statement.";
+            trackImportTerminalTelemetry("error");
             setError(stalledMessage);
             toast.error(stalledMessage);
             setStreaming((prev) => ({
@@ -2717,6 +2738,7 @@ export function KaiFlow({
           }
           if (!userInitiatedCancel) {
             const interruptedMessage = "Import was interrupted before completion. Please retry.";
+            trackImportTerminalTelemetry("error");
             setError(interruptedMessage);
             toast.error(interruptedMessage);
             setStreaming((prev) => ({
@@ -2773,6 +2795,7 @@ export function KaiFlow({
             : err instanceof Error
             ? sanitizeInvestorCopy(err.message, err.message)
             : "We could not import your portfolio. Please try again.";
+        trackImportTerminalTelemetry("error");
         setError(safeError);
         toast.error(
           safeError
@@ -3005,6 +3028,9 @@ export function KaiFlow({
       AppBackgroundTaskService.dismissTask(activeImportTaskIdRef.current);
       activeImportTaskIdRef.current = null;
     }
+    trackEvent("import_save_completed", {
+      result: "success",
+    });
 
     if (mode === "import") {
       setOnboardingFlowActiveCookie(false);

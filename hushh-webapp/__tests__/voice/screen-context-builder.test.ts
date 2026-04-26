@@ -386,7 +386,7 @@ describe("buildStructuredScreenContext", () => {
           label: "PKM Agent Lab",
           role: "card",
           purpose: "opens the workspace for previewing and saving encrypted PKM captures.",
-          actionId: "nav.profile_pkm_agent_lab",
+          actionId: "route.profile_pkm_agent_lab",
           voiceAliases: ["pkm agent lab", "memory lab"],
         },
         {
@@ -394,7 +394,7 @@ describe("buildStructuredScreenContext", () => {
           label: "Gmail receipts",
           role: "card",
           purpose: "opens Gmail receipt sync and receipt-memory import.",
-          actionId: "nav.profile_receipts",
+          actionId: "route.profile_receipts",
         },
       ],
       activeSection: "Account",
@@ -419,11 +419,11 @@ describe("buildStructuredScreenContext", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "pkm_agent_lab",
-          action_id: "nav.profile_pkm_agent_lab",
+          action_id: "route.profile_pkm_agent_lab",
         }),
         expect.objectContaining({
           id: "gmail_receipts",
-          action_id: "nav.profile_receipts",
+          action_id: "route.profile_receipts",
         }),
       ])
     );

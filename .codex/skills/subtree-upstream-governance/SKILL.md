@@ -3,7 +3,7 @@ name: subtree-upstream-governance
 description: Use when changing upstream-first coordination, subtree sync policy, or maintainer-only subtree governance between consent-protocol and hushh-research.
 ---
 
-# Hushh Subtree Upstream Governance Skill
+# Hussh Subtree Upstream Governance Skill
 
 ## Purpose and Trigger
 

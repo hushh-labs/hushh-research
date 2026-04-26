@@ -17,11 +17,25 @@
       "Akash-292",
       "RGlodAkshat",
       "ankitkumarsingh1702"
+    ],
+    "protected_pipeline_edit_users": [
+      "kushaltrivedi5",
+      "Akash-292",
+      "RGlodAkshat",
+      "ankitkumarsingh1702"
+    ],
+    "protected_pipeline_paths": [
+      ".github/workflows/",
+      ".github/actions/",
+      "scripts/ci/",
+      "deploy/",
+      "config/ci-governance.json"
     ]
   },
   "uat": {
     "auto_deploy_workflow": "Main Post-Merge Smoke",
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
+    "environment": "uat",
     "manual_dispatch_users": [
       "kushaltrivedi5",
       "Akash-292",
@@ -34,6 +48,6 @@
     "manual_dispatch_users": [
       "kushaltrivedi5"
     ],
-    "owner_environment": "production-owner-bypass"
+    "owner_environment": "production"
   }
 }

@@ -126,6 +126,20 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 
 The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
+### Protected pipeline surfaces
+
+Core CI and deploy surfaces are sealed separately from blanket owner-review policy.
+
+- PRs that change protected pipeline paths are allowed only for the sanctioned bypass cohort defined in [config/ci-governance.json](../../../config/ci-governance.json).
+- This guard currently covers:
+  - `.github/workflows/**`
+  - `.github/actions/**`
+  - `scripts/ci/**`
+  - `deploy/**`
+  - `config/ci-governance.json`
+- Enforcement happens inside the blocking governance lane through [scripts/ci/verify-protected-pipeline-edits.py](../../../scripts/ci/verify-protected-pipeline-edits.py).
+- This does not change the repo-wide `0`-approval policy on `main`; it only seals core pipeline and CI authority to the sanctioned maintainer cohort.
+
 ### PKM rollout blocker
 
 Production rollout is blocked unless PKM compatibility stays green for supported stored-version paths. The blocking CI manifests now explicitly include:
@@ -212,6 +226,31 @@ Current live nuance:
 - the repo uses branch protection for review, freshness, and conversation-resolution requirements
 - the sanctioned bypass cohort should be limited to the approved owner set, without overlapping push-restriction lists
 - that sanctioned cohort is intentional governance and should not be reported as drift when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`
+
+## Deployment environments
+
+GitHub deployment environments are part of the release authority surface and should stay minimal:
+
+- `uat`
+  - no reviewers
+  - no admin bypass
+  - protected branches only
+  - used by [`.github/workflows/deploy-uat.yml`](../../../.github/workflows/deploy-uat.yml)
+- `production`
+  - no reviewers
+  - no admin bypass
+  - protected branches only
+  - used by [`.github/workflows/deploy-production.yml`](../../../.github/workflows/deploy-production.yml)
+
+There should not be parallel legacy production environments carrying approval logic that the current workflows no longer use.
+
+GitHub only records deployment history under an environment after a workflow job actually runs with `environment: <name>`. Older deploy runs from before that binding existed are not retroactively re-linked. If `uat` or `production` looks empty after environment cleanup, trigger one fresh deploy from a green `main` SHA to seed the canonical history.
+
+Verify live environment governance with:
+
+```bash
+python3 scripts/ci/verify-deployment-environment-governance.py
+```
 
 ### GitHub Alert Parity
 

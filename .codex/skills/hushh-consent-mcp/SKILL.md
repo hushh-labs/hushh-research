@@ -1,14 +1,14 @@
 ---
 name: hushh-consent-mcp
-description: Use when operating the Hushh Consent MCP connector directly for domain discovery, consent request/status checks, token validation, or scoped export verification.
+description: Use when operating the Hussh Consent MCP connector directly for domain discovery, consent request/status checks, token validation, or scoped export verification.
 ---
 
-# Hushh Consent MCP Skill
+# Hussh Consent MCP Skill
 
 ## Purpose and Trigger
 
 - Primary scope: `hushh-consent-mcp-ops`
-- Trigger on direct connector tasks against the Hushh Consent MCP surface:
+- Trigger on direct connector tasks against the Hussh Consent MCP surface:
   - `discover_user_domains`
   - `request_consent`
   - `check_consent_status`

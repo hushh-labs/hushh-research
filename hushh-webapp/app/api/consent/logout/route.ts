@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] Destroying session tokens for user: ${userId}`);
+    console.log("[API] Destroying session tokens");
 
     const response = await fetch(`${BACKEND_URL}/api/consent/logout`, {
       method: "POST",
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    console.log(`[API] Session tokens destroyed for: ${userId}`);
+    console.log("[API] Session tokens destroyed");
 
     return NextResponse.json(data);
   } catch (error) {

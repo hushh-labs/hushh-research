@@ -3,13 +3,17 @@
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { RiaService } from "@/lib/services/ria-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
+import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service";
 
 const PRE_VAULT_ROUTE = ROUTES.KAI_ONBOARDING;
 const NO_VAULT_DEFAULT_ROUTE = ROUTES.KAI_HOME;
 
 function normalizeRedirectPath(path: string | null | undefined): string {
   if (!path || !path.trim()) return ROUTES.KAI_HOME;
+  if (path === ROUTES.PHONE_MANDATE || path.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+    return ROUTES.KAI_HOME;
+  }
   return path;
 }
 
@@ -18,6 +22,8 @@ export class PostAuthRouteService {
     userId: string;
     redirectPath?: string;
     idToken?: string;
+    phoneNumber?: string | null;
+    hostname?: string | null;
   }): Promise<string> {
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
@@ -81,6 +87,21 @@ export class PostAuthRouteService {
       }
     }
 
-    return onboardingResolved ? NO_VAULT_DEFAULT_ROUTE : PRE_VAULT_ROUTE;
+    const resolvedNoVaultRoute = onboardingResolved
+      ? NO_VAULT_DEFAULT_ROUTE
+      : PRE_VAULT_ROUTE;
+
+    if (
+      shouldRequirePhoneMandate({
+        phoneNumber: params.phoneNumber,
+        hasVault: false,
+        hostname:
+          params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+      })
+    ) {
+      return buildPhoneMandateRoute(resolvedNoVaultRoute);
+    }
+
+    return resolvedNoVaultRoute;
   }
 }

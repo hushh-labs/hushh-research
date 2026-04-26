@@ -16,8 +16,11 @@
     "scripts"
   ],
   "required_reads": [
+    "AGENTS.md",
     "README.md",
     "docs/reference/operations/ci.md",
+    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/reference/architecture/api-contracts.md",
     ".codex/skills/pr-governance-review/references/review-axes.md",
     ".codex/skills/repo-operations/SKILL.md"
   ],
@@ -43,13 +46,18 @@
     "current-head SHA review summary",
     "blocker-first findings list",
     "stale-vs-current CI interpretation",
-    "merge lane recommendation"
+    "merge lane recommendation",
+    "explicit action flow mode",
+    "natural technical GitHub review note",
+    "updated working report after PR state changes"
   ],
   "impact_fields": [
     "Head SHA reviewed",
     "Current CI Status Gate state",
     "Blocker findings",
     "Chosen merge lane",
+    "Action flow mode",
+    "Working report updated",
     "Docs updated",
     "Verification commands executed"
   ],
@@ -66,6 +74,9 @@
     "treating green CI as sufficient proof for a sensitive contract change",
     "missing backend-to-caller contract drift because only one side of the change moved",
     "thanking or merging before blocker findings are explicitly cleared",
-    "merging a directionally good but currently unsafe contributor head instead of using the patch-then-merge lane"
+    "merging a directionally good but currently unsafe contributor head instead of using the patch-then-merge lane",
+    "treating approve-only as implicit merge authority",
+    "using rigid template comments when a concise technical note would be clearer",
+    "leaving the PR governance live report stale after merge, close, or supersede"
   ]
 }

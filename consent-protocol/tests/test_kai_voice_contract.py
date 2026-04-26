@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import json
 import sys
 import types
 from pathlib import Path
 
 import pytest
+
+
+class _UndefinedColumnError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
+class _UndefinedTableError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
 
 if "asyncpg" not in sys.modules:
     asyncpg_stub = types.ModuleType("asyncpg")
@@ -14,11 +24,20 @@ if "asyncpg" not in sys.modules:
 
     asyncpg_stub.Pool = _Pool
     sys.modules["asyncpg"] = asyncpg_stub
+if not hasattr(sys.modules["asyncpg"], "UndefinedColumnError"):
+    sys.modules["asyncpg"].UndefinedColumnError = _UndefinedColumnError
+if not hasattr(sys.modules["asyncpg"], "UndefinedTableError"):
+    sys.modules["asyncpg"].UndefinedTableError = _UndefinedTableError
 
 if "db" not in sys.modules:
     db_pkg = types.ModuleType("db")
     db_pkg.__path__ = []
     sys.modules["db"] = db_pkg
+
+
+class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
 
 if "db.db_client" not in sys.modules:
     db_client_stub = types.ModuleType("db.db_client")
@@ -27,7 +46,10 @@ if "db.db_client" not in sys.modules:
         raise RuntimeError("db not available in unit test")
 
     db_client_stub.get_db = _noop_get_db
+    db_client_stub.DatabaseExecutionError = _DatabaseExecutionError
     sys.modules["db.db_client"] = db_client_stub
+elif not hasattr(sys.modules["db.db_client"], "DatabaseExecutionError"):
+    sys.modules["db.db_client"].DatabaseExecutionError = _DatabaseExecutionError
 
 ROOT = Path(__file__).resolve().parents[1]
 if "hushh_mcp.services" not in sys.modules:
@@ -35,12 +57,22 @@ if "hushh_mcp.services" not in sys.modules:
     services_pkg.__path__ = [str(ROOT / "hushh_mcp" / "services")]
     sys.modules["hushh_mcp.services"] = services_pkg
 
+import hushh_mcp.services.voice_intent_service as voice_intent_service_module  # noqa: E402
 from hushh_mcp.services.voice_intent_service import (  # noqa: E402
     _ALLOWED_COMMANDS,
     _ALLOWED_TOOL_NAMES,
+    _REALTIME_TRANSCRIPTION_PROMPT,
     _UNCLEAR_STT_MESSAGE,
+    _VOICE_ENGLISH_ONLY_INPUT_MESSAGE,
+    _VOICE_TTS_INSTRUCTIONS,
     VoiceIntentService,
     _compact_context,
+)
+from hushh_mcp.services.voice_prompt_builder import (  # noqa: E402
+    build_voice_planner_context,
+    build_voice_planner_system_prompt,
+    build_voice_response_composer_context,
+    build_voice_response_composer_system_prompt,
 )
 
 
@@ -145,6 +177,45 @@ async def test_plan_voice_response_stt_unusable_returns_exact_retry(
     assert response["execution_allowed"] is False
     assert openai_http_ms == 0
     assert model == "deterministic"
+
+
+@pytest.mark.anyio
+async def test_transcribe_audio_pins_openai_stt_to_english(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+    async def _fake_post_with_model_fallback(**kwargs):
+        built = kwargs["body_builder"]("gpt-4o-mini-transcribe")
+        captured["data"] = built["data"]
+        captured["files"] = built["files"]
+        return _FakeResponse(), {"text": "open profile"}, 12, "gpt-4o-mini-transcribe"
+
+    monkeypatch.setattr(
+        voice_intent_service_module,
+        "_post_with_model_fallback",
+        _fake_post_with_model_fallback,
+    )
+
+    transcript, openai_http_ms, model = await voice_service.transcribe_audio(
+        audio_bytes=b"abc",
+        filename="voice.webm",
+        content_type="audio/webm",
+    )
+
+    assert transcript == "open profile"
+    assert openai_http_ms == 12
+    assert model == "gpt-4o-mini-transcribe"
+    assert captured["data"] == {
+        "model": "gpt-4o-mini-transcribe",
+        "language": "en",
+        "prompt": _REALTIME_TRANSCRIPTION_PROMPT,
+    }
+    assert "file" in captured["files"]
 
 
 @pytest.mark.anyio
@@ -575,7 +646,7 @@ async def test_plan_voice_response_explains_gmail_receipts_from_profile_surface(
                             "id": "gmail_receipts",
                             "label": "Gmail receipts",
                             "purpose": "opens Gmail receipt sync and receipt-memory import.",
-                            "action_id": "nav.profile_receipts",
+                            "action_id": "route.profile_receipts",
                             "role": "card",
                             "voice_aliases": ["gmail receipts", "receipts"],
                         }
@@ -594,7 +665,8 @@ async def test_plan_voice_response_explains_gmail_receipts_from_profile_surface(
     )
 
     assert response["kind"] == "speak_only"
-    assert "receipt sync" in response["message"].lower()
+    assert "receipt" in response["message"].lower()
+    assert "sync" in response["message"].lower()
     assert "pkm" in response["message"].lower()
 
 
@@ -622,7 +694,7 @@ async def test_plan_voice_response_explains_current_button_from_surface_definiti
                             "id": "pkm_agent_lab",
                             "label": "PKM Agent Lab",
                             "purpose": "opens the workspace for previewing and saving encrypted PKM captures.",
-                            "action_id": "nav.profile_pkm_agent_lab",
+                            "action_id": "route.profile_pkm_agent_lab",
                             "role": "card",
                             "voice_aliases": ["pkm agent lab", "pkm"],
                         }
@@ -829,6 +901,68 @@ async def test_plan_voice_response_explains_global_product_concept_deterministic
 
 
 @pytest.mark.anyio
+async def test_plan_voice_response_who_are_you_describes_kai_in_app_voice_interface(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    async def _llm_should_not_run(*args, **kwargs):  # pragma: no cover - safety assertion
+        raise AssertionError("LLM planner should not run for deterministic identity explain")
+
+    monkeypatch.setattr(voice_service, "_plan_intent_with_llm_v1", _llm_should_not_run)
+
+    response, openai_http_ms, model = await voice_service.plan_voice_response(
+        transcript="Who are you?",
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["kind"] == "speak_only"
+    assert "voice assistant" in response["message"].lower()
+    assert "kai app" in response["message"].lower()
+    assert response["mode"] == "answer_now"
+    assert response["action_id"] is None
+    assert openai_http_ms == 0
+    assert model == "deterministic"
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_what_can_you_do_here_uses_screen_actions(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    async def _llm_should_not_run(*args, **kwargs):  # pragma: no cover - safety assertion
+        raise AssertionError("LLM planner should not run for deterministic capability explain")
+
+    monkeypatch.setattr(voice_service, "_plan_intent_with_llm_v1", _llm_should_not_run)
+
+    response, openai_http_ms, model = await voice_service.plan_voice_response(
+        transcript="What can you do here?",
+        user_id="user_a",
+        app_state=_app_state(route={"pathname": "/profile", "screen": "profile_account"}),
+        context={
+            "structured_screen_context": {
+                "route": {
+                    "pathname": "/profile",
+                    "screen": "profile_account",
+                },
+                "ui": {
+                    "available_actions": ["Open Gmail", "Open receipts", "Open PKM Agent Lab"],
+                },
+            }
+        },
+    )
+
+    assert response["kind"] == "speak_only"
+    assert "you are on the profile screen" in response["message"].lower()
+    assert "open gmail" in response["message"].lower()
+    assert response["mode"] == "answer_now"
+    assert response["action_id"] is None
+    assert openai_http_ms == 0
+    assert model == "deterministic"
+
+
+@pytest.mark.anyio
 async def test_plan_voice_response_explains_local_receipts_concept_deterministically(
     voice_service: VoiceIntentService,
     monkeypatch: pytest.MonkeyPatch,
@@ -931,6 +1065,7 @@ async def test_plan_voice_response_optimize_routes_to_canonical_command(
         "tool_name": "execute_kai_command",
         "args": {"command": "optimize"},
     }
+    assert response["action_id"] == "route.kai_optimize"
 
 
 @pytest.mark.anyio
@@ -1058,7 +1193,7 @@ async def test_plan_voice_response_stt_unusable_for_non_english(voice_service: V
 
     assert response["kind"] == "clarify"
     assert response["reason"] == "stt_unusable"
-    assert response["message"] == _UNCLEAR_STT_MESSAGE
+    assert response["message"] == _VOICE_ENGLISH_ONLY_INPUT_MESSAGE
 
 
 @pytest.mark.anyio
@@ -1136,6 +1271,52 @@ async def test_plan_voice_response_analyze_with_polite_suffix_executes(
     assert response["tool_call"]["tool_name"] == "execute_kai_command"
     assert response["tool_call"]["args"]["command"] == "analyze"
     assert response["tool_call"]["args"]["params"]["symbol"] == "NVDA"
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_analyze_misspelled_alias_executes(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="Please start the analysis of nvida stock for me.",
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["action_id"] == "analysis.start"
+    assert response["tool_call"]["tool_name"] == "execute_kai_command"
+    assert response["tool_call"]["args"]["command"] == "analyze"
+    assert response["tool_call"]["args"]["params"]["symbol"] == "NVDA"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "transcript",
+    [
+        "Take me to the analysis section",
+        "Open analysis",
+    ],
+)
+async def test_plan_voice_response_analysis_navigation_executes(
+    voice_service: VoiceIntentService,
+    transcript: str,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript=transcript,
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["action_id"] == "route.analysis_history"
+    assert response["mode"] == "execute_and_wait"
+    assert response["tool_call"] == {
+        "tool_name": "execute_kai_command",
+        "args": {"command": "history"},
+    }
 
 
 @pytest.mark.anyio
@@ -1385,8 +1566,371 @@ async def test_synthesize_speech_buffers_streaming_handle(
     assert stream.closed is True
 
 
+@pytest.mark.anyio
+async def test_open_tts_stream_sends_english_only_instructions(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+        headers = {"content-length": "0"}
+        content = b""
+
+        async def aiter_bytes(self):
+            if False:  # pragma: no cover - keeps this as an async generator
+                yield b""
+
+        async def aclose(self):
+            captured["response_closed"] = True
+
+    class _FakeStreamContext:
+        async def __aenter__(self):
+            return _FakeResponse()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    class _FakeAsyncClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        def stream(self, method, url, *, headers, json):
+            captured["method"] = method
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeStreamContext()
+
+        async def aclose(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(voice_intent_service_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    stream, mime_type, meta = await voice_service.open_tts_stream(
+        text="hello world",
+        voice="alloy",
+    )
+
+    assert mime_type == "audio/mpeg"
+    assert meta["model"] == "gpt-4o-mini-tts"
+    assert captured["json"]["instructions"] == _VOICE_TTS_INSTRUCTIONS
+    assert captured["json"]["input"] == "hello world"
+    await stream.aclose()
+
+
 def test_voice_tool_policy_whitelist_excludes_destructive_actions():
     assert "delete_account" not in _ALLOWED_TOOL_NAMES
     assert "delete_imported_data" not in _ALLOWED_TOOL_NAMES
     assert "delete_account" not in _ALLOWED_COMMANDS
     assert "delete_imported_data" not in _ALLOWED_COMMANDS
+
+
+def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
+    planner_context = build_voice_planner_context(
+        transcript="open profile",
+        runtime_state=_app_state()["runtime"],
+        context_payload={
+            "structured_screen_context": {
+                "route": {
+                    "pathname": "/profile",
+                    "screen": "profile_account",
+                },
+                "surface": {
+                    "screen_id": "profile_account",
+                    "controls": [
+                        {"id": "gmail", "label": "Gmail", "action_id": "route.profile_gmail_panel"},
+                        {"id": "pkm", "label": "PKM", "action_id": "route.profile_pkm_agent_lab"},
+                    ],
+                },
+            }
+        },
+    )
+
+    prompt = build_voice_planner_system_prompt(planner_context=planner_context)
+
+    assert "Kai is the app" in prompt
+    assert "voice assistant" in prompt.lower()
+    assert "route.profile" in prompt
+    assert "Relevant Manifest Actions" in prompt
+    assert "Core Capabilities" in prompt
+    assert "manual_only" in prompt
+    assert "Language Policy" in prompt
+    assert "English-language transcripts only" in prompt
+    assert "English only" in prompt
+
+
+def test_voice_response_composer_prompt_includes_identity_and_execution_grounding():
+    composer_context = build_voice_response_composer_context(
+        transcript="Take me to my profile",
+        runtime_state=_app_state()["runtime"],
+        context_payload={
+            "structured_screen_context": {
+                "route": {
+                    "pathname": "/profile",
+                    "screen": "profile_account",
+                },
+                "surface": {
+                    "screen_id": "profile_account",
+                    "title": "Profile",
+                    "purpose": "Manage your investor identity and connected data.",
+                    "actions": [
+                        {
+                            "id": "open_gmail",
+                            "label": "Open Gmail",
+                            "action_id": "route.profile_gmail_panel",
+                        }
+                    ],
+                },
+            }
+        },
+        plan_payload={
+            "mode": "execute_and_wait",
+            "action_id": "route.profile",
+            "slots": {},
+            "guards": [],
+            "reply_strategy": "llm",
+        },
+        response_payload={
+            "kind": "execute",
+            "message": "Opening profile.",
+            "execution_allowed": True,
+        },
+        action_result={
+            "status": "succeeded",
+            "action_id": "route.profile",
+            "route_after": "/profile",
+            "screen_after": "profile_account",
+            "result_summary": "Opened your profile.",
+        },
+    )
+
+    prompt = build_voice_response_composer_system_prompt(composer_context=composer_context)
+
+    assert "voice assistant inside the Kai app" in prompt
+    assert "execution result is authoritative" in prompt
+    assert "Return JSON only" in prompt
+    assert "route.profile" in prompt
+    assert "profile_account" in prompt
+    assert "Language Policy" in prompt
+    assert "spoken reply must be English only" in prompt
+
+
+@pytest.mark.anyio
+async def test_compose_voice_reply_uses_llm_json_result(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _FakeResponse:
+        status_code = 200
+
+    async def _fake_post_with_model_fallback(**kwargs):
+        return (
+            _FakeResponse(),
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "text": "You're on Profile now. Manage your investor identity and connected data here.",
+                                    "segment_type": "final",
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+            14,
+            "gpt-4o-mini",
+        )
+
+    monkeypatch.setattr(
+        voice_intent_service_module,
+        "_post_with_model_fallback",
+        _fake_post_with_model_fallback,
+    )
+
+    composed, openai_http_ms, model_used = await voice_service.compose_voice_reply(
+        transcript="Take me to profile",
+        user_id="user_a",
+        app_state=_app_state(route={"pathname": "/profile", "screen": "profile_account"}),
+        context={},
+        plan_payload={
+            "mode": "execute_and_wait",
+            "action_id": "route.profile",
+            "slots": {},
+            "guards": [],
+            "reply_strategy": "llm",
+        },
+        response_payload={
+            "kind": "execute",
+            "message": "Opening profile.",
+            "execution_allowed": True,
+        },
+        action_result={
+            "status": "succeeded",
+            "action_id": "route.profile",
+            "route_after": "/profile",
+            "screen_after": "profile_account",
+            "result_summary": "Opened your profile.",
+        },
+    )
+
+    assert composed == {
+        "text": "You're on Profile now. Manage your investor identity and connected data here.",
+        "segment_type": "final",
+    }
+    assert openai_http_ms == 14
+    assert model_used == "gpt-4o-mini"
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_open_gmail_sets_canonical_navigation_contract(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    async def _llm_should_not_run(*args, **kwargs):  # pragma: no cover - safety assertion
+        raise AssertionError("LLM planner should not run for Gmail navigation intents")
+
+    monkeypatch.setattr(voice_service, "_plan_intent_with_llm_v1", _llm_should_not_run)
+
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="Open Gmail",
+        user_id="user_a",
+        app_state=_app_state(route={"pathname": "/profile", "screen": "profile_account"}),
+        context={},
+    )
+
+    assert response["kind"] == "speak_only"
+    assert response["execution_allowed"] is True
+    assert response["schema_version"] == "kai_voice_plan.v1"
+    assert response["mode"] == "execute_and_wait"
+    assert response["action_id"] == "route.profile_gmail_panel"
+    assert response["reply_strategy"] == "llm"
+    assert response["guards"] == []
+    assert response.get("tool_call") is None
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_go_back_sets_manifest_back_contract(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="go back",
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["execution_allowed"] is True
+    assert response["schema_version"] == "kai_voice_plan.v1"
+    assert response["mode"] == "execute_and_wait"
+    assert response["action_id"] == "route.back"
+    assert response["action_completion"] == "route_settle"
+    assert response["tool_call"] == {"tool_name": "navigate_back", "args": {}}
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_analyze_google_sets_background_action_contract(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="Analyze google",
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["schema_version"] == "kai_voice_plan.v1"
+    assert response["mode"] == "start_background_and_ack"
+    assert response["action_id"] == "analysis.start"
+    assert response["slots"]["command"] == "analyze"
+    assert response["slots"]["symbol"] == "GOOGL"
+    assert response["reply_strategy"] == "llm"
+    assert response["guards"] == ["analysis_idle_required"]
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_analyze_still_executes_when_portfolio_is_missing(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="Analyze google",
+        user_id="user_a",
+        app_state={**_app_state(), "portfolio": {"has_portfolio_data": False}},
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["execution_allowed"] is True
+    assert response["mode"] == "start_background_and_ack"
+    assert response["action_id"] == "analysis.start"
+    assert response["guards"] == ["analysis_idle_required"]
+    assert response["memory"]["allow_durable_write"] is True
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_analysis_navigation_still_executes_when_portfolio_is_missing(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="Take me to analysis",
+        user_id="user_a",
+        app_state={**_app_state(), "portfolio": {"has_portfolio_data": False}},
+        context={},
+    )
+
+    assert response["kind"] == "execute"
+    assert response["action_id"] == "route.analysis_history"
+    assert response["execution_allowed"] is True
+    assert response["mode"] == "execute_and_wait"
+    assert response["guards"] == []
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_cancel_active_analysis_requires_manual_confirmation(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="cancel analysis",
+        user_id="user_a",
+        app_state=_app_state(
+            runtime={
+                "analysis_active": True,
+                "analysis_ticker": "NVDA",
+                "analysis_run_id": "run_nvda",
+            }
+        ),
+        context={},
+    )
+
+    assert response["kind"] == "speak_only"
+    assert response["reason"] == "manual_user_execution_required"
+    assert "on-screen confirmation" in response["message"].lower()
+    assert response["execution_allowed"] is False
+    assert response["mode"] == "answer_now"
+    assert response["action_id"] == "analysis.cancel_active"
+    assert response["memory"]["allow_durable_write"] is False
+    assert response.get("tool_call") is None
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_blank_transcript_sets_clarification_contract(
+    voice_service: VoiceIntentService,
+):
+    response, _, _ = await voice_service.plan_voice_response(
+        transcript="   ",
+        user_id="user_a",
+        app_state=_app_state(),
+        context={},
+    )
+
+    assert response["mode"] == "clarify"
+    assert response["action_id"] is None
+    assert response["clarification"] == {
+        "reason": "stt_unusable",
+        "question": _UNCLEAR_STT_MESSAGE,
+    }

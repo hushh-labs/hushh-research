@@ -22,6 +22,17 @@ def test_issue_and_validate_token():
     assert parsed.scope_str == VALID_SCOPE.value
 
 
+def test_issue_and_validate_agent_kai_execute_token():
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.AGENT_KAI_EXECUTE)
+    valid, reason, parsed = validate_token(token_obj.token, ConsentScope.AGENT_KAI_EXECUTE)
+
+    assert valid is True
+    assert reason is None
+    assert parsed is not None
+    assert parsed.scope == ConsentScope.AGENT_KAI_EXECUTE
+    assert parsed.scope_str == ConsentScope.AGENT_KAI_EXECUTE.value
+
+
 def test_token_scope_mismatch():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
     valid, reason, _ = validate_token(token_obj.token, ConsentScope.PKM_WRITE)

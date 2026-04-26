@@ -43,7 +43,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth redirect URI. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
-| `OPENAI_API_KEY` | `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Required for voice STT, planning, TTS, and realtime session creation. |
+| `OPENAI_API_KEY` | `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Required for voice STT, planning/composition, TTS, and realtime session creation. |
 | `VOICE_RUNTIME_CONFIG_JSON` | `hushh_mcp/runtime_settings.py`, `api/routes/kai/voice.py`, `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Structured runtime config for rollout, allowlists/canary, fail-fast policy, and model defaults. |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
@@ -102,7 +102,7 @@ These are read by `mcp_server.py` (separate from the main FastAPI server):
 |----------|---------|-------------|
 | `CONSENT_API_URL` | `http://127.0.0.1:8000` | FastAPI backend URL. Defaults to loopback + `PORT` when unset. |
 | `APP_FRONTEND_ORIGIN` | `http://localhost:3000` | Backend-owned app origin for user-facing links. Do not add this to public MCP host configs. |
-| `PRODUCTION_MODE` | `true` | Require real user approval via Hushh app. |
+| `PRODUCTION_MODE` | `true` | Require real user approval via Hussh app. |
 | `HUSHH_DEVELOPER_TOKEN` | _(none)_ | Self-serve developer token for stdio MCP. |
 | `CONSENT_TIMEOUT_SECONDS` | `120` | Max wait for user consent approval. |
 
@@ -131,15 +131,19 @@ Kai generation behavior for import/optimize/debate is also constants-driven (not
 
 Maintainer-only overlay vars used by release verification, migration/reset utilities, and review flows:
 
-- `UAT_SMOKE_USER_ID`
-- `UAT_SMOKE_PASSPHRASE`
 - `APP_REVIEW_MODE`
 - `REVIEWER_UID`
+- `REVIEWER_VAULT_PASSPHRASE`
 
 Notes:
 
 - These maintainer-only overlay vars are loaded by backend scripts and release verification at process start.
 - Changing them requires restarting the backend or rerunning the script; they are not hot-reloaded into an already running process.
+- `REVIEWER_UID` is the canonical non-production reviewer/test user id. The current fixture resolves to `s3xmA4lNSAQFrIaOytnSGAOzXlL2` from Firebase Auth email `jd77v9k4nx@privaterelay.appleid.com`.
+- `REVIEWER_VAULT_PASSPHRASE` is the canonical vault unlock secret for reviewer smoke and must remain in ignored local env files or Secret Manager/runtime overlays.
+- `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated one-release aliases for existing maintainer scripts.
+- UAT analytics smoke reuses the existing reviewer test fixture; do not create new Firebase users, reviewer users, app environments, or one-off analytics fixtures for validation.
+- If the reviewer test fixture lacks seeded portfolio or recommendation state, repair or reseed that same user rather than minting another account.
 
 Maintainer-only non-production bypass overlay:
 

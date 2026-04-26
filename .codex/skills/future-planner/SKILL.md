@@ -1,9 +1,9 @@
 ---
 name: future-planner
-description: Use when evaluating future roadmap ideas, creating planning-only architecture docs, or assessing R&D concepts against Hushh north stars, trust boundaries, and current repo reality.
+description: Use when evaluating future roadmap ideas, creating planning-only architecture docs, or assessing R&D concepts against Hussh north stars, trust boundaries, and current repo reality.
 ---
 
-# Hushh Future Planner Skill
+# Hussh Future Planner Skill
 
 ## Purpose and Trigger
 

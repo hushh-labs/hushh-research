@@ -15,6 +15,7 @@
   ],
   "required_reads": [
     "docs/reference/operations/ci.md",
+    "docs/reference/operations/branch-governance.md",
     "docs/reference/quality/pr-impact-checklist.md",
     "docs/reference/kai/kai-runtime-smoke-checklist.md"
   ],
@@ -40,6 +41,8 @@
     "remaining launch-risk debt"
   ],
   "impact_fields": [
+    "Preserved developer branch",
+    "Branch restoration or back-sync state",
     "Docs updated",
     "Verification commands executed",
     "Mobile parity impacts"
@@ -54,6 +57,8 @@
   "common_failures": [
     "treating advisory findings as invisible",
     "shipping without docs parity",
-    "skipping native checks when mobile surfaces changed"
+    "skipping native checks when mobile surfaces changed",
+    "dispatching or fixing from a temporary branch without restoring the preserved developer branch",
+    "letting main hotfixes drift away from the active development branch"
   ]
 }

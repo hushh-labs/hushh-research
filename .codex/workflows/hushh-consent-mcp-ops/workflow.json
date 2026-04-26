@@ -1,7 +1,7 @@
 {
   "id": "hushh-consent-mcp-ops",
-  "title": "Hushh Consent MCP Ops",
-  "goal": "Operate and verify the Hushh Consent MCP connector directly without confusing connector startup, empty discovery, and environment mismatch.",
+  "title": "Hussh Consent MCP Ops",
+  "goal": "Operate and verify the Hussh Consent MCP connector directly without confusing connector startup, empty discovery, and environment mismatch.",
   "owner_skill": "backend",
   "default_spoke": "hushh-consent-mcp",
   "task_type": "hushh-consent-mcp-ops",

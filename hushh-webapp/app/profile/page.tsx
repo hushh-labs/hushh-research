@@ -1,5 +1,6 @@
 "use client";
 
+import styles from "./page.module.css";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -17,6 +18,7 @@ import {
   LogOut,
   Mail,
   Monitor,
+  Phone,
   RefreshCw,
   SendHorizontal,
   ShieldCheck,
@@ -68,6 +70,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -84,10 +87,12 @@ import {
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
   AccountService,
   type AccountDeletionTarget,
 } from "@/lib/services/account-service";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -113,6 +118,7 @@ import {
   buildPkmSectionPreviewPresentation,
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
+import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
@@ -141,6 +147,7 @@ import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
 
 type ProfilePanel =
+  | "account"
   | "my-data"
   | "access"
   | "preferences"
@@ -151,6 +158,7 @@ type ProfilePanel =
 type ProfileDetail =
   | `domain:${string}`
   | `connection:${string}`
+  | "phone"
   | "kai-preferences"
   | "device"
   | "vault"
@@ -239,6 +247,7 @@ const SUPPORT_KIND_COPY: Record<
 
 function normalizeProfilePanel(value: string | null): ProfilePanel | null {
   if (
+    value === "account" ||
     value === "my-data" ||
     value === "access" ||
     value === "preferences" ||
@@ -260,6 +269,9 @@ function normalizeProfileDetail(panel: ProfilePanel | null, value: string | null
   }
   if (panel === "access" && detail.startsWith("connection:")) {
     return detail as ProfileDetail;
+  }
+  if (panel === "account" && detail === "phone") {
+    return detail;
   }
   if (
     panel === "preferences" &&
@@ -397,6 +409,7 @@ function resolveProfileRouteState(searchParams: ReadonlyURLSearchParams): Profil
     const tab = searchParams.get("tab");
     if (tab === "my-data") panel = "my-data";
     else if (tab === "access" || tab === "privacy") panel = "access";
+    else if (tab === "account") panel = "account";
     else if (tab === "preferences") panel = "preferences";
     else if (tab === "security") panel = "security";
   }
@@ -427,7 +440,16 @@ function ProfilePageContent() {
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
 
-  const { user, loading: authLoading, signOut } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    phoneNumber,
+    signOut,
+    startPhoneVerification,
+    confirmPhoneVerification,
+    startPhoneReplacement,
+    confirmPhoneReplacement,
+  } = useAuth();
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
@@ -505,6 +527,10 @@ function ProfilePageContent() {
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
+  useScrollReset(`${pathname}:${activePanel ?? "root"}:${activeDetail ?? "root"}`, {
+    enabled: true,
+    behavior: "auto",
+  });
 
   const provider = getProvider(user);
   const gmailRouteHref = `${pathname}?${searchParamsString}`;
@@ -1294,7 +1320,7 @@ function ProfilePageContent() {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
         currentVaultKey: vaultKey,
-        displayName: user.displayName || user.email || "Hushh User",
+        displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
       });
 
@@ -1476,6 +1502,9 @@ function ProfilePageContent() {
       : marketplaceOptIn
         ? "Discoverable to RIAs"
         : "Hidden from marketplace search";
+  const phoneSummaryText = phoneNumber ? maskPhoneNumber(phoneNumber) : "No phone number linked yet";
+  const emailVerified = Boolean(user?.emailVerified);
+  const emailVerificationText = emailVerified ? "Verified email" : "Email not verified";
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
   const gmailStatusSummary = useMemo(
@@ -1524,7 +1553,7 @@ function ProfilePageContent() {
         id: "profile_my_data",
         label: "Personal Knowledge Model",
         purpose: "opens your saved domains, source summaries, and sharing controls.",
-        actionId: "nav.profile_my_data",
+        actionId: "route.profile_my_data",
         role: "card",
         voiceAliases: ["personal knowledge model", "my data", "pkm"],
       },
@@ -1532,15 +1561,23 @@ function ProfilePageContent() {
         id: "profile_access",
         label: "Access & sharing",
         purpose: "opens consent-backed access and sharing controls.",
-        actionId: "nav.profile_access",
+        actionId: "route.profile_access",
         role: "card",
         voiceAliases: ["access", "sharing", "consent access"],
+      },
+      {
+        id: "profile_account",
+        label: "Account",
+        purpose: "opens account identity, email, and phone management.",
+        actionId: "route.profile_account",
+        role: "card",
+        voiceAliases: ["account", "phone number", "identity"],
       },
       {
         id: "profile_gmail",
         label: "Gmail receipts",
         purpose: "opens Gmail receipt sync and receipt-memory management.",
-        actionId: "nav.profile_gmail",
+        actionId: "route.profile_gmail",
         role: "card",
         voiceAliases: ["gmail receipts", "receipts"],
       },
@@ -1548,7 +1585,7 @@ function ProfilePageContent() {
         id: "profile_support",
         label: "Support & feedback",
         purpose: "opens support routing and compose flows.",
-        actionId: "nav.profile_support",
+        actionId: "route.profile_support",
         role: "card",
         voiceAliases: ["support", "feedback"],
       },
@@ -1574,7 +1611,7 @@ function ProfilePageContent() {
               id: "profile_pkm_agent_lab",
               label: "PKM Agent Lab",
               purpose: "opens the developer-facing PKM workspace.",
-              actionId: "nav.profile_pkm_agent_lab",
+              actionId: "route.profile_pkm_agent_lab",
               role: "card",
               voiceAliases: ["pkm agent lab", "memory lab"],
             },
@@ -1587,20 +1624,23 @@ function ProfilePageContent() {
       null;
     const visibleModules = activePanel
       ? [
-          activePanel === "my-data"
-            ? "Personal Knowledge Model"
-            : activePanel === "access"
-              ? "Access & sharing"
-              : activePanel === "preferences"
-                ? "Preferences"
-                : activePanel === "security"
-                  ? "Security"
-                  : activePanel === "gmail"
-                    ? "Gmail receipts"
-                    : "Support & feedback",
+          activePanel === "account"
+            ? "Account"
+            : activePanel === "my-data"
+              ? "Personal Knowledge Model"
+              : activePanel === "access"
+                ? "Access & sharing"
+                : activePanel === "preferences"
+                  ? "Preferences"
+                  : activePanel === "security"
+                    ? "Security"
+                    : activePanel === "gmail"
+                      ? "Gmail receipts"
+                      : "Support & feedback",
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
+          "Account",
           "Personal Knowledge Model",
           "Access & sharing",
           "Preferences",
@@ -1622,6 +1662,8 @@ function ProfilePageContent() {
           ]
         : activePanel === "support"
           ? ["Report a bug", "Get support", "Reach developer"]
+          : activePanel === "account"
+            ? [phoneNumber ? "Change phone number" : "Add phone number"]
           : activePanel === "security"
             ? [
                 vaultAccess.needsVaultCreation ? "Create your vault" : "Unlock vault",
@@ -1629,6 +1671,7 @@ function ProfilePageContent() {
                 "Delete account",
               ]
             : [
+                "Open Account",
                 "Open Personal Knowledge Model",
                 "Open Access & sharing",
                 "Open Gmail receipts",
@@ -1639,21 +1682,24 @@ function ProfilePageContent() {
       surfaceDefinition: {
         screenId: activePanel ? `profile_${activePanel}` : "profile_home",
         title: activePanel
-          ? activePanel === "my-data"
-            ? "Personal Knowledge Model"
-            : activePanel === "access"
-              ? "Access & sharing"
-              : activePanel === "preferences"
-                ? "Preferences"
-                : activePanel === "security"
-                  ? "Security"
-                  : activePanel === "gmail"
-                    ? "Gmail receipts"
-                    : "Support & feedback"
+          ? activePanel === "account"
+            ? "Account"
+            : activePanel === "my-data"
+              ? "Personal Knowledge Model"
+              : activePanel === "access"
+                ? "Access & sharing"
+                : activePanel === "preferences"
+                  ? "Preferences"
+                  : activePanel === "security"
+                    ? "Security"
+                    : activePanel === "gmail"
+                      ? "Gmail receipts"
+                      : "Support & feedback"
           : "Profile",
         purpose:
-          "This surface manages profile data, access, preferences, Gmail receipts, support, and vault security.",
+          "This surface manages account identity, profile data, access, preferences, Gmail receipts, support, and vault security.",
         sections: [
+          { id: "account", title: "Account", purpose: "Email, phone, and sign-in identity." },
           {
             id: "my-data",
             title: "Personal Knowledge Model",
@@ -1729,6 +1775,8 @@ function ProfilePageContent() {
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
+        phone_verified: Boolean(phoneNumber),
+        email_verified: emailVerified,
       },
     };
   }, [
@@ -1747,6 +1795,7 @@ function ProfilePageContent() {
     marketplaceOptIn,
     passphraseDialogOpen,
     pendingConsents,
+    phoneNumber,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
     savingMarketplaceOptIn,
@@ -1755,6 +1804,7 @@ function ProfilePageContent() {
     showVaultUnlock,
     supportComposeKind,
     switchingVaultMethod,
+    emailVerified,
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
@@ -1828,6 +1878,7 @@ function ProfilePageContent() {
   const openMyDataPanel = () => openVaultBackedPanel("my-data");
   const openAccessPanel = () => openVaultBackedPanel("access");
   const openGmailPanel = () => openVaultBackedPanel("gmail");
+  const openAccountPanel = () => updateProfileView({ panel: "account", detail: null }, "push");
   const openPreferencesPanel = () => updateProfileView({ panel: "preferences", detail: null }, "push");
   const openSecurityPanel = () => openVaultBackedPanel("security");
 
@@ -2094,6 +2145,61 @@ function ProfilePageContent() {
               onCheckedChange={() => void handleMarketplaceOptInToggle()}
             />
           }
+        />
+      </SettingsGroup>
+    </div>
+  );
+
+  const handleAccountPhoneCompleted = async (verifiedUser?: typeof user | null) => {
+    const activeUser = verifiedUser ?? user;
+    await AccountIdentityService.syncCurrentUser(activeUser);
+    updateProfileView({ panel: "account", detail: null }, "replace");
+  };
+
+  const accountContent = (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary">{provider.name}</Badge>
+        <Badge variant="secondary">{emailVerificationText}</Badge>
+        <Badge variant="secondary">{phoneNumber ? "Phone verified" : "Phone required"}</Badge>
+      </div>
+      <SettingsGroup title="Identity">
+        <SettingsRow
+          icon={User}
+          title="Display name"
+          description={user.displayName || "Not available"}
+        />
+        <SettingsRow
+          icon={Mail}
+          title="Email"
+          description={user.email || "Not available"}
+          trailing={<Badge variant="secondary">{emailVerified ? "Verified" : "Unverified"}</Badge>}
+          stackTrailingOnMobile
+        />
+        <SettingsRow
+          icon={Phone}
+          title="Phone number"
+          description={phoneSummaryText}
+          trailing={<Badge variant="secondary">{phoneNumber ? "Verified" : "Required"}</Badge>}
+          stackTrailingOnMobile
+        />
+        <SettingsRow
+          icon={Fingerprint}
+          title="Sign-in provider"
+          description={provider.name}
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Actions">
+        <SettingsRow
+          icon={Phone}
+          title={phoneNumber ? "Change phone number" : "Add phone number"}
+          description={
+            phoneNumber
+              ? "Verify a new number to replace the current one."
+              : "Add a verified phone number to this account."
+          }
+          chevron
+          onClick={() => updateProfileView({ panel: "account", detail: "phone" }, "push")}
         />
       </SettingsGroup>
     </div>
@@ -2522,7 +2628,40 @@ function ProfilePageContent() {
 
   const profileStackEntries: ProfileStackEntry[] = [];
 
-  if (!routeBlockedByVault && activePanel === "my-data") {
+  if (!routeBlockedByVault && activePanel === "account") {
+    profileStackEntries.push({
+      key: "panel:account",
+      title: "Account",
+      description: "Manage email, phone number, and sign-in identity.",
+      content: accountContent,
+    });
+    if (activeDetail === "phone") {
+      profileStackEntries.push({
+        key: "detail:phone",
+        title: phoneNumber ? "Change phone number" : "Add phone number",
+        description: phoneNumber
+          ? "Verify a new number to replace the current one."
+          : "Add a verified phone number to this account.",
+        content: (
+          <PhoneVerificationFlow
+            mode={phoneNumber ? "replace" : "link"}
+            currentPhoneNumber={phoneNumber}
+            startVerification={phoneNumber ? startPhoneReplacement : startPhoneVerification}
+            confirmVerification={phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification}
+            onCompleted={handleAccountPhoneCompleted}
+            onCancel={popProfileStack}
+            confirmLabel="Save phone number"
+            className="gap-5"
+            helperText={
+              phoneNumber
+                ? "Choose your country code and enter the new phone number you want to use for this account."
+                : "Choose your country code and enter your phone number. We’ll send you a verification code."
+            }
+          />
+        ),
+      });
+    }
+  } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
       title: "Personal Knowledge Model",
@@ -2735,7 +2874,7 @@ function ProfilePageContent() {
   const profileRootContent = (
     <>
       <AppPageHeaderRegion
-        className="pt-[calc(var(--page-top-start)+6.25rem)] sm:pt-[calc(var(--page-top-start)+6.9rem)]"
+        className={styles.profilePageHeaderRegion}
       >
         <header
           className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
@@ -2871,7 +3010,14 @@ function ProfilePageContent() {
               />
             </SettingsGroup>
 
-            <SettingsGroup title="Account">
+            <SettingsGroup title="Settings">
+              <SettingsRow
+                icon={Phone}
+                title="Account"
+                description="Email, phone number, and sign-in identity."
+                chevron
+                onClick={openAccountPanel}
+              />
               <SettingsRow
                 icon={RefreshCw}
                 title="Preferences"

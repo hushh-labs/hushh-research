@@ -1,9 +1,9 @@
 ---
 name: frontend-design-system
-description: Use when changing Hushh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.
+description: Use when changing Hussh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.
 ---
 
-# Hushh Frontend Design System Skill
+# Hussh Frontend Design System Skill
 
 ## Purpose and Trigger
 
@@ -82,6 +82,23 @@ Non-owned surfaces:
    - is the desktop/tablet composition intentionally rebalanced
    - is the copy shorter, clearer, and less noisy than the previous version
    - would the result feel credible without a human UI/UX reviewer correcting it later
+26. Focused auth, mandate, and verification flows should default to flat top-anchored composition; do not add decorative logo blocks or floating card wrappers unless the route genuinely needs a separate surface boundary.
+27. Radius must be intentional and locally uniform; when a screen combines inputs, selects, and buttons, choose one radius scale for that flow instead of mixing stock button rounding with oversized field rounding.
+28. If a surface uses shared primitives with overridden geometry, review every actionable and field in that flow together so one-off radii or container chrome do not slip through.
+29. Consumer auth, onboarding, and verification flows must use plain product language; do not mention provider names, backend systems, token formats, or protocol terms in first-read UI copy.
+30. Do not ship footer-style engineering notes under core verification or onboarding actions; keep supporting copy to one short line that directly helps the next user action.
+31. Mandatory verification flows require a final review for plain-language clarity, radius consistency, and shell spacing before they are considered done.
+32. Compact production forms should prefer the canonical form layer (`Field`, `FieldLabel`, `FieldDescription`, `InputGroup`) over route-local primitive restyling when symmetry and density matter.
+33. If a route mixes `Input` and `Select`, they must share one row-shell geometry contract; do not try to visually match them with separate ad hoc utility stacks.
+34. Verification forms are not hero surfaces by default; use form-width composition, tighter heading scale, and compact field spacing unless the product explicitly needs a showcase layout.
+35. Interactive icons inside shared controls must inherit the active foreground of their host surface; do not leave chevrons, clear buttons, or adornments on muted gray when the hover/fill surface changes to a strong color.
+36. Contrast review is required for shared interactive states: if a background becomes blue, dark, or accent-heavy on hover/open/pressed, the foreground and icons must remain visibly legible at the component layer.
+37. Route shell, greeting, notification, consent, and memory copy must follow One/Kai/Nav ownership:
+   - One owns shared shell, greetings, memory framing, background-task notifications, and specialist handoffs.
+   - Kai owns finance analysis, portfolio, market, RIA finance, and decision-receipt copy.
+   - Nav owns consent, privacy, vault, deletion, revocation, suspicious-access, and scope-review copy.
+38. UI action ids for ordinary navigation must use `route.*`. Do not use `nav.*` unless the action is truly Nav-owned privacy/consent guardian behavior.
+39. Product copy should use neutral voice descriptors and plain product language; do not add celebrity references or personal numeric preferences to maintained UI copy.
 
 ## Handoff Rules
 

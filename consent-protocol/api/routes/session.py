@@ -12,7 +12,9 @@ from fastapi import APIRouter, Header, HTTPException
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -216,25 +218,31 @@ async def get_active_consents(
 
 
 @router.get("/user/lookup")
-async def lookup_user_by_email(
-    email: str,
+async def lookup_user(
+    identifier: Optional[str] = None,
+    email: Optional[str] = None,
+    phone_number: Optional[str] = None,
+    country_iso2: Optional[str] = None,
+    country: Optional[str] = None,
     x_mcp_developer_token: Optional[str] = Header(None, alias="X-MCP-Developer-Token"),
 ):
     """
-    Look up a user by email and return their Firebase UID.
+    Look up a user by Firebase UID, email, or phone number and return their Firebase UID.
 
-    Used by MCP server to allow consent requests using human-readable
-    email addresses instead of Firebase UIDs.
+    Used by MCP server to allow consent requests using human-readable identifiers
+    instead of only Firebase UIDs. National phone numbers default to US parsing
+    unless a country hint is provided.
 
     Returns:
     - user_id: Firebase UID
     - email: The email address
+    - phone_number: The linked phone number (if set)
     - display_name: User's display name (if set)
     - exists: True if user exists
 
     Or for non-existent users:
     - exists: False
-    - message: Friendly error message
+     - message: Friendly error message
     """
     from firebase_admin import auth
 
@@ -244,21 +252,52 @@ async def lookup_user_by_email(
     if not x_mcp_developer_token or x_mcp_developer_token != required_token:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    logger.info("user_lookup.requested")
+    try:
+        lookup_kind, lookup_value = resolve_lookup_identifier(
+            identifier=identifier,
+            email=email,
+            phone_number=phone_number,
+            country_iso2=country_iso2,
+            country=country,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    logger.info("user_lookup.requested kind=%s", lookup_kind)
 
     try:
         firebase_app = get_firebase_auth_app()
         if firebase_app is None:
             raise HTTPException(status_code=503, detail="Firebase Admin not configured")
 
-        user_record = auth.get_user_by_email(email, app=firebase_app)
+        if lookup_kind == "email":
+            user_record = auth.get_user_by_email(lookup_value, app=firebase_app)
+        elif lookup_kind == "phone":
+            user_record = auth.get_user_by_phone_number(lookup_value, app=firebase_app)
+        else:
+            user_record = auth.get_user(lookup_value, app=firebase_app)
+
+        try:
+            ActorIdentityService().schedule_sync_from_firebase(user_record.uid, force=False)
+        except Exception as identity_error:
+            logger.debug(
+                "user_lookup.identity_warmup_skipped uid=%s error=%s",
+                user_record.uid,
+                identity_error,
+            )
+
         logger.info("user_lookup.found")
 
         return {
             "exists": True,
             "user_id": user_record.uid,
             "email": user_record.email,
-            "display_name": user_record.display_name or email.split("@")[0],
+            "phone_number": getattr(user_record, "phone_number", None),
+            "phone_verified": bool(getattr(user_record, "phone_number", None)),
+            "display_name": user_record.display_name
+            or user_record.email
+            or getattr(user_record, "phone_number", None)
+            or user_record.uid,
             "photo_url": user_record.photo_url,
             "email_verified": user_record.email_verified,
         }
@@ -267,9 +306,11 @@ async def lookup_user_by_email(
         logger.info("user_lookup.not_found")
         return {
             "exists": False,
-            "email": email,
-            "message": f"No Hushh account found for {email}. The user needs to sign up first.",
-            "suggestion": "Ask the user to create a Hushh account at the login page.",
+            "identifier": lookup_value,
+            **({"email": lookup_value} if lookup_kind == "email" else {}),
+            **({"phone_number": lookup_value} if lookup_kind == "phone" else {}),
+            "message": f"No Hussh account found for {lookup_value}. The user needs to sign up first.",
+            "suggestion": "Ask the user to create a Hussh account at the login page.",
         }
 
     except Exception as e:
