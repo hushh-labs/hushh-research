@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, setDoc, increment, getDocFromServer } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandler';
 import { db } from '../firebase';
-import { UserProfile, MatchData, MatchMove, Team } from '../types';
+import { UserProfile, MatchData, MatchMove } from '../types';
 import { cn } from '../lib/utils';
 import { Trophy, Home, RotateCcw, Swords, ChevronRight } from 'lucide-react';
 
@@ -25,6 +25,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
   const [lastReveal, setLastReveal] = useState<{ bat: number; bowl: number } | null>(null);
   const [myChoice, setMyChoice] = useState<number | null>(null);
   const lastProcessedMoveRef = useRef<number>(0);
+  const statsUpdatedRef = useRef(false);
 
   const isPractice = matchId === 'practice';
 
@@ -69,18 +70,24 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
     if (!match || match.status !== 'playing' || revealing) return;
 
     const pids = Object.keys(match.players);
-    if (match.lastMoves[pids[0]] && match.lastMoves[pids[1]]) {
+    const hasP1Move = Object.prototype.hasOwnProperty.call(match.lastMoves, pids[0]);
+    const hasP2Move = Object.prototype.hasOwnProperty.call(match.lastMoves, pids[1]);
+    const turnNumber = match.history.length + 1;
+
+    if (hasP1Move && hasP2Move && lastProcessedMoveRef.current < turnNumber) {
+      lastProcessedMoveRef.current = turnNumber;
       const p1 = match.lastMoves[pids[0]];
       const p2 = match.lastMoves[pids[1]];
 
       const batVal = match.currentBatterId === pids[0] ? p1 : p2;
       const bowlVal = match.currentBatterId === pids[0] ? p2 : p1;
+      const isWicket = batVal === bowlVal && batVal !== 0 && bowlVal !== 0;
 
       setLastReveal({ bat: batVal, bowl: bowlVal });
       setRevealing(true);
       setMyChoice(null);
 
-      if (batVal === bowlVal) {
+      if (isWicket) {
         audio.playOut();
       } else {
         audio.playScore();
@@ -96,7 +103,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
         setRevealing(false);
       }, 2000);
     }
-  }, [match?.lastMoves]);
+  }, [match?.lastMoves, match?.status, revealing, profile.uid]);
 
   const handleMoveCalculation = async (bat: number, bowl: number) => {
     if (!match) return;
@@ -113,6 +120,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
     const p2Id = pids[1];
 
     const isP1Batting = match.currentBatterId === p1Id;
+    const wasSecondInnings = match.innings === 2;
 
     const newMove: MatchMove = { bat, bowl, batterId: newBatterId };
     const newHistory = [...match.history, newMove];
@@ -139,7 +147,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
     }
 
     // Check target chased for innings 2
-    if (newInnings === 2 && newStatus !== 'finished') {
+    if (wasSecondInnings && newStatus !== 'finished') {
       const target = isP1Batting ? match.scoreP2 : match.scoreP1;
       const currentScore = isP1Batting ? newScoreP1 : newScoreP2;
       if (currentScore > target) {
@@ -187,9 +195,6 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
       setMatch({ ...match, ...updates });
     } else {
       await updateDoc(doc(db, 'matches', matchId), updates);
-      if (newStatus === 'finished') {
-        await updateStats(newWinnerId === profile.uid, isP1Batting ? newScoreP1 : newScoreP2);
-      }
     }
   };
 
@@ -243,6 +248,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
       onUpdateProfile({
         ...profile,
         gamesPlayed24h: (profile.gamesPlayed24h || 0) + 1,
+        botGamesPlayed24h: isBotMatch ? (profile.botGamesPlayed24h || 0) + 1 : profile.botGamesPlayed24h,
         totalWins: isWin ? (profile.totalWins || 0) + 1 : profile.totalWins,
         totalRuns: (profile.totalRuns || 0) + finalRuns,
         totalGamesPlayed: (profile.totalGamesPlayed || 0) + 1,
@@ -253,6 +259,17 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
       handleFirestoreError(e, OperationType.UPDATE, path);
     }
   };
+
+  useEffect(() => {
+    if (!match || isPractice || match.status !== 'finished' || statsUpdatedRef.current) return;
+
+    const pids = Object.keys(match.players);
+    if (!pids.includes(profile.uid)) return;
+
+    statsUpdatedRef.current = true;
+    const finalRuns = profile.uid === pids[0] ? match.scoreP1 : match.scoreP2;
+    updateStats(match.winnerId === profile.uid, finalRuns);
+  }, [match?.status, match?.winnerId, match?.scoreP1, match?.scoreP2, isPractice, profile.uid]);
 
   const [isTossing, setIsTossing] = useState(false);
   const [tossResult, setTossResult] = useState<'heads' | 'tails' | null>(null);
@@ -564,15 +581,20 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
                       animate={{
                         scale: 1.2,
                         opacity: 1,
-                        x: lastReveal?.bat === lastReveal?.bowl ? [0, -10, 10, -10, 10, 0] : 0
+                        x: lastReveal?.bat === lastReveal?.bowl && lastReveal?.bat !== 0 ? [0, -10, 10, -10, 10, 0] : 0
                       }}
-                      className={cn("text-5xl font-black drop-shadow-md tracking-tighter uppercase", lastReveal?.bat === lastReveal?.bowl ? "text-orange-500" : "text-teal-600")}
+                      className={cn(
+                        "text-5xl font-black drop-shadow-md tracking-tighter uppercase",
+                        lastReveal?.bat === lastReveal?.bowl && lastReveal?.bat !== 0 ? "text-orange-500" : "text-teal-600"
+                      )}
                     >
-                      {lastReveal?.bat === lastReveal?.bowl ? "OUT!" : `+${lastReveal?.bat} RUNS`}
+                      {lastReveal?.bat === 0 || lastReveal?.bowl === 0
+                        ? "DOT"
+                        : lastReveal?.bat === lastReveal?.bowl ? "OUT!" : `+${lastReveal?.bat} RUNS`}
                     </motion.div>
                   ) : (
                     <p className="text-slate-400 font-extrabold uppercase tracking-[0.3em] text-xs">
-                      {myChoice ? "Awaiting opponent..." : "Pick your magic number"}
+                      {myChoice !== null ? "Awaiting opponent..." : "Pick your magic number"}
                     </p>
                   )}
                 </div>
@@ -707,7 +729,7 @@ function Hand({ value, side, color, label }: { value: number | null, side: 'left
     <div className="flex flex-col items-center gap-4">
       <div className="text-[10px] lg:text-[12px] font-black text-slate-400 uppercase tracking-[0.2em] truncate max-w-[120px]">{label}</div>
       <motion.div
-        key={value || 'empty'}
+        key={value ?? 'empty'}
         initial={{ scale: 0.8, y: 15 }}
         animate={{ scale: 1, y: 0 }}
         className={cn(

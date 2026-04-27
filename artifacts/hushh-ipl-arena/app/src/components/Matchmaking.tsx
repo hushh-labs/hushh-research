@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, onSnapshot, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, onSnapshot, serverTimestamp, deleteDoc, runTransaction, limit } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandler';
 import { db } from '../firebase';
-import { UserProfile, Team, MatchData } from '../types';
+import { UserProfile } from '../types';
 import { Loader2, X } from 'lucide-react';
 
 interface MatchmakingProps {
@@ -16,43 +16,58 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
   const [status, setStatus] = useState<'finding' | 'joining'>('finding');
   const [timer, setTimer] = useState(0);
   const currentMatchId = useRef<string | null>(null);
+  const isStartingMatch = useRef(false);
 
   useEffect(() => {
     let unsubMatch: (() => void) | null = null;
 
     const findMatch = async () => {
-      // 1. Look for existing match
-      const q = query(
-        collection(db, 'matches'),
-        where('status', '==', 'searching'),
-        where('isBotMatch', '==', false)
-      );
+      try {
+        const q = query(
+          collection(db, 'matches'),
+          where('status', '==', 'searching'),
+          where('isBotMatch', '==', false),
+          limit(8)
+        );
 
-      const snapshot = await getDocs(q);
-      const availableMatches = snapshot.docs.filter(d => !d.data().players[profile.uid]);
+        const snapshot = await getDocs(q);
+        const candidates = snapshot.docs.filter(d => !d.data().players?.[profile.uid]);
 
-      if (availableMatches.length > 0) {
-        // Try to join the first one
-        const matchId = availableMatches[0].id;
-        currentMatchId.current = matchId;
-        const matchRef = doc(db, 'matches', matchId);
-        const matchData = availableMatches[0].data();
+        for (const candidate of candidates) {
+          const matchRef = doc(db, 'matches', candidate.id);
+          const joined = await runTransaction(db, async (transaction) => {
+            const current = await transaction.get(matchRef);
+            if (!current.exists()) return false;
 
-        await updateDoc(matchRef, {
-          status: 'toss',
-          players: {
-            ...matchData.players,
-            [profile.uid]: {
-              uid: profile.uid,
-              displayName: profile.displayName,
-              team: profile.team
+            const data = current.data();
+            const players = data.players || {};
+            if (data.status !== 'searching' || data.isBotMatch || players[profile.uid] || Object.keys(players).length !== 1) {
+              return false;
             }
-          },
-          updatedAt: serverTimestamp()
-        });
-        onMatchFound(matchId);
-      } else {
-        // 2. Create new match
+
+            setStatus('joining');
+            transaction.update(matchRef, {
+              status: 'toss',
+              players: {
+                ...players,
+                [profile.uid]: {
+                  uid: profile.uid,
+                  displayName: profile.displayName,
+                  team: profile.team
+                }
+              },
+              updatedAt: serverTimestamp()
+            });
+            return true;
+          });
+
+          if (joined) {
+            currentMatchId.current = candidate.id;
+            onMatchFound(candidate.id);
+            return;
+          }
+        }
+
         const newMatch = {
           status: 'searching',
           isBotMatch: false,
@@ -84,6 +99,8 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
             onMatchFound(d.id);
           }
         });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.LIST, 'matches');
       }
     };
 
@@ -120,6 +137,8 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
   };
 
   const handleStartBot = async (difficulty: 'easy' | 'medium' | 'hard') => {
+    if (isStartingMatch.current) return;
+    isStartingMatch.current = true;
     await cleanupMatch();
     // Start bot match
     const newMatch = {
@@ -200,7 +219,9 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
       <div className="flex flex-col w-full max-w-sm gap-2">
         <div className="text-center mb-2">
           <p className="cred-label" style={{ textTransform: 'lowercase' }}>
-            {15 - timer > 0 ? `auto-match with hushh bot in ${15 - timer}s...` : 'starting match with hushh bot...'}
+            {status === 'joining'
+              ? 'locking opponent...'
+              : 15 - timer > 0 ? `auto-match with hushh bot in ${15 - timer}s...` : 'starting match with hushh bot...'}
           </p>
         </div>
 
