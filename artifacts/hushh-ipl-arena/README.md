@@ -1,10 +1,10 @@
-# hush-jpl-hand-cricket
+# hushh-ipl-arena
 
-Standalone hushh ZPL hand-cricket app artifact from the downloaded archive.
+Standalone Hushh IPL Arena app artifact from the downloaded hand-cricket archive.
 
 ## Contents
 
-- `archive/hushh-zpl-hand-cricket.zip`: exact source archive preserved from Downloads.
+- `archive/hushh-ipl-arena-source.zip`: exact source archive preserved from Downloads.
 - `app/`: extracted Vite/Firebase app source.
 
 ## Artifact Integrity
@@ -15,6 +15,8 @@ Standalone hushh ZPL hand-cricket app artifact from the downloaded archive.
 
 ## Deployment
 
-Cloud Run service name: `hush-jpl-hand-cricket`
+Cloud Run service name: `hushh-ipl-arena`
+
+Custom domain target: `ipl-arena.hushh.ai`
 
 The deployable source lives in `app/` and includes a minimal Docker/Nginx wrapper for the static Vite build.
