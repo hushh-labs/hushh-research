@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+
+    // --- Connection Test ---
+    match /test/connection {
+      allow read: if true;
+    }
+
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- User Rules ---
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.displayName is string && data.displayName.size() <= 64 &&
+               data.team in ['Chennai', 'Bengaluru', 'Delhi', 'Kolkata', 'Mumbai', 'Hyderabad', 'hushh', 'Hush'] &&
+               (data.get('xp', 0) is int) &&
+               (data.get('streak', 0) is int);
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming()) &&
+                    incoming().gamesPlayed24h == 0 && incoming().botGamesPlayed24h == 0;
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        // Profile & Team Selection
+        (incoming().diff(existing()).affectedKeys().hasOnly(['team', 'displayName'])) ||
+        // Hardened Reward Claim logic
+        (incoming().diff(existing()).affectedKeys().hasOnly(['lastClaimedReward', 'xp', 'streak']) &&
+         incoming().lastClaimedReward == request.time &&
+         incoming().xp == existing().get('xp', 0) + 100 &&
+         incoming().streak == existing().get('streak', 0) + 1 &&
+         (existing().get('lastClaimedReward', null) == null || request.time >= existing().lastClaimedReward + duration.value(24, 'h'))) ||
+        // Stats & Game tracking (includes XP from matches)
+        (incoming().diff(existing()).affectedKeys().hasOnly(['gamesPlayed24h', 'botGamesPlayed24h', 'totalRuns', 'totalWins', 'lastResetTime', 'xp', 'lastMatchId', 'totalGamesPlayed', 'highestScore']) &&
+         incoming().xp <= existing().get('xp', 0) + 400 &&
+         (incoming().gamesPlayed24h >= existing().get('gamesPlayed24h', 0) || incoming().gamesPlayed24h == 0) &&
+         incoming().totalWins >= existing().get('totalWins', 0))
+      );
+    }
+
+    // --- Match Rules ---
+    match /matches/{matchId} {
+      function isPlayer(data) {
+        return isSignedIn() && (request.auth.uid in data.players.keys());
+      }
+
+      function isValidMatch(data) {
+        return data.status in ['searching', 'toss', 'playing', 'finished'] &&
+               data.players.size() <= 2;
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(matchId) && isValidMatch(incoming()) &&
+                    request.auth.uid in incoming().players.keys();
+
+      allow delete: if isSignedIn() && isPlayer(existing()) && existing().status == 'searching';
+
+      allow update: if isSignedIn() && (
+        // Joining a match
+        (existing().status == 'searching' && incoming().status == 'toss' &&
+         incoming().players.size() == 2 && incoming().players.keys().hasAll(existing().players.keys())) ||
+        // Playing moves
+        (isPlayer(existing()) && (
+          // Submitting a move
+          (incoming().lastMoves.keys().hasAll(existing().lastMoves.keys()) &&
+           incoming().lastMoves.size() > existing().lastMoves.size()) ||
+          // Resetting moves/Updating state after both revealed
+          (incoming().diff(existing()).affectedKeys().hasAny(['status', 'currentBatterId', 'currentBowlerId', 'scoreP1', 'scoreP2', 'innings', 'history', 'lastMoves', 'winnerId']))
+        ))
+      );
+    }
+
+    // --- Leaderboard ---
+    match /leaderboard/{date}/winners/{userId} {
+      allow read: if isSignedIn();
+      // Admin only write (simulated via strict check or just read-only for users)
+      allow write: if false;
+    }
+  }
+}

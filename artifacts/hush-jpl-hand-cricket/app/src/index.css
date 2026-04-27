@@ -1,0 +1,188 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  :root {
+    --color-bg-main: #010203;
+    --color-bg-screen: #050608;
+    --color-surface-card: #0B0D12;
+    --color-surface-elevated: #12151D;
+    --color-surface-deep: #171A22;
+
+    --color-border: #252A36;
+    --color-border-active: #4F5BFF;
+
+    --color-text-primary: #F4F4F5;
+    --color-text-secondary: #A3A7B2;
+    --color-text-muted: #6F7480;
+    --color-text-disabled: #454A55;
+
+    --color-cta-primary: #4F5BFF;
+    --color-success: #B7FF3C;
+    --color-gold: #D7B56D;
+    --color-purple: #6D45FF;
+    --color-error: #FF5A5F;
+    --color-warning: #FFB020;
+  }
+
+  body {
+    background-color: var(--color-bg-screen);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+  }
+
+  /* Hide scrollbars but keep functionality */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .game-card {
+    background: linear-gradient(180deg, var(--color-surface-elevated) 0%, var(--color-surface-card) 100%);
+    border: 1px solid var(--color-border);
+    border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  }
+
+  .digit-btn {
+    transition: all 160ms ease;
+    box-shadow: 0 12px 32px rgba(79, 91, 255, 0.12);
+  }
+  .digit-btn:active {
+    transform: scale(0.95);
+  }
+
+  .cred-card {
+    background: linear-gradient(180deg, var(--color-surface-elevated) 0%, var(--color-surface-card) 100%);
+    border: 1px solid var(--color-border);
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  }
+
+  .cred-small-card {
+    background: var(--color-surface-card);
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    padding: 16px;
+  }
+
+  .cred-cta-primary {
+    height: 52px;
+    width: 100%;
+    border-radius: 12px;
+    background: var(--color-cta-primary);
+    color: #FFFFFF;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    box-shadow: 0 12px 32px rgba(79, 91, 255, 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 160ms ease;
+    text-transform: lowercase;
+  }
+  .cred-cta-primary:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+
+  .cred-cta-secondary {
+    height: 48px;
+    width: 100%;
+    border-radius: 12px;
+    background: var(--color-surface-deep);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 160ms ease;
+    text-transform: lowercase;
+  }
+  .cred-cta-secondary:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+
+  .cred-icon-container {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #151922;
+    border: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cred-heading-hero {
+    font-size: 36px;
+    font-weight: 800;
+    line-height: 110%;
+    letter-spacing: -0.8px;
+    color: var(--color-text-primary);
+  }
+
+  .cred-heading-page {
+    font-size: 28px;
+    font-weight: 750;
+    line-height: 120%;
+    letter-spacing: -0.5px;
+    color: var(--color-text-primary);
+  }
+
+  .cred-heading-card {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 120%;
+    letter-spacing: -0.3px;
+    color: var(--color-text-primary);
+  }
+
+  .cred-subheading {
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 145%;
+    color: var(--color-text-secondary);
+  }
+
+  .cred-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 120%;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .cred-large-number {
+    font-family: var(--font-mono);
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 110%;
+    letter-spacing: -1px;
+    color: var(--color-text-primary);
+  }
+
+  .cred-reward-card {
+    background: linear-gradient(135deg, var(--color-gold) 0%, #8F6F2F 100%);
+    border-radius: 20px;
+    padding: 22px;
+    box-shadow: 0 20px 50px rgba(215, 181, 109, 0.22);
+  }
+}
