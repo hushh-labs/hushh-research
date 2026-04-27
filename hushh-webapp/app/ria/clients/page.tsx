@@ -29,6 +29,7 @@ import {
   type RiaClientAccess,
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { cn } from "@/lib/utils";
 import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria-page-shell";
 
@@ -94,6 +95,53 @@ export default function RiaClientsPage() {
     },
     [connectedClients, injectedTestClient]
   );
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "ria_clients",
+      title: "RIA Clients",
+      purpose: "Connected investor roster for opening advisor client workspaces.",
+      sections: [
+        {
+          id: "ria_clients_roster",
+          title: "Connected investors",
+        },
+      ],
+      controls: [
+        {
+          id: "ria_route_tab_clients",
+          label: "Clients",
+          type: "tab",
+          state: "active",
+          actionId: "route.ria_clients",
+        },
+        {
+          id: "ria_clients_browse_marketplace",
+          label: "Browse the marketplace",
+          type: "button",
+          actionId: "route.ria_marketplace_connect",
+        },
+        ...clientItems.slice(0, 8).map((client, index) => ({
+          id: `ria_clients_client_row_${index + 1}`,
+          label: client.investor_display_name || client.investor_email || "Investor",
+          type: "button",
+          actionId: "ria.clients.open_client_workspace",
+          description: client.investor_user_id || null,
+        })),
+      ],
+      activeTab: "clients",
+      visibleModules: ["Connected investors"],
+      selectedObjects: clientItems
+        .slice(0, 8)
+        .map((client) => client.investor_display_name || client.investor_email || client.investor_user_id)
+        .filter((value): value is string => Boolean(value)),
+      screenMetadata: {
+        connected_client_count: clientItems.length,
+        loading: clientsResource.loading,
+      },
+    }),
+    [clientItems, clientsResource.loading]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   if (personaLoading) return null;
   if (riaCapability === "setup") {
@@ -168,15 +216,22 @@ export default function RiaClientsPage() {
             ) : clientItems.length === 0 ? (
               <div className="space-y-3 px-4 py-8 text-center">
                 <p className="text-sm text-muted-foreground">No connected investors yet.</p>
-                <Button variant="none" effect="fade" size="sm" onClick={() => router.push(ROUTES.MARKETPLACE)}>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  data-voice-control-id="ria_clients_browse_marketplace"
+                  onClick={() => router.push(ROUTES.MARKETPLACE)}
+                >
                   Browse the marketplace
                 </Button>
               </div>
             ) : (
-              clientItems.map((client) => (
+              clientItems.map((client, index) => (
                 <button
                   key={client.id}
                   type="button"
+                  data-voice-control-id={`ria_clients_client_row_${index + 1}`}
                   data-testid={client.isTestProfile ? "ria-client-test-profile" : undefined}
                   onClick={() =>
                     router.push(

@@ -69,4 +69,23 @@ describe("deriveVoiceRouteScreen", () => {
       subview: null,
     });
   });
+
+  it("maps RIA roster, workspace, and detail routes to specific voice screens", () => {
+    expect(deriveVoiceRouteScreen("/ria/clients")).toEqual({
+      screen: "ria_clients",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/ria/clients/client-123", "tab=access")).toEqual({
+      screen: "ria_client_workspace",
+      subview: "access",
+    });
+    expect(deriveVoiceRouteScreen("/ria/clients/client-123/accounts/account-1")).toEqual({
+      screen: "ria_client_account_detail",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/ria/clients/client-123/requests/request-1")).toEqual({
+      screen: "ria_client_request_detail",
+      subview: null,
+    });
+  });
 });

@@ -3,14 +3,24 @@
   "generator": "hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs",
   "source_contracts": [
     "hushh-webapp/app/kai/analysis/page.voice-action-contract.json",
+    "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
     "hushh-webapp/app/profile/page.voice-action-contract.json",
     "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
     "hushh-webapp/app/profile/receipts/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/onboarding/page.voice-action-contract.json",
     "hushh-webapp/app/ria/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/picks/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
     "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
-    "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json"
+    "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
+    "hushh-webapp/components/ria/ria-client-account-detail.voice-action-contract.json",
+    "hushh-webapp/components/ria/ria-client-request-detail.voice-action-contract.json",
+    "hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json"
   ],
   "surfaces": [
     {
@@ -25,6 +35,23 @@
         "reachability": {
           "active_personas": [
             "investor"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "marketplace_ria_profile",
+      "surface_title": "Marketplace RIA Profile",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
           ]
         }
       }
@@ -82,12 +109,108 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_clients",
+      "surface_title": "RIA Client Roster",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_onboarding",
+      "surface_title": "RIA Professional Onboarding",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/onboarding/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "ria_home",
       "surface_title": "RIA Workspace Home",
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_picks",
+      "surface_title": "RIA Picks Workspace",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/picks/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_requests_compat",
+      "surface_title": "RIA Requests Compatibility Route",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_settings_compat",
+      "surface_title": "RIA Settings Compatibility Route",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_workspace_compat",
+      "surface_title": "RIA Workspace Compatibility Route",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
       "defaults": {
         "reachability": {
           "active_personas": [
@@ -158,6 +281,54 @@
         "reachability": {
           "active_personas": [
             "investor"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_client_account_detail",
+      "surface_title": "RIA Client Account Detail",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/ria/ria-client-account-detail.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_client_request_detail",
+      "surface_title": "RIA Client Request Detail",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/ria/ria-client-request-detail.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_client_workspace",
+      "surface_title": "RIA Client Workspace",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
           ]
         }
       }
@@ -530,6 +701,371 @@
       "expected_effects": {
         "state_changes": [
           "current route becomes /kai/analysis?tab=transcript"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.marketplace_ria_profile",
+      "surface_id": "marketplace_ria_profile",
+      "label": "Open Marketplace RIA Profile",
+      "aliases": [
+        "open ria marketplace profile",
+        "show advisor profile",
+        "open this advisor"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "ria profile",
+        "advisor profile"
+      ],
+      "meaning": "Navigates to a public marketplace RIA profile route.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/marketplace/ria",
+          "/marketplace/ria?riaId=[riaId]"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "RIA profile identifier should be known for a full profile view."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "marketplace_profile_public_metadata_only"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/marketplace/ria",
+        "params": {
+          "optional_ria_id": true
+        }
+      },
+      "control_ids": [
+        "marketplace_ria_profile_route"
+      ],
+      "state_exposure": [
+        "public RIA profile metadata"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/marketplace/ria/page-client.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /marketplace/ria"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "marketplace.ria.request_advisory",
+      "surface_id": "marketplace_ria_profile",
+      "label": "Request Advisory Access",
+      "aliases": [
+        "request advisory",
+        "ask this advisor for access",
+        "send advisory request"
+      ],
+      "search_keywords": [
+        "request advisory",
+        "consent request",
+        "advisor connection"
+      ],
+      "meaning": "Creates an investor-to-RIA advisory consent request for the current marketplace profile.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/marketplace/ria"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in investor persona must be active.",
+          "RIA profile must be loaded.",
+          "RIA profile must have a connectable verification status."
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "active_persona_investor",
+        "marketplace_ria_profile_loaded",
+        "marketplace_ria_connectable",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Creating an investor-to-RIA consent request must stay user-triggered on the marketplace profile.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "marketplace_ria_request_advisory"
+      ],
+      "state_exposure": [
+        "selected RIA user identifier",
+        "scope template investor_advisor_disclosure_v1",
+        "request duration"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "advisory consent request is created",
+          "route moves to pending marketplace connections"
+        ],
+        "backend_effects": [
+          {
+            "api": "ConsentCenterService.createRequest",
+            "effect": "Creates an investor-to-RIA consent request using investor_advisor_disclosure_v1."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "marketplace.ria.manage_profile",
+      "surface_id": "marketplace_ria_profile",
+      "label": "Manage RIA Profile",
+      "aliases": [
+        "manage my ria profile",
+        "edit advisor profile",
+        "open ria settings"
+      ],
+      "search_keywords": [
+        "manage profile",
+        "ria settings",
+        "advisor profile"
+      ],
+      "meaning": "Navigates an active RIA persona from their public marketplace profile back to profile management.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/marketplace/ria",
+          "/ria/settings"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Active persona must be RIA."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "active_persona_ria",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/settings"
+      },
+      "control_ids": [
+        "marketplace_ria_manage_profile"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/settings"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.marketplace_browse_from_ria_profile",
+      "surface_id": "marketplace_ria_profile",
+      "label": "Continue Browsing Marketplace",
+      "aliases": [
+        "continue browsing",
+        "back to marketplace",
+        "open marketplace"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "browse",
+        "back"
+      ],
+      "meaning": "Returns from the marketplace RIA profile to the marketplace browsing surface.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/marketplace/ria",
+          "/marketplace"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/marketplace"
+      },
+      "control_ids": [
+        "marketplace_ria_continue_browsing",
+        "marketplace_ria_back_to_marketplace"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /marketplace"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "marketplace.ria.open_public_disclosure",
+      "surface_id": "marketplace_ria_profile",
+      "label": "Open Public Disclosure",
+      "aliases": [
+        "open public disclosure",
+        "show advisor disclosure",
+        "open disclosure link"
+      ],
+      "search_keywords": [
+        "disclosure",
+        "external link",
+        "public filing"
+      ],
+      "meaning": "Opens the external public disclosure URL attached to the marketplace RIA profile.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/marketplace/ria"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Profile must expose a public disclosures URL."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "marketplace_public_disclosure_url_present",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "External disclosure URLs are dynamic profile state and should be opened manually.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "marketplace_ria_public_disclosure"
+      ],
+      "state_exposure": [
+        "external public disclosure URL"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /marketplace/ria"
         ],
         "backend_effects": []
       },
@@ -1659,16 +2195,562 @@
       }
     },
     {
+      "action_id": "route.ria_clients",
+      "surface_id": "ria_clients",
+      "label": "Open RIA Clients",
+      "aliases": [
+        "open ria clients",
+        "show my advisor clients",
+        "open client roster"
+      ],
+      "search_keywords": [
+        "clients",
+        "client roster",
+        "connected investors"
+      ],
+      "meaning": "Navigates to the RIA client roster route.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients"
+      },
+      "control_ids": [
+        "ria_route_tab_clients"
+      ],
+      "state_exposure": [
+        "visible client count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.clients.open_client_workspace",
+      "surface_id": "ria_clients",
+      "label": "Open Client Workspace",
+      "aliases": [
+        "open this client",
+        "open investor workspace",
+        "show the selected client"
+      ],
+      "search_keywords": [
+        "client workspace",
+        "investor",
+        "relationship"
+      ],
+      "meaning": "Represents visible client row buttons. Choosing a specific dynamic client remains manual until voice carries a selected client id.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A connected client row must be selected."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Client workspace routes require a dynamic investor user id from the clicked row.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_clients_client_row"
+      ],
+      "state_exposure": [
+        "visible client names",
+        "visible client relationship states"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_marketplace_connect",
+      "surface_id": "ria_clients",
+      "label": "Open RIA Connect Marketplace",
+      "aliases": [
+        "open connect",
+        "browse marketplace",
+        "find investor connections"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "connect",
+        "relationships"
+      ],
+      "meaning": "Navigates from the RIA shell to the marketplace connection surface.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/marketplace"
+        ],
+        "screens": [
+          "marketplace",
+          "ria_route_tabs"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria",
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/marketplace"
+      },
+      "control_ids": [
+        "ria_route_tab_connect",
+        "ria_clients_browse_marketplace"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /marketplace"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_onboarding",
+      "surface_id": "ria_onboarding",
+      "label": "Open RIA Onboarding",
+      "aliases": [
+        "open ria onboarding",
+        "finish advisor setup",
+        "open advisor verification"
+      ],
+      "search_keywords": [
+        "ria onboarding",
+        "advisor verification",
+        "professional setup"
+      ],
+      "meaning": "Navigates to the professional onboarding route for advisor verification.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA workspace must be available or in setup for this account."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": true
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/onboarding"
+      },
+      "control_ids": [
+        "ria_onboarding_route"
+      ],
+      "state_exposure": [
+        "current onboarding step",
+        "advisor verification state"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "workflow": {
+        "workflow_id": "route.ria_onboarding.entry",
+        "confirmation_required": true,
+        "failure_message": null,
+        "blocked_guidance": "Sign in and unlock RIA setup before starting advisor onboarding.",
+        "steps": [
+          {
+            "type": "persona_switch",
+            "preconditions": [],
+            "postconditions": [],
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "persona": "ria"
+            },
+            "target_persona": "ria",
+            "confirmation_required": true
+          },
+          {
+            "type": "route_switch",
+            "preconditions": [],
+            "postconditions": [],
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            },
+            "href": "/ria/onboarding"
+          }
+        ]
+      },
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/onboarding"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.onboarding.verify_name",
+      "surface_id": "ria_onboarding",
+      "label": "Verify Advisor Name",
+      "aliases": [
+        "verify my advisor name",
+        "run ria name verification",
+        "check the crd record"
+      ],
+      "search_keywords": [
+        "verify",
+        "advisor name",
+        "crd",
+        "finra",
+        "sec"
+      ],
+      "meaning": "Represents the advisor-name verification button. The actual verification call stays manual because it uses the current form value.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding",
+          "ria_onboarding_display_name"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Advisor display name must be entered.",
+          "No verification request may already be running."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Advisor name verification depends on current form state and must be triggered from the visible onboarding control.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_onboarding_verify_name",
+        "ria_onboarding_retry_verification"
+      ],
+      "state_exposure": [
+        "advisor display name",
+        "verification provider result summary"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/onboarding"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.onboarding.submit_verification",
+      "surface_id": "ria_onboarding",
+      "label": "Submit RIA Verification",
+      "aliases": [
+        "submit ria verification",
+        "submit advisor onboarding",
+        "send my advisor profile for review"
+      ],
+      "search_keywords": [
+        "submit",
+        "verification",
+        "advisor profile",
+        "marketplace discoverability"
+      ],
+      "meaning": "Represents the final onboarding submission. Voice can explain it, but the user must submit from the review screen.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding",
+          "ria_onboarding_review"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Current onboarding step must be review.",
+          "Required onboarding fields must pass the local flow guard.",
+          "Advisor name verification must be satisfied for live submission."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "RIA verification submission changes persona/profile state and must remain user-triggered on the review screen.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_onboarding_submit_verification",
+        "ria_onboarding_continue_review"
+      ],
+      "state_exposure": [
+        "requested capabilities",
+        "verified identity summary",
+        "public profile headline and strategy summary"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/onboarding"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.onboarding.dev_bypass_verification",
+      "surface_id": "ria_onboarding",
+      "label": "Bypass RIA Verification In Dev",
+      "aliases": [
+        "bypass ria verification",
+        "activate ria in dev",
+        "use the uat advisor bypass"
+      ],
+      "search_keywords": [
+        "dev bypass",
+        "uat bypass",
+        "advisor activation"
+      ],
+      "meaning": "Represents the development or UAT-only RIA activation bypass. It is always manual-only for voice.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding",
+          "ria_onboarding_display_name",
+          "ria_onboarding_review"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Development RIA bypass must be allowlisted.",
+          "Advisor display name must be entered."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Development-only RIA activation must be clicked intentionally in the onboarding UI.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_onboarding_dev_bypass",
+        "ria_onboarding_dev_uat_bypass"
+      ],
+      "state_exposure": [
+        "advisor onboarding draft",
+        "dev bypass allowlist state"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/onboarding"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
       "action_id": "route.ria_home",
       "surface_id": "ria_home",
       "label": "Open RIA Home",
       "aliases": [
         "open ria workspace",
-        "go to ria home"
+        "go to ria home",
+        "open advisor workspace"
       ],
       "search_keywords": [
         "ria",
-        "advisor workspace"
+        "advisor workspace",
+        "home"
       ],
       "meaning": "Navigates to the RIA workspace home route.",
       "speaker_persona": "one",
@@ -1692,18 +2774,25 @@
         "auth_signed_in",
         "ria_persona_available"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "allow_direct",
       "execution_target": {
         "status": "wired",
         "path": "route",
         "target": "/ria"
       },
-      "control_ids": [],
-      "state_exposure": [],
+      "control_ids": [
+        "ria_route_tab_home"
+      ],
+      "state_exposure": [
+        "RIA verification state",
+        "priority queue count",
+        "active client count"
+      ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/iam/runtime-surface.md"
+        "docs/reference/iam/runtime-surface.md",
+        "hushh-webapp/app/ria/page.tsx"
       ],
       "workflow": {
         "workflow_id": "route.ria_home.entry",
@@ -1738,6 +2827,1218 @@
       "expected_effects": {
         "state_changes": [
           "current route becomes /ria"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.home.open_priority_item",
+      "surface_id": "ria_home",
+      "label": "Open Priority Queue Item",
+      "aliases": [
+        "open the priority item",
+        "open the next ria task",
+        "review the priority queue item"
+      ],
+      "search_keywords": [
+        "priority queue",
+        "next action",
+        "advisor task"
+      ],
+      "meaning": "Represents the visible priority queue Open buttons on RIA home. Dynamic queue URLs still require the on-screen control.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria"
+        ],
+        "screens": [
+          "ria_home"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A priority queue item with an href must be visible."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Priority queue item URLs are dynamic screen state and are not safe to execute from the static gateway yet.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_home_priority_item_open"
+      ],
+      "state_exposure": [
+        "visible priority item titles",
+        "visible priority item next actions"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_picks",
+      "surface_id": "ria_picks",
+      "label": "Open RIA Picks",
+      "aliases": [
+        "open ria picks",
+        "open advisor picks",
+        "show stock universe"
+      ],
+      "search_keywords": [
+        "picks",
+        "stock universe",
+        "advisor package"
+      ],
+      "meaning": "Navigates to the RIA stock universe and advisor package route.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks"
+      },
+      "control_ids": [
+        "ria_route_tab_picks"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx",
+        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.open_source_kai",
+      "surface_id": "ria_picks",
+      "label": "Show Kai Picks Source",
+      "aliases": [
+        "show kai list",
+        "switch to kai picks",
+        "open kai source"
+      ],
+      "search_keywords": [
+        "kai list",
+        "source",
+        "reference picks"
+      ],
+      "meaning": "Switches the picks route state to Kai's read-only reference list.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks?source=kai"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?source=kai"
+      },
+      "control_ids": [
+        "ria_picks_source_kai"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks?source=kai"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.open_source_my",
+      "surface_id": "ria_picks",
+      "label": "Show My Advisor Picks",
+      "aliases": [
+        "show my picks",
+        "switch to my list",
+        "open advisor package"
+      ],
+      "search_keywords": [
+        "my list",
+        "advisor package",
+        "source"
+      ],
+      "meaning": "Switches the picks route state to the advisor's own package.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks?source=my"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?source=my"
+      },
+      "control_ids": [
+        "ria_picks_source_my"
+      ],
+      "state_exposure": [
+        "advisor package metadata"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks?source=my"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.open_category_top_picks",
+      "surface_id": "ria_picks",
+      "label": "Show Top Picks",
+      "aliases": [
+        "show top picks",
+        "open top picks tab",
+        "show the top-picks category"
+      ],
+      "search_keywords": [
+        "top picks",
+        "category",
+        "stocks"
+      ],
+      "meaning": "Switches the picks route state to top picks.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks?category=top-picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?category=top-picks"
+      },
+      "control_ids": [
+        "ria_picks_category_top_picks"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks?category=top-picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.open_category_avoid",
+      "surface_id": "ria_picks",
+      "label": "Show Avoid List",
+      "aliases": [
+        "show avoid list",
+        "open avoid tab",
+        "show exclusions"
+      ],
+      "search_keywords": [
+        "avoid",
+        "exclusions",
+        "category"
+      ],
+      "meaning": "Switches the picks route state to avoid rows.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks?category=avoid"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?category=avoid"
+      },
+      "control_ids": [
+        "ria_picks_category_avoid"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks?category=avoid"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.open_category_screening",
+      "surface_id": "ria_picks",
+      "label": "Show Screening Rules",
+      "aliases": [
+        "show screening",
+        "open screening tab",
+        "show screening rules"
+      ],
+      "search_keywords": [
+        "screening",
+        "rules",
+        "category"
+      ],
+      "meaning": "Switches the picks route state to screening rules.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks?category=screening"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?category=screening"
+      },
+      "control_ids": [
+        "ria_picks_category_screening"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks?category=screening"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.start_edit_package",
+      "surface_id": "ria_picks",
+      "label": "Edit Advisor Package",
+      "aliases": [
+        "edit my picks",
+        "edit advisor package",
+        "open picks editor"
+      ],
+      "search_keywords": [
+        "edit",
+        "advisor package",
+        "draft"
+      ],
+      "meaning": "Represents opening the editable advisor package draft. Voice can explain it, but editing stays manual.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The advisor package editor mutates local draft state and is not exposed as a voice tool.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_edit_package"
+      ],
+      "state_exposure": [
+        "current advisor package draft"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.save_package",
+      "surface_id": "ria_picks",
+      "label": "Save Advisor Package",
+      "aliases": [
+        "save my picks",
+        "publish advisor package",
+        "save advisor package"
+      ],
+      "search_keywords": [
+        "save",
+        "publish",
+        "advisor package",
+        "vault"
+      ],
+      "meaning": "Represents saving the advisor package to vault-backed pick storage. Voice cannot complete the save.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Editor must be open.",
+          "Draft must have unsaved changes.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Saving advisor picks writes vault-backed PKM and API state and must stay user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_save_package"
+      ],
+      "state_exposure": [
+        "advisor package draft",
+        "validation issues"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.upload_csv_replace_top_picks",
+      "surface_id": "ria_picks",
+      "label": "Upload Top Picks CSV",
+      "aliases": [
+        "upload picks csv",
+        "replace top picks from csv",
+        "import advisor picks"
+      ],
+      "search_keywords": [
+        "upload",
+        "csv",
+        "replace top picks",
+        "import"
+      ],
+      "meaning": "Represents the CSV upload and replace flow. File picking and upload remain manual.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Upload panel must be open.",
+          "A CSV file must be selected.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "CSV file selection and replacement are browser/file-system interactions and must stay manual.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_upload_csv"
+      ],
+      "state_exposure": [
+        "selected csv filename",
+        "current advisor package avoid and screening context"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.copy_from_kai",
+      "surface_id": "ria_picks",
+      "label": "Copy Kai Package Into My List",
+      "aliases": [
+        "copy from kai",
+        "use kai list as my list",
+        "copy kai package"
+      ],
+      "search_keywords": [
+        "copy",
+        "kai list",
+        "advisor draft"
+      ],
+      "meaning": "Represents copying Kai reference picks into the advisor draft. Voice can explain it, but the copy stays manual.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Vault must be unlocked.",
+          "Kai package rows must be available."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Copying the Kai package replaces local advisor draft state and must stay user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_copy_from_kai"
+      ],
+      "state_exposure": [
+        "Kai reference package",
+        "current advisor draft"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.discard_package_changes",
+      "surface_id": "ria_picks",
+      "label": "Discard Advisor Package Changes",
+      "aliases": [
+        "discard picks changes",
+        "cancel advisor package edits",
+        "throw away unsaved picks"
+      ],
+      "search_keywords": [
+        "discard",
+        "cancel edits",
+        "unsaved changes"
+      ],
+      "meaning": "Represents discarding unsaved advisor package draft changes. Voice cannot discard for the user.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Editor must be open."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Discarding draft changes must stay user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_discard_changes"
+      ],
+      "state_exposure": [
+        "unsaved advisor package draft"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.edit_rows_manual",
+      "surface_id": "ria_picks",
+      "label": "Edit Picks Rows Manually",
+      "aliases": [
+        "edit a picks row",
+        "add a picks row",
+        "remove a picks row",
+        "edit screening rules"
+      ],
+      "search_keywords": [
+        "row edit",
+        "add row",
+        "remove row",
+        "screening rule",
+        "ticker"
+      ],
+      "meaning": "Covers row-level add, remove, ticker, tier, thesis, avoid reason, and screening rule edits that require hands-on UI entry.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Editor must be open.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Row-level editing requires structured manual input inside the picks editor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_add_top_pick_row",
+        "ria_picks_remove_top_pick_row",
+        "ria_picks_add_avoid_row",
+        "ria_picks_remove_avoid_row",
+        "ria_picks_add_screening_rule",
+        "ria_picks_remove_screening_rule",
+        "ria_picks_row_ticker_lookup",
+        "ria_picks_row_text_editor"
+      ],
+      "state_exposure": [
+        "editable advisor package rows"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/picks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.picks.download_template",
+      "surface_id": "ria_picks",
+      "label": "Download Picks CSV Template",
+      "aliases": [
+        "download picks template",
+        "get csv template",
+        "download advisor picks template"
+      ],
+      "search_keywords": [
+        "download",
+        "template",
+        "csv"
+      ],
+      "meaning": "Navigates to the CSV template used for top-picks uploads.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/templates/ria-picks-template.csv"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/templates/ria-picks-template.csv"
+      },
+      "control_ids": [
+        "ria_picks_download_template"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /templates/ria-picks-template.csv"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_requests_compat",
+      "surface_id": "ria_requests_compat",
+      "label": "Open RIA Requests",
+      "aliases": [
+        "open ria requests",
+        "open advisor requests",
+        "show advisor consent requests"
+      ],
+      "search_keywords": [
+        "requests",
+        "consent",
+        "access manager"
+      ],
+      "meaning": "Routes legacy RIA requests links to the consent center.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/ria/requests",
+          "/consents"
+        ],
+        "screens": [
+          "ria_requests_compat"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Consent center must be available."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "consent_center_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/requests"
+      },
+      "control_ids": [
+        "ria_requests_compat_route"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/requests/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/requests"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_settings_compat",
+      "surface_id": "ria_settings_compat",
+      "label": "Open RIA Settings",
+      "aliases": [
+        "open ria settings",
+        "manage advisor settings",
+        "edit ria profile"
+      ],
+      "search_keywords": [
+        "settings",
+        "profile",
+        "advisor"
+      ],
+      "meaning": "Routes RIA profile management links to the profile settings surface.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/ria/settings",
+          "/profile"
+        ],
+        "screens": [
+          "ria_settings_compat"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "RIA persona must be available before profile settings routing."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/settings"
+      },
+      "control_ids": [
+        "ria_settings_compat_route"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/settings/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/settings"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_workspace_compat",
+      "surface_id": "ria_workspace_compat",
+      "label": "Open RIA Workspace Compatibility Route",
+      "aliases": [
+        "open ria workspace",
+        "open legacy ria workspace",
+        "open client workspace link"
+      ],
+      "search_keywords": [
+        "workspace",
+        "clientId",
+        "compatibility route"
+      ],
+      "meaning": "Routes legacy RIA workspace links to a client workspace when a clientId is present, otherwise to the client roster.",
+      "speaker_persona": "one",
+      "reachability": {
+        "routes": [
+          "/ria/workspace",
+          "/ria/workspace?clientId=[userId]"
+        ],
+        "screens": [
+          "ria_workspace_compat"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Optional clientId determines whether the route resolves to a client workspace or the client roster."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/workspace",
+        "params": {
+          "optional_client_id": true,
+          "optional_tab": true,
+          "fallback_target": "/ria/clients"
+        }
+      },
+      "control_ids": [
+        "ria_workspace_compat_route"
+      ],
+      "state_exposure": [
+        "legacy workspace query parameters"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/workspace/page.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/workspace"
         ],
         "backend_effects": []
       },
@@ -2177,6 +4478,1045 @@
           "current route becomes /kai"
         ],
         "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_client_account_detail",
+      "surface_id": "ria_client_account_detail",
+      "label": "Open RIA Client Account Detail",
+      "aliases": [
+        "open account detail",
+        "show client account detail",
+        "open advisor account route"
+      ],
+      "search_keywords": [
+        "account detail",
+        "client account",
+        "branch summary"
+      ],
+      "meaning": "Navigates to the advisor-facing detail route for a selected client account branch.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/accounts/[accountId]"
+        ],
+        "screens": [
+          "ria_client_account_detail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Client identifier and account identifier must be known.",
+          "Account branch must be visible to the RIA workspace."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "account_branch_visible_to_ria"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Opening a specific account detail requires a dynamic account id selected from the workspace.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_client_account_detail_route"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected account branch identifier"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-account-detail.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]/accounts/[accountId]"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_account.open_workspace_fallback",
+      "surface_id": "ria_client_account_detail",
+      "label": "Return To Client Data Explorer",
+      "aliases": [
+        "return to client workspace",
+        "open workspace from account detail",
+        "go back to client data"
+      ],
+      "search_keywords": [
+        "fallback",
+        "workspace",
+        "explorer",
+        "account unavailable"
+      ],
+      "meaning": "Navigates from an unavailable account detail route back to the client workspace explorer tab.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/accounts/[accountId]"
+        ],
+        "screens": [
+          "ria_client_account_detail",
+          "ria_client_account_unavailable"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=explorer",
+        "params": {
+          "requires_client_id": true,
+          "tab": "explorer"
+        }
+      },
+      "control_ids": [
+        "ria_client_account_open_workspace_fallback"
+      ],
+      "state_exposure": [
+        "current client identifier"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-account-detail.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]?tab=explorer"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_client_request_detail",
+      "surface_id": "ria_client_request_detail",
+      "label": "Open RIA Client Request Detail",
+      "aliases": [
+        "open request detail",
+        "show access request detail",
+        "open client request route"
+      ],
+      "search_keywords": [
+        "request detail",
+        "access request",
+        "client consent"
+      ],
+      "meaning": "Navigates to the advisor-facing detail route for a selected client access request.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/requests/[requestId]"
+        ],
+        "screens": [
+          "ria_client_request_detail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Client identifier and request identifier must be known.",
+          "Request must be present in the client workspace history."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_checked",
+        "request_history_visible_to_ria"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Opening a specific request detail requires a dynamic request id selected from workspace history.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_client_request_detail_route",
+        "ria_client_workspace_request_row"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected request identifier"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-request-detail.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]/requests/[requestId]"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_request.open_access_fallback",
+      "surface_id": "ria_client_request_detail",
+      "label": "Return To Client Access",
+      "aliases": [
+        "return to client access",
+        "open access from request detail",
+        "go back to sharing"
+      ],
+      "search_keywords": [
+        "fallback",
+        "access",
+        "sharing",
+        "request unavailable"
+      ],
+      "meaning": "Navigates from an unavailable request detail route back to the client workspace access tab.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/requests/[requestId]"
+        ],
+        "screens": [
+          "ria_client_request_detail",
+          "ria_client_request_unavailable"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=access",
+        "params": {
+          "requires_client_id": true,
+          "tab": "access"
+        }
+      },
+      "control_ids": [
+        "ria_client_request_open_access_fallback"
+      ],
+      "state_exposure": [
+        "current client identifier"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-request-detail.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]?tab=access"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_client_workspace",
+      "surface_id": "ria_client_workspace",
+      "label": "Open RIA Client Workspace",
+      "aliases": [
+        "open client workspace",
+        "open this investor",
+        "show advisor workspace"
+      ],
+      "search_keywords": [
+        "client workspace",
+        "investor workspace",
+        "relationship"
+      ],
+      "meaning": "Navigates to a selected client's advisor workspace.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]"
+        ],
+        "screens": [
+          "ria_client_workspace"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]",
+        "params": {
+          "requires_client_id": true
+        }
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "selected client identifier"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.open_overview_tab",
+      "surface_id": "ria_client_workspace",
+      "label": "Show Client Overview",
+      "aliases": [
+        "show client overview",
+        "open overview tab",
+        "show at a glance"
+      ],
+      "search_keywords": [
+        "overview",
+        "client summary",
+        "relationship"
+      ],
+      "meaning": "Switches the client workspace to the overview tab.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]",
+          "/ria/clients/[userId]?tab=overview"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_overview"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=overview",
+        "params": {
+          "requires_client_id": true,
+          "tab": "overview"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_overview"
+      ],
+      "state_exposure": [
+        "selected client identifier"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]?tab=overview"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.open_access_tab",
+      "surface_id": "ria_client_workspace",
+      "label": "Show Client Sharing",
+      "aliases": [
+        "show client sharing",
+        "open access tab",
+        "show sharing tab"
+      ],
+      "search_keywords": [
+        "sharing",
+        "access",
+        "consent",
+        "requests"
+      ],
+      "meaning": "Switches the client workspace to the access and sharing tab.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=access"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_access"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=access",
+        "params": {
+          "requires_client_id": true,
+          "tab": "access"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_access",
+        "ria-client-workspace-access"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "granted scope labels"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]?tab=access"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.open_portfolio_tab",
+      "surface_id": "ria_client_workspace",
+      "label": "Show Client Portfolio",
+      "aliases": [
+        "show client portfolio",
+        "open portfolio tab",
+        "show kai portfolio"
+      ],
+      "search_keywords": [
+        "portfolio",
+        "kai",
+        "client accounts",
+        "financial summary"
+      ],
+      "meaning": "Switches the client workspace to the portfolio tab when approved client portfolio access is ready.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=kai"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_kai"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "Portfolio workspace may be locked until consent approval and summary readiness."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "client_portfolio_consent_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=kai",
+        "params": {
+          "requires_client_id": true,
+          "tab": "kai"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_kai",
+        "ria-client-workspace-kai"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "portfolio readiness state"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]?tab=kai"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.open_explorer_tab",
+      "surface_id": "ria_client_workspace",
+      "label": "Show Client Data Explorer",
+      "aliases": [
+        "show client data",
+        "open explorer tab",
+        "show data explorer"
+      ],
+      "search_keywords": [
+        "data",
+        "explorer",
+        "client domains",
+        "attributes"
+      ],
+      "meaning": "Switches the client workspace to the data explorer tab when client data access is ready.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=explorer"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_explorer"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "Explorer may be locked until consent approval and data readiness."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "client_data_consent_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=explorer",
+        "params": {
+          "requires_client_id": true,
+          "tab": "explorer"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_explorer",
+        "ria-client-workspace-explorer"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "available data domains"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]?tab=explorer"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.open_account_detail",
+      "surface_id": "ria_client_workspace",
+      "label": "Open Client Account Detail",
+      "aliases": [
+        "open this account",
+        "show account detail",
+        "open client account"
+      ],
+      "search_keywords": [
+        "account",
+        "branch",
+        "account detail"
+      ],
+      "meaning": "Opens a selected account branch detail route from the client workspace.",
+      "speaker_persona": "kai",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]",
+          "/ria/clients/[userId]?tab=overview",
+          "/ria/clients/[userId]?tab=access",
+          "/ria/clients/[userId]?tab=explorer"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_overview",
+          "ria_client_workspace_access",
+          "ria_client_workspace_explorer"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "Account branch identifier must be selected."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "account_branch_visible_to_ria"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Opening a specific account detail requires the clicked account branch id from visible row state.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_client_workspace_account_row"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected account branch identifier"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/clients/[userId]"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.open_access_manager",
+      "surface_id": "ria_client_workspace",
+      "label": "Open Access Manager",
+      "aliases": [
+        "open access manager",
+        "open access",
+        "review pending client access"
+      ],
+      "search_keywords": [
+        "access manager",
+        "consent",
+        "pending requests"
+      ],
+      "meaning": "Navigates to the consent access manager from the client workspace.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=access"
+        ],
+        "screens": [
+          "ria_client_workspace_access"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "consent_center_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/consents?tab=pending"
+      },
+      "control_ids": [
+        "ria_client_workspace_open_access_manager"
+      ],
+      "state_exposure": [
+        "current workspace return route"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /consents?tab=pending"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.request_access",
+      "surface_id": "ria_client_workspace",
+      "label": "Send Client Access Request",
+      "aliases": [
+        "send access request",
+        "request more client access",
+        "ask the client for access"
+      ],
+      "search_keywords": [
+        "request access",
+        "consent",
+        "scope template",
+        "account selection"
+      ],
+      "meaning": "Creates a consent request bundle for the selected client using the selected template, scopes, accounts, and optional reason.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=access"
+        ],
+        "screens": [
+          "ria_client_workspace_access"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Access tab must be open.",
+          "A request template must be available.",
+          "At least one scope must be selected.",
+          "Required account selections must be present.",
+          "Test profiles cannot send real requests."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "selected_scope_required",
+        "account_selection_required_when_template_requires",
+        "not_test_profile",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Sending an access request uses selected scopes, account ids, and client-visible note state and must remain user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_client_workspace_send_request",
+        "ria_client_workspace_scope_checkbox",
+        "ria_client_workspace_account_checkbox",
+        "ria_client_workspace_request_note"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected template identifier",
+        "selected scopes",
+        "selected account identifiers",
+        "client-visible request note"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "client access request is created",
+          "workspace data refreshes"
+        ],
+        "backend_effects": [
+          {
+            "api": "RiaService.createRequestBundle",
+            "effect": "Creates a consent request bundle for the selected investor."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.client_workspace.disconnect_relationship",
+      "surface_id": "ria_client_workspace",
+      "label": "Disconnect Client Relationship",
+      "aliases": [
+        "disconnect this client",
+        "end client relationship",
+        "remove this investor"
+      ],
+      "search_keywords": [
+        "disconnect",
+        "relationship",
+        "end access"
+      ],
+      "meaning": "Disconnects the current advisor-client relationship and ends access immediately.",
+      "speaker_persona": "nav",
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]"
+        ],
+        "screens": [
+          "ria_client_workspace"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client detail must be loaded.",
+          "Relationship must not be a self relationship.",
+          "Test profiles cannot disconnect real relationships."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "not_self_relationship",
+        "not_test_profile",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Disconnecting a client relationship is destructive and must remain user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_client_workspace_disconnect"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "relationship status"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "relationship access ends",
+          "route returns to client roster"
+        ],
+        "backend_effects": [
+          {
+            "api": "ConsentCenterService.disconnectRelationship",
+            "effect": "Disconnects the investor relationship and ends access."
+          }
+        ]
       },
       "trigger": {
         "primary": "voice",

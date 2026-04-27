@@ -341,7 +341,6 @@ export type VoiceCapabilityResponse = {
   bucket?: number | null;
   canary_percent?: number | null;
   realtime_enabled?: boolean;
-  stt_enabled?: boolean;
   tts_enabled?: boolean;
   tts_timeout_ms?: number;
   tts_model?: string;
