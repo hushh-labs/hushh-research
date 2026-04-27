@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, onSnapshot, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp, increment, runTransaction } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandler';
 import { db } from '../firebase';
 import { UserProfile, MatchData, MatchMove } from '../types';
@@ -18,6 +18,7 @@ interface GameProps {
 }
 
 const NUMBERS = [1, 2, 3, 4, 5, 6];
+const OPPONENT_MOVE_TIMEOUT_MS = 8_000;
 
 export default function Game({ matchId, practiceDifficulty, profile, onClose, onUpdateProfile }: GameProps) {
   const [match, setMatch] = useState<MatchData | null>(null);
@@ -418,6 +419,48 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
 
     return () => clearInterval(interval);
   }, [match?.status, myChoice, revealing, currentTurnKey]);
+
+  useEffect(() => {
+    if (!match || isPractice || match.isBotMatch || match.status !== 'playing' || revealing) return;
+
+    const pids = Object.keys(match.players);
+    const opponentId = pids.find(id => id !== profile.uid);
+    if (!opponentId) return;
+
+    const hasMyMove = Object.prototype.hasOwnProperty.call(match.lastMoves, profile.uid);
+    const hasOpponentMove = Object.prototype.hasOwnProperty.call(match.lastMoves, opponentId);
+    if (!hasMyMove || hasOpponentMove) return;
+
+    const timeout = setTimeout(async () => {
+      try {
+        const matchRef = doc(db, 'matches', matchId);
+        await runTransaction(db, async (transaction) => {
+          const current = await transaction.get(matchRef);
+          if (!current.exists()) return;
+
+          const data = current.data() as MatchData;
+          if (data.status !== 'playing') return;
+
+          const moves = data.lastMoves || {};
+          if (
+            !Object.prototype.hasOwnProperty.call(moves, profile.uid)
+            || Object.prototype.hasOwnProperty.call(moves, opponentId)
+          ) {
+            return;
+          }
+
+          transaction.update(matchRef, {
+            [`lastMoves.${opponentId}`]: 0,
+            updatedAt: serverTimestamp()
+          });
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `matches/${matchId}`);
+      }
+    }, OPPONENT_MOVE_TIMEOUT_MS);
+
+    return () => clearTimeout(timeout);
+  }, [match?.lastMoves, match?.status, revealing, isPractice, matchId, profile.uid]);
 
   useEffect(() => {
     if (match?.status === 'finished') {

@@ -6,6 +6,21 @@ import { db } from '../firebase';
 import { UserProfile } from '../types';
 import { Loader2, X } from 'lucide-react';
 
+const SEARCHING_MATCH_TTL_MS = 30_000;
+
+const toMillis = (value: any) => {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.seconds === 'number') return value.seconds * 1000;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const isFreshSearchingMatch = (data: any) => {
+  const lastSeen = toMillis(data.updatedAt) || toMillis(data.createdAt);
+  return lastSeen > 0 && Date.now() - lastSeen <= SEARCHING_MATCH_TTL_MS;
+};
+
 interface MatchmakingProps {
   profile: UserProfile;
   onMatchFound: (id: string) => void;
@@ -31,7 +46,13 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
         );
 
         const snapshot = await getDocs(q);
-        const candidates = snapshot.docs.filter(d => !d.data().players?.[profile.uid]);
+        const candidates = snapshot.docs.filter(d => {
+          const data = d.data();
+          const players = data.players || {};
+          return !players[profile.uid]
+            && Object.keys(players).length === 1
+            && isFreshSearchingMatch(data);
+        });
 
         for (const candidate of candidates) {
           const matchRef = doc(db, 'matches', candidate.id);
@@ -41,7 +62,13 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
 
             const data = current.data();
             const players = data.players || {};
-            if (data.status !== 'searching' || data.isBotMatch || players[profile.uid] || Object.keys(players).length !== 1) {
+            if (
+              data.status !== 'searching'
+              || data.isBotMatch
+              || players[profile.uid]
+              || Object.keys(players).length !== 1
+              || !isFreshSearchingMatch(data)
+            ) {
               return false;
             }
 
