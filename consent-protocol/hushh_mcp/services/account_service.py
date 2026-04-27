@@ -39,7 +39,7 @@ class AccountService:
         self._safe_export_queries = {
             "actor_profile": text(
                 """
-                SELECT user_id, personas, last_active_persona, investor_marketplace_opt_in, updated_at
+                SELECT user_id, personas, last_active_persona, investor_marketplace_opt_in, created_at, updated_at
                 FROM actor_profiles
                 WHERE user_id = :user_id
                 """
@@ -53,7 +53,9 @@ class AccountService:
             ),
             "encrypted_vault_keys": text(
                 """
-                SELECT user_id, encrypted_key, wrapped_by, created_at, updated_at
+                SELECT user_id, vault_status, primary_method, primary_wrapper_id,
+                       recovery_encrypted_vault_key, recovery_salt, recovery_iv,
+                       created_at, updated_at
                 FROM vault_keys
                 WHERE user_id = :user_id
                 ORDER BY created_at DESC
@@ -61,7 +63,9 @@ class AccountService:
             ),
             "encrypted_pkm_manifests": text(
                 """
-                SELECT user_id, scope, stored_version, schema_version, storage_layout, updated_at
+                SELECT user_id, domain, manifest_version, structure_decision,
+                       summary_projection, top_level_scope_paths, domain_contract_version,
+                       readable_summary_version, upgraded_at, created_at, updated_at
                 FROM pkm_manifests
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
@@ -69,7 +73,8 @@ class AccountService:
             ),
             "encrypted_pkm_index": text(
                 """
-                SELECT user_id, domain, record_count, updated_at
+                SELECT user_id, available_domains, domain_summaries, computed_tags,
+                       total_attributes, model_version, last_upgraded_at, created_at, updated_at
                 FROM pkm_index
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
@@ -77,7 +82,8 @@ class AccountService:
             ),
             "encrypted_pkm_blobs": text(
                 """
-                SELECT user_id, domain, blob_size, encrypted_blob, iv, tag, updated_at
+                SELECT user_id, domain, segment_id, ciphertext, iv, tag,
+                       content_revision, manifest_revision, created_at, updated_at
                 FROM pkm_blobs
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
@@ -85,10 +91,10 @@ class AccountService:
             ),
             "consent_audit": text(
                 """
-                SELECT user_id, scope, action, app_id, actor_type, occurred_at
+                SELECT id, token_id, user_id, agent_id, scope, action, issued_at, poll_timeout_at
                 FROM consent_audit
                 WHERE user_id = :user_id
-                ORDER BY occurred_at DESC
+                ORDER BY issued_at DESC
                 LIMIT 500
                 """
             ),
@@ -615,7 +621,10 @@ class AccountService:
                         params=params,
                     ),
                     "encrypted_vault_keys": self._fetch_optional_many_rows(
-                        conn, table_name="vault_keys", query_name="encrypted_vault_keys", params=params
+                        conn,
+                        table_name="vault_keys",
+                        query_name="encrypted_vault_keys",
+                        params=params,
                     ),
                     "encrypted_pkm_manifests": self._fetch_optional_many_rows(
                         conn,
@@ -624,10 +633,16 @@ class AccountService:
                         params=params,
                     ),
                     "encrypted_pkm_index": self._fetch_optional_many_rows(
-                        conn, table_name="pkm_index", query_name="encrypted_pkm_index", params=params
+                        conn,
+                        table_name="pkm_index",
+                        query_name="encrypted_pkm_index",
+                        params=params,
                     ),
                     "encrypted_pkm_blobs": self._fetch_optional_many_rows(
-                        conn, table_name="pkm_blobs", query_name="encrypted_pkm_blobs", params=params
+                        conn,
+                        table_name="pkm_blobs",
+                        query_name="encrypted_pkm_blobs",
+                        params=params,
                     ),
                     "consent_audit": self._fetch_optional_many_rows(
                         conn, table_name="consent_audit", query_name="consent_audit", params=params
@@ -639,9 +654,9 @@ class AccountService:
                 "exported_at": datetime.now(timezone.utc).isoformat(),
                 "data": export_payload,
             }
-        except Exception as exc:
+        except Exception:
             logger.exception("❌ Account export failed for %s", user_id)
-            return {"success": False, "error": str(exc)}
+            return {"success": False, "error": "Account export failed"}
 
     def _fetch_optional_single_row(
         self, conn, *, table_name: str, query_name: str, params: dict[str, Any]

@@ -89,6 +89,6 @@ async def export_account_data(token_data: dict = Depends(require_vault_owner_tok
     result = await service.export_data(user_id)
 
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=f"Export failed: {result.get('error')}")
+        raise HTTPException(status_code=500, detail="Account export failed")
 
     return result

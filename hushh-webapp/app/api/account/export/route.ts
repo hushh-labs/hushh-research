@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const responseText = await response.text();
     if (!response.ok) {
       return NextResponse.json(
-        { error: responseText || "Failed to export account data" },
+        { error: "Failed to export account data" },
         { status: response.status }
       );
     }
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     try {
       return NextResponse.json(JSON.parse(responseText));
     } catch {
-      return NextResponse.json({ success: true, raw: responseText });
+      return NextResponse.json({ error: "Invalid response from backend" }, { status: 502 });
     }
   } catch (error) {
     console.error("[API] Account export proxy error:", error);
