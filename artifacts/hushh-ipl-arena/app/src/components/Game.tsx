@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { doc, onSnapshot, updateDoc, serverTimestamp, increment, runTransaction } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandler';
 import { db } from '../firebase';
-import { UserProfile, MatchData, MatchMove } from '../types';
+import { UserProfile, MatchData } from '../types';
 import { cn } from '../lib/utils';
 import { Trophy, Home, RotateCcw, Swords, ChevronRight } from 'lucide-react';
+import { calculateMoveResult, hasMove, OPPONENT_MOVE_TIMEOUT_MS } from '../lib/rankedBattle';
 
 import { audio } from '../lib/audioManager';
 
@@ -18,7 +19,6 @@ interface GameProps {
 }
 
 const NUMBERS = [1, 2, 3, 4, 5, 6];
-const OPPONENT_MOVE_TIMEOUT_MS = 8_000;
 
 export default function Game({ matchId, practiceDifficulty, profile, onClose, onUpdateProfile }: GameProps) {
   const [match, setMatch] = useState<MatchData | null>(null);
@@ -71,8 +71,8 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
     if (!match || match.status !== 'playing' || revealing) return;
 
     const pids = Object.keys(match.players);
-    const hasP1Move = Object.prototype.hasOwnProperty.call(match.lastMoves, pids[0]);
-    const hasP2Move = Object.prototype.hasOwnProperty.call(match.lastMoves, pids[1]);
+    const hasP1Move = hasMove(match, pids[0]);
+    const hasP2Move = hasMove(match, pids[1]);
     const turnNumber = match.history.length + 1;
 
     if (hasP1Move && hasP2Move && lastProcessedMoveRef.current < turnNumber) {
@@ -109,88 +109,10 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
   const handleMoveCalculation = async (bat: number, bowl: number) => {
     if (!match) return;
 
-    let newScoreP1 = match.scoreP1;
-    let newScoreP2 = match.scoreP2;
-    let newStatus = match.status;
-    let newInnings = match.innings;
-    let newBatterId = match.currentBatterId;
-    let newBowlerId = match.currentBowlerId;
-    let newWinnerId = match.winnerId;
-    const pids = Object.keys(match.players);
-    const p1Id = pids[0];
-    const p2Id = pids[1];
-
-    const isP1Batting = match.currentBatterId === p1Id;
-    const wasSecondInnings = match.innings === 2;
-
-    const newMove: MatchMove = { bat, bowl, batterId: newBatterId };
-    const newHistory = [...match.history, newMove];
-
-    const currentBatterHistory = newHistory.filter(m => m.batterId === match.currentBatterId);
-    const ballsFacedThisInnings = currentBatterHistory.length;
-
-    if (bat === 0 || bowl === 0) {
-      // Dot ball due to timeout: zero runs and no wicket taken
-    } else if (bat === bowl) {
-      // OUT!
-      if (newInnings === 1) {
-        newInnings = 2;
-        newBatterId = match.currentBowlerId;
-        newBowlerId = match.currentBatterId;
-      } else {
-        // Match over
-        newStatus = 'finished';
-      }
-    } else {
-      // Scored runs
-      if (isP1Batting) newScoreP1 += bat;
-      else newScoreP2 += bat;
-    }
-
-    // Check target chased for innings 2
-    if (wasSecondInnings && newStatus !== 'finished') {
-      const target = isP1Batting ? match.scoreP2 : match.scoreP1;
-      const currentScore = isP1Batting ? newScoreP1 : newScoreP2;
-      if (currentScore > target) {
-        newStatus = 'finished';
-        newWinnerId = match.currentBatterId;
-      }
-    }
-
-    // 1-Over match limit (6 balls max per innings)
-    if (newStatus !== 'finished' && newInnings === match.innings) { // Haven't gotten out yet
-       if (ballsFacedThisInnings >= 6) {
-          if (newInnings === 1) {
-             newInnings = 2;
-             newBatterId = match.currentBowlerId;
-             newBowlerId = match.currentBatterId;
-          } else {
-             newStatus = 'finished';
-          }
-       }
-    }
-
-    // Finally, if finished, determine winner safely
-    if (newStatus === 'finished') {
-       if (newScoreP1 > newScoreP2) newWinnerId = p1Id;
-       else if (newScoreP2 > newScoreP1) newWinnerId = p2Id;
-       else newWinnerId = 'draw';
-    }
-
     const updates: any = {
-      scoreP1: newScoreP1,
-      scoreP2: newScoreP2,
-      status: newStatus,
-      innings: newInnings,
-      currentBatterId: newBatterId,
-      currentBowlerId: newBowlerId,
-      lastMoves: {},
-      history: newHistory,
+      ...calculateMoveResult(match, bat, bowl),
       updatedAt: serverTimestamp()
     };
-    if (newWinnerId !== undefined) {
-      updates.winnerId = newWinnerId;
-    }
 
     if (isPractice) {
       setMatch({ ...match, ...updates });
@@ -427,8 +349,8 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
     const opponentId = pids.find(id => id !== profile.uid);
     if (!opponentId) return;
 
-    const hasMyMove = Object.prototype.hasOwnProperty.call(match.lastMoves, profile.uid);
-    const hasOpponentMove = Object.prototype.hasOwnProperty.call(match.lastMoves, opponentId);
+    const hasMyMove = hasMove(match, profile.uid);
+    const hasOpponentMove = hasMove(match, opponentId);
     if (!hasMyMove || hasOpponentMove) return;
 
     const timeout = setTimeout(async () => {
