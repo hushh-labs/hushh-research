@@ -22,8 +22,11 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
     aliases_raw = raw.get("aliases")
     aliases = [str(item).strip() for item in aliases_raw or [] if str(item or "").strip()]
     speaker_persona = str(raw.get("speaker_persona") or "one").strip().lower()
-    if speaker_persona not in {"one", "kai", "nav"}:
+    if speaker_persona not in {"one", "kai", "nav", "kyc"}:
         speaker_persona = "one"
+    delegate_agent_id = str(raw.get("delegate_agent_id") or "").strip().lower() or None
+    if delegate_agent_id not in {None, "one", "kai", "nav", "kyc"}:
+        delegate_agent_id = None
     scope = (
         raw.get("reachability")
         if isinstance(raw.get("reachability"), dict)
@@ -65,6 +68,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
         "label": label,
         "meaning": meaning,
         "speaker_persona": speaker_persona,
+        "delegate_agent_id": delegate_agent_id,
         "aliases": aliases,
         "scope": {
             "screens": [

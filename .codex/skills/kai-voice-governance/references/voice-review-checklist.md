@@ -6,7 +6,8 @@ Use this when reviewing Kai voice or typed-search changes.
 
 - Does each new discoverable capability have a local `.voice-action-contract.json` entry?
 - Is the `action_id` stable and reused across voice, search, and UI actionables?
-- Does every action declare `speaker_persona` as `one`, `kai`, or `nav`?
+- Does every action declare `speaker_persona` as `one`, `kai`, `nav`, or `kyc`?
+- Does every One-framed action executed by a specialist declare `delegate_agent_id` as `kai`, `nav`, or `kyc`?
 - Are ordinary navigation actions under `route.*`, with `nav.*` reserved for true Nav guardian actions?
 - Are `control_ids` present for UI affordances that should map back to the action?
 

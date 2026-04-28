@@ -8,6 +8,7 @@
       "label": "Open Analysis Surface",
       "meaning": "Navigates directly to the Kai analysis workspace and history route.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open analysis",
         "go to analysis"
@@ -40,6 +41,7 @@
       "label": "Open Analysis History",
       "meaning": "Navigates to analysis page history context.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open analysis history",
         "show past analysis"
@@ -73,6 +75,7 @@
       "label": "Start Stock Analysis",
       "meaning": "Creates fresh analysis intent and opens the debate workspace.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "analyze stock",
         "start stock analysis",
@@ -111,6 +114,7 @@
       "label": "Resume Active Analysis Run",
       "meaning": "Attaches to currently running debate task and opens focused analysis route.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "resume analysis",
         "open active analysis"
@@ -149,6 +153,7 @@
       "label": "Cancel Active Analysis Run",
       "meaning": "Cancels running debate task and returns to history view.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "cancel analysis",
         "stop analysis"
@@ -187,6 +192,7 @@
       "label": "Legacy Transcript Tab Route",
       "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open transcript tab",
         "show transcript tab"
@@ -221,6 +227,7 @@
       "label": "Open Marketplace RIA Profile",
       "meaning": "Navigates to a public marketplace RIA profile route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria marketplace profile",
         "show advisor profile",
@@ -263,6 +270,7 @@
       "label": "Request Advisory Access",
       "meaning": "Creates an investor-to-RIA advisory consent request for the current marketplace profile.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "request advisory",
         "ask this advisor for access",
@@ -306,6 +314,7 @@
       "label": "Manage RIA Profile",
       "meaning": "Navigates an active RIA persona from their public marketplace profile back to profile management.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "manage my ria profile",
         "edit advisor profile",
@@ -346,6 +355,7 @@
       "label": "Continue Browsing Marketplace",
       "meaning": "Returns from the marketplace RIA profile to the marketplace browsing surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "continue browsing",
         "back to marketplace",
@@ -380,6 +390,7 @@
       "label": "Open Public Disclosure",
       "meaning": "Opens the external public disclosure URL attached to the marketplace RIA profile.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open public disclosure",
         "show advisor disclosure",
@@ -418,6 +429,7 @@
       "label": "Open Profile",
       "meaning": "Navigates to profile landing route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open profile",
         "go to profile"
@@ -452,6 +464,7 @@
       "label": "Open Gmail Connector Panel",
       "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open gmail settings",
         "open gmail panel"
@@ -487,6 +500,7 @@
       "label": "Open Support Panel",
       "meaning": "Navigates to hidden support panel in Profile > Account.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open support",
         "contact support"
@@ -522,6 +536,7 @@
       "label": "Open Vault Security Panel",
       "meaning": "Navigates to hidden security panel in Profile > Privacy.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "open security",
         "vault security"
@@ -557,6 +572,7 @@
       "label": "Open PKM Agent Lab",
       "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open pkm lab",
         "open memory lab"
@@ -591,6 +607,7 @@
       "label": "Submit Support Message",
       "meaning": "Sends support/bug/developer feedback email via support service.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "send support message",
         "submit support message"
@@ -625,6 +642,7 @@
       "label": "Toggle Marketplace Visibility",
       "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "toggle marketplace visibility",
         "change marketplace visibility"
@@ -660,6 +678,7 @@
       "label": "Sign Out",
       "meaning": "Ends current session and redirects to home route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "sign out",
         "log out"
@@ -694,6 +713,7 @@
       "label": "Delete Account",
       "meaning": "Deletes investor/ria persona or full account depending on selected target.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "delete my account",
         "remove account"
@@ -731,6 +751,7 @@
       "label": "Generate PKM capture preview",
       "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "preview pkm capture",
         "generate pkm preview"
@@ -765,6 +786,7 @@
       "label": "Save PKM capture",
       "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "save pkm capture",
         "save memory capture"
@@ -802,6 +824,7 @@
       "label": "Open Receipts Page",
       "meaning": "Navigates directly to receipts page from any investor surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open receipts",
         "open gmail receipts"
@@ -836,6 +859,7 @@
       "label": "Connect Gmail",
       "meaning": "Starts OAuth flow for Gmail receipts connector.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "connect gmail",
         "link gmail"
@@ -871,6 +895,7 @@
       "label": "Sync Gmail Receipts Now",
       "meaning": "Queues and polls Gmail receipt sync run.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "sync gmail receipts",
         "refresh gmail receipts"
@@ -908,6 +933,7 @@
       "label": "Build receipts memory preview",
       "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "preview receipts memory",
         "generate receipts memory preview"
@@ -940,6 +966,7 @@
       "label": "Save receipts memory to PKM",
       "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "save receipts memory",
         "save receipts to memory"
@@ -977,6 +1004,7 @@
       "label": "Disconnect Gmail",
       "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "disconnect gmail",
         "unlink gmail"
@@ -1012,6 +1040,7 @@
       "label": "Open RIA Clients",
       "meaning": "Navigates to the RIA client roster route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria clients",
         "show my advisor clients",
@@ -1051,6 +1080,7 @@
       "label": "Open Client Workspace",
       "meaning": "Represents visible client row buttons. Choosing a specific dynamic client remains manual until voice carries a selected client id.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open this client",
         "open investor workspace",
@@ -1091,6 +1121,7 @@
       "label": "Open RIA Connect Marketplace",
       "meaning": "Navigates from the RIA shell to the marketplace connection surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open connect",
         "browse marketplace",
@@ -1128,6 +1159,7 @@
       "label": "Open RIA Onboarding",
       "meaning": "Navigates to the professional onboarding route for advisor verification.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria onboarding",
         "finish advisor setup",
@@ -1166,6 +1198,7 @@
       "label": "Verify Advisor Name",
       "meaning": "Represents the advisor-name verification button. The actual verification call stays manual because it uses the current form value.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "verify my advisor name",
         "run ria name verification",
@@ -1207,6 +1240,7 @@
       "label": "Submit RIA Verification",
       "meaning": "Represents the final onboarding submission. Voice can explain it, but the user must submit from the review screen.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "submit ria verification",
         "submit advisor onboarding",
@@ -1249,6 +1283,7 @@
       "label": "Bypass RIA Verification In Dev",
       "meaning": "Represents the development or UAT-only RIA activation bypass. It is always manual-only for voice.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "bypass ria verification",
         "activate ria in dev",
@@ -1291,6 +1326,7 @@
       "label": "Open RIA Home",
       "meaning": "Navigates to the RIA workspace home route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria workspace",
         "go to ria home",
@@ -1330,6 +1366,7 @@
       "label": "Open Priority Queue Item",
       "meaning": "Represents the visible priority queue Open buttons on RIA home. Dynamic queue URLs still require the on-screen control.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open the priority item",
         "open the next ria task",
@@ -1369,6 +1406,7 @@
       "label": "Open RIA Picks",
       "meaning": "Navigates to the RIA stock universe and advisor package route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria picks",
         "open advisor picks",
@@ -1408,6 +1446,7 @@
       "label": "Show Kai Picks Source",
       "meaning": "Switches the picks route state to Kai's read-only reference list.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show kai list",
         "switch to kai picks",
@@ -1444,6 +1483,7 @@
       "label": "Show My Advisor Picks",
       "meaning": "Switches the picks route state to the advisor's own package.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show my picks",
         "switch to my list",
@@ -1480,6 +1520,7 @@
       "label": "Show Top Picks",
       "meaning": "Switches the picks route state to top picks.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show top picks",
         "open top picks tab",
@@ -1516,6 +1557,7 @@
       "label": "Show Avoid List",
       "meaning": "Switches the picks route state to avoid rows.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show avoid list",
         "open avoid tab",
@@ -1552,6 +1594,7 @@
       "label": "Show Screening Rules",
       "meaning": "Switches the picks route state to screening rules.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show screening",
         "open screening tab",
@@ -1588,6 +1631,7 @@
       "label": "Edit Advisor Package",
       "meaning": "Represents opening the editable advisor package draft. Voice can explain it, but editing stays manual.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "edit my picks",
         "edit advisor package",
@@ -1629,6 +1673,7 @@
       "label": "Save Advisor Package",
       "meaning": "Represents saving the advisor package to vault-backed pick storage. Voice cannot complete the save.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "save my picks",
         "publish advisor package",
@@ -1671,6 +1716,7 @@
       "label": "Upload Top Picks CSV",
       "meaning": "Represents the CSV upload and replace flow. File picking and upload remain manual.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "upload picks csv",
         "replace top picks from csv",
@@ -1714,6 +1760,7 @@
       "label": "Copy Kai Package Into My List",
       "meaning": "Represents copying Kai reference picks into the advisor draft. Voice can explain it, but the copy stays manual.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "copy from kai",
         "use kai list as my list",
@@ -1756,6 +1803,7 @@
       "label": "Discard Advisor Package Changes",
       "meaning": "Represents discarding unsaved advisor package draft changes. Voice cannot discard for the user.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "discard picks changes",
         "cancel advisor package edits",
@@ -1795,6 +1843,7 @@
       "label": "Edit Picks Rows Manually",
       "meaning": "Covers row-level add, remove, ticker, tier, thesis, avoid reason, and screening rule edits that require hands-on UI entry.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "edit a picks row",
         "add a picks row",
@@ -1838,6 +1887,7 @@
       "label": "Download Picks CSV Template",
       "meaning": "Navigates to the CSV template used for top-picks uploads.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "download picks template",
         "get csv template",
@@ -1874,6 +1924,7 @@
       "label": "Open RIA Requests",
       "meaning": "Routes legacy RIA requests links to the consent center.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria requests",
         "open advisor requests",
@@ -1914,6 +1965,7 @@
       "label": "Open RIA Settings",
       "meaning": "Routes RIA profile management links to the profile settings surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria settings",
         "manage advisor settings",
@@ -1953,6 +2005,7 @@
       "label": "Open RIA Workspace Compatibility Route",
       "meaning": "Routes legacy RIA workspace links to a client workspace when a clientId is present, otherwise to the client roster.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "open ria workspace",
         "open legacy ria workspace",
@@ -1999,6 +2052,7 @@
       "label": "Open Consent Center",
       "meaning": "Navigates to consents route.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "open consent center",
         "open consents"
@@ -2031,6 +2085,7 @@
       "label": "Go Back",
       "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "aliases": [
         "go back",
         "back"
@@ -2070,6 +2125,7 @@
       "label": "Open Portfolio Dashboard",
       "meaning": "Navigates to portfolio dashboard for source/holdings context.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open portfolio dashboard",
         "open portfolio",
@@ -2103,6 +2159,7 @@
       "label": "Open Portfolio Import",
       "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "import portfolio",
         "open import"
@@ -2135,6 +2192,7 @@
       "label": "Open Investments Surface",
       "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open investments",
         "show investments"
@@ -2171,6 +2229,7 @@
       "label": "Open Optimize Surface",
       "meaning": "Navigates to optimize workspace route directly.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "optimize portfolio",
         "open optimize"
@@ -2205,6 +2264,7 @@
       "label": "Open Market Home",
       "meaning": "Navigates to the Investor Kai market home surface.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open kai home",
         "open market home",
@@ -2239,6 +2299,7 @@
       "label": "Open RIA Client Account Detail",
       "meaning": "Navigates to the advisor-facing detail route for a selected client account branch.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open account detail",
         "show client account detail",
@@ -2282,6 +2343,7 @@
       "label": "Return To Client Data Explorer",
       "meaning": "Navigates from an unavailable account detail route back to the client workspace explorer tab.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "return to client workspace",
         "open workspace from account detail",
@@ -2327,6 +2389,7 @@
       "label": "Open RIA Client Request Detail",
       "meaning": "Navigates to the advisor-facing detail route for a selected client access request.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "open request detail",
         "show access request detail",
@@ -2370,6 +2433,7 @@
       "label": "Return To Client Access",
       "meaning": "Navigates from an unavailable request detail route back to the client workspace access tab.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "return to client access",
         "open access from request detail",
@@ -2415,6 +2479,7 @@
       "label": "Open RIA Client Workspace",
       "meaning": "Navigates to a selected client's advisor workspace.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open client workspace",
         "open this investor",
@@ -2460,6 +2525,7 @@
       "label": "Show Client Overview",
       "meaning": "Switches the client workspace to the overview tab.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show client overview",
         "open overview tab",
@@ -2506,6 +2572,7 @@
       "label": "Show Client Sharing",
       "meaning": "Switches the client workspace to the access and sharing tab.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "show client sharing",
         "open access tab",
@@ -2551,6 +2618,7 @@
       "label": "Show Client Portfolio",
       "meaning": "Switches the client workspace to the portfolio tab when approved client portfolio access is ready.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show client portfolio",
         "open portfolio tab",
@@ -2598,6 +2666,7 @@
       "label": "Show Client Data Explorer",
       "meaning": "Switches the client workspace to the data explorer tab when client data access is ready.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "show client data",
         "open explorer tab",
@@ -2645,6 +2714,7 @@
       "label": "Open Client Account Detail",
       "meaning": "Opens a selected account branch detail route from the client workspace.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "aliases": [
         "open this account",
         "show account detail",
@@ -2694,6 +2764,7 @@
       "label": "Open Access Manager",
       "meaning": "Navigates to the consent access manager from the client workspace.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "open access manager",
         "open access",
@@ -2735,6 +2806,7 @@
       "label": "Send Client Access Request",
       "meaning": "Creates a consent request bundle for the selected client using the selected template, scopes, accounts, and optional reason.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "send access request",
         "request more client access",
@@ -2783,6 +2855,7 @@
       "label": "Disconnect Client Relationship",
       "meaning": "Disconnects the current advisor-client relationship and ends access immediately.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "aliases": [
         "disconnect this client",
         "end client relationship",

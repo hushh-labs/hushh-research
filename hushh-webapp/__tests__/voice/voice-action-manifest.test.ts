@@ -69,6 +69,7 @@ function projectRegistryAction(action: InvestorKaiActionDefinition) {
     label: action.label,
     meaning: action.meaning,
     speaker_persona: action.speakerPersona,
+    delegate_agent_id: action.delegateAgentId,
     scope: {
       routes: unique(action.scope.routes),
       screens: [...action.scope.screens],
@@ -127,6 +128,7 @@ describe("voice-action-manifest", () => {
       label: "Open RIA Home",
       meaning: "Navigates to the RIA workspace home route.",
       speaker_persona: "one",
+      delegate_agent_id: null,
       scope: {
         routes: ["/ria"],
         screens: ["ria_home"],

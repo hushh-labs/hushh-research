@@ -140,6 +140,7 @@ Required action fields:
 
 Optional but recommended action fields:
 
+- `delegate_agent_id`
 - `state_exposure`
 - `docs_references`
 - `expected_effects`
@@ -154,14 +155,18 @@ Each action declares `speaker_persona`:
 | `one` | One owns the spoken framing. Use for generic, route, shell, memory, notification, and handoff actions. |
 | `kai` | Kai owns the spoken framing. Use for finance, analysis, portfolio, market, and RIA finance actions. |
 | `nav` | Nav owns the spoken framing. Use for privacy, consent, vault, deletion, revocation, and scope-review actions. |
+| `kyc` | KYC owns the spoken framing. Use only for explicit KYC workflow status, missing-document review, approval-gated drafts, and structured writeback actions. |
 
 Speaker persona is presentation and prompt ownership only. It does not create authorization and must never bypass auth, vault, consent, persona, workspace, or rollout gates.
+
+`delegate_agent_id` is nullable and declares which specialist executes a user-facing action when One frames the handoff. Allowed values are `one`, `kai`, `nav`, and `kyc`.
 
 Action namespace rules:
 
 - `route.*` is the namespace for navigation and route changes.
 - `analysis.*` and `kai.*` remain finance/Kai specialist namespaces.
 - `nav.*` is reserved for true Nav privacy/consent guardian actions.
+- `kyc.*` is reserved for true KYC identity-workflow actions.
 - Do not add legacy aliases from old navigation `nav.*` ids. This migration is a straight rename.
 
 ## Multi-Step Workflow Model

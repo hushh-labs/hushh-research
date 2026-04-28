@@ -349,6 +349,7 @@
       ],
       "meaning": "Navigates directly to the Kai analysis workspace and history route.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/analysis"
@@ -408,6 +409,7 @@
       ],
       "meaning": "Navigates to analysis page history context.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/analysis",
@@ -470,6 +472,7 @@
       ],
       "meaning": "Creates fresh analysis intent and opens the debate workspace.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/analysis"
@@ -534,6 +537,7 @@
       ],
       "meaning": "Attaches to currently running debate task and opens focused analysis route.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/analysis",
@@ -601,6 +605,7 @@
       ],
       "meaning": "Cancels running debate task and returns to history view.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/analysis"
@@ -667,6 +672,7 @@
       ],
       "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/analysis?tab=transcript"
@@ -730,6 +736,7 @@
       ],
       "meaning": "Navigates to a public marketplace RIA profile route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/marketplace/ria",
@@ -805,6 +812,7 @@
       ],
       "meaning": "Creates an investor-to-RIA advisory consent request for the current marketplace profile.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/marketplace/ria"
@@ -888,6 +896,7 @@
       ],
       "meaning": "Navigates an active RIA persona from their public marketplace profile back to profile management.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/marketplace/ria",
@@ -958,6 +967,7 @@
       ],
       "meaning": "Returns from the marketplace RIA profile to the marketplace browsing surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/marketplace/ria",
@@ -1024,6 +1034,7 @@
       ],
       "meaning": "Opens the external public disclosure URL attached to the marketplace RIA profile.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/marketplace/ria"
@@ -1093,6 +1104,7 @@
       ],
       "meaning": "Navigates to profile landing route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile"
@@ -1155,6 +1167,7 @@
       ],
       "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile?panel=gmail"
@@ -1217,6 +1230,7 @@
       ],
       "meaning": "Navigates to hidden support panel in Profile > Account.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile?tab=account&panel=support"
@@ -1280,6 +1294,7 @@
       ],
       "meaning": "Navigates to hidden security panel in Profile > Privacy.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile?tab=privacy&panel=security"
@@ -1343,6 +1358,7 @@
       ],
       "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile/pkm-agent-lab"
@@ -1405,6 +1421,7 @@
       ],
       "meaning": "Sends support/bug/developer feedback email via support service.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile?tab=account&panel=support"
@@ -1471,6 +1488,7 @@
       ],
       "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile?tab=privacy"
@@ -1534,6 +1552,7 @@
       ],
       "meaning": "Ends current session and redirects to home route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile"
@@ -1595,6 +1614,7 @@
       ],
       "meaning": "Deletes investor/ria persona or full account depending on selected target.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile"
@@ -1660,6 +1680,7 @@
       ],
       "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile/pkm-agent-lab"
@@ -1724,6 +1745,7 @@
       ],
       "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile/pkm-agent-lab"
@@ -1791,6 +1813,7 @@
       ],
       "meaning": "Navigates directly to receipts page from any investor surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile/receipts"
@@ -1862,6 +1885,7 @@
       ],
       "meaning": "Starts OAuth flow for Gmail receipts connector.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile",
@@ -1932,6 +1956,7 @@
       ],
       "meaning": "Queues and polls Gmail receipt sync run.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile/receipts",
@@ -2008,6 +2033,7 @@
       ],
       "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile/receipts"
@@ -2074,6 +2100,7 @@
       ],
       "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile/receipts"
@@ -2140,6 +2167,7 @@
       ],
       "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/profile?panel=gmail"
@@ -2210,6 +2238,7 @@
       ],
       "meaning": "Navigates to the RIA client roster route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients"
@@ -2281,6 +2310,7 @@
       ],
       "meaning": "Represents visible client row buttons. Choosing a specific dynamic client remains manual until voice carries a selected client id.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients"
@@ -2354,6 +2384,7 @@
       ],
       "meaning": "Navigates from the RIA shell to the marketplace connection surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/marketplace"
@@ -2423,6 +2454,7 @@
       ],
       "meaning": "Navigates to the professional onboarding route for advisor verification.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/onboarding"
@@ -2525,6 +2557,7 @@
       ],
       "meaning": "Represents the advisor-name verification button. The actual verification call stays manual because it uses the current form value.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/onboarding"
@@ -2601,6 +2634,7 @@
       ],
       "meaning": "Represents the final onboarding submission. Voice can explain it, but the user must submit from the review screen.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/onboarding"
@@ -2678,6 +2712,7 @@
       ],
       "meaning": "Represents the development or UAT-only RIA activation bypass. It is always manual-only for voice.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/onboarding"
@@ -2754,6 +2789,7 @@
       ],
       "meaning": "Navigates to the RIA workspace home route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria"
@@ -2856,6 +2892,7 @@
       ],
       "meaning": "Represents the visible priority queue Open buttons on RIA home. Dynamic queue URLs still require the on-screen control.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria"
@@ -2928,6 +2965,7 @@
       ],
       "meaning": "Navigates to the RIA stock universe and advisor package route.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks"
@@ -2997,6 +3035,7 @@
       ],
       "meaning": "Switches the picks route state to Kai's read-only reference list.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks?source=kai"
@@ -3063,6 +3102,7 @@
       ],
       "meaning": "Switches the picks route state to the advisor's own package.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks?source=my"
@@ -3131,6 +3171,7 @@
       ],
       "meaning": "Switches the picks route state to top picks.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks?category=top-picks"
@@ -3197,6 +3238,7 @@
       ],
       "meaning": "Switches the picks route state to avoid rows.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks?category=avoid"
@@ -3263,6 +3305,7 @@
       ],
       "meaning": "Switches the picks route state to screening rules.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks?category=screening"
@@ -3329,6 +3372,7 @@
       ],
       "meaning": "Represents opening the editable advisor package draft. Voice can explain it, but editing stays manual.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks"
@@ -3403,6 +3447,7 @@
       ],
       "meaning": "Represents saving the advisor package to vault-backed pick storage. Voice cannot complete the save.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks"
@@ -3479,6 +3524,7 @@
       ],
       "meaning": "Represents the CSV upload and replace flow. File picking and upload remain manual.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks"
@@ -3555,6 +3601,7 @@
       ],
       "meaning": "Represents copying Kai reference picks into the advisor draft. Voice can explain it, but the copy stays manual.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks"
@@ -3630,6 +3677,7 @@
       ],
       "meaning": "Represents discarding unsaved advisor package draft changes. Voice cannot discard for the user.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks"
@@ -3704,6 +3752,7 @@
       ],
       "meaning": "Covers row-level add, remove, ticker, tier, thesis, avoid reason, and screening rule edits that require hands-on UI entry.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/picks"
@@ -3785,6 +3834,7 @@
       ],
       "meaning": "Navigates to the CSV template used for top-picks uploads.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/templates/ria-picks-template.csv"
@@ -3851,6 +3901,7 @@
       ],
       "meaning": "Routes legacy RIA requests links to the consent center.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/requests",
@@ -3921,6 +3972,7 @@
       ],
       "meaning": "Routes RIA profile management links to the profile settings surface.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/settings",
@@ -3990,6 +4042,7 @@
       ],
       "meaning": "Routes legacy RIA workspace links to a client workspace when a clientId is present, otherwise to the client roster.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/workspace",
@@ -4066,6 +4119,7 @@
       ],
       "meaning": "Navigates to consents route.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/consents"
@@ -4125,6 +4179,7 @@
       ],
       "meaning": "Navigates back to the previous Kai or profile surface in browser history.",
       "speaker_persona": "one",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai",
@@ -4194,6 +4249,7 @@
       ],
       "meaning": "Navigates to portfolio dashboard for source/holdings context.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/portfolio"
@@ -4253,6 +4309,7 @@
       ],
       "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/import"
@@ -4313,6 +4370,7 @@
       ],
       "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/investments"
@@ -4378,6 +4436,7 @@
       ],
       "meaning": "Navigates to optimize workspace route directly.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai/optimize"
@@ -4443,6 +4502,7 @@
       ],
       "meaning": "Navigates to the Investor Kai market home surface.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/kai",
@@ -4505,6 +4565,7 @@
       ],
       "meaning": "Navigates to the advisor-facing detail route for a selected client account branch.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]/accounts/[accountId]"
@@ -4582,6 +4643,7 @@
       ],
       "meaning": "Navigates from an unavailable account detail route back to the client workspace explorer tab.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]/accounts/[accountId]"
@@ -4659,6 +4721,7 @@
       ],
       "meaning": "Navigates to the advisor-facing detail route for a selected client access request.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]/requests/[requestId]"
@@ -4737,6 +4800,7 @@
       ],
       "meaning": "Navigates from an unavailable request detail route back to the client workspace access tab.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]/requests/[requestId]"
@@ -4814,6 +4878,7 @@
       ],
       "meaning": "Navigates to a selected client's advisor workspace.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]"
@@ -4889,6 +4954,7 @@
       ],
       "meaning": "Switches the client workspace to the overview tab.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]",
@@ -4968,6 +5034,7 @@
       ],
       "meaning": "Switches the client workspace to the access and sharing tab.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]?tab=access"
@@ -5048,6 +5115,7 @@
       ],
       "meaning": "Switches the client workspace to the portfolio tab when approved client portfolio access is ready.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]?tab=kai"
@@ -5130,6 +5198,7 @@
       ],
       "meaning": "Switches the client workspace to the data explorer tab when client data access is ready.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]?tab=explorer"
@@ -5211,6 +5280,7 @@
       ],
       "meaning": "Opens a selected account branch detail route from the client workspace.",
       "speaker_persona": "kai",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]",
@@ -5293,6 +5363,7 @@
       ],
       "meaning": "Navigates to the consent access manager from the client workspace.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]?tab=access"
@@ -5367,6 +5438,7 @@
       ],
       "meaning": "Creates a consent request bundle for the selected client using the selected template, scopes, accounts, and optional reason.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]?tab=access"
@@ -5460,6 +5532,7 @@
       ],
       "meaning": "Disconnects the current advisor-client relationship and ends access immediately.",
       "speaker_persona": "nav",
+      "delegate_agent_id": null,
       "reachability": {
         "routes": [
           "/ria/clients/[userId]"

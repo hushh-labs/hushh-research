@@ -43,6 +43,7 @@ import {
   resolveVoiceFailFastPolicy,
   resolveVoiceForceProxyPreference,
 } from "@/lib/runtime/settings";
+import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
@@ -1483,7 +1484,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native approvePendingConsent error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "approvePendingConsent");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_action_result", {
@@ -1574,7 +1576,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native denyPendingConsent error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "denyPendingConsent");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_action_result", {
@@ -1674,7 +1677,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native revokeConsent error:", e);
-        const response = new Response((e as Error).message || "Failed", { status: 500 });
+        const { message } = sanitizeErrorMessage(e, 500, "revokeConsent");
+        const response = new Response(message, { status: 500 });
         trackEvent("consent_action_result", {
           action: "revoke",
           result: "error",
@@ -1735,7 +1739,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.warn("[ApiService] Native getPendingConsents error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getPendingConsents");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_pending_loaded", {
@@ -1855,8 +1860,9 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native unregisterPushToken error:", e);
+        const { message } = sanitizeErrorMessage(e, 500, "unregisterPushToken");
         return new Response(
-          JSON.stringify({ error: (e as Error).message || "Native error" }),
+          JSON.stringify({ error: message }),
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -1900,7 +1906,8 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native getActiveConsents error:", e);
-        return new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getActiveConsents");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -1944,7 +1951,8 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native getConsentHistory error:", e);
-        return new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getConsentHistory");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -2700,10 +2708,11 @@ export class ApiService {
       return response;
     } catch (error) {
       console.error("[ApiService] importPortfolio error:", error);
+      const { message } = sanitizeErrorMessage(error, 500, "importPortfolio");
       const response = new Response(
         JSON.stringify({
           success: false,
-          error: (error as Error).message,
+          error: message,
         }),
         { status: 500 }
       );
@@ -3000,7 +3009,8 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native analyzePortfolioLosers error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        const { message } = sanitizeErrorMessage(error, 500, "analyzePortfolioLosers");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -3378,7 +3388,8 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamKaiAnalysis error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        const { message } = sanitizeErrorMessage(error, 500, "streamKaiAnalysis");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }

@@ -293,11 +293,12 @@ Runtime consumption:
 
 The older [voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json) still exists, but it is now a generated compatibility artifact rather than the primary authored source.
 
-Generated actions include `speaker_persona`:
+Generated actions include `speaker_persona` and may include `delegate_agent_id`:
 
 - `one`: general, route, shell, memory, and handoff framing
 - `kai`: finance and analysis actions
 - `nav`: privacy, consent, vault, deletion, revocation, and scope-review actions
+- `kyc`: explicit identity/KYC workflow status, missing-document review, approval-gated draft, and structured writeback actions
 
 Navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions and must not be used for ordinary route changes.
 

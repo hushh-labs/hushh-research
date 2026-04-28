@@ -39,12 +39,16 @@ class TestStaticScopes:
         assert ConsentScope.PKM_WRITE.value == "pkm.write"
         assert ConsentScope.PKM_METADATA.value == "pkm.metadata"
 
-    def test_kai_agent_scopes(self):
-        """Test Kai agent operation scopes."""
+    def test_agent_scope_values(self):
+        """Test One/Kai/Nav/KYC agent operation scopes."""
+        assert ConsentScope.AGENT_ONE_ORCHESTRATE.value == "agent.one.orchestrate"
         assert ConsentScope.AGENT_KAI_ANALYZE.value == "agent.kai.analyze"
         assert ConsentScope.AGENT_KAI_DEBATE.value == "agent.kai.debate"
         assert ConsentScope.AGENT_KAI_INFER.value == "agent.kai.infer"
         assert ConsentScope.AGENT_KAI_CHAT.value == "agent.kai.chat"
+        assert ConsentScope.AGENT_NAV_REVIEW.value == "agent.nav.review"
+        assert ConsentScope.AGENT_KYC_PROCESS.value == "agent.kyc.process"
+        assert ConsentScope.AGENT_KYC_WRITEBACK.value == "agent.kyc.writeback"
 
     def test_external_data_scopes(self):
         """Test external data source scopes."""
@@ -80,9 +84,12 @@ class TestStaticScopes:
         """Test agent_scopes() returns correct scopes."""
         agent_scopes = ConsentScope.agent_scopes()
 
+        assert ConsentScope.AGENT_ONE_ORCHESTRATE in agent_scopes
         assert ConsentScope.AGENT_KAI_ANALYZE in agent_scopes
         assert ConsentScope.AGENT_KAI_CHAT in agent_scopes
         assert ConsentScope.AGENT_KAI_EXECUTE in agent_scopes
+        assert ConsentScope.AGENT_NAV_REVIEW in agent_scopes
+        assert ConsentScope.AGENT_KYC_PROCESS in agent_scopes
 
     def test_external_scopes(self):
         """Test external_scopes() returns correct scopes."""

@@ -52,6 +52,7 @@ Non-owned surfaces:
 5. For new owner skills or workflow-pack changes, run a second lint/audit pass after the edits instead of trusting the first clean run.
 6. For licensing, onboarding, subtree, CI, or branch-governance skill changes, do a third check from the canonical repo entrypoint before calling the taxonomy stable.
 7. Keep blocking versus advisory skill drift explicit. Only owner/workflow drift that weakens runtime, deploy, release, or test authority should block the core loop; metadata-only drift should stay advisory.
+8. When PR governance comment templates change, enforce them through `skill_lint.py` so stale public-comment headings such as `Acknowledgment`, `Verification`, or maintainer-only `Next` do not re-enter generated templates.
 
 ## Handoff Rules
 

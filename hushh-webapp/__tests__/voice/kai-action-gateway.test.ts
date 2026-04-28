@@ -70,7 +70,14 @@ describe("kai-action-gateway", () => {
     expect(ids.every((id) => !id.startsWith(reservedNavPrefix))).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every((action) =>
-        ["one", "kai", "nav"].includes(action.speaker_persona)
+        ["one", "kai", "nav", "kyc"].includes(action.speaker_persona)
+      )
+    ).toBe(true);
+    expect(
+      KAI_ACTION_GATEWAY.actions.every(
+        (action) =>
+          action.delegate_agent_id === null ||
+          ["one", "kai", "nav", "kyc"].includes(action.delegate_agent_id)
       )
     ).toBe(true);
     expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");

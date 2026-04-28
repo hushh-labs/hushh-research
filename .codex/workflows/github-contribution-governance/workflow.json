@@ -1,0 +1,62 @@
+{
+  "id": "github-contribution-governance",
+  "title": "GitHub Contribution Governance",
+  "goal": "Make contribution-sensitive GitHub work attributable to the intended account, PR-backed, check-visible, and eligible for GitHub contribution graph credit.",
+  "owner_skill": "repo-operations",
+  "default_spoke": "github-contribution-governance",
+  "task_type": "github-contribution-governance",
+  "affected_surfaces": [
+    ".codex/skills/github-contribution-governance",
+    ".codex/workflows/github-contribution-governance"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/reference/operations/branch-governance.md",
+    "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference",
+    "https://docs.github.com/en/account-and-profile/how-tos/contribution-settings/troubleshooting-missing-contributions",
+    "https://docs.github.com/en/account-and-profile/how-tos/email-preferences/setting-your-commit-email-address"
+  ],
+  "required_commands": [
+    "gh auth status",
+    "gh api user --jq '.login'",
+    "git config --get user.email",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundle": {
+    "id": "github-contribution-governance",
+    "commands": [
+      "gh auth status",
+      "gh api user --jq '.login'",
+      "git config --get user.email",
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+    ],
+    "tests": []
+  },
+  "deliverables": [
+    "active GitHub account and author-email status",
+    "commit attribution evidence for relevant SHAs",
+    "PR target and check-state summary",
+    "merge or blocker outcome",
+    "contribution graph eligibility note"
+  ],
+  "impact_fields": [
+    "GitHub account",
+    "Commit author email",
+    "PR target branch",
+    "Contribution eligibility",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "repo-operations",
+    "github-contribution-governance",
+    "planning-board"
+  ],
+  "common_failures": [
+    "committing with a generic .local email",
+    "stopping after pushing a non-default feature branch",
+    "assuming repo ownership alone makes branch commits count",
+    "opening a PR without monitoring checks",
+    "rewriting pushed commits without explicit approval"
+  ]
+}
