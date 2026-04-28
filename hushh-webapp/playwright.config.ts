@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.BASE_URL || "http://localhost:3000";
+const basePort = new URL(baseURL).port || "3000";
+
 /**
  * Playwright E2E Configuration for Hushh Webapp (Kai)
  *
@@ -21,7 +24,7 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "html",
 
   use: {
-    baseURL: process.env.BASE_URL || "http://localhost:3000",
+    baseURL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -45,8 +48,8 @@ export default defineConfig({
   webServer: process.env.CI
     ? undefined
     : {
-        command: "npm run dev",
-        url: "http://localhost:3000",
+        command: `npm run dev -- --port ${basePort}`,
+        url: baseURL,
         reuseExistingServer: true,
         timeout: 120_000,
       },

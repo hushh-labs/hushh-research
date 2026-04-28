@@ -71,6 +71,11 @@ def _render_text(payload: dict[str, Any]) -> str:
     ]
     for command in payload["commands"]:
         lines.append(f"- {command}")
+    if payload.get("checks"):
+        lines.append("Checks:")
+        for name, check in payload["checks"].items():
+            status = "passing" if check["ok"] else "failing"
+            lines.append(f"- {name}: {status}")
     if payload.get("next_actions"):
         lines.append("Next actions:")
         for item in payload["next_actions"]:
@@ -89,31 +94,58 @@ def main() -> int:
     args = parser.parse_args()
 
     json_mode = bool(args.json)
+    dco_command = ["bash", "scripts/ci/check-dco-signoff.sh"]
     ci_command = ["./bin/hushh", "ci"]
     if args.include_advisory:
         ci_command.append("--include-advisory")
 
     if not json_mode:
         print("Running the local PR mirror before opening or updating a pull request.")
+        print(f"Command: {' '.join(dco_command)}")
         print(f"Command: {' '.join(ci_command)}")
 
-    result = _run(ci_command, stream_output=not json_mode)
+    dco_result = _run(dco_command, stream_output=not json_mode)
+    if dco_result["ok"]:
+        ci_result = _run(ci_command, stream_output=not json_mode)
+    else:
+        ci_result = {
+            "command": ci_command,
+            "returncode": 1,
+            "ok": False,
+            "stdout_tail": "",
+            "stderr_tail": "Skipped because the local DCO signoff gate failed.",
+        }
+    ok = dco_result["ok"] and ci_result["ok"]
     payload: OrderedDict[str, Any] = OrderedDict(
         workflow_id="pre-pr-readiness",
-        status="passing" if result["ok"] else "failing",
+        status="passing" if ok else "failing",
         branch=_git_branch(),
         mirrors_workflows=["PR Validation", "CI Status Gate"],
         include_advisory=args.include_advisory,
-        commands=[" ".join(ci_command)],
+        commands=[" ".join(dco_command), " ".join(ci_command)],
         reports=OrderedDict(),
+        checks=OrderedDict(
+            dco=OrderedDict(
+                ok=dco_result["ok"],
+                returncode=dco_result["returncode"],
+                stdout_tail=dco_result["stdout_tail"],
+                stderr_tail=dco_result["stderr_tail"],
+            ),
+            local_pr_mirror=OrderedDict(
+                ok=ci_result["ok"],
+                returncode=ci_result["returncode"],
+                stdout_tail=ci_result["stdout_tail"],
+                stderr_tail=ci_result["stderr_tail"],
+            ),
+        ),
         command_result=OrderedDict(
-            returncode=result["returncode"],
-            stdout_tail=result["stdout_tail"],
-            stderr_tail=result["stderr_tail"],
+            returncode=dco_result["returncode"] if not dco_result["ok"] else ci_result["returncode"],
+            stdout_tail=dco_result["stdout_tail"] if not dco_result["ok"] else ci_result["stdout_tail"],
+            stderr_tail=dco_result["stderr_tail"] if not dco_result["ok"] else ci_result["stderr_tail"],
         ),
         next_actions=[
             "Open or update the pull request once the local mirror is green."
-            if result["ok"]
+            if ok
             else "Fix the failing local check before opening or updating the pull request.",
             "Use ./bin/hushh codex ci-status --watch after the PR opens so GitHub reaches a terminal state.",
         ],
@@ -130,7 +162,7 @@ def main() -> int:
     else:
         print(_render_text(payload))
 
-    return int(result["returncode"])
+    return 0 if ok else int(dco_result["returncode"] if not dco_result["ok"] else ci_result["returncode"])
 
 
 if __name__ == "__main__":

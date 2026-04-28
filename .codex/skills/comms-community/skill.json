@@ -20,16 +20,19 @@
     "consent-protocol/docs/reference/developer-api.md"
   ],
   "required_commands": [
-    "./bin/hushh docs verify"
+    "./bin/hushh docs verify",
+    "python3 .codex/skills/comms-community/scripts/discord_chunk.py --self-test"
   ],
   "verification_bundles": [
     {
       "id": "comms-community",
       "commands": [
-        "./bin/hushh docs verify"
+        "./bin/hushh docs verify",
+        "python3 .codex/skills/comms-community/scripts/discord_chunk.py --self-test"
       ],
       "tests": [
-        "./bin/hushh docs verify"
+        "./bin/hushh docs verify",
+        "python3 .codex/skills/comms-community/scripts/discord_chunk.py --self-test"
       ]
     }
   ],
