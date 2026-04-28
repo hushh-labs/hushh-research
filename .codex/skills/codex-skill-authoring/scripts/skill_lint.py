@@ -477,6 +477,8 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     reply_rules = SKILLS_ROOT / "comms-community" / "references" / "reply-rules.md"
     community_playbook = WORKFLOWS_ROOT / "community-response" / "PLAYBOOK.md"
     community_workflow = WORKFLOWS_ROOT / "community-response" / "workflow.json"
+    pr_governance_skill = SKILLS_ROOT / "pr-governance-review" / "SKILL.md"
+    pr_review_script = SKILLS_ROOT / "pr-governance-review" / "scripts" / "pr_review_checklist.py"
 
     if comms_skill.exists():
         skill_text = comms_skill.read_text(encoding="utf-8")
@@ -548,6 +550,35 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             if value not in common_failures:
                 errors.append(
                     f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response failure mode `{value}`"
+                )
+
+    if pr_governance_skill.exists():
+        pr_skill_text = pr_governance_skill.read_text(encoding="utf-8")
+        required_pr_phrases = [
+            "contract_set",
+            "duplicate_group",
+            "public_comment_policy",
+            "`### Proof` is the only evidence heading for public GitHub comments",
+            "Green CI never overrides exact file overlap",
+        ]
+        for phrase in required_pr_phrases:
+            if phrase not in pr_skill_text:
+                errors.append(
+                    f"{pr_governance_skill.relative_to(REPO_ROOT)}: missing PR governance contract phrase `{phrase}`"
+                )
+
+    if pr_review_script.exists():
+        script_text = pr_review_script.read_text(encoding="utf-8")
+        forbidden_template_headings = [
+            '"## Acknowledgment"',
+            '"### Verification"',
+            '"## Next"',
+            '"### Next"',
+        ]
+        for heading in forbidden_template_headings:
+            if heading in script_text:
+                errors.append(
+                    f"{pr_review_script.relative_to(REPO_ROOT)}: generated PR comment template still contains forbidden heading {heading}"
                 )
 
 

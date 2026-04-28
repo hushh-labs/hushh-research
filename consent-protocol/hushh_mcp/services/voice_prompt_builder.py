@@ -47,6 +47,17 @@ def _build_voice_shared_context(
     ).strip()
 
     available_action_ids: list[str] = []
+    screen_metadata = (
+        structured.get("screen_metadata")
+        if isinstance(structured.get("screen_metadata"), dict)
+        else {}
+    )
+    raw_available_action_ids = screen_metadata.get("available_action_ids")
+    if isinstance(raw_available_action_ids, list):
+        for raw_action_id in raw_available_action_ids:
+            normalized = str(raw_action_id or "").strip()
+            if normalized:
+                available_action_ids.append(normalized)
     for source_key in ("controls", "actions"):
         raw_items = surface.get(source_key)
         if not isinstance(raw_items, list):

@@ -8,6 +8,7 @@ Endpoints for account lifecycle management.
 Routes:
     POST /api/account/identity/refresh - Refresh backend identity shadow from Firebase Auth
     DELETE /api/account/delete - Delete account and all data
+    GET /api/account/export - Export encrypted account data bundle
 
 Security:
     Identity refresh requires Firebase auth.
@@ -69,5 +70,25 @@ async def delete_account(
 
     if not result["success"]:
         raise HTTPException(status_code=500, detail=f"Deletion failed: {result.get('error')}")
+
+    return result
+
+
+@router.get("/export")
+async def export_account_data(token_data: dict = Depends(require_vault_owner_token)):
+    """
+    Export logged-in user's account data bundle.
+
+    Returns encrypted/private-user-bound payloads only. No plaintext PKM content.
+    Requires VAULT_OWNER token.
+    """
+    user_id = token_data["user_id"]
+    logger.info("Account export requested for user %s", user_id)
+
+    service = AccountService()
+    result = await service.export_data(user_id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail="Account export failed")
 
     return result

@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeToggleCompact } from "@/components/theme-toggle";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -173,14 +173,13 @@ export const Navbar = () => {
   if (!isAuthenticated || useOnboardingChrome) {
     return (
       <nav
-        className="fixed left-0 right-0 z-50 flex justify-center px-4 pointer-events-none"
+        className="fixed right-0 top-0 z-50 flex justify-end px-4 pointer-events-none"
         style={{
-          bottom:
-            "calc(max(var(--app-safe-area-bottom-effective), 0.5rem) + var(--app-bottom-chrome-lift, 0px))",
+          top: "calc(max(var(--app-safe-area-top-effective), 0.5rem))",
         }}
       >
         <div ref={pillRef} className="pointer-events-auto">
-          <ThemeToggle className="bg-white/85 dark:bg-black/85" />
+          <ThemeToggleCompact />
         </div>
       </nav>
     );
