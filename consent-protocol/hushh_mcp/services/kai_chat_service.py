@@ -852,25 +852,22 @@ class KaiChatService:
             - available_domains: List of domains user has data in
         """
         try:
-            # Get PKM metadata
+            # Get PKM metadata -- single DB call, contains everything we need.
             metadata = await self.pkm_service.get_user_metadata(user_id)
 
-            # Check portfolio
-            has_portfolio = False
-            try:
-                portfolio = await self.pkm_service.get_portfolio(user_id)
-                has_portfolio = portfolio is not None
-            except Exception:
-                pass
-
-            # Check for financial domain
+            # Derive portfolio presence from metadata domains instead of a
+            # separate get_portfolio() query. A "financial" domain entry with
+            # attribute_count > 0 is the source of truth; get_portfolio() was
+            # a redundant round-trip that returned the same signal.
             has_financial_data = False
+            has_portfolio = False
             available_domains = []
             if metadata and metadata.domains:
                 available_domains = [d.domain_key for d in metadata.domains]
                 for domain in metadata.domains:
                     if domain.domain_key == "financial" and domain.attribute_count > 0:
                         has_financial_data = True
+                        has_portfolio = True
                         break
 
             # Determine total attributes
