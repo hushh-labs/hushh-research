@@ -12,6 +12,7 @@ This service handles:
 7. Intent classification for workflow triggers
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -374,8 +375,9 @@ class KaiChatService:
             # 8. Generate response via LLM
             response_text, tokens = await self._generate_response(system_prompt, message)
 
-            # 9. Extract and store any learned attributes (async, don't block)
-            learned = await self.attribute_learner.extract_and_store(
+            # 9. Fire attribute extraction in the background; the response does
+            # not need to wait for learned attributes to be persisted.
+            self._schedule_attribute_learning(
                 user_id=user_id,
                 user_message=message,
                 assistant_response=response_text,
@@ -410,7 +412,7 @@ class KaiChatService:
                 response=response_text,
                 component_type=component.type if component else None,
                 component_data=component.data if component else None,
-                learned_attributes=learned,
+                learned_attributes=[],  # populated async in background; not available synchronously
                 tokens_used=tokens,
             )
 
@@ -422,6 +424,33 @@ class KaiChatService:
                 response="I apologize, but I encountered an issue processing your message. Please try again.",
                 learned_attributes=[],
             )
+
+    def _schedule_attribute_learning(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        assistant_response: str,
+    ) -> None:
+        task = asyncio.create_task(
+            self.attribute_learner.extract_and_store(
+                user_id=user_id,
+                user_message=user_message,
+                assistant_response=assistant_response,
+            ),
+            name=f"attr_learn:{user_id}",
+        )
+
+        def _log_attribute_learning_failure(done: asyncio.Task) -> None:
+            try:
+                done.result()
+            except Exception:
+                logger.exception(
+                    "kai_chat.attribute_learning_failed user_id=%s",
+                    user_id,
+                )
+
+        task.add_done_callback(_log_attribute_learning_failure)
 
     async def _should_prompt_portfolio(
         self,
