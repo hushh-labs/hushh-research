@@ -1417,8 +1417,9 @@ class PersonalKnowledgeModelService:
         summary: dict,
     ) -> bool:
         """Atomically merge a sanitized PKM discovery summary for one domain.
-            Uses a single PostgreSQL upsert (merge_pkm_domain_summary RPC) so the
-            read-modify-write is done at the DB level with no race window.
+
+        Uses a single PostgreSQL upsert (merge_pkm_domain_summary RPC) so the
+        read-modify-write is done at the DB level with no race window.
         """
         domain = self._canonicalize_domain_key(domain)
         if not domain:
