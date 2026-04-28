@@ -14,7 +14,7 @@
   },
   "actions": [
     {
-      "action_id": "nav.kai_dashboard",
+      "action_id": "route.kai_dashboard",
       "label": "Open Portfolio Dashboard",
       "meaning": "Navigates to portfolio dashboard for source/holdings context.",
       "aliases": [
@@ -49,10 +49,11 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
-      "action_id": "nav.kai_import",
+      "action_id": "route.kai_import",
       "label": "Open Portfolio Import",
       "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
       "aliases": [
@@ -87,10 +88,11 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
-      "action_id": "nav.kai_investments",
+      "action_id": "route.kai_investments",
       "label": "Open Investments Surface",
       "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
       "aliases": [
@@ -128,10 +130,11 @@
       "state_exposure": [],
       "docs_references": [
         "components/kai/views/dashboard-master-view.tsx"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
-      "action_id": "nav.kai_optimize",
+      "action_id": "route.kai_optimize",
       "label": "Open Optimize Surface",
       "meaning": "Navigates to optimize workspace route directly.",
       "aliases": [
@@ -168,7 +171,8 @@
       "state_exposure": [],
       "docs_references": [
         "app/kai/optimize/page.tsx"
-      ]
+      ],
+      "speaker_persona": "kai"
     }
   ]
 }

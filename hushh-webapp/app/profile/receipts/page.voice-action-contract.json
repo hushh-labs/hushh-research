@@ -15,7 +15,7 @@
   },
   "actions": [
     {
-      "action_id": "nav.profile_receipts",
+      "action_id": "route.profile_receipts",
       "label": "Open Receipts Page",
       "meaning": "Navigates directly to receipts page from any investor surface.",
       "aliases": [
@@ -62,7 +62,8 @@
             "effect": "Reads paginated receipt items."
           }
         ]
-      }
+      },
+      "speaker_persona": "one"
     },
     {
       "action_id": "profile.gmail.connect",
@@ -111,7 +112,8 @@
             "effect": "Generates OAuth authorize URL and state nonce."
           }
         ]
-      }
+      },
+      "speaker_persona": "nav"
     },
     {
       "action_id": "profile.gmail.sync_now",
@@ -166,7 +168,8 @@
             "effect": "Polls sync run status."
           }
         ]
-      }
+      },
+      "speaker_persona": "one"
     },
     {
       "action_id": "profile.receipts_memory.preview",
@@ -212,7 +215,8 @@
             "effect": "Builds or refreshes the receipts memory artifact preview."
           }
         ]
-      }
+      },
+      "speaker_persona": "one"
     },
     {
       "action_id": "profile.receipts_memory.save",
@@ -254,7 +258,8 @@
       "state_exposure": [],
       "docs_references": [
         "app/profile/receipts/page.tsx"
-      ]
+      ],
+      "speaker_persona": "one"
     },
     {
       "action_id": "profile.gmail.disconnect",
@@ -300,7 +305,8 @@
             "effect": "Revokes connector state in backend."
           }
         ]
-      }
+      },
+      "speaker_persona": "nav"
     }
   ]
 }

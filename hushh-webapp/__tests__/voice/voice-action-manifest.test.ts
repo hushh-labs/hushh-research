@@ -43,7 +43,7 @@ function projectExecutionHint(action: InvestorKaiActionDefinition) {
       status: "wired" as const,
       path: "kai_command" as const,
       target: binding.command,
-      params: params && Object.keys(params).length > 0 ? params : undefined,
+      ...(params && Object.keys(params).length > 0 ? { params } : {}),
     };
   }
 
@@ -67,6 +67,7 @@ function projectRegistryAction(action: InvestorKaiActionDefinition) {
     id: action.id,
     label: action.label,
     meaning: action.meaning,
+    speaker_persona: action.speakerPersona,
     scope: {
       routes: unique(action.scope.routes),
       screens: [...action.scope.screens],
@@ -96,9 +97,9 @@ describe("voice-action-manifest", () => {
   });
 
   it("supports action id lookups for canonical planner payloads", () => {
-    expect(getVoiceActionManifestById("nav.profile")).toEqual(
+    expect(getVoiceActionManifestById("route.profile")).toEqual(
       projectRegistryAction(
-        INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "nav.profile")!
+        INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "route.profile")!
       )
     );
     expect(getVoiceActionManifestById("missing.action")).toBeNull();

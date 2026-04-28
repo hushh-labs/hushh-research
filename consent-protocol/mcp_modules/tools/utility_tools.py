@@ -18,7 +18,7 @@ from hushh_mcp.consent.scope_helpers import (
     get_scope_display_metadata,
     resolve_scope_to_enum,
 )
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import AGENT_PORTS
 from hushh_mcp.trust.link import create_trust_link, verify_trust_link
 from hushh_mcp.types import AgentID, UserID
@@ -46,8 +46,8 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
     if expected_scope_str:
         expected_scope = resolve_scope_to_enum(expected_scope_str)
 
-    # Use existing validation logic
-    valid, reason, token_obj = validate_token(token_str, expected_scope)
+    # Use DB-backed validation logic for cross-instance revocation consistency
+    valid, reason, token_obj = await validate_token_with_db(token_str, expected_scope)
 
     if not valid:
         logger.warning(f"❌ Token INVALID: {reason}")
@@ -81,7 +81,7 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
                     "checks_passed": [
                         "✅ Signature valid (HMAC-SHA256)",
                         "✅ Not expired",
-                        "✅ Not revoked",
+                        "✅ Not revoked (DB-backed cross-instance check)",
                         "✅ Scope matches" if expected_scope else "ℹ️ Scope not checked",
                     ],
                 }
@@ -191,9 +191,11 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
     Discover which domains a user has and the scope strings to request.
     Calls GET /api/v1/user-scopes/{user_id}. Use before request_consent.
     """
-    from .consent_tools import resolve_email_to_uid
+    from .consent_tools import resolve_user_identifier_to_uid
 
     user_id = args.get("user_id") or ""
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     if not user_id.strip():
         return [
             TextContent(
@@ -201,13 +203,17 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                 text=json.dumps(
                     {
                         "error": "user_id is required",
-                        "usage": "Call discover_user_domains with user_id (Firebase UID or email)",
+                        "usage": "Call discover_user_domains with user_id (Firebase UID, registered email, or phone number). Use country_iso2/country for national numbers.",
                     }
                 ),
             )
         ]
 
-    resolved_uid, _email, _display = await resolve_email_to_uid(user_id)
+    resolved_uid, _email, _display = await resolve_user_identifier_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
     if resolved_uid is None:
         return [
             TextContent(
@@ -216,7 +222,7 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                     {
                         "error": "User not found",
                         "user_id": user_id,
-                        "hint": "Provide a valid Firebase UID or registered email",
+                        "hint": "Provide a valid Firebase UID, registered email, or phone number. Add country_iso2/country when the number is not already international.",
                     }
                 ),
             )

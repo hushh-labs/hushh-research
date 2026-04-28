@@ -9,6 +9,7 @@
     ".codex/config.toml",
     ".codex/skills/agent-orchestration-governance",
     ".codex/workflows/agent-orchestration-governance",
+    "AGENTS.md",
     "docs/reference/operations/README.md",
     "docs/reference/operations/coding-agent-mcp.md"
   ],
@@ -22,6 +23,7 @@
     "agent-orchestration-governance"
   ],
   "required_reads": [
+    "AGENTS.md",
     ".codex/skills/agent-orchestration-governance/references/delegation-contract.md",
     ".codex/skills/codex-skill-authoring/references/skill-contract.md",
     "docs/reference/operations/coding-agent-mcp.md"

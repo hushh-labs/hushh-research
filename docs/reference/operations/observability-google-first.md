@@ -14,8 +14,11 @@ These are the non-negotiable reporting rules for the current system:
 2. UAT is export-enabled for instrumentation validation only, not for core growth KPI reporting.
 3. UAT and production share one Firebase identity plane, but pre-production analytics must not pollute production analytics.
 4. The analytics sink is selected by the active web measurement ID or the native Firebase app stream, not by the auth token issuer.
-5. BigQuery is the reporting source of truth; GA UI is for configuration, DebugView, and spot checks.
-6. `HushhVoice` remains on the production property for now, but is explicitly excluded from Kai growth models and from the production BigQuery export link.
+5. GA4 collects metadata-only events and owns configuration validation.
+6. BigQuery modeled views are the KPI source of truth.
+7. Looker Studio is the presentation layer for approved BigQuery results, not the source of truth.
+8. GA UI cards are for configuration spot checks, DebugView, and Realtime validation only.
+9. `HushhVoice` remains on the production property for now, but is explicitly excluded from Kai growth models and from the production BigQuery export link.
 
 ## Scope
 
@@ -77,6 +80,13 @@ Primary Kai streams:
 | Web | `14383500973` | Measurement ID `G-H1KGXGZTCF` |
 | Android | `14383555179` | Firebase app `1:745506018753:android:7d6bed4640373c95778b40` |
 
+Native release note:
+
+1. There are currently no separate iOS or Android UAT app-store builds.
+2. UAT native streams exist in GA4 for topology readiness, but current App Store / Play Store iOS and Android builds are production analytics surfaces.
+3. Native UAT validation requires a future TestFlight/internal-track build or a documented dev-device debug build using the UAT Firebase app IDs.
+4. Until then, UAT KPI validation is web-first and production native analytics must be monitored separately.
+
 ### BigQuery target datasets
 
 When GA4 export materializes normally, the dataset name must be:
@@ -105,7 +115,7 @@ Sink selection rules:
 Required proof of separation:
 
 1. UAT web HTML must resolve `G-H1KGXGZTCF`.
-2. UAT native builds must resolve the UAT Firebase app IDs above, not the production app IDs.
+2. UAT native validation must use a TestFlight/internal-track or dev-device build that resolves the UAT Firebase app IDs above. Current store builds are production-facing.
 3. UAT validation traffic must appear in UAT DebugView and stay absent from production DebugView for the same test session.
 4. Production dashboard SQL must read only from `analytics_526603671`.
 
@@ -122,6 +132,13 @@ See also:
 - `investor_activation_completed`
 - `ria_activation_completed`
 
+Canonical feature events:
+
+- `market_insights_loaded`
+- `portfolio_viewed`
+- `recommendation_viewed`
+- `marketplace_profile_viewed`
+
 ### Allowed growth params
 
 - `journey`
@@ -132,7 +149,36 @@ See also:
 - `workspace_source`
 - `env`
 - `platform`
+- `event_category`
 - `app_version`
+
+Standard investor funnel step values:
+
+- `entered`
+- `auth_completed`
+- `vault_ready`
+- `onboarding_completed`
+- `portfolio_ready`
+
+Standard RIA funnel step values:
+
+- `entered`
+- `auth_completed`
+- `profile_submitted`
+- `request_created`
+- `workspace_ready`
+
+Activation policy:
+
+1. `investor_activation_completed` is the terminal investor conversion event.
+2. `ria_activation_completed` is the terminal RIA conversion event.
+3. Activation must not be modeled as a normal `step = activated` funnel step.
+
+Shared category policy:
+
+- `event_category = funnel` for growth funnel and activation events
+- `event_category = feature` for high-intent product events
+- `event_category = system` for request, account, consent, auth, Gmail, and runtime health events
 
 ### Key events configured in GA4
 
@@ -153,6 +199,7 @@ Configured on both production and UAT:
 - `workspace_source`
 - `env`
 - `platform`
+- `event_category`
 - `app_version`
 
 Custom-dimension policy:
@@ -198,8 +245,13 @@ Growth emitters:
 - analysis activation:
   - `hushh-webapp/app/kai/analysis/page.tsx`
   - `hushh-webapp/components/kai/debate-stream-view.tsx`
+- high-intent feature views:
+  - `hushh-webapp/components/kai/views/dashboard-master-view.tsx`
+  - `hushh-webapp/app/kai/analysis/page.tsx`
 - RIA onboarding/request/workspace activation:
+  - `hushh-webapp/components/app-ui/top-app-bar.tsx`
   - `hushh-webapp/app/ria/onboarding/page.tsx`
+  - `hushh-webapp/app/marketplace/ria/page-client.tsx`
   - `hushh-webapp/lib/services/ria-service.ts`
   - `hushh-webapp/components/ria/use-ria-client-workspace-state.ts`
 
@@ -211,6 +263,8 @@ Operational emitters:
 - API request summaries:
   - `hushh-webapp/lib/observability/client.ts`
   - `hushh-webapp/lib/services/api-service.ts`
+- phone verification:
+  - `hushh-webapp/components/auth/phone-verification-flow.tsx`
 - Gmail/account/profile operations:
   - `hushh-webapp/lib/services/gmail-receipts-service.ts`
   - `hushh-webapp/lib/services/account-service.ts`
@@ -237,6 +291,7 @@ Production dashboards must:
 1. read only from `analytics_526603671`
 2. exclude `HushhVoice` stream `13702689760`
 3. use modeled SQL, not raw GA cards, for conversion and funnel KPIs
+4. expose Looker Studio tiles only from approved BigQuery modeled results
 
 ### UAT validation
 
@@ -261,8 +316,27 @@ Minimum repo verification:
 cd hushh-webapp
 npm run verify:analytics
 npm run audit:analytics-sandbox
+npm run smoke:analytics:uat
+cd ..
 ./bin/hushh docs verify
 ```
+
+Full governed verification bundle after a deployed UAT web journey:
+
+```bash
+cd hushh-webapp
+npm run verify:analytics:governed
+```
+
+This bundle is expected to fail until GA Admin API config, GA Data API event availability, BigQuery export/materialization, and docs verification all agree. A zero activation rate is accepted as real only after a fresh UAT web journey emits `growth_funnel_step_completed` and `investor_activation_completed` with `journey`, `step`, `platform`, `entry_surface`, `app_version`, and `event_category`.
+
+Route and smoke policy:
+
+1. `npm run verify:analytics` includes a strict all-routes route-ID test; first-party `app/**/page.tsx` routes must not resolve to `unknown`.
+2. `npm run smoke:analytics:uat` is the deployed UAT web proof. It reuses the existing reviewer test fixture through maintainer-only `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE`, validates `G-H1KGXGZTCF`, rejects production measurement leakage, and fails if the real app journey does not emit the required events or direct GA4 collect handoff for the required UAT events.
+3. UAT smoke never fabricates GA4 events and never creates Firebase users, reviewer users, app environments, or one-off analytics fixtures.
+4. After the cold `/login` boot, protected-route smoke navigation must use Next client navigation so the in-memory vault key is not lost by full page reloads.
+5. Missing credentials, missing seeded portfolio state, or absent recommendation events are gate failures; fix or reseed the existing reviewer test fixture instead of minting another account.
 
 Sandbox audit policy:
 
@@ -279,10 +353,12 @@ The query layer must cover:
 
 1. investor funnel
 2. RIA funnel
-3. attribution quality
-4. platform mix
-5. missing-step drift
-6. instrumentation health rollup
+3. activation conversion rate
+4. attribution quality
+5. platform mix
+6. feature engagement
+7. missing-param and instrumentation health
+8. data freshness
 
 ## Operator-Owned Manual Surfaces
 

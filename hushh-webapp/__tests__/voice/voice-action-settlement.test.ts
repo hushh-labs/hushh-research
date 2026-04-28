@@ -7,7 +7,7 @@ describe("waitForVoiceActionSettlement", () => {
     const emitTelemetry = vi.fn();
 
     const result = await waitForVoiceActionSettlement({
-      actionId: "nav.profile",
+      actionId: "route.profile",
       mode: "execute_and_wait",
       routeBefore: {
         pathname: "/kai",
@@ -35,7 +35,7 @@ describe("waitForVoiceActionSettlement", () => {
     expect(emitTelemetry).toHaveBeenCalledWith(
       "action_settlement_succeeded",
       expect.objectContaining({
-        action_id: "nav.profile",
+        action_id: "route.profile",
         settled_by: "screen",
       })
     );

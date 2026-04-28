@@ -52,7 +52,8 @@
       "state_exposure": [],
       "docs_references": [
         "app/profile/pkm-agent-lab/page-client.tsx"
-      ]
+      ],
+      "speaker_persona": "one"
     },
     {
       "action_id": "profile.pkm.save_capture",
@@ -95,7 +96,8 @@
       "state_exposure": [],
       "docs_references": [
         "app/profile/pkm-agent-lab/page-client.tsx"
-      ]
+      ],
+      "speaker_persona": "one"
     }
   ]
 }

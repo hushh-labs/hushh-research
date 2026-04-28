@@ -5,6 +5,9 @@ export type VoiceRealtimeSessionInfo = {
   model: string;
   voice: string;
   sessionId?: string | null;
+  transcriptionModel?: string;
+  transcriptionLanguage?: string;
+  transcriptionPrompt?: string;
 };
 
 type VoiceRealtimeEventPayload = Record<string, unknown>;
@@ -60,6 +63,21 @@ const DEFAULT_FINAL_TRANSCRIPT_TIMEOUT_MS = 25000;
 const DEFAULT_REALTIME_SDP_TIMEOUT_MS = 15000;
 const DEFAULT_SERVER_VAD_THRESHOLD = 0.72;
 const DEFAULT_SERVER_VAD_PREFIX_PADDING_MS = 450;
+const DEFAULT_REALTIME_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+const DEFAULT_REALTIME_TRANSCRIPTION_LANGUAGE = "en";
+const DEFAULT_REALTIME_TRANSCRIPTION_PROMPT =
+  "Transcribe spoken English only. Do not translate or transliterate. If the speech is unclear, keep the transcript short and in English.";
+const DEFAULT_REALTIME_NOISE_REDUCTION_TYPE = "near_field";
+
+export function buildEnglishOnlyRealtimeSpeechInstructions(text: string): string {
+  const cleanText = String(text || "").trim();
+  return [
+    "Speak the following English text exactly as written.",
+    "Use English only. Do not translate it, add non-English words, or switch languages.",
+    "",
+    cleanText,
+  ].join("\n");
+}
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -295,6 +313,8 @@ export class VoiceRealtimeClient {
       model: input.session.model,
       voice: input.session.voice,
       session_id: input.session.sessionId || null,
+      transcription_language:
+        input.session.transcriptionLanguage || DEFAULT_REALTIME_TRANSCRIPTION_LANGUAGE,
     });
 
     this.configureServerVAD({
@@ -306,6 +326,9 @@ export class VoiceRealtimeClient {
       enableBargeIn: input.enableBargeIn !== false,
       model: input.session.model,
       voice: input.session.voice,
+      transcriptionModel: input.session.transcriptionModel,
+      transcriptionLanguage: input.session.transcriptionLanguage,
+      transcriptionPrompt: input.session.transcriptionPrompt,
     });
 
     return stream;
@@ -317,6 +340,9 @@ export class VoiceRealtimeClient {
     enableBargeIn: boolean;
     model: string;
     voice: string;
+    transcriptionModel?: string;
+    transcriptionLanguage?: string;
+    transcriptionPrompt?: string;
   }): void {
     try {
       this.sendEvent({
@@ -326,6 +352,14 @@ export class VoiceRealtimeClient {
           model: input.model,
           audio: {
             input: {
+              noise_reduction: {
+                type: DEFAULT_REALTIME_NOISE_REDUCTION_TYPE,
+              },
+              transcription: {
+                model: input.transcriptionModel || DEFAULT_REALTIME_TRANSCRIPTION_MODEL,
+                language: input.transcriptionLanguage || DEFAULT_REALTIME_TRANSCRIPTION_LANGUAGE,
+                prompt: input.transcriptionPrompt || DEFAULT_REALTIME_TRANSCRIPTION_PROMPT,
+              },
               turn_detection: {
                 type: "server_vad",
                 threshold: DEFAULT_SERVER_VAD_THRESHOLD,
@@ -347,6 +381,8 @@ export class VoiceRealtimeClient {
         silence_duration_ms: input.silenceDurationMs,
         create_response: input.disableAutoResponse ? false : true,
         interrupt_response: input.enableBargeIn ? true : false,
+        transcription_language:
+          input.transcriptionLanguage || DEFAULT_REALTIME_TRANSCRIPTION_LANGUAGE,
       });
     } catch (error) {
       this.onDebug?.("session_update_failed", {
@@ -439,7 +475,7 @@ export class VoiceRealtimeClient {
         type: "response.create",
         response: {
           output_modalities: ["audio"],
-          instructions: cleanText,
+          instructions: buildEnglishOnlyRealtimeSpeechInstructions(cleanText),
           audio: {
             output: {
               voice: input.voice || "alloy",

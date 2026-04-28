@@ -15,7 +15,7 @@
   },
   "actions": [
     {
-      "action_id": "nav.consents",
+      "action_id": "route.consents",
       "label": "Open Consent Center",
       "meaning": "Navigates to consents route.",
       "aliases": [
@@ -48,7 +48,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "nav"
     }
   ]
 }

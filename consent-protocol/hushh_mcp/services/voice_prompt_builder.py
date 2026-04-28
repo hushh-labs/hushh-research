@@ -12,6 +12,22 @@ from hushh_mcp.services.voice_app_knowledge import (
     list_voice_global_concept_summaries,
 )
 
+_VOICE_PLANNER_LANGUAGE_POLICY = "\n".join(
+    [
+        "- Input language policy: Kai voice accepts English-language transcripts only.",
+        "- If the transcript is clearly non-English or asks for a non-English reply, choose clarify.",
+        "- Any clarification question, tool argument text, and option text must be English only.",
+        "- Never mirror the user's non-English language and never translate Kai's response into another language.",
+    ]
+)
+_VOICE_COMPOSER_LANGUAGE_POLICY = "\n".join(
+    [
+        "- Output language policy: the spoken reply must be English only.",
+        "- If the transcript or requested response language is not English, say Kai voice currently supports English only.",
+        "- Never mirror a non-English user language, translate into another language, or include non-English filler.",
+    ]
+)
+
 
 def _build_voice_shared_context(
     *,
@@ -31,6 +47,17 @@ def _build_voice_shared_context(
     ).strip()
 
     available_action_ids: list[str] = []
+    screen_metadata = (
+        structured.get("screen_metadata")
+        if isinstance(structured.get("screen_metadata"), dict)
+        else {}
+    )
+    raw_available_action_ids = screen_metadata.get("available_action_ids")
+    if isinstance(raw_available_action_ids, list):
+        for raw_action_id in raw_available_action_ids:
+            normalized = str(raw_action_id or "").strip()
+            if normalized:
+                available_action_ids.append(normalized)
     for source_key in ("controls", "actions"):
         raw_items = surface.get(source_key)
         if not isinstance(raw_items, list):
@@ -151,6 +178,8 @@ def build_voice_planner_system_prompt(*, planner_context: dict[str, Any]) -> str
         "\n".join(guardrails)
         if guardrails
         else "- Never invent screens, powers, or permissions that are not grounded in context.",
+        "Language Policy",
+        _VOICE_PLANNER_LANGUAGE_POLICY,
         "Current App Context",
         json.dumps(dynamic_context, ensure_ascii=True),
         "Relevant Manifest Actions",
@@ -282,6 +311,8 @@ def build_voice_response_composer_system_prompt(*, composer_context: dict[str, A
         "\n".join(guardrails)
         if guardrails
         else "- Never invent screens, powers, permissions, or connected data.",
+        "Language Policy",
+        _VOICE_COMPOSER_LANGUAGE_POLICY,
         "Current App Context",
         json.dumps(dynamic_context, ensure_ascii=True),
         "Relevant Manifest Actions",

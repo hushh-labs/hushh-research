@@ -43,3 +43,37 @@ def test_delete_user_rows_if_table_exists_rejects_unsupported_table(monkeypatch)
             table_name="unsafe_table",
             params={"user_id": "user_123"},
         )
+
+
+def test_fetch_optional_many_rows_returns_empty_when_table_missing(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: False)
+
+    rows = service._fetch_optional_many_rows(
+        conn,
+        table_name="pkm_blobs",
+        query_name="encrypted_pkm_blobs",
+        params={"user_id": "user_123"},
+    )
+
+    assert rows == []
+    conn.execute.assert_not_called()
+
+
+def test_fetch_optional_single_row_returns_none_when_table_missing(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: False)
+
+    row = service._fetch_optional_single_row(
+        conn,
+        table_name="actor_profiles",
+        query_name="actor_profile",
+        params={"user_id": "user_123"},
+    )
+
+    assert row is None
+    conn.execute.assert_not_called()

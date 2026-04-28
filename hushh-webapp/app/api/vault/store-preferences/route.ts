@@ -80,9 +80,7 @@ export async function POST(request: NextRequest) {
 
     // Additional check: token user must match request user
     if (validation.user_id && validation.user_id !== userId) {
-      console.warn(
-        `❌ Vault write rejected: User mismatch (token: ${validation.user_id}, request: ${userId})`
-      );
+      console.warn("❌ Vault write rejected: consent token user mismatch");
       return NextResponse.json(
         {
           error: "Consent token user mismatch",
@@ -106,7 +104,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`📦 Storing preferences for user: ${userId}`);
+    console.log("📦 Storing preferences");
     console.log(`📋 Fields to store: ${Object.keys(preferences).join(", ")}`);
 
     // Dynamically store each preference field
@@ -141,9 +139,7 @@ export async function POST(request: NextRequest) {
 
     await Promise.all(storePromises);
 
-    console.log(
-      `✅ Stored ${storePromises.length} preferences for user: ${userId}`
-    );
+    console.log(`✅ Stored ${storePromises.length} preferences`);
 
     return NextResponse.json({
       success: true,

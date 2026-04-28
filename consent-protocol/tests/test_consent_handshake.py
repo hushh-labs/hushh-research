@@ -317,16 +317,17 @@ def test_no_data_access_before_approved_consent(monkeypatch):
     """
     Core invariant: consent/data endpoint rejects requests with no valid token.
     """
-    monkeypatch.setattr(
-        consent,
-        "validate_token",
-        lambda token_str, expected_scope=None: (False, "Token has been revoked", None),
-    )
+
+    async def mock_validate_token_with_db(token_str, expected_scope=None):
+        return (False, "Token has been revoked", None)
+
+    monkeypatch.setattr(consent, "validate_token_with_db", mock_validate_token_with_db)
 
     app = _build_app()
     client = TestClient(app)
     resp = client.get("/api/consent/data", params={"consent_token": "bad_token"})
     assert resp.status_code == 401
+    assert resp.headers.get("WWW-Authenticate") == "Bearer"
     assert "Invalid token" in resp.json()["detail"]
 
 
@@ -338,7 +339,7 @@ def test_revoke_immediately_invalidates_data_access(monkeypatch):
     def mock_revoke(t):
         revoked_tokens.add(t)
 
-    def mock_validate(token_str, expected_scope=None):
+    async def mock_validate_token_with_db(token_str, expected_scope=None):
         if token_str in revoked_tokens:
             return (False, "Token has been revoked", None)
         return (
@@ -356,7 +357,7 @@ def test_revoke_immediately_invalidates_data_access(monkeypatch):
     monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
     monkeypatch.setattr(consent, "revoke_token", mock_revoke)
     monkeypatch.setattr(token_module, "revoke_token", mock_revoke)  # Patch the source module too
-    monkeypatch.setattr(consent, "validate_token", mock_validate)
+    monkeypatch.setattr(consent, "validate_token_with_db", mock_validate_token_with_db)
     monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
 
     token_id = "token_to_revoke"  # noqa: S105

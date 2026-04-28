@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from api.middleware import require_firebase_auth, verify_user_id_match
 from db.connection import DatabaseUnavailableError
 from db.db_client import DatabaseExecutionError
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
@@ -593,23 +593,32 @@ async def vault_integrity(
 # ============================================================================
 
 
-def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
-    """Validate VAULT_OWNER consent token."""
+async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
+    """Validate VAULT_OWNER consent token with DB-backed revocation check."""
     if not consent_token:
         raise HTTPException(
             status_code=401,
             detail="Missing consent token. Vault owner must provide VAULT_OWNER token.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    valid, reason, token_obj = validate_token(consent_token)
+    valid, reason, token_obj = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid:
         logger.warning(f"Invalid consent token: {reason}")
-        raise HTTPException(status_code=401, detail=f"Invalid consent token: {reason}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid consent token: {reason}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if token_obj is None:
         logger.error("Consent token validated but payload missing")
-        raise HTTPException(status_code=401, detail="Invalid consent token: missing token payload")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid consent token: missing token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if token_obj.scope != ConsentScope.VAULT_OWNER:
         logger.warning(
@@ -651,6 +660,7 @@ async def get_vault_status(
 
         # Use VaultKeysService (handles consent validation internally)
         service = VaultKeysService()
+        await validate_vault_owner_token(consent_token, user_id)
         status = await service.get_vault_status(user_id, consent_token)
 
         return status

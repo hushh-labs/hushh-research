@@ -9,6 +9,8 @@ These tests focus on auth-gate behavior for protected Kai endpoints:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import Response
@@ -34,6 +36,17 @@ def _portfolio_files(filename: str = "statement.csv"):
 
 
 class _StubChatDB:
+    @dataclass
+    class _Conversation:
+        user_id: str
+
+    async def get_conversation(self, conversation_id: str):
+        if conversation_id == "missing":
+            return None
+        if conversation_id.startswith("conv_user_b"):
+            return self._Conversation(user_id="user_b")
+        return self._Conversation(user_id="user_a")
+
     async def list_conversations(self, user_id: str, limit: int = 20, offset: int = 0):
         return []
 
@@ -111,8 +124,13 @@ def stub_kai_stream(monkeypatch):
     async def _fake_generator(*args, **kwargs):
         yield {"event": "ping", "data": "{}", "id": "1"}
 
+    def _fake_event_source_response(*args, **kwargs):
+        headers = kwargs.get("headers") or {}
+        return Response(content="stubbed", media_type="text/event-stream", headers=headers)
+
     monkeypatch.setattr(stream_routes.ConsentDBService, "log_operation", _noop_log_operation)
     monkeypatch.setattr(stream_routes, "analyze_stream_generator", _fake_generator)
+    monkeypatch.setattr(stream_routes, "EventSourceResponse", _fake_event_source_response)
 
 
 @pytest.fixture
@@ -307,6 +325,17 @@ class TestKaiAnalyzeStreamRoutes:
         )
         assert response.status_code == 403
 
+    def test_analyze_stream_get_invalid_ticker_returns_422(
+        self, client, vault_owner_token_for_user
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get(
+            "/api/kai/analyze/stream",
+            params={"ticker": "invalid_symbol!", "user_id": "user_a"},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
     def test_analyze_stream_get_valid_token_passes_auth_gate(
         self,
         client,
@@ -346,6 +375,17 @@ class TestKaiAnalyzeStreamRoutes:
             headers=_auth(token),
         )
         assert response.status_code == 403
+
+    def test_analyze_stream_post_invalid_ticker_returns_422(
+        self, client, vault_owner_token_for_user
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.post(
+            "/api/kai/analyze/stream",
+            json={"ticker": "1INVALIDLONG", "user_id": "user_a"},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
 
     def test_analyze_stream_post_valid_token_passes_auth_gate(
         self,
@@ -409,6 +449,20 @@ class TestKaiChatKeyEndpoints:
         token = vault_owner_token_for_user("user_a")
         response = client.get("/api/kai/chat/history/conv_123", headers=_auth(token))
         assert response.status_code not in {401, 403}
+
+    def test_chat_history_user_mismatch_returns_403(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get("/api/kai/chat/history/conv_user_b_123", headers=_auth(token))
+        assert response.status_code == 403
+
+    def test_chat_history_missing_conversation_returns_404(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get("/api/kai/chat/history/missing", headers=_auth(token))
+        assert response.status_code == 404
 
     def test_chat_conversations_missing_token_returns_401(self, client):
         response = client.get("/api/kai/chat/conversations/user_a")

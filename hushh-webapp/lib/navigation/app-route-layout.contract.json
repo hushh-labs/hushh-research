@@ -18,6 +18,11 @@
     "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell."
   },
   {
+    "route": "/register-phone",
+    "mode": "hidden",
+    "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."
+  },
+  {
     "route": "/logout",
     "mode": "hidden",
     "exemptionReason": "Logout route is a transitional auth screen, not a standard content page."

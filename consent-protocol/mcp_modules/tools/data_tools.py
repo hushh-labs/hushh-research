@@ -17,38 +17,41 @@ from mcp.types import TextContent
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from mcp_modules.config import FASTAPI_URL
-from mcp_modules.developer_context import get_developer_request_headers, get_developer_request_query
+from mcp_modules.developer_context import get_developer_request_query
 
 logger = logging.getLogger("hushh-mcp-server")
 
 
-async def resolve_email_to_uid(user_id: str) -> str:
-    """If user_id is an email, resolve to Firebase UID."""
-    if not user_id or "@" not in user_id:
-        return user_id
-    token_headers = get_developer_request_headers()
-    if not token_headers:
-        logger.warning("⚠️ Email lookup skipped: developer token not configured")
-        return user_id
+async def resolve_user_identifier_to_uid(
+    user_id: str,
+    *,
+    country_iso2: str | None = None,
+    country: str | None = None,
+) -> str:
+    """If user_id is an email or phone number, resolve it to Firebase UID."""
+    from mcp_modules.tools.consent_tools import resolve_user_identifier_to_uid as _resolve
 
-    try:
-        async with httpx.AsyncClient() as client:
-            lookup_response = await client.get(
-                f"{FASTAPI_URL}/api/user/lookup",
-                params={"email": user_id},
-                headers=token_headers,
-                timeout=5.0,
-            )
-            if lookup_response.status_code == 200:
-                lookup_data = lookup_response.json()
-                if lookup_data.get("exists"):
-                    resolved = lookup_data["user_id"]
-                    logger.info(f"✅ Resolved email to UID: {resolved}")
-                    return resolved
-    except Exception as e:
-        logger.warning(f"⚠️ Email lookup failed: {e}")
+    resolved_uid, _email, _display_name = await _resolve(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
+    if resolved_uid is None:
+        return user_id
+    return resolved_uid
 
-    return user_id
+
+async def resolve_email_to_uid(
+    user_id: str,
+    *,
+    country_iso2: str | None = None,
+    country: str | None = None,
+) -> str:
+    return await resolve_user_identifier_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
 
 async def _fetch_encrypted_export_package(
@@ -106,10 +109,16 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     Hussh never decrypts the payload inside the hosted MCP runtime.
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
     expected_scope = args.get("expected_scope")
 
-    user_id = await resolve_email_to_uid(user_id)
+    user_id = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     valid, reason, token_obj = await validate_token_with_db(
         consent_token,
@@ -206,13 +215,19 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
     ✅ Scope Isolation: Financial token can ONLY access financial data
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
 
-    # Email resolution - returns (user_id, email, display_name)
+    # Identifier resolution - returns (user_id, email, display_name)
     from mcp_modules.tools.consent_tools import resolve_email_to_uid
 
     original_identifier = user_id
-    user_id, user_email, user_display_name = await resolve_email_to_uid(user_id)
+    user_id, user_email, user_display_name = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     if user_id is None:
         return [
@@ -221,7 +236,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                 text=json.dumps(
                     {
                         "status": "user_not_found",
-                        "email": original_identifier,
+                        "identifier": original_identifier,
                         "message": f"No Hussh account found for {original_identifier}",
                     }
                 ),
@@ -396,10 +411,16 @@ async def handle_get_food(args: dict) -> list[TextContent]:
     ✅ Privacy: Denied without valid consent
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
 
-    # Email resolution
-    user_id = await resolve_email_to_uid(user_id)
+    # Identifier resolution
+    user_id = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     # Compliance check with cross-instance revocation
     # NOTE: Legacy VAULT_READ_FOOD scope has been removed.
@@ -539,10 +560,16 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
     ✅ HushhMCP: Scope isolation remains enforced by the consent token
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
 
-    # Email resolution
-    user_id = await resolve_email_to_uid(user_id)
+    # Identifier resolution
+    user_id = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     # Compliance check with cross-instance revocation - must have PKM full-read scope
     valid, reason, token_obj = await validate_token_with_db(

@@ -21,6 +21,10 @@ flowchart TB
 
 Hussh should be read as a governed personal-intelligence platform, not as a single app and not as a loose collection of packages.
 
+`Hussh` stands for **Human Secure Socket Host**. In architecture terms, the host is the governed infrastructure layer where human authority, private data, AI agents, external apps, and consented access connect without collapsing the trust boundary. The name is therefore an operating model, not just a public label: Hussh hosts personal intelligence through scoped consent, encrypted knowledge, auditable delegation, and deployable product surfaces.
+
+The founder shorthand `hu_ssh` reads this as `SSH for humans`: ask, approve, and audit before private context moves. That shorthand is a metaphor for the same Consent Protocol-backed trust model, not a separate architecture name.
+
 Kai is the primary investor-facing intelligence surface, but the architecture is broader than Kai. The repo already contains the trust boundary, the data boundary, the developer lane, the mobile lane, and the agent lane that make the platform coherent.
 
 The canonical terminology contract for this architecture lives in [founder-language-matrix.md](./founder-language-matrix.md). The canonical public naming and compatibility rule lives in [../operations/brand-and-compatibility-contract.md](../operations/brand-and-compatibility-contract.md).
@@ -40,6 +44,8 @@ The canonical terminology contract for this architecture lives in [founder-langu
 ## 1. Infrastructure Layer
 
 **Purpose:** provide the runtime substrate on which every higher layer depends.
+
+This is the literal platform meaning behind Human Secure Socket Host: infrastructure that lets humans, agents, apps, and consent-gated data meet through governed sockets instead of ad hoc integrations.
 
 - What belongs here:
   - runtime profiles and environment shape
@@ -200,7 +206,7 @@ The canonical terminology contract for this architecture lives in [founder-langu
   - generated action gateway and Kai voice/runtime work
   - explicit web-proxy and native-plugin transport boundaries
 - What is missing for full-scale architecture:
-  - a cleaner unified experience contract across typed search, voice, and actionability
+  - a cleaner product-wide experience contract beyond the current generated Kai action gateway for typed search, voice, and UI actionability
   - stronger cross-surface state composition and parity verification
   - clearer treatment of non-Kai user-facing surfaces as part of the same platform story
 - Next build path:

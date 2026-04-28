@@ -7,6 +7,15 @@ from pathlib import Path
 
 import pytest
 
+
+class _UndefinedColumnError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
+class _UndefinedTableError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
 if "asyncpg" not in sys.modules:
     asyncpg_stub = types.ModuleType("asyncpg")
 
@@ -15,11 +24,20 @@ if "asyncpg" not in sys.modules:
 
     asyncpg_stub.Pool = _Pool
     sys.modules["asyncpg"] = asyncpg_stub
+if not hasattr(sys.modules["asyncpg"], "UndefinedColumnError"):
+    sys.modules["asyncpg"].UndefinedColumnError = _UndefinedColumnError
+if not hasattr(sys.modules["asyncpg"], "UndefinedTableError"):
+    sys.modules["asyncpg"].UndefinedTableError = _UndefinedTableError
 
 if "db" not in sys.modules:
     db_pkg = types.ModuleType("db")
     db_pkg.__path__ = []
     sys.modules["db"] = db_pkg
+
+
+class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
 
 if "db.db_client" not in sys.modules:
     db_client_stub = types.ModuleType("db.db_client")
@@ -28,7 +46,10 @@ if "db.db_client" not in sys.modules:
         raise RuntimeError("db not available in unit test")
 
     db_client_stub.get_db = _noop_get_db
+    db_client_stub.DatabaseExecutionError = _DatabaseExecutionError
     sys.modules["db.db_client"] = db_client_stub
+elif not hasattr(sys.modules["db.db_client"], "DatabaseExecutionError"):
+    sys.modules["db.db_client"].DatabaseExecutionError = _DatabaseExecutionError
 
 ROOT = Path(__file__).resolve().parents[1]
 if "hushh_mcp.services" not in sys.modules:
@@ -41,6 +62,8 @@ from hushh_mcp.services.voice_intent_service import (  # noqa: E402
     _ALLOWED_COMMANDS,
     _ALLOWED_TOOL_NAMES,
     _UNCLEAR_STT_MESSAGE,
+    _VOICE_ENGLISH_ONLY_INPUT_MESSAGE,
+    _VOICE_TTS_INSTRUCTIONS,
     VoiceIntentService,
     _compact_context,
 )
@@ -583,7 +606,7 @@ async def test_plan_voice_response_explains_gmail_receipts_from_profile_surface(
                             "id": "gmail_receipts",
                             "label": "Gmail receipts",
                             "purpose": "opens Gmail receipt sync and receipt-memory import.",
-                            "action_id": "nav.profile_receipts",
+                            "action_id": "route.profile_receipts",
                             "role": "card",
                             "voice_aliases": ["gmail receipts", "receipts"],
                         }
@@ -631,7 +654,7 @@ async def test_plan_voice_response_explains_current_button_from_surface_definiti
                             "id": "pkm_agent_lab",
                             "label": "PKM Agent Lab",
                             "purpose": "opens the workspace for previewing and saving encrypted PKM captures.",
-                            "action_id": "nav.profile_pkm_agent_lab",
+                            "action_id": "route.profile_pkm_agent_lab",
                             "role": "card",
                             "voice_aliases": ["pkm agent lab", "pkm"],
                         }
@@ -1002,7 +1025,7 @@ async def test_plan_voice_response_optimize_routes_to_canonical_command(
         "tool_name": "execute_kai_command",
         "args": {"command": "optimize"},
     }
-    assert response["action_id"] == "nav.kai_optimize"
+    assert response["action_id"] == "route.kai_optimize"
 
 
 @pytest.mark.anyio
@@ -1130,7 +1153,7 @@ async def test_plan_voice_response_stt_unusable_for_non_english(voice_service: V
 
     assert response["kind"] == "clarify"
     assert response["reason"] == "stt_unusable"
-    assert response["message"] == _UNCLEAR_STT_MESSAGE
+    assert response["message"] == _VOICE_ENGLISH_ONLY_INPUT_MESSAGE
 
 
 @pytest.mark.anyio
@@ -1248,7 +1271,7 @@ async def test_plan_voice_response_analysis_navigation_executes(
     )
 
     assert response["kind"] == "execute"
-    assert response["action_id"] == "nav.analysis_history"
+    assert response["action_id"] == "route.analysis_history"
     assert response["mode"] == "execute_and_wait"
     assert response["tool_call"] == {
         "tool_name": "execute_kai_command",
@@ -1503,6 +1526,59 @@ async def test_synthesize_speech_buffers_streaming_handle(
     assert stream.closed is True
 
 
+@pytest.mark.anyio
+async def test_open_tts_stream_sends_english_only_instructions(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+        headers = {"content-length": "0"}
+        content = b""
+
+        async def aiter_bytes(self):
+            if False:  # pragma: no cover - keeps this as an async generator
+                yield b""
+
+        async def aclose(self):
+            captured["response_closed"] = True
+
+    class _FakeStreamContext:
+        async def __aenter__(self):
+            return _FakeResponse()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    class _FakeAsyncClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        def stream(self, method, url, *, headers, json):
+            captured["method"] = method
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeStreamContext()
+
+        async def aclose(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(voice_intent_service_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    stream, mime_type, meta = await voice_service.open_tts_stream(
+        text="hello world",
+        voice="alloy",
+    )
+
+    assert mime_type == "audio/mpeg"
+    assert meta["model"] == "gpt-4o-mini-tts"
+    assert captured["json"]["instructions"] == _VOICE_TTS_INSTRUCTIONS
+    assert captured["json"]["input"] == "hello world"
+    await stream.aclose()
+
+
 def test_voice_tool_policy_whitelist_excludes_destructive_actions():
     assert "delete_account" not in _ALLOWED_TOOL_NAMES
     assert "delete_imported_data" not in _ALLOWED_TOOL_NAMES
@@ -1523,8 +1599,8 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
                 "surface": {
                     "screen_id": "profile_account",
                     "controls": [
-                        {"id": "gmail", "label": "Gmail", "action_id": "nav.profile_gmail_panel"},
-                        {"id": "pkm", "label": "PKM", "action_id": "nav.profile_pkm_agent_lab"},
+                        {"id": "gmail", "label": "Gmail", "action_id": "route.profile_gmail_panel"},
+                        {"id": "pkm", "label": "PKM", "action_id": "route.profile_pkm_agent_lab"},
                     ],
                 },
             }
@@ -1535,10 +1611,13 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
 
     assert "Kai is the app" in prompt
     assert "voice assistant" in prompt.lower()
-    assert "nav.profile" in prompt
+    assert "route.profile" in prompt
     assert "Relevant Manifest Actions" in prompt
     assert "Core Capabilities" in prompt
     assert "manual_only" in prompt
+    assert "Language Policy" in prompt
+    assert "English-language transcripts only" in prompt
+    assert "English only" in prompt
 
 
 def test_voice_response_composer_prompt_includes_identity_and_execution_grounding():
@@ -1559,7 +1638,7 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
                         {
                             "id": "open_gmail",
                             "label": "Open Gmail",
-                            "action_id": "nav.profile_gmail_panel",
+                            "action_id": "route.profile_gmail_panel",
                         }
                     ],
                 },
@@ -1567,7 +1646,7 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
         },
         plan_payload={
             "mode": "execute_and_wait",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "slots": {},
             "guards": [],
             "reply_strategy": "llm",
@@ -1579,7 +1658,7 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
         },
         action_result={
             "status": "succeeded",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "route_after": "/profile",
             "screen_after": "profile_account",
             "result_summary": "Opened your profile.",
@@ -1591,8 +1670,10 @@ def test_voice_response_composer_prompt_includes_identity_and_execution_groundin
     assert "voice assistant inside the Kai app" in prompt
     assert "execution result is authoritative" in prompt
     assert "Return JSON only" in prompt
-    assert "nav.profile" in prompt
+    assert "route.profile" in prompt
     assert "profile_account" in prompt
+    assert "Language Policy" in prompt
+    assert "spoken reply must be English only" in prompt
 
 
 @pytest.mark.anyio
@@ -1637,7 +1718,7 @@ async def test_compose_voice_reply_uses_llm_json_result(
         context={},
         plan_payload={
             "mode": "execute_and_wait",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "slots": {},
             "guards": [],
             "reply_strategy": "llm",
@@ -1649,7 +1730,7 @@ async def test_compose_voice_reply_uses_llm_json_result(
         },
         action_result={
             "status": "succeeded",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "route_after": "/profile",
             "screen_after": "profile_account",
             "result_summary": "Opened your profile.",
@@ -1685,7 +1766,7 @@ async def test_plan_voice_response_open_gmail_sets_canonical_navigation_contract
     assert response["execution_allowed"] is True
     assert response["schema_version"] == "kai_voice_plan.v1"
     assert response["mode"] == "execute_and_wait"
-    assert response["action_id"] == "nav.profile_gmail_panel"
+    assert response["action_id"] == "route.profile_gmail_panel"
     assert response["reply_strategy"] == "llm"
     assert response["guards"] == []
     assert response.get("tool_call") is None
@@ -1706,7 +1787,7 @@ async def test_plan_voice_response_go_back_sets_manifest_back_contract(
     assert response["execution_allowed"] is True
     assert response["schema_version"] == "kai_voice_plan.v1"
     assert response["mode"] == "execute_and_wait"
-    assert response["action_id"] == "nav.back"
+    assert response["action_id"] == "route.back"
     assert response["action_completion"] == "route_settle"
     assert response["tool_call"] == {"tool_name": "navigate_back", "args": {}}
 
@@ -1763,7 +1844,7 @@ async def test_plan_voice_response_analysis_navigation_still_executes_when_portf
     )
 
     assert response["kind"] == "execute"
-    assert response["action_id"] == "nav.analysis_history"
+    assert response["action_id"] == "route.analysis_history"
     assert response["execution_allowed"] is True
     assert response["mode"] == "execute_and_wait"
     assert response["guards"] == []

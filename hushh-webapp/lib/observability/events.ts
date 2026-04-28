@@ -2,6 +2,7 @@ import type { ObservabilityEnvironment } from "@/lib/observability/env";
 import type { RouteId } from "@/lib/observability/route-map";
 
 export type ObservabilityPlatform = "web" | "ios" | "android";
+export type ObservabilityEventCategory = "funnel" | "feature" | "system";
 export type GrowthJourney = "investor" | "ria";
 export type GrowthEntrySurface =
   | "login"
@@ -23,15 +24,13 @@ export type GrowthInvestorStep =
   | "auth_completed"
   | "vault_ready"
   | "onboarding_completed"
-  | "portfolio_ready"
-  | "activated";
+  | "portfolio_ready";
 export type GrowthRiaStep =
   | "entered"
   | "auth_completed"
   | "profile_submitted"
   | "request_created"
-  | "workspace_ready"
-  | "activated";
+  | "workspace_ready";
 
 export type ObservabilityEventName =
   | "page_view"
@@ -47,6 +46,8 @@ export type ObservabilityEventName =
   | "import_quality_gate_failed"
   | "import_save_completed"
   | "market_insights_loaded"
+  | "portfolio_viewed"
+  | "recommendation_viewed"
   | "profile_picks_loaded"
   | "analysis_stream_started"
   | "analysis_stream_terminal_decision"
@@ -55,6 +56,8 @@ export type ObservabilityEventName =
   | "consent_pending_loaded"
   | "consent_action_submitted"
   | "consent_action_result"
+  | "phone_verification_started"
+  | "phone_verification_completed"
   | "persona_switched"
   | "ria_onboarding_submitted"
   | "ria_verification_status_changed"
@@ -95,13 +98,73 @@ export type DurationBucket =
 
 export type EventResult = "success" | "expected_error" | "error";
 
-export type AuthMethod = "google" | "apple" | "reviewer" | "redirect";
+export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
 
 export interface EventContext {
   env: ObservabilityEnvironment;
   platform: ObservabilityPlatform;
+  event_category: ObservabilityEventCategory;
+  app_version: string;
   route_id?: RouteId;
+}
+
+const EVENT_CATEGORY_BY_NAME: Record<
+  ObservabilityEventName,
+  ObservabilityEventCategory
+> = {
+  page_view: "system",
+  auth_started: "system",
+  auth_succeeded: "system",
+  auth_failed: "system",
+  onboarding_started: "system",
+  onboarding_step_completed: "system",
+  onboarding_completed: "system",
+  import_upload_started: "system",
+  import_parse_completed: "system",
+  import_quality_gate_passed: "system",
+  import_quality_gate_failed: "system",
+  import_save_completed: "system",
+  market_insights_loaded: "feature",
+  portfolio_viewed: "feature",
+  recommendation_viewed: "feature",
+  profile_picks_loaded: "feature",
+  analysis_stream_started: "feature",
+  analysis_stream_terminal_decision: "feature",
+  analysis_stream_aborted: "feature",
+  analysis_stream_error: "feature",
+  consent_pending_loaded: "system",
+  consent_action_submitted: "system",
+  consent_action_result: "system",
+  phone_verification_started: "system",
+  phone_verification_completed: "system",
+  persona_switched: "system",
+  ria_onboarding_submitted: "system",
+  ria_verification_status_changed: "system",
+  marketplace_profile_viewed: "feature",
+  ria_request_created: "system",
+  ria_request_blocked_policy: "system",
+  ria_workspace_opened: "system",
+  mcp_ria_read_tool_called: "system",
+  profile_method_switch_result: "system",
+  account_delete_requested: "system",
+  account_delete_completed: "system",
+  gmail_connect_started: "system",
+  gmail_connect_result: "system",
+  gmail_disconnect_result: "system",
+  gmail_sync_requested: "system",
+  gmail_sync_result: "system",
+  gmail_receipts_loaded: "system",
+  growth_funnel_step_completed: "funnel",
+  investor_activation_completed: "funnel",
+  ria_activation_completed: "funnel",
+  api_request_completed: "system",
+};
+
+export function resolveObservabilityEventCategory(
+  eventName: ObservabilityEventName
+): ObservabilityEventCategory {
+  return EVENT_CATEGORY_BY_NAME[eventName];
 }
 
 export interface EventPayloadMap {
@@ -152,6 +215,14 @@ export interface EventPayloadMap {
     status_bucket?: StatusBucket;
     duration_ms_bucket?: DurationBucket;
   };
+  portfolio_viewed: {
+    result: EventResult;
+    portfolio_source?: GrowthPortfolioSource;
+  };
+  recommendation_viewed: {
+    result: EventResult;
+    portfolio_source?: GrowthPortfolioSource;
+  };
   profile_picks_loaded: {
     result: EventResult;
     status_bucket?: StatusBucket;
@@ -182,6 +253,14 @@ export interface EventPayloadMap {
     action: ConsentAction;
     result: EventResult;
     status_bucket?: StatusBucket;
+  };
+  phone_verification_started: {
+    action: "link" | "replace";
+    result: EventResult;
+  };
+  phone_verification_completed: {
+    action: "link" | "replace" | "existing";
+    result: EventResult;
   };
   persona_switched: {
     action: "investor" | "ria";

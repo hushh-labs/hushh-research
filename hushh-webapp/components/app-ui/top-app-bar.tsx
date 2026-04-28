@@ -80,6 +80,11 @@ import {
   SHELL_ICON_BUTTON_CLASSNAME,
   SHELL_PILL_TRIGGER_CLASSNAME,
 } from "@/components/app-ui/shell-action-surface";
+import { trackEvent } from "@/lib/observability/client";
+import {
+  resolveGrowthEntrySurface,
+  trackGrowthFunnelStepCompleted,
+} from "@/lib/observability/growth";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
 export {
@@ -113,7 +118,7 @@ function getTopBarTitle(
   }
 
   if (pathname === ROUTES.RIA_ONBOARDING || pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)) {
-    return { label: "Set up RIA", interactive: false as const };
+    return { label: "Set up RIA", icon: BriefcaseBusiness, interactive: true as const };
   }
 
   if (pathname === ROUTES.DEVELOPERS) {
@@ -192,13 +197,37 @@ export function TopAppBar({ className }: TopAppBarProps) {
         lastRiaPath,
         riaEntryRoute,
       });
+      const nextPathname = nextRoute.split("?")[0] || nextRoute;
+      const trackRiaExistingSessionEntry = () => {
+        const entrySurface = resolveGrowthEntrySurface(nextPathname);
+        trackGrowthFunnelStepCompleted({
+          journey: "ria",
+          step: "entered",
+          entrySurface,
+          authMethod: "existing_session",
+          dedupeKey: "growth:ria:entered:persona_switch",
+          dedupeWindowMs: 5_000,
+        });
+        trackGrowthFunnelStepCompleted({
+          journey: "ria",
+          step: "auth_completed",
+          entrySurface,
+          authMethod: "existing_session",
+          dedupeKey: "growth:ria:auth_completed:persona_switch",
+          dedupeWindowMs: 5_000,
+        });
+      };
 
       if (target === activePersona) {
+        if (pathname === ROUTES.RIA_ONBOARDING && target === "investor") {
+          router.push(nextRoute);
+        }
         return;
       }
 
       if (target === "ria" && riaCapability !== "switch") {
         setSwitchingPersona(target);
+        trackRiaExistingSessionEntry();
         router.push(nextRoute);
         return;
       }
@@ -206,15 +235,26 @@ export function TopAppBar({ className }: TopAppBarProps) {
       setSwitchingPersona(target);
       try {
         await switchPersona(target);
+        trackEvent("persona_switched", {
+          action: target,
+          result: "success",
+        });
+        if (target === "ria") {
+          trackRiaExistingSessionEntry();
+        }
         router.push(nextRoute);
       } catch (error) {
         console.error("[TopAppBar] Failed to switch persona:", error);
+        trackEvent("persona_switched", {
+          action: target,
+          result: "error",
+        });
         toast.error("Couldn't switch roles right now. Please retry.");
       } finally {
         setSwitchingPersona(null);
       }
     },
-    [activePersona, lastKaiPath, lastRiaPath, riaCapability, riaEntryRoute, router, switchPersona]
+    [activePersona, lastKaiPath, lastRiaPath, pathname, riaCapability, riaEntryRoute, router, switchPersona]
   );
 
   // Subscribe to scroll-direction store so top glass height follows tabs visibility.

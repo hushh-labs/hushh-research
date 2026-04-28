@@ -7,8 +7,17 @@ import types
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
+
+
+class _UndefinedColumnError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
+class _UndefinedTableError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
 
 if "asyncpg" not in sys.modules:
     asyncpg_stub = types.ModuleType("asyncpg")
@@ -18,17 +27,23 @@ if "asyncpg" not in sys.modules:
 
     asyncpg_stub.Pool = _Pool
     sys.modules["asyncpg"] = asyncpg_stub
+if not hasattr(sys.modules["asyncpg"], "UndefinedColumnError"):
+    sys.modules["asyncpg"].UndefinedColumnError = _UndefinedColumnError
+if not hasattr(sys.modules["asyncpg"], "UndefinedTableError"):
+    sys.modules["asyncpg"].UndefinedTableError = _UndefinedTableError
 
 if "db" not in sys.modules:
     db_pkg = types.ModuleType("db")
     db_pkg.__path__ = []
     sys.modules["db"] = db_pkg
 
+
+class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
+    pass
+
+
 if "db.db_client" not in sys.modules:
     db_client_stub = types.ModuleType("db.db_client")
-
-    class _DatabaseExecutionError(Exception):  # pragma: no cover - import-time stub only
-        pass
 
     def _noop_get_db():  # pragma: no cover - import-time stub only
         raise RuntimeError("db not available in unit test")
@@ -36,6 +51,8 @@ if "db.db_client" not in sys.modules:
     db_client_stub.get_db = _noop_get_db
     db_client_stub.DatabaseExecutionError = _DatabaseExecutionError
     sys.modules["db.db_client"] = db_client_stub
+elif not hasattr(sys.modules["db.db_client"], "DatabaseExecutionError"):
+    sys.modules["db.db_client"].DatabaseExecutionError = _DatabaseExecutionError
 
 if "db.connection" not in sys.modules:
     db_conn_stub = types.ModuleType("db.connection")
@@ -67,6 +84,9 @@ if "sse_starlette.sse" not in sys.modules:
 
     sse_mod.EventSourceResponse = _EventSourceResponse
     sys.modules["sse_starlette.sse"] = sse_mod
+sys.modules["sse_starlette"].EventSourceResponse = sys.modules[
+    "sse_starlette.sse"
+].EventSourceResponse
 
 if "python_multipart" not in sys.modules:
     python_multipart_stub = types.ModuleType("python_multipart")
@@ -174,43 +194,6 @@ class _FakeRequest:
         if self._disconnect_after_calls is None:
             return False
         return self._disconnect_checks > self._disconnect_after_calls
-
-
-class _ChunkedUploadFile:
-    def __init__(
-        self,
-        *,
-        chunks: list[bytes],
-        filename: str = "voice.webm",
-        content_type: str = "audio/webm",
-    ) -> None:
-        self._chunks = list(chunks)
-        self.filename = filename
-        self.content_type = content_type
-
-    async def read(self, size: int = -1) -> bytes:
-        if not self._chunks:
-            return b""
-        if size is None or size < 0:
-            data = b"".join(self._chunks)
-            self._chunks.clear()
-            return data
-        chunk = self._chunks.pop(0)
-        if len(chunk) > size:
-            self._chunks.insert(0, chunk[size:])
-            return chunk[:size]
-        return chunk
-
-
-class _GuardedUploadFile:
-    def __init__(self) -> None:
-        self.filename = "voice.webm"
-        self.content_type = "audio/webm"
-        self.read_called = False
-
-    async def read(self, size: int = -1) -> bytes:
-        self.read_called = True
-        raise AssertionError("audio_file.read should not be called")
 
 
 class _FakeTTSStream:
@@ -334,7 +317,7 @@ def test_voice_plan_surfaces_canonical_fields_alongside_legacy_contract(
                 "memory": {"allow_durable_write": True},
                 "schema_version": "kai_voice_plan.v1",
                 "mode": "execute_and_wait",
-                "action_id": "nav.profile_gmail_panel",
+                "action_id": "route.profile_gmail_panel",
                 "slots": {},
                 "guards": [],
                 "reply_strategy": "llm",
@@ -358,14 +341,14 @@ def test_voice_plan_surfaces_canonical_fields_alongside_legacy_contract(
     assert payload["execution_allowed"] is True
     assert payload["schema_version"] == "kai_voice_plan.v1"
     assert payload["mode"] == "execute_and_wait"
-    assert payload["action_id"] == "nav.profile_gmail_panel"
+    assert payload["action_id"] == "route.profile_gmail_panel"
     assert payload["reply_strategy"] == "llm"
     assert payload["guards"] == []
     assert payload["tool_call"]["tool_name"] == "clarify"
     assert payload["intent"]["name"] == "execute_and_wait"
     assert payload["intent"]["legacy_kind"] == "speak_only"
     assert payload["action"]["type"] == "canonical"
-    assert payload["action"]["payload"]["action_id"] == "nav.profile_gmail_panel"
+    assert payload["action"]["payload"]["action_id"] == "route.profile_gmail_panel"
     assert payload["action"]["payload"]["mode"] == "execute_and_wait"
     assert payload["action"]["payload"].get("legacy_tool_call") is None
 
@@ -393,7 +376,7 @@ def test_voice_plan_kill_switch_downgrades_canonical_only_execute_and_wait(
                 "memory": {"allow_durable_write": True},
                 "schema_version": "kai_voice_plan.v1",
                 "mode": "execute_and_wait",
-                "action_id": "nav.profile_gmail_panel",
+                "action_id": "route.profile_gmail_panel",
                 "slots": {},
                 "guards": [],
                 "reply_strategy": "llm",
@@ -553,6 +536,8 @@ def test_voice_realtime_session_allows_rollout_included_user(
     assert payload["session_id"] == "sess_123"
     assert payload["model"] == "gpt-realtime"
     assert payload["voice"] == "alloy"
+    assert payload["transcription_model"] == "gpt-4o-mini-transcribe"
+    assert payload["transcription_language"] == "en"
     assert payload["client_secret"] == "ephemeral_secret"  # noqa: S105
 
 
@@ -617,74 +602,6 @@ def test_voice_plan_respects_canary_percent(
     assert payload["execution_allowed"] is False
 
 
-@pytest.mark.anyio
-async def test_voice_stt_rollout_blocks_before_audio_read(monkeypatch: pytest.MonkeyPatch):
-    _set_voice_runtime_config(
-        monkeypatch,
-        hosted_voice_enabled=True,
-        allowed_users=["user_b"],
-    )
-    guarded_upload = _GuardedUploadFile()
-
-    async def _never_transcribe(*args, **kwargs):  # pragma: no cover - safety assertion
-        raise AssertionError("transcribe_audio should not run for rollout-blocked STT requests")
-
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "transcribe_audio", _never_transcribe)
-
-    with pytest.raises(HTTPException) as exc_info:
-        await VOICE_ROUTES.kai_voice_stt(
-            request=_FakeRequest(),
-            http_response=Response(),
-            user_id="user_a",
-            audio_file=guarded_upload,
-            audio_mime_type="audio/webm",
-            token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
-        )
-
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "Voice is not enabled for this account yet."
-    assert guarded_upload.read_called is False
-
-
-@pytest.mark.anyio
-async def test_voice_understand_rollout_blocks_before_audio_read(monkeypatch: pytest.MonkeyPatch):
-    _set_voice_runtime_config(
-        monkeypatch,
-        hosted_voice_enabled=True,
-        allowed_users=["user_b"],
-    )
-    guarded_upload = _GuardedUploadFile()
-
-    async def _never_transcribe(*args, **kwargs):  # pragma: no cover - safety assertion
-        raise AssertionError("transcribe_audio should not be called for rollout-blocked requests")
-
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "transcribe_audio", _never_transcribe)
-
-    response = await VOICE_ROUTES.kai_voice_understand(
-        request=_FakeRequest(),
-        http_response=Response(),
-        user_id="user_a",
-        audio_file=guarded_upload,
-        audio_mime_type="audio/webm",
-        context_json=None,
-        app_state_json=None,
-        token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
-    )
-
-    assert guarded_upload.read_called is False
-    assert response.transcript == ""
-    assert response.stt_elapsed_ms == 0
-    assert response.stt_openai_http_ms == 0
-    assert response.stt_audio_read_ms == 0
-    assert response.stt_audio_bytes == 0
-    assert response.response.kind == "speak_only"
-    assert response.response.message == "Voice is not enabled for this account yet."
-    assert response.response.execution_allowed is False
-    assert response.execution_allowed is False
-    assert response.memory.allow_durable_write is False
-    assert response.model == "deterministic_rollout"
-
-
 def test_voice_tts_rollout_blocks_before_upstream_call(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -712,149 +629,10 @@ def test_voice_tts_rollout_blocks_before_upstream_call(
     assert response.json()["detail"] == "Voice is not enabled for this account yet."
 
 
-@pytest.mark.anyio
-async def test_voice_understand_sanitizes_debug_message_in_error_response(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    _set_voice_runtime_config(
-        monkeypatch,
-        hosted_voice_enabled=True,
-        allowed_users=["user_a"],
-    )
-    upload = _ChunkedUploadFile(chunks=[b"\x1a\x45\xdf\xa3voice-bytes"])
-
-    async def _raise_stt_error(*args, **kwargs):
-        raise VOICE_ROUTES.VoiceServiceError(502, "raw upstream detail: secret-token")
-
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "transcribe_audio", _raise_stt_error)
-
-    with pytest.raises(HTTPException) as exc_info:
-        await VOICE_ROUTES.kai_voice_understand(
-            request=_FakeRequest(),
-            http_response=Response(),
-            user_id="user_a",
-            audio_file=upload,
-            audio_mime_type="audio/webm",
-            context_json=None,
-            app_state_json=None,
-            token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
-        )
-
-    detail = exc_info.value.detail
-    assert exc_info.value.status_code == 502
-    assert detail["error_code"] == "stt_upstream_error"
-    assert detail["message"] == "Speech recognition failed. Please try again."
-    assert "debug_message" not in detail
-
-
-@pytest.mark.anyio
-async def test_voice_understand_kill_switch_downgrades_execute_to_speak_only(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    _set_voice_runtime_config(
-        monkeypatch,
-        hosted_voice_enabled=True,
-        allowed_users=["user_a"],
-        tool_execution_disabled=True,
-    )
-    upload = _ChunkedUploadFile(chunks=[b"\x1a\x45\xdf\xa3voice-bytes"])
-
-    async def _fake_transcribe(*args, **kwargs):
-        return ("open dashboard", 3, "gpt-4o-mini-transcribe")
-
-    async def _fake_plan(*args, **kwargs):
-        return (
-            {
-                "kind": "execute",
-                "message": "Opening dashboard.",
-                "speak": True,
-                "execution_allowed": True,
-                "tool_call": {"tool_name": "execute_kai_command", "args": {"command": "dashboard"}},
-                "memory": {"allow_durable_write": True},
-            },
-            5,
-            "fake-model",
-        )
-
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "transcribe_audio", _fake_transcribe)
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "plan_voice_response", _fake_plan)
-
-    response = await VOICE_ROUTES.kai_voice_understand(
-        request=_FakeRequest(),
-        http_response=Response(),
-        user_id="user_a",
-        audio_file=upload,
-        audio_mime_type="audio/webm",
-        context_json=None,
-        app_state_json=None,
-        token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
-    )
-
-    assert response.response.kind == "speak_only"
-    assert response.response.execution_allowed is False
-    assert response.execution_allowed is False
-    assert response.tool_call["tool_name"] == "clarify"
-    assert response.memory.allow_durable_write is False
-
-
-@pytest.mark.anyio
-async def test_voice_stt_rejects_oversized_content_length_before_audio_read(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    _set_voice_runtime_config(monkeypatch, upload_max_bytes=1024 * 1024)
-    guarded_upload = _GuardedUploadFile()
-
-    with pytest.raises(HTTPException) as exc_info:
-        await VOICE_ROUTES.kai_voice_stt(
-            request=_FakeRequest(headers={"content-length": str(2 * 1024 * 1024)}),
-            http_response=Response(),
-            user_id="user_a",
-            audio_file=guarded_upload,
-            audio_mime_type="audio/webm",
-            token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
-        )
-
-    detail = exc_info.value.detail
-    assert exc_info.value.status_code == 413
-    assert guarded_upload.read_called is False
-    assert detail["error_code"] == "audio_too_large"
-    assert "debug_message" not in detail
-
-
-@pytest.mark.anyio
-async def test_voice_understand_rejects_oversized_audio_during_read(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    _set_voice_runtime_config(
-        monkeypatch,
-        hosted_voice_enabled=True,
-        allowed_users=["user_a"],
-        upload_max_bytes=1024 * 1024,
-    )
-    upload = _ChunkedUploadFile(chunks=[b"1" * 600000, b"2" * 600000])
-
-    async def _never_transcribe(*args, **kwargs):  # pragma: no cover - safety assertion
-        raise AssertionError("transcribe_audio should not run after upload size rejection")
-
-    monkeypatch.setattr(VOICE_ROUTES.voice_service, "transcribe_audio", _never_transcribe)
-
-    with pytest.raises(HTTPException) as exc_info:
-        await VOICE_ROUTES.kai_voice_understand(
-            request=_FakeRequest(),
-            http_response=Response(),
-            user_id="user_a",
-            audio_file=upload,
-            audio_mime_type="audio/webm",
-            context_json=None,
-            app_state_json=None,
-            token_data={"user_id": "user_a", "scope": "vault_owner", "token": "test"},
-        )
-
-    detail = exc_info.value.detail
-    assert exc_info.value.status_code == 413
-    assert detail["error_code"] == "audio_too_large"
-    assert detail["message"].startswith("Audio upload is too large")
-    assert "debug_message" not in detail
+def test_removed_blob_voice_routes_return_not_found(client: TestClient):
+    for path in ("/api/kai/voice/stt", "/api/kai/voice/understand"):
+        response = client.post(path)
+        assert response.status_code == 404
 
 
 def test_voice_plan_prefers_run_manager_truth_over_stale_runtime_flag(
@@ -1037,11 +815,11 @@ def test_voice_compose_returns_backend_llm_spoken_reply(
             },
             "app_state": _plan_body()["app_state"],
             "mode": "execute_and_wait",
-            "action_id": "nav.profile",
+            "action_id": "route.profile",
             "reply_strategy": "llm",
             "action_result": {
                 "status": "succeeded",
-                "action_id": "nav.profile",
+                "action_id": "route.profile",
                 "route_after": "/profile",
                 "screen_after": "profile_account",
                 "result_summary": "Opened your profile.",

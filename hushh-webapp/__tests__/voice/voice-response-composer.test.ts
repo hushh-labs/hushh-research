@@ -22,7 +22,7 @@ function makePlan(
 ): VoicePlanPayload {
   return {
     mode: "execute_and_wait",
-    action_id: "nav.profile",
+    action_id: "route.profile",
     reply_strategy: "template",
     response: makeExecuteResponse("Opening profile."),
     ...overrides,
@@ -34,7 +34,7 @@ function makeActionResult(
 ): VoiceActionResult {
   return {
     status: "succeeded",
-    action_id: "nav.profile",
+    action_id: "route.profile",
     route_before: "/kai",
     route_after: "/profile",
     screen_before: "dashboard",
@@ -50,10 +50,10 @@ describe("composeVoiceSpeechAfterExecution", () => {
     const speech = composeVoiceSpeechAfterExecution({
       response: makeExecuteResponse("Opening receipts."),
       plan: makePlan({
-        action_id: "nav.profile_receipts",
+        action_id: "route.profile_receipts",
       }),
       actionResult: makeActionResult({
-        action_id: "nav.profile_receipts",
+        action_id: "route.profile_receipts",
         route_after: "/profile/receipts",
         screen_after: "receipts",
         result_summary: "Navigated to /profile/receipts.",
@@ -157,11 +157,11 @@ describe("composeVoiceSpeechAfterExecution", () => {
     const speech = composeVoiceSpeechAfterExecution({
       response: makeExecuteResponse("Opening Gmail."),
       plan: makePlan({
-        action_id: "nav.profile_gmail_panel",
+        action_id: "route.profile_gmail_panel",
       }),
       actionResult: {
         status: "blocked",
-        action_id: "nav.profile_gmail_panel",
+        action_id: "route.profile_gmail_panel",
         route_before: "/profile",
         route_after: null,
         screen_before: "profile",

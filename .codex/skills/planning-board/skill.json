@@ -21,14 +21,16 @@
   ],
   "required_commands": [
     "python3 -m py_compile .codex/skills/planning-board/scripts/board_ops.py",
-    "python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07"
+    "python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07",
+    "python3 .codex/skills/planning-board/scripts/board_ops.py audit-state"
   ],
   "verification_bundles": [
     {
       "id": "planning-board",
       "commands": [
         "python3 -m py_compile .codex/skills/planning-board/scripts/board_ops.py",
-        "python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07"
+        "python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07",
+        "python3 .codex/skills/planning-board/scripts/board_ops.py audit-state"
       ],
       "tests": []
     }

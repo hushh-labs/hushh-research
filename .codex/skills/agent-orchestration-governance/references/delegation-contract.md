@@ -9,6 +9,28 @@ Use this reference when changing repo-scoped custom agents or the orchestration 
 3. Repo-scoped custom agents are a thin execution layer for bounded role specialization and explicit parallelism.
 4. Subagent use is explicit only. Do not add instructions that auto-fan-out by default.
 
+## Subagent suitability checkpoint
+
+Before using subagents, make the decision explicit. The checkpoint is required for large PR batches, cross-domain RCA, release/deploy validation, security-sensitive reviews, or any task where independent evidence lanes can materially improve accuracy.
+
+Use subagents when all of these are true:
+
+1. The user has explicitly allowed delegation or the active workflow has an approved delegation step.
+2. The work can be split into independent lanes that do not need the next parent action immediately.
+3. Each lane has a concrete evidence target, such as backend contract, frontend caller, CI/deploy, security/consent, tests, or docs.
+4. The parent session can continue useful non-overlapping work while children inspect evidence.
+5. Final authority stays with the parent session or `governor`; child agents only return evidence and judgments.
+
+Keep the work local when any of these are true:
+
+1. The task is a small single-surface change or review.
+2. The next parent action is blocked on the result, making delegation slower than direct inspection.
+3. The task requires branch switching, merging, approval, deployment, or credential handling.
+4. The work is tightly coupled enough that parallel agents would duplicate effort or create inconsistent assumptions.
+5. The user asked for information only and did not authorize delegation.
+
+When the checkpoint chooses not to delegate, record the reason briefly in the parent response or working report for high-stakes workflows.
+
 ## Bounded defaults
 
 1. Keep `agents.max_threads = 6` unless a later review proves a different cap is necessary.

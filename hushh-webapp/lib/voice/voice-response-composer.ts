@@ -126,7 +126,7 @@ export function composeVoiceSpeechAfterExecution(
 
     if (
       input.actionResult.status === "succeeded" &&
-      actionId?.startsWith("nav.") &&
+      actionId?.startsWith("route.") &&
       (cleanText(input.actionResult.route_after) || cleanText(input.actionResult.screen_after))
     ) {
       const navigationSpeech = isGenericActionSummary(actionSummary)

@@ -5,7 +5,7 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -83,6 +83,7 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 
 async def require_pkm_metadata_access(
+    background_tasks: BackgroundTasks,
     authorization: str | None = Header(
         None,
         description="Bearer Firebase ID token or VAULT_OWNER token for PKM metadata access",
@@ -95,10 +96,16 @@ async def require_pkm_metadata_access(
         )
 
     if authorization.startswith("Bearer HCT:"):
-        token_data = await require_vault_owner_token(authorization)
+        token_data = await require_vault_owner_token(
+            authorization=authorization,
+            hushh_consent=None,
+        )
         return {"user_id": token_data.get("user_id"), "auth_type": "vault_owner"}
 
-    firebase_uid = await require_firebase_auth(authorization)
+    # Explicitly pass the injected background dispatcher and the token
+    firebase_uid = await require_firebase_auth(
+        background_tasks=background_tasks, authorization=authorization
+    )
     return {"user_id": firebase_uid, "auth_type": "firebase"}
 
 
