@@ -492,3 +492,34 @@ def get_renaissance_service() -> RenaissanceService:
     if _renaissance_service is None:
         _renaissance_service = RenaissanceService()
     return _renaissance_service
+
+
+def get_renaissance_signal(symbol: str) -> str:
+    db = get_renaissance_service().db
+    try:
+        buy_response = (
+            db.table("renaissance_universe")
+            .select("ticker")
+            .eq("ticker", symbol.upper())
+            .limit(1)
+            .execute()
+        )
+        if buy_response.data:
+            return "BUY"
+    except Exception:
+        pass
+
+    try:
+        avoid_response = (
+            db.table("renaissance_avoid")
+            .select("ticker")
+            .eq("ticker", symbol.upper())
+            .limit(1)
+            .execute()
+        )
+        if avoid_response.data:
+            return "AVOID"
+    except Exception:
+        pass
+
+    return "NEUTRAL"

@@ -74,6 +74,7 @@ export function StockComparisonPreview({
   onPickSourceChange,
   compact = false,
   starting = false,
+  renaissance_signal,
 }: {
   preview: KaiStockPreviewResponse | null;
   loading?: boolean;
@@ -83,6 +84,7 @@ export function StockComparisonPreview({
   onPickSourceChange?: (sourceId: string) => void;
   compact?: boolean;
   starting?: boolean;
+  renaissance_signal?: "BUY" | "AVOID" | "NEUTRAL";
 }) {
   const displaySources = preview?.pick_sources || [];
   const selectedSource =
@@ -164,9 +166,17 @@ export function StockComparisonPreview({
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                     Live market
                   </p>
-                  <h3 className="text-lg font-semibold text-foreground">
-                    {preview.quote.company_name}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-foreground">
+                      {preview.quote.company_name}
+                    </h3>
+                    {renaissance_signal === "BUY" && (
+                      <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 border-transparent">Buy</Badge>
+                    )}
+                    {renaissance_signal === "AVOID" && (
+                      <Badge className="bg-red-500/10 text-red-700 dark:text-red-400 border-transparent">Avoid</Badge>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">
                     {preview.quote.sector || "Sector unavailable"}
                   </p>

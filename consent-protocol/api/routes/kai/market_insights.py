@@ -27,7 +27,11 @@ from hushh_mcp.operons.kai.fetchers import (
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
-from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance_service
+from hushh_mcp.services.renaissance_service import (
+    TIER_WEIGHTS,
+    get_renaissance_service,
+    get_renaissance_signal,
+)
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
@@ -2695,4 +2699,5 @@ async def get_stock_preview(
             "fcf_billions": matched_row.get("fcf_billions") if matched_row else None,
         },
         "advisor_summary": advisor_summary,
+        "renaissance_signal": get_renaissance_signal(normalized_symbol),
     }
