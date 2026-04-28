@@ -6,7 +6,10 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { KycPkmWriteService, KYC_PKM_DOMAIN } from "@/lib/services/kyc-pkm-write-service";
+import {
+  KycWorkflowPkmService,
+  KYC_WORKFLOW_PKM_DOMAIN,
+} from "@/lib/services/kyc-pkm-write-service";
 import { CircleCheck, CircleDashed, Home, Landmark, User } from "lucide-react";
 
 type KycItemStatus = "verified" | "pending" | "not_started" | "failed";
@@ -25,25 +28,27 @@ function StatusIcon({ status }: { status: KycItemStatus }) {
   return <Icon icon={CircleDashed} size="lg" className="text-muted-foreground" />;
 }
 
-function buildDisplayItems(artifact: ReturnType<typeof KycPkmWriteService.readKycArtifact>["artifact"]): KycDisplayItem[] {
+function buildDisplayItems(
+  artifact: ReturnType<typeof KycWorkflowPkmService.readWorkflowArtifact>["artifact"]
+): KycDisplayItem[] {
   return [
     {
-      label: "Identity verified",
+      label: "Identity requirement",
       icon: User,
       iconTone: "text-[var(--tone-blue)] bg-[var(--tone-blue-bg)]",
-      status: artifact?.identity.status ?? "not_started",
+      status: artifact?.checks.identity.status ?? "not_started",
     },
     {
-      label: "Address verified",
+      label: "Address requirement",
       icon: Home,
       iconTone: "text-violet-600 bg-violet-100 dark:text-violet-300 dark:bg-violet-900/35",
-      status: artifact?.address.status ?? "not_started",
+      status: artifact?.checks.address.status ?? "not_started",
     },
     {
-      label: "Bank account linked",
+      label: "Bank requirement",
       icon: Landmark,
       iconTone: "text-[var(--tone-green)] bg-[var(--tone-green-bg)]",
-      status: artifact?.bank.status ?? "not_started",
+      status: artifact?.checks.bank.status ?? "not_started",
     },
   ];
 }
@@ -54,19 +59,19 @@ export function KycPreviewCompact() {
 
   const { data: snapshot } = usePkmDomainResource({
     userId: user?.uid ?? "",
-    domain: KYC_PKM_DOMAIN,
+    domain: KYC_WORKFLOW_PKM_DOMAIN,
     vaultKey,
     vaultOwnerToken,
     enabled: Boolean(user?.uid && isVaultUnlocked),
   });
 
-  const { artifact } = KycPkmWriteService.readKycArtifact(
+  const { artifact } = KycWorkflowPkmService.readWorkflowArtifact(
     snapshot?.data ?? null
   );
 
   const items = buildDisplayItems(artifact);
   const allVerified = items.every((item) => item.status === "verified");
-  const overallLabel = allVerified ? "KYC completed" : "KYC in progress";
+  const overallLabel = allVerified ? "KYC workflow completed" : "KYC workflow in progress";
   const speedLabel = allVerified ? "SPEED: INSTANT" : "Verification pending";
 
   return (
@@ -113,7 +118,7 @@ export function KycPreviewCompact() {
               </p>
             ) : (
               <p className="text-xs font-medium text-muted-foreground">
-                Complete verification to unlock all features
+                Review pending requirements to keep this workflow moving
               </p>
             )}
           </div>
