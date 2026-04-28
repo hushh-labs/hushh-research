@@ -19,12 +19,16 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 SALVAGEABLE_HIGH_FINDINGS = {
     "account_export_schema_contract_mismatch",
     "backend_contract_without_caller_change",
+    "db_contract_without_matching_migration",
+    "db_migration_missing_release_manifest",
     "dual_auth_dependency_overlap",
 }
 SALVAGEABLE_MEDIUM_FINDINGS = {
     "account_export_backend_error_detail_leak",
     "account_export_proxy_raw_error_leak",
     "account_export_missing_schema_happy_path_tests",
+    "background_task_without_failure_logging",
+    "db_migration_missing_schema_contract_update",
     "frontend_error_sanitizer_403_permission_mismatch",
     "service_layer_browser_download_side_effect",
     "runtime_dependency_not_pinned_in_manifest",
@@ -38,6 +42,11 @@ ACCOUNT_EXPORT_CORE_FILES = {
     "hushh-webapp/app/api/account/export/route.ts",
     "hushh-webapp/lib/services/account-service.ts",
 }
+DB_CONTRACT_FILES = {
+    "consent-protocol/db/contracts/uat_integrated_schema.json",
+    "consent-protocol/db/contracts/prod_integrated_schema.json",
+}
+DB_RELEASE_MANIFEST_FILE = "consent-protocol/db/release_migration_manifest.json"
 SCHEMA_CONTRACT_PATH = REPO_ROOT / "consent-protocol/db/contracts/uat_integrated_schema.json"
 CONCEPT_RULES: tuple[dict[str, Any], ...] = (
     {
@@ -232,7 +241,7 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
 PATH_SUMMARIES: dict[str, str] = {
     "consent-protocol/api/routes/consent.py": "Route contract for consent lifecycle, relationship events, and timeline-facing APIs.",
     "consent-protocol/api/routes/ria.py": "Advisor-facing route surface that enforces RIA verification and access gating.",
-    "consent-protocol/api/routes/email_agent.py": "Inbound email webhook surface proposed for Kai-owned email/KYC workflows.",
+    "consent-protocol/api/routes/email_agent.py": "Inbound email webhook surface proposed for One-led KYC workflows.",
     "consent-protocol/api/routes/kai/support.py": "Existing support ingress used as the comparison point for shared transport primitives.",
     "consent-protocol/hushh_mcp/services/ria_iam_service.py": "Canonical RIA access-control service for verified access and relationship-scoped authorization.",
     "consent-protocol/hushh_mcp/services/ria_verification.py": "Verification policy service that determines whether an RIA is eligible for protected flows.",
@@ -277,7 +286,7 @@ PATH_SUMMARIES: dict[str, str] = {
     "docs/reference/architecture/pkm-cutover-runbook.md": "Runbook for PKM product migration and current ownership path.",
     "docs/reference/kai/kai-interconnection-map.md": "High-level Kai subsystem map including the canonical decision-card surface.",
     "docs/reference/kai/kai-change-impact-matrix.md": "Kai change-governance matrix describing decision-card and stream-contract impacts.",
-    "docs/future/kai/email-kyc-pkm-assistant.md": "Future-plan contract for Kai-owned email/KYC workflow and consent-scoped rollout.",
+    "docs/future/kai/email-kyc-pkm-assistant.md": "Superseded planning history for One-led KYC workflow and consent-scoped rollout.",
 }
 
 
@@ -359,6 +368,8 @@ def _load_schema_contract_columns() -> dict[str, set[str]]:
 
 def _contract_set(files: list[str], patch_map: dict[str, str]) -> str:
     patch_text = "\n".join(patch_map.values())
+    if any(path.startswith("consent-protocol/db/") for path in files):
+        return "db-release-contract"
     if any(path in ACCOUNT_EXPORT_CORE_FILES for path in files) and (
         "/account/export" in patch_text
         or "exportData" in patch_text
@@ -390,6 +401,168 @@ def _duplicate_group(contract_set: str, files: list[str]) -> str | None:
     if any(path.startswith("hushh-webapp/app/api/account/export/") for path in files):
         return "account-export"
     return None
+
+
+def _normal_text(*values: str | None) -> str:
+    return " ".join(str(value or "").lower() for value in values)
+
+
+def _semantic_duplicate_group(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    shared_files: list[str],
+) -> str | None:
+    shared = set(shared_files)
+    left_text = _normal_text(left["pr"]["title"], left["pr"].get("summary"))
+    right_text = _normal_text(right["pr"]["title"], right["pr"].get("summary"))
+    combined = f"{left_text} {right_text}"
+
+    if {
+        "hushh-webapp/components/navbar.tsx",
+        "hushh-webapp/components/theme-toggle.tsx",
+    } <= shared and all(
+        token in combined for token in ("theme", "toggle")
+    ) and any(
+        token in combined for token in ("top-right", "top right", "compact", "dropdown")
+    ):
+        return "semantic-duplicate:theme-toggle-top-right"
+
+    return None
+
+
+def _theme_toggle_duplicate_factors(patch_map: dict[str, str]) -> OrderedDict[str, Any]:
+    patch_text = "\n".join(patch_map.values())
+    normalized = _normal_text(patch_text)
+    factors = OrderedDict(
+        scope_containment="themetogglecompact" in normalized,
+        design_system_fit="dropdownmenu" in normalized
+        and "@/components/ui/dropdown-menu" in normalized,
+        accessibility="aria-label" in normalized,
+        layout_safety="app-safe-area-top-effective" in normalized,
+        contract_preservation="export function themetogglecompact" in normalized,
+        type_readiness="nouncheckedindexedaccess" in normalized
+        or "typeof theme_options)[number]" in normalized,
+        hover_dependent="onmouseenter" in normalized or "onmouseleave" in normalized,
+        fixed_top_right="top-4 right-4" in normalized,
+        rewrites_shared_toggle="export function themetoggle" in normalized
+        and "export function themetogglecompact" not in normalized,
+    )
+    score = sum(
+        1
+        for key in (
+            "scope_containment",
+            "design_system_fit",
+            "accessibility",
+            "layout_safety",
+            "contract_preservation",
+            "type_readiness",
+        )
+        if factors[key]
+    )
+    score -= sum(
+        1
+        for key in ("hover_dependent", "fixed_top_right", "rewrites_shared_toggle")
+        if factors[key]
+    )
+    factors["score"] = score
+    return factors
+
+
+def _duplicate_selection_factors(
+    contract_set: str,
+    files: list[str],
+    patch_map: dict[str, str],
+) -> OrderedDict[str, Any] | None:
+    if contract_set == "frontend" and {
+        "hushh-webapp/components/navbar.tsx",
+        "hushh-webapp/components/theme-toggle.tsx",
+    } <= set(files):
+        return _theme_toggle_duplicate_factors(patch_map)
+    return None
+
+
+def _canonical_selection_rationale(group: str, preferred: dict[str, Any]) -> str:
+    factors = preferred.get("duplicate_selection_factors") or {}
+    if group.startswith("semantic-duplicate:theme-toggle-top-right") and factors:
+        strengths = []
+        if factors.get("scope_containment"):
+            strengths.append("adds a narrow compact variant instead of rewriting the shared toggle")
+        if factors.get("design_system_fit"):
+            strengths.append("uses the existing DropdownMenu primitive")
+        if factors.get("accessibility"):
+            strengths.append("keeps explicit trigger labeling")
+        if factors.get("layout_safety"):
+            strengths.append("preserves safe-area-aware onboarding chrome placement")
+        if factors.get("contract_preservation"):
+            strengths.append("keeps the segmented ThemeToggle available for wider settings surfaces")
+        if factors.get("type_readiness"):
+            strengths.append("accounts for strict TypeScript fallback handling")
+        if strengths:
+            return "; ".join(strengths) + "."
+    return "Selected by duplicate-governance ranking; diff size is only a tie-breaker."
+
+
+def _duplicate_preference_key(report: dict[str, Any], group: str) -> tuple[int, int, int]:
+    factors = report.get("duplicate_selection_factors") or {}
+    score = int(factors.get("score", 0)) if group.startswith("semantic-duplicate:") else 0
+    churn = report["pr"]["additions"] + report["pr"]["deletions"]
+    return (score, -churn, -int(report["pr"]["number"]))
+
+
+def _what_this_is_about(
+    title: str,
+    summary: str | None,
+    files: list[str],
+    patch_map: dict[str, str],
+    contract_set: str,
+) -> str:
+    text = _normal_text(title, summary, "\n".join(patch_map.values()))
+
+    if "consent-protocol/hushh_mcp/services/kai_chat_service.py" in files:
+        if "get_initial_chat_state" in text and "get_portfolio" in text:
+            return (
+                "Kai chat startup performance: derive portfolio presence from PKM metadata "
+                "instead of making a second portfolio DB call when opening chat."
+            )
+        if "extract_and_store" in text and ("create_task" in text or "background" in text):
+            return (
+                "Kai chat response latency: move attribute learning behind the response so "
+                "Gemini-backed memory extraction does not block the user-visible answer."
+            )
+        if "validate_response" in text or "safe_fallback" in text or "grounded" in text:
+            return (
+                "Kai chat answer safety: validate generated assistant text, retry malformed output, "
+                "and return a stable fallback when the model response is not usable."
+            )
+        return "Kai chat service behavior: review runtime effect before treating file overlap as duplication."
+
+    if {
+        "hushh-webapp/components/navbar.tsx",
+        "hushh-webapp/components/theme-toggle.tsx",
+    } <= set(files):
+        return "Frontend shell polish: move theme switching into a compact top-right control."
+
+    if any(path.startswith("hushh-webapp/lib/portfolio-share/") for path in files):
+        return (
+            "Portfolio share token security: fail closed in production when signing secrets are "
+            "missing while preserving local development fallback behavior."
+        )
+
+    if contract_set == "account-export":
+        return "Account export contract: package user-owned export data without leaking raw backend failures."
+    if contract_set == "frontend-error-safety":
+        return "Frontend error safety: normalize user-facing error messages without exposing raw service details."
+    if contract_set == "db-release-contract":
+        return "DB release contract: advance migrations, schema contracts, and UAT/prod migration readiness together."
+    if contract_set == "voice":
+        return "Kai voice capability: expand or refine voice-driven action coverage."
+    if contract_set == "pkm-privacy":
+        return "PKM privacy/runtime contract: adjust personal knowledge storage, access, or projection behavior."
+    if contract_set == "backend":
+        return "Backend runtime behavior: change service-side behavior under existing API contracts."
+    if contract_set == "frontend":
+        return "Frontend behavior: change user-facing UI without an obvious backend contract shift."
+    return "General repo change: review product intent, changed surfaces, and proof before merge."
 
 
 def _author_group(author: str | None) -> str:
@@ -491,7 +664,12 @@ def _surface_tags(files: list[str]) -> list[str]:
         tags.append("backend-service")
     if any(path.startswith("consent-protocol/db/") for path in files):
         tags.append("db-contract")
-    if any(path.startswith("hushh-webapp/lib/services/") or path.startswith("hushh-webapp/app/api/") for path in files):
+    if any(
+        path.startswith("hushh-webapp/lib/services/")
+        or path.startswith("hushh-webapp/app/api/")
+        or path.startswith("hushh-webapp/lib/portfolio-share/")
+        for path in files
+    ):
         tags.append("frontend-caller")
     if any(path.startswith("deploy/") or path.endswith("Dockerfile") for path in files):
         tags.append("deploy-runtime")
@@ -602,6 +780,19 @@ def _has_test_or_doc_change(files: list[str]) -> bool:
     )
 
 
+def _db_migration_files(files: list[str]) -> list[str]:
+    return sorted(
+        path
+        for path in files
+        if path.startswith("consent-protocol/db/migrations/")
+        and path.endswith(".sql")
+    )
+
+
+def _db_contract_files(files: list[str]) -> list[str]:
+    return sorted(path for path in files if path in DB_CONTRACT_FILES)
+
+
 def _file_patch_map(patch: str) -> dict[str, str]:
     sections: dict[str, list[str]] = {}
     current: str | None = None
@@ -610,7 +801,10 @@ def _file_patch_map(patch: str) -> dict[str, str]:
             parts = line.split()
             if len(parts) >= 4:
                 current = parts[3][2:]
-                sections[current] = [line]
+                sections.setdefault(current, [])
+                if sections[current]:
+                    sections[current].append("")
+                sections[current].append(line)
             else:
                 current = None
             continue
@@ -639,6 +833,46 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                 "severity": "high",
                 "summary": "Backend route files changed without matching caller or proxy changes.",
                 "files": [path for path in files if path.startswith("consent-protocol/api/routes/")],
+            }
+        )
+
+    migration_files = _db_migration_files(files)
+    contract_files = _db_contract_files(files)
+    release_manifest_changed = DB_RELEASE_MANIFEST_FILE in files
+    if migration_files:
+        if not release_manifest_changed:
+            findings.append(
+                {
+                    "id": "db_migration_missing_release_manifest",
+                    "severity": "high",
+                    "summary": (
+                        "DB migration files changed without updating the release migration "
+                        "manifest, so UAT/prod operators may not apply the migration in order."
+                    ),
+                    "files": migration_files,
+                }
+            )
+        if not contract_files:
+            findings.append(
+                {
+                    "id": "db_migration_missing_schema_contract_update",
+                    "severity": "medium",
+                    "summary": (
+                        "DB migration files changed without a checked-in schema contract update; "
+                        "verify whether the migration changes live UAT/prod contract shape."
+                    ),
+                    "files": migration_files,
+                }
+            )
+    if contract_files and not migration_files:
+        findings.append(
+            {
+                "id": "db_contract_without_matching_migration",
+                "severity": "high",
+                "summary": (
+                    "DB schema contract files changed without a matching SQL migration in the PR."
+                ),
+                "files": contract_files,
             }
         )
 
@@ -681,6 +915,21 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                     "files": [path],
             }
         )
+
+        if (
+            path == "consent-protocol/hushh_mcp/services/kai_chat_service.py"
+            and "asyncio.create_task(" in section
+            and ".add_done_callback" not in section
+            and "logger.exception" not in section
+        ):
+            findings.append(
+                {
+                    "id": "background_task_without_failure_logging",
+                    "severity": "medium",
+                    "summary": "Kai chat schedules background work without an explicit completion callback or exception logger.",
+                    "files": [path],
+                }
+            )
 
     if contract_set == "frontend-error-safety":
         sanitizer_section = patch_map.get("hushh-webapp/lib/services/error-sanitizer.ts", "")
@@ -820,6 +1069,19 @@ def _recommend_merge_lane(
         )
 
     if not findings:
+        if "db-contract" in surface_tags:
+            return OrderedDict(
+                lane="merge_now",
+                rationale=(
+                    "Current head SHA is green and the DB migration package appears "
+                    "internally complete: migration, release manifest, and schema contract "
+                    "move together."
+                ),
+                next_steps=[
+                    "Run `./bin/hushh db verify-release-contract` before merge.",
+                    "Before any UAT-ready claim, run live `./bin/hushh db verify-uat-schema`; if it fails, apply the specific missing migration and rerun the guard.",
+                ],
+            )
         return OrderedDict(
             lane="merge_now",
             rationale="Current head SHA is green and no blocker or review-risk findings were detected.",
@@ -1006,6 +1268,7 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         f"- Contract/lane: `{report['contract_set']}` / `{report['lane']}`",
         f"- Lean/core risk: `{_lean_core_risk(report)}`",
         f"- Size/surfaces: `+{pr['additions']}` / `-{pr['deletions']}` across `{pr['changed_files_count']}` files; tags `{', '.join(report['surface_tags']) or 'none'}`",
+        f"- What this is about: {report['what_this_is_about']}",
         f"- Summary: {pr.get('summary') or 'No PR summary extracted.'}",
         f"- Findings: {_findings_summary(report)}",
         f"- Overlap: {_overlap_summary(report)}",
@@ -1035,6 +1298,19 @@ def _report_sort_key(report: dict[str, Any]) -> tuple[int, int, int]:
     )
 
 
+def _operator_component_sort_key(report: dict[str, Any]) -> tuple[int, int, int, int]:
+    if "consent-protocol/hushh_mcp/services/kai_chat_service.py" in report["changed_files"]:
+        intent = report.get("what_this_is_about", "")
+        if "startup performance" in intent:
+            return (0, 0, report["pr"]["additions"] + report["pr"]["deletions"], report["pr"]["number"])
+        if "response latency" in intent:
+            return (0, 1, report["pr"]["additions"] + report["pr"]["deletions"], report["pr"]["number"])
+        if "answer safety" in intent:
+            return (0, 2, report["pr"]["additions"] + report["pr"]["deletions"], report["pr"]["number"])
+    lane_rank, size, number = _report_sort_key(report)
+    return (1, lane_rank, size, number)
+
+
 def _report_has_duplicate_finding(report: dict[str, Any]) -> bool:
     return any(
         finding["id"] in {"duplicate_exact_file_overlap", "duplicate_product_contract"}
@@ -1042,9 +1318,35 @@ def _report_has_duplicate_finding(report: dict[str, Any]) -> bool:
     )
 
 
+def _operator_batch_intent(reports: list[dict[str, Any]], shared_files: list[str]) -> str:
+    shared = set(shared_files)
+    if len({report["pr"]["head_sha"] for report in reports}) == 1:
+        return "Exact duplicate cleanup: one head SHA is represented by multiple open PRs."
+    if "consent-protocol/hushh_mcp/services/kai_chat_service.py" in shared:
+        return (
+            "Kai chat service evolution: coordinate startup latency, response latency, "
+            "and answer-safety changes that share one service file but affect different runtime behaviors."
+        )
+    if {
+        "hushh-webapp/components/navbar.tsx",
+        "hushh-webapp/components/theme-toggle.tsx",
+    } <= shared:
+        return "Theme toggle shell placement: choose one compact top-right UI implementation."
+    if any("package.json" in path or "package-lock.json" in path for path in shared):
+        return "Dependency/test surface alignment: sequence package-lock changes before dependent test infrastructure."
+    if any(_report_has_duplicate_finding(report) for report in reports):
+        return "Shared contract cleanup: select the canonical implementation and harvest only unique proof."
+    return "Shared-file sequencing: same files require ordered merge or rebase, but are not automatically duplicate work."
+
+
 def _operator_batch_title(reports: list[dict[str, Any]], preferred: dict[str, Any]) -> str:
     if len({report["pr"]["head_sha"] for report in reports}) == 1:
         return f"Exact Duplicate Cleanup: #{preferred['pr']['number']}"
+    if any(
+        "consent-protocol/hushh_mcp/services/kai_chat_service.py" in report["changed_files"]
+        for report in reports
+    ):
+        return "Kai Chat Service Evolution Batch"
     if any(_report_has_duplicate_finding(report) for report in reports):
         return f"Shared-File Harvest Cluster: #{preferred['pr']['number']}"
     if any(
@@ -1063,6 +1365,14 @@ def _operator_batch_action(reports: list[dict[str, Any]], preferred: dict[str, A
     if len({report["pr"]["head_sha"] for report in reports}) == 1:
         duplicate_noun = "an exact duplicate" if len(rest) == 1 else "exact duplicates"
         return f"Review and merge `#{preferred_number}` as the canonical PR, then close {rest_label} as {duplicate_noun}."
+    if any(
+        "consent-protocol/hushh_mcp/services/kai_chat_service.py" in report["changed_files"]
+        for report in reports
+    ):
+        return (
+            "Merge in runtime-evolution order: startup optimization first, response-latency change second, "
+            "answer-safety change last; rebase and rerun shared Kai chat service checks after each step."
+        )
     if any(_report_has_duplicate_finding(report) for report in reports):
         return f"Review `#{preferred_number}` as canonical first; harvest only unique proof from {rest_label} before closing duplicates."
     return "Review these PRs together because they touch the same files; merge one at a time with the shared checks rerun after each merge."
@@ -1097,7 +1407,7 @@ def _operator_batches(
         seen |= component
         component_reports = sorted(
             (by_number[item] for item in component),
-            key=_report_sort_key,
+            key=_operator_component_sort_key,
         )
         preferred = component_reports[0]
         shared_files = sorted(
@@ -1121,6 +1431,7 @@ def _operator_batches(
                     (f"#{report['pr']['number']}", _lean_core_risk(report))
                     for report in component_reports
                 ),
+                intent=_operator_batch_intent(component_reports, shared_files),
                 shared_files=shared_files,
                 action=_operator_batch_action(component_reports, preferred),
                 reason="Exact file overlap creates a real sequencing or duplicate-resolution dependency.",
@@ -1151,6 +1462,7 @@ def _operator_batches(
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
                     risks=OrderedDict((f"#{report['pr']['number']}", _lean_core_risk(report)) for report in grouped),
+                    intent=f"Adjacent {contract_set} review: same narrow contract, separate files, low current risk.",
                     shared_files=[],
                     action="Review together for product/context coherence, but merge separately unless manual review finds a shared proof surface.",
                     reason="Same narrow contract, green gate, low/non-runtime risk, and no exact file overlap.",
@@ -1166,6 +1478,7 @@ def _operator_batches(
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
                     risks=OrderedDict((f"#{report['pr']['number']}", _lean_core_risk(report)) for report in grouped),
+                    intent=f"{contract_set} intake warning: broad shared label is not enough to form a merge batch.",
                     shared_files=[],
                     action="Keep as separate reviews until manual inspection proves these PRs share a real implementation or product dependency.",
                     reason="Same broad contract label, but no exact file overlap and lane/risk profile is not a low-risk adjacent batch.",
@@ -1191,6 +1504,7 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
                 f"- Lanes: `{json.dumps(batch['lanes'])}`",
                 f"- Lean/core risk: `{json.dumps(batch['risks'])}`",
                 f"- Confidence: `{batch['confidence']}`",
+                f"- What this is about: {batch.get('intent', 'Shared PR sequencing.')}",
                 f"- Why together: {batch['reason']}",
                 f"- Operator action: {batch['action']}",
                 f"- Shared files: {_compact_file_list(batch['shared_files'], limit=8)}",
@@ -1214,9 +1528,12 @@ def _text_report(report: dict[str, Any]) -> str:
         lines.append(f"Issue linkage: {', '.join('#' + item for item in pr['closed_issues'])}")
     if pr.get("summary"):
         lines.append(f"Summary: {pr['summary']}")
+    lines.append(f"What this is about: {report['what_this_is_about']}")
     lines.append(f"Current CI Status Gate: {report['current_ci_status_gate']}")
     lines.append(f"Contract set: {report['contract_set']}")
     lines.append(f"Duplicate group: {report['duplicate_group'] or 'none'}")
+    if report.get("canonical_selection_rationale"):
+        lines.append(f"Canonical selection rationale: {report['canonical_selection_rationale']}")
     lines.append(f"Author group: {report['author_group']}")
     lines.append(f"Recommended lane: {report['decision']['lane']}")
     lines.append(f"Decision rationale: {report['decision']['rationale']}")
@@ -1334,20 +1651,27 @@ def _apply_batch_context(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
         right["exact_file_overlap"].append(
             OrderedDict(other_pr=left["pr"]["number"], shared_files=shared)
         )
-        same_file_set = set(left["changed_files"]) == set(right["changed_files"])
         same_head = left["pr"]["head_sha"] == right["pr"]["head_sha"]
-        if same_file_set or same_head:
-            signature_source = (
-                left["pr"]["head_sha"]
-                if same_head
-                else "\n".join(sorted(set(left["changed_files"])))
-            )
+        semantic_group = _semantic_duplicate_group(left, right, shared)
+        if same_head or semantic_group:
+            signature_source = left["pr"]["head_sha"] if same_head else semantic_group
             duplicate_signature = hashlib.sha1(signature_source.encode("utf-8")).hexdigest()[:10]
-            duplicate_group = f"exact-duplicate:{duplicate_signature}"
+            duplicate_group = (
+                f"exact-duplicate:{duplicate_signature}"
+                if same_head
+                else f"{semantic_group}:{duplicate_signature}"
+            )
             if not left.get("duplicate_group"):
                 left["duplicate_group"] = duplicate_group
             if not right.get("duplicate_group"):
                 right["duplicate_group"] = duplicate_group
+        elif set(left["changed_files"]) == set(right["changed_files"]):
+            left["concept_overlap"].append(
+                f"shared_file_sequence with #{right['pr']['number']}: same files, different head; manual diff review required before calling this duplicate"
+            )
+            right["concept_overlap"].append(
+                f"shared_file_sequence with #{left['pr']['number']}: same files, different head; manual diff review required before calling this duplicate"
+            )
 
     duplicate_groups: dict[str, list[dict[str, Any]]] = {}
     for report in reports:
@@ -1359,18 +1683,23 @@ def _apply_batch_context(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for group, grouped_reports in duplicate_groups.items():
         if len(grouped_reports) < 2:
             continue
-        group_label = "exact duplicate" if group.startswith("exact-duplicate:") else group
-        preferred = min(
+        group_label = (
+            "exact duplicate"
+            if group.startswith("exact-duplicate:")
+            else "semantic duplicate"
+            if group.startswith("semantic-duplicate:")
+            else group
+        )
+        preferred = max(
             grouped_reports,
-            key=lambda item: (
-                item["pr"]["additions"] + item["pr"]["deletions"],
-                item["pr"]["number"],
-            ),
+            key=lambda item: _duplicate_preference_key(item, group),
         )
         preferred_number = preferred["pr"]["number"]
+        rationale = _canonical_selection_rationale(group, preferred)
         for report in grouped_reports:
+            report["canonical_selection_rationale"] = rationale
             report["concept_overlap"].append(
-                f"{group_label}: preferred canonical candidate is #{preferred_number}"
+                f"{group_label}: preferred canonical candidate is #{preferred_number} ({rationale})"
             )
             if report["pr"]["number"] == preferred_number:
                 continue
@@ -1467,6 +1796,11 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
     lines.append(
         f"Batch PR review: {', '.join('#' + str(pr) for pr in batch['prs'])}"
     )
+    if batch.get("operator_batches"):
+        lines.append(
+            "What this batch is about: "
+            + str(batch["operator_batches"][0].get("intent", "Shared PR sequencing."))
+        )
     lines.append(f"Lane counts: {json.dumps(batch['lane_counts'], sort_keys=True)}")
     lines.append(f"Surface counts: {json.dumps(batch['surface_counts'], sort_keys=True)}")
     lines.append(f"Root counts: {json.dumps(batch['root_counts'], sort_keys=True)}")
@@ -1776,7 +2110,16 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         ),
         changed_files=files,
         contract_set=contract_set,
+        what_this_is_about=_what_this_is_about(
+            pr_view["title"],
+            _extract_summary(pr_view.get("body")),
+            files,
+            patch_map,
+            contract_set,
+        ),
         duplicate_group=_duplicate_group(contract_set, files),
+        duplicate_selection_factors=_duplicate_selection_factors(contract_set, files, patch_map),
+        canonical_selection_rationale=None,
         author_group=_author_group(pr_view.get("author", {}).get("login")),
         exact_file_overlap=[],
         concept_overlap=[],

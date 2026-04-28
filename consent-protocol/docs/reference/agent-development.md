@@ -390,7 +390,7 @@ app.include_router(my_agent_router)
 
 ```python
 # hushh_mcp/agents/orchestrator/tools.py
-@hushh_tool(scope="vault.owner", name="delegate_to_my_agent")
+@hushh_tool(scope="agent.one.orchestrate", name="delegate_to_my_agent")
 async def delegate_to_my_agent(query: str) -> dict:
     """Delegate to MyDomain agent."""
     # ... forward to MyDomainAgent
@@ -402,8 +402,10 @@ async def delegate_to_my_agent(query: str) -> dict:
 
 | Agent               | Directory                    | Scopes                          | Tools                            |
 | ------------------- | ---------------------------- | ------------------------------- | -------------------------------- |
-| OrchestratorAgent   | `agents/orchestrator/`       | `vault.owner`                   | `delegate_to_kai`                |
-| KaiAgent            | `agents/kai/`                | `attr.financial.*`              | `perform_fundamental_analysis`, `perform_sentiment_analysis`, `perform_valuation_analysis` |
+| OneAgent            | `agents/one/` and legacy `agents/orchestrator/` | `agent.one.orchestrate` | delegate to Kai, Nav, and KYC |
+| KaiAgent            | `agents/kai/`                | `agent.kai.analyze`             | `perform_fundamental_analysis`, `perform_sentiment_analysis`, `perform_valuation_analysis` |
+| NavAgent            | `agents/nav/`                | `agent.nav.review`              | scope review, vault/deletion/revocation guidance |
+| KycAgent            | `agents/kyc/`                | `agent.kyc.process`             | identity workflow state, approval-gated drafts, structured PKM writeback |
 | PortfolioImportAgent| (inline in `kai/portfolio.py`)| `vault.owner`                  | File parsing + LLM fallback      |
 
 ---
@@ -439,13 +441,14 @@ icon: string                  # Optional UI icon
 
 ## A2A Communication
 
-Agent-to-agent communication uses the `KaiA2AServer` pattern:
+Agent-to-agent communication uses the shared A2A delegation pattern:
 
 - Consent tokens are passed in HTTP headers
 - Agent cards describe capabilities (manifest-based)
 - Delegation uses `@hushh_tool` wrappers
+- Specialist entry points validate the least-privilege specialist scope instead of defaulting to `vault.owner`
 
-See the Kai agent for the reference implementation.
+See `hushh_mcp/adk_bridge/delegation.py` and the Kai agent for the reference implementation.
 
 ### ADK/A2A Compliance Verification
 
@@ -457,7 +460,7 @@ python scripts/verify_adk_a2a_compliance.py
 
 The verifier checks:
 - `X-Consent-Token` enforcement in A2A entry points.
-- Token validation using `ConsentScope.VAULT_OWNER`.
+- Token validation using the specialist scope map, for example `agent.kai.analyze` for Kai A2A.
 - Google A2A compatibility flag and route wiring.
 - Required agent -> operon data-source calls for fundamental/sentiment/valuation paths.
 
