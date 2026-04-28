@@ -47,6 +47,10 @@ Use this reference after the initial scan to choose the correct owner skill firs
 3. `quality-contracts`
 4. `streaming-contracts`
 
+### `repo-operations`
+
+1. `github-contribution-governance`
+
 ## Canonical workflow packs
 
 1. `repo-orientation`
@@ -67,3 +71,4 @@ Use this reference after the initial scan to choose the correct owner skill firs
 16. `oss-license-governance`
 17. `contributor-onboarding`
 18. `subtree-upstream-governance`
+19. `github-contribution-governance`
