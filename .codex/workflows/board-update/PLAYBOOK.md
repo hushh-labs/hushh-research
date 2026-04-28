@@ -4,7 +4,7 @@ Use this workflow pack when the task matches `board-update`.
 
 ## Goal
 
-Summarize, create, or update Hushh Engineering Core board items with consistent project metadata.
+Summarize, create, or update Hussh Engineering Core board items with consistent project metadata.
 
 ## Steps
 

@@ -21,6 +21,8 @@
   "required_reads": [
     "README.md",
     "docs/reference/operations/ci.md",
+    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/reference/architecture/api-contracts.md",
     ".codex/skills/repo-operations/SKILL.md",
     ".codex/skills/quality-contracts/SKILL.md",
     ".codex/skills/pr-governance-review/references/review-axes.md"
@@ -28,6 +30,9 @@
   "required_commands": [
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text",
     "./bin/hushh codex audit --text",
     "./bin/hushh docs verify"
   ],
@@ -37,11 +42,16 @@
       "commands": [
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"
       ],
       "tests": [
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"
       ]
@@ -65,8 +75,12 @@
   ],
   "risk_tags": [
     "north-star-drift",
+    "lean-core-bloat-risk",
     "trust-boundary-regression",
     "merge-readiness-false-positive",
-    "malicious-degradation-risk"
+    "malicious-degradation-risk",
+    "founder-copy-drift",
+    "one-kai-nav-role-blur",
+    "future-state-overclaim"
   ]
 }

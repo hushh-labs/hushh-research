@@ -29,8 +29,16 @@ KAI_AUTH_EXPECTATIONS = [
         '@router.post("/portfolio/analyze-losers/stream"',
         "require_vault_owner_token",
     ),
-    ("api/routes/kai/stream.py", '@router.get("/analyze/stream"', "validate_token"),
-    ("api/routes/kai/stream.py", '@router.post("/analyze/stream"', "validate_token"),
+    (
+        "api/routes/kai/stream.py",
+        '@router.get("/analyze/stream"',
+        "validate_token_with_db",
+    ),
+    (
+        "api/routes/kai/stream.py",
+        '@router.post("/analyze/stream"',
+        "validate_token_with_db",
+    ),
     ("api/routes/kai/chat.py", '@router.post("/chat"', "require_vault_owner_token"),
     (
         "api/routes/kai/chat.py",

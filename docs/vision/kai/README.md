@@ -1,4 +1,4 @@
-# Agent Kai — Your Explainable Investing Copilot
+# Kai — Finance Specialist Under One
 
 > **Decide like a committee, carry it in your pocket.**
 
@@ -7,12 +7,22 @@
 
 ```mermaid
 flowchart TD
-  root["Agent Kai — Your Explainable Investing Copilot"]
+  one["One<br/>top personal agent"]
+  root["Kai<br/>finance specialist"]
   n1["North-star assistant thesis"]
+  one --> root
   root --> n1
 ```
 
+Kai is the finance specialist that One summons for portfolio, market, investment debate, RIA, and decision-receipt work. Kai is not the platform-level identity for Hussh and does not own consent, vault, deletion, or privacy-policy authority.
+
 Forward-looking Kai roadmap and R&D planning now belong under [../../future/kai/README.md](../../future/kai/README.md). `docs/vision/kai/` stays north-star oriented; speculative execution-model docs should not start here.
+
+Current implementation note:
+
+- This vision document is not the source of truth for the shipped Kai runtime.
+- For the live Kai voice/runtime architecture, use [../../reference/kai/kai-voice-runtime-architecture.md](../../reference/kai/kai-voice-runtime-architecture.md).
+- For on-device AI status, use [../../reference/ai/on-device-future-plan/README.md](../../reference/ai/on-device-future-plan/README.md); cloud remains the current primary runtime path.
 
 ---
 
@@ -20,12 +30,6 @@ Forward-looking Kai roadmap and R&D planning now belong under [../../future/kai/
   <img src="https://img.shields.io/badge/Agent-Kai-blueviolet?style=for-the-badge" alt="Agent Kai"/>
   <img src="https://img.shields.io/badge/Target-UHNW_Investors-gold?style=for-the-badge" alt="UHNW"/>
   <img src="https://img.shields.io/badge/Status-PRIMARY_FOCUS-success?style=for-the-badge" alt="Primary"/>
-</p>
-
-<p align="center">
-  <em>Dedicated to Steve Jobs</em><br/>
-  <em>Inspired by Jensen Huang and the opportunities AI as a technology will create for everyone</em><br/>
-  <strong>Stay Curious • Stay Hungry • Stay Foolish • Stay Healthy • Stay Happy</strong>
 </p>
 
 ---
@@ -41,14 +45,14 @@ Specific operating-entity legal details are maintained outside this technical do
 
 ### Educational Tool Disclaimer
 
-Agent Kai is provided as an **educational and informational tool**. It is NOT part of Hushh Technology Fund L.P.'s investment advisory or fund management services.
+Agent Kai is provided as an **educational and informational tool**. It is NOT part of `Hushh Technology Fund L.P.`'s investment advisory or fund management services.
 
 **The information provided by Kai:**
 
 - Is for informational and educational purposes only
 - Does NOT constitute investment advice, recommendations, or offers to buy/sell securities
 - Should NOT be relied upon for making investment decisions
-- Is NOT a solicitation for Hushh Technology Fund L.P. or any investment product
+- Is NOT a solicitation for `Hushh Technology Fund L.P.` or any investment product
 
 ### Regulatory Status
 
@@ -56,7 +60,7 @@ Agent Kai is provided as an **educational and informational tool**. It is NOT pa
 | ------------------------------ | ---------------------------------------------------- |
 | **Agent Kai**                  | Educational tool, NOT investment advice              |
 | **Operating Entity**           | Not specified in this repository                     |
-| **Hushh Technology Fund L.P.** | SEC compliant (Reg D, ICA exemptions), Delaware L.P. |
+| **`Hushh Technology Fund L.P.`** | SEC compliant (Reg D, ICA exemptions), Delaware L.P. |
 
 Agent Kai's operating entity is NOT registered with the SEC or any state securities regulatory authority as an investment adviser.
 
@@ -66,7 +70,7 @@ Agent Kai's operating entity is NOT registered with the SEC or any state securit
 
 ## 🎯 Executive Summary
 
-**Kai** brings an investment committee in silicon to every iPhone. On any stock or ETF, three specialist agents analyze, debate, and deliver a **Buy/Hold/Reduce decision with receipts**: sources, math, dissent, and risk-persona fit.
+**Kai** is the Hussh finance specialist under One. On finance questions, Kai can analyze, debate, and deliver a **Buy/Hold/Reduce decision with receipts**: sources, math, dissent, and risk-persona fit.
 
 This is a faithful consumer translation of the **AlphaAgents framework**:
 
@@ -76,30 +80,26 @@ This is a faithful consumer translation of the **AlphaAgents framework**:
 - Risk personas
 - Complete observability
 
-**Now with On-Device AI**: Kai runs locally on your device using MLX (iOS) or Gemma (Android), ensuring your investment analysis never leaves your phone.
+Current implementation note: the checked-in runtime is cloud-primary. On-device and hybrid execution remain future-state planning unless a linked current-state reference proves otherwise.
 
 ---
 
-## 🧠 The Hushh Philosophy (Why Kai Exists)
+## 🧠 The Hussh Philosophy (Why Kai Exists)
 
-> _"Hushh is not Jarvis. Hushh is not Batman or Batwoman either."_
+### What Hussh IS
 
-### What Hushh IS
+**Hussh is the platform. One is the personal agent. Kai is the finance specialist.**
 
-**Hushh is your Personal Agent (PA)** — a _fiduciary intelligence_.
-
-An agent that:
+The agent layer:
 
 - Acts **on your behalf**
 - Is **bound by consent**
 - Treats your data as **your private capital**
 - Optimizes outcomes across **your life**, not just tasks
 
-> _"Hushh is the agent you would hire if your data were your business."_
-
 ### The Kai Promise
 
-Kai embodies this philosophy for investing:
+Kai embodies the finance part of this philosophy:
 
 | Traditional Finance AI    | Agent Kai                      |
 | ------------------------- | ------------------------------ |
@@ -108,15 +108,15 @@ Kai embodies this philosophy for investing:
 | One-size-fits-all         | Risk-persona aligned           |
 | No explanation            | Complete audit trail           |
 | Serves the institution    | **Serves only you**            |
-| Requires cloud            | **Runs on your device**        |
+| Requires cloud            | **Can graduate toward on-device execution where supported** |
 
 ---
 
-## 📱 On-Device AI & Hybrid Mode
+## 📱 On-Device AI & Hybrid Mode Direction
 
-Kai operates in two modes depending on user preference and device capabilities:
+Kai's long-term direction supports two modes depending on user preference and device capabilities. Current implementation remains cloud-primary unless a linked current-state reference proves a specific on-device path.
 
-### Mode 1: Fully On-Device (Privacy-First)
+### Mode 1: Future Target — Fully On-Device (Privacy-First)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -157,7 +157,7 @@ Kai operates in two modes depending on user preference and device capabilities:
 
 **When to use**: Maximum privacy, offline scenarios, general analysis.
 
-### Mode 2: Hybrid (Full Featured)
+### Mode 2: Future Target — Hybrid (Full Featured)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -387,7 +387,7 @@ The culmination of the debate process is a comprehensive **Decision Card** that 
 │                                                                           │
 │  • This is NOT investment advice                                         │
 │  • Agent Kai operators are NOT a registered investment adviser           │
-│  • Agent Kai is NOT part of Hushh Technology Fund L.P.'s services       │
+│  • Agent Kai is NOT part of `Hushh Technology Fund L.P.`'s services       │
 │  • Past performance does not guarantee future results                    │
 │  • You may lose money; there is no assurance of profit                  │
 │  • Always consult a licensed financial advisor before investing         │
@@ -411,9 +411,9 @@ Kai personalizes recommendations based on user risk profiles:
 
 ---
 
-## 🔐 Consent Integration with Hushh Protocol
+## 🔐 Consent Integration with Hussh Protocol
 
-Agent Kai operates under the Hushh Consent Protocol:
+Agent Kai operates under the Hussh Consent Protocol:
 
 ### User Onboarding Experience
 
@@ -530,15 +530,15 @@ class KaiConsentScope:
 
 ### Entity Structure
 
-Agent Kai is developed through a collaboration between entities in the Hushh ecosystem:
+Agent Kai is developed through a collaboration between entities in the Hussh ecosystem:
 
 | Entity                         | Role in Agent Kai                 | Regulatory Status                    |
 | ------------------------------ | --------------------------------- | ------------------------------------ |
 | **Agent Kai Operators**        | Develops and operates Agent Kai   | Not represented as licensed adviser in this repository |
-| **Hushh Technology Fund L.P.** | Related entity in Hushh ecosystem | SEC compliant (Reg D), Delaware L.P. |
+| **`Hushh Technology Fund L.P.`** | Related entity in Hussh ecosystem | SEC compliant (Reg D), Delaware L.P. |
 
 > [!IMPORTANT]
-> Agent Kai is NOT part of Hushh Technology Fund L.P.'s investment services. The fund's SEC registration relates to its own fund operations, not to Agent Kai.
+> Agent Kai is NOT part of `Hushh Technology Fund L.P.`'s investment services. The fund's SEC registration relates to its own fund operations, not to Agent Kai.
 
 ### SEC Considerations
 
@@ -549,7 +549,7 @@ Agent Kai is developed through a collaboration between entities in the Hushh eco
 | **Suitability**                    | Risk personas are user-selected, not Kai-determined |
 | **Disclosure**                     | Every decision card includes required disclaimers   |
 | **Audit Trail**                    | Complete debate history available for review        |
-| **Not a Solicitation**             | Kai does NOT solicit for Hushh Technology Fund L.P. |
+| **Not a Solicitation**             | Kai does NOT solicit for `Hushh Technology Fund L.P.` |
 
 ### FINRA Compliance Alignment
 
@@ -648,7 +648,9 @@ MLX (iOS) and Gemma (Android) now enable powerful LLM inference directly on mobi
 
 ---
 
-## 🏗️ Technical Architecture
+## 🏗️ Target Technical Architecture
+
+The diagrams below describe the Kai vision target. Treat on-device inference, offline decision review, and fully local processing lanes as future-state unless a current implementation reference explicitly proves the shipped surface.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -671,7 +673,7 @@ MLX (iOS) and Gemma (Android) now enable powerful LLM inference directly on mobi
 │   └──────────────────────────────────────────────────────────────────┘   │
 │                                    │                                      │
 │                        ┌───────────▼───────────┐                         │
-│                        │   Hushh Consent       │                         │
+│                        │   Hussh Consent       │                         │
 │                        │   Protocol Layer      │                         │
 │                        └───────────┬───────────┘                         │
 │                                    │                                      │

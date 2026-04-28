@@ -1,6 +1,6 @@
 # consent-protocol/server.py
 """
-FastAPI Server for Hushh Consent Protocol Agents
+FastAPI Server for Hussh Consent Protocol Agents
 
 Modular architecture with routes organized in api/routes/ directory.
 Run with: uvicorn server:app --reload --port 8000
@@ -109,8 +109,8 @@ from db.db_client import DatabaseExecutionError  # noqa: E402
 root_path = os.environ.get("ROOT_PATH", "")
 
 app = FastAPI(
-    title="Hushh Consent Protocol API - DIAGNOSTICS",
-    description="Agent endpoints for the Hushh Personal Data Agent system",
+    title="Hussh Consent Protocol API - DIAGNOSTICS",
+    description="Agent endpoints for the Hussh Personal Data Agent system",
     version="1.0.0",
     root_path=root_path,
 )
@@ -291,7 +291,7 @@ app.include_router(invites.router)
 logger.info("ria.routes_enabled")
 
 logger.info(
-    "🚀 Hushh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
+    "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
 )
 
 

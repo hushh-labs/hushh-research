@@ -65,6 +65,7 @@ import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { getTickerUniverseSnapshot, preloadTickerUniverse } from "@/lib/kai/ticker-universe-cache";
+import { trackEvent } from "@/lib/observability/client";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -415,6 +416,7 @@ export function DashboardMasterView({
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const setLosersInput = useKaiSession((s) => s.setLosersInput);
   const baselineBySourceRef = useRef<Map<string, ComparableHolding>>(new Map());
+  const portfolioViewedKeyRef = useRef<string | null>(null);
   const {
     isLoading: isSourcesLoading,
     error: sourcesError,
@@ -478,6 +480,27 @@ export function DashboardMasterView({
   const isPlaidView = activeSource === "plaid";
   const hasPlaidConnections = (plaidStatus?.aggregate?.item_count || 0) > 0;
   const plaidConfigured = plaidStatus?.configured ?? true;
+
+  useEffect(() => {
+    const holdingsCount = displayedPortfolio?.holdings?.length || 0;
+    if (holdingsCount <= 0) return;
+
+    const viewedKey = `${activeSource}:${holdingsCount}`;
+    if (portfolioViewedKeyRef.current === viewedKey) return;
+    portfolioViewedKeyRef.current = viewedKey;
+
+    trackEvent(
+      "portfolio_viewed",
+      {
+        result: "success",
+        portfolio_source: activeSource,
+      },
+      {
+        dedupeKey: `feature:portfolio_viewed:${viewedKey}`,
+        dedupeWindowMs: 5_000,
+      }
+    );
+  }, [activeSource, displayedPortfolio]);
 
   useEffect(() => {
     const sourceHoldings = (statementEditablePortfolio?.holdings || []) as PortfolioHolding[];
@@ -2131,7 +2154,7 @@ export function DashboardMasterView({
         voiceAliases: ["optimize portfolio", "open optimize"],
       },
       {
-        id: "nav.investments",
+        id: "route.kai_investments",
         label: "View investments",
         purpose: "Opens the investments workspace for the current portfolio source.",
         voiceAliases: ["view investments", "open investments"],
@@ -2192,7 +2215,7 @@ export function DashboardMasterView({
         id: "view_investments",
         label: "View investments",
         purpose: "Opens the investments workspace from portfolio.",
-        actionId: "nav.investments",
+        actionId: "route.kai_investments",
         role: "button",
         voiceAliases: ["view investments", "open investments"],
       },

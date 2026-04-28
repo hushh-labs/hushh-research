@@ -51,6 +51,12 @@ flowchart TB
 
 Single source map for how Kai surfaces are connected across routes, service layer, cache, PKM, providers, and mobile parity paths.
 
+Founder-language lens:
+
+- this map is one slice of the platform's `Separation of Duties`
+- Kai route surfaces consume `Capability Tokens` and encrypted PKM rather than owning an independent trust model
+- developer and delegated access flows join this same map through `PCHP` and `TrustLink / A2A delegation`, not through a separate Kai-only authority plane
+
 ## Core Flows
 
 ### 1) Onboarding/Profile -> `financial.profile`

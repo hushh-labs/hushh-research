@@ -347,7 +347,7 @@ function ConsentEntryRow({
             </Badge>
           </div>
           <p className="truncate text-xs text-muted-foreground">
-            {entry.counterpart_email || entry.counterpart_secondary_label || "Hushh connection"}
+            {entry.counterpart_email || entry.counterpart_secondary_label || "Hussh connection"}
           </p>
         </div>
       </div>

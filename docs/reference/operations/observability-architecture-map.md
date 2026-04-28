@@ -18,7 +18,7 @@ flowchart LR
   subgraph reporting["Reporting Plane"]
     bqprod["BigQuery Export<br/>analytics_526603671"]
     bquat["BigQuery Export<br/>analytics_533362555"]
-    dashboard["Modeled Growth Dashboard<br/>Prod canonical"]
+    dashboard["Looker Studio Dashboard<br/>approved BigQuery views"]
   end
 
   auth --> web
@@ -68,6 +68,7 @@ Rules:
 1. Web tagging must not depend on GTM presence.
 2. Native tagging must use the Firebase-linked app stream.
 3. Dashboards must use modeled queries, not inferred GA cards.
+4. `event_category` is added centrally as `funnel`, `feature`, or `system`.
 
 ## Environment Split
 
@@ -97,6 +98,7 @@ Environment policy:
 1. Production is the only canonical business-reporting surface.
 2. UAT is a validation-only analytics lane.
 3. `HushhVoice` remains on the production property for now, but Kai reporting excludes it.
+4. Current iOS and Android store builds are production-facing; UAT native validation requires TestFlight/internal-track or dev-device debug builds.
 
 ## Identity vs Sink
 
@@ -148,6 +150,13 @@ Supporting observability events exist for:
 4. API request health
 5. consent/account/Gmail operations
 6. RIA status and workspace lifecycle
+
+Governed high-intent feature events:
+
+1. `market_insights_loaded`
+2. `portfolio_viewed`
+3. `recommendation_viewed`
+4. `marketplace_profile_viewed`
 
 See:
 

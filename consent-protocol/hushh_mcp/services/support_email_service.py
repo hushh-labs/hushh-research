@@ -240,7 +240,7 @@ class SupportEmailService:
         cfg = self.config
         msg = EmailMessage()
         msg["To"] = cfg.effective_recipient
-        msg["From"] = f"Hushh Support <{cfg.from_email}>"
+        msg["From"] = f"Hussh Support <{cfg.from_email}>"
         msg["Subject"] = self._build_subject(
             kind=kind,
             subject=subject,

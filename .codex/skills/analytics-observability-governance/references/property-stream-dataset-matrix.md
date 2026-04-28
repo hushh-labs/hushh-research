@@ -32,6 +32,7 @@ GA4 configuration:
   - `workspace_source`
   - `env`
   - `platform`
+  - `event_category`
   - `app_version`
 
 BigQuery:
@@ -56,6 +57,13 @@ Streams:
 | Web | `14383500973` | `G-H1KGXGZTCF` / `1:745506018753:web:9d0c1d3da8767c32778b40` | validation only |
 | Android | `14383555179` | `1:745506018753:android:7d6bed4640373c95778b40` | validation only |
 
+Native UAT release note:
+
+- UAT native streams exist for topology readiness.
+- There are currently no separate iOS or Android UAT app-store builds.
+- Current store-distributed native builds are production analytics surfaces.
+- Native UAT validation requires a future TestFlight/internal-track or dev-device debug build.
+
 GA4 configuration:
 
 - custom key events:
@@ -70,6 +78,7 @@ GA4 configuration:
   - `workspace_source`
   - `env`
   - `platform`
+  - `event_category`
   - `app_version`
 
 BigQuery:

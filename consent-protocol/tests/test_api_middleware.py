@@ -3,8 +3,60 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from fastapi import BackgroundTasks, HTTPException
 
 import api.middleware as middleware
+
+
+@pytest.mark.asyncio
+async def test_require_firebase_auth_rejects_missing_bearer_with_challenge():
+    with pytest.raises(HTTPException) as exc_info:
+        await middleware.require_firebase_auth(BackgroundTasks(), None)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+
+
+@pytest.mark.asyncio
+async def test_require_firebase_auth_rejects_malformed_bearer_with_challenge():
+    with pytest.raises(HTTPException) as exc_info:
+        await middleware.require_firebase_auth(BackgroundTasks(), "raw-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+
+
+@pytest.mark.asyncio
+async def test_require_firebase_auth_schedules_identity_warmup(monkeypatch):
+    calls: list[str] = []
+
+    async def _fake_run_in_threadpool(func, authorization):
+        assert authorization == "Bearer firebase-token"
+        return "firebase-user-123"
+
+    class _FakeActorIdentityService:
+        def schedule_sync_from_firebase(self, firebase_uid: str) -> None:
+            calls.append(firebase_uid)
+
+    monkeypatch.setattr(middleware, "run_in_threadpool", _fake_run_in_threadpool)
+    monkeypatch.setattr(
+        middleware,
+        "ActorIdentityService",
+        lambda: _FakeActorIdentityService(),
+    )
+
+    background_tasks = BackgroundTasks()
+    firebase_uid = await middleware.require_firebase_auth(
+        background_tasks,
+        "Bearer firebase-token",
+    )
+
+    assert firebase_uid == "firebase-user-123"
+    assert calls == []
+
+    await background_tasks()
+
+    assert calls == ["firebase-user-123"]
 
 
 @pytest.mark.asyncio

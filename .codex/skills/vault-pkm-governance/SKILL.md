@@ -3,7 +3,7 @@ name: vault-pkm-governance
 description: Use when changing vault boundaries, PKM storage rules, encrypted data handling, or vault/PKM upgrade behavior inside the security-audit owner family.
 ---
 
-# Hushh Vault PKM Governance Skill
+# Hussh Vault PKM Governance Skill
 
 ## Purpose and Trigger
 
@@ -61,7 +61,7 @@ Non-owned surfaces:
    - cold deep-link entry that must re-establish unlock state
 6. When Playwright is required for a protected-route proof, use:
    - reviewer-mode login
-   - vault unlock with the configured Kai/reviewer passphrase from env
+   - vault unlock with `REVIEWER_VAULT_PASSPHRASE` from a maintainer-only env or secret overlay
    - Next client navigation for same-session validation
 7. Do not treat `page.goto(...)` behavior as equivalent to Next client navigation for vault-protected flows.
 8. Treat PKM manifests as authoritative truth when present; `pkm_index` is a discovery cache that may need repair.

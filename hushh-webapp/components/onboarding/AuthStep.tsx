@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getRedirectResult } from "firebase/auth";
-import { Phone, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { auth } from "@/lib/firebase/config";
@@ -83,7 +83,7 @@ export function AuthStep({
   }, []);
 
   const resolveAndNavigate = useCallback(
-    async (userId: string, idToken?: string) => {
+    async (userId: string, idToken?: string, phoneNumber?: string | null) => {
       const navigationKey = `${userId}:${redirectPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return;
@@ -103,6 +103,7 @@ export function AuthStep({
           userId,
           redirectPath,
           idToken: resolvedIdToken,
+          phoneNumber,
         });
 
         const resumeImportFlow =
@@ -180,7 +181,11 @@ export function AuthStep({
           }
           debugLog("[AuthStep] Redirect result found, navigating to:", redirectPath);
           setNativeUser(result.user);
-          void resolveAndNavigate(result.user.uid, await result.user.getIdToken());
+          void resolveAndNavigate(
+            result.user.uid,
+            await result.user.getIdToken(),
+            result.user.phoneNumber
+          );
         }
       })
       .catch((err) => {
@@ -188,22 +193,18 @@ export function AuthStep({
       });
 
     if (user) {
-      trackEvent("auth_succeeded", {
-        action: "redirect",
-        result: "success",
-      });
       if (growthJourney) {
         trackGrowthFunnelStepCompleted({
           journey: growthJourney,
           step: "auth_completed",
           entrySurface: growthEntrySurface,
-          authMethod: "redirect",
-          dedupeKey: `growth:${growthJourney}:auth_completed:redirect`,
+          authMethod: "existing_session",
+          dedupeKey: `growth:${growthJourney}:auth_completed:existing_session`,
           dedupeWindowMs: 5_000,
         });
       }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
-      void resolveAndNavigate(user.uid, undefined);
+      void resolveAndNavigate(user.uid, undefined, user.phoneNumber);
     }
   }, [
     redirectPath,
@@ -278,7 +279,11 @@ export function AuthStep({
           });
         }
         setNativeUser(authenticatedUser);
-        await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
+        await resolveAndNavigate(
+          authenticatedUser.uid,
+          await authenticatedUser.getIdToken(),
+          authenticatedUser.phoneNumber
+        );
       } else {
         trackEvent("auth_failed", {
           action: "reviewer",
@@ -386,7 +391,11 @@ export function AuthStep({
           });
         }
         setNativeUser(authenticatedUser);
-        await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
+        await resolveAndNavigate(
+          authenticatedUser.uid,
+          await authenticatedUser.getIdToken(),
+          authenticatedUser.phoneNumber
+        );
       } else {
         debugError("[AuthStep] No user returned from signInWithGoogle");
         trackEvent("auth_failed", {
@@ -434,7 +443,11 @@ export function AuthStep({
           });
         }
         setNativeUser(authenticatedUser);
-        await resolveAndNavigate(authenticatedUser.uid, await authenticatedUser.getIdToken());
+        await resolveAndNavigate(
+          authenticatedUser.uid,
+          await authenticatedUser.getIdToken(),
+          authenticatedUser.phoneNumber
+        );
       } else {
         debugError("[AuthStep] No user returned from signInWithApple");
         trackEvent("auth_failed", {
@@ -556,14 +569,8 @@ export function AuthStep({
               />
             ))}
 
-            <AuthProviderButton
-              label="Continue with Phone Number"
-              icon={<Icon icon={Phone} size="md" className="text-[var(--morphy-primary-start)]" />}
-              disabled
-            />
-
             <p className="pt-1 text-center text-xs text-muted-foreground">
-              Phone sign-in is coming soon.
+              After sign-in, Kai requires a verified phone number before you continue.
             </p>
 
             {(reviewModeConfig.enabled || nativeReviewerVisible) && (

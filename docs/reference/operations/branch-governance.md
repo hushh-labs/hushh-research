@@ -35,6 +35,18 @@ This repo now runs on one integration branch plus SHA-based environment deployme
 8. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
 9. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
+## Codex Branch Preservation Gate
+
+Coding agents must run this gate before CI, deploy, PR, hotfix, or validation work:
+
+1. Inspect and preserve the current developer branch before edits, branch switches, merges, or deploy operations.
+2. Keep incremental fixes on the preserved developer branch when the current worktree can safely carry them.
+3. Do not create temporary branches for routine follow-up work, UAT validation fixes, PR polish, or local hardening.
+4. Use a temporary branch only when branch isolation is explicitly requested, an isolated `main` hotfix is required, or unrelated in-flight work makes the preserved branch unsafe for the fix.
+5. If a temporary branch is used, delete it locally and remotely after merge and rollout validation when safe, then switch back to the preserved developer branch.
+6. If a fix lands on `main`, merge or rebase the landed `origin/main` commits into the preserved developer branch before handoff.
+7. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration.
+
 ## Branch Types and Retention
 
 | Branch type | Naming pattern | Retention |
@@ -72,11 +84,14 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ## Hotfix Playbook
 
-1. Create the hotfix branch from the latest `main`.
-2. Merge the hotfix into `main`.
-3. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
-4. If another blocker appears after that rollout, create a new hotfix branch from the updated `main`.
-5. Do not reuse an already-merged hotfix branch for a second fix.
+1. Preserve the active developer branch before switching away.
+2. Create the hotfix branch from the latest `main` only when an isolated hotfix is materially required.
+3. Merge the hotfix into `main`.
+4. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
+5. Delete the hotfix branch locally and remotely after merge and rollout validation when safe.
+6. Switch back to the preserved developer branch and merge or rebase the landed `origin/main` commits into it.
+7. If another blocker appears after that rollout, create a new hotfix branch from the updated `main` only when the same isolation criteria still applies.
+8. Do not reuse an already-merged hotfix branch for a second fix.
 
 ## GitHub Admin Checklist
 

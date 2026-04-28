@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "backend",
   "primary_scope": "mcp-developer-surface",
-  "description": "Use when changing the Hushh MCP developer surface, @hushh/mcp package behavior, developer API docs, or MCP setup guidance.",
+  "description": "Use when changing the Hussh MCP developer surface, @hushh/mcp package behavior, developer API docs, or MCP setup guidance.",
   "owned_paths": [
     "packages/hushh-mcp",
     "consent-protocol/docs/mcp-setup.md",

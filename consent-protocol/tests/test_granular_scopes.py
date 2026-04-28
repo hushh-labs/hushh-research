@@ -82,6 +82,7 @@ class TestStaticScopes:
 
         assert ConsentScope.AGENT_KAI_ANALYZE in agent_scopes
         assert ConsentScope.AGENT_KAI_CHAT in agent_scopes
+        assert ConsentScope.AGENT_KAI_EXECUTE in agent_scopes
 
     def test_external_scopes(self):
         """Test external_scopes() returns correct scopes."""

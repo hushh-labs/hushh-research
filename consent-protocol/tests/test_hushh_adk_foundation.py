@@ -6,8 +6,11 @@ Tests HushhContext, hushh_tool, and HushhAgent basics.
 # Adjust path to find hushh_mcp
 import os
 import sys
+import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 sys.path.append(os.getcwd())
 
@@ -85,6 +88,81 @@ class TestHushhAdkFoundation(unittest.TestCase):
             naked_tool()
 
         print("✅ PermissionError raised for missing context")
+
+
+@pytest.mark.asyncio
+async def test_async_hushh_tool_uses_db_backed_validation():
+    """
+    Async @hushh_tool decorated functions must use validate_token_with_db.
+    This proves cross-instance revocation is enforced for async agent tools.
+    """
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.constants import ConsentScope
+
+    token_obj = issue_token("user_adk_test", "agent_test", ConsentScope.VAULT_OWNER)
+
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(return_value=True)
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    @hushh_tool(scope="vault.owner")
+    async def dummy_async_tool():
+        return "executed"
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        with HushhContext(user_id="user_adk_test", consent_token=token_obj.token):
+            result = await dummy_async_tool()
+
+    assert result == "executed"
+    mock_service_instance.is_token_active.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_async_hushh_tool_rejects_db_revoked_token():
+    """
+    Async @hushh_tool must reject a token that is revoked in DB
+    but not in local memory — proving cross-instance revocation works.
+    """
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.constants import ConsentScope
+
+    token_obj = issue_token("user_adk_test2", "agent_test", ConsentScope.VAULT_OWNER)
+
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(return_value=False)
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    @hushh_tool(scope="vault.owner")
+    async def dummy_async_tool():
+        return "should_not_execute"
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        with patch.dict(os.environ, {"TESTING": "false"}, clear=False):
+            with HushhContext(user_id="user_adk_test2", consent_token=token_obj.token):
+                with pytest.raises(PermissionError):
+                    await dummy_async_tool()
+
+
+def test_sync_hushh_tool_still_works():
+    """
+    Sync @hushh_tool decorated functions must still work correctly.
+    They use memory-only validation (cannot await) but must not break.
+    """
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.constants import ConsentScope
+
+    token_obj = issue_token("user_sync_test", "agent_test", ConsentScope.VAULT_OWNER)
+
+    @hushh_tool(scope="vault.owner")
+    def dummy_sync_tool():
+        return "sync_executed"
+
+    with HushhContext(user_id="user_sync_test", consent_token=token_obj.token):
+        result = dummy_sync_tool()
+
+    assert result == "sync_executed"
 
 
 if __name__ == "__main__":

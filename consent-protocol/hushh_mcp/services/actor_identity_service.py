@@ -103,8 +103,10 @@ class ActorIdentityService:
                   ap.user_id,
                   COALESCE(mpp.display_name, rp.display_name, ap.user_id) AS display_name,
                   NULL::TEXT AS email,
+                  NULL::TEXT AS phone_number,
                   NULL::TEXT AS photo_url,
                   FALSE AS email_verified,
+                  FALSE AS phone_verified,
                   'legacy_fallback'::TEXT AS source,
                   NOW() AS last_synced_at,
                   NOW() AS created_at,
@@ -124,6 +126,36 @@ class ActorIdentityService:
             if str(row.get("user_id") or "").strip()
         }
 
+    async def _get_many_without_phone_shadow(
+        self, user_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                  user_id,
+                  display_name,
+                  email,
+                  NULL::TEXT AS phone_number,
+                  photo_url,
+                  email_verified,
+                  FALSE AS phone_verified,
+                  source,
+                  last_synced_at,
+                  created_at,
+                  updated_at
+                FROM actor_identity_cache
+                WHERE user_id = ANY($1::text[])
+                """,
+                user_ids,
+            )
+        return {
+            str(row["user_id"]): self._normalize_row(row)
+            for row in rows
+            if str(row.get("user_id") or "").strip()
+        }
+
     @staticmethod
     def _normalize_row(row: Any) -> dict[str, Any]:
         if not row:
@@ -133,8 +165,10 @@ class ActorIdentityService:
             "user_id": str(payload.get("user_id") or "").strip(),
             "display_name": str(payload.get("display_name") or "").strip() or None,
             "email": str(payload.get("email") or "").strip() or None,
+            "phone_number": str(payload.get("phone_number") or "").strip() or None,
             "photo_url": str(payload.get("photo_url") or "").strip() or None,
             "email_verified": bool(payload.get("email_verified")),
+            "phone_verified": bool(payload.get("phone_verified")),
             "source": str(payload.get("source") or "").strip() or "unknown",
             "last_synced_at": payload.get("last_synced_at"),
             "created_at": payload.get("created_at"),
@@ -174,8 +208,10 @@ class ActorIdentityService:
                       user_id,
                       display_name,
                       email,
+                      phone_number,
                       photo_url,
                       email_verified,
+                      phone_verified,
                       source,
                       last_synced_at,
                       created_at,
@@ -188,6 +224,11 @@ class ActorIdentityService:
         except asyncpg.UndefinedTableError:
             logger.debug("actor_identity_cache missing; using legacy identity fallback")
             return await self._get_many_fallback(normalized_ids)
+        except asyncpg.UndefinedColumnError as exc:
+            if "phone_number" not in str(exc) and "phone_verified" not in str(exc):
+                raise
+            logger.debug("actor_identity_cache phone shadow missing; using pre-047 projection")
+            return await self._get_many_without_phone_shadow(normalized_ids)
         return {
             str(row["user_id"]): self._normalize_row(row)
             for row in rows
@@ -200,8 +241,10 @@ class ActorIdentityService:
         user_id: str,
         display_name: str | None = None,
         email: str | None = None,
+        phone_number: str | None = None,
         photo_url: str | None = None,
         email_verified: bool | None = None,
+        phone_verified: bool | None = None,
         source: str = "unknown",
     ) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
@@ -217,19 +260,35 @@ class ActorIdentityService:
                       user_id,
                       display_name,
                       email,
+                      phone_number,
                       photo_url,
                       email_verified,
+                      phone_verified,
                       source,
                       last_synced_at,
                       created_at,
                       updated_at
                     )
-                    VALUES ($1, $2, $3, $4, COALESCE($5, FALSE), $6, NOW(), NOW(), NOW())
+                    VALUES (
+                      $1,
+                      $2,
+                      $3,
+                      $4,
+                      $5,
+                      COALESCE($6, FALSE),
+                      COALESCE($7, FALSE),
+                      $8,
+                      NOW(),
+                      NOW(),
+                      NOW()
+                    )
                     ON CONFLICT (user_id) DO UPDATE SET
                       display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
                       email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
+                      phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
                       photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
                       email_verified = COALESCE(EXCLUDED.email_verified, actor_identity_cache.email_verified),
+                      phone_verified = COALESCE(EXCLUDED.phone_verified, actor_identity_cache.phone_verified),
                       source = CASE
                         WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
                         ELSE EXCLUDED.source
@@ -240,8 +299,10 @@ class ActorIdentityService:
                       user_id,
                       display_name,
                       email,
+                      phone_number,
                       photo_url,
                       email_verified,
+                      phone_verified,
                       source,
                       last_synced_at,
                       created_at,
@@ -250,8 +311,10 @@ class ActorIdentityService:
                     normalized_user_id,
                     str(display_name or "").strip() or None,
                     str(email or "").strip().lower() or None,
+                    str(phone_number or "").strip() or None,
                     str(photo_url or "").strip() or None,
                     email_verified,
+                    phone_verified,
                     str(source or "").strip() or "unknown",
                 )
         except Exception as exc:
@@ -300,8 +363,10 @@ class ActorIdentityService:
             user_id=normalized_user_id,
             display_name=getattr(user_record, "display_name", None),
             email=getattr(user_record, "email", None),
+            phone_number=getattr(user_record, "phone_number", None),
             photo_url=getattr(user_record, "photo_url", None),
             email_verified=getattr(user_record, "email_verified", None),
+            phone_verified=bool(getattr(user_record, "phone_number", None)),
             source="firebase_auth",
         )
         return updated or cached

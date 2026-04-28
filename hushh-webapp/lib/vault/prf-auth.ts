@@ -284,7 +284,7 @@ export async function registerWithPrf(
   const createOptions: PublicKeyCredentialCreationOptions = {
     challenge,
     rp: {
-      name: "Hushh",
+      name: "Hussh",
       id: rpId,
     },
     user: {
