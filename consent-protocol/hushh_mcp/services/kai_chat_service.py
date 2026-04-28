@@ -375,19 +375,12 @@ class KaiChatService:
             # 8. Generate response via LLM
             response_text, tokens = await self._generate_response(system_prompt, message)
 
-            # 9. Fire attribute extraction in the background — do NOT await it.
-            # The LLM call inside extract_and_store adds ~300-800ms of latency
-            # that the caller never benefits from (learned_attributes in the API
-            # response is informational only and nothing downstream blocks on it).
-            # asyncio.create_task schedules it concurrently; the response is
-            # returned to the client immediately after step 8.
-            asyncio.create_task(
-                self.attribute_learner.extract_and_store(
-                    user_id=user_id,
-                    user_message=message,
-                    assistant_response=response_text,
-                ),
-                name=f"attr_learn:{user_id}",
+            # 9. Fire attribute extraction in the background; the response does
+            # not need to wait for learned attributes to be persisted.
+            self._schedule_attribute_learning(
+                user_id=user_id,
+                user_message=message,
+                assistant_response=response_text,
             )
 
             # 10. Store messages in chat history
@@ -431,6 +424,33 @@ class KaiChatService:
                 response="I apologize, but I encountered an issue processing your message. Please try again.",
                 learned_attributes=[],
             )
+
+    def _schedule_attribute_learning(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        assistant_response: str,
+    ) -> None:
+        task = asyncio.create_task(
+            self.attribute_learner.extract_and_store(
+                user_id=user_id,
+                user_message=user_message,
+                assistant_response=assistant_response,
+            ),
+            name=f"attr_learn:{user_id}",
+        )
+
+        def _log_attribute_learning_failure(done: asyncio.Task) -> None:
+            try:
+                done.result()
+            except Exception:
+                logger.exception(
+                    "kai_chat.attribute_learning_failed user_id=%s",
+                    user_id,
+                )
+
+        task.add_done_callback(_log_attribute_learning_failure)
 
     async def _should_prompt_portfolio(
         self,
