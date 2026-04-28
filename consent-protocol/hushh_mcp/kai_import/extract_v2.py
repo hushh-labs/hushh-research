@@ -101,6 +101,8 @@ def _phase_progress_from_chunks_v2(phase: str, chunk_count: int) -> float:
 def _parse_live_number(raw: Any) -> float | None:
     if raw is None:
         return None
+    if isinstance(raw, bool):
+        return None
     if isinstance(raw, (int, float)):
         value = float(raw)
         return value if math.isfinite(value) else None
@@ -121,6 +123,8 @@ def _parse_live_number(raw: Any) -> float | None:
     try:
         value = float(cleaned)
     except Exception:
+        return None
+    if not math.isfinite(value):
         return None
     return -value if negative else value
 

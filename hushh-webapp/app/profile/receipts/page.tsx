@@ -279,6 +279,7 @@ export default function ProfileReceiptsPage() {
   }, [user?.uid]);
 
   const canLoad = Boolean(user?.uid);
+  const hasSealedReceiptAccess = Boolean(vaultOwnerToken && isVaultUnlocked);
   const hasStoredReceipts = receipts.length > 0;
 
   const loadReceipts = useCallback(
@@ -289,7 +290,7 @@ export default function ProfileReceiptsPage() {
         silent?: boolean;
       }
     ) => {
-      if (!user?.uid) return;
+      if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked) return;
       const showBlockingLoader = !options?.silent;
       if (showBlockingLoader) {
         setLoadingReceipts(true);
@@ -298,6 +299,7 @@ export default function ProfileReceiptsPage() {
         const idToken = await user.getIdToken();
         const response = await GmailReceiptsService.listReceipts({
           idToken,
+          vaultOwnerToken,
           userId: user.uid,
           page: nextPage,
           perPage: 20,
@@ -345,7 +347,7 @@ export default function ProfileReceiptsPage() {
         }
       }
     },
-    [user]
+    [isVaultUnlocked, user, vaultOwnerToken]
   );
 
   const gmail = useGmailConnectorStatus({
@@ -373,6 +375,13 @@ export default function ProfileReceiptsPage() {
 
   useEffect(() => {
     if (loading || !canLoad || !user?.uid) return;
+    if (!hasSealedReceiptAccess) {
+      setReceipts([]);
+      setPage(1);
+      setHasMore(false);
+      setTotal(0);
+      return;
+    }
 
     const cached = getCachedGmailReceipts(user.uid);
     if (cached) {
@@ -391,7 +400,7 @@ export default function ProfileReceiptsPage() {
     }
 
     void loadReceipts(1);
-  }, [canLoad, loadReceipts, loading, user?.uid]);
+  }, [canLoad, hasSealedReceiptAccess, loadReceipts, loading, user?.uid]);
 
   const syncing = gmail.refreshingStatus || gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
@@ -469,7 +478,8 @@ export default function ProfileReceiptsPage() {
     connectorState === "connected_backfill_running" ||
     connectorState === "syncing";
   const hasStaleBackgroundSync = gmail.isStale && isSyncingState;
-  const canBuildReceiptMemoryPreview = Boolean(user?.uid) && (total > 0 || hasStoredReceipts);
+  const canBuildReceiptMemoryPreview =
+    Boolean(user?.uid) && hasSealedReceiptAccess && (total > 0 || hasStoredReceipts);
   const receiptSummaryDraftTrimmed = receiptSummaryDraft.trim();
   const autoReceiptSummaryKey = useMemo(() => {
     if (!user?.uid || !isConnected || !canBuildReceiptMemoryPreview) {
@@ -553,7 +563,7 @@ export default function ProfileReceiptsPage() {
         id: "open_gmail_connector",
         label: "Connect Gmail",
         purpose: "opens the Gmail connector so you can connect or reconnect Gmail.",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         role: "button",
         voiceAliases: ["connect gmail", "open gmail connector", "open gmail"],
       },
@@ -723,13 +733,14 @@ export default function ProfileReceiptsPage() {
 
   const handleBuildReceiptMemoryPreview = useCallback(
     async (forceRefresh = false) => {
-      if (!user?.uid) return;
+      if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked) return;
       setReceiptMemoryLoading(true);
       setReceiptMemoryMessage(null);
       try {
         const idToken = await user.getIdToken();
         const artifact = await GmailReceiptMemoryService.preview({
           idToken,
+          vaultOwnerToken,
           userId: user.uid,
           forceRefresh,
         });
@@ -748,7 +759,7 @@ export default function ProfileReceiptsPage() {
         setReceiptMemoryLoading(false);
       }
     },
-    [user]
+    [isVaultUnlocked, user, vaultOwnerToken]
   );
 
   usePublishVoiceSurfaceMetadata(receiptsVoiceSurfaceMetadata);
@@ -920,7 +931,7 @@ export default function ProfileReceiptsPage() {
               disabled={isConnected ? syncing : gmail.status?.configured === false}
               className="min-w-[140px]"
               data-voice-control-id={isConnected ? "sync_gmail_receipts" : "open_gmail_connector"}
-              data-voice-action-id={isConnected ? "profile.gmail.sync_now" : "nav.profile_gmail_panel"}
+              data-voice-action-id={isConnected ? "profile.gmail.sync_now" : "route.profile_gmail_panel"}
               data-voice-label={primaryActionLabel}
               data-voice-purpose={
                 isConnected
@@ -983,7 +994,7 @@ export default function ProfileReceiptsPage() {
                 <Button
                   onClick={() => router.push(`${ROUTES.PROFILE}?panel=gmail`)}
                   data-voice-control-id="open_gmail_connector"
-                  data-voice-action-id="nav.profile_gmail_panel"
+                  data-voice-action-id="route.profile_gmail_panel"
                   data-voice-label={primaryActionLabel}
                   data-voice-purpose="opens the Gmail connector so you can connect or reconnect Gmail."
                 >
@@ -1153,14 +1164,24 @@ export default function ProfileReceiptsPage() {
               but Sync now is disabled until you reconnect.
             </SurfaceInset>
           ) : null}
-          {isConnected && loadingReceipts && !loadingStatus ? (
+          {isConnected && !hasSealedReceiptAccess && !loadingStatus ? (
+            <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-foreground">
+                <Lock className="h-4 w-4" />
+                Unlock your vault to view and summarize synced receipts.
+              </div>
+              <Button onClick={requestVaultUnlock}>Unlock vault</Button>
+            </SurfaceInset>
+          ) : null}
+
+          {isConnected && hasSealedReceiptAccess && loadingReceipts && !loadingStatus ? (
             <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading your receipts…
             </SurfaceInset>
           ) : null}
 
-          {isConnected && !loadingReceipts && receipts.length === 0 && !loadingStatus ? (
+          {isConnected && hasSealedReceiptAccess && !loadingReceipts && receipts.length === 0 && !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
               {gmail.syncRun?.synced_count
                 ? "Your receipts are still finishing up. Please try syncing again in a moment."

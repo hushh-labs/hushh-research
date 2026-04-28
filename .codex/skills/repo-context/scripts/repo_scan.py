@@ -51,6 +51,7 @@ MEANINGFUL_SURFACES = [
 SECTION_NAMES = ("docs", "frontend", "backend", "skills", "commands")
 REQUIRED_OWNER_SKILLS = [
     "repo-context",
+    "pr-governance-review",
     "frontend",
     "mobile-native",
     "backend",
@@ -69,13 +70,17 @@ REQUIRED_WORKFLOWS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "api-contract-change",
+    "pr-governance-review",
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "github-contribution-governance",
+    "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
     "release-readiness",
     "docs-sync",
+    "founder-brief-curation",
     "skill-authoring",
     "board-update",
     "community-response",
@@ -580,7 +585,7 @@ def build_impact(workflow_id: str, paths: list[str] | None = None, verbose: bool
 def build_onboard() -> dict[str, Any]:
     workflows = _collect_workflows()
     return OrderedDict(
-        title="Hushh Codex Onboarding",
+        title="Hussh Codex Onboarding",
         north_stars=[
             "An agent should work for the person whose life it touches.",
             "Your data, your business. Your committee, on-demand.",
@@ -935,7 +940,7 @@ def _render_audit_text(payload: dict[str, Any]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Scan Hushh repo context for Codex.")
+    parser = argparse.ArgumentParser(description="Scan Hussh repo context for Codex.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     summary_parser = subparsers.add_parser("summary", help="print the first-pass repo summary")

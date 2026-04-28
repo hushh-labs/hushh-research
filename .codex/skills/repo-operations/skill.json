@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "repo-operations",
   "primary_scope": "repo-operations-intake",
-  "description": "Use when working on Hushh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.",
+  "description": "Use when working on Hussh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.",
   "owned_paths": [
     "bin",
     "scripts",
@@ -21,10 +21,12 @@
     "subtree-upstream-governance"
   ],
   "task_types": [
+    "pre-pr-readiness",
     "ci-watch-and-heal",
     "release-readiness",
     "mobile-parity-check",
-    "docs-sync"
+    "docs-sync",
+    "github-contribution-governance"
   ],
   "required_reads": [
     "docs/reference/operations/README.md",
@@ -35,6 +37,7 @@
   ],
   "required_commands": [
     "./bin/hushh codex ci-status",
+    "./bin/hushh codex pre-pr",
     "./bin/hushh codex rca --surface uat --text",
     "./bin/hushh docs verify",
     "./bin/hushh ci",
@@ -46,6 +49,7 @@
       "id": "repo-operations",
       "commands": [
         "./bin/hushh codex ci-status",
+        "./bin/hushh codex pre-pr",
         "./bin/hushh codex rca --surface uat --text",
         "./bin/hushh docs verify",
         "./bin/hushh ci",

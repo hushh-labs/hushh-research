@@ -1,7 +1,7 @@
 {
   "id": "ci-watch-and-heal",
   "title": "CI Watch And Heal",
-  "goal": "Monitor PR, merge-queue, post-merge smoke, and downstream UAT release checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until the full core workflow chain reaches a terminal state or a hard blocker is identified.",
+  "goal": "Monitor PR, merge-queue, post-merge smoke, and explicitly dispatched UAT release checks live, classify failures into the correct owner skill, pull the failing job logs, and keep the fix-and-rerun loop tight until the relevant core workflow chain reaches a terminal state or a hard blocker is identified.",
   "owner_skill": "repo-operations",
   "default_spoke": null,
   "task_type": "ci-watch-and-heal",
@@ -15,6 +15,7 @@
   ],
   "required_reads": [
     "docs/reference/operations/ci.md",
+    "docs/reference/operations/branch-governance.md",
     "docs/reference/quality/pr-impact-checklist.md",
     ".codex/skills/repo-operations/references/agent-trigger-policy.md"
   ],
@@ -43,6 +44,8 @@
   "impact_fields": [
     "Failing checks",
     "Delivery stage",
+    "Preserved developer branch",
+    "Branch restoration or back-sync state",
     "Owner skill selected",
     "Docs updated",
     "Verification commands executed"
@@ -60,6 +63,8 @@
     "not routing the failed job to the correct owner skill",
     "not distinguishing PR feedback from queue authority or post-merge deploy authority",
     "stopping after rerun without monitoring terminal state",
-    "calling the task complete while post-merge smoke or downstream UAT is still running"
+    "treating every merge as an implicit downstream UAT deploy instead of a separate explicit dispatch",
+    "creating or staying on a temporary branch when the preserved developer branch should carry the follow-up",
+    "landing a hotfix on main without back-syncing it into the preserved developer branch"
   ]
 }

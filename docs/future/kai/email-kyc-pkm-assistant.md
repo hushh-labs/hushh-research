@@ -14,7 +14,7 @@ Canonical visual owner: [Kai Future Roadmap](./README.md). Use that map for the 
 
 This concept keeps Kai as the primary assistant and adds a Kai-owned delegated email/KYC specialist that can execute narrow workflow tasks after on-demand scoped consent.
 
-The goal is not a generic email bot. The goal is a trust-bound workflow component that fits Hushh's existing architecture:
+The goal is not a generic email bot or a public inbox-first workflow. The goal is a trust-bound workflow component that fits Hussh's existing architecture:
 
 - Kai remains the user-facing orchestrator
 - PKM remains the durable personal memory layer
@@ -23,7 +23,7 @@ The goal is not a generic email bot. The goal is a trust-bound workflow componen
 
 ## North-Star Alignment
 
-This concept aligns with existing Hushh north stars when it keeps these invariants intact:
+This concept aligns with existing Hussh north stars when it keeps these invariants intact:
 
 1. consent-first access
 2. BYOK and zero-knowledge boundaries
@@ -40,6 +40,7 @@ What already exists in the repo today:
 - ADK-backed agent orchestration surfaces in the backend
 - Kai as the user-facing assistant identity
 - connector-aware runtime patterns for delegated actions
+- authenticated support and feedback delivery routed through the existing Gmail-backed support transport
 
 What does not yet exist as a first-class product/runtime contract:
 
@@ -47,6 +48,7 @@ What does not yet exist as a first-class product/runtime contract:
 - workflow-specific on-demand consent metadata for this task family
 - a canonical runtime-memory/writeback split for delegated email/KYC workflows
 - explicit user-facing trust-state UX for this workflow family
+- an approved `kai@hushh.ai` runtime contract for public inbound email
 
 ## Future Concept
 
@@ -102,6 +104,7 @@ Before execution, this concept likely needs:
 3. outbound-action policy by workflow type
 4. trust-state UX contract for waiting, approval, and completion
 5. promotion of connector boundaries from concept to execution-owned docs
+6. a transport-sharing rule that allows reuse of support/email queue primitives without inheriting the support trust model
 
 ## Edge and Risk Assessment
 
@@ -127,6 +130,7 @@ Before execution, this concept likely needs:
 - on-demand consent should carry enough metadata for the user to understand what is being requested
 - connector permissions must stay task-specific instead of broad background access
 - delegated execution must fail closed when scope, authority, or freshness is unclear
+- email/KYC may share delivery and queueing primitives with Support, but it must not share Support's authority model or bypass the consent boundary
 
 ### UX risk
 
@@ -146,6 +150,7 @@ This concept does not assume:
 - raw email threads as permanent PKM memory by default
 - immediate implementation of a durable workflow engine
 - bypassing consent or trust-state UX in the name of speed
+- approval of a live public `kai@hushh.ai` inbound webhook before the trust and rollout contract is explicitly owned
 
 ## Promotion Readiness Checklist
 

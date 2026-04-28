@@ -37,6 +37,7 @@ describe("web observability transport", () => {
     await webGtmAdapter.track("growth_funnel_step_completed", {
       env: "uat",
       platform: "web",
+      event_category: "funnel",
       journey: "investor",
       step: "entered",
       app_version: "2.1.0",
@@ -48,6 +49,7 @@ describe("web observability transport", () => {
         event_source: "observability_v2",
         env: "uat",
         platform: "web",
+        event_category: "funnel",
         journey: "investor",
         step: "entered",
         app_version: "2.1.0",
@@ -58,9 +60,11 @@ describe("web observability transport", () => {
       "event",
       "growth_funnel_step_completed",
       {
+        send_to: "G-H1KGXGZTCF",
         event_source: "observability_v2",
         env: "uat",
         platform: "web",
+        event_category: "funnel",
         journey: "investor",
         step: "entered",
         app_version: "2.1.0",
@@ -68,7 +72,7 @@ describe("web observability transport", () => {
     );
   });
 
-  it("keeps GTM as the owner when a real container is configured", async () => {
+  it("pushes to GTM and still sends direct GA4 when a real container is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("NEXT_PUBLIC_GTM_ID", "GTM-ABC1234");
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", "G-2PCECPSKCR");
@@ -76,6 +80,7 @@ describe("web observability transport", () => {
     await webGtmAdapter.track("investor_activation_completed", {
       env: "production",
       platform: "web",
+      event_category: "funnel",
       journey: "investor",
       portfolio_source: "statement",
       app_version: "2.1.0",
@@ -87,11 +92,26 @@ describe("web observability transport", () => {
         event_source: "observability_v2",
         env: "production",
         platform: "web",
+        event_category: "funnel",
         journey: "investor",
         portfolio_source: "statement",
         app_version: "2.1.0",
       },
     ]);
-    expect(window.gtag).not.toHaveBeenCalled();
+    expect(window.gtag).toHaveBeenCalledTimes(1);
+    expect(window.gtag).toHaveBeenCalledWith(
+      "event",
+      "investor_activation_completed",
+      {
+        send_to: "G-2PCECPSKCR",
+        event_source: "observability_v2",
+        env: "production",
+        platform: "web",
+        event_category: "funnel",
+        journey: "investor",
+        portfolio_source: "statement",
+        app_version: "2.1.0",
+      }
+    );
   });
 });

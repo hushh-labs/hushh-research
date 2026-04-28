@@ -196,7 +196,7 @@ Use this when Firebase accepts an iOS send but the device does not visibly alert
 
 1. Confirm the token row exists in `user_push_tokens` with `platform='ios'`.
 2. Confirm the send returned a Firebase `message_id` instead of `THIRD_PARTY_AUTH_ERROR`.
-3. On the device, verify the Hushh app has:
+3. On the device, verify the Hussh app has:
    - `Allow Notifications`
    - `Notification Center`
    - `Lock Screen`

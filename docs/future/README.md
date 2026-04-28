@@ -1,4 +1,4 @@
-# Hushh Future Roadmap
+# Hussh Future Roadmap
 
 > Planning-only home for future-state concepts, R&D assessment, and promotion criteria.
 
@@ -8,9 +8,11 @@
 flowchart TD
   root["docs/future/<br/>planning-only roadmap home"]
   kai["kai/<br/>assistant and workflow concepts"]
+  oneNav["one-nav-runtime-plan.md<br/>One/Nav runtime migration"]
   execution["promotion to execution docs<br/>only after approval"]
 
   root --> kai
+  root --> oneNav
   root --> execution
 ```
 
@@ -55,9 +57,10 @@ Promotion targets:
 ## Current Domains
 
 - [kai/README.md](./kai/README.md): Kai future-state concepts and delegated workflow planning
+- [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current Kai-first runtime to the One/Kai/Nav ontology
 
 ## References
 
-- [../vision/README.md](../vision/README.md): durable Hushh north stars
+- [../vision/README.md](../vision/README.md): durable Hussh north stars
 - [../reference/operations/documentation-architecture-map.md](../reference/operations/documentation-architecture-map.md): canonical docs-home map
 - [../reference/operations/docs-governance.md](../reference/operations/docs-governance.md): docs placement and promotion rules

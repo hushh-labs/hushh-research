@@ -21,7 +21,7 @@ Runtime truth note:
    - responsive layout, tabs, tooltips, styling, or animation
 3. When Playwright is required on a signed-in route:
    - use the reviewer flow
-   - unlock with the configured Kai/reviewer passphrase from env
+   - unlock with `REVIEWER_VAULT_PASSPHRASE` from a maintainer-only env or secret overlay
    - keep same-session proof on Next client navigation after unlock
 4. Treat direct deep links as a separate cold-entry contract, not the same as unlocked navigation.
 5. For local debate/history verification, run:
@@ -39,6 +39,35 @@ Runtime truth note:
    - `/kai/portfolio`
    - `/kai/analysis`
    - `/kai/optimize`
+ 4. Verify required voice routes are present and reachable in the protected API surface:
+   - `/api/kai/voice/capability`
+   - `/api/kai/voice/realtime/session`
+   - `/api/kai/voice/plan`
+   - `/api/kai/voice/compose`
+   - `/api/kai/voice/stt`
+   - `/api/kai/voice/tts`
+   - `/api/kai/voice/understand`
+
+## 0a) Voice Runtime Sanity
+1. Open a signed-in Kai route where voice is eligible.
+2. Confirm voice capability reports enabled for the current user/runtime and that the mic surface can enter listening state.
+3. Run one `answer_now` turn such as:
+   - `Who are you?`
+4. Run one `execute_and_wait` turn such as:
+   - `Take me to my profile.`
+5. Run one post-navigation explanation turn such as:
+   - `Open Gmail and tell me what I can do here.`
+6. Run one `start_background_and_ack` turn such as:
+   - `Analyze Nvidia.`
+7. Confirm:
+   - planner/dispatch/tts stages progress without a generic `stt_unusable` fallback,
+   - successful navigation waits for route/screen settlement before final speech,
+   - analysis start responds with an acknowledgement rather than a fake completion claim,
+   - final spoken text comes from the post-execution compose path or the explicit deterministic fallback.
+8. Confirm the English-only voice contract:
+   - realtime session metadata reports `transcription_language: "en"`,
+   - non-English speech or transcript input returns an English clarification instead of executing,
+   - spoken output remains English even when the input asks for another language.
 
 ## 1) Fresh User Import Flow
 1. Sign in with a user that has no `financial` domain.

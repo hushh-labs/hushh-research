@@ -20,7 +20,7 @@ flowchart TD
   hidden --> parity
 ```
 
-Hushh uses a code-owned route contract plus docs/runtime checks to keep the declared runtime surface aligned across:
+Hussh uses a code-owned route contract plus docs/runtime checks to keep the declared runtime surface aligned across:
 
 - Next.js API route handlers under `hushh-webapp/app/api/**/route.ts`
 - backend router prefixes and path families
@@ -43,6 +43,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/`
 - `/developers`
 - `/login`
+- `/register-phone`
 - `/logout`
 - `/labs/profile-appearance`
 - `/profile`
@@ -79,6 +80,12 @@ Legacy navigation surfaces and aliases must not be reintroduced without updating
 - intentionally web-only
 
 If a route is added to the navigation contract, the corresponding architecture/mobile docs must be updated in the same change.
+
+Auth-only routes can still be mandatory even when they intentionally bypass the standard shell. Current hidden auth routes include:
+
+- `/login`
+- `/register-phone`
+- `/logout`
 
 ## When To Update Route Governance
 

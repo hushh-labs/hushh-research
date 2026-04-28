@@ -1,9 +1,10 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 46,
+  "expected_migration_version": 48,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
+    "merge_pkm_domain_summary",
     "remove_domain_summary_key",
     "upsert_pkm_data_blob",
     "auto_register_domain",
@@ -34,8 +35,10 @@
       "user_id",
       "display_name",
       "email",
+      "phone_number",
       "photo_url",
       "email_verified",
+      "phone_verified",
       "source",
       "last_synced_at",
       "created_at",

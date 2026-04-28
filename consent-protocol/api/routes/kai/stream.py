@@ -30,7 +30,7 @@ from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent, FundamentalInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent, SentimentInsight
 from hushh_mcp.agents.kai.valuation_agent import ValuationAgent, ValuationInsight
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.kai.llm import (
     get_gemini_unavailable_reason,
@@ -51,22 +51,45 @@ _TICKER_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
 _RUN_MANAGER = KaiAnalyzeRunManager()
 
 
+def _normalize_ticker_or_422(raw_ticker: str) -> str:
+    """Normalize ticker input and reject malformed symbols early."""
+    ticker = str(raw_ticker or "").strip().upper()
+    if not _TICKER_SYMBOL_RE.match(ticker):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid ticker format. Expected 1-6 chars (A-Z, 0-9, . or -), starting with a letter.",
+        )
+    return ticker
+
+
 async def _require_vault_owner_token(
     *,
     user_id: str,
-    authorization: Optional[str],
+    authorization: str | None,
 ) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Missing consent token. Call /api/consent/owner-token first.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    consent_token = authorization.replace("Bearer ", "")
-    valid, reason, payload = validate_token(consent_token, ConsentScope.VAULT_OWNER)
+    # Use removeprefix (not replace) so "Bearer " is stripped only from the start,
+    # preventing accidental token corruption when the token value itself contains
+    # the substring "Bearer ".
+    consent_token = authorization.removeprefix("Bearer ").strip()
+
+    # validate_token_with_db performs both the offline JWT check AND a DB-backed
+    # revocation lookup, matching the canonical pattern in api/middleware.py.
+    # validate_token (offline-only) was the previous, weaker check.
+    valid, reason, payload = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid or not payload:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {reason}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid token: {reason}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if payload.user_id != user_id:
         raise HTTPException(status_code=403, detail="Token user mismatch")
@@ -1355,7 +1378,8 @@ async def analyze_stream_generator(
         )
         await asyncio.sleep(0.05)
 
-        # Signal start of fundamental analysis
+        # Emit agent starts before the concurrent provider work begins so the stream
+        # contract still reflects real analysis start, not work that already completed.
         yield create_event(
             "agent_start",
             {
@@ -1367,6 +1391,61 @@ async def analyze_stream_generator(
                 "phase": "analysis",
             },
         )
+        yield create_event(
+            "agent_start",
+            {
+                "agent": "sentiment",
+                "agent_name": "Sentiment Agent",
+                "color": "#8b5cf6",
+                "message": f"Analyzing market sentiment for {ticker}...",
+                "round": 1,
+                "phase": "analysis",
+            },
+        )
+        yield create_event(
+            "agent_start",
+            {
+                "agent": "valuation",
+                "agent_name": "Valuation Agent",
+                "color": "#10b981",
+                "message": f"Calculating valuation metrics for {ticker}...",
+                "round": 1,
+                "phase": "analysis",
+            },
+        )
+
+        # Parallelize the sequential agent calls to reduce 'Time-To-First-Token' for the debate engine.
+        concurrent_results = await asyncio.gather(
+            asyncio.wait_for(
+                fundamental_agent.analyze(
+                    ticker=ticker,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    context=context,
+                ),
+                timeout=remaining_timeout(),
+            ),
+            asyncio.wait_for(
+                sentiment_agent.analyze(
+                    ticker=ticker,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    context=context,
+                ),
+                timeout=remaining_timeout(),
+            ),
+            asyncio.wait_for(
+                valuation_agent.analyze(
+                    ticker=ticker,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    context=context,
+                ),
+                timeout=remaining_timeout(),
+            ),
+            return_exceptions=True,
+        )
+        fundamental_first_res, sentiment_first_res, valuation_first_res = concurrent_results
 
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
@@ -1397,15 +1476,20 @@ async def analyze_stream_generator(
             for attempt in range(1, max_agent_attempts + 1):
                 try:
                     provider_calls_count += 1
-                    fundamental_insight = await asyncio.wait_for(
-                        fundamental_agent.analyze(
-                            ticker=ticker,
-                            user_id=user_id,
-                            consent_token=consent_token,
-                            context=context,
-                        ),
-                        timeout=remaining_timeout(),
-                    )
+                    if attempt == 1:
+                        if isinstance(fundamental_first_res, Exception):
+                            raise fundamental_first_res
+                        fundamental_insight = fundamental_first_res
+                    else:
+                        fundamental_insight = await asyncio.wait_for(
+                            fundamental_agent.analyze(
+                                ticker=ticker,
+                                user_id=user_id,
+                                consent_token=consent_token,
+                                context=context,
+                            ),
+                            timeout=remaining_timeout(),
+                        )
                     fundamental_last_error = None
                     break
                 except Exception as agent_err:
@@ -1508,19 +1592,6 @@ async def analyze_stream_generator(
         if await request.is_disconnected():
             return
 
-        # Signal start of sentiment analysis
-        yield create_event(
-            "agent_start",
-            {
-                "agent": "sentiment",
-                "agent_name": "Sentiment Agent",
-                "color": "#8b5cf6",
-                "message": f"Analyzing market sentiment for {ticker}...",
-                "round": 1,
-                "phase": "analysis",
-            },
-        )
-
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
             # Optional pre-analysis thinking stream for debug visibility.
@@ -1550,15 +1621,20 @@ async def analyze_stream_generator(
             for attempt in range(1, max_agent_attempts + 1):
                 try:
                     provider_calls_count += 1
-                    sentiment_insight = await asyncio.wait_for(
-                        sentiment_agent.analyze(
-                            ticker=ticker,
-                            user_id=user_id,
-                            consent_token=consent_token,
-                            context=context,
-                        ),
-                        timeout=remaining_timeout(),
-                    )
+                    if attempt == 1:
+                        if isinstance(sentiment_first_res, Exception):
+                            raise sentiment_first_res
+                        sentiment_insight = sentiment_first_res
+                    else:
+                        sentiment_insight = await asyncio.wait_for(
+                            sentiment_agent.analyze(
+                                ticker=ticker,
+                                user_id=user_id,
+                                consent_token=consent_token,
+                                context=context,
+                            ),
+                            timeout=remaining_timeout(),
+                        )
                     sentiment_last_error = None
                     break
                 except Exception as agent_err:
@@ -1650,19 +1726,6 @@ async def analyze_stream_generator(
         if await request.is_disconnected():
             return
 
-        # Signal start of valuation analysis
-        yield create_event(
-            "agent_start",
-            {
-                "agent": "valuation",
-                "agent_name": "Valuation Agent",
-                "color": "#10b981",
-                "message": f"Calculating valuation metrics for {ticker}...",
-                "round": 1,
-                "phase": "analysis",
-            },
-        )
-
         if pre_agent_thinking_enabled:
             llm_calls_count += 1
             # Optional pre-analysis thinking stream for debug visibility.
@@ -1692,15 +1755,20 @@ async def analyze_stream_generator(
             for attempt in range(1, max_agent_attempts + 1):
                 try:
                     provider_calls_count += 1
-                    valuation_insight = await asyncio.wait_for(
-                        valuation_agent.analyze(
-                            ticker=ticker,
-                            user_id=user_id,
-                            consent_token=consent_token,
-                            context=context,
-                        ),
-                        timeout=remaining_timeout(),
-                    )
+                    if attempt == 1:
+                        if isinstance(valuation_first_res, Exception):
+                            raise valuation_first_res
+                        valuation_insight = valuation_first_res
+                    else:
+                        valuation_insight = await asyncio.wait_for(
+                            valuation_agent.analyze(
+                                ticker=ticker,
+                                user_id=user_id,
+                                consent_token=consent_token,
+                                context=context,
+                            ),
+                            timeout=remaining_timeout(),
+                        )
                     valuation_last_error = None
                     break
                 except Exception as agent_err:
@@ -2364,7 +2432,9 @@ async def analyze_stream(
     - decision: Final decision card
     - error: Fatal error
     """
-    # Auth path includes validate_token() inside _require_vault_owner_token().
+    ticker = _normalize_ticker_or_422(ticker)
+
+    # Auth uses validate_token_with_db inside _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(user_id=user_id, authorization=authorization)
 
     # Log operation for audit trail (shows what vault.owner token was used for)
@@ -2400,7 +2470,9 @@ async def analyze_stream_post(
     POST version of streaming analysis (allows context in body).
     Also supports streaming an existing resumable run via run_id.
     """
-    # Auth path includes validate_token() inside _require_vault_owner_token().
+    ticker = _normalize_ticker_or_422(body.ticker)
+
+    # Auth uses validate_token_with_db inside _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(
         user_id=body.user_id,
         authorization=authorization,
@@ -2444,7 +2516,7 @@ async def analyze_stream_post(
     await consent_service.log_operation(
         user_id=body.user_id,
         operation="kai.analyze",
-        target=body.ticker,
+        target=ticker,
         metadata={
             "risk_profile": body.risk_profile,
             "endpoint": "stream/analyze",
@@ -2454,7 +2526,7 @@ async def analyze_stream_post(
 
     return _create_sse_response(
         analyze_stream_generator(
-            ticker=body.ticker,
+            ticker=ticker,
             user_id=body.user_id,
             consent_token=consent_token,
             risk_profile=body.risk_profile,
@@ -2470,6 +2542,8 @@ async def analyze_run_start(
     authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
 ):
     """Start or attach to a session-locked background analyze run."""
+    ticker = _normalize_ticker_or_422(body.ticker)
+
     consent_token = await _require_vault_owner_token(
         user_id=body.user_id,
         authorization=authorization,
@@ -2485,7 +2559,7 @@ async def analyze_run_start(
     await consent_service.log_operation(
         user_id=body.user_id,
         operation="kai.analyze.run.start",
-        target=body.ticker,
+        target=ticker,
         metadata={
             "risk_profile": body.risk_profile,
             "debate_session_id": body.debate_session_id,
@@ -2497,7 +2571,7 @@ async def analyze_run_start(
     state, run = await _RUN_MANAGER.start_or_get_active(
         user_id=body.user_id,
         debate_session_id=body.debate_session_id,
-        ticker=body.ticker,
+        ticker=ticker,
         risk_profile=body.risk_profile,
         context=next_context or None,
         consent_token=consent_token,

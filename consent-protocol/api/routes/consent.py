@@ -24,12 +24,16 @@ from api.utils.firebase_auth import verify_firebase_bearer
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
-from hushh_mcp.consent.token import issue_token, revoke_token, validate_token
+from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
+from hushh_mcp.services.ria_iam_service import (
+    IAMSchemaNotReadyError,
+    RIAIAMPolicyError,
+    RIAIAMService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -665,6 +669,17 @@ async def create_generic_consent_request(
     payload: GenericConsentRequestCreate,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    # If the requester is an RIA, enforce verification before allowing
+    # consent requests to investors (mirrors the gate on POST /api/ria/requests).
+    if payload.requester_actor_type == "ria":
+        service = RIAIAMService()
+        try:
+            await service.require_ria_verified(firebase_uid)
+        except IAMSchemaNotReadyError as exc:
+            raise HTTPException(status_code=503, detail="Verification service unavailable") from exc
+        except RIAIAMPolicyError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     try:
         return await RIAIAMService().create_ria_consent_request(
             firebase_uid,
@@ -680,6 +695,25 @@ async def create_generic_consent_request(
         )
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/handshake/history")
+async def get_handshake_history(
+    counterpart_id: str = Query(..., min_length=1),
+    actor: str = Query(default="investor"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Consent handshake timeline between the caller and a counterpart."""
+    service = ConsentCenterService()
+    return await service.get_handshake_history(
+        firebase_uid,
+        counterpart_id=counterpart_id,
+        actor=actor,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.post("/relationships/disconnect")
@@ -761,7 +795,7 @@ async def issue_vault_owner_token(request: Request):
                         logger.warning("vault_owner.reuse_missing_token_id")
                         break
 
-                    is_valid, reason, payload = validate_token(
+                    is_valid, reason, payload = await validate_token_with_db(
                         candidate_token, ConsentScope.VAULT_OWNER
                     )
                     if not is_valid or not payload:
@@ -934,11 +968,15 @@ async def get_consent_export_data(consent_token: str):
     """
     logger.info("consent.export_requested")
 
-    # Validate the consent token
-    valid, reason, token_obj = validate_token(consent_token)
+    # Validate the consent token — DB-backed revocation check.
+    valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid:
         logger.warning("consent.export_invalid_token reason=%s", reason)
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # Try in-memory cache first (fast path)
     if consent_token in _consent_exports:
@@ -1055,11 +1093,12 @@ async def upload_refreshed_export(
     if token_data["user_id"] != request.userId:
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
-    valid, reason, token_obj = validate_token(request.consentToken)
+    valid, reason, token_obj = await validate_token_with_db(request.consentToken)
     if not valid or token_obj is None:
         raise HTTPException(
             status_code=401,
             detail=f"Invalid consent token for export refresh: {reason or 'unknown'}",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     if str(token_obj.user_id) != request.userId:
         raise HTTPException(status_code=403, detail="Consent token user mismatch")

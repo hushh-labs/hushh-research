@@ -1,6 +1,6 @@
 # api/middlewares/__init__.py
 """
-Middleware modules for Hushh Consent Protocol API.
+Middleware modules for Hussh Consent Protocol API.
 
 Available middlewares:
 - rate_limit: Rate limiting for consent endpoints

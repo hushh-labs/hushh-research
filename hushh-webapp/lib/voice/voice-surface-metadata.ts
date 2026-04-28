@@ -96,6 +96,7 @@ function normalizeActionDefinition(value: unknown): VoiceSurfaceActionDefinition
   return {
     id,
     label,
+    actionId: cleanString(record.actionId),
     purpose: cleanString(record.purpose),
     description: cleanString(record.description),
     voiceAliases: uniqueStrings(record.voiceAliases as unknown[]),

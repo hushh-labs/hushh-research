@@ -1,0 +1,82 @@
+{
+  "id": "pr-governance-review",
+  "title": "PR Governance Review",
+  "goal": "Review the current head of an incoming pull request for north-star alignment, trust-boundary regressions, stale-vs-current CI interpretation, and true merge readiness beyond a green gate.",
+  "owner_skill": "pr-governance-review",
+  "default_spoke": null,
+  "task_type": "pr-governance-review",
+  "affected_surfaces": [
+    ".codex/skills/pr-governance-review",
+    ".github",
+    "consent-protocol/api",
+    "consent-protocol/tests",
+    "hushh-webapp/app",
+    "hushh-webapp/lib",
+    "deploy",
+    "scripts"
+  ],
+  "required_reads": [
+    "AGENTS.md",
+    "README.md",
+    "docs/reference/operations/ci.md",
+    "docs/reference/quality/pr-impact-checklist.md",
+    "docs/reference/architecture/api-contracts.md",
+    ".codex/skills/pr-governance-review/references/review-axes.md",
+    ".codex/skills/repo-operations/SKILL.md"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+    "./bin/hushh codex audit --text"
+  ],
+  "verification_bundle": {
+    "id": "pr-governance-review",
+    "commands": [
+      "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+      "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+      "./bin/hushh codex audit --text",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+      "./bin/hushh codex audit --text",
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "current-head SHA review summary",
+    "blocker-first findings list",
+    "stale-vs-current CI interpretation",
+    "merge lane recommendation",
+    "explicit action flow mode",
+    "natural technical GitHub review note",
+    "updated working report after PR state changes"
+  ],
+  "impact_fields": [
+    "Head SHA reviewed",
+    "Current CI Status Gate state",
+    "Blocker findings",
+    "Chosen merge lane",
+    "Action flow mode",
+    "Working report updated",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "pr-governance-review",
+    "repo-operations",
+    "quality-contracts",
+    "backend-runtime-governance",
+    "frontend-architecture",
+    "security-audit"
+  ],
+  "common_failures": [
+    "reviewing a stale failed run instead of the current head SHA",
+    "treating green CI as sufficient proof for a sensitive contract change",
+    "missing backend-to-caller contract drift because only one side of the change moved",
+    "thanking or merging before blocker findings are explicitly cleared",
+    "merging a directionally good but currently unsafe contributor head instead of using the patch-then-merge lane",
+    "treating approve-only as implicit merge authority",
+    "using rigid template comments when a concise technical note would be clearer",
+    "leaving the PR governance live report stale after merge, close, or supersede"
+  ]
+}

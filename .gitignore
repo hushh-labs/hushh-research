@@ -104,3 +104,25 @@ hushh-webapp/android/app/build/
 
 envs
 envs_From_Others
+envs_From_Others.zip
+Personal_Tasks/
+.ci-bin/
+
+# Hushh Security Policy - Secrets and Credentials
+*.pem
+*.key
+*credentials*.json
+*secret*.json
+
+# Local validation scripts
+test_kai_endpoints.py
+/consent-protocol/test_kai_endpoints.py
+
+# OS generated files
+.DS_Store*
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+ehthumbs_vista.db
+[Tt]humbs.db

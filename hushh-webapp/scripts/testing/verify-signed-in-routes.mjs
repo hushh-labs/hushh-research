@@ -9,6 +9,11 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 
 import { chromium } from "playwright";
+import {
+  defaultReviewerIdentityEnvFiles,
+  parseEnvFile,
+  resolveReviewerTestIdentity,
+} from "./reviewer-test-identity.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,28 +22,6 @@ const repoRoot = path.resolve(webDir, "..");
 const contractPath = path.join(webDir, "lib", "navigation", "app-route-layout.contract.json");
 const webEnvPath = path.join(webDir, ".env.local");
 const protocolEnvPath = path.join(repoRoot, "consent-protocol", ".env");
-
-function parseEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return {};
-  const parsed = {};
-  const content = fs.readFileSync(filePath, "utf8");
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex <= 0) continue;
-    const key = line.slice(0, separatorIndex).trim();
-    let value = line.slice(separatorIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    parsed[key] = value;
-  }
-  return parsed;
-}
 
 function seedProcessEnv(parsed) {
   for (const [key, value] of Object.entries(parsed)) {
@@ -53,23 +36,6 @@ const parsedProtocolEnv = parseEnvFile(protocolEnvPath);
 seedProcessEnv(parsedProtocolEnv);
 seedProcessEnv(parsedWebEnv);
 
-function readRawEnvLiteral(filePath, key) {
-  if (!fs.existsSync(filePath)) return "";
-  const pattern = new RegExp(`^${key}=(.*)$`, "m");
-  const match = fs.readFileSync(filePath, "utf8").match(pattern);
-  if (!match?.[1]) return "";
-  const rawValue = match[1].trim();
-  return rawValue.replace(/^['"]|['"]$/g, "");
-}
-
-function sanitizeConfiguredValue(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) return "";
-  if (/replace_with_/i.test(trimmed)) return "";
-  if (/your_[a-z0-9_]+_here/i.test(trimmed)) return "";
-  return trimmed;
-}
-
 const appOrigin = (
   process.env.HUSHH_APP_ORIGIN ||
   process.env.NEXT_PUBLIC_APP_URL ||
@@ -77,18 +43,11 @@ const appOrigin = (
 ).replace(/\/$/, "");
 const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "").trim().toLowerCase();
 const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "").trim().toLowerCase();
-const rawProtocolReviewerPassphrase = readRawEnvLiteral(protocolEnvPath, "UAT_SMOKE_PASSPHRASE");
-const reviewerPassphrase =
-  sanitizeConfiguredValue(process.env.HUSHH_REVIEWER_PASSPHRASE) ||
-  sanitizeConfiguredValue(process.env.UAT_SMOKE_PASSPHRASE) ||
-  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_PASSPHRASE) ||
-  sanitizeConfiguredValue(rawProtocolReviewerPassphrase) ||
-  "test#123";
-const smokeUserId =
-  sanitizeConfiguredValue(process.env.HUSHH_SMOKE_USER_ID) ||
-  sanitizeConfiguredValue(process.env.UAT_SMOKE_USER_ID) ||
-  sanitizeConfiguredValue(parsedProtocolEnv.UAT_SMOKE_USER_ID) ||
-  "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
+const reviewerIdentity = resolveReviewerTestIdentity({
+  envFiles: defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
+});
+const reviewerPassphrase = reviewerIdentity.reviewerVaultPassphrase;
+const smokeUserId = reviewerIdentity.reviewerUid;
 
 const VIEWPORTS = [
   { name: "phone", width: 390, height: 844, isMobile: true },
@@ -97,12 +56,16 @@ const VIEWPORTS = [
   { name: "desktop", width: 1728, height: 1117, isMobile: false },
 ];
 const NAVIGATION_TIMEOUT_MS = 120000;
+const CLIENT_NAVIGATION_CONTEXT_KEY = "__hushhSignedInRouteContextProbe";
 const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
 const SAME_SESSION_SHELL_ROUTES = new Set([
   "/profile",
   "/profile/pkm-agent-lab",
   "/ria",
   "/ria/clients",
+  "/ria/clients/[userId]",
+  "/ria/clients/[userId]/accounts/[accountId]",
+  "/ria/clients/[userId]/requests/[requestId]",
   "/ria/picks",
   "/marketplace",
   "/consents",
@@ -235,6 +198,19 @@ function includedViewports() {
 function shouldRunExtraFlow(flowKey) {
   if (!routeFilter) return true;
   return flowKey.toLowerCase().includes(routeFilter);
+}
+
+function splitRoutesByVerificationLane(routes) {
+  const sameSession = [];
+  const coldEntry = [];
+  for (const route of routes) {
+    if (SAME_SESSION_SHELL_ROUTES.has(route.route)) {
+      sameSession.push(route);
+    } else {
+      coldEntry.push(route);
+    }
+  }
+  return { sameSession, coldEntry };
 }
 
 function sleep(ms) {
@@ -632,6 +608,29 @@ async function waitForRouteBeacon(page, allowedRouteIds) {
   );
 }
 
+async function installClientNavigationContextProbe(page) {
+  const marker = `route-context-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await page.evaluate(
+    ({ key, value }) => {
+      window[key] = value;
+    },
+    { key: CLIENT_NAVIGATION_CONTEXT_KEY, value: marker }
+  );
+  return marker;
+}
+
+async function assertClientNavigationContextPreserved(page, marker, route, viewport) {
+  const currentMarker = await page
+    .evaluate((key) => window[key] || null, CLIENT_NAVIGATION_CONTEXT_KEY)
+    .catch(() => null);
+  if (currentMarker !== marker) {
+    throw new Error(
+      `[${viewport}] ${route} triggered a full document navigation. ` +
+        "Signed-in shell routes must use Next client navigation so memory-only vault and VAULT_OWNER state survive."
+    );
+  }
+}
+
 function collectPageIssues(page) {
   const issues = {
     consoleErrors: [],
@@ -734,6 +733,9 @@ async function verifyRoute(page, viewport, spec) {
       return;
     }
 
+    const contextProbe = SAME_SESSION_SHELL_ROUTES.has(spec.route)
+      ? await installClientNavigationContextProbe(page)
+      : null;
     const usedShellNav = await navigateViaShell(page, spec);
     if (!usedShellNav) {
       if (SAME_SESSION_SHELL_ROUTES.has(spec.route)) {
@@ -760,6 +762,9 @@ async function verifyRoute(page, viewport, spec) {
       );
     }
     assertUrl(spec, page.url());
+    if (contextProbe) {
+      await assertClientNavigationContextPreserved(page, contextProbe, spec.route, viewport);
+    }
 
     if (spec.requireBackButton) {
       await page.getByLabel(/go back/i).waitFor({ state: "visible", timeout: 15000 });
@@ -774,7 +779,9 @@ async function verifyRoute(page, viewport, spec) {
 async function verifyRiaWorkspaceFlow(page, viewport) {
   const { issues, dispose } = collectPageIssues(page);
   try {
-    await page.goto(`${appOrigin}/ria/clients`, { waitUntil: "domcontentloaded" });
+    const contextProbe = await installClientNavigationContextProbe(page);
+    await ensurePersona(page, "ria");
+    await clickBottomNav(page, "Clients");
     await waitForRouteBeacon(page, ["/ria/clients"]);
     const explicitTestProfile = page.getByTestId("ria-client-test-profile").first();
     if (await explicitTestProfile.isVisible().catch(() => false)) {
@@ -794,6 +801,7 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
     await page.getByRole("link", { name: /open access/i }).first().click();
     await waitForRouteBeacon(page, ["/consents"]);
 
+    await assertClientNavigationContextPreserved(page, contextProbe, "ria-workspace-flow", viewport);
     assertNoIssues("ria-workspace-flow", viewport, issues);
   } finally {
     dispose();
@@ -803,13 +811,16 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
 async function verifyMarketplaceFlow(page, viewport) {
   const { issues, dispose } = collectPageIssues(page);
   try {
-    await page.goto(`${appOrigin}/marketplace`, { waitUntil: "domcontentloaded" });
+    const contextProbe = await installClientNavigationContextProbe(page);
+    await ensurePersona(page, "ria");
+    await clickBottomNav(page, "Connect");
     await waitForRouteBeacon(page, ["/marketplace"]);
 
     const openWorkspace = page.getByRole("button", { name: /open workspace/i }).first();
     await openWorkspace.click();
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
 
+    await assertClientNavigationContextPreserved(page, contextProbe, "marketplace-workspace-flow", viewport);
     assertNoIssues("marketplace-workspace-flow", viewport, issues);
   } finally {
     dispose();
@@ -851,9 +862,12 @@ async function runViewportSweep(viewport, contract) {
       throw bootstrapError || new Error(`Failed to bootstrap reviewer session for ${viewport.name}`);
     }
 
-    for (const route of contract.filter(shouldIncludeRoute)) {
+    const includedRoutes = contract.filter(shouldIncludeRoute);
+    const { sameSession, coldEntry } = splitRoutesByVerificationLane(includedRoutes);
+
+    for (const route of sameSession) {
       const spec = routeSpec(route);
-      process.stdout.write(`→ [${viewport.name}] ${route.route}\n`);
+      process.stdout.write(`→ [${viewport.name}] ${route.route} (same-session shell)\n`);
       await verifyRoute(page, viewport.name, spec);
       process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
     }
@@ -865,6 +879,13 @@ async function runViewportSweep(viewport, contract) {
     if (shouldRunExtraFlow("marketplace")) {
       await verifyMarketplaceFlow(page, viewport.name);
       process.stdout.write(`✓ [${viewport.name}] marketplace workspace flow\n`);
+    }
+
+    for (const route of coldEntry) {
+      const spec = routeSpec(route);
+      process.stdout.write(`→ [${viewport.name}] ${route.route} (cold-entry/direct)\n`);
+      await verifyRoute(page, viewport.name, spec);
+      process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
     }
   } finally {
     if (context) {
@@ -890,13 +911,16 @@ async function main() {
     for (const viewport of selectedViewports) {
       await runViewportSweep(viewport, contract);
     }
+    const includedRoutes = contract.filter(shouldIncludeRoute);
+    const { sameSession, coldEntry } = splitRoutesByVerificationLane(includedRoutes);
     process.stdout.write(
       JSON.stringify(
         {
           ok: true,
           origin: appOrigin,
           viewports: selectedViewports.map((viewport) => viewport.name),
-          routesCovered: contract.filter(shouldIncludeRoute).map((route) => route.route),
+          sameSessionShellRoutesCovered: sameSession.map((route) => route.route),
+          coldEntryRoutesCovered: coldEntry.map((route) => route.route),
         },
         null,
         2

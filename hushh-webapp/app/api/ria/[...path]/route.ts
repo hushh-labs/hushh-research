@@ -39,7 +39,11 @@ function writeHotGetCache(key: string, value: { status: number; payload: unknown
 function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
   if (
     method === "POST" &&
-    (path.startsWith("onboarding/submit") || path.startsWith("onboarding/dev-activate"))
+    (
+      path.startsWith("onboarding/submit") ||
+      path.startsWith("onboarding/dev-activate") ||
+      path.startsWith("onboarding/verify-name")
+    )
   ) {
     return ONBOARDING_PROXY_TIMEOUT_MS;
   }

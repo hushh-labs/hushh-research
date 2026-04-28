@@ -1,4 +1,4 @@
-# 🌱 The Hushh Manifesto
+# 🌱 The Hussh Manifesto
 
 > Consent is not a checkbox.  
 > It’s a contract, a signal, and a programmable boundary.
@@ -95,5 +95,5 @@ Let’s build a world where humans own the keys, the scopes, and the outcomes.
 Consent-first. Privacy-native. Agent-ready.
 
 —
-Team Hushh
+Team Hussh
 ```

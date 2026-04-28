@@ -53,6 +53,11 @@ fi
 UPSTREAM_TREE="$(git rev-parse "$UPSTREAM_REMOTE/$UPSTREAM_BRANCH^{tree}" 2>/dev/null || true)"
 LOCAL_TREE="$(git rev-parse "HEAD:$SUBTREE_PREFIX" 2>/dev/null || true)"
 
+if [ -n "$UPSTREAM_TREE" ] && [ -n "$LOCAL_TREE" ] && [ "$UPSTREAM_TREE" = "$LOCAL_TREE" ]; then
+  echo "✅ consent-protocol/ subtree content matches upstream."
+  exit 0
+fi
+
 LOCAL_SPLIT="$(git subtree split --prefix="$SUBTREE_PREFIX" HEAD 2>/dev/null || true)"
 if [ -z "$LOCAL_SPLIT" ]; then
   # Some histories contain missing split hashes from old subtree joins.
@@ -74,11 +79,6 @@ fi
 if [ -n "$LOCAL_SPLIT" ] && git merge-base --is-ancestor "$LOCAL_SPLIT" "$UPSTREAM_COMMIT" 2>/dev/null; then
   BEHIND_BY="$(git rev-list --count "$LOCAL_SPLIT..$UPSTREAM_COMMIT" 2>/dev/null || echo "unknown")"
   log_warning "consent-protocol/ subtree is behind upstream by ${BEHIND_BY} commit(s). Run: ./bin/hushh protocol sync"
-  exit 0
-fi
-
-if [ -n "$UPSTREAM_TREE" ] && [ -n "$LOCAL_TREE" ] && [ "$UPSTREAM_TREE" = "$LOCAL_TREE" ]; then
-  echo "✅ consent-protocol/ subtree content matches upstream."
   exit 0
 fi
 

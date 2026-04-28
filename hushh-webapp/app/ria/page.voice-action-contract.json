@@ -1,0 +1,88 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_home",
+  "surface_title": "RIA Workspace Home",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_home",
+      "label": "Open RIA Home",
+      "meaning": "Navigates to the RIA workspace home route.",
+      "aliases": [
+        "open ria workspace",
+        "go to ria home"
+      ],
+      "search_keywords": [
+        "ria",
+        "advisor workspace"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria"
+        ],
+        "screens": [
+          "ria_home"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "RIA workspace must be available for this account."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": true
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/iam/runtime-surface.md"
+      ],
+      "workflow": {
+        "workflow_id": "route.ria_home.entry",
+        "confirmation_required": true,
+        "blocked_guidance": "Complete or unlock RIA setup before entering the RIA workspace.",
+        "steps": [
+          {
+            "type": "persona_switch",
+            "target_persona": "ria",
+            "confirmation_required": true,
+            "settlement_target": {
+              "persona": "ria"
+            },
+            "failure_behavior": "stop"
+          },
+          {
+            "type": "route_switch",
+            "href": "/ria",
+            "settlement_target": {
+              "route": "/ria",
+              "screen": "ria_home"
+            },
+            "failure_behavior": "stop"
+          }
+        ]
+      },
+      "speaker_persona": "one"
+    }
+  ]
+}

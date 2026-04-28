@@ -29,6 +29,7 @@ describe("GmailReceiptMemoryService", () => {
 
     const result = await GmailReceiptMemoryService.preview({
       idToken: "token-1",
+      vaultOwnerToken: "vault-token-1",
       userId: "user-1",
       forceRefresh: true,
     });
@@ -38,6 +39,10 @@ describe("GmailReceiptMemoryService", () => {
       "/api/kai/gmail/receipts-memory/preview",
       expect.objectContaining({
         method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer token-1",
+          "X-Hushh-Consent": "Bearer vault-token-1",
+        }),
         body: JSON.stringify({
           user_id: "user-1",
           force_refresh: true,
@@ -62,6 +67,7 @@ describe("GmailReceiptMemoryService", () => {
 
     const result = await GmailReceiptMemoryService.getArtifact({
       idToken: "token-1",
+      vaultOwnerToken: "vault-token-1",
       userId: "user-1",
       artifactId: "artifact-1",
     });
@@ -71,6 +77,10 @@ describe("GmailReceiptMemoryService", () => {
       "/api/kai/gmail/receipts-memory/artifacts/artifact-1?user_id=user-1",
       expect.objectContaining({
         method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer token-1",
+          "X-Hushh-Consent": "Bearer vault-token-1",
+        }),
       })
     );
   });

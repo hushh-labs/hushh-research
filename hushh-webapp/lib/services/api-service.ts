@@ -43,6 +43,7 @@ import {
   resolveVoiceFailFastPolicy,
   resolveVoiceForceProxyPreference,
 } from "@/lib/runtime/settings";
+import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
@@ -1203,6 +1204,59 @@ export class ApiService {
     });
   }
 
+  static async composeKaiVoiceReply(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    transcript: string;
+    response: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    context?: Record<string, unknown>;
+    structuredContext?: unknown;
+    turnId?: string;
+    responseId?: string;
+    mode?: string;
+    actionId?: string | null;
+    slots?: Record<string, unknown>;
+    guards?: string[];
+    replyStrategy?: string;
+    clarification?: Record<string, unknown> | null;
+    actionCompletion?: string | null;
+    actionResult?: Record<string, unknown> | null;
+    memoryShort?: unknown[];
+    memoryRetrieved?: unknown[];
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/kai/voice/compose", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        transcript: data.transcript,
+        response: data.response,
+        app_state: data.appState,
+        context: data.context || {},
+        context_structured: data.structuredContext || {},
+        turn_id: data.turnId,
+        response_id: data.responseId,
+        mode: data.mode,
+        action_id: data.actionId,
+        slots: data.slots || {},
+        guards: data.guards || [],
+        reply_strategy: data.replyStrategy,
+        clarification: data.clarification ?? null,
+        action_completion: data.actionCompletion ?? null,
+        action_result: data.actionResult ?? null,
+        memory_short: data.memoryShort || [],
+        memory_retrieved: data.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
   static async synthesizeKaiVoice(data: {
     userId: string;
     vaultOwnerToken: string;
@@ -1404,6 +1458,22 @@ export class ApiService {
     });
   }
 
+  static async refreshAccountIdentityShadow(idToken?: string): Promise<Response> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
+        status: 401,
+      });
+    }
+
+    return apiFetch("/api/account/identity/refresh", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+    });
+  }
+
   /**
    * Delete session (logout)
    */
@@ -1522,7 +1592,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native approvePendingConsent error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "approvePendingConsent");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_action_result", {
@@ -1613,7 +1684,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native denyPendingConsent error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "denyPendingConsent");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_action_result", {
@@ -1713,7 +1785,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native revokeConsent error:", e);
-        const response = new Response((e as Error).message || "Failed", { status: 500 });
+        const { message } = sanitizeErrorMessage(e, 500, "revokeConsent");
+        const response = new Response(message, { status: 500 });
         trackEvent("consent_action_result", {
           action: "revoke",
           result: "error",
@@ -1774,7 +1847,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.warn("[ApiService] Native getPendingConsents error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getPendingConsents");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_pending_loaded", {
@@ -1894,8 +1968,9 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native unregisterPushToken error:", e);
+        const { message } = sanitizeErrorMessage(e, 500, "unregisterPushToken");
         return new Response(
-          JSON.stringify({ error: (e as Error).message || "Native error" }),
+          JSON.stringify({ error: message }),
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -1939,7 +2014,8 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native getActiveConsents error:", e);
-        return new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getActiveConsents");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -1983,7 +2059,8 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native getConsentHistory error:", e);
-        return new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getConsentHistory");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -2739,10 +2816,11 @@ export class ApiService {
       return response;
     } catch (error) {
       console.error("[ApiService] importPortfolio error:", error);
+      const { message } = sanitizeErrorMessage(error, 500, "importPortfolio");
       const response = new Response(
         JSON.stringify({
           success: false,
-          error: (error as Error).message,
+          error: message,
         }),
         { status: 500 }
       );
@@ -3039,7 +3117,8 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native analyzePortfolioLosers error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        const { message } = sanitizeErrorMessage(error, 500, "analyzePortfolioLosers");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -3417,7 +3496,8 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamKaiAnalysis error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        const { message } = sanitizeErrorMessage(error, 500, "streamKaiAnalysis");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }

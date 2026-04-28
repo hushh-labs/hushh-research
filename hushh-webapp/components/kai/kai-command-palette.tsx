@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  BarChart3,
   Compass,
   History,
   Mic,
@@ -29,23 +28,21 @@ import {
   searchTickerUniverse,
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
+import { searchKaiActions } from "@/lib/voice/kai-action-gateway";
+import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useVoiceDictation } from "@/lib/voice/use-voice-dictation";
 
-export type KaiCommandAction =
-  | "analyze"
-  | "optimize"
-  | "consent"
-  | "profile"
-  | "history"
-  | "dashboard"
-  | "home";
+export type KaiCommandPaletteSelection = {
+  actionId: string;
+  slots?: Record<string, unknown>;
+};
 
 interface KaiCommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCommand: (command: KaiCommandAction, params?: Record<string, unknown>) => void;
-  hasPortfolioData?: boolean;
+  onSelectAction: (selection: KaiCommandPaletteSelection) => void;
+  appRuntimeState?: AppRuntimeState;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -151,8 +148,8 @@ function rankTickerRow(row: TickerUniverseRow, qUpper: string): number {
 export function KaiCommandPalette({
   open,
   onOpenChange,
-  onCommand,
-  hasPortfolioData = true,
+  onSelectAction,
+  appRuntimeState,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
   const [query, setQuery] = useState("");
@@ -378,10 +375,23 @@ export function KaiCommandPalette({
       ? "Ticker universe unavailable. Check backend connectivity."
       : "No matching commands.";
 
-  function run(command: KaiCommandAction, params?: Record<string, unknown>) {
+  const actionMatches = useMemo(
+    () =>
+      searchKaiActions({
+        query,
+        appRuntimeState,
+        limit: 10,
+      }),
+    [appRuntimeState, query]
+  );
+
+  function runAction(actionId: string, slots?: Record<string, unknown>) {
     onOpenChange(false);
     setQuery("");
-    onCommand(command, params);
+    onSelectAction({
+      actionId,
+      slots,
+    });
   }
 
   const commandItemClass =
@@ -418,48 +428,54 @@ export function KaiCommandPalette({
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty>{commandEmptyMessage}</CommandEmpty>
 
-        <CommandGroup heading="Portfolio Actions">
-          <CommandItem className={commandItemClass} onSelect={() => run("dashboard")}>
-            <Icon icon={BarChart3} size="sm" className="mr-2 text-muted-foreground" />
-            Portfolio
-          </CommandItem>
-          {!isFiltering ? (
+        <CommandGroup heading="Kai Actions">
+          {actionMatches.length === 0 ? (
             <CommandItem className={commandItemClass} disabled>
-              <Icon icon={Activity} size="sm" className="mr-2 text-muted-foreground" />
-              <span>Optimize Portfolio</span>
-              <span className="ml-auto text-xs text-muted-foreground">Coming soon</span>
+              <Icon icon={Compass} size="sm" className="mr-2 text-muted-foreground" />
+              No matching Kai actions.
             </CommandItem>
           ) : null}
-        </CommandGroup>
-
-        <CommandSeparator />
-
-        <CommandGroup heading="Intelligence">
-          <CommandItem
-            className={commandItemClass}
-            disabled={!hasPortfolioData}
-            onSelect={() => run("history")}
-          >
-            <Icon icon={History} size="sm" className="mr-2 text-muted-foreground" />
-            Analysis History
-          </CommandItem>
-          <CommandItem className={commandItemClass} onSelect={() => run("home")}>
-            <Icon icon={Compass} size="sm" className="mr-2 text-muted-foreground" />
-            Kai Home
-          </CommandItem>
-        </CommandGroup>
-
-        <CommandSeparator />
-
-        <CommandGroup heading="Account">
-          <CommandItem className={commandItemClass} onSelect={() => run("consent")}>
-            <Icon icon={ShieldCheck} size="sm" className="mr-2 text-muted-foreground" />
-            Consents
-          </CommandItem>
-          <CommandItem className={commandItemClass} onSelect={() => run("profile")}>
-            <Icon icon={UserRound} size="sm" className="mr-2 text-muted-foreground" />
-            Profile
-          </CommandItem>
+          {actionMatches.map(({ action, availability }) => {
+            const disabled =
+              availability.status === "dead" ||
+              availability.status === "unwired" ||
+              availability.status === "manual_only" ||
+              availability.status === "blocked";
+            const helperText =
+              availability.status === "requires_persona_switch"
+                ? `Switch to ${availability.target_persona?.toUpperCase()}`
+                : availability.reason;
+            const icon =
+              action.action_id === "route.profile"
+                ? UserRound
+                : action.action_id === "route.consents"
+                  ? ShieldCheck
+                  : action.action_id === "route.analysis_history"
+                    ? History
+                    : action.action_id === "route.kai_home"
+                      ? Compass
+                      : Activity;
+            return (
+              <CommandItem
+                className={commandItemClass}
+                key={action.action_id}
+                disabled={disabled}
+                value={[
+                  action.label,
+                  action.action_id,
+                  action.aliases.join(" "),
+                  action.search_keywords.join(" "),
+                ].join(" ")}
+                onSelect={() => runAction(action.action_id)}
+              >
+                <Icon icon={icon} size="sm" className="mr-2 text-muted-foreground" />
+                <span className="font-medium">{action.label}</span>
+                {helperText ? (
+                  <span className="ml-2 truncate text-xs text-muted-foreground">{helperText}</span>
+                ) : null}
+              </CommandItem>
+            );
+          })}
         </CommandGroup>
 
         <CommandSeparator />
@@ -488,7 +504,11 @@ export function KaiCommandPalette({
                 className={commandItemClass}
                 key={`${ticker}:${title}`}
                 value={`${ticker} ${title} ${row.sector || row.sector_primary || ""} ${row.exchange || ""}`}
-                onSelect={() => run("analyze", { symbol: ticker })}
+                onSelect={() =>
+                  runAction("analysis.start", {
+                    symbol: ticker,
+                  })
+                }
               >
                 <Icon icon={Search} size="sm" className="mr-2 text-muted-foreground" />
                 <span className="font-semibold">{ticker}</span>

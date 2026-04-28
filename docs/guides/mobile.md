@@ -43,7 +43,13 @@ flowchart TB
 
 ## Overview
 
-The Hushh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
+The Hussh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
+
+Founder-language mapping:
+
+- `Separation of Duties` is implemented on mobile through the split between shared React runtime, native plugin boundary, and backend policy enforcement
+- `Cryptographic Primitives` are implemented through client-held vault control, secure native storage, and ciphertext-only backend persistence
+- `Capability Tokens` remain explicit in this guide as `VAULT_OWNER`, Firebase tokens, and consent tokens where the runtime contract requires them
 
 Program parity is enforced against the **entire visible route tree**, not only Kai core pages. The current source of truth is:
 

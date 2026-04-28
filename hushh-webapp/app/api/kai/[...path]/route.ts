@@ -173,6 +173,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   // Debug: Check if Authorization header is present
   const authHeader = request.headers.get("authorization");
   const acceptHeader = request.headers.get("accept");
+  const consentHeader =
+    request.headers.get("x-hushh-consent") || request.headers.get("X-Hushh-Consent");
   const voiceTurnIdHeader =
     request.headers.get("x-voice-turn-id") || request.headers.get("X-Voice-Turn-Id");
   const contentType = request.headers.get("content-type") || "";
@@ -186,6 +188,9 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // Copy authorization header
     if (authHeader) {
       headers.set("Authorization", authHeader);
+    }
+    if (consentHeader) {
+      headers.set("X-Hushh-Consent", consentHeader);
     }
     if (acceptHeader) {
       headers.set("Accept", acceptHeader);

@@ -8,7 +8,7 @@ flowchart LR
   feature["feature / fix / dev branches"]
   main["main"]
   green["Green main SHA"]
-  uat["UAT deploy<br/>auto from exact SHA"]
+  uat["UAT deploy<br/>manual exact SHA"]
   prod["Production deploy<br/>manual chosen SHA"]
   feature --> main --> green
   green --> uat
@@ -20,7 +20,7 @@ This repo now runs on one integration branch plus SHA-based environment deployme
 | Lane | Purpose | Default policy |
 |---|---|---|
 | `main` | Team integration branch | Every feature PR targets `main` |
-| UAT | Hosted validation environment | Auto-deploys the exact green `main` SHA |
+| UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
@@ -31,9 +31,21 @@ This repo now runs on one integration branch plus SHA-based environment deployme
 4. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 5. After an isolated hotfix lands, return local work to the normal development branch or `main` and delete the temporary branch after rollout validation.
 6. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-7. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses that exact commit SHA.
+7. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
 8. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
 9. Do not open release PRs into environment branches; the deployment source of truth is `main`.
+
+## Codex Branch Preservation Gate
+
+Coding agents must run this gate before CI, deploy, PR, hotfix, or validation work:
+
+1. Inspect and preserve the current developer branch before edits, branch switches, merges, or deploy operations.
+2. Keep incremental fixes on the preserved developer branch when the current worktree can safely carry them.
+3. Do not create temporary branches for routine follow-up work, UAT validation fixes, PR polish, or local hardening.
+4. Use a temporary branch only when branch isolation is explicitly requested, an isolated `main` hotfix is required, or unrelated in-flight work makes the preserved branch unsafe for the fix.
+5. If a temporary branch is used, delete it locally and remotely after merge and rollout validation when safe, then switch back to the preserved developer branch.
+6. If a fix lands on `main`, merge or rebase the landed `origin/main` commits into the preserved developer branch before handoff.
+7. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration.
 
 ## Branch Types and Retention
 
@@ -54,11 +66,12 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### UAT
 
-1. Auto-deploys only after a successful `Main Post-Merge Smoke` push run on `main`.
-2. The workflow checks out the exact green `main` SHA from that CI run.
-3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat` for redeploying a chosen green `main` SHA.
+1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
+2. The workflow checks out that exact chosen green `main` SHA.
+3. Manual dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
+6. The canonical GitHub deployment environment for this lane is `uat`.
 
 ### Production
 
@@ -67,14 +80,18 @@ Before deleting a local backup branch, classify its unique commits as:
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
 5. Only `kushaltrivedi5` may dispatch the production workflow after the SHA preflight passes.
+6. The canonical GitHub deployment environment for this lane is `production`.
 
 ## Hotfix Playbook
 
-1. Create the hotfix branch from the latest `main`.
-2. Merge the hotfix into `main`.
-3. Let UAT auto-deploy the new green `main` SHA, or manually redeploy that same SHA to UAT if needed.
-4. If another blocker appears after that rollout, create a new hotfix branch from the updated `main`.
-5. Do not reuse an already-merged hotfix branch for a second fix.
+1. Preserve the active developer branch before switching away.
+2. Create the hotfix branch from the latest `main` only when an isolated hotfix is materially required.
+3. Merge the hotfix into `main`.
+4. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
+5. Delete the hotfix branch locally and remotely after merge and rollout validation when safe.
+6. Switch back to the preserved developer branch and merge or rebase the landed `origin/main` commits into it.
+7. If another blocker appears after that rollout, create a new hotfix branch from the updated `main` only when the same isolation criteria still applies.
+8. Do not reuse an already-merged hotfix branch for a second fix.
 
 ## GitHub Admin Checklist
 
@@ -88,7 +105,7 @@ Before deleting a local backup branch, classify its unique commits as:
 6. Block force-pushes.
 7. Block branch deletion.
 8. Do not require blanket PR approvals on `main`; CI status plus merge queue are the default merge gates.
-9. Use review bypass plus the dedicated `main-bypass-queue` team for the 3 core owners only; do not rely on overlapping push restrictions.
+9. Use review bypass plus the dedicated `main-bypass-queue` team for the sanctioned `main` bypass cohort only; do not rely on overlapping push restrictions.
 10. Keep ordinary development off `main`; use PRs from developer branches.
 
 Current operating note:
@@ -99,9 +116,9 @@ Current operating note:
 - `main` intentionally requires `0` blanket approvals; the external community still goes through PR + CI + queue
 - admin ownership does not count as an independent PR approval
 - a PR author cannot self-approve through GitHub; review remains a separate state from admin privileges
-- the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `Akash-292`, and `RGlodAkshat`
-- the current live merge-queue bypass team is `main-bypass-queue`, containing those same 3 users only
-- the sanctioned review-bypass trio is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
+- the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`
+- the current live merge-queue bypass team is `main-bypass-queue`, containing those same 4 users only
+- the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
 - direct pushes to `main` are not the default bypass model; the preferred path is a green PR plus bypass merge
@@ -119,11 +136,18 @@ The production workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `production-owner-bypass` | Owner-only production deploy lane for `kushaltrivedi5` |
+| `production` | Owner-only production deploy lane for `kushaltrivedi5` |
+
+The UAT workflow uses one active GitHub environment name:
+
+| Environment | Intended use |
+|---|---|
+| `uat` | Maintainer-dispatched hosted validation lane for exact green `main` SHAs |
 
 Operational rules:
 
 1. Only `kushaltrivedi5` may dispatch the production workflow.
 2. Other developers may still merge to `main` through PR flow, but production dispatch remains owner-only.
-3. `production-owner-bypass` should not require reviewers and should not allow admin bypass.
+3. `production` should not require reviewers and should not allow admin bypass.
 4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
+5. Verify both deploy lanes together with `../../../scripts/ci/verify-deployment-environment-governance.py`.

@@ -66,6 +66,9 @@ function parseRealtimeSessionPayload(raw: unknown): {
   model: string;
   voice: string;
   sessionId?: string | null;
+  transcriptionModel?: string;
+  transcriptionLanguage?: string;
+  transcriptionPrompt?: string;
 } | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
@@ -73,8 +76,22 @@ function parseRealtimeSessionPayload(raw: unknown): {
   const model = typeof value.model === "string" ? value.model.trim() : "";
   const voice = typeof value.voice === "string" ? value.voice.trim() : "";
   const sessionId = typeof value.session_id === "string" ? value.session_id.trim() : null;
+  const transcriptionModel =
+    typeof value.transcription_model === "string" ? value.transcription_model.trim() : "";
+  const transcriptionLanguage =
+    typeof value.transcription_language === "string" ? value.transcription_language.trim() : "";
+  const transcriptionPrompt =
+    typeof value.transcription_prompt === "string" ? value.transcription_prompt.trim() : "";
   if (!clientSecret || !model || !voice) return null;
-  return { clientSecret, model, voice, sessionId: sessionId || null };
+  return {
+    clientSecret,
+    model,
+    voice,
+    sessionId: sessionId || null,
+    ...(transcriptionModel ? { transcriptionModel } : {}),
+    ...(transcriptionLanguage ? { transcriptionLanguage } : {}),
+    ...(transcriptionPrompt ? { transcriptionPrompt } : {}),
+  };
 }
 
 function stopMediaStream(stream: MediaStream | null | undefined): void {

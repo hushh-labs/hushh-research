@@ -1,17 +1,23 @@
 # Agent Development
 
-> The community contribution bible. Everything you need to build, test, and ship a new Hushh agent or operon.
+> The community contribution bible. Everything you need to build, test, and ship a new Hussh agent or operon.
 
 
 ## Visual Context
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
+Founder-language mapping:
+
+- `TrustLink / A2A delegation` means delegated authority must inherit the same consent boundary this doc enforces
+- `Capability Tokens` remain explicit here because agent entry points, tools, and operons validate concrete token scopes
+- `Separation of Duties` is implemented through the DNA model: agents orchestrate, tools expose callable surfaces, operons hold business logic, and services touch persistence
+
 ---
 
 ## The DNA Model
 
-Hushh agents are built from four composable layers. Each layer has a single responsibility and strict dependency rules.
+Hussh agents are built from four composable layers. Each layer has a single responsibility and strict dependency rules.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -284,7 +290,7 @@ version: "1.0.0"
 description: Analyzes user data for the my_domain domain.
 model: gemini-3-flash-preview
 system_instruction: |
-  You are a Hushh agent specializing in [domain].
+  You are a Hussh agent specializing in [domain].
   Always respect user consent and privacy.
   Provide structured, actionable insights.
 required_scopes:

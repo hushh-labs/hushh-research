@@ -13,7 +13,7 @@ import {
   resolveAnalyticsMeasurementId,
   resolveGtmContainerId,
 } from "@/lib/observability/env";
-import { trackPageView, trackApiRequestCompleted } from "@/lib/observability/client";
+import { trackPageView, trackApiRequestCompleted, trackEvent } from "@/lib/observability/client";
 import {
   captureGrowthAttribution,
   trackGrowthFunnelStepCompleted,
@@ -124,19 +124,41 @@ function installTransportSpies(): void {
   });
 }
 
-function expectSharedPayloadContract(payload: Record<string, unknown>): void {
+function resolveExpectedEventCategory(eventName: string): "funnel" | "feature" | "system" {
+  if (
+    eventName === "growth_funnel_step_completed" ||
+    eventName === "investor_activation_completed" ||
+    eventName === "ria_activation_completed"
+  ) {
+    return "funnel";
+  }
+  if (
+    eventName === "portfolio_viewed" ||
+    eventName === "recommendation_viewed" ||
+    eventName === "marketplace_profile_viewed"
+  ) {
+    return "feature";
+  }
+  return "system";
+}
+
+function expectSharedPayloadContract(
+  eventName: string,
+  payload: Record<string, unknown>
+): void {
   expect(payload.event_source).toBe("observability_v2");
   expect(payload.env).toBe("production");
   expect(payload.platform).toBe("web");
+  expect(payload.event_category).toBe(resolveExpectedEventCategory(eventName));
+  expect(payload.app_version).toBe("sandbox-audit");
 }
 
 function expectGrowthPayloadContract(
   eventName: string,
   payload: Record<string, unknown>
 ): void {
-  expectSharedPayloadContract(payload);
+  expectSharedPayloadContract(eventName, payload);
   expect(payload.journey === "investor" || payload.journey === "ria").toBe(true);
-  expect(payload.app_version).toBe("sandbox-audit");
   if (eventName === "growth_funnel_step_completed") {
     expect(typeof payload.step).toBe("string");
   }
@@ -166,7 +188,12 @@ async function recordScenario(
     const gtagEntry = newGtagEntries[index]!;
 
     expect(dataLayerEntry.eventName).toBe(gtagEntry.eventName);
-    expect(dataLayerEntry.payload).toMatchObject(gtagEntry.payload);
+    const { event: dataLayerEvent, ...sharedDataLayerPayload } = dataLayerEntry.payload;
+    expect(dataLayerEvent).toBe(eventName);
+    expect(gtagEntry.payload).toMatchObject({
+      ...sharedDataLayerPayload,
+      send_to: resolveAnalyticsMeasurementId(),
+    });
 
     if (
       eventName === "growth_funnel_step_completed" ||
@@ -175,7 +202,7 @@ async function recordScenario(
     ) {
       expectGrowthPayloadContract(eventName, dataLayerEntry.payload);
     } else {
-      expectSharedPayloadContract(dataLayerEntry.payload);
+      expectSharedPayloadContract(eventName, dataLayerEntry.payload);
     }
 
     auditRecords.push({
@@ -285,10 +312,60 @@ describe("observability sandbox audit", () => {
 
     await recordScenario(
       "investor_activation",
-      ["growth_funnel_step_completed", "investor_activation_completed"],
+      ["investor_activation_completed"],
       () => {
         trackInvestorActivationCompleted({
           portfolioSource: "statement",
+        });
+      }
+    );
+
+    await recordScenario("portfolio_viewed", ["portfolio_viewed"], () => {
+      trackEvent("portfolio_viewed", {
+        result: "success",
+        portfolio_source: "statement",
+      });
+    });
+
+    await recordScenario("recommendation_viewed", ["recommendation_viewed"], () => {
+      trackEvent("recommendation_viewed", {
+        result: "success",
+        portfolio_source: "statement",
+      });
+    });
+
+    await recordScenario("import_parse_completed", ["import_parse_completed"], () => {
+      trackEvent("import_parse_completed", {
+        result: "success",
+      });
+    });
+
+    await recordScenario("import_quality_gate_passed", ["import_quality_gate_passed"], () => {
+      trackEvent("import_quality_gate_passed", {
+        result: "success",
+      });
+    });
+
+    await recordScenario("import_save_completed", ["import_save_completed"], () => {
+      trackEvent("import_save_completed", {
+        result: "success",
+      });
+    });
+
+    await recordScenario("phone_verification_started", ["phone_verification_started"], () => {
+      trackEvent("phone_verification_started", {
+        action: "link",
+        result: "success",
+      });
+    });
+
+    await recordScenario(
+      "phone_verification_completed",
+      ["phone_verification_completed"],
+      () => {
+        trackEvent("phone_verification_completed", {
+          action: "link",
+          result: "success",
         });
       }
     );
@@ -336,13 +413,20 @@ describe("observability sandbox audit", () => {
 
     await recordScenario(
       "ria_activation",
-      ["growth_funnel_step_completed", "ria_activation_completed"],
+      ["ria_activation_completed"],
       () => {
         trackRiaActivationCompleted({
           workspaceSource: "ria_client_workspace",
         });
       }
     );
+
+    await recordScenario("marketplace_profile_viewed", ["marketplace_profile_viewed"], () => {
+      trackEvent("marketplace_profile_viewed", {
+        action: "ria",
+        result: "success",
+      });
+    });
 
     await recordScenario("api_request_contract", ["api_request_completed"], () => {
       trackApiRequestCompleted({
@@ -359,7 +443,7 @@ describe("observability sandbox audit", () => {
     expect(resolveAnalyticsMeasurementId()).toBe("G-2PCECPSKCR");
     expect(window.gtag).toHaveBeenCalledTimes(auditRecords.length);
     expect(global.fetch).not.toHaveBeenCalled();
-    expect(auditRecords).toHaveLength(16);
+    expect(auditRecords).toHaveLength(22);
 
     persistArtifact();
   });

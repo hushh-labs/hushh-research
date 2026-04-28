@@ -1,9 +1,9 @@
 ---
 name: frontend
-description: Use when the request is broadly about the Hushh web frontend and the correct frontend specialist skill is not yet clear.
+description: Use when the request is broadly about the Hussh web frontend and the correct frontend specialist skill is not yet clear.
 ---
 
-# Hushh Frontend Skill
+# Hussh Frontend Skill
 
 ## Purpose and Trigger
 
@@ -58,35 +58,42 @@ Non-owned surfaces:
 5. Do not default to Playwright when a faster proof is sufficient:
    - use typecheck, route/service tests, and Next runtime diagnostics first
    - reserve Playwright for browser-only behavior such as auth, unlock, navigation, responsiveness, or interaction defects
+   - run Playwright or any browser automation only when the user explicitly asks for it
 6. Treat protected-route browser verification according to the vault model:
    - the vault key is memory-only
    - Next client navigation preserves unlocked state
    - full document navigations and raw `page.goto(...)` reset React memory and may require re-unlock
-7. For signed-in Playwright work, the default protected-route browser contract is:
+7. When the user explicitly asks for signed-in Playwright work, the default protected-route browser contract is:
    - reviewer-mode login
-   - vault unlock using the configured Kai/reviewer passphrase from env
+   - vault unlock using `REVIEWER_VAULT_PASSPHRASE` from a maintainer-only env or secret overlay
    - real in-app clicks for same-session route coverage
 8. Use direct deep links only when explicitly validating cold-entry behavior, redirect behavior, or re-unlock flows.
 9. Default frontend runtime launch behavior must be a visible OS terminal window, not a hidden Codex session.
 10. Prefer `./bin/hushh terminal web --mode <mode>` as the primary frontend runtime path unless the user explicitly asks for a hidden/background launch.
-11. Use `./bin/hushh terminal stack --mode <mode>` only when one combined visible terminal is explicitly preferred over separate backend/frontend terminals.
-12. Persona-facing UI copy must avoid internal architecture abbreviations such as `PKM`; use plain-language labels unless the route is explicitly developer-facing.
-13. Signed-in nested routes and query-state workspaces must use the shared top app bar as the back-navigation owner instead of rendering inline body back controls.
-14. Profile-family vault actions belong in the shared top app bar, not route-local hero chrome.
-15. Standard signed-in route headers should use `PageHeader icon={...}` as the default leading treatment; custom `leading` content is only for semantic non-icon cases.
-16. Route-header accent choice must follow the surface identity (`marketplace`, `ria`, `consent`, `kai`, etc.), not the broader parent section by habit.
-17. When a primary signed-in route header includes both actions and descriptive copy, prefer the standard 3-row mobile layout instead of forcing actions inline.
-18. Analysis/workspace sections should not stack duplicate summary cards that restate the same read; keep one primary card and make secondary surfaces additive.
-19. Responsive analysis surfaces must rebalance card grids and detail modules for tablet and desktop; a mobile-stacked composition should not ship unchanged on wide screens.
-20. Modal and control-surface close affordances must behave like first-class interactive controls: keep content mounted through the exit animation, and ensure the close button has the same tactile feedback and click reliability as other actionables.
-21. Every screen, card, sheet, and modal must answer the user’s next question; do not stop at labels, counts, or shallow summaries when the interface can expose the concrete object, evidence, or next action.
-22. Reject vague summary text when the UI can expose real underlying items, names, states, or reasons.
-23. Reject card-inside-card composition unless the inner surface creates real semantic separation that improves scanability.
-24. Reject stacked headers, stacked framing chrome, or repeated explanatory text that restates the same idea.
-25. Treat responsive composition review as mandatory across mobile, tablet, and desktop; do not ship width-only responsiveness.
-26. Review density on every surface: text volume, chip usage, vertical space, and helper copy must all be justified by the user task.
-27. Interaction review is required for all actionables; close, back, open, and tap states must feel consistent, tactile, and reliable across the app.
-28. Reject these UX failure patterns by default:
+11. If the user explicitly says `inline`, `inside Codex`, `in Codex`, or asks to keep frontend logs in the Codex session, run `./bin/hushh web --mode <mode>` through a long-lived Codex `exec_command` session for that turn.
+12. Use `./bin/hushh terminal stack --mode <mode>` only when one combined visible terminal is explicitly preferred over separate backend/frontend terminals.
+13. For Firebase web phone-auth incidents, classify the failure before editing:
+   - backend/API logs returning 2xx means the failure is usually Firebase browser auth, not a backend route crash
+   - `invalid-app-credential` / `captcha-check-failed` requires checking authorized domains, API key restrictions, reCAPTCHA config, and active browser origin
+   - `too-many-requests` is Firebase SMS throttling and cannot be fixed by frontend retries
+14. Do not force local auth flows from `localhost` to `127.0.0.1` or a LAN IP as a phone-auth workaround unless vault/passkey origin behavior has been explicitly verified; local passkeys are origin-bound and can break when the origin changes.
+15. Persona-facing UI copy must avoid internal architecture abbreviations such as `PKM`; use plain-language labels unless the route is explicitly developer-facing.
+16. Signed-in nested routes and query-state workspaces must use the shared top app bar as the back-navigation owner instead of rendering inline body back controls.
+17. Profile-family vault actions belong in the shared top app bar, not route-local hero chrome.
+18. Standard signed-in route headers should use `PageHeader icon={...}` as the default leading treatment; custom `leading` content is only for semantic non-icon cases.
+19. Route-header accent choice must follow the surface identity (`marketplace`, `ria`, `consent`, `kai`, etc.), not the broader parent section by habit.
+20. When a primary signed-in route header includes both actions and descriptive copy, prefer the standard 3-row mobile layout instead of forcing actions inline.
+21. Analysis/workspace sections should not stack duplicate summary cards that restate the same read; keep one primary card and make secondary surfaces additive.
+22. Responsive analysis surfaces must rebalance card grids and detail modules for tablet and desktop; a mobile-stacked composition should not ship unchanged on wide screens.
+23. Modal and control-surface close affordances must behave like first-class interactive controls: keep content mounted through the exit animation, and ensure the close button has the same tactile feedback and click reliability as other actionables.
+24. Every screen, card, sheet, and modal must answer the user’s next question; do not stop at labels, counts, or shallow summaries when the interface can expose the concrete object, evidence, or next action.
+25. Reject vague summary text when the UI can expose real underlying items, names, states, or reasons.
+26. Reject card-inside-card composition unless the inner surface creates real semantic separation that improves scanability.
+27. Reject stacked headers, stacked framing chrome, or repeated explanatory text that restates the same idea.
+28. Treat responsive composition review as mandatory across mobile, tablet, and desktop; do not ship width-only responsiveness.
+29. Review density on every surface: text volume, chip usage, vertical space, and helper copy must all be justified by the user task.
+30. Interaction review is required for all actionables; close, back, open, and tap states must feel consistent, tactile, and reliable across the app.
+31. Reject these UX failure patterns by default:
    - vague counts without inspectable names, objects, or evidence
    - cards that open a modal or detail state which only restates the card
    - grouped text dumps that hide meaning instead of clarifying it
@@ -97,7 +104,7 @@ Non-owned surfaces:
    - overuse of helper text, badges, chips, or status copy that increases noise without increasing clarity
    - screens that obviously need a better composition but are shipped as-is because the user did not ask for design help explicitly
    - detail surfaces that hide the important evidence behind arbitrary truncation, vague prose, or line-broken data dumps
-29. Apply this UX review checklist mentally on every screen:
+32. Apply this UX review checklist mentally on every screen:
    - does the primary surface answer a real user question
    - if a card exposes a count, can the user inspect the underlying items cleanly
    - are repeated headers, repeated framing, or repeated copy removable
@@ -122,4 +129,4 @@ cd hushh-webapp && npm run typecheck
 cd hushh-webapp && npm run verify:routes
 ```
 
-When route work touches protected signed-in surfaces, also prove one real browser flow using reviewer login plus vault unlock before calling the task done.
+Only run a real browser flow for protected signed-in surfaces when the user explicitly asks for browser verification.

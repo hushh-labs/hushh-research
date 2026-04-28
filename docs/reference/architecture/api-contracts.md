@@ -8,6 +8,12 @@
 
 All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
 
+Founder-language note:
+
+- `Capability Tokens` are the architecture headline
+- this file keeps the runtime labels `VAULT_OWNER`, `consent-token`, and `developer token` because readers need the exact wire contract
+- `PCHP` maps here to the `/api/v1/request-consent`, `/api/v1/consent-status`, and `/api/v1/scoped-export` flow
+
 ```
 Firebase Sign-In
       │
@@ -59,7 +65,7 @@ Client surfaces
 | GET | `/api/tickers/all` | Full ticker universe export with enrichment metadata |
 | POST | `/api/validate-token` | Validate a consent token |
 | GET | `/api/app-config/review-mode` | Review mode toggle (enabled only) |
-| POST | `/api/app-config/review-mode/session` | Mint Firebase custom token for `REVIEWER_UID` when review mode enabled |
+| POST | `/api/app-config/review-mode/session` | Mint Firebase custom token for `REVIEWER_UID`; non-production smoke may use `REVIEWER_VAULT_PASSPHRASE` |
 
 ### Developer API (Developer Token / Developer API Enabled)
 

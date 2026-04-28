@@ -1,14 +1,14 @@
 ---
 name: planning-board
-description: Use when inspecting, summarizing, creating, triaging, or updating work on the Hushh Engineering Core GitHub board.
+description: Use when inspecting, summarizing, creating, triaging, or updating work on the Hussh Engineering Core GitHub board.
 ---
 
-# Hushh Planning Board Skill
+# Hussh Planning Board Skill
 
 ## Purpose and Trigger
 
 - Primary scope: `planning-board-intake`
-- Trigger on `Hushh Engineering Core` board summaries, issue-backed board item creation, triage, and field updates.
+- Trigger on `Hussh Engineering Core` board summaries, issue-backed board item creation, triage, and field updates.
 - Avoid overlap with `repo-operations` and `repo-context`.
 
 ## Coverage and Ownership
@@ -53,6 +53,10 @@ Non-owned surfaces:
 5. When the user asks for labels, treat labels as a first-class part of the task update instead of leaving them implicit.
 6. Do not move sprint or reset dates on existing tasks unless the user explicitly asks for that metadata change.
 7. Do not use bare issue numbers in summaries, status lists, overdue lists, or change logs when the title is available.
+8. Use `In review` when implementation is complete but PR review, UAT proof, dashboard acceptance, founder sign-off, or other external verification remains.
+9. Use `Done` only when the work is accepted and the issue state or acceptance evidence agrees with completion.
+10. Before and after broad cleanups, run `board_ops.py audit-state` and resolve drift deliberately.
+11. For duplicate or redundant board tasks, consolidate the scope into the canonical issue, leave a traceability comment, then remove the duplicate project item with `board_ops.py remove-task`; do not mark duplicates as `Done` just to clear the board.
 
 ## Handoff Rules
 
@@ -65,4 +69,5 @@ Non-owned surfaces:
 ```bash
 python3 -m py_compile .codex/skills/planning-board/scripts/board_ops.py
 python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07
+python3 .codex/skills/planning-board/scripts/board_ops.py audit-state
 ```

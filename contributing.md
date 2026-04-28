@@ -1,4 +1,4 @@
-# Contributing to Hushh Research
+# Contributing to Hussh Research
 
 Thanks for building with us.
 
@@ -23,7 +23,7 @@ Choose the narrowest lane that matches the work:
 
 ## The Product Contract
 
-Hushh is built around four invariants:
+Hussh is built around four invariants:
 
 1. **Consent + scoped access**
    - sensitive access is never implicit
@@ -109,7 +109,7 @@ Those are real, but they are not part of the normal first-PR path. If you need t
 Common checks:
 
 ```bash
-./bin/hushh ci
+./bin/hushh codex pre-pr
 ./bin/hushh docs verify
 cd hushh-webapp && npm run verify:docs
 ```
@@ -122,11 +122,11 @@ git commit -s
 
 ## Naming Policy
 
-Public product/docs language should use **Hushh**.
+Public product/docs language should use **Hussh**.
 
 Selective Secure / Scoped / Handled-by-the-user framing is fine when it clarifies the trust boundary, but it should stay explanatory rather than replacing the product name.
 
-Legacy `Hushh` identifiers may still exist in:
+Legacy `Hussh` identifiers may still exist in:
 
 - repo and package names
 - bundle IDs

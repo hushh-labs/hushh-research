@@ -1,9 +1,9 @@
 ---
 name: repo-context
-description: Use when a request starts with scanning the Hushh repository, establishing repo context, mapping code/docs/skills, or deciding which owner skill should own the next step.
+description: Use when a request starts with scanning the Hussh repository, establishing repo context, mapping code/docs/skills, or deciding which owner skill should own the next step.
 ---
 
-# Hushh Repo Context Skill
+# Hussh Repo Context Skill
 
 ## Purpose and Trigger
 

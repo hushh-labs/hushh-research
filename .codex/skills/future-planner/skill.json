@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "future-planner",
   "primary_scope": "future-roadmap-plan-intake",
-  "description": "Use when evaluating future roadmap ideas, creating planning-only architecture docs, or assessing R&D concepts against Hushh north stars, trust boundaries, and current repo reality.",
+  "description": "Use when evaluating future roadmap ideas, creating planning-only architecture docs, or assessing R&D concepts against Hussh north stars, trust boundaries, and current repo reality.",
   "owned_paths": [
     "docs/future",
     ".codex/skills/future-planner",

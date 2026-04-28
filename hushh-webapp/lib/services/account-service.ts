@@ -16,6 +16,21 @@ export interface AccountDeletionResult {
   details?: Record<string, unknown>;
 }
 
+export interface AccountDataExportResult {
+  success: boolean;
+  exported_at?: string;
+  requested_target?: "account";
+  data?: {
+    actor_profile?: Record<string, unknown> | null;
+    runtime_persona_state?: Record<string, unknown> | null;
+    encrypted_vault_keys?: Array<Record<string, unknown>>;
+    encrypted_pkm_manifests?: Array<Record<string, unknown>>;
+    encrypted_pkm_index?: Array<Record<string, unknown>>;
+    encrypted_pkm_blobs?: Array<Record<string, unknown>>;
+    consent_audit?: Array<Record<string, unknown>>;
+  };
+}
+
 export class AccountServiceImpl {
   /**
    * Delete the user's account and all data.
@@ -38,12 +53,7 @@ export class AccountServiceImpl {
       result: "success",
     });
 
-    console.log(
-      "[AccountService] Deleting account with target:",
-      target,
-      "token:",
-      vaultOwnerToken.substring(0, 30) + "..."
-    );
+    console.log("[AccountService] Deleting account with target:", target);
 
     try {
       if (Capacitor.isNativePlatform()) {
@@ -88,9 +98,17 @@ export class AccountServiceImpl {
   /**
    * Export user data.
    */
-  async exportData(): Promise<any> {
-    // TODO: Implement export
-    return {};
+  async exportData(vaultOwnerToken: string): Promise<AccountDataExportResult> {
+    if (!vaultOwnerToken) {
+      throw new Error("VAULT_OWNER token required - vault must be unlocked");
+    }
+
+    return apiJson<AccountDataExportResult>("/api/account/export", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${vaultOwnerToken}`,
+      },
+    });
   }
 }
 

@@ -27,6 +27,7 @@ import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
+import { trackEvent } from "@/lib/observability/client";
 import { trackInvestorActivationCompleted } from "@/lib/observability/growth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
@@ -413,6 +414,19 @@ function KaiAnalysisPageContent() {
 
   const handleLiveDecisionReady = useCallback(
     (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => {
+      trackEvent(
+        "recommendation_viewed",
+        {
+          result: "success",
+          ...(analysisParams?.portfolioSource
+            ? { portfolio_source: analysisParams.portfolioSource }
+            : {}),
+        },
+        {
+          dedupeKey: `feature:recommendation_viewed:${meta.runId || entry.ticker.toUpperCase()}`,
+          dedupeWindowMs: 10_000,
+        }
+      );
       trackInvestorActivationCompleted({
         portfolioSource: analysisParams?.portfolioSource,
         dedupeKey: `growth:investor:activation:${meta.runId || entry.ticker.toUpperCase()}`,
@@ -457,12 +471,15 @@ function KaiAnalysisPageContent() {
     () => String(searchParams.get("ticker") || "").trim().toUpperCase(),
     [searchParams]
   );
+  const hasWorkspaceRouteIntent =
+    searchParams.get("focus") === "active" || searchParams.has("run_id");
   const previewPickSourceFromQuery = useMemo(
     () => String(searchParams.get("pick_source") || "").trim(),
     [searchParams]
   );
   const shouldShowPreview =
     Boolean(previewTickerRaw) &&
+    !hasWorkspaceRouteIntent &&
     !showHistoryWhileActive &&
     !debateId &&
     !hasFocusedRun &&

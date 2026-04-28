@@ -29,6 +29,7 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
+import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import {
   humanizeConsentScope,
   resolveConsentRequesterLabel,
@@ -346,7 +347,7 @@ function ConsentEntryRow({
             </Badge>
           </div>
           <p className="truncate text-xs text-muted-foreground">
-            {entry.counterpart_email || entry.counterpart_secondary_label || "Hushh connection"}
+            {entry.counterpart_email || entry.counterpart_secondary_label || "Hussh connection"}
           </p>
         </div>
       </div>
@@ -523,6 +524,23 @@ function ConsentEntryDetail({
           ) : null}
           {entry.request_id ? <SettingsRow title="Request ID" description={entry.request_id} /> : null}
           {entry.scope ? <SettingsRow title="Scope code" description={entry.scope} /> : null}
+        </SettingsGroup>
+      ) : null}
+
+      {/* Consent handshake timeline (Issue #122) */}
+      {entry.counterpart_id && entry.counterpart_type !== "self" ? (
+        <SettingsGroup
+          embedded
+          title="Consent timeline"
+          description="Full history of consent changes with this connection."
+        >
+          <div className="px-1 py-2">
+            <HandshakeTimeline
+              counterpartId={entry.counterpart_id}
+              counterpartLabel={resolveCounterpartLabel(entry)}
+              actor={actor}
+            />
+          </div>
         </SettingsGroup>
       ) : null}
     </div>

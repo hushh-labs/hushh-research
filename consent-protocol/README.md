@@ -1,6 +1,6 @@
-# Hushh Consent Protocol
+# Hussh Consent Protocol
 
-> Consent-first backend for Hushh Personal Data Agents. Python 3.13 / FastAPI / Google ADK / Supabase.
+> Consent-first backend for Hussh Personal Data Agents. Python 3.13 / FastAPI / Google ADK / Supabase.
 
 
 ## Visual Map
@@ -55,7 +55,7 @@ flowchart TB
 
 ## What This Is
 
-The Consent Protocol is the single source of truth for the Hushh backend. It powers:
+The Consent Protocol is the single source of truth for the Hussh backend. It powers:
 
 - **Consent token issuance, validation, and revocation** -- cryptographically signed, stateless, auditable.
 - **Personal Data Agents (PDAs)** -- built on Google ADK with consent enforcement at every layer.
@@ -106,7 +106,7 @@ See: [docs/monorepo-integration.md](docs/monorepo-integration.md)
 
 ## MCP Distribution
 
-The preferred public install surface for the Hushh Consent MCP server is the npm launcher package `@hushh/mcp`, which bootstraps the existing Python stdio server and keeps the protocol logic in this repo. Repo-local direct Python setup remains supported as a fallback for contributors and unpublished-package testing.
+The preferred public install surface for the Hussh Consent MCP server is the npm launcher package `@hushh/mcp`, which bootstraps the existing Python stdio server and keeps the protocol logic in this repo. Repo-local direct Python setup remains supported as a fallback for contributors and unpublished-package testing.
 
 See:
 
@@ -191,7 +191,7 @@ consent-protocol/
 │
 └── docs/                          # Documentation
     ├── README.md                  # Docs entry point
-    ├── manifesto.md               # Hushh philosophy
+    ├── manifesto.md               # Hussh philosophy
     ├── mcp-setup.md               # MCP technical companion
     └── reference/
         ├── agent-development.md   # DNA model, operons, contribution guide
