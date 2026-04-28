@@ -1,5 +1,9 @@
 # Contributor Onboarding Guide
 
+  ## Visual Context
+
+This guide explains the contributor workflow for the hushh-research repository, including setup, making changes, and submitting pull requests.
+
 Welcome to Hushh Labs! This guide walks you through everything you need to make your first contribution — from forking the repo to getting your Pull Request merged.
 
 ## Table of Contents
