@@ -224,6 +224,10 @@ def set_project_field(
     run_gh(cmd)
 
 
+def delete_project_item(item_id: str) -> None:
+    run_gh(["project", "item-delete", str(PROJECT_NUMBER), "--owner", OWNER, "--id", item_id])
+
+
 def sync_issue_labels(*, repo: str, issue_number: int, labels: list[str]) -> None:
     issue = get_issue_json(repo, issue_number)
     current = {label["name"] for label in issue.get("labels", [])}
@@ -354,6 +358,25 @@ def cmd_update_task(args: argparse.Namespace) -> None:
         sync_current_sprint=args.sync_current_sprint,
     )
     print(json.dumps(get_issue_json(args.repo, args.issue), indent=2))
+
+
+def cmd_remove_task(args: argparse.Namespace) -> None:
+    item_id = get_project_item_id_for_issue(args.repo, args.issue)
+    if item_id:
+        delete_project_item(item_id)
+    issue = get_issue_json(args.repo, args.issue)
+    print(
+        json.dumps(
+            {
+                "removed": bool(item_id),
+                "project": PROJECT_TITLE,
+                "issue": issue["displayTitle"],
+                "state": issue["state"],
+                "url": issue["url"],
+            },
+            indent=2,
+        )
+    )
 
 
 def fetch_project_items() -> list[dict[str, Any]]:
@@ -492,6 +515,30 @@ def cmd_summary(args: argparse.Namespace) -> None:
     print(json.dumps(payload, indent=2))
 
 
+def cmd_audit_state(args: argparse.Namespace) -> None:
+    items = normalize_items(fetch_project_items())
+    if args.repo:
+        items = [item for item in items if item.get("repo") == args.repo]
+    issue_items = [item for item in items if item.get("type") == "Issue"]
+    closed_not_done = [
+        item
+        for item in issue_items
+        if item.get("state") == "CLOSED" and item.get("status") != "Done"
+    ]
+    open_done = [
+        item
+        for item in issue_items
+        if item.get("state") == "OPEN" and item.get("status") == "Done"
+    ]
+    payload = {
+        "project": PROJECT_TITLE,
+        "repo": args.repo or "all",
+        "closed_not_done": sorted(closed_not_done, key=lambda item: item.get("displayTitle") or ""),
+        "open_done": sorted(open_done, key=lambda item: item.get("displayTitle") or ""),
+    }
+    print(json.dumps(payload, indent=2))
+
+
 def cmd_show_open_work(args: argparse.Namespace) -> None:
     issue_args = [
         "issue",
@@ -561,6 +608,15 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--labels")
     update.add_argument("--sync-current-sprint", action="store_true")
     update.set_defaults(func=cmd_update_task)
+
+    remove = sub.add_parser("remove-task")
+    remove.add_argument("--repo", default=DEFAULT_REPO)
+    remove.add_argument("--issue", type=int, required=True)
+    remove.set_defaults(func=cmd_remove_task)
+
+    audit = sub.add_parser("audit-state")
+    audit.add_argument("--repo")
+    audit.set_defaults(func=cmd_audit_state)
 
     open_work = sub.add_parser("show-open-work")
     open_work.add_argument("--repo", default=DEFAULT_REPO)

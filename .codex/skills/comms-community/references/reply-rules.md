@@ -76,6 +76,29 @@ Use these rules for public community responses:
 
 Use this mode when the user asks for Discord formatting, a channel post, product update, launch note, announcement, founder voice, cinematic cadence, or a message meant to be pasted directly into Discord.
 
+Discord message length contract:
+
+1. Default hard limit: `2000` characters per message content.
+2. Default safe drafting budget: `1900` characters per message.
+3. If a drafted Discord message exceeds the safe budget, split it into copy-ready batches instead of returning one oversized block.
+4. Do not target `4000` characters unless the user explicitly asks for a Nitro-oriented draft; even then, keep a fallback split available.
+5. Keep batch labels outside the copy block so the user can copy only the message body into Discord.
+6. Use the deterministic helper when the draft is long:
+
+```bash
+python3 .codex/skills/comms-community/scripts/discord_chunk.py --limit 1900 < /tmp/discord-message.md
+```
+
+Copy batch format:
+
+````md
+Discord copy batch 1/2 (1840 chars)
+
+```text
+<message body only>
+```
+````
+
 Allowed Discord formatting:
 
 1. `**bold**` for one headline, name, or promise. Do not bold every important noun.
