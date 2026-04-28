@@ -68,6 +68,7 @@ function projectRegistryAction(action: InvestorKaiActionDefinition) {
     label: action.label,
     meaning: action.meaning,
     speaker_persona: action.speakerPersona,
+    delegate_agent_id: action.delegateAgentId,
     scope: {
       routes: unique(action.scope.routes),
       screens: [...action.scope.screens],

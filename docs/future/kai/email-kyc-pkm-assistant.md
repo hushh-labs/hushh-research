@@ -1,4 +1,4 @@
-# Kai Email / KYC / PKM Assistant
+# One-Led Email / KYC / PKM Specialist
 
 ## Status
 
@@ -8,15 +8,17 @@
 
 ## Visual Context
 
-Canonical visual owner: [Kai Future Roadmap](./README.md). Use that map for the planning hierarchy; this page is the narrower concept note beneath it.
+Canonical visual owner: [Vision Index](../../vision/README.md), with the detailed planning map in [One/Kai/Nav/KYC Runtime Plan](../one-nav-runtime-plan.md). This page supersedes the previous Kai-owned KYC framing and remains here only as planning history until it is moved into a One/KYC future home.
 
 ## Summary
 
-This concept keeps Kai as the primary assistant and adds a Kai-owned delegated email/KYC specialist that can execute narrow workflow tasks after on-demand scoped consent.
+This concept makes One the user-facing orchestrator and adds KYC as a delegated identity/workflow specialist that can execute narrow email-backed KYC tasks after on-demand scoped consent.
 
 The goal is not a generic email bot or a public inbox-first workflow. The goal is a trust-bound workflow component that fits Hussh's existing architecture:
 
-- Kai remains the user-facing orchestrator
+- One remains the user-facing relationship layer and orchestrator
+- Nav owns consent and trust review when the workflow needs additional scope
+- KYC owns identity/KYC workflow execution inside the granted scope
 - PKM remains the durable personal memory layer
 - Consent Protocol remains the authority layer
 - delegated runtime state stays task-local and minimal
@@ -28,8 +30,8 @@ This concept aligns with existing Hussh north stars when it keeps these invarian
 1. consent-first access
 2. BYOK and zero-knowledge boundaries
 3. PKM as durable personal memory
-4. Kai as the assistant the user trusts directly
-5. delegated agents operating only inside explicit authority boundaries
+4. One as the personal agent the user trusts directly
+5. Kai, Nav, and KYC operating as delegated specialists inside explicit authority boundaries
 
 ## Current-State Overlap
 
@@ -38,29 +40,29 @@ What already exists in the repo today:
 - PKM as the durable personal-memory model
 - Consent Protocol for scoped access and audit
 - ADK-backed agent orchestration surfaces in the backend
-- Kai as the user-facing assistant identity
+- One/Kai/Nav ontology in `docs/vision/agent-ontology.md`
 - connector-aware runtime patterns for delegated actions
 - authenticated support and feedback delivery routed through the existing Gmail-backed support transport
 
 What does not yet exist as a first-class product/runtime contract:
 
-- a Kai-owned email/KYC delegated sub-agent contract
+- a One-owned email/KYC delegated specialist contract
 - workflow-specific on-demand consent metadata for this task family
 - a canonical runtime-memory/writeback split for delegated email/KYC workflows
 - explicit user-facing trust-state UX for this workflow family
-- an approved `kai@hushh.ai` runtime contract for public inbound email
+- an approved `one@hushh.ai` runtime contract for public inbound KYC email
 
 ## Future Concept
 
 The future-state model is:
 
-1. the user asks Kai to handle a scheduling or KYC email workflow
-2. Kai determines that email-backed delegated execution is needed
-3. Kai requests narrow, on-demand consent with task metadata
-4. Kai delegates the task to a Kai-owned specialist through an A2A-style boundary
+1. the user asks One to handle a scheduling or KYC email workflow
+2. One determines that email-backed delegated execution is needed
+3. One asks Nav to frame narrow, on-demand consent with task metadata when new scope is required
+4. One delegates the task to the KYC specialist through an A2A-style boundary
 5. the specialist executes only within the granted scope
 6. only structured facts write back into PKM
-7. Kai stays the visible orchestrator for status, approvals, and outcome
+7. One stays the visible relationship layer for status, approvals, and outcome
 
 ## Exemplar Workflows
 
@@ -105,12 +107,15 @@ Before execution, this concept likely needs:
 4. trust-state UX contract for waiting, approval, and completion
 5. promotion of connector boundaries from concept to execution-owned docs
 6. a transport-sharing rule that allows reuse of support/email queue primitives without inheriting the support trust model
+7. `agent.kyc.*` scopes, a KYC agent manifest, and a One-to-KYC delegation contract
+8. `one@hushh.ai` mailbox/delegated-sender ownership before public inbound rollout
 
 ## Edge and Risk Assessment
 
 ### Trust and authority
 
 - a delegated specialist must not become a separate uncontrolled trust domain
+- KYC must not become a second top-level personal agent; One owns the relationship layer
 - send authority must stay workflow-specific and legible
 - final authority boundaries need to distinguish low-risk coordination from sensitive KYC actions
 
@@ -150,7 +155,7 @@ This concept does not assume:
 - raw email threads as permanent PKM memory by default
 - immediate implementation of a durable workflow engine
 - bypassing consent or trust-state UX in the name of speed
-- approval of a live public `kai@hushh.ai` inbound webhook before the trust and rollout contract is explicitly owned
+- approval of a live public `one@hushh.ai` inbound webhook before the trust and rollout contract is explicitly owned
 
 ## Promotion Readiness Checklist
 
@@ -162,6 +167,7 @@ Do not promote this concept into execution docs until these are explicit:
 4. runtime-state contract
 5. user-facing trust-state UX
 6. approval policy for outbound actions
+7. One/Nav/KYC prompt, speaker, and delegated-agent contracts
 
 ## Recommended Execution Split
 

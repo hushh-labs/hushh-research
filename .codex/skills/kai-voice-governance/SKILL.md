@@ -81,7 +81,8 @@ Non-owned surfaces:
 12. Update docs and tests in the same change when capability semantics shift.
 13. During review, require:
     - local contracts for new discoverable capabilities
-    - `speaker_persona` on every action with allowed values `one`, `kai`, or `nav`
+    - `speaker_persona` on every action with allowed values `one`, `kai`, `nav`, or `kyc`
+    - `delegate_agent_id` on actions executed by a specialist on behalf of One, with allowed values `one`, `kai`, `nav`, or `kyc`
     - stable `control_ids` for mapped UI actionables
     - shared `action_id` parity across search and voice
     - `route.*` for ordinary navigation and `nav.*` only for Nav privacy/consent guardian actions
@@ -91,6 +92,7 @@ Non-owned surfaces:
     - One owns route, shell, memory, generic, and handoff framing.
     - Kai owns finance, analysis, portfolio, market, and RIA finance actions.
     - Nav owns privacy, consent, vault, deletion, revocation, and scope-review actions.
+    - KYC owns explicit identity/KYC workflow status, missing-document review, approval-gated drafts, and structured PKM writeback.
     It must never grant authority or bypass auth, vault, consent, persona, workspace, rollout, or kill-switch gates.
 15. Do not add legacy aliases for old navigation `nav.*` ids. Navigation namespace migrations are straight renames unless the user explicitly approves a compatibility program.
 

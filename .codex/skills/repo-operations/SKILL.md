@@ -81,15 +81,20 @@ Run this gate before CI, deploy, PR, hotfix, or validation work:
 14. If the change touches `.codex/`, `docs/`, `config/`, `scripts`, or other governance-owned surfaces, rerun `bash scripts/ci/orchestrate.sh governance` after the final local edit instead of relying only on an earlier green `pre-pr` result.
 15. Treat user intent literally: `merge to main` means land the change and monitor through `Main Post-Merge Smoke` only; do not dispatch UAT unless the user explicitly asks to deploy to UAT.
 16. Treat `deploy to UAT` as a separate cadence: land the change on `main`, identify the exact green `main` SHA, manually dispatch `Deploy to UAT` for that SHA, then monitor the deploy chain to terminal state.
-17. If a core run fails, default to the smallest safe repair and rerun loop before declaring a blocker. Only stop early for a real permissions, product, or platform boundary.
-18. Default runtime launch behavior must be visible separate OS terminal windows, not hidden Codex sessions.
-19. For local app work, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands unless the user explicitly asks for something else.
-20. If the user explicitly says `inline`, `inside Codex`, `in Codex`, or asks to keep the servers/background logs in the Codex session, run the same canonical backend/web commands directly through long-lived Codex `exec_command` sessions and keep those sessions open until the user asks to stop or the task ends.
-21. Use hidden long-lived Codex sessions only for the explicit inline override, background monitoring, one-off debugging, or when a visible terminal is not desired.
-22. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
-23. When the user says `restart servers`, treat that as a graceful terminal-managed restart, not just a port kill. First inspect existing repo-launched visible terminals, stop the running backend/web processes, then terminate the login shells cleanly before closing any leftover windows so Terminal does not prompt `Do you want to terminate running processes in this window?`.
-24. When the user says `restart servers inline`, stop any existing repo-launched backend/web listeners first, then run `./bin/hushh backend --mode local --reload` and `./bin/hushh web --mode local` in long-lived Codex sessions instead of reopening Terminal windows.
-25. For macOS Terminal restarts, prefer this order:
+17. For any merged change that touches files under `consent-protocol/db/migrations/`, files under `consent-protocol/db/contracts/`, or `consent-protocol/db/release_migration_manifest.json`, insert a DB release gate before UAT is called ready:
+   - run `./bin/hushh db verify-release-contract` from the exact code SHA
+   - run live `./bin/hushh db verify-uat-schema --report-path <tmp-report>`
+   - if the live guard reports a missing table, column, function, trigger, or version required by the checked-in contract, apply only the specific ordered migration needed for UAT, then rerun the live guard
+   - do not hide this inside a generic deploy note; report the DB guard result separately from app deploy health
+18. If a core run fails, default to the smallest safe repair and rerun loop before declaring a blocker. Only stop early for a real permissions, product, or platform boundary.
+19. Default runtime launch behavior must be visible separate OS terminal windows, not hidden Codex sessions.
+20. For local app work, prefer separate `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` commands unless the user explicitly asks for something else.
+21. If the user explicitly says `inline`, `inside Codex`, `in Codex`, or asks to keep the servers/background logs in the Codex session, run the same canonical backend/web commands directly through long-lived Codex `exec_command` sessions and keep those sessions open until the user asks to stop or the task ends.
+22. Use hidden long-lived Codex sessions only for the explicit inline override, background monitoring, one-off debugging, or when a visible terminal is not desired.
+23. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred.
+24. When the user says `restart servers`, treat that as a graceful terminal-managed restart, not just a port kill. First inspect existing repo-launched visible terminals, stop the running backend/web processes, then terminate the login shells cleanly before closing any leftover windows so Terminal does not prompt `Do you want to terminate running processes in this window?`.
+25. When the user says `restart servers inline`, stop any existing repo-launched backend/web listeners first, then run `./bin/hushh backend --mode local --reload` and `./bin/hushh web --mode local` in long-lived Codex sessions instead of reopening Terminal windows.
+26. For macOS Terminal restarts, prefer this order:
    - identify the repo-launched Terminal tabs/windows and their ttys
    - stop the backend/web processes attached to those ttys
    - verify the ports are no longer listening
@@ -97,29 +102,29 @@ Run this gate before CI, deploy, PR, hotfix, or validation work:
    - wait for the windows to disappear on their own or become truly idle
    - only then close any leftover idle Terminal windows
    - relaunch fresh visible terminals
-26. Do not close a Terminal window that still has a live shell just because the app listener is gone. A plain `close ... saving no` still triggers the terminate-process prompt on macOS if `zsh` is alive.
-27. If a terminal refuses to disappear after `exit`, treat force-close as fallback only. Prefer proving the shell is gone first, then closing the leftover idle window.
-28. If `./bin/hushh terminal web` opens but the frontend never binds, inspect the actual package surface before retrying. A common failure mode is `npm run dev` -> `sh: next: command not found`, which means the frontend install surface is broken even if dependencies appear partially present.
-29. In that case, verify the local Next binary resolves from the `hushh-webapp` package context, for example by checking `npm exec next -- --version` or an equivalent package-local resolution step. If Next does not resolve, repair the workspace through the canonical bootstrap path (`./bin/hushh bootstrap`) before relaunching the web terminal.
-30. Do not claim the server restart succeeded until both backend and web have been probed successfully after relaunch (`:8000/health` and `:3000`).
-31. Default branch policy: continue work on the user's active development branch. At task start, identify and preserve that branch as the return target before any temporary hotfix, detached checkout, or merge/deploy operation.
-32. If the workspace is detached or sitting on a temporary branch and the user has an established development branch, switch back to that branch before starting new edits unless the user explicitly asks for a different base.
-33. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
-34. Create a new branch only when one of these is true:
+27. Do not close a Terminal window that still has a live shell just because the app listener is gone. A plain `close ... saving no` still triggers the terminate-process prompt on macOS if `zsh` is alive.
+28. If a terminal refuses to disappear after `exit`, treat force-close as fallback only. Prefer proving the shell is gone first, then closing the leftover idle window.
+29. If `./bin/hushh terminal web` opens but the frontend never binds, inspect the actual package surface before retrying. A common failure mode is `npm run dev` -> `sh: next: command not found`, which means the frontend install surface is broken even if dependencies appear partially present.
+30. In that case, verify the local Next binary resolves from the `hushh-webapp` package context, for example by checking `npm exec next -- --version` or an equivalent package-local resolution step. If Next does not resolve, repair the workspace through the canonical bootstrap path (`./bin/hushh bootstrap`) before relaunching the web terminal.
+31. Do not claim the server restart succeeded until both backend and web have been probed successfully after relaunch (`:8000/health` and `:3000`).
+32. Default branch policy: continue work on the user's active development branch. At task start, identify and preserve that branch as the return target before any temporary hotfix, detached checkout, or merge/deploy operation.
+33. If the workspace is detached or sitting on a temporary branch and the user has an established development branch, switch back to that branch before starting new edits unless the user explicitly asks for a different base.
+34. Do not create a new temporary branch for incremental fixes, validation follow-ups, or polish work unless the user explicitly asks for branch isolation.
+35. Create a new branch only when one of these is true:
    - the fix is a post-merge blocker and must start from the latest `main`
    - the repo workflow requires an isolated hotfix from `main`
    - the current branch contains unrelated in-flight work that would make the fix unsafe to ship
-35. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's preserved development branch; use `main` only when the user has no development branch.
-36. Back-sync merged hotfixes into the preserved development branch before closing the task so the real working branch does not drift behind `main`.
-37. Do not leave the workspace detached or parked on a temporary branch at handoff. If a branch switch is unsafe because of conflicts or local-only edits, state the blocker explicitly and leave the user on their development branch whenever possible.
-38. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
-39. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
-40. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
-41. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
-42. For Firebase Auth env parity work, verify the shared auth project, API key restrictions, auth domain, authorized domains, phone provider state, and app-verification flag separately; do not treat a local real-SMS `too-many-requests` throttle as proof that UAT is misconfigured.
-43. Before claiming a UAT auth rollout is ready, confirm the hosted UAT origin is authorized in Firebase Auth and that local origin changes did not break vault/passkey behavior.
-44. Do not conflate `Upstream Sync` with `Main Freshness Gate`. Freshness is branch-to-main currency; upstream sync is consent-protocol subtree state and must route through `subtree-upstream-governance`.
-45. When rendering or summarizing PR operations, show the actual subtree status from `scripts/ci/subtree-sync-check.sh`, not a generic freshness or status-gate description.
+36. After a merge-driven hotfix is complete, delete the temporary branch remotely and locally when it is safe to do so, then return local state to the user's preserved development branch; use `main` only when the user has no development branch.
+37. Back-sync merged hotfixes into the preserved development branch before closing the task so the real working branch does not drift behind `main`.
+38. Do not leave the workspace detached or parked on a temporary branch at handoff. If a branch switch is unsafe because of conflicts or local-only edits, state the blocker explicitly and leave the user on their development branch whenever possible.
+39. For CI workflows, branch protection, env/bootstrap, or deploy-authority changes, do a second verification pass after edits instead of trusting the first green run.
+40. For branch protection, merge queue, release authority, or production deploy-governance changes, do a third independent check against live GitHub or runtime state before calling the work complete.
+41. For UAT runtime failures, start with `./bin/hushh codex rca --surface uat --text` so secret drift, legacy runtime mounts, DB drift, and semantic runtime breakage are classified before editing or redeploying.
+42. Treat only core runtime/release surfaces as blocking in the RCA loop: runtime contract, deploy/runtime env contract, DB release contract, semantic UAT verification, and Gmail/voice/auth availability on the release lane. Helper-only drift stays advisory unless it masks one of those surfaces.
+43. For Firebase Auth env parity work, verify the shared auth project, API key restrictions, auth domain, authorized domains, phone provider state, and app-verification flag separately; do not treat a local real-SMS `too-many-requests` throttle as proof that UAT is misconfigured.
+44. Before claiming a UAT auth rollout is ready, confirm the hosted UAT origin is authorized in Firebase Auth and that local origin changes did not break vault/passkey behavior.
+45. Do not conflate `Upstream Sync` with `Main Freshness Gate`. Freshness is branch-to-main currency; upstream sync is consent-protocol subtree state and must route through `subtree-upstream-governance`.
+46. When rendering or summarizing PR operations, show the actual subtree status from `scripts/ci/subtree-sync-check.sh`, not a generic freshness or status-gate description.
 
 ## Handoff Rules
 
