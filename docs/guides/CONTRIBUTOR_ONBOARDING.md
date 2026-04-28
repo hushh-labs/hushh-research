@@ -1,6 +1,6 @@
 # Contributor Onboarding Guide
 
-  ## Visual Context
+## Visual Context
 
 This guide explains the contributor workflow for the hushh-research repository, including setup, making changes, and submitting pull requests.
 
