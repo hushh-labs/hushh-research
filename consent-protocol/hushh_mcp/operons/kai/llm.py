@@ -469,13 +469,13 @@ Your mission is to perform a high-conviction, data-driven "Earnings Quality & Mo
         return analysis
 
     except asyncio.TimeoutError:
-        logger.warning(
-            f"[Gemini Operon] Gemini timed out for {ticker}; falling back to deterministic analysis"
+        logger.error(
+            f"[Gemini Operon] Gemini timed out for {ticker}; propagating error to caller"
         )
-        return {"error": "Gemini timeout", "fallback": True}
+        raise TimeoutError(f"Gemini analysis timed out for {ticker}")
     except Exception as e:
         logger.error(f"[Gemini Operon] Error calling Gemini: {e}")
-        return {"error": str(e), "fallback": True}
+        raise RuntimeError(f"Gemini analysis failed for {ticker}: {str(e)}")
 
 
 async def analyze_sentiment_with_gemini(
@@ -565,11 +565,11 @@ Analyze the provided news articles and assess market sentiment for this stock.
         return analysis
 
     except asyncio.TimeoutError:
-        logger.warning(f"[Gemini Sentiment] Timed out for {ticker}")
-        return {"error": "Gemini timeout", "fallback": True}
+        logger.error(f"[Gemini Sentiment] Timed out for {ticker}; propagating error")
+        raise TimeoutError(f"Sentiment analysis timed out for {ticker}")
     except Exception as e:
         logger.error(f"[Gemini Sentiment] Error: {e}")
-        return {"error": str(e), "fallback": True}
+        raise RuntimeError(f"Sentiment analysis failed for {ticker}: {str(e)}")
 
 
 async def analyze_valuation_with_gemini(
@@ -665,11 +665,11 @@ Perform a comprehensive valuation analysis with focus on relative and intrinsic 
         return analysis
 
     except asyncio.TimeoutError:
-        logger.warning(f"[Gemini Valuation] Timed out for {ticker}")
-        return {"error": "Gemini timeout", "fallback": True}
+        logger.error(f"[Gemini Valuation] Timed out for {ticker}; propagating error")
+        raise TimeoutError(f"Valuation analysis timed out for {ticker}")
     except Exception as e:
         logger.error(f"[Gemini Valuation] Error: {e}")
-        return {"error": str(e), "fallback": True}
+        raise RuntimeError(f"Valuation analysis failed for {ticker}: {str(e)}")
 
 
 async def synthesize_debate_recommendation_card(
