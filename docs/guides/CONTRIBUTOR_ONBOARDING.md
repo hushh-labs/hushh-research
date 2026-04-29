@@ -198,9 +198,9 @@ A branch is an isolated workspace. You make changes here without affecting the m
 
 **Naming convention:**
 
-- Documentation: `docs/description-of-change`
-- Bug fix: `fix/description-of-bug`
-- Feature: `feature/description-of-feature`
+- Documentation: `docs/my-change` (e.g., `docs/add-api-docs`)
+- Bug fix: `fix/my-bug` (e.g., `fix/login-error`)
+- Feature: `feature/my-feature` (e.g., `feature/token-validation`)
 - Refactor: `refactor/description-of-refactor`
 
 **Create your branch:**
