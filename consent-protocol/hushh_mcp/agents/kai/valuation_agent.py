@@ -78,6 +78,9 @@ class ValuationAgent(HushhAgent):
         Returns:
             ValuationInsight with analysis results
         """
+        if not consent_token:
+            raise PermissionError("Valuation analysis requires a consent token")
+
         logger.info(f"[Valuation] Orchestrating analysis for {ticker} - user {user_id}")
 
         # Operon 1: Fetch market data (with consent check)

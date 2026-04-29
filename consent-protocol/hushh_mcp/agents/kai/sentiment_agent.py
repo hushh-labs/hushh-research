@@ -78,6 +78,9 @@ class SentimentAgent(HushhAgent):
         Returns:
             SentimentInsight with analysis results
         """
+        if not consent_token:
+            raise PermissionError("Sentiment analysis requires a consent token")
+
         logger.info(f"[Sentiment] Orchestrating analysis for {ticker} - user {user_id}")
 
         # Operon 1: Fetch news articles (with consent check)
