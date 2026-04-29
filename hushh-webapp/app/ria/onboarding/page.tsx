@@ -114,6 +114,10 @@ function isAdvisoryAccessReady(status?: string | null): boolean {
   return status === "active" || status === "verified" || status === "bypassed";
 }
 
+function normalizeCrd(value?: string | null): string {
+  return String(value || "").replace(/\D/g, "");
+}
+
 async function waitForNameVerificationResult<T>(
   promise: Promise<T | null>,
   options: { timeoutMs: number; onTimeout?: () => void }
@@ -268,9 +272,11 @@ export default function RiaOnboardingPage() {
   const [nameVerificationStatus, setNameVerificationStatus] = useState<NameVerificationState>("idle");
   const [nameVerificationResult, setNameVerificationResult] = useState<RiaNameVerificationResult | null>(null);
   const [lastVerifiedQuery, setLastVerifiedQuery] = useState<string | null>(null);
+  const [lastVerifiedCrd, setLastVerifiedCrd] = useState<string | null>(null);
   const verificationRequestIdRef = useRef(0);
   const verificationAbortRef = useRef<AbortController | null>(null);
   const latestDisplayNameRef = useRef("");
+  const latestCrdRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -284,6 +290,7 @@ export default function RiaOnboardingPage() {
           setNameVerificationStatus("idle");
           setNameVerificationResult(null);
           setLastVerifiedQuery(null);
+          setLastVerifiedCrd(null);
         }
         return;
       }
@@ -312,7 +319,8 @@ export default function RiaOnboardingPage() {
           isAdvisoryAccessReady(nextStatus?.advisory_status || nextStatus?.verification_status) &&
           Boolean(seededIdentity.crdNumber) &&
           Boolean(persistedDisplayName) &&
-          persistedDisplayName === seeded.displayName.trim();
+          persistedDisplayName === seeded.displayName.trim() &&
+          normalizeCrd(seededIdentity.crdNumber) === normalizeCrd(seeded.individualCrd);
         const currentStepId = resolveRiaOnboardingStepId(seeded, localDraft?.currentStepId, {
           nameVerificationSatisfied: seededVerified,
         });
@@ -331,10 +339,12 @@ export default function RiaOnboardingPage() {
             suggested_names: [],
           });
           setLastVerifiedQuery(seeded.displayName.trim() || seededIdentity.matchedName);
+          setLastVerifiedCrd(normalizeCrd(seededIdentity.crdNumber));
         } else {
           setNameVerificationStatus("idle");
           setNameVerificationResult(null);
           setLastVerifiedQuery(null);
+          setLastVerifiedCrd(null);
         }
         setShouldPersistDraft(true);
       } catch (loadError) {
@@ -378,19 +388,26 @@ export default function RiaOnboardingPage() {
   const advisoryVerificationStatus = status?.advisory_status || status?.verification_status || "draft";
   const advisoryAccessReady = isAdvisoryAccessReady(advisoryVerificationStatus);
   const displayNameQuery = draft.displayName.trim();
+  const displayCrdQuery = draft.individualCrd.trim();
+  const normalizedDisplayCrd = normalizeCrd(displayCrdQuery);
   latestDisplayNameRef.current = displayNameQuery;
+  latestCrdRef.current = normalizedDisplayCrd;
   const persistedVerifiedDisplayName = status?.display_name?.trim() || "";
+  const persistedVerifiedCrd = normalizeCrd(status?.individual_crd || status?.finra_crd);
   const persistedVerificationSatisfied =
     isAdvisoryAccessReady(status?.advisory_status || status?.verification_status) &&
-    Boolean(status?.individual_crd || status?.finra_crd) &&
+    Boolean(persistedVerifiedCrd) &&
     Boolean(persistedVerifiedDisplayName) &&
-    persistedVerifiedDisplayName === displayNameQuery;
+    persistedVerifiedDisplayName === displayNameQuery &&
+    persistedVerifiedCrd === normalizedDisplayCrd;
   const nameVerificationSatisfied =
     persistedVerificationSatisfied ||
     (nameVerificationStatus === "verified" &&
-      Boolean(nameVerificationResult?.crd_number) &&
+      Boolean(normalizeCrd(nameVerificationResult?.crd_number)) &&
       Boolean(displayNameQuery) &&
-      lastVerifiedQuery === displayNameQuery);
+      lastVerifiedQuery === displayNameQuery &&
+      Boolean(lastVerifiedCrd) &&
+      lastVerifiedCrd === normalizedDisplayCrd);
   const flowOptions = useMemo<RiaOnboardingFlowOptions>(
     () => ({ nameVerificationSatisfied }),
     [nameVerificationSatisfied]
@@ -403,7 +420,11 @@ export default function RiaOnboardingPage() {
     Boolean(user) &&
     displayNameQuery.length > 0 &&
     nameVerificationStatus !== "verifying" &&
-    !(nameVerificationStatus === "verified" && lastVerifiedQuery === displayNameQuery);
+    !(
+      nameVerificationStatus === "verified" &&
+      lastVerifiedQuery === displayNameQuery &&
+      lastVerifiedCrd === normalizedDisplayCrd
+    );
   const isBroadNameQuery =
     nameVerificationStatus === "not_verified" &&
     nameVerificationResult?.reason_code === "query_too_broad";
@@ -436,6 +457,14 @@ export default function RiaOnboardingPage() {
     verificationAbortRef.current = null;
   }
 
+  function clearNameVerification() {
+    cancelActiveVerification();
+    setNameVerificationStatus("idle");
+    setNameVerificationResult(null);
+    setLastVerifiedQuery(null);
+    setLastVerifiedCrd(null);
+  }
+
   function applyVerifiedIdentityToDraft(result: RiaNameVerificationResult) {
     setShouldPersistDraft(true);
     setDraft((current) => ({
@@ -448,15 +477,24 @@ export default function RiaOnboardingPage() {
   }
 
   function handleDisplayNameChange(value: string) {
-    cancelActiveVerification();
-    setNameVerificationStatus("idle");
-    setNameVerificationResult(null);
-    setLastVerifiedQuery(null);
+    clearNameVerification();
     latestDisplayNameRef.current = value.trim();
+    latestCrdRef.current = "";
     updateDraft({
       displayName: value,
       individualLegalName: "",
       individualCrd: "",
+      advisoryFirmName: "",
+      advisoryFirmIapdNumber: "",
+    });
+  }
+
+  function handleCrdChange(value: string) {
+    clearNameVerification();
+    latestCrdRef.current = normalizeCrd(value);
+    updateDraft({
+      individualLegalName: "",
+      individualCrd: value,
       advisoryFirmName: "",
       advisoryFirmIapdNumber: "",
     });
@@ -472,6 +510,7 @@ export default function RiaOnboardingPage() {
   async function handleVerifyName(overrideQuery?: string) {
     if (!user) return;
     const normalizedQuery = (overrideQuery || draft.displayName).trim();
+    const normalizedInputCrd = normalizeCrd(draft.individualCrd);
     if (!normalizedQuery) return;
 
     cancelActiveVerification();
@@ -484,13 +523,17 @@ export default function RiaOnboardingPage() {
     setNameVerificationStatus("verifying");
     setNameVerificationResult(null);
     setLastVerifiedQuery(null);
+    setLastVerifiedCrd(null);
 
     try {
       const idToken = await user.getIdToken();
       const initialResolution = await waitForNameVerificationResult(
         RiaService.verifyOnboardingName(
           idToken,
-          { query: normalizedQuery },
+          {
+            query: normalizedQuery,
+            ...(normalizedInputCrd ? { crd_number: normalizedInputCrd } : {}),
+          },
           { signal: controller.signal }
         ),
         {
@@ -510,6 +553,7 @@ export default function RiaOnboardingPage() {
         });
         setNameVerificationStatus("provider_unavailable");
         setLastVerifiedQuery(null);
+        setLastVerifiedCrd(null);
         return;
       }
 
@@ -517,17 +561,41 @@ export default function RiaOnboardingPage() {
       if (
         controller.signal.aborted ||
         requestId !== verificationRequestIdRef.current ||
-        latestDisplayNameRef.current !== normalizedQuery
+        latestDisplayNameRef.current !== normalizedQuery ||
+        latestCrdRef.current !== normalizedInputCrd
       ) {
         return;
       }
-      setNameVerificationResult(result);
-      setNameVerificationStatus(result.status);
-      if (result.status === "verified") {
-        applyVerifiedIdentityToDraft(result);
+      const verifiedCrd = normalizeCrd(result.crd_number);
+      const resolvedResult =
+        result.status === "verified" && !verifiedCrd
+          ? {
+              ...result,
+              status: "not_verified" as const,
+              reason:
+                "Verification did not return a CRD-backed advisor record. Onboarding stays blocked.",
+              reason_code: "no_confident_match" as const,
+            }
+          : result.status === "verified" &&
+              normalizedInputCrd &&
+              verifiedCrd !== normalizedInputCrd
+            ? {
+                ...result,
+                status: "not_verified" as const,
+                reason:
+                  "The verified CRD did not match the CRD you entered. Check the CRD or remove it and verify by name.",
+                reason_code: "no_confident_match" as const,
+              }
+            : result;
+      setNameVerificationResult(resolvedResult);
+      setNameVerificationStatus(resolvedResult.status);
+      if (resolvedResult.status === "verified") {
+        applyVerifiedIdentityToDraft(resolvedResult);
         setLastVerifiedQuery(normalizedQuery);
+        setLastVerifiedCrd(verifiedCrd);
       } else {
         setLastVerifiedQuery(null);
+        setLastVerifiedCrd(null);
       }
     } catch (verificationError) {
       if (
@@ -544,6 +612,7 @@ export default function RiaOnboardingPage() {
         setNameVerificationStatus("idle");
         setNameVerificationResult(null);
         setLastVerifiedQuery(null);
+        setLastVerifiedCrd(null);
         return;
       }
       setNameVerificationResult({
@@ -557,6 +626,7 @@ export default function RiaOnboardingPage() {
       });
       setNameVerificationStatus("provider_unavailable");
       setLastVerifiedQuery(null);
+      setLastVerifiedCrd(null);
     } finally {
       if (requestId === verificationRequestIdRef.current) {
         verificationAbortRef.current = null;
@@ -645,6 +715,7 @@ export default function RiaOnboardingPage() {
           suggested_names: [],
         });
         setLastVerifiedQuery(draft.displayName.trim());
+        setLastVerifiedCrd(normalizeCrd(result.individual_crd));
       }
       trackEvent("ria_onboarding_submitted", {
         result: "success",
@@ -841,6 +912,18 @@ export default function RiaOnboardingPage() {
               placeholder="Ana Roumenova Carter"
               value={draft.displayName}
               onChange={handleDisplayNameChange}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                void handleVerifyName();
+              }}
+            />
+            <TextField
+              label="CRD"
+              placeholder="Optional CRD number"
+              value={draft.individualCrd}
+              inputMode="numeric"
+              onChange={handleCrdChange}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
                 event.preventDefault();

@@ -1,0 +1,64 @@
+{
+  "id": "kai-test-account-reset",
+  "role": "spoke",
+  "owner_family": "security-audit",
+  "primary_scope": "kai-test-account-reset",
+  "description": "Use when resetting a Kai/UAT test account by email for end-to-end onboarding, vault, RIA, consent, or profile retesting.",
+  "owned_paths": [
+    ".codex/skills/kai-test-account-reset"
+  ],
+  "non_owned_paths": [
+    "security-audit",
+    "vault-pkm-governance",
+    "iam-consent-governance",
+    "repo-operations",
+    "backend"
+  ],
+  "task_types": [
+    "security-consent-audit"
+  ],
+  "required_reads": [
+    "consent-protocol/api/routes/account.py",
+    "consent-protocol/hushh_mcp/services/account_service.py",
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "required_commands": [
+    "consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email ankit@hushh.ai",
+    "consent-protocol/.venv/bin/python -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "kai-test-account-reset",
+      "commands": [
+        "consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email ankit@hushh.ai",
+        "consent-protocol/.venv/bin/python -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+      ],
+      "tests": [
+        "consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email ankit@hushh.ai",
+        "consent-protocol/.venv/bin/python -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "security-audit",
+    "vault-pkm-governance",
+    "iam-consent-governance",
+    "repo-operations",
+    "kai-voice-governance"
+  ],
+  "adjacent_skills": [
+    "security-audit",
+    "vault-pkm-governance",
+    "iam-consent-governance",
+    "repo-operations",
+    "kai-voice-governance"
+  ],
+  "risk_tags": [
+    "destructive-data-delete",
+    "uat-test-account-reset",
+    "vault-pkm-cleanup",
+    "iam-consent-cleanup"
+  ]
+}

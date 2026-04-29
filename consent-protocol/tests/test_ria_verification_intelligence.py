@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -344,16 +346,90 @@ def test_stage1_lookup_returns_verified_when_crd_present(monkeypatch):
     monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
     monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
 
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/ria/profile/stage1"
+        assert request.headers["content-type"] == "application/json"
+        payload = request.read()
+        body = json.loads(payload)
+        assert body == {
+            "query": "Akash Katla",
+            "context": {
+                "targetName": "Akash Katla",
+                "crdNumber": "1234567",
+            },
+        }
+        return httpx.Response(status_code=200, json=_stage1_payload())
+
+    adapter = RIAIntelligenceStage1LookupAdapter(transport=httpx.MockTransport(handler))
+    result = _run(adapter.verify_name(query="Akash Katla", crd_number="123-4567"))
+
+    assert result.status == "verified"
+    assert result.crd_number == "1234567"
+    assert result.provider == "ria_intelligence_stage1"
+
+
+def test_stage1_lookup_blocks_entered_crd_mismatch(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
     adapter = RIAIntelligenceStage1LookupAdapter(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(status_code=200, json=_stage1_payload())
         )
     )
+    result = _run(adapter.verify_name(query="Akash Katla", crd_number="7654321"))
+
+    assert result.status == "not_verified"
+    assert result.reason_code == "no_confident_match"
+    assert "CRD" in (result.reason or "")
+
+
+def test_stage1_lookup_blocks_verified_payload_without_crd(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
+    adapter = RIAIntelligenceStage1LookupAdapter(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                status_code=200,
+                json=_stage1_payload(exists_on_finra=True, crd_number=None),
+            )
+        )
+    )
     result = _run(adapter.verify_name(query="Akash Katla"))
 
-    assert result.status == "verified"
-    assert result.crd_number == "1234567"
-    assert result.provider == "ria_intelligence_stage1"
+    assert result.status == "not_verified"
+    assert "CRD-backed" in (result.reason or "")
+
+
+def test_stage1_lookup_maps_auth_and_rate_limit_failures_to_unavailable(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
+    for status_code in (401, 403, 429):
+        adapter = RIAIntelligenceStage1LookupAdapter(
+            transport=httpx.MockTransport(
+                lambda request, code=status_code: httpx.Response(status_code=code)
+            )
+        )
+        result = _run(adapter.verify_name(query=f"Akash Katla {status_code}"))
+        assert result.status == "provider_unavailable"
+        assert result.metadata["status_code"] == status_code
+
+
+def test_stage1_lookup_maps_invalid_json_to_unavailable(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
+    adapter = RIAIntelligenceStage1LookupAdapter(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(status_code=200, content=b"not-json")
+        )
+    )
+    result = _run(adapter.verify_name(query="Akash Katla"))
+
+    assert result.status == "provider_unavailable"
+    assert "invalid JSON" in (result.reason or "")
 
 
 def test_stage1_lookup_returns_not_verified_with_suggestions(monkeypatch):
