@@ -222,11 +222,13 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     const input = await screen.findByLabelText("Advisor name");
+    const crdInput = screen.getByLabelText("CRD") as HTMLInputElement;
     const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     const verifyButton = screen.getByRole("button", { name: "Verify" }) as HTMLButtonElement;
 
     expect(continueButton.disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Use manual CRD fallback" })).toBeNull();
+    expect(crdInput.placeholder).toBe("Optional CRD number");
 
     fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
     await new Promise((resolve) => setTimeout(resolve, 450));
@@ -245,6 +247,7 @@ describe("RiaOnboardingPage", () => {
     expect(mocks.riaService.verifyOnboardingName).toHaveBeenCalledTimes(1);
 
     await screen.findByText("Verified name");
+    await waitFor(() => expect(crdInput.value).toBe("4424794"));
     expect(screen.getByText("4424794")).toBeTruthy();
     expect(screen.getByText("LCG CAPITAL ADVISORS, LLC")).toBeTruthy();
     expect(screen.getByText("801-12345")).toBeTruthy();
@@ -255,6 +258,95 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(screen.queryByText("Verified name")).toBeNull();
     });
+    expect(continueButton.disabled).toBe(true);
+  });
+
+  it("sends optional CRD and blocks when the provider CRD does not match", async () => {
+    mocks.riaService.verifyOnboardingName.mockResolvedValue({
+      status: "not_verified",
+      matched_name: "Ana Roumenova Carter",
+      crd_number: "4424794",
+      current_firm: "LCG CAPITAL ADVISORS, LLC",
+      sec_number: "801-12345",
+      reason:
+        "The verified CRD did not match the CRD you entered. Check the CRD or remove it and verify by name.",
+      reason_code: "no_confident_match",
+      provider: "ria_intelligence_stage1",
+      suggested_names: [],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    const input = await screen.findByLabelText("Advisor name");
+    const crdInput = screen.getByLabelText("CRD");
+    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+
+    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
+    fireEvent.change(crdInput, { target: { value: "0000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+
+    await waitFor(() =>
+      expect(mocks.riaService.verifyOnboardingName).toHaveBeenCalledWith(
+        "token-ria-1",
+        { query: "Ana Roumenova Carter", crd_number: "0000000" },
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      )
+    );
+    await screen.findByText(/verified CRD did not match/i);
+    expect(continueButton.disabled).toBe(true);
+  });
+
+  it("clears verified state when CRD changes after a successful lookup", async () => {
+    mocks.riaService.verifyOnboardingName.mockResolvedValue({
+      status: "verified",
+      matched_name: "Ana Roumenova Carter",
+      crd_number: "4424794",
+      current_firm: "LCG CAPITAL ADVISORS, LLC",
+      sec_number: "801-12345",
+      provider: "ria_intelligence_stage1",
+      suggested_names: [],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    const input = await screen.findByLabelText("Advisor name");
+    const crdInput = screen.getByLabelText("CRD");
+    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+
+    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+
+    await screen.findByText("Verified name");
+    expect(continueButton.disabled).toBe(false);
+
+    fireEvent.change(crdInput, { target: { value: "4424795" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Verified name")).toBeNull();
+    });
+    expect(continueButton.disabled).toBe(true);
+  });
+
+  it("keeps continue blocked when verification returns no CRD", async () => {
+    mocks.riaService.verifyOnboardingName.mockResolvedValue({
+      status: "verified",
+      matched_name: "Ana Roumenova Carter",
+      crd_number: null,
+      current_firm: "LCG CAPITAL ADVISORS, LLC",
+      sec_number: "801-12345",
+      provider: "ria_intelligence_stage1",
+      suggested_names: [],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    const input = await screen.findByLabelText("Advisor name");
+    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+
+    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+
+    await screen.findByText(/did not return a CRD-backed advisor record/i);
     expect(continueButton.disabled).toBe(true);
   });
 

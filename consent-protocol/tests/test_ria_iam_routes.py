@@ -178,8 +178,9 @@ def test_ria_onboarding_submit_maps_professional_capabilities(monkeypatch):
 
 
 def test_ria_name_verification_route_maps_stage1_lookup(monkeypatch):
-    async def _mock_verify_name(self, query: str):
+    async def _mock_verify_name(self, query: str, crd_number: str | None = None):
         assert query == "Ana Roumenova Carter"
+        assert crd_number == "4424794"
         return {
             "status": "verified",
             "matched_name": "Ana Roumenova Carter",
@@ -196,7 +197,7 @@ def test_ria_name_verification_route_maps_stage1_lookup(monkeypatch):
     client = TestClient(_build_app())
     response = client.post(
         "/api/ria/onboarding/verify-name",
-        json={"query": "Ana Roumenova Carter"},
+        json={"query": "Ana Roumenova Carter", "crd_number": "4424794"},
     )
 
     assert response.status_code == 200
