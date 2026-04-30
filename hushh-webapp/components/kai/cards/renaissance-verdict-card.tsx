@@ -6,32 +6,32 @@ import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { cn } from "@/lib/utils";
 import type { KaiHomeRenaissanceItem } from "@/lib/services/api-service";
 
-export type VerdictDecision = "BUY" | "HOLD" | "REDUCE";
+export type RenaissanceSignal = "CONSTRUCTIVE" | "WATCHLIST" | "CAUTION";
 
-function toVerdictDecision(bias: string | null | undefined): VerdictDecision {
+function toRenaissanceSignal(bias: string | null | undefined): RenaissanceSignal {
   const text = String(bias || "").trim().toUpperCase();
   if (
     text === "BUY" ||
     text === "STRONG_BUY" ||
     text === "BULLISH" ||
     text === "HOLD_TO_BUY"
-  ) return "BUY";
+  ) return "CONSTRUCTIVE";
   if (
     text === "REDUCE" ||
     text === "SELL" ||
     text === "BEARISH"
-  ) return "REDUCE";
-  return "HOLD";
+  ) return "CAUTION";
+  return "WATCHLIST";
 }
 
-function verdictLabel(decision: VerdictDecision): string {
-  if (decision === "BUY") return "Buy";
-  if (decision === "REDUCE") return "Do not buy";
-  return "Hold — watch for entry";
+function signalLabel(signal: RenaissanceSignal): string {
+  if (signal === "CONSTRUCTIVE") return "Constructive signal";
+  if (signal === "CAUTION") return "Caution signal";
+  return "Watchlist signal";
 }
 
-function verdictSummary(
-  decision: VerdictDecision,
+function signalSummary(
+  signal: RenaissanceSignal,
   row: KaiHomeRenaissanceItem
 ): string {
   const company = String(row.company_name || row.symbol || "This name").trim();
@@ -41,43 +41,49 @@ function verdictSummary(
       ? `$${row.fcf_billions.toFixed(row.fcf_billions >= 10 ? 0 : 1)}B FCF`
       : null;
   const tier = String(row.tier || "").trim();
+  const dataQuality = row.degraded
+    ? "Data quality is delayed, so Kai treats this as lower-confidence context."
+    : null;
 
-  if (decision === "BUY") {
+  if (signal === "CONSTRUCTIVE") {
     const parts = [
-      `${company} is currently rated a buy on the Renaissance list.`,
+      `${company} currently shows a constructive Renaissance bias.`,
       tier ? `Conviction tier: ${tier}.` : null,
       fcf ? `Free cash flow stands at ${fcf}.` : null,
       sector ? `Sector: ${sector}.` : null,
+      dataQuality,
     ].filter(Boolean);
     return parts.join(" ");
   }
 
-  if (decision === "REDUCE") {
+  if (signal === "CAUTION") {
     const parts = [
-      `${company} is currently rated reduce — not a buy at this time.`,
+      `${company} currently shows a caution Renaissance bias.`,
       tier ? `Conviction tier: ${tier}.` : null,
       sector ? `Sector: ${sector}.` : null,
-      "Consider waiting for an improved entry or a bias change before adding.",
+      "Review the thesis and data quality before acting on the signal.",
+      dataQuality,
     ].filter(Boolean);
     return parts.join(" ");
   }
 
   const parts = [
-    `${company} is currently rated hold on the Renaissance list.`,
+    `${company} currently sits in watchlist territory on the Renaissance list.`,
     tier ? `Conviction tier: ${tier}.` : null,
     fcf ? `Free cash flow stands at ${fcf}.` : null,
-    "No strong buy or reduce signal is present right now.",
+    "Kai has no high-conviction directional signal from this list alone.",
+    dataQuality,
   ].filter(Boolean);
   return parts.join(" ");
 }
 
-function verdictTone(decision: VerdictDecision): {
+function signalTone(signal: RenaissanceSignal): {
   container: string;
   badge: string;
   icon: string;
   label: string;
 } {
-  if (decision === "BUY") {
+  if (signal === "CONSTRUCTIVE") {
     return {
       container: "border-emerald-500/20 bg-emerald-500/8",
       badge: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
@@ -85,7 +91,7 @@ function verdictTone(decision: VerdictDecision): {
       label: "text-emerald-700 dark:text-emerald-300",
     };
   }
-  if (decision === "REDUCE") {
+  if (signal === "CAUTION") {
     return {
       container: "border-rose-500/20 bg-rose-500/8",
       badge: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
@@ -102,16 +108,16 @@ function verdictTone(decision: VerdictDecision): {
 }
 
 function VerdictIcon({
-  decision,
+  signal,
   className,
 }: {
-  decision: VerdictDecision;
+  signal: RenaissanceSignal;
   className?: string;
 }) {
-  if (decision === "BUY") {
+  if (signal === "CONSTRUCTIVE") {
     return <TrendingUp className={cn("h-5 w-5", className)} />;
   }
-  if (decision === "REDUCE") {
+  if (signal === "CAUTION") {
     return <TrendingDown className={cn("h-5 w-5", className)} />;
   }
   return <Minus className={cn("h-5 w-5", className)} />;
@@ -122,10 +128,10 @@ export function RenaissanceVerdictCard({
 }: {
   row: KaiHomeRenaissanceItem;
 }) {
-  const decision = toVerdictDecision(row.recommendation_bias);
-  const tone = verdictTone(decision);
-  const label = verdictLabel(decision);
-  const summary = verdictSummary(decision, row);
+  const signal = toRenaissanceSignal(row.recommendation_bias);
+  const tone = signalTone(signal);
+  const label = signalLabel(signal);
+  const summary = signalSummary(signal, row);
   const hasThesis = Boolean(
     String(row.investment_thesis || "").trim()
   );
@@ -140,10 +146,10 @@ export function RenaissanceVerdictCard({
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Renaissance verdict
+            Renaissance signal
           </p>
           <div className="flex items-center gap-2">
-            <VerdictIcon decision={decision} className={tone.icon} />
+            <VerdictIcon signal={signal} className={tone.icon} />
             <p className={cn("text-xl font-bold tracking-tight", tone.label)}>
               {label}
             </p>
@@ -153,7 +159,7 @@ export function RenaissanceVerdictCard({
           variant="outline"
           className={cn("shrink-0 text-[10px] font-bold uppercase tracking-wide", tone.badge)}
         >
-          {decision}
+          {signal}
         </Badge>
       </div>
 
@@ -208,10 +214,14 @@ export function RenaissanceVerdictCard({
             variant="outline"
             className="border-amber-500/20 bg-amber-500/8 text-xs text-amber-700 dark:text-amber-300"
           >
-            Delayed data
+            Lower confidence
           </Badge>
         ) : null}
       </div>
+
+      <p className="border-t border-current/10 pt-3 text-[11px] leading-5 text-muted-foreground">
+        Kai presents this as market context, not a personalized instruction.
+      </p>
     </SurfaceInset>
   );
 }
