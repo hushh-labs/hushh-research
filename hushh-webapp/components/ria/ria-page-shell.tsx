@@ -240,19 +240,19 @@ export function RiaStatusPanel({
   );
 }
 
-const _VERIFIED_STATUSES = new Set(["active", "verified", "bypassed", "finra_verified"]);
+const _VERIFIED_STATUSES = new Set(["active", "verified", "finra_verified"]);
 
 export function isRiaVerified(status?: string | null): boolean {
   return _VERIFIED_STATUSES.has(String(status || "").toLowerCase());
 }
 
 export function RiaVerificationGate({ children }: { children: ReactNode }) {
-  const { riaOnboardingStatus, devRiaBypassAllowed, loading } = usePersonaState();
+  const { riaOnboardingStatus, loading } = usePersonaState();
   const status = riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
 
   if (loading) return null;
 
-  if (!isRiaVerified(status) && !devRiaBypassAllowed) {
+  if (!isRiaVerified(status)) {
     return (
       <section className="space-y-3">
         <SectionHeader
@@ -274,13 +274,3 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function RiaDevAllowlistBadge() {
-  const { devRiaBypassAllowed } = usePersonaState();
-  if (!devRiaBypassAllowed) return null;
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-300">
-      <ShieldCheck className="h-3 w-3" />
-      Dev allowlist
-    </span>
-  );
-}

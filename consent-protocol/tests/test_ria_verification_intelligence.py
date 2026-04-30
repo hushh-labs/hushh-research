@@ -320,7 +320,8 @@ def test_finra_adapter_reports_configuration_gap_when_providers_unconfigured(mon
     assert "not configured" in result.message.lower()
 
 
-def test_iapd_adapter_honors_advisory_bypass_in_non_production(monkeypatch):
+def test_iapd_adapter_never_bypasses_even_with_bypass_env(monkeypatch):
+    """Bypass was removed — IAPD adapter must fail-closed when unconfigured."""
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("ADVISORY_VERIFICATION_BYPASS_ENABLED", "true")
     monkeypatch.delenv("IAPD_VERIFY_BASE_URL", raising=False)
@@ -336,10 +337,8 @@ def test_iapd_adapter_honors_advisory_bypass_in_non_production(monkeypatch):
         )
     )
 
-    assert result.verified is True
-    assert result.rejected is False
-    assert result.outcome == "bypassed"
-    assert "bypass" in result.message.lower()
+    assert result.verified is False
+    assert result.outcome != "bypassed"
 
 
 def test_stage1_lookup_returns_verified_when_crd_present(monkeypatch):
@@ -539,7 +538,8 @@ def test_stage1_lookup_does_not_cache_provider_unavailable(monkeypatch):
     assert calls["count"] == 2
 
 
-def test_finra_adapter_honors_ria_dev_bypass_alias(monkeypatch):
+def test_finra_adapter_never_bypasses_even_with_dev_bypass_env(monkeypatch):
+    """Bypass was removed — FINRA adapter must fail-closed when unconfigured."""
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
     monkeypatch.delenv("ADVISORY_VERIFICATION_BYPASS_ENABLED", raising=False)
@@ -557,10 +557,8 @@ def test_finra_adapter_honors_ria_dev_bypass_alias(monkeypatch):
         )
     )
 
-    assert result.verified is True
-    assert result.rejected is False
-    assert result.outcome == "bypassed"
-    assert "bypass" in result.message.lower()
+    assert result.verified is False
+    assert result.outcome != "bypassed"
 
 
 def _run(coro):

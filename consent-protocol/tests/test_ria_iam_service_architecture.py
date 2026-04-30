@@ -148,7 +148,7 @@ def test_name_first_inputs_allow_missing_manual_regulatory_identity():
 def test_ria_verified_status_helper_matches_expected_statuses():
     assert RIAIAMService._is_verified_ria_status("verified") is True
     assert RIAIAMService._is_verified_ria_status("active") is True
-    assert RIAIAMService._is_verified_ria_status("bypassed") is True
+    assert RIAIAMService._is_verified_ria_status("bypassed") is False
     assert RIAIAMService._is_verified_ria_status("submitted") is False
 
 
@@ -362,68 +362,10 @@ async def test_submit_ria_onboarding_rejects_entered_crd_mismatch(monkeypatch):
         )
 
 
-@pytest.mark.asyncio
-async def test_dev_activation_records_allowed_bypass_event(monkeypatch):
+def test_dev_activation_method_removed():
+    """activate_ria_dev_onboarding was fully removed — method must not exist."""
     service = RIAIAMService()
-    executed: list[tuple[str, tuple[object, ...]]] = []
-
-    class _FakeTransaction:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-    class _FakeConn:
-        def transaction(self):
-            return _FakeTransaction()
-
-        async def fetchrow(self, query: str, *_args):
-            if "INSERT INTO ria_profiles" in query:
-                return {"id": "ria-profile-1", "user_id": "user-1", "display_name": "Advisor Alpha"}
-            return None
-
-        async def execute(self, query: str, *args):
-            executed.append((query, args))
-            return None
-
-        async def close(self):
-            return None
-
-    async def _fake_conn():
-        return _FakeConn()
-
-    async def _fake_schema_ready(_conn):
-        return None
-
-    async def _fake_vault_user_row(_conn, _user_id):
-        return None
-
-    async def _fake_runtime_persona(_conn, _user_id, _persona):
-        return None
-
-    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.delenv("RIA_DEV_ALLOWLIST", raising=False)
-    monkeypatch.setattr(service, "_conn", _fake_conn)
-    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
-    monkeypatch.setattr(service, "_ensure_vault_user_row", _fake_vault_user_row)
-    monkeypatch.setattr(service, "_set_runtime_last_persona", _fake_runtime_persona)
-
-    result = await service.activate_ria_dev_onboarding(
-        "user-1",
-        display_name="Advisor Alpha",
-        requested_capabilities=["advisory"],
-    )
-
-    assert result["verification_status"] == "active"
-    assert result["verification_outcome"] == "dev_allowlist"
-    event_queries = [
-        query for query, _args in executed if "INSERT INTO ria_verification_events" in query
-    ]
-    assert event_queries
-    assert "'bypassed'" in event_queries[0]
-    assert "'dev_allowlist', 'dev_allowlist'" not in event_queries[0]
+    assert not hasattr(service, "activate_ria_dev_onboarding")
 
 
 def test_renaissance_service_exposes_generic_security_list_descriptors():

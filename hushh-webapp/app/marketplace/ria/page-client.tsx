@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BadgeCheck, Building2, ShieldCheck } from "lucide-react";
+import { Building2, ShieldCheck } from "lucide-react";
 
 import { RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { useAuth } from "@/hooks/use-auth";
@@ -29,12 +29,6 @@ function verificationBadge(status: string) {
         label: normalized === "finra_verified" ? "FINRA verified" : "Verified",
         className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700",
         icon: ShieldCheck,
-      };
-    case "bypassed":
-      return {
-        label: "Active",
-        className: "border-sky-500/20 bg-sky-500/10 text-sky-700",
-        icon: BadgeCheck,
       };
     case "submitted":
       return {
@@ -145,7 +139,7 @@ export default function MarketplaceRiaProfilePageClient({
   const badge = profile ? verificationBadge(profile.verification_status) : null;
   const BadgeIcon = badge?.icon ?? null;
   const isConnectable = profile
-    ? ["active", "verified", "finra_verified", "bypassed"].includes(
+    ? ["active", "verified", "finra_verified"].includes(
         profile.verification_status.toLowerCase()
       )
     : false;

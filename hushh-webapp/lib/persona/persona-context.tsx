@@ -37,7 +37,6 @@ interface PersonaContextValue {
   riaCapability: RiaCapability;
   riaSetupAvailable: boolean;
   riaSwitchAvailable: boolean;
-  devRiaBypassAllowed: boolean;
   riaEntryRoute: string;
   refresh: (options?: { force?: boolean }) => Promise<void>;
   switchPersona: (target: Persona) => Promise<PersonaState | null>;
@@ -246,12 +245,6 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     return personaState.ria_setup_available ?? !riaSwitchAvailable;
   }, [personaState, riaSwitchAvailable]);
 
-  const devRiaBypassAllowed = useMemo(() => {
-    return Boolean(
-      personaState?.dev_ria_bypass_allowed || riaOnboardingStatus?.dev_ria_bypass_allowed
-    );
-  }, [personaState?.dev_ria_bypass_allowed, riaOnboardingStatus?.dev_ria_bypass_allowed]);
-
   const riaEntryRoute = useMemo(() => {
     if (riaCapability === "switch") {
       return ROUTES.RIA_HOME;
@@ -271,14 +264,14 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       riaCapability,
       riaSetupAvailable,
       riaSwitchAvailable,
-      devRiaBypassAllowed,
+
       riaEntryRoute,
       refresh,
       switchPersona,
     }),
     [
       activePersona,
-      devRiaBypassAllowed,
+
       loading,
       personaTransitionTarget,
       personaState,
