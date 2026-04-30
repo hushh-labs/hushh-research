@@ -1,4 +1,3 @@
-import ConsentAuditTimeline from "../../src/components/privacy/ConsentAuditTimeline";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { KaiMarketPreviewView } from "@/components/kai/views/kai-market-preview-view";
@@ -20,11 +19,6 @@ export default function KaiPage() {
       />
 
       <KaiMarketPreviewView />
-
-      {/* Consent Audit Timeline - Privacy visibility layer */}
-      <div className="mt-6 px-4">
-        <ConsentAuditTimeline />
-      </div>
     </>
   );
 }
