@@ -120,6 +120,10 @@ Do:
 - Centralize invalidation/write-through in `CacheSyncService`.
 - Write through encrypted blob keys when CRUD payloads already include ciphertext.
 - Patch cached PKM metadata in-place when safe summary fields are provided.
+- Treat backend `pkm_index` updates as cloud discovery projections. Local memory,
+  secure device cache, and encrypted-domain write-through remain first-class
+  state for local-first and on-device flows; failed projection sync should
+  invalidate or retry the projection lane, not erase local encrypted cache.
 - Keep `CacheContext` as a state mirror only.
 - Use `invalidateUser(userId)` when purging a full user session.
 - Keep domain blob + metadata reconciliation aligned with PKM index semantics.
