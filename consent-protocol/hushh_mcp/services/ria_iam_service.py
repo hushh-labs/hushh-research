@@ -198,31 +198,16 @@ class RIAIAMService:
         raw = str(os.getenv(name, fallback)).strip().lower()
         return raw in {"1", "true", "yes", "on"}
 
-    def _is_ria_dev_bypass_enabled(self) -> bool:
-        if not self._env_truthy("RIA_DEV_BYPASS_ENABLED"):
-            return False
-        return self._runtime_environment() not in {"prod", "production"}
-
-    def _is_dev_bypass_allowed(self, user_id: str) -> bool:
-        if not self._is_ria_dev_bypass_enabled():
-            return False
-        allowlist_raw = str(os.getenv("RIA_DEV_ALLOWLIST", "")).strip()
-        if not allowlist_raw:
-            return True
-        allowed_ids = {uid.strip() for uid in allowlist_raw.split(",") if uid.strip()}
-        return user_id in allowed_ids
-
     _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset(
-        {"active", "verified", "bypassed", "finra_verified"}
+        {"active", "verified", "finra_verified"}
     )
 
     async def require_ria_verified(self, user_id: str) -> None:
         """Fail-closed check: raises 403 if the RIA is not verified.
 
         Checked before any endpoint that exposes investor data.
+        Every RIA must pass Stage 1 CRD-backed verification — no bypass paths.
         """
-        if self._is_dev_bypass_allowed(user_id):
-            return
         try:
             conn = await self._conn()
         except Exception as exc:
@@ -427,7 +412,6 @@ class RIAIAMService:
         investor_marketplace_opt_in: bool,
         iam_schema_ready: bool,
         mode: Literal["full", "compat_investor"],
-        dev_ria_bypass_allowed: bool = False,
     ) -> dict[str, Any]:
         safe_personas = [persona for persona in personas if persona in _ALLOWED_PERSONAS]
         if not safe_personas:
@@ -447,7 +431,6 @@ class RIAIAMService:
             "primary_nav_persona": safe_last,
             "ria_setup_available": ria_setup_available,
             "ria_switch_available": ria_switch_available,
-            "dev_ria_bypass_allowed": bool(dev_ria_bypass_allowed and iam_schema_ready),
             "investor_marketplace_opt_in": bool(investor_marketplace_opt_in),
             "iam_schema_ready": iam_schema_ready,
             "mode": mode,
@@ -506,7 +489,6 @@ class RIAIAMService:
         return RIAIAMService._normalize_legacy_verification_status(status) in {
             "verified",
             "active",
-            "bypassed",
         }
 
     @staticmethod
@@ -516,8 +498,6 @@ class RIAIAMService:
             "ria_intelligence",
             "ria_intelligence_stage1",
             "iapd",
-            "dev_allowlist",
-            "advisory_bypass",
         }:
             return provider
         return "regulatory_verification"
@@ -845,7 +825,7 @@ class RIAIAMService:
                         investor_marketplace_opt_in=False,
                         iam_schema_ready=False,
                         mode="compat_investor",
-                        dev_ria_bypass_allowed=False,
+
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -870,7 +850,7 @@ class RIAIAMService:
                     investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
                     iam_schema_ready=True,
                     mode="full",
-                    dev_ria_bypass_allowed=self._is_dev_bypass_allowed(user_id),
+
                 )
                 self._write_cached_persona_state(user_id, response)
                 return response
@@ -900,7 +880,7 @@ class RIAIAMService:
                         investor_marketplace_opt_in=False,
                         iam_schema_ready=False,
                         mode="compat_investor",
-                        dev_ria_bypass_allowed=False,
+
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -916,7 +896,7 @@ class RIAIAMService:
                         investor_marketplace_opt_in=bool(current["investor_marketplace_opt_in"]),
                         iam_schema_ready=True,
                         mode="full",
-                        dev_ria_bypass_allowed=self._is_dev_bypass_allowed(user_id),
+    
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -947,7 +927,7 @@ class RIAIAMService:
                     investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
                     iam_schema_ready=True,
                     mode="full",
-                    dev_ria_bypass_allowed=self._is_dev_bypass_allowed(user_id),
+
                 )
                 self._write_cached_persona_state(user_id, response)
                 return response
@@ -2478,7 +2458,7 @@ class RIAIAMService:
                     UPDATE marketplace_public_profiles
                     SET
                       verification_badge = CASE
-                        WHEN $2 IN ('finra_verified', 'active', 'bypassed') THEN 'verified'
+                        WHEN $2 IN ('finra_verified', 'active', 'verified') THEN 'verified'
                         ELSE 'pending'
                       END,
                       updated_at = NOW()
@@ -2525,7 +2505,7 @@ class RIAIAMService:
                       $2,
                       COALESCE(NULLIF($3, ''), NULLIF($4, ''), 'Registered Investment Advisor'),
                       NULLIF($4, ''),
-                      CASE WHEN $5 IN ('finra_verified', 'active', 'bypassed') THEN 'verified' ELSE 'pending' END,
+                      CASE WHEN $5 IN ('finra_verified', 'active', 'verified') THEN 'verified' ELSE 'pending' END,
                       TRUE,
                       NOW()
                     )
@@ -2587,271 +2567,16 @@ class RIAIAMService:
         finally:
             await conn.close()
 
-    async def activate_ria_dev_onboarding(
-        self,
-        user_id: str,
-        *,
-        display_name: str,
-        requested_capabilities: list[str] | tuple[str, ...] | None = None,
-        individual_legal_name: str | None = None,
-        individual_crd: str | None = None,
-        advisory_firm_legal_name: str | None = None,
-        advisory_firm_iapd_number: str | None = None,
-        broker_firm_legal_name: str | None = None,
-        broker_firm_crd: str | None = None,
-        legal_name: str | None = None,
-        finra_crd: str | None = None,
-        sec_iard: str | None = None,
-        bio: str | None = None,
-        strategy: str | None = None,
-        disclosures_url: str | None = None,
-        primary_firm_name: str | None = None,
-        primary_firm_role: str | None = None,
-    ) -> dict[str, Any]:
-        if not self._is_dev_bypass_allowed(user_id):
-            raise RIAIAMPolicyError(
-                "RIA dev activation is not allowed for this account", status_code=403
-            )
-        if not display_name.strip():
-            raise RIAIAMPolicyError("display_name is required", status_code=400)
+    async def _removed_activate_ria_dev_onboarding(self) -> None:
+        """Dev bypass onboarding has been permanently removed.
 
-        normalized_requested_capabilities: list[str] = []
-        for capability in requested_capabilities or []:
-            candidate = str(capability or "").strip().lower()
-            if not candidate:
-                continue
-            if candidate not in _ALLOWED_PROFESSIONAL_CAPABILITIES:
-                raise RIAIAMPolicyError(
-                    "requested_capabilities contains unsupported capability",
-                    status_code=400,
-                )
-            if candidate not in normalized_requested_capabilities:
-                normalized_requested_capabilities.append(candidate)
-        if not normalized_requested_capabilities:
-            normalized_requested_capabilities = ["advisory"]
-
-        effective_legal_name = (
-            self._normalize_optional_text(individual_legal_name)
-            or self._normalize_optional_text(legal_name)
-            or display_name.strip()
+        Every RIA must complete Stage 1 CRD-backed verification.
+        Use submit_ria_onboarding() instead.
+        """
+        raise RIAIAMPolicyError(
+            "Dev bypass onboarding is no longer available. All RIAs must complete CRD-backed verification.",
+            status_code=410,
         )
-        effective_finra_crd = self._normalize_optional_text(
-            individual_crd
-        ) or self._normalize_optional_text(finra_crd)
-        effective_sec_iard = self._normalize_optional_text(
-            advisory_firm_iapd_number
-        ) or self._normalize_optional_text(sec_iard)
-        effective_primary_firm_name = self._normalize_optional_text(
-            advisory_firm_legal_name
-        ) or self._normalize_optional_text(primary_firm_name)
-        effective_broker_firm_name = self._normalize_optional_text(broker_firm_legal_name)
-        effective_broker_firm_crd = self._normalize_optional_text(broker_firm_crd)
-
-        conn = await self._conn()
-        try:
-            async with conn.transaction():
-                await self._ensure_vault_user_row(conn, user_id)
-                await self._ensure_iam_schema_ready(conn)
-                await conn.execute(
-                    """
-                    INSERT INTO actor_profiles (
-                        user_id,
-                        personas,
-                        last_active_persona,
-                        investor_marketplace_opt_in
-                    )
-                    VALUES ($1, ARRAY['investor','ria']::text[], 'ria', FALSE)
-                    ON CONFLICT (user_id) DO UPDATE
-                    SET
-                      personas = CASE
-                        WHEN 'ria' = ANY(actor_profiles.personas) THEN actor_profiles.personas
-                        ELSE array_append(actor_profiles.personas, 'ria')
-                      END,
-                      last_active_persona = 'ria',
-                      updated_at = NOW()
-                    """,
-                    user_id,
-                )
-                await self._set_runtime_last_persona(conn, user_id, "ria")
-
-                ria = await conn.fetchrow(
-                    """
-                    INSERT INTO ria_profiles (
-                      user_id,
-                      display_name,
-                      legal_name,
-                      finra_crd,
-                      sec_iard,
-                      verification_status,
-                      verification_provider,
-                      bio,
-                      strategy,
-                      disclosures_url
-                    )
-                    VALUES (
-                      $1,
-                      $2,
-                      NULLIF($3, ''),
-                      NULLIF($4, ''),
-                      NULLIF($5, ''),
-                      'active',
-                      'dev_allowlist',
-                      NULLIF($6, ''),
-                      NULLIF($7, ''),
-                      NULLIF($8, '')
-                    )
-                    ON CONFLICT (user_id) DO UPDATE
-                    SET
-                      display_name = EXCLUDED.display_name,
-                      legal_name = EXCLUDED.legal_name,
-                      finra_crd = EXCLUDED.finra_crd,
-                      sec_iard = EXCLUDED.sec_iard,
-                      verification_status = 'active',
-                      verification_provider = 'dev_allowlist',
-                      verification_expires_at = NULL,
-                      bio = EXCLUDED.bio,
-                      strategy = EXCLUDED.strategy,
-                      disclosures_url = EXCLUDED.disclosures_url,
-                      updated_at = NOW()
-                    RETURNING id, user_id, display_name
-                    """,
-                    user_id,
-                    display_name.strip(),
-                    effective_legal_name,
-                    effective_finra_crd or "",
-                    effective_sec_iard or "",
-                    (bio or "").strip(),
-                    (strategy or "").strip(),
-                    (disclosures_url or "").strip(),
-                )
-                if ria is None:
-                    raise RuntimeError("Failed to create RIA profile")
-
-                firm_id: str | None = None
-                if effective_primary_firm_name and effective_primary_firm_name.strip():
-                    firm_row = await conn.fetchrow(
-                        """
-                        INSERT INTO ria_firms (legal_name)
-                        VALUES ($1)
-                        ON CONFLICT (legal_name) DO UPDATE
-                        SET updated_at = NOW()
-                        RETURNING id
-                        """,
-                        effective_primary_firm_name.strip(),
-                    )
-                    if firm_row:
-                        firm_id = str(firm_row["id"])
-                        await conn.execute(
-                            """
-                            INSERT INTO ria_firm_memberships (
-                              ria_profile_id,
-                              firm_id,
-                              role_title,
-                              membership_status,
-                              is_primary
-                            )
-                            VALUES ($1, $2, NULLIF($3, ''), 'active', TRUE)
-                            ON CONFLICT (ria_profile_id, firm_id) DO UPDATE
-                            SET
-                              role_title = EXCLUDED.role_title,
-                              membership_status = 'active',
-                              is_primary = TRUE,
-                              updated_at = NOW()
-                            """,
-                            ria["id"],
-                            firm_row["id"],
-                            (primary_firm_role or "").strip(),
-                        )
-
-                await conn.execute(
-                    """
-                    INSERT INTO ria_verification_events (
-                      ria_profile_id,
-                      provider,
-                      outcome,
-                      checked_at,
-                      expires_at,
-                      reference_metadata
-                    )
-                    VALUES ($1, 'dev_allowlist', 'bypassed', NOW(), NULL, $2::jsonb)
-                    """,
-                    ria["id"],
-                    json.dumps({"source": "dev_allowlist", "user_id": user_id}),
-                )
-
-                await conn.execute(
-                    """
-                    INSERT INTO marketplace_public_profiles (
-                      user_id,
-                      profile_type,
-                      display_name,
-                      headline,
-                      strategy_summary,
-                      verification_badge,
-                      is_discoverable,
-                      updated_at
-                    )
-                    VALUES (
-                      $1,
-                      'ria',
-                      $2,
-                      COALESCE(NULLIF($3, ''), NULLIF($4, ''), 'Registered Investment Advisor'),
-                      NULLIF($4, ''),
-                      'dev_allowlist',
-                      TRUE,
-                      NOW()
-                    )
-                    ON CONFLICT (user_id) DO UPDATE
-                    SET
-                      profile_type = 'ria',
-                      display_name = EXCLUDED.display_name,
-                      headline = EXCLUDED.headline,
-                      strategy_summary = EXCLUDED.strategy_summary,
-                      verification_badge = EXCLUDED.verification_badge,
-                      is_discoverable = TRUE,
-                      updated_at = NOW()
-                    """,
-                    user_id,
-                    display_name.strip(),
-                    (bio or "").strip(),
-                    (strategy or "").strip(),
-                )
-
-                return {
-                    "ria_profile_id": str(ria["id"]),
-                    "user_id": str(ria["user_id"]),
-                    "display_name": str(ria["display_name"]),
-                    "verification_status": "active",
-                    "advisory_status": "active",
-                    "brokerage_status": (
-                        "draft" if "brokerage" in normalized_requested_capabilities else "draft"
-                    ),
-                    "requested_capabilities": normalized_requested_capabilities,
-                    "verification_outcome": "dev_allowlist",
-                    "verification_message": "RIA activated for an allowlisted development account",
-                    "brokerage_outcome": (
-                        "not_requested"
-                        if "brokerage" not in normalized_requested_capabilities
-                        else "unsupported"
-                    ),
-                    "brokerage_message": (
-                        "Brokerage capability was not requested."
-                        if "brokerage" not in normalized_requested_capabilities
-                        else "Brokerage verification is not yet enabled in this onboarding path."
-                    ),
-                    "professional_access_granted": True,
-                    "individual_legal_name": effective_legal_name,
-                    "individual_crd": effective_finra_crd,
-                    "advisory_firm_legal_name": effective_primary_firm_name,
-                    "advisory_firm_iapd_number": effective_sec_iard,
-                    "broker_firm_legal_name": effective_broker_firm_name,
-                    "broker_firm_crd": effective_broker_firm_crd,
-                    "firm_id": firm_id,
-                }
-        except asyncpg.exceptions.UndefinedTableError as exc:
-            raise IAMSchemaNotReadyError() from exc
-        finally:
-            await conn.close()
 
     async def get_ria_onboarding_status(self, user_id: str) -> dict[str, Any]:
         conn = await self._conn()
@@ -2923,7 +2648,7 @@ class RIAIAMService:
                 return {
                     "exists": False,
                     "verification_status": "draft",
-                    "dev_ria_bypass_allowed": self._is_dev_bypass_allowed(user_id),
+
                 }
 
             latest_event = await conn.fetchrow(
@@ -2992,7 +2717,6 @@ class RIAIAMService:
                 "verification_status": ria["verification_status"],
                 "verification_provider": ria["verification_provider"],
                 "verification_expires_at": ria["verification_expires_at"],
-                "dev_ria_bypass_allowed": self._is_dev_bypass_allowed(user_id),
                 "latest_verification_event": event,
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
@@ -3043,7 +2767,7 @@ class RIAIAMService:
             onboarding.get("advisory_status") or onboarding.get("verification_status") or "draft"
         )
 
-        if verification_status in {"active", "verified", "bypassed"}:
+        if verification_status in {"active", "verified"}:
             primary_action = {
                 "label": "Open clients",
                 "href": "/ria/clients",

@@ -692,23 +692,6 @@ class IapdVerificationAdapter:
         advisory_firm_iapd_number: str,
         force_live: bool = False,
     ) -> VerificationResult:
-        if (
-            not force_live
-            and not _is_production()
-            and (
-                _env_truthy("ADVISORY_VERIFICATION_BYPASS_ENABLED")
-                or _env_truthy("RIA_DEV_BYPASS_ENABLED")
-            )
-        ):
-            return VerificationResult(
-                verified=True,
-                rejected=False,
-                outcome="bypassed",
-                message="Advisory verification bypassed in this non-production environment.",
-                expires_at=datetime.now(timezone.utc) + timedelta(days=1),
-                metadata={"provider": "advisory_bypass", "reason": "bypass_enabled"},
-            )
-
         if not self._base_url or not self._api_key:
             return VerificationResult(
                 verified=False,
@@ -810,16 +793,6 @@ class BrokerVerificationAdapter:
         broker_firm_legal_name: str,
         broker_firm_crd: str,
     ) -> VerificationResult:
-        if not _is_production() and _env_truthy("BROKER_VERIFICATION_BYPASS_ENABLED"):
-            return VerificationResult(
-                verified=True,
-                rejected=False,
-                outcome="bypassed",
-                message="Broker verification bypassed in this non-production environment.",
-                expires_at=datetime.now(timezone.utc) + timedelta(days=1),
-                metadata={"provider": "broker_bypass", "reason": "bypass_enabled"},
-            )
-
         if not self._base_url or not self._api_key:
             if self._public_fallback_enabled:
                 return VerificationResult(
