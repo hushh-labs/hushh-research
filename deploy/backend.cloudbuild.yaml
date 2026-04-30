@@ -78,6 +78,7 @@ steps:
         append_optional_secret "${_HUSHH_DEVELOPER_TOKEN_SECRET}" "HUSHH_DEVELOPER_TOKEN"
         append_optional_secret "${_REVIEWER_UID_SECRET}" "REVIEWER_UID"
         append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
+        append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
@@ -134,6 +135,7 @@ substitutions:
   _HUSHH_DEVELOPER_TOKEN_SECRET: ""
   _REVIEWER_UID_SECRET: ""
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
+  _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _IMAGE_TAG: v2.1.0
 
 # Options
