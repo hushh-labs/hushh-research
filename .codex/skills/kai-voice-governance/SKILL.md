@@ -95,6 +95,13 @@ Non-owned surfaces:
     - KYC owns explicit identity/KYC workflow status, missing-document review, approval-gated drafts, and structured PKM writeback.
     It must never grant authority or bypass auth, vault, consent, persona, workspace, rollout, or kill-switch gates.
 15. Do not add legacy aliases for old navigation `nav.*` ids. Navigation namespace migrations are straight renames unless the user explicitly approves a compatibility program.
+16. Before recommending or merging any voice PR, prove how it fits the existing voice stack:
+    - frontend voice state and action execution route through `hushh-webapp/lib/voice`
+    - discoverable actions come from local `.voice-action-contract.json` files and generated gateway artifacts
+    - realtime voice, command/search, and fallback transcript paths share action IDs and settlement semantics
+    - browser SpeechRecognition, MCP tools, or other new input mechanisms are reviewed as fallback/adapters over the existing runtime, not as parallel primary voice systems
+17. Treat a new visible microphone, speech, dictation, transcript, or voice-like command input as a product-surface change, not just an implementation detail. If Kai realtime voice already covers the user job, block the PR unless the team explicitly approves a secondary accessibility/fallback affordance and the change shares the same vault gating, voice availability, route eligibility, and user-facing copy.
+18. If a PR adds voice-adjacent UI or backend tools without touching the generated gateway, manifest, shared dispatcher, or current voice tests, default to `patch_then_merge` or `block` until the integration boundary is explicit.
 
 ## Handoff Rules
 
