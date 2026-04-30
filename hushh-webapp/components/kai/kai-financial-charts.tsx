@@ -79,29 +79,13 @@ const radarConfig = {
 } satisfies ChartConfig;
 
 export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFinancialChartsProps) {
-  const hasValidData = Boolean(
-  quantMetrics &&
-  keyMetrics &&
-  keyMetrics.fundamental &&
-  quantMetrics.revenue_trend_data?.length > 0
-);
-  if (!hasValidData) {
-    return (
-      <div className="rounded-2xl border border-border/40 bg-card/40 p-6 text-center backdrop-blur-sm">
-        <h3 className="text-lg font-semibold">Financial data unavailable</h3>
-        <p className="mt-2 text-sm text-muted-foreground">
-          We couldn’t load chart metrics right now. Please refresh or try again later.
-        </p>
-      </div>
-    );
-  }
-
+  // Prepare Radar Data
   const radarData = [
-    { subject: "Revenue Growth", value: Math.min(Math.max((quantMetrics.revenue_growth_yoy || 0) * 100 * 2, 0), 100), fullMark: 100 },
-    { subject: "FCF Margin", value: Math.min(Math.max((keyMetrics.fundamental.fcf_margin || 0) * 100 * 2, 0), 100), fullMark: 100 },
-    { subject: "R&D Intensity", value: Math.min(Math.max((keyMetrics.fundamental.rnd_intensity || 0) * 100 * 3, 0), 100), fullMark: 100 },
-    { subject: "Earn Quality", value: Math.min(Math.max((keyMetrics.fundamental.earnings_quality || 0) * 50, 0), 100), fullMark: 100 },
-    { subject: "Debt/Equity", value: Math.min(Math.max(100 - (keyMetrics.fundamental.debt_to_equity || 0) * 20, 0), 100), fullMark: 100 },
+    { subject: "Revenue Growth", value: (quantMetrics.revenue_growth_yoy || 0) * 100 * 2, fullMark: 100 }, // Scale for visualization
+    { subject: "FCF Margin", value: (keyMetrics.fundamental.fcf_margin || 0) * 100 * 2, fullMark: 100 },
+    { subject: "R&D Intensity", value: (keyMetrics.fundamental.rnd_intensity || 0) * 100 * 3, fullMark: 100 },
+    { subject: "Earn Quality", value: (keyMetrics.fundamental.earnings_quality || 0) * 50, fullMark: 100 }, // Assuming roughly 1-2 range
+    { subject: "Debt/Equity", value: Math.max(0, 100 - (keyMetrics.fundamental.debt_to_equity || 0) * 20), fullMark: 100 }, // Lower is better
   ];
 
   return (
@@ -117,7 +101,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                     Revenue Trend (3Y)
                 </CardTitle>
                 <CardDescription>
-                    CAGR: {((quantMetrics.revenue_cagr_3y || 0) * 100).toFixed(1)}%
+                    CAGR: {(quantMetrics.revenue_cagr_3y * 100).toFixed(1)}%
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -153,7 +137,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                     Net Income Trend
                 </CardTitle>
                 <CardDescription>
-                    YoY Growth: {((quantMetrics.net_income_growth_yoy || 0) * 100).toFixed(1)}%
+                    YoY Growth: {(quantMetrics.net_income_growth_yoy * 100).toFixed(1)}%
                 </CardDescription>
             </CardHeader>
             <CardContent>
