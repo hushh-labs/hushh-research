@@ -154,12 +154,16 @@ export function KaiCommandPalette({
 }: KaiCommandPaletteProps) {
   const [query, setQuery] = useState("");
 
-  const { status: dictationStatus, start: startDictation, supported: dictationSupported } =
-    useVoiceDictation({
-      onResult: (transcript) => {
-        setQuery(transcript);
-      },
-    });
+  const {
+    status: dictationStatus,
+    start: startDictation,
+    stop: stopDictation,
+    supported: dictationSupported,
+  } = useVoiceDictation({
+    onResult: (transcript) => {
+      setQuery(transcript);
+    },
+  });
 
   const isDictating = dictationStatus === "listening";
 
@@ -173,6 +177,7 @@ export function KaiCommandPalette({
 
   useEffect(() => {
     if (!open) {
+      stopDictation();
       setLoadingUniverse(false);
       return;
     }
@@ -204,7 +209,7 @@ export function KaiCommandPalette({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, stopDictation]);
 
   useEffect(() => {
     if (!open) {
@@ -414,6 +419,7 @@ export function KaiCommandPalette({
           <button
             type="button"
             aria-label={isDictating ? "Stop dictation" : "Start voice dictation"}
+            aria-pressed={isDictating}
             onClick={startDictation}
             className={`absolute right-2 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full transition-colors ${
               isDictating

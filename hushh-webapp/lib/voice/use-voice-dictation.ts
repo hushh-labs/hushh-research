@@ -61,12 +61,21 @@ export function useVoiceDictation({ onResult, lang = "en-US" }: UseDictationOpti
     onResultRef.current = onResult;
   }, [onResult]);
 
-  const supported =
-    typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  const SpeechRecognitionAPI =
+    typeof window !== "undefined"
+      ? (((window as unknown as Record<string, unknown>)["SpeechRecognition"] ??
+          (window as unknown as Record<string, unknown>)["webkitSpeechRecognition"]) as
+          | SpeechRecognitionConstructor
+          | undefined)
+      : undefined;
+  const supported = typeof SpeechRecognitionAPI === "function";
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Browser speech engines can throw when already stopped or permission state changes.
+    }
     setStatus("idle");
   }, []);
 
@@ -80,11 +89,6 @@ export function useVoiceDictation({ onResult, lang = "en-US" }: UseDictationOpti
       stop();
       return;
     }
-
-    const w = window as unknown as Record<string, unknown>;
-    const SpeechRecognitionAPI = (
-      w["SpeechRecognition"] ?? w["webkitSpeechRecognition"]
-    ) as SpeechRecognitionConstructor;
 
     const recognition = new SpeechRecognitionAPI();
     recognition.lang = lang;
@@ -113,12 +117,21 @@ export function useVoiceDictation({ onResult, lang = "en-US" }: UseDictationOpti
     };
 
     recognitionRef.current = recognition;
-    recognition.start();
-  }, [lang, status, stop, supported]);
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setStatus("idle");
+    }
+  }, [SpeechRecognitionAPI, lang, status, stop, supported]);
 
   useEffect(() => {
     return () => {
-      recognitionRef.current?.stop();
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // Ignore cleanup failures from browser speech engines during unmount.
+      }
     };
   }, []);
 
