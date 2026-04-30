@@ -17,8 +17,11 @@ from __future__ import annotations
 import base64
 import time
 
-from hushh_mcp.consent.token import _sign, issue_token, validate_token
+import pytest
+
+from hushh_mcp.consent.token import _sign, issue_token, validate_token, validate_token_with_db
 from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
+from hushh_mcp.services.consent_db import ConsentDBService
 
 USER_ID = "user_test"
 AGENT_ID = "agent_alpha"
@@ -144,6 +147,45 @@ class TestRequireCommercialGate:
         assert valid_a is True
         assert valid_b is True
 
+    @pytest.mark.asyncio
+    async def test_db_backed_commercial_gate_accepts_commercial_token(self, monkeypatch) -> None:
+        async def _active(self, user_id: str, scope: str, agent_id: str) -> bool:
+            return True
+
+        monkeypatch.setattr(ConsentDBService, "is_token_active", _active)
+
+        token = issue_token(USER_ID, AGENT_ID, SCOPE, commercial=True)
+        valid, reason, parsed = await validate_token_with_db(
+            token.token,
+            SCOPE,
+            require_commercial=True,
+        )
+
+        assert valid is True
+        assert reason is None
+        assert parsed is not None
+        assert parsed.commercial is True
+
+    @pytest.mark.asyncio
+    async def test_db_backed_commercial_gate_rejects_non_commercial_token(
+        self, monkeypatch
+    ) -> None:
+        async def _active(self, user_id: str, scope: str, agent_id: str) -> bool:
+            raise AssertionError("DB revocation lookup should not run after local gate rejection")
+
+        monkeypatch.setattr(ConsentDBService, "is_token_active", _active)
+
+        token = issue_token(USER_ID, AGENT_ID, SCOPE, commercial=False)
+        valid, reason, parsed = await validate_token_with_db(
+            token.token,
+            SCOPE,
+            require_commercial=True,
+        )
+
+        assert valid is False
+        assert reason == "Commercial consent required for this operation"
+        assert parsed is None
+
 
 # ---------------------------------------------------------------------------
 # Backward compatibility: legacy 5-field tokens still validate
@@ -184,9 +226,7 @@ class TestBackwardCompatibility:
         # 5-field or 6-field shape is rejected outright.
         issued_at = int(time.time() * 1000)
         expires_at = issued_at + 3600 * 1000
-        raw = (
-            f"{USER_ID}|{AGENT_ID}|{SCOPE.value}|{issued_at}|{expires_at}|commercial|extra"
-        )
+        raw = f"{USER_ID}|{AGENT_ID}|{SCOPE.value}|{issued_at}|{expires_at}|commercial|extra"
         signature = _sign(raw)
         encoded = base64.urlsafe_b64encode(raw.encode()).decode()
         weird_token = f"{CONSENT_TOKEN_PREFIX}:{encoded}.{signature}"

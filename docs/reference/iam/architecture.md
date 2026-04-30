@@ -51,6 +51,15 @@ Founder-language translation for this doc:
 3. Separation of Duties: web, iOS, and Android must keep route/contract parity.
 4. Least privilege: scopes are domain/path-specific by default.
 
+### Commercial Consent Attribute
+
+Commercial usage is a signed consent-token attribute, not a billing system and not a replacement for audit rows.
+
+1. Tokens without the commercial marker remain non-commercial for backward compatibility.
+2. Commercial tokens include the marker in the signed payload, so the marker cannot be appended or stripped after issuance.
+3. Runtime enforcement is explicit: a monetized operation must validate with `require_commercial=True`.
+4. Critical routes should use the DB-backed validation path so commercial checks and revocation checks stay on the same authority path.
+
 ## Actor Model
 
 1. `investor`: subject and owner of personal financial context.

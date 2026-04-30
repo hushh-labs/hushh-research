@@ -90,19 +90,15 @@ def _scope_str_to_enum(scope_str: str) -> ConsentScope:
     """
     Map a scope string to its ConsentScope enum equivalent.
     Dynamic scopes (attr.*) map to PKM_READ.
+    Unknown static scopes are rejected instead of silently escalating to PKM_READ.
     """
     try:
         return ConsentScope(scope_str)
     except ValueError:
-        if scope_str == "pkm.read":
-            return ConsentScope.PKM_READ
-        if scope_str == "pkm.write":
-            return ConsentScope.PKM_WRITE
         # Dynamic scope (e.g., attr.financial.*) - map to PKM_READ
         if scope_str.startswith("attr."):
             return ConsentScope.PKM_READ
-        # Unknown scope - default to PKM_READ
-        return ConsentScope.PKM_READ
+        raise
 
 
 # ========== Token Verifier ==========
@@ -159,9 +155,7 @@ def validate_token(
         scope_enum = _scope_str_to_enum(scope_str)
 
         if commercial:
-            raw = (
-                f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}|commercial"
-            )
+            raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}|commercial"
         else:
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}"
         expected_sig = _sign(raw)
@@ -211,12 +205,18 @@ def validate_token(
         )
         return True, None, token
 
-    except Exception as e:
+    except (ValueError, UnicodeDecodeError) as e:
         return False, f"Malformed token: {str(e)}", None
+    except Exception as e:
+        logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
+        raise
 
 
 async def validate_token_with_db(
-    token_str: str, expected_scope: Optional[Union[str, ConsentScope]] = None
+    token_str: str,
+    expected_scope: Optional[Union[str, ConsentScope]] = None,
+    *,
+    require_commercial: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str], Optional[HushhConsentToken]]:
     """
     Validate token with additional database revocation check.
@@ -225,7 +225,11 @@ async def validate_token_with_db(
     Falls back to in-memory check if DB is unavailable.
     """
     # First do the fast in-memory validation
-    valid, reason, token_obj = validate_token(token_str, expected_scope)
+    valid, reason, token_obj = validate_token(
+        token_str,
+        expected_scope,
+        require_commercial=require_commercial,
+    )
 
     if not valid:
         return valid, reason, token_obj
