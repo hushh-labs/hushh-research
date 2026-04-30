@@ -25,6 +25,10 @@ interface StoreDomainResponse {
   message?: string;
 }
 
+type StoreUserDataOptions = {
+  vaultOwnerToken?: string;
+};
+
 /**
  * Persist an encrypted user data field to the PKM backend.
  *
@@ -44,11 +48,20 @@ export async function storeUserData(
   key: string,
   value: string,
   iv: string,
-  tag: string
+  tag: string,
+  options: StoreUserDataOptions = {}
 ): Promise<boolean> {
   try {
+    if (!options.vaultOwnerToken) {
+      console.error("[db] storeUserData failed: missing vault-owner token");
+      return false;
+    }
+
     await apiJson<StoreDomainResponse>("/api/pkm/store-domain", {
       method: "POST",
+      headers: {
+        Authorization: `Bearer ${options.vaultOwnerToken}`,
+      },
       body: JSON.stringify({
         user_id: userId,
         domain: key,
@@ -67,12 +80,12 @@ export async function storeUserData(
   } catch (error) {
     if (error instanceof ApiError) {
       console.error(
-        `[db] storeUserData failed for user ${userId} key ${key}:`,
+        "[db] storeUserData failed:",
         error.status,
         error.message
       );
     } else {
-      console.error(`[db] storeUserData error for user ${userId} key ${key}:`, error);
+      console.error("[db] storeUserData error:", error);
     }
     return false;
   }
