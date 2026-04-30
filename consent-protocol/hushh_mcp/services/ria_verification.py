@@ -465,10 +465,7 @@ class RIAIntelligenceStage1LookupAdapter:
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        request_body: dict[str, Any] = {
-            "query": query,
-            "context": {"targetName": query},
-        }
+        request_body: dict[str, Any] = {"query": query}
 
         try:
             async with httpx.AsyncClient(
