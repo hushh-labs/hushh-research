@@ -192,7 +192,7 @@ describe("reCAPTCHA container lifecycle", () => {
 
   describe("resetRecaptcha", () => {
     it("replaces the recaptcha-container DOM element", () => {
-      const original = createContainer();
+      createContainer();
 
       // Set up verifier state first
       getRecaptchaVerifier("recaptcha-container");
