@@ -352,22 +352,19 @@ def test_stage1_lookup_returns_verified_when_crd_present(monkeypatch):
         body = json.loads(payload)
         assert body == {
             "query": "Akash Katla",
-            "context": {
-                "targetName": "Akash Katla",
-                "crdNumber": "1234567",
-            },
+            "context": {"targetName": "Akash Katla"},
         }
         return httpx.Response(status_code=200, json=_stage1_payload())
 
     adapter = RIAIntelligenceStage1LookupAdapter(transport=httpx.MockTransport(handler))
-    result = _run(adapter.verify_name(query="Akash Katla", crd_number="123-4567"))
+    result = _run(adapter.verify_name(query="Akash Katla"))
 
     assert result.status == "verified"
     assert result.crd_number == "1234567"
     assert result.provider == "ria_intelligence_stage1"
 
 
-def test_stage1_lookup_blocks_entered_crd_mismatch(monkeypatch):
+def test_stage1_lookup_maps_returned_crd_without_user_entered_crd(monkeypatch):
     monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
     monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
 
@@ -376,11 +373,10 @@ def test_stage1_lookup_blocks_entered_crd_mismatch(monkeypatch):
             lambda request: httpx.Response(status_code=200, json=_stage1_payload())
         )
     )
-    result = _run(adapter.verify_name(query="Akash Katla", crd_number="7654321"))
+    result = _run(adapter.verify_name(query="Akash Katla"))
 
-    assert result.status == "not_verified"
-    assert result.reason_code == "no_confident_match"
-    assert "CRD" in (result.reason or "")
+    assert result.status == "verified"
+    assert result.crd_number == "1234567"
 
 
 def test_stage1_lookup_blocks_verified_payload_without_crd(monkeypatch):
