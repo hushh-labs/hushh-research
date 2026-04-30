@@ -1048,7 +1048,7 @@ export class RiaService {
 
   static async verifyOnboardingName(
     idToken: string,
-    payload: { query: string; crd_number?: string },
+    payload: { query: string },
     options?: { signal?: AbortSignal }
   ): Promise<RiaNameVerificationResult> {
     const response = await authFetch("/api/ria/onboarding/verify-name", {

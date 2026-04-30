@@ -189,11 +189,9 @@ async def test_verify_ria_name_serializes_verified_stage1_lookup(monkeypatch):
     async def _mock_lookup(
         *,
         query: str,
-        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Advisor Alpha"
-        assert crd_number is None
         assert use_cache is True
         return NameVerificationResult(
             status="verified",
@@ -220,11 +218,9 @@ async def test_verify_ria_name_serializes_reason_code_for_broad_queries(monkeypa
     async def _mock_lookup(
         *,
         query: str,
-        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Andrew G"
-        assert crd_number is None
         assert use_cache is True
         return NameVerificationResult(
             status="not_verified",
@@ -292,11 +288,9 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
     async def _fake_verify_name_result(
         query: str,
         *,
-        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Advisor Alpha"
-        assert crd_number == "12345"
         assert use_cache is False
         return NameVerificationResult(
             status="verified",
@@ -317,7 +311,6 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
         "user-1",
         display_name="Advisor Alpha",
         requested_capabilities=["advisory"],
-        individual_crd="12345",
         force_live_verification=True,
         strategy="Long-term planning",
     )
@@ -329,17 +322,15 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
 
 
 @pytest.mark.asyncio
-async def test_submit_ria_onboarding_rejects_entered_crd_mismatch(monkeypatch):
+async def test_submit_ria_onboarding_uses_provider_returned_crd(monkeypatch):
     service = RIAIAMService()
 
     async def _fake_verify_name_result(
         query: str,
         *,
-        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Advisor Alpha"
-        assert crd_number == "12345"
         assert use_cache is False
         return NameVerificationResult(
             status="verified",
@@ -350,16 +341,64 @@ async def test_submit_ria_onboarding_rejects_entered_crd_mismatch(monkeypatch):
             provider="ria_intelligence_stage1",
         )
 
+    class DummyTx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyConn:
+        def transaction(self):
+            return DummyTx()
+
+        async def fetchrow(self, _query, *args):
+            _ = args
+            return {
+                "id": "ria-1",
+                "user_id": "user-1",
+                "display_name": "Advisor Alpha",
+                "legal_name": "Advisor Alpha",
+                "finra_crd": "99999",
+                "sec_iard": "801-12345",
+                "verification_status": "verified",
+            }
+
+        async def execute(self, _query, *args):
+            _ = args
+            return "OK"
+
+        async def close(self):
+            return None
+
+    async def _fake_conn():
+        return DummyConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_vault_user_row(_conn, _user_id):
+        return None
+
+    async def _fake_runtime_persona(_conn, _user_id, _persona):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_ensure_vault_user_row", _fake_vault_user_row)
+    monkeypatch.setattr(service, "_set_runtime_last_persona", _fake_runtime_persona)
     monkeypatch.setattr(service, "_verify_ria_name_result", _fake_verify_name_result)
 
-    with pytest.raises(RIAIAMPolicyError, match="verified CRD did not match"):
-        await service.submit_ria_onboarding(
-            "user-1",
-            display_name="Advisor Alpha",
-            requested_capabilities=["advisory"],
-            individual_crd="12345",
-            force_live_verification=True,
-        )
+    result = await service.submit_ria_onboarding(
+        "user-1",
+        display_name="Advisor Alpha",
+        requested_capabilities=["advisory"],
+        individual_crd="12345",
+        force_live_verification=True,
+    )
+
+    assert result["verification_status"] == "verified"
+    assert result["individual_crd"] == "99999"
 
 
 def test_dev_activation_method_removed():

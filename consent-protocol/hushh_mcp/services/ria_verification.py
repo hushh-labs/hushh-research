@@ -449,7 +449,6 @@ class RIAIntelligenceStage1LookupAdapter:
         self,
         *,
         query: str,
-        crd_number: str | None = None,
     ) -> tuple[dict[str, Any] | None, NameVerificationResult | None]:
         request_url = self._verify_url or (
             f"{self._base_url}{self._endpoint_path}" if self._base_url else ""
@@ -466,11 +465,10 @@ class RIAIntelligenceStage1LookupAdapter:
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        context: dict[str, Any] = {"targetName": query}
-        normalized_crd = _normalize_crd(crd_number)
-        if normalized_crd:
-            context["crdNumber"] = normalized_crd
-        request_body: dict[str, Any] = {"query": query, "context": context}
+        request_body: dict[str, Any] = {
+            "query": query,
+            "context": {"targetName": query},
+        }
 
         try:
             async with httpx.AsyncClient(
@@ -521,8 +519,8 @@ class RIAIntelligenceStage1LookupAdapter:
             )
         return payload, None
 
-    def _cache_key(self, query: str, crd_number: str | None = None) -> str:
-        return f"{_normalize_identity_text(query)}|crd:{_normalize_crd(crd_number)}"
+    def _cache_key(self, query: str) -> str:
+        return _normalize_identity_text(query)
 
     @classmethod
     def _prune_expired_cache(cls, now: datetime) -> None:
@@ -533,11 +531,10 @@ class RIAIntelligenceStage1LookupAdapter:
     def _get_cached_result(
         self,
         query: str,
-        crd_number: str | None = None,
     ) -> NameVerificationResult | None:
         now = datetime.now(timezone.utc)
         self._prune_expired_cache(now)
-        entry = self._cache.get(self._cache_key(query, crd_number))
+        entry = self._cache.get(self._cache_key(query))
         if entry is None or entry.expires_at <= now:
             return None
         return entry.result
@@ -546,12 +543,11 @@ class RIAIntelligenceStage1LookupAdapter:
         self,
         query: str,
         result: NameVerificationResult,
-        crd_number: str | None = None,
     ) -> None:
         if result.status not in {"verified", "not_verified"} or self._cache_ttl_seconds <= 0:
             return
         self._prune_expired_cache(datetime.now(timezone.utc))
-        self._cache[self._cache_key(query, crd_number)] = _Stage1LookupCacheEntry(
+        self._cache[self._cache_key(query)] = _Stage1LookupCacheEntry(
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=self._cache_ttl_seconds),
             result=result,
         )
@@ -560,11 +556,9 @@ class RIAIntelligenceStage1LookupAdapter:
         self,
         *,
         query: str,
-        crd_number: str | None = None,
         use_cache: bool = True,
     ) -> NameVerificationResult:
         normalized_query = str(query or "").strip()
-        normalized_input_crd = _normalize_crd(crd_number)
         if not normalized_query:
             return NameVerificationResult(
                 status="not_verified",
@@ -575,14 +569,11 @@ class RIAIntelligenceStage1LookupAdapter:
             )
 
         if use_cache:
-            cached = self._get_cached_result(normalized_query, normalized_input_crd)
+            cached = self._get_cached_result(normalized_query)
             if cached is not None:
                 return cached
 
-        payload, error = await self._request_payload(
-            query=normalized_query,
-            crd_number=normalized_input_crd,
-        )
+        payload, error = await self._request_payload(query=normalized_query)
         if error is not None:
             return error
         if payload is None:
@@ -619,27 +610,7 @@ class RIAIntelligenceStage1LookupAdapter:
                 provider=self._provider_label,
                 metadata={**metadata, "reason_code": "missing_crd"},
             )
-            self._store_cached_result(normalized_query, result, normalized_input_crd)
-            return result
-
-        if (
-            exists_on_finra
-            and normalized_input_crd
-            and normalized_result_crd != normalized_input_crd
-        ):
-            result = NameVerificationResult(
-                status="not_verified",
-                matched_name=matched_name,
-                crd_number=crd_number,
-                current_firm=current_firm,
-                sec_number=sec_number,
-                reason="The verified CRD did not match the CRD you entered. Check the CRD or remove it and verify by name.",
-                reason_code="no_confident_match",
-                suggested_names=suggested_names,
-                provider=self._provider_label,
-                metadata={**metadata, "reason_code": "crd_mismatch"},
-            )
-            self._store_cached_result(normalized_query, result, normalized_input_crd)
+            self._store_cached_result(normalized_query, result)
             return result
 
         if exists_on_finra and normalized_result_crd:
@@ -652,7 +623,7 @@ class RIAIntelligenceStage1LookupAdapter:
                 provider=self._provider_label,
                 metadata=metadata,
             )
-            self._store_cached_result(normalized_query, result, normalized_input_crd)
+            self._store_cached_result(normalized_query, result)
             return result
 
         result = NameVerificationResult(
@@ -671,7 +642,7 @@ class RIAIntelligenceStage1LookupAdapter:
                 "suggested_names": suggested_names,
             },
         )
-        self._store_cached_result(normalized_query, result, normalized_input_crd)
+        self._store_cached_result(normalized_query, result)
         return result
 
 
