@@ -1,6 +1,6 @@
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { KaiMarketPreviewView } from "@/components/kai/views/kai-market-preview-view";
+import KaiPermissionGateSection from "../../src/components/privacy/permission-gate/KaiPermissionGateSection";
 
 export default function KaiPage() {
   return (
@@ -11,6 +11,7 @@ export default function KaiPage() {
         authState="authenticated"
         dataState="loaded"
       />
+
       <NativeTestBeacon
         routeId="/kai"
         marker="native-route-kai-home"
@@ -18,7 +19,7 @@ export default function KaiPage() {
         dataState="loaded"
       />
 
-      <KaiMarketPreviewView />
+      <KaiPermissionGateSection />
     </>
   );
 }
