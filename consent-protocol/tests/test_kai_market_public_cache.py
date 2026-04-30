@@ -139,6 +139,89 @@ def test_repair_quote_symbol_normalizes_known_provider_aliases():
 
 
 @pytest.mark.asyncio
+async def test_concurrent_public_module_failure_degrades_without_collapsing_home(monkeypatch):
+    async def _fake_resolve_pick_source_rows(*_args, **_kwargs):
+        return [], [market_insights._default_pick_source()], market_insights.DEFAULT_PICK_SOURCE_ID
+
+    async def _fake_public_module(**kwargs):
+        key = str(kwargs["key"])
+        if key.startswith("home:"):
+            return await kwargs["fetcher"](), False, 0, "live", False
+        if key.startswith("quotes:"):
+            raise RuntimeError("quote provider unavailable")
+        if key == "macro:us":
+            return (
+                {
+                    "vix": {
+                        "label": "Volatility",
+                        "value": None,
+                        "delta_pct": None,
+                        "as_of": None,
+                        "source": "Unavailable",
+                        "degraded": True,
+                    },
+                    "market_status": market_insights._scheduled_market_status_fallback(),
+                    "provider_status": {"volatility": "partial", "market_status": "partial"},
+                },
+                False,
+                0,
+                "live",
+                False,
+            )
+        if key == "movers:us":
+            return ({}, {"movers:gainers": "partial"}), False, 0, "live", False
+        if key == "sectors:us":
+            return ([], "partial"), False, 0, "live", False
+        if key.startswith("recommendation:"):
+            symbol = key.split(":", 1)[1]
+            return (
+                {
+                    "recommendation": market_insights._fallback_recommendation_from_quote(
+                        symbol, None
+                    ),
+                    "status": "partial",
+                    "provider_status": {f"recommendation:{symbol}": "partial"},
+                },
+                False,
+                0,
+                "live",
+                False,
+            )
+        if key.startswith("news:"):
+            return {"rows": [], "provider_status": {}}, False, 0, "live", False
+        raise AssertionError(f"unexpected cache key {key}")
+
+    monkeypatch.setattr(
+        market_insights,
+        "_resolve_pick_source_rows",
+        _fake_resolve_pick_source_rows,
+    )
+    monkeypatch.setattr(
+        market_insights,
+        "_get_or_refresh_public_module",
+        _fake_public_module,
+    )
+
+    payload = await market_insights._get_market_insights_payload(
+        user_id="test-user",
+        requested_watchlist_symbols=["AAPL"],
+        filtered_symbols=[],
+        watchlist_symbols=["AAPL"],
+        days_back=7,
+        active_pick_source=market_insights.DEFAULT_PICK_SOURCE_ID,
+        consent_token=None,
+        personalized=False,
+    )
+
+    assert payload["stale"] is True
+    assert payload["provider_status"]["quote:AAPL"] == "failed"
+    assert payload["watchlist"][0]["symbol"] == "AAPL"
+    assert payload["watchlist"][0]["degraded"] is True
+    assert payload["movers"]["degraded"] is True
+    assert payload["provider_status"]["sectors"] == "partial"
+
+
+@pytest.mark.asyncio
 async def test_startup_warm_seeds_shared_baseline_home_after_public_modules(monkeypatch):
     call_order: list[str] = []
     captured: dict[str, object] = {}

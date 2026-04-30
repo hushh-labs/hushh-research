@@ -1872,43 +1872,101 @@ async def _get_market_insights_payload(
                 "generated_at": _now_iso(),
             }
 
-        # ⚡️ CONCURRENCY REFACTOR
+        def failed_module(value: Any) -> tuple[Any, bool, int, str, bool]:
+            return (value, True, 0, "live", False)
 
-        quotes_task = _get_or_refresh_public_module(
-            key=quotes_key,
-            fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
-            fetcher=fetch_quotes_bundle,
-            warm_source=warm_source,
-        )
+        async def safe_public_module(
+            name: str,
+            task: Any,
+            fallback_factory: Any,
+        ) -> tuple[Any, bool, int, str, bool]:
+            try:
+                return await task
+            except Exception as exc:
+                status_value = _provider_status_from_exception(exc)
+                logger.warning(
+                    "[Kai Market] %s module failed during concurrent refresh: %s",
+                    name,
+                    exc,
+                )
+                return failed_module(fallback_factory(status_value))
 
-        macro_task = _get_or_refresh_public_module(
-            key="macro:us",
-            fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
-            fetcher=_fetch_macro_bundle,
-            warm_source=warm_source,
-        )
-        movers_task = _get_or_refresh_public_module(
-            key="movers:us",
-            fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
-            fetcher=_fetch_movers_from_fmp,
-            warm_source=warm_source,
-        )
-        sectors_task = _get_or_refresh_public_module(
-            key="sectors:us",
-            fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
-            fetcher=lambda: _fetch_sector_rotation_snapshot(user_id, consent_token),
-            warm_source=warm_source,
-        )
         (
             (quotes_value, quotes_stale, _quotes_age, quotes_cache_tier, quotes_cache_hit),
             (macro_value, macro_stale, _macro_age, macro_cache_tier, macro_cache_hit),
             (movers_value, movers_stale, _movers_age, movers_cache_tier, movers_cache_hit),
             (sectors_value, sectors_stale, _sectors_age, sectors_cache_tier, sectors_cache_hit),
-        ) = await asyncio.gather(quotes_task, macro_task, movers_task, sectors_task)
+        ) = await asyncio.gather(
+            safe_public_module(
+                "quotes",
+                _get_or_refresh_public_module(
+                    key=quotes_key,
+                    fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
+                    stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
+                    fetcher=fetch_quotes_bundle,
+                    warm_source=warm_source,
+                ),
+                lambda status_value: {
+                    "quotes": {},
+                    "provider_status": {f"quote:{symbol}": status_value for symbol in symbol_set},
+                    "generated_at": _now_iso(),
+                },
+            ),
+            safe_public_module(
+                "macro",
+                _get_or_refresh_public_module(
+                    key="macro:us",
+                    fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
+                    stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
+                    fetcher=_fetch_macro_bundle,
+                    warm_source=warm_source,
+                ),
+                lambda status_value: {
+                    "vix": {
+                        "label": "Volatility",
+                        "value": None,
+                        "delta_pct": None,
+                        "as_of": None,
+                        "source": "Unavailable",
+                        "degraded": True,
+                    },
+                    "market_status": _scheduled_market_status_fallback(),
+                    "provider_status": {
+                        "volatility": status_value,
+                        "market_status": status_value,
+                    },
+                },
+            ),
+            safe_public_module(
+                "movers",
+                _get_or_refresh_public_module(
+                    key="movers:us",
+                    fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
+                    stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
+                    fetcher=_fetch_movers_from_fmp,
+                    warm_source=warm_source,
+                ),
+                lambda status_value: (
+                    {},
+                    {
+                        "movers:gainers": status_value,
+                        "movers:losers": status_value,
+                        "movers:active": status_value,
+                    },
+                ),
+            ),
+            safe_public_module(
+                "sectors",
+                _get_or_refresh_public_module(
+                    key="sectors:us",
+                    fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
+                    stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
+                    fetcher=lambda: _fetch_sector_rotation_snapshot(user_id, consent_token),
+                    warm_source=warm_source,
+                ),
+                lambda status_value: ([], status_value),
+            ),
+        )
         quote_bundle = quotes_value if isinstance(quotes_value, dict) else {}
         quote_map = (
             quote_bundle.get("quotes") if isinstance(quote_bundle.get("quotes"), dict) else {}
