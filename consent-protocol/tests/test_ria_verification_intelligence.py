@@ -350,10 +350,7 @@ def test_stage1_lookup_returns_verified_when_crd_present(monkeypatch):
         assert request.headers["content-type"] == "application/json"
         payload = request.read()
         body = json.loads(payload)
-        assert body == {
-            "query": "Akash Katla",
-            "context": {"targetName": "Akash Katla"},
-        }
+        assert body == {"query": "Akash Katla"}
         return httpx.Response(status_code=200, json=_stage1_payload())
 
     adapter = RIAIntelligenceStage1LookupAdapter(transport=httpx.MockTransport(handler))
