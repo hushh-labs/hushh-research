@@ -90,6 +90,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM ria_pick_uploads",
         "DELETE FROM advisor_investor_relationships",
         "DELETE FROM marketplace_public_profiles",
+        "DELETE FROM one_kyc_workflows",
         "DELETE FROM actor_identity_cache",
         "DELETE FROM runtime_persona_state",
         "DELETE FROM actor_profiles",

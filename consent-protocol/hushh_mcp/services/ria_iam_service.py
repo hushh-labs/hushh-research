@@ -624,6 +624,7 @@ class RIAIAMService:
         self,
         query: str,
         *,
+        crd_number: str | None = None,
         use_cache: bool = True,
     ) -> NameVerificationResult:
         normalized_query = str(query or "").strip()
@@ -631,14 +632,16 @@ class RIAIAMService:
             raise RIAIAMPolicyError("query is required", status_code=400)
         return await self._name_verification_gateway.verify_name(
             query=normalized_query,
+            crd_number=crd_number,
             use_cache=use_cache,
         )
 
     async def verify_ria_name(
         self,
         query: str,
+        crd_number: str | None = None,
     ) -> dict[str, Any]:
-        result = await self._verify_ria_name_result(query, use_cache=True)
+        result = await self._verify_ria_name_result(query, crd_number=crd_number, use_cache=True)
         return self._serialize_name_verification_result(result)
 
     @staticmethod
@@ -2206,8 +2209,10 @@ class RIAIAMService:
         )
         normalized_display_name = str(prepared["display_name"])
         normalized_requested_capabilities = list(prepared["requested_capabilities"])
+        submitted_individual_crd = self._normalize_optional_text(prepared.get("individual_crd"))
         name_lookup = await self._verify_ria_name_result(
             normalized_display_name,
+            crd_number=submitted_individual_crd,
             use_cache=not force_live_verification,
         )
         if name_lookup.status == "provider_unavailable":
@@ -2223,6 +2228,15 @@ class RIAIAMService:
                 or "Advisor name could not be verified against a CRD-backed registration.",
                 status_code=400,
             )
+        if submitted_individual_crd and (
+            self._normalize_crd_text(name_lookup.crd_number)
+            != self._normalize_crd_text(submitted_individual_crd)
+        ):
+            raise RIAIAMPolicyError(
+                "The verified CRD did not match the CRD you entered. Check the CRD or remove it and verify by name.",
+                status_code=400,
+            )
+
         effective_legal_name = (
             self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
         )

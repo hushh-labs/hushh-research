@@ -71,7 +71,9 @@ class _FakeDb:
             workflow_id = params["workflow_id"]
             row = next(item for item in self.workflows if item["workflow_id"] == workflow_id)
             for key, value in params.items():
-                if key == "workflow_id":
+                if key == "workflow_id" or key.startswith("set_"):
+                    continue
+                if not params.get(f"set_{key}", True):
                     continue
                 row[key] = json.loads(value) if key == "metadata" else value
             row["updated_at"] = datetime.now(timezone.utc)

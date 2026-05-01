@@ -100,10 +100,10 @@ class AccountService:
             "kai_plaid_user_profile_cache": text(
                 "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
             ),
-            "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
             "kai_receipt_memory_artifacts": text(
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
             ),
+            "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
             "runtime_persona_state": text(
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
@@ -358,13 +358,13 @@ class AccountService:
             "internal_access_events": False,
             "push_tokens": False,
             "invite_links": False,
-            "one_kyc_workflows": False,
             "relationships": False,
             "relationship_share_events": False,
             "relationship_share_grants": False,
             "ria_pick_share_artifacts": False,
             "ria_pick_uploads": False,
             "marketplace_profile": False,
+            "one_kyc_workflows": False,
             "runtime_persona_state": False,
             "vault_keys": False,
         }
@@ -543,7 +543,9 @@ class AccountService:
                 )
                 results["push_tokens"] = True
                 self._delete_user_rows_if_table_exists(
-                    conn, table_name="one_kyc_workflows", params=params
+                    conn,
+                    table_name="one_kyc_workflows",
+                    params=params,
                 )
                 results["one_kyc_workflows"] = True
                 self._delete_user_rows_if_table_exists(

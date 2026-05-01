@@ -1189,25 +1189,46 @@ One"""
             if workflow:
                 return workflow
             raise OneEmailKycError("KYC workflow not found.", status_code=404)
-        assignments = []
         params: dict[str, Any] = {"workflow_id": workflow_id}
-        for key, value in updates.items():
-            if key == "metadata":
-                assignments.append("metadata = CAST(:metadata AS jsonb)")
-                params["metadata"] = _json(value or {})
-            else:
-                assignments.append(f"{key} = :{key}")
-                params[key] = value
-        assignments.append("updated_at = NOW()")
-        set_clause = ", ".join(assignments)
-        # The SET fragments are selected only from the allowlisted columns above;
-        # every caller-provided value remains bound through params.
-        sql = (
-            "UPDATE one_kyc_workflows "
-            f"SET {set_clause} "  # nosec B608
-            "WHERE workflow_id = :workflow_id "
-            "RETURNING *"
-        )
+        for key in allowed:
+            params[f"set_{key}"] = key in updates
+            params[key] = _json(updates.get(key) or {}) if key == "metadata" else updates.get(key)
+        sql = """
+            UPDATE one_kyc_workflows
+            SET
+              status = CASE WHEN :set_status THEN :status ELSE status END,
+              consent_request_id = CASE
+                WHEN :set_consent_request_id THEN :consent_request_id
+                ELSE consent_request_id
+              END,
+              draft_subject = CASE
+                WHEN :set_draft_subject THEN :draft_subject
+                ELSE draft_subject
+              END,
+              draft_body = CASE
+                WHEN :set_draft_body THEN :draft_body
+                ELSE draft_body
+              END,
+              draft_status = CASE
+                WHEN :set_draft_status THEN :draft_status
+                ELSE draft_status
+              END,
+              last_error_code = CASE
+                WHEN :set_last_error_code THEN :last_error_code
+                ELSE last_error_code
+              END,
+              last_error_message = CASE
+                WHEN :set_last_error_message THEN :last_error_message
+                ELSE last_error_message
+              END,
+              metadata = CASE
+                WHEN :set_metadata THEN CAST(:metadata AS jsonb)
+                ELSE metadata
+              END,
+              updated_at = NOW()
+            WHERE workflow_id = :workflow_id
+            RETURNING *
+        """
         rows = self.db.execute_raw(sql, params).data
         if not rows:
             raise OneEmailKycError(
