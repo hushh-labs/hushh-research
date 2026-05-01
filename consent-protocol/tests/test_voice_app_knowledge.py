@@ -89,6 +89,7 @@ def test_resolve_global_concept_describes_voice_assistant_identity() -> None:
 def test_get_kai_voice_identity_context_exposes_app_and_role() -> None:
     identity = get_kai_voice_identity_context()
 
-    assert identity["app_name"] == "Kai"
+    assert identity["app_name"] == "One"
     assert identity["assistant_role"] == "in_app_voice_interface"
-    assert "Kai is the app" in identity["role_summary"]
+    assert "One is the top personal agent" in identity["role_summary"]
+    assert "Kai is the finance specialist" in identity["role_summary"]

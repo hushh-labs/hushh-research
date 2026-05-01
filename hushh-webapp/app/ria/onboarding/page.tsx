@@ -44,6 +44,7 @@ import {
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { trackEvent } from "@/lib/observability/client";
 import {
   trackGrowthFunnelStepCompleted,
@@ -428,6 +429,67 @@ export default function RiaOnboardingPage() {
   const canContinue = canContinueRiaOnboardingStep(currentStep.id, draft, flowOptions);
   const capabilityLabels = getRequestedCapabilityLabels(draft);
   const progressValue = Math.round(((currentStepIndex + 1) / Math.max(steps.length, 1)) * 100);
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "ria_onboarding",
+      title: "RIA Onboarding",
+      purpose: "Advisor verification setup flow.",
+      sections: [
+        {
+          id: "ria_onboarding_step",
+          title: currentStep.title,
+          purpose: currentStep.description,
+        },
+      ],
+      controls: [
+        {
+          id: "ria_onboarding_route",
+          label: "RIA onboarding",
+          type: "route",
+          actionId: "route.ria_onboarding",
+        },
+        {
+          id: "ria_onboarding_verify_name",
+          label: "Verify advisor name",
+          type: "button",
+          state: canVerifyName ? "enabled" : "disabled",
+          actionId: "ria.onboarding.verify_name",
+        },
+        {
+          id: "ria_onboarding_submit_verification",
+          label: "Submit verification",
+          type: "button",
+          state: currentStep.id === "review" && canContinue ? "enabled" : "hidden",
+          actionId: "ria.onboarding.submit_verification",
+        },
+      ],
+      activeSection: currentStep.id,
+      visibleModules: [currentStep.title, "Verification status"],
+      selectedObjects: capabilityLabels,
+      screenMetadata: {
+        current_step_id: currentStep.id,
+        current_step_index: currentStepIndex,
+        step_count: steps.length,
+        can_continue: canContinue,
+        can_verify_name: canVerifyName,
+        name_verification_status: nameVerificationStatus,
+        advisory_verification_status: advisoryVerificationStatus,
+      },
+    }),
+    [
+      advisoryVerificationStatus,
+      canContinue,
+      canVerifyName,
+      capabilityLabels,
+      currentStep.description,
+      currentStep.id,
+      currentStep.title,
+      currentStepIndex,
+      nameVerificationStatus,
+      steps.length,
+    ]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   useEffect(() => {
     setDraft((current) => {
@@ -959,6 +1021,7 @@ export default function RiaOnboardingPage() {
               {nameVerificationStatus !== "verified" ? (
                 <button
                   type="button"
+                  data-voice-control-id="ria_onboarding_verify_name"
                   onClick={() => void handleVerifyName()}
                   disabled={!canVerifyName}
                   className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-60"
@@ -1253,6 +1316,11 @@ export default function RiaOnboardingPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
+                    data-voice-control-id={
+                      currentStep.id === "review"
+                        ? "ria_onboarding_submit_verification"
+                        : "ria_onboarding_continue_review"
+                    }
                     onClick={handleContinue}
                     disabled={loading || !user || !canContinue || saving}
                     className="inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"

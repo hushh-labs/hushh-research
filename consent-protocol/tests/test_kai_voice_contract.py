@@ -1609,7 +1609,8 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
 
     prompt = build_voice_planner_system_prompt(planner_context=planner_context)
 
-    assert "Kai is the app" in prompt
+    assert "One is the top personal agent" in prompt
+    assert "Kai is the finance specialist" in prompt
     assert "voice assistant" in prompt.lower()
     assert "route.profile" in prompt
     assert "Relevant Manifest Actions" in prompt

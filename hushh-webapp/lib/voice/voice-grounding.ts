@@ -87,6 +87,40 @@ function toPathnameFromHref(href: string): string {
   return queryIndex >= 0 ? value.slice(0, queryIndex) : value;
 }
 
+function extractRiaRouteParams(currentHref: string): Record<string, string> {
+  const pathname = toPathnameFromHref(currentHref);
+  const segments = pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
+  const params: Record<string, string> = {};
+  if (segments[0] !== "ria" || segments[1] !== "clients" || !segments[2]) {
+    return params;
+  }
+  params.userId = segments[2];
+  const accountIndex = segments.indexOf("accounts");
+  const accountId = accountIndex >= 0 ? segments[accountIndex + 1] : undefined;
+  if (accountId) {
+    params.accountId = accountId;
+  }
+  const requestIndex = segments.indexOf("requests");
+  const requestId = requestIndex >= 0 ? segments[requestIndex + 1] : undefined;
+  if (requestId) {
+    params.requestId = requestId;
+  }
+  return params;
+}
+
+function resolveDynamicRouteHref(targetHref: string, currentHref: string): string | null {
+  const href = String(targetHref || "").trim();
+  if (!href) return null;
+  if (!href.includes("[")) return href;
+
+  const params = extractRiaRouteParams(currentHref);
+  let resolved = href;
+  for (const [key, value] of Object.entries(params)) {
+    resolved = resolved.replaceAll(`[${key}]`, encodeURIComponent(value));
+  }
+  return resolved.includes("[") ? null : resolved;
+}
+
 function isSameRouteTarget(currentHref: string, targetHref: string): boolean {
   const current = String(currentHref || "").trim();
   const target = String(targetHref || "").trim();
@@ -97,10 +131,14 @@ function isSameRouteTarget(currentHref: string, targetHref: string): boolean {
   return toPathnameFromHref(current) === toPathnameFromHref(target);
 }
 
-function defaultRouteForAction(action: InvestorKaiActionDefinition): string | null {
+function defaultRouteForAction(
+  action: InvestorKaiActionDefinition,
+  currentHref: string
+): string | null {
   if (action.scope.routes.length === 0) return null;
   const first = action.scope.routes[0];
-  return typeof first === "string" && first.trim() ? first.trim() : null;
+  if (typeof first !== "string" || !first.trim()) return null;
+  return resolveDynamicRouteHref(first.trim(), currentHref);
 }
 
 function buildToolCallFromWiredAction(
@@ -573,7 +611,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
   }
 
   if (action.wiring.status === "unwired") {
-    const targetHref = defaultRouteForAction(action);
+    const targetHref = defaultRouteForAction(action, currentHref);
     const steps: GroundedExecutionStep[] = [];
     if (targetHref && !isSameRouteTarget(currentHref, targetHref)) {
       steps.push({
@@ -663,7 +701,28 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
 
   const binding = action.wiring.binding;
   if (binding.kind === "route") {
-    if (isSameRouteTarget(currentHref, binding.href)) {
+    const routeHref = resolveDynamicRouteHref(binding.href, currentHref);
+    if (!routeHref) {
+      return {
+        status: "manual_only",
+        actionId: action.id,
+        actionLabel: action.label,
+        destructive: false,
+        message: "Please choose the exact item on screen.",
+        resolutionSource: candidate.source,
+        execution: {
+          mode: "manual_only",
+          steps: [
+            {
+              type: "prompt",
+              message: "Please choose the exact item on screen.",
+              reason: "dynamic_route_parameter_missing",
+            },
+          ],
+        },
+      };
+    }
+    if (isSameRouteTarget(currentHref, routeHref)) {
       return {
         status: "resolved",
         actionId: action.id,
@@ -686,13 +745,13 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
       resolutionSource: candidate.source,
       execution: {
         mode: "navigate_only",
-        steps: [
+          steps: [
           {
             type: "navigate",
-            href: binding.href,
+            href: routeHref,
             reason: "route_bound_action",
             settlementTarget: {
-              route: binding.href,
+              route: routeHref,
               screen: action.scope.screens[0] || null,
             },
           },
@@ -723,7 +782,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
     };
   }
 
-  const targetHref = defaultRouteForAction(action);
+  const targetHref = defaultRouteForAction(action, currentHref);
   const requiresHiddenNavigation =
     action.scope.hiddenNavigable &&
     targetHref &&

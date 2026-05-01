@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   AlertTriangle,
@@ -65,6 +65,7 @@ import {
   type RiaScreeningSection,
 } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 type PicksSource = "kai" | "my";
 type PicksCategory = "top-picks" | "avoid" | "screening";
@@ -1321,6 +1322,7 @@ function ScreeningEditor({
 
 export default function RiaPicksPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { riaCapability, loading: personaLoading, refreshing: personaRefreshing } = usePersonaState();
@@ -1349,6 +1351,42 @@ export default function RiaPicksPage() {
   const [avoidLoading, setAvoidLoading] = useState(false);
   const [screeningRows, setScreeningRows] = useState<RiaScreeningRow[]>([]);
   const [screeningLoading, setScreeningLoading] = useState(false);
+
+  const sourceParam = searchParams?.get("source");
+  const categoryParam = searchParams?.get("category");
+
+  useEffect(() => {
+    if (sourceParam === "kai" || sourceParam === "my") {
+      setSource(sourceParam);
+    }
+  }, [sourceParam]);
+
+  useEffect(() => {
+    if (
+      categoryParam === "top-picks" ||
+      categoryParam === "avoid" ||
+      categoryParam === "screening"
+    ) {
+      setCategory(categoryParam);
+    }
+  }, [categoryParam]);
+
+  const updatePicksRouteState = useCallback(
+    (next: { source?: PicksSource; category?: PicksCategory }) => {
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      if (next.source) {
+        params.set("source", next.source);
+      }
+      if (next.category) {
+        params.set("category", next.category);
+      }
+      const query = params.toString();
+      router.replace(query ? `${ROUTES.RIA_PICKS}?${query}` : ROUTES.RIA_PICKS, {
+        scroll: false,
+      });
+    },
+    [router, searchParams]
+  );
 
   const picksResource = useStaleResource<{
     package: RiaPickPackage;
@@ -2063,6 +2101,147 @@ export default function RiaPicksPage() {
 
   const sourceTitle = source === "kai" ? "Kai list" : "My list";
   const showMyListActionRail = source === "my";
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "ria_picks",
+      title: "RIA Picks",
+      purpose: "Advisor stock universe with Kai reference picks and vault-backed advisor package.",
+      sections: [
+        {
+          id: "ria_picks_source",
+          title: "Source",
+        },
+        {
+          id: "ria_picks_category",
+          title: "Category",
+        },
+        {
+          id: "ria_picks_package_actions",
+          title: "Advisor package actions",
+        },
+      ],
+      controls: [
+        {
+          id: "ria_route_tab_picks",
+          label: "Picks",
+          type: "tab",
+          state: "active",
+          actionId: "route.ria_picks",
+        },
+        {
+          id: "ria_picks_source_kai",
+          label: "Kai list",
+          type: "tab",
+          state: source === "kai" ? "active" : "available",
+          actionId: "ria.picks.open_source_kai",
+        },
+        {
+          id: "ria_picks_source_my",
+          label: "My list",
+          type: "tab",
+          state: source === "my" ? "active" : "available",
+          actionId: "ria.picks.open_source_my",
+        },
+        {
+          id: "ria_picks_category_top_picks",
+          label: "Top picks",
+          type: "tab",
+          state: category === "top-picks" ? "active" : "available",
+          actionId: "ria.picks.open_category_top_picks",
+        },
+        {
+          id: "ria_picks_category_avoid",
+          label: "Avoid",
+          type: "tab",
+          state: category === "avoid" ? "active" : "available",
+          actionId: "ria.picks.open_category_avoid",
+        },
+        {
+          id: "ria_picks_category_screening",
+          label: "Screening",
+          type: "tab",
+          state: category === "screening" ? "active" : "available",
+          actionId: "ria.picks.open_category_screening",
+        },
+        {
+          id: "ria_picks_upload_csv",
+          label: uploadOpen ? "Close upload" : "Upload",
+          type: "button",
+          state: isVaultUnlocked ? "available" : "disabled",
+          actionId: "ria.picks.upload_csv_replace_top_picks",
+        },
+        {
+          id: "ria_picks_download_template",
+          label: "Download template",
+          type: "link",
+          actionId: "ria.picks.download_template",
+        },
+        {
+          id: "ria_picks_copy_from_kai",
+          label: "Copy from Kai",
+          type: "button",
+          state: savingToMyList || !isVaultUnlocked ? "disabled" : "available",
+          actionId: "ria.picks.copy_from_kai",
+        },
+        {
+          id: "ria_picks_edit_package",
+          label: "Edit",
+          type: "button",
+          state: editing ? "active" : "available",
+          actionId: "ria.picks.start_edit_package",
+        },
+        {
+          id: "ria_picks_discard_changes",
+          label: "Discard",
+          type: "button",
+          state: hasUnsavedChanges ? "available" : "hidden",
+          actionId: "ria.picks.discard_package_changes",
+        },
+        {
+          id: "ria_picks_save_package",
+          label: "Save",
+          type: "button",
+          state: hasUnsavedChanges ? "available" : "disabled",
+          actionId: "ria.picks.save_package",
+        },
+      ],
+      activeTab: `${source}:${category}`,
+      activeFilters: [sourceTitle, category],
+      visibleModules: ["Source tabs", "Category tabs", "Advisor package actions"],
+      busyOperations: [
+        ...(submitting ? ["ria_picks_uploading"] : []),
+        ...(savingToMyList ? ["ria_picks_copying"] : []),
+        ...(packageSaving ? ["ria_picks_saving"] : []),
+      ],
+      screenMetadata: {
+        source,
+        category,
+        editing,
+        upload_open: uploadOpen,
+        has_unsaved_changes: hasUnsavedChanges,
+        vault_unlocked: isVaultUnlocked,
+        validation_issue_count: validationIssues.length,
+        kai_top_pick_count: kaiRows.length,
+        my_top_pick_count: myTopPicks.length,
+      },
+    }),
+    [
+      category,
+      editing,
+      hasUnsavedChanges,
+      isVaultUnlocked,
+      kaiRows.length,
+      myTopPicks.length,
+      packageSaving,
+      savingToMyList,
+      source,
+      sourceTitle,
+      submitting,
+      uploadOpen,
+      validationIssues.length,
+    ]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   if (personaLoading) return null;
   if (riaCapability === "setup") {
@@ -2108,8 +2287,10 @@ export default function RiaPicksPage() {
             <SettingsSegmentedTabs
               value={source}
               onValueChange={(value) => {
-                setSource(value as PicksSource);
+                const nextSource = value as PicksSource;
+                setSource(nextSource);
                 setUploadOpen(false);
+                updatePicksRouteState({ source: nextSource });
               }}
               options={sourceOptions}
               mobileColumns={2}
@@ -2118,7 +2299,11 @@ export default function RiaPicksPage() {
 
           <SettingsSegmentedTabs
             value={category}
-            onValueChange={(value) => setCategory(value as PicksCategory)}
+            onValueChange={(value) => {
+              const nextCategory = value as PicksCategory;
+              setCategory(nextCategory);
+              updatePicksRouteState({ category: nextCategory });
+            }}
             options={categoryOptions}
             mobileColumns={3}
           />
@@ -2131,6 +2316,7 @@ export default function RiaPicksPage() {
                     variant="none"
                     effect="fade"
                     size="sm"
+                    data-voice-control-id="ria_picks_upload_csv"
                     disabled={!isVaultUnlocked}
                     onClick={() => {
                       setUploadOpen((current) => {
@@ -2151,7 +2337,11 @@ export default function RiaPicksPage() {
                     size="sm"
                     className="w-full justify-center"
                   >
-                    <a href="/templates/ria-picks-template.csv" download>
+                    <a
+                      href="/templates/ria-picks-template.csv"
+                      download
+                      data-voice-control-id="ria_picks_download_template"
+                    >
                       <Download className="mr-2 h-4 w-4" />
                       Template
                     </a>
@@ -2162,6 +2352,7 @@ export default function RiaPicksPage() {
                     variant="blue-gradient"
                     effect="fill"
                     size="sm"
+                    data-voice-control-id="ria_picks_copy_from_kai"
                     disabled={savingToMyList || kaiLoading || !isVaultUnlocked}
                     onClick={() => void saveKaiAsMyList()}
                     className="w-full justify-center"
@@ -2174,6 +2365,7 @@ export default function RiaPicksPage() {
                       variant="none"
                       effect="fade"
                       size="sm"
+                      data-voice-control-id="ria_picks_edit_package"
                       disabled={!isVaultUnlocked}
                       onClick={startEditing}
                       className="w-full justify-center"
@@ -2186,6 +2378,7 @@ export default function RiaPicksPage() {
                       variant="none"
                       effect="fade"
                       size="sm"
+                      data-voice-control-id="ria_picks_discard_changes"
                       disabled={!isVaultUnlocked}
                       onClick={discardChanges}
                       className="w-full justify-center"

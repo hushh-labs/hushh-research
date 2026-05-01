@@ -105,6 +105,95 @@ describe("kai-action-gateway", () => {
     ]);
   });
 
+  it("maps the RIA flow with direct navigation and guarded manual actions", () => {
+    const riaActions = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.surface_id.startsWith("ria_") || action.action_id.includes(".ria.")
+    );
+    expect(riaActions.map((action) => action.action_id)).toEqual(
+      expect.arrayContaining([
+        "route.ria_home",
+        "route.ria_onboarding",
+        "route.ria_clients",
+        "route.ria_picks",
+        "route.ria_marketplace_connect",
+        "ria.picks.open_source_kai",
+        "ria.picks.open_source_my",
+        "ria.picks.save_package",
+        "ria.client_workspace.open_access_tab",
+        "ria.client_workspace.request_access",
+        "marketplace.ria.request_advisory",
+      ])
+    );
+
+    const riaHome = getKaiActionById("route.ria_home");
+    expect(riaHome).toEqual(
+      expect.objectContaining({
+        action_id: "route.ria_home",
+        surface_id: "ria_home",
+        speaker_persona: "one",
+        risk_level: "medium",
+        execution_policy: "allow_direct",
+        guard_ids: ["auth_signed_in", "ria_persona_available"],
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/ria",
+        },
+      })
+    );
+    expect(riaHome?.reachability).toEqual(
+      expect.objectContaining({
+        routes: ["/ria"],
+        screens: ["ria_home"],
+        hidden_navigable: true,
+        active_personas: ["ria"],
+        requires_persona_switch_confirmation: true,
+      })
+    );
+    expect(riaHome?.workflow).toEqual(
+      expect.objectContaining({
+        workflow_id: "route.ria_home.entry",
+        confirmation_required: true,
+        blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+      })
+    );
+
+    expect(getKaiActionById("route.ria_clients")).toEqual(
+      expect.objectContaining({
+        action_id: "route.ria_clients",
+        execution_policy: "allow_direct",
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/ria/clients",
+        },
+      })
+    );
+    expect(getKaiActionById("ria.picks.open_source_kai")?.execution_target).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/ria/picks?source=kai",
+    });
+    expect(getKaiActionById("ria.picks.save_package")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getKaiActionById("marketplace.ria.request_advisory")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+  });
+
   it("requires an explicit persona switch for earned RIA actions", () => {
     const action = getKaiActionById("route.ria_home");
     const availability = evaluateKaiActionAvailability({

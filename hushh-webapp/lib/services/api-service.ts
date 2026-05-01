@@ -192,44 +192,6 @@ function isVoiceDirectBackendRequired(): boolean {
   return explicitDirect || isVoiceFailFastEnabled();
 }
 
-function normalizeVoiceAudioMimeType(rawMimeType: string | null | undefined): string {
-  const normalized = String(rawMimeType || "").trim().toLowerCase();
-  const base = (normalized.split(";", 1)[0] || "").trim();
-  if (base === "video/webm") return "audio/webm";
-  if (base === "audio/webm") return "audio/webm";
-  if (base === "audio/wav" || base === "audio/x-wav") return "audio/wav";
-  if (base === "audio/mp4" || base === "audio/m4a" || base === "audio/x-m4a") return "audio/mp4";
-  if (base === "audio/mpeg" || base === "audio/mp3" || base === "audio/mpga") return "audio/mpeg";
-  return "audio/webm";
-}
-
-function extFromVoiceAudioMimeType(mimeType: string): string {
-  if (mimeType.includes("webm")) return "webm";
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("m4a") || mimeType.includes("mp4")) return "m4a";
-  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
-  return "webm";
-}
-
-function prepareVoiceAudioUpload(data: {
-  audioBlob: Blob;
-  mimeType?: string;
-  filename?: string;
-}): {
-  audioFile: File;
-  mimeType: string;
-  filename: string;
-  rawMimeType: string;
-  blobBytes: number;
-} {
-  const rawMimeType = String(data.audioBlob.type || "").trim();
-  const mimeType = normalizeVoiceAudioMimeType(data.mimeType || rawMimeType || "audio/webm");
-  const ext = extFromVoiceAudioMimeType(mimeType);
-  const filename = (data.filename || "").trim() || `kai-voice.${ext}`;
-  const audioFile = new File([data.audioBlob], filename, { type: mimeType });
-  return { audioFile, mimeType, filename, rawMimeType, blobBytes: audioFile.size };
-}
-
 function toResultFromStatus(status: number): "success" | "expected_error" | "error" {
   if (status >= 200 && status < 400) return "success";
   if (status >= 400 && status < 500) return "expected_error";
@@ -1096,76 +1058,6 @@ export class ApiService {
   }
 
   // ==================== Kai Voice ====================
-
-  static async transcribeKaiVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    audioBlob: Blob;
-    mimeType?: string;
-    filename?: string;
-    voiceTurnId?: string;
-  }): Promise<Response> {
-    const prepared = prepareVoiceAudioUpload(data);
-    const form = new FormData();
-    form.append("user_id", data.userId);
-    form.append("audio_file", prepared.audioFile, prepared.filename);
-    form.append("audio_mime_type", prepared.mimeType);
-    console.info(
-      "[VOICE_AUDIO_UPLOAD] route=/api/kai/voice/stt turn_id=%s blob_bytes=%s raw_mime=%s normalized_mime=%s filename=%s",
-      data.voiceTurnId || "unknown",
-      prepared.blobBytes,
-      prepared.rawMimeType || "(empty)",
-      prepared.mimeType,
-      prepared.filename
-    );
-
-    return voiceFetch("/api/kai/voice/stt", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: form,
-    });
-  }
-
-  static async understandKaiVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    audioBlob: Blob;
-    context?: Record<string, unknown>;
-    appState?: AppRuntimeState;
-    mimeType?: string;
-    filename?: string;
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const prepared = prepareVoiceAudioUpload(data); // Takes less than 1ms 
-    const form = new FormData();
-    form.append("user_id", data.userId);
-    form.append("audio_file", prepared.audioFile, prepared.filename);
-    form.append("audio_mime_type", prepared.mimeType);
-    form.append("context_json", JSON.stringify(data.context || {}));
-    form.append("app_state_json", JSON.stringify(data.appState || {}));
-    console.info(
-      "[VOICE_AUDIO_UPLOAD] route=/api/kai/voice/understand turn_id=%s blob_bytes=%s raw_mime=%s normalized_mime=%s filename=%s",
-      data.voiceTurnId || "unknown",
-      prepared.blobBytes,
-      prepared.rawMimeType || "(empty)",
-      prepared.mimeType,
-      prepared.filename
-    );
-
-    return voiceFetch("/api/kai/voice/understand", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: form,
-      signal: data.signal,
-    });
-  }
 
   static async planKaiVoiceIntent(data: {
     userId: string;
