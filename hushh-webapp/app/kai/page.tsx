@@ -11,6 +11,7 @@ export default function KaiPage() {
         authState="authenticated"
         dataState="loaded"
       />
+
       <NativeTestBeacon
         routeId="/kai"
         marker="native-route-kai-home"
