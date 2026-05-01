@@ -48,6 +48,17 @@ from mcp_modules.tools import (
     handle_get_ria_client_access_summary,
     handle_get_ria_profile,
     handle_get_ria_verification_status,
+    handle_kai_analyze_stock,
+    handle_kai_cancel_active_analysis,
+    handle_kai_navigate_back,
+    handle_kai_open_consent,
+    handle_kai_open_dashboard,
+    handle_kai_open_history,
+    handle_kai_open_home,
+    handle_kai_open_import,
+    handle_kai_open_optimize,
+    handle_kai_open_profile,
+    handle_kai_resume_active_analysis,
     handle_list_marketplace_investors,
     handle_list_ria_profiles,
     handle_list_scopes,
@@ -75,6 +86,7 @@ logger = logging.getLogger("hushh-mcp-server")
 server = Server("hushh-consent")
 
 HANDLERS = {
+    # ── Consent / Privacy tools ───────────────────────────────────────────────
     "request_consent": handle_request_consent,
     "validate_token": handle_validate_token,
     "get_encrypted_scoped_export": handle_get_encrypted_scoped_export,
@@ -82,11 +94,24 @@ HANDLERS = {
     "list_scopes": handle_list_scopes,
     "discover_user_domains": handle_discover_user_domains,
     "check_consent_status": handle_check_consent_status,
+    # ── RIA / Marketplace tools ───────────────────────────────────────────────
     "list_ria_profiles": handle_list_ria_profiles,
     "get_ria_profile": handle_get_ria_profile,
     "list_marketplace_investors": handle_list_marketplace_investors,
     "get_ria_verification_status": handle_get_ria_verification_status,
     "get_ria_client_access_summary": handle_get_ria_client_access_summary,
+    # ── Kai voice action tools ────────────────────────────────────────────────
+    "kai_analyze_stock": handle_kai_analyze_stock,
+    "kai_open_dashboard": handle_kai_open_dashboard,
+    "kai_open_import": handle_kai_open_import,
+    "kai_open_history": handle_kai_open_history,
+    "kai_open_consent": handle_kai_open_consent,
+    "kai_open_profile": handle_kai_open_profile,
+    "kai_open_optimize": handle_kai_open_optimize,
+    "kai_open_home": handle_kai_open_home,
+    "kai_navigate_back": handle_kai_navigate_back,
+    "kai_resume_active_analysis": handle_kai_resume_active_analysis,
+    "kai_cancel_active_analysis": handle_kai_cancel_active_analysis,
 }
 
 

@@ -15,11 +15,13 @@ from hushh_mcp.runtime_settings import get_core_security_settings
 
 TOOL_GROUP_CORE_CONSENT = "core_consent"
 TOOL_GROUP_RIA_READ = "ria_read"
+TOOL_GROUP_KAI_VOICE = "kai_voice"
 TOOL_GROUP_INTERNAL_ONLY = "internal_only"
 
 KNOWN_TOOL_GROUPS = (
     TOOL_GROUP_CORE_CONSENT,
     TOOL_GROUP_RIA_READ,
+    TOOL_GROUP_KAI_VOICE,
     TOOL_GROUP_INTERNAL_ONLY,
 )
 
@@ -40,6 +42,19 @@ TOOL_GROUP_TOOL_NAMES = {
         "list_marketplace_investors",
         "get_ria_verification_status",
         "get_ria_client_access_summary",
+    ),
+    TOOL_GROUP_KAI_VOICE: (
+        "kai_analyze_stock",
+        "kai_open_dashboard",
+        "kai_open_import",
+        "kai_open_history",
+        "kai_open_consent",
+        "kai_open_profile",
+        "kai_open_optimize",
+        "kai_open_home",
+        "kai_navigate_back",
+        "kai_resume_active_analysis",
+        "kai_cancel_active_analysis",
     ),
     TOOL_GROUP_INTERNAL_ONLY: ("delegate_to_agent",),
 }
@@ -111,6 +126,74 @@ TOOL_CATALOG = (
         "compatibility_status": "partner_preview",
         "description": "Partner-only client access summary for RIA flows.",
     },
+    # ── Kai voice actions ──────────────────────────────────────────────
+    {
+        "name": "kai_analyze_stock",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Trigger a stock analysis by ticker or company name.",
+    },
+    {
+        "name": "kai_open_dashboard",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate to the Portfolio / Dashboard tab.",
+    },
+    {
+        "name": "kai_open_import",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate to the Import / Upload Statement tab.",
+    },
+    {
+        "name": "kai_open_history",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate to Analysis History with optional sub-tab.",
+    },
+    {
+        "name": "kai_open_consent",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate to the Consents / Privacy tab.",
+    },
+    {
+        "name": "kai_open_profile",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate to the Profile tab.",
+    },
+    {
+        "name": "kai_open_optimize",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate to the Optimize tab.",
+    },
+    {
+        "name": "kai_open_home",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate to the Market / Home tab.",
+    },
+    {
+        "name": "kai_navigate_back",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Navigate back one screen.",
+    },
+    {
+        "name": "kai_resume_active_analysis",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Resume the currently running background analysis.",
+    },
+    {
+        "name": "kai_cancel_active_analysis",
+        "group": TOOL_GROUP_KAI_VOICE,
+        "compatibility_status": "recommended",
+        "description": "Cancel the currently running background analysis.",
+    },
+    # ── Internal ───────────────────────────────────────────────────────
     {
         "name": "delegate_to_agent",
         "group": TOOL_GROUP_INTERNAL_ONLY,
