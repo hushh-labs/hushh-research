@@ -426,7 +426,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "📈 Navigate to the Portfolio / Dashboard tab in the Kai app. "
                 "Use when the user says 'open dashboard', 'show my portfolio', 'go to portfolio', etc. "
-                "Returns action_id=nav.kai_dashboard."
+                "Returns action_id=route.kai_dashboard."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
@@ -435,7 +435,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "📥 Navigate to the Import / Upload Statement tab in the Kai app. "
                 "Use when the user says 'import', 'upload statement', 'scan portfolio statement', etc. "
-                "Returns action_id=nav.kai_import."
+                "Returns action_id=route.kai_import."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
@@ -444,7 +444,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "🕒 Navigate to the Analysis History tab in the Kai app. "
                 "Use when the user says 'analysis history', 'show my history', 'open history', etc. "
-                "Returns action_id=nav.analysis_history. "
+                "Returns action_id=route.analysis_history. "
                 "Optional: specify a sub-tab (history, debate, summary, transcript)."
             ),
             inputSchema={
@@ -464,7 +464,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "🔐 Navigate to the Consents / Privacy tab in the Kai app. "
                 "Use when the user says 'consents', 'privacy', 'data permissions', etc. "
-                "Returns action_id=nav.consents."
+                "Returns action_id=route.consents."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
@@ -473,7 +473,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "👤 Navigate to the Profile tab in the Kai app. "
                 "Use when the user says 'profile', 'my profile', 'open my account', etc. "
-                "Returns action_id=nav.profile."
+                "Returns action_id=route.profile."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
@@ -482,7 +482,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "⚡ Navigate to the Portfolio Optimization tab in the Kai app. "
                 "Use when the user says 'optimize', 'optimize my portfolio', 'portfolio optimization', etc. "
-                "Returns action_id=nav.kai_optimize."
+                "Returns action_id=route.kai_optimize."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
@@ -491,7 +491,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "🏠 Navigate to the Market / Home tab in the Kai app. "
                 "Use when the user says 'home', 'market', 'go home', 'back to market', etc. "
-                "Returns action_id=nav.kai_home."
+                "Returns action_id=route.kai_home."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
@@ -500,7 +500,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "⬅ Navigate back one screen in the Kai app. "
                 "Use when the user says 'go back', 'back', 'previous screen', etc. "
-                "Returns action_id=nav.back."
+                "Returns action_id=route.back."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),

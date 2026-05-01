@@ -7,17 +7,17 @@ Each handler corresponds to one actionable function inside the Kai mobile app.
 The mobile client receives a structured KaiAction payload and routes accordingly.
 
 Canonical action-ID reference (mirrors voice_intent_service._COMMAND_TO_CANONICAL_ACTION_ID):
-  nav.kai_home             → open Market / Home tab
-  nav.kai_dashboard        → open Portfolio / Dashboard tab
-  nav.kai_import           → open Import tab
-  nav.analysis_history     → open Analysis History tab
-  nav.consents             → open Consents tab
-  nav.profile              → open Profile tab
-  nav.kai_optimize         → open Optimize tab
+  route.kai_home           → open Market / Home tab
+  route.kai_dashboard      → open Portfolio / Dashboard tab
+  route.kai_import         → open Import tab
+  route.analysis_history   → open Analysis History tab
+  route.consents           → open Consents tab
+  route.profile            → open Profile tab
+  route.kai_optimize       → open Optimize tab
   analysis.start           → begin stock analysis (requires symbol slot)
   analysis.resume_active   → resume the currently running analysis
   analysis.cancel_active   → cancel the currently running analysis
-  nav.back                 → navigate back one screen
+  route.back               → navigate back one screen
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from mcp.types import TextContent
@@ -57,14 +59,49 @@ _COMPANY_ALIAS_TO_TICKER: dict[str, str] = {
 }
 
 _ANALYSIS_TABS = {"history", "debate", "summary", "transcript"}
+_VOICE_MANIFEST_PATH = (
+    Path(__file__).resolve().parents[3] / "contracts/kai/voice-action-manifest.v1.json"
+)
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
+@lru_cache(maxsize=1)
+def get_manifest_action_ids() -> frozenset[str]:
+    """Return action IDs from the generated Kai voice manifest when available."""
+    if not _VOICE_MANIFEST_PATH.exists():
+        logger.warning("kai_tool.manifest_missing path=%s", _VOICE_MANIFEST_PATH)
+        return frozenset()
+
+    try:
+        payload = json.loads(_VOICE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("kai_tool.manifest_read_failed path=%s", _VOICE_MANIFEST_PATH)
+        return frozenset()
+
+    actions = payload.get("actions", []) if isinstance(payload, dict) else []
+    return frozenset(
+        str(action.get("id")) for action in actions if isinstance(action, dict) and action.get("id")
+    )
+
+
+def _action_is_registered(action_id: str) -> bool:
+    manifest_ids = get_manifest_action_ids()
+    return not manifest_ids or action_id in manifest_ids
+
+
 def _ok(action_id: str, message: str, **extra: Any) -> list[TextContent]:
     """Build a successful KaiAction response."""
+    if not _action_is_registered(action_id):
+        logger.error("kai_tool.unregistered_action action_id=%s", action_id)
+        return _err(
+            "Kai action is not registered in the current action manifest.",
+            detail=action_id,
+        )
+
     payload: dict[str, Any] = {
         "status": "success",
         "action_id": action_id,
@@ -105,6 +142,7 @@ def _resolve_ticker(raw: str | None) -> str | None:
 # Tool handlers
 # ---------------------------------------------------------------------------
 
+
 async def handle_kai_analyze_stock(args: dict[str, Any]) -> list[TextContent]:
     """
     Trigger a new stock analysis for the given symbol.
@@ -136,9 +174,9 @@ async def handle_kai_analyze_stock(args: dict[str, Any]) -> list[TextContent]:
 
 async def handle_kai_open_dashboard(args: dict[str, Any]) -> list[TextContent]:
     """Navigate to the Portfolio / Dashboard tab."""
-    logger.info("kai_tool.navigate action=nav.kai_dashboard")
+    logger.info("kai_tool.navigate action=route.kai_dashboard")
     return _ok(
-        action_id="nav.kai_dashboard",
+        action_id="route.kai_dashboard",
         message="Opening your portfolio dashboard.",
         completion_mode="route_settle",
     )
@@ -146,9 +184,9 @@ async def handle_kai_open_dashboard(args: dict[str, Any]) -> list[TextContent]:
 
 async def handle_kai_open_import(args: dict[str, Any]) -> list[TextContent]:
     """Navigate to the Import / Upload Statement tab."""
-    logger.info("kai_tool.navigate action=nav.kai_import")
+    logger.info("kai_tool.navigate action=route.kai_import")
     return _ok(
-        action_id="nav.kai_import",
+        action_id="route.kai_import",
         message="Opening the import screen.",
         completion_mode="route_settle",
     )
@@ -164,9 +202,9 @@ async def handle_kai_open_history(args: dict[str, Any]) -> list[TextContent]:
     if tab not in _ANALYSIS_TABS:
         tab = "history"
 
-    logger.info("kai_tool.navigate action=nav.analysis_history tab=%s", tab)
+    logger.info("kai_tool.navigate action=route.analysis_history tab=%s", tab)
     return _ok(
-        action_id="nav.analysis_history",
+        action_id="route.analysis_history",
         message=f"Opening analysis history ({tab} tab).",
         slots={"tab": tab},
         completion_mode="route_settle",
@@ -175,9 +213,9 @@ async def handle_kai_open_history(args: dict[str, Any]) -> list[TextContent]:
 
 async def handle_kai_open_consent(args: dict[str, Any]) -> list[TextContent]:
     """Navigate to the Consents / Privacy tab."""
-    logger.info("kai_tool.navigate action=nav.consents")
+    logger.info("kai_tool.navigate action=route.consents")
     return _ok(
-        action_id="nav.consents",
+        action_id="route.consents",
         message="Opening your consents.",
         completion_mode="route_settle",
     )
@@ -185,9 +223,9 @@ async def handle_kai_open_consent(args: dict[str, Any]) -> list[TextContent]:
 
 async def handle_kai_open_profile(args: dict[str, Any]) -> list[TextContent]:
     """Navigate to the Profile tab."""
-    logger.info("kai_tool.navigate action=nav.profile")
+    logger.info("kai_tool.navigate action=route.profile")
     return _ok(
-        action_id="nav.profile",
+        action_id="route.profile",
         message="Opening your profile.",
         completion_mode="route_settle",
     )
@@ -195,9 +233,9 @@ async def handle_kai_open_profile(args: dict[str, Any]) -> list[TextContent]:
 
 async def handle_kai_open_optimize(args: dict[str, Any]) -> list[TextContent]:
     """Navigate to the Optimize tab."""
-    logger.info("kai_tool.navigate action=nav.kai_optimize")
+    logger.info("kai_tool.navigate action=route.kai_optimize")
     return _ok(
-        action_id="nav.kai_optimize",
+        action_id="route.kai_optimize",
         message="Opening portfolio optimization.",
         completion_mode="route_settle",
     )
@@ -205,9 +243,9 @@ async def handle_kai_open_optimize(args: dict[str, Any]) -> list[TextContent]:
 
 async def handle_kai_open_home(args: dict[str, Any]) -> list[TextContent]:
     """Navigate to the Market / Home tab."""
-    logger.info("kai_tool.navigate action=nav.kai_home")
+    logger.info("kai_tool.navigate action=route.kai_home")
     return _ok(
-        action_id="nav.kai_home",
+        action_id="route.kai_home",
         message="Going to the market overview.",
         completion_mode="route_settle",
     )
@@ -215,9 +253,9 @@ async def handle_kai_open_home(args: dict[str, Any]) -> list[TextContent]:
 
 async def handle_kai_navigate_back(args: dict[str, Any]) -> list[TextContent]:
     """Navigate back one screen in the Kai app."""
-    logger.info("kai_tool.navigate action=nav.back")
+    logger.info("kai_tool.navigate action=route.back")
     return _ok(
-        action_id="nav.back",
+        action_id="route.back",
         message="Going back.",
         completion_mode="route_settle",
     )

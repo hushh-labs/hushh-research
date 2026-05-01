@@ -27,23 +27,24 @@ _mod = importlib.util.module_from_spec(_spec)
 sys.modules["kai_tools_standalone"] = _mod
 _spec.loader.exec_module(_mod)
 
-handle_kai_analyze_stock          = _mod.handle_kai_analyze_stock
+handle_kai_analyze_stock = _mod.handle_kai_analyze_stock
 handle_kai_cancel_active_analysis = _mod.handle_kai_cancel_active_analysis
-handle_kai_navigate_back          = _mod.handle_kai_navigate_back
-handle_kai_open_consent           = _mod.handle_kai_open_consent
-handle_kai_open_dashboard         = _mod.handle_kai_open_dashboard
-handle_kai_open_history           = _mod.handle_kai_open_history
-handle_kai_open_home              = _mod.handle_kai_open_home
-handle_kai_open_import            = _mod.handle_kai_open_import
-handle_kai_open_optimize          = _mod.handle_kai_open_optimize
-handle_kai_open_profile           = _mod.handle_kai_open_profile
+handle_kai_navigate_back = _mod.handle_kai_navigate_back
+handle_kai_open_consent = _mod.handle_kai_open_consent
+handle_kai_open_dashboard = _mod.handle_kai_open_dashboard
+handle_kai_open_history = _mod.handle_kai_open_history
+handle_kai_open_home = _mod.handle_kai_open_home
+handle_kai_open_import = _mod.handle_kai_open_import
+handle_kai_open_optimize = _mod.handle_kai_open_optimize
+handle_kai_open_profile = _mod.handle_kai_open_profile
 handle_kai_resume_active_analysis = _mod.handle_kai_resume_active_analysis
-
+get_manifest_action_ids = _mod.get_manifest_action_ids
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse(result) -> dict:
     """Parse the first TextContent item as JSON."""
@@ -55,6 +56,7 @@ def _parse(result) -> dict:
 # ---------------------------------------------------------------------------
 # kai_analyze_stock
 # ---------------------------------------------------------------------------
+
 
 class TestKaiAnalyzeStock:
     @pytest.mark.asyncio
@@ -79,12 +81,16 @@ class TestKaiAnalyzeStock:
 
     @pytest.mark.asyncio
     async def test_explicit_analysis_type(self):
-        payload = _parse(await handle_kai_analyze_stock({"symbol": "MSFT", "analysis_type": "fundamental"}))
+        payload = _parse(
+            await handle_kai_analyze_stock({"symbol": "MSFT", "analysis_type": "fundamental"})
+        )
         assert payload["slots"]["analysis_type"] == "fundamental"
 
     @pytest.mark.asyncio
     async def test_invalid_analysis_type_defaults_to_full(self):
-        payload = _parse(await handle_kai_analyze_stock({"symbol": "TSLA", "analysis_type": "unknown_type"}))
+        payload = _parse(
+            await handle_kai_analyze_stock({"symbol": "TSLA", "analysis_type": "unknown_type"})
+        )
         assert payload["slots"]["analysis_type"] == "full"
 
     @pytest.mark.asyncio
@@ -115,15 +121,15 @@ class TestKaiAnalyzeStock:
 # ---------------------------------------------------------------------------
 
 NAV_CASES = [
-    (handle_kai_open_dashboard,            "nav.kai_dashboard",    "route_settle"),
-    (handle_kai_open_import,               "nav.kai_import",       "route_settle"),
-    (handle_kai_open_consent,              "nav.consents",         "route_settle"),
-    (handle_kai_open_profile,              "nav.profile",          "route_settle"),
-    (handle_kai_open_optimize,             "nav.kai_optimize",     "route_settle"),
-    (handle_kai_open_home,                 "nav.kai_home",         "route_settle"),
-    (handle_kai_navigate_back,             "nav.back",             "route_settle"),
-    (handle_kai_resume_active_analysis,    "analysis.resume_active", "route_settle"),
-    (handle_kai_cancel_active_analysis,    "analysis.cancel_active", "none"),
+    (handle_kai_open_dashboard, "route.kai_dashboard", "route_settle"),
+    (handle_kai_open_import, "route.kai_import", "route_settle"),
+    (handle_kai_open_consent, "route.consents", "route_settle"),
+    (handle_kai_open_profile, "route.profile", "route_settle"),
+    (handle_kai_open_optimize, "route.kai_optimize", "route_settle"),
+    (handle_kai_open_home, "route.kai_home", "route_settle"),
+    (handle_kai_navigate_back, "route.back", "route_settle"),
+    (handle_kai_resume_active_analysis, "analysis.resume_active", "route_settle"),
+    (handle_kai_cancel_active_analysis, "analysis.cancel_active", "none"),
 ]
 
 
@@ -142,12 +148,13 @@ async def test_nav_tool(handler, expected_action_id, expected_completion_mode):
 # kai_open_history — sub-tab routing
 # ---------------------------------------------------------------------------
 
+
 class TestKaiOpenHistory:
     @pytest.mark.asyncio
     async def test_default_tab(self):
         payload = _parse(await handle_kai_open_history({}))
         assert payload["status"] == "success"
-        assert payload["action_id"] == "nav.analysis_history"
+        assert payload["action_id"] == "route.analysis_history"
         assert payload["slots"]["tab"] == "history"
 
     @pytest.mark.asyncio
@@ -176,17 +183,17 @@ class TestKaiOpenHistory:
 # ---------------------------------------------------------------------------
 
 ALL_HANDLERS = [
-    (handle_kai_open_dashboard,         {}),
-    (handle_kai_open_import,            {}),
-    (handle_kai_open_history,           {}),
-    (handle_kai_open_consent,           {}),
-    (handle_kai_open_profile,           {}),
-    (handle_kai_open_optimize,          {}),
-    (handle_kai_open_home,              {}),
-    (handle_kai_navigate_back,          {}),
+    (handle_kai_open_dashboard, {}),
+    (handle_kai_open_import, {}),
+    (handle_kai_open_history, {}),
+    (handle_kai_open_consent, {}),
+    (handle_kai_open_profile, {}),
+    (handle_kai_open_optimize, {}),
+    (handle_kai_open_home, {}),
+    (handle_kai_navigate_back, {}),
     (handle_kai_resume_active_analysis, {}),
     (handle_kai_cancel_active_analysis, {}),
-    (handle_kai_analyze_stock,          {"symbol": "GOOGL"}),
+    (handle_kai_analyze_stock, {"symbol": "GOOGL"}),
 ]
 
 
@@ -201,3 +208,11 @@ async def test_all_handlers_return_valid_schema(handler, args):
     assert "action_id" in payload
     assert "message" in payload
     assert "completion_mode" in payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handler,args", ALL_HANDLERS)
+async def test_all_success_action_ids_are_registered_in_generated_manifest(handler, args):
+    payload = _parse(await handler(args))
+    assert payload["status"] == "success"
+    assert payload["action_id"] in get_manifest_action_ids()
