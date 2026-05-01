@@ -90,6 +90,8 @@ Non-owned surfaces:
    - whether the PR overlaps tasks already closed on the board
    - whether the change is product-semantic rather than purely code-local
    - whether an apparently isolated PR still changes a trust boundary, user-visible truth model, or external ingress surface
+   - whether a voice-like UI change adds another microphone, speech, dictation, transcript, or command-input path while Kai realtime voice already exists; treat this as product-surface duplication unless the PR explicitly proves it is a deliberate accessibility fallback integrated with the same vault/voice availability state
+   - whether the PR only says `dictation`, `fallback`, or `adapter` while still adding a user-visible voice/mic affordance; technical adapter status is not enough to merge if users see a second voice entry point
    - whether the helper found a concept-level overlap that requires `patch_then_merge` or `block` even when exact file overlap is zero
    - whether the PR adds or changes files under `consent-protocol/db/migrations/`, DB schema contracts, or `release_migration_manifest.json`; these require a DB release-contract review before merge and a live UAT schema guard before any UAT-ready claim
    - whether a migration PR updates all three DB release surfaces together when the live contract changes: SQL migration, release manifest ordering/grouping, and the checked-in schema contract for the affected environment
@@ -132,6 +134,7 @@ Non-owned surfaces:
    - a new agent, service, reducer, export path, ingestion path, or PKM write surface without explicit consent-scope and caller-contract proof
    - a public ingress surface that lacks explicit rollout, abuse-control, or authority-model proof
    - ordinary route navigation introduced under `nav.*` instead of `route.*`
+   - browser SpeechRecognition, dictation, or microphone UI added outside the canonical Kai realtime voice surface without product approval, shared vault/voice availability gating, and current voice UX copy
    - Nav, consent, vault, deletion, privacy, or scope-review behavior without matching trust-boundary proof
 10. For batch reports, include a lean/core section before the per-PR register:
    - the core baseline used from `README.md`, PR impact checklist, and API contracts
@@ -213,8 +216,12 @@ Non-owned surfaces:
    - `#529` must classify as `patch_then_merge` when it schedules background attribute extraction without explicit exception logging.
    - `#435` must remain a sequential Kai chat safety PR, not a duplicate closure, unless the response-validation behavior already landed on `main`.
    - The operator batch title must explain the purpose as Kai chat service evolution, not a harvest cluster.
-39. If the PR is clear, say why it is safe in concrete terms: current head SHA, current gate result, blocker count, chosen lane, flow mode, lean/core risk, the result of both verification passes, report-update status, and any remaining residual risk.
-40. When explaining this skill to the team in Discord or an internal channel, route the wording through `comms-community` and keep the explanation operator-facing:
+39. Use `#446` as the calibration case for voice product-surface duplication:
+   - A browser SpeechRecognition/dictation mic in the command palette must classify as `block` while the canonical Kai realtime voice flow already exists.
+   - Do not downgrade this to `patch_then_merge` merely because the code only fills a search box; the user-visible product surface still duplicates voice entry.
+   - A future accessibility fallback can be considered only after explicit product approval and proof that it shares the canonical vault, voice availability, route eligibility, and copy boundaries.
+40. If the PR is clear, say why it is safe in concrete terms: current head SHA, current gate result, blocker count, chosen lane, flow mode, lean/core risk, the result of both verification passes, report-update status, and any remaining residual risk.
+41. When explaining this skill to the team in Discord or an internal channel, route the wording through `comms-community` and keep the explanation operator-facing:
    - state that `tmp/pr-governance-live-report.md` is generated in ignored `tmp/` and is a live workspace artifact, not a durable audit ledger
    - show the three report layers: `Index`, `Live Risk Matrix`, and `Individual PR Assessments`
    - explain the merge philosophy: green CI is intake, not authority; authority comes from contract safety, non-duplication, lean/core fit, proof, and monitored merge outcome

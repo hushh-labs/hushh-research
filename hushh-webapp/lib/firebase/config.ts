@@ -59,7 +59,7 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   if (typeof window === "undefined") {
     throw new Error("RecaptchaVerifier can only be used in browser");
   }
-  
+
   // Always create a new verifier to avoid stale state
   if (recaptchaVerifier) {
     try {
@@ -76,8 +76,21 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   if (!container) {
     throw new Error(`reCAPTCHA container '${containerId}' not found in DOM`);
   }
-  container.replaceChildren();
-  
+
+  // Replace the container element entirely with a fresh node.
+  // Google's reCAPTCHA library tracks which DOM elements have been rendered
+  // in an internal registry keyed by element reference. Clearing children
+  // or calling .clear() does not remove the element from that registry,
+  // so re-rendering on the same element throws
+  // "reCAPTCHA has already been rendered in this element".
+  // Swapping in a brand-new element with the same id sidesteps the registry.
+  const freshContainer = document.createElement("div");
+  freshContainer.id = containerId;
+  for (const cls of Array.from(container.classList)) {
+    freshContainer.classList.add(cls);
+  }
+  container.replaceWith(freshContainer);
+
   recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
     size: "invisible",
     callback: () => {
@@ -88,7 +101,7 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
       resetRecaptcha();
     },
   });
-  
+
   return recaptchaVerifier;
 }
 
@@ -110,6 +123,18 @@ export function resetRecaptcha() {
     }
     recaptchaVerifier = null;
     recaptchaWidgetId = null;
+  }
+
+  // Also replace the container element so Google's internal registry
+  // does not retain a reference to the old element.
+  const container = document.getElementById("recaptcha-container");
+  if (container) {
+    const freshContainer = document.createElement("div");
+    freshContainer.id = "recaptcha-container";
+    for (const cls of Array.from(container.classList)) {
+      freshContainer.classList.add(cls);
+    }
+    container.replaceWith(freshContainer);
   }
 }
 

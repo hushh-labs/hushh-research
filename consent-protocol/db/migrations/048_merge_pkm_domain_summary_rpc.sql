@@ -1,6 +1,9 @@
--- Migration 048: atomic JSONB merge RPC for pkm_index domain summaries
--- Replaces the read-modify-write in update_domain_summary() with a single
--- DB-level upsert, eliminating the race window on concurrent writes.
+-- Migration 048: atomic JSONB merge RPC for pkm_index domain summaries.
+--
+-- This function only updates the cloud discovery projection. It must not be
+-- treated as the source of user memory truth. Encrypted PKM blobs, manifests,
+-- mutation events, and local cache write-through remain authoritative; this
+-- projection is repairable from those sources when cloud sync lags or recovers.
 
 CREATE OR REPLACE FUNCTION merge_pkm_domain_summary(
     p_user_id      TEXT,

@@ -148,7 +148,7 @@ def test_name_first_inputs_allow_missing_manual_regulatory_identity():
 def test_ria_verified_status_helper_matches_expected_statuses():
     assert RIAIAMService._is_verified_ria_status("verified") is True
     assert RIAIAMService._is_verified_ria_status("active") is True
-    assert RIAIAMService._is_verified_ria_status("bypassed") is True
+    assert RIAIAMService._is_verified_ria_status("bypassed") is False
     assert RIAIAMService._is_verified_ria_status("submitted") is False
 
 
@@ -186,7 +186,11 @@ def test_regulated_runtime_guard_rejects_prod_bypass(monkeypatch):
 async def test_verify_ria_name_serializes_verified_stage1_lookup(monkeypatch):
     service = RIAIAMService()
 
-    async def _mock_lookup(*, query: str, use_cache: bool = True):
+    async def _mock_lookup(
+        *,
+        query: str,
+        use_cache: bool = True,
+    ):
         assert query == "Advisor Alpha"
         assert use_cache is True
         return NameVerificationResult(
@@ -211,7 +215,11 @@ async def test_verify_ria_name_serializes_verified_stage1_lookup(monkeypatch):
 async def test_verify_ria_name_serializes_reason_code_for_broad_queries(monkeypatch):
     service = RIAIAMService()
 
-    async def _mock_lookup(*, query: str, use_cache: bool = True):
+    async def _mock_lookup(
+        *,
+        query: str,
+        use_cache: bool = True,
+    ):
         assert query == "Andrew G"
         assert use_cache is True
         return NameVerificationResult(
@@ -277,9 +285,13 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
     async def _fake_runtime_persona(_conn, _user_id, _persona):
         return None
 
-    async def _fake_verify_name_result(query: str, *, use_cache: bool = True):
+    async def _fake_verify_name_result(
+        query: str,
+        *,
+        use_cache: bool = True,
+    ):
         assert query == "Advisor Alpha"
-        assert use_cache is True
+        assert use_cache is False
         return NameVerificationResult(
             status="verified",
             matched_name="Advisor Alpha",
@@ -299,6 +311,7 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
         "user-1",
         display_name="Advisor Alpha",
         requested_capabilities=["advisory"],
+        force_live_verification=True,
         strategy="Long-term planning",
     )
 
@@ -309,35 +322,57 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
 
 
 @pytest.mark.asyncio
-async def test_dev_activation_records_allowed_bypass_event(monkeypatch):
+async def test_submit_ria_onboarding_uses_provider_returned_crd(monkeypatch):
     service = RIAIAMService()
-    executed: list[tuple[str, tuple[object, ...]]] = []
 
-    class _FakeTransaction:
+    async def _fake_verify_name_result(
+        query: str,
+        *,
+        use_cache: bool = True,
+    ):
+        assert query == "Advisor Alpha"
+        assert use_cache is False
+        return NameVerificationResult(
+            status="verified",
+            matched_name="Advisor Alpha",
+            crd_number="99999",
+            current_firm="Advisor Alpha LLC",
+            sec_number="801-12345",
+            provider="ria_intelligence_stage1",
+        )
+
+    class DummyTx:
         async def __aenter__(self):
-            return self
+            return None
 
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    class _FakeConn:
+    class DummyConn:
         def transaction(self):
-            return _FakeTransaction()
+            return DummyTx()
 
-        async def fetchrow(self, query: str, *_args):
-            if "INSERT INTO ria_profiles" in query:
-                return {"id": "ria-profile-1", "user_id": "user-1", "display_name": "Advisor Alpha"}
-            return None
+        async def fetchrow(self, _query, *args):
+            _ = args
+            return {
+                "id": "ria-1",
+                "user_id": "user-1",
+                "display_name": "Advisor Alpha",
+                "legal_name": "Advisor Alpha",
+                "finra_crd": "99999",
+                "sec_iard": "801-12345",
+                "verification_status": "verified",
+            }
 
-        async def execute(self, query: str, *args):
-            executed.append((query, args))
-            return None
+        async def execute(self, _query, *args):
+            _ = args
+            return "OK"
 
         async def close(self):
             return None
 
     async def _fake_conn():
-        return _FakeConn()
+        return DummyConn()
 
     async def _fake_schema_ready(_conn):
         return None
@@ -348,28 +383,28 @@ async def test_dev_activation_records_allowed_bypass_event(monkeypatch):
     async def _fake_runtime_persona(_conn, _user_id, _persona):
         return None
 
-    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.delenv("RIA_DEV_ALLOWLIST", raising=False)
     monkeypatch.setattr(service, "_conn", _fake_conn)
     monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
     monkeypatch.setattr(service, "_ensure_vault_user_row", _fake_vault_user_row)
     monkeypatch.setattr(service, "_set_runtime_last_persona", _fake_runtime_persona)
+    monkeypatch.setattr(service, "_verify_ria_name_result", _fake_verify_name_result)
 
-    result = await service.activate_ria_dev_onboarding(
+    result = await service.submit_ria_onboarding(
         "user-1",
         display_name="Advisor Alpha",
         requested_capabilities=["advisory"],
+        individual_crd="12345",
+        force_live_verification=True,
     )
 
-    assert result["verification_status"] == "active"
-    assert result["verification_outcome"] == "dev_allowlist"
-    event_queries = [
-        query for query, _args in executed if "INSERT INTO ria_verification_events" in query
-    ]
-    assert event_queries
-    assert "'bypassed'" in event_queries[0]
-    assert "'dev_allowlist', 'dev_allowlist'" not in event_queries[0]
+    assert result["verification_status"] == "verified"
+    assert result["individual_crd"] == "99999"
+
+
+def test_dev_activation_method_removed():
+    """activate_ria_dev_onboarding was fully removed — method must not exist."""
+    service = RIAIAMService()
+    assert not hasattr(service, "activate_ria_dev_onboarding")
 
 
 def test_renaissance_service_exposes_generic_security_list_descriptors():

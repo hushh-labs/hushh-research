@@ -1419,7 +1419,10 @@ class PersonalKnowledgeModelService:
         """Atomically merge a sanitized PKM discovery summary for one domain.
 
         Uses a single PostgreSQL upsert (merge_pkm_domain_summary RPC) so the
-        read-modify-write is done at the DB level with no race window.
+        cloud discovery projection has no read-modify-write race window. This
+        does not make pkm_index the user-memory authority; encrypted blobs,
+        manifests, mutation events, and local cache write-through remain the
+        source of truth for local-first and on-device flows.
         """
         domain = self._canonicalize_domain_key(domain)
         if not domain:

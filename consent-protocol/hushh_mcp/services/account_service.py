@@ -31,10 +31,82 @@ class AccountService:
         self._supabase = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "actor_identity_cache": text(
+                "DELETE FROM actor_identity_cache WHERE user_id = :user_id"
+            ),
+            "actor_profiles": text("DELETE FROM actor_profiles WHERE user_id = :user_id"),
+            "consent_export_refresh_jobs": text(
+                "DELETE FROM consent_export_refresh_jobs WHERE user_id = :user_id"
+            ),
+            "consent_exports": text("DELETE FROM consent_exports WHERE user_id = :user_id"),
+            "internal_access_events": text(
+                "DELETE FROM internal_access_events WHERE user_id = :user_id"
+            ),
+            "kai_funding_ach_relationships": text(
+                "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
+            ),
+            "kai_funding_alpaca_connect_sessions": text(
+                "DELETE FROM kai_funding_alpaca_connect_sessions WHERE user_id = :user_id"
+            ),
+            "kai_funding_brokerage_accounts": text(
+                "DELETE FROM kai_funding_brokerage_accounts WHERE user_id = :user_id"
+            ),
+            "kai_funding_consent_records": text(
+                "DELETE FROM kai_funding_consent_records WHERE user_id = :user_id"
+            ),
+            "kai_funding_plaid_accounts": text(
+                "DELETE FROM kai_funding_plaid_accounts WHERE user_id = :user_id"
+            ),
+            "kai_funding_plaid_items": text(
+                "DELETE FROM kai_funding_plaid_items WHERE user_id = :user_id"
+            ),
+            "kai_funding_reconciliation_runs": text(
+                "DELETE FROM kai_funding_reconciliation_runs WHERE user_id = :user_id"
+            ),
+            "kai_funding_support_escalations": text(
+                "DELETE FROM kai_funding_support_escalations WHERE user_id = :user_id"
+            ),
+            "kai_funding_trade_events": text(
+                "DELETE FROM kai_funding_trade_events WHERE user_id = :user_id"
+            ),
+            "kai_funding_trade_intents": text(
+                "DELETE FROM kai_funding_trade_intents WHERE user_id = :user_id"
+            ),
+            "kai_funding_transfer_events": text(
+                "DELETE FROM kai_funding_transfer_events WHERE user_id = :user_id"
+            ),
+            "kai_funding_transfers": text(
+                "DELETE FROM kai_funding_transfers WHERE user_id = :user_id"
+            ),
+            "kai_gmail_connections": text(
+                "DELETE FROM kai_gmail_connections WHERE user_id = :user_id"
+            ),
+            "kai_gmail_receipts": text("DELETE FROM kai_gmail_receipts WHERE user_id = :user_id"),
+            "kai_gmail_sync_runs": text("DELETE FROM kai_gmail_sync_runs WHERE user_id = :user_id"),
+            "kai_portfolio_source_preferences": text(
+                "DELETE FROM kai_portfolio_source_preferences WHERE user_id = :user_id"
+            ),
+            "kai_plaid_link_sessions": text(
+                "DELETE FROM kai_plaid_link_sessions WHERE user_id = :user_id"
+            ),
+            "kai_plaid_refresh_runs": text(
+                "DELETE FROM kai_plaid_refresh_runs WHERE user_id = :user_id"
+            ),
+            "marketplace_public_profiles": text(
+                "DELETE FROM marketplace_public_profiles WHERE user_id = :user_id"
+            ),
             "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
+            "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
             "kai_plaid_user_profile_cache": text(
                 "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
             ),
+            "kai_receipt_memory_artifacts": text(
+                "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
+            ),
+            "runtime_persona_state": text(
+                "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
+            ),
+            "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
         }
         self._safe_export_queries = {
             "actor_profile": text(
@@ -170,6 +242,18 @@ class AccountService:
             raise ValueError(f"Unsafe or unsupported cleanup table requested: {table_name}")
         conn.execute(query, params)
 
+    def _delete_optional_user_tables(
+        self,
+        conn,
+        *,
+        table_names: list[str],
+        params: dict[str, Any],
+        results: dict[str, bool],
+    ) -> None:
+        for table_name in table_names:
+            self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
+            results[table_name] = True
+
     async def delete_account(
         self,
         user_id: str,
@@ -225,6 +309,8 @@ class AccountService:
     ) -> Dict[str, Any]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
         results = {
+            "actor_identity_cache": False,
+            "actor_profiles": False,
             "pkm_data": False,
             "pkm_index": False,
             "pkm_blobs": False,
@@ -232,20 +318,74 @@ class AccountService:
             "pkm_manifest_paths": False,
             "pkm_scope_registry": False,
             "pkm_events": False,
+            "pkm_upgrade_runs": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
             "plaid_link_sessions": False,
             "plaid_profile_cache": False,
+            "kai_portfolio_source_preferences": False,
+            "kai_gmail_connections": False,
+            "kai_gmail_receipts": False,
+            "kai_gmail_sync_runs": False,
+            "kai_receipt_memory_artifacts": False,
+            "kai_funding_trade_events": False,
+            "kai_funding_trade_intents": False,
+            "kai_funding_transfer_events": False,
+            "kai_funding_support_escalations": False,
+            "kai_funding_transfers": False,
+            "kai_funding_ach_relationships": False,
+            "kai_funding_consent_records": False,
+            "kai_funding_plaid_accounts": False,
+            "kai_funding_plaid_items": False,
+            "kai_funding_brokerage_accounts": False,
+            "kai_funding_alpaca_connect_sessions": False,
+            "kai_funding_reconciliation_runs": False,
+            "consent_exports": False,
+            "consent_export_refresh_jobs": False,
             "consent_audit": False,
             "internal_access_events": False,
             "push_tokens": False,
             "invite_links": False,
+            "relationships": False,
+            "relationship_share_events": False,
+            "relationship_share_grants": False,
+            "ria_pick_share_artifacts": False,
+            "ria_pick_uploads": False,
+            "marketplace_profile": False,
+            "runtime_persona_state": False,
             "vault_keys": False,
         }
 
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                self._delete_optional_user_tables(
+                    conn,
+                    table_names=[
+                        "kai_funding_trade_events",
+                        "kai_funding_trade_intents",
+                        "kai_funding_transfer_events",
+                        "kai_funding_support_escalations",
+                        "kai_funding_transfers",
+                        "kai_funding_ach_relationships",
+                        "kai_funding_consent_records",
+                        "kai_funding_plaid_accounts",
+                        "kai_funding_plaid_items",
+                        "kai_funding_brokerage_accounts",
+                        "kai_funding_alpaca_connect_sessions",
+                        "kai_funding_reconciliation_runs",
+                        "kai_gmail_receipts",
+                        "kai_gmail_sync_runs",
+                        "kai_gmail_connections",
+                        "kai_receipt_memory_artifacts",
+                        "kai_portfolio_source_preferences",
+                        "consent_export_refresh_jobs",
+                        "consent_exports",
+                        "pkm_upgrade_runs",
+                    ],
+                    params=params,
+                    results=results,
+                )
                 conn.execute(
                     text("DELETE FROM kai_plaid_refresh_runs WHERE user_id = :user_id"), params
                 )
@@ -291,15 +431,116 @@ class AccountService:
                     params,
                 )
                 results["invite_links"] = True
+
+                if self._table_exists(conn, "relationship_share_events"):
+                    conn.execute(
+                        text(
+                            """
+                            DELETE FROM relationship_share_events
+                            WHERE provider_user_id = :user_id
+                               OR receiver_user_id = :user_id
+                            """
+                        ),
+                        params,
+                    )
+                results["relationship_share_events"] = True
+                if self._table_exists(conn, "relationship_share_grants"):
+                    conn.execute(
+                        text(
+                            """
+                            DELETE FROM relationship_share_grants
+                            WHERE provider_user_id = :user_id
+                               OR receiver_user_id = :user_id
+                            """
+                        ),
+                        params,
+                    )
+                results["relationship_share_grants"] = True
+                if self._table_exists(conn, "ria_pick_share_artifacts"):
+                    conn.execute(
+                        text(
+                            """
+                            DELETE FROM ria_pick_share_artifacts
+                            WHERE provider_user_id = :user_id
+                               OR receiver_user_id = :user_id
+                            """
+                        ),
+                        params,
+                    )
+                results["ria_pick_share_artifacts"] = True
+                if self._table_exists(conn, "ria_pick_uploads"):
+                    if self._table_exists(conn, "ria_profiles"):
+                        conn.execute(
+                            text(
+                                """
+                                DELETE FROM ria_pick_uploads
+                                WHERE uploaded_by_user_id = :user_id
+                                   OR ria_profile_id IN (
+                                     SELECT id FROM ria_profiles WHERE user_id = :user_id
+                                   )
+                                """
+                            ),
+                            params,
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                "DELETE FROM ria_pick_uploads WHERE uploaded_by_user_id = :user_id"
+                            ),
+                            params,
+                        )
+                results["ria_pick_uploads"] = True
+                if self._table_exists(conn, "advisor_investor_relationships"):
+                    if self._table_exists(conn, "ria_profiles"):
+                        conn.execute(
+                            text(
+                                """
+                                DELETE FROM advisor_investor_relationships
+                                WHERE investor_user_id = :user_id
+                                   OR ria_profile_id IN (
+                                     SELECT id FROM ria_profiles WHERE user_id = :user_id
+                                   )
+                                """
+                            ),
+                            params,
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                """
+                                DELETE FROM advisor_investor_relationships
+                                WHERE investor_user_id = :user_id
+                                """
+                            ),
+                            params,
+                        )
+                results["relationships"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="marketplace_public_profiles", params=params
+                )
+                results["marketplace_profile"] = True
                 conn.execute(text("DELETE FROM consent_audit WHERE user_id = :user_id"), params)
                 results["consent_audit"] = True
-                conn.execute(
-                    text("DELETE FROM internal_access_events WHERE user_id = :user_id"),
-                    params,
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="internal_access_events", params=params
                 )
                 results["internal_access_events"] = True
-                conn.execute(text("DELETE FROM user_push_tokens WHERE user_id = :user_id"), params)
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="user_push_tokens", params=params
+                )
                 results["push_tokens"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="actor_identity_cache", params=params
+                )
+                results["actor_identity_cache"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="runtime_persona_state", params=params
+                )
+                results["runtime_persona_state"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="actor_profiles", params=params
+                )
+                results["actor_profiles"] = True
                 conn.execute(text("DELETE FROM vault_keys WHERE user_id = :user_id"), params)
                 results["vault_keys"] = True
 
