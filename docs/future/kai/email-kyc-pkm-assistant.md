@@ -8,7 +8,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Vision Index](../../vision/README.md), with the detailed planning map in [One/Kai/Nav/KYC Runtime Plan](../one-nav-runtime-plan.md). This page supersedes the previous Kai-owned KYC framing and remains here only as planning history until it is moved into a One/KYC future home.
+Canonical visual owner: [Vision Index](../../vision/README.md), with the detailed planning map in [One/Kai/Nav/KYC Runtime Plan](../one-nav-runtime-plan.md) and the mailbox rollout path in [One Email Intake Roadmap](../one-email-intake-roadmap.md). This page supersedes the previous Kai-owned KYC framing and remains here only as planning history until it is moved into a One/KYC future home.
 
 ## Summary
 

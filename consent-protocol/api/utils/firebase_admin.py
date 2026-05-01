@@ -5,7 +5,8 @@ Goal: a single, reliable initialization path for local dev + Cloud Run.
 
 Credential sources (in priority order):
 1) FIREBASE_ADMIN_CREDENTIALS_JSON
-2) GOOGLE_APPLICATION_CREDENTIALS / ADC
+2) FIREBASE_SERVICE_ACCOUNT_JSON (legacy/runtime alias)
+3) GOOGLE_APPLICATION_CREDENTIALS / ADC
 """
 
 from __future__ import annotations

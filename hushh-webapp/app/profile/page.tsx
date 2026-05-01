@@ -9,6 +9,7 @@ import {
   Bug,
   Cloud,
   Code2,
+  ClipboardCheck,
   ExternalLink,
   Fingerprint,
   Folder,
@@ -3007,6 +3008,22 @@ function ProfilePageContent() {
                 disabled={vaultAccess.needsVaultCreation}
                 stackTrailingOnMobile
                 onClick={openGmailPanel}
+              />
+              <SettingsRow
+                icon={ClipboardCheck}
+                title="KYC agent"
+                description={
+                  vaultAccess.needsVaultCreation
+                    ? "Create your vault first."
+                    : vaultAccess.needsUnlock
+                      ? "Unlock to review KYC requests."
+                      : "Broker requests and draft replies."
+                }
+                trailing={<Badge variant="secondary">Preview</Badge>}
+                chevron={!vaultAccess.needsVaultCreation}
+                disabled={vaultAccess.needsVaultCreation}
+                stackTrailingOnMobile
+                onClick={() => router.push(ROUTES.ONE_KYC)}
               />
             </SettingsGroup>
 

@@ -18,6 +18,7 @@ APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
+FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
 PLAID_ACCESS_TOKEN_KEY_ENV = "PLAID_ACCESS_TOKEN_KEY"  # noqa: S105
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
@@ -203,7 +204,9 @@ def get_core_security_settings() -> CoreSecuritySettings:
 
 @lru_cache(maxsize=1)
 def get_firebase_credential_settings() -> FirebaseCredentialSettings:
-    admin_credentials_json = _clean_env(FIREBASE_ADMIN_CREDENTIALS_JSON_ENV)
+    admin_credentials_json = _clean_env(FIREBASE_ADMIN_CREDENTIALS_JSON_ENV) or _clean_env(
+        FIREBASE_SERVICE_ACCOUNT_JSON_ENV
+    )
     return FirebaseCredentialSettings(
         admin_credentials_json=admin_credentials_json,
     )

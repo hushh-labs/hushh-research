@@ -189,9 +189,11 @@ async def test_verify_ria_name_serializes_verified_stage1_lookup(monkeypatch):
     async def _mock_lookup(
         *,
         query: str,
+        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Advisor Alpha"
+        assert crd_number is None
         assert use_cache is True
         return NameVerificationResult(
             status="verified",
@@ -218,9 +220,11 @@ async def test_verify_ria_name_serializes_reason_code_for_broad_queries(monkeypa
     async def _mock_lookup(
         *,
         query: str,
+        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Andrew G"
+        assert crd_number is None
         assert use_cache is True
         return NameVerificationResult(
             status="not_verified",
@@ -288,9 +292,11 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
     async def _fake_verify_name_result(
         query: str,
         *,
+        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Advisor Alpha"
+        assert crd_number == "12345"
         assert use_cache is False
         return NameVerificationResult(
             status="verified",
@@ -311,6 +317,7 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
         "user-1",
         display_name="Advisor Alpha",
         requested_capabilities=["advisory"],
+        individual_crd="12345",
         force_live_verification=True,
         strategy="Long-term planning",
     )
@@ -322,15 +329,51 @@ async def test_submit_ria_onboarding_reverifies_stage1_before_granting_access(mo
 
 
 @pytest.mark.asyncio
+async def test_submit_ria_onboarding_rejects_entered_crd_mismatch(monkeypatch):
+    service = RIAIAMService()
+
+    async def _fake_verify_name_result(
+        query: str,
+        *,
+        crd_number: str | None = None,
+        use_cache: bool = True,
+    ):
+        assert query == "Advisor Alpha"
+        assert crd_number == "12345"
+        assert use_cache is False
+        return NameVerificationResult(
+            status="verified",
+            matched_name="Advisor Alpha",
+            crd_number="99999",
+            current_firm="Advisor Alpha LLC",
+            sec_number="801-12345",
+            provider="ria_intelligence_stage1",
+        )
+
+    monkeypatch.setattr(service, "_verify_ria_name_result", _fake_verify_name_result)
+
+    with pytest.raises(RIAIAMPolicyError, match="verified CRD did not match"):
+        await service.submit_ria_onboarding(
+            "user-1",
+            display_name="Advisor Alpha",
+            requested_capabilities=["advisory"],
+            individual_crd="12345",
+            force_live_verification=True,
+        )
+
+
+@pytest.mark.asyncio
 async def test_submit_ria_onboarding_uses_provider_returned_crd(monkeypatch):
     service = RIAIAMService()
 
     async def _fake_verify_name_result(
         query: str,
         *,
+        crd_number: str | None = None,
         use_cache: bool = True,
     ):
         assert query == "Advisor Alpha"
+        assert crd_number is None
         assert use_cache is False
         return NameVerificationResult(
             status="verified",
@@ -393,7 +436,6 @@ async def test_submit_ria_onboarding_uses_provider_returned_crd(monkeypatch):
         "user-1",
         display_name="Advisor Alpha",
         requested_capabilities=["advisory"],
-        individual_crd="12345",
         force_live_verification=True,
     )
 

@@ -37,6 +37,7 @@ Non-owned surfaces:
 1. Vault encryption, unlock, wrapper, and metadata-boundary work.
 2. PKM storage, cutover, upgrade, and data-boundary changes.
 3. Vault/PKM docs and implementation alignment across frontend and backend.
+4. Data-plane classification and retention review for PKM, vault, and legacy memory tables.
 
 ## Do Not Use
 
@@ -67,7 +68,9 @@ Non-owned surfaces:
 8. Treat PKM manifests as authoritative truth when present; `pkm_index` is a discovery cache that may need repair.
 9. Keep `manifest_version`, `domain_contract_version`, `readable_summary_version`, and whole-PKM `model_version` as separate concerns.
 10. Locked PKM summaries must remain truthful. Vault lock may hide decrypted detail, but it must not collapse existing PKM into a false empty state.
-11. Treat IAM, consent, and verification policy questions as `iam-consent-governance` work when they become primary.
+11. For migrations touching PKM/vault/legacy memory tables, require runtime DB data-plane classification before implementation is called production-ready.
+12. Legacy memory tables may be read for bounded cutover or deleted during account cleanup, but new canonical writes must target PKM tables only.
+13. Treat IAM, consent, and verification policy questions as `iam-consent-governance` work when they become primary.
 
 ## Handoff Rules
 
@@ -80,6 +83,7 @@ Non-owned surfaces:
 ```bash
 cd consent-protocol && python3 -m pytest tests/test_vault.py -q
 cd hushh-webapp && npm run verify:cache
+./bin/hushh codex data-model-audit
 ```
 
 If the request touches protected signed-in route behavior, include one browser proof that explicitly states whether it validated same-session navigation or cold-entry re-unlock.

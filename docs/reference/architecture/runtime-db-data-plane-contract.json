@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "description": "Canonical runtime DB data-plane contract. Table families, not individual rows, define ownership, data class, retention, deletion, and trust boundaries.",
+  "allowed_data_classes": [
+    "personal_encrypted",
+    "personal_metadata",
+    "workflow_state",
+    "provider_cache",
+    "audit_regulated",
+    "reference"
+  ],
+  "growth_watch_tables": [
+    "pkm_events",
+    "pkm_manifest_paths",
+    "kai_gmail_sync_runs",
+    "kai_funding_webhook_events",
+    "kai_funding_transfer_events",
+    "kai_funding_trade_events",
+    "one_kyc_workflows"
+  ],
+  "table_families": [
+    {
+      "id": "vault_key_material",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": ["vault_keys", "vault_key_wrappers"],
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services",
+      "retention_policy": "Retain while account exists; delete on account deletion or explicit vault reset flow.",
+      "deletion_behavior": "Hard-delete with account deletion after dependent personal data is purged.",
+      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side.",
+      "plaintext_posture": "ciphertext_or_hash_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "actor_identity_state",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "actor_profiles",
+        "actor_identity_cache",
+        "runtime_persona_state",
+        "user_push_tokens"
+      ],
+      "primary_access_path": "account, persona, notification, and identity-cache services",
+      "retention_policy": "Retain while account exists; refresh from authoritative identity sources where possible.",
+      "deletion_behavior": "Delete or invalidate on account deletion; unregister push tokens on sign-out/delete.",
+      "trust_boundary": "Metadata only; no vault keys, passphrases, tokens, or decrypted PKM.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "consent_authority_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": ["consent_audit", "internal_access_events", "consent_scope_templates"],
+      "primary_access_path": "consent issuance, revocation, notification, and internal access review",
+      "retention_policy": "Long-retention metadata audit; redact payload detail rather than deleting audit authority rows.",
+      "deletion_behavior": "Account export may include safe audit metadata; deletion redacts user linkage only if legally required.",
+      "trust_boundary": "Audit metadata only; signed-in is not consent and audit rows do not grant authority by themselves.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "consent_export_workflows",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": ["consent_exports", "consent_export_refresh_jobs"],
+      "primary_access_path": "scoped export generation, connector key wrapping, and refresh jobs",
+      "retention_policy": "Short-lived by export expiry; stale refresh jobs compacted after terminal status.",
+      "deletion_behavior": "Delete on account deletion and expire/revoke when the consent grant expires.",
+      "trust_boundary": "Encrypted export payloads and wrapped key metadata only; no raw export keys or decrypted PKM.",
+      "plaintext_posture": "ciphertext_and_metadata",
+      "expected_row_growth": "medium_per_consent"
+    },
+    {
+      "id": "pkm_encrypted_memory",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": ["pkm_blobs"],
+      "primary_access_path": "PKM store/read/delete domain routes and client-side vault unlock flows",
+      "retention_policy": "Retain until account deletion or explicit domain deletion.",
+      "deletion_behavior": "Delete by user and domain for domain deletion; delete all user rows on account deletion.",
+      "trust_boundary": "Ciphertext segments only; backend does not inspect plaintext PKM payloads.",
+      "plaintext_posture": "ciphertext_only",
+      "expected_row_growth": "medium_per_user_domain"
+    },
+    {
+      "id": "pkm_metadata_and_scope",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pkm_index",
+        "pkm_manifests",
+        "pkm_manifest_paths",
+        "pkm_scope_registry",
+        "pkm_events"
+      ],
+      "primary_access_path": "PKM metadata, scope discovery, manifest repair, and replay/audit services",
+      "retention_policy": "Retain while account exists; compact high-volume event metadata after replay window if safe.",
+      "deletion_behavior": "Delete all user rows on account deletion; domain delete removes domain-scoped rows.",
+      "trust_boundary": "Queryable metadata and scope handles only; no raw decrypted PKM.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "high_metadata"
+    },
+    {
+      "id": "pkm_upgrade_workflows",
+      "owner": "vault-pkm-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": ["pkm_migration_state", "pkm_upgrade_runs", "pkm_upgrade_steps"],
+      "primary_access_path": "client-side PKM cutover and generic PKM upgrade orchestration",
+      "retention_policy": "Retain active and recent terminal runs; compact terminal rows after 30 days unless needed for incident review.",
+      "deletion_behavior": "Delete all user rows on account deletion.",
+      "trust_boundary": "Run/checkpoint metadata only; decrypt/transform/re-encrypt remains client-side after vault unlock.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_workflow"
+    },
+    {
+      "id": "legacy_memory_cutover",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "legacy_migration",
+      "exact_tables": [
+        "pkm_data",
+        "pkm_embeddings",
+        "world_model_data",
+        "world_model_index",
+        "world_model_index_v2",
+        "world_model_attributes",
+        "world_model_embeddings",
+        "chat_conversations",
+        "chat_messages",
+        "vault_portfolios"
+      ],
+      "primary_access_path": "bounded legacy-to-PKM compatibility and account deletion cleanup only",
+      "retention_policy": "No new canonical writes; delete after PKM cutover evidence proves no active dependency.",
+      "deletion_behavior": "Account deletion may remove legacy rows; new product features must not target these tables.",
+      "trust_boundary": "Legacy ciphertext/metadata only; migration adapter remains time-boxed.",
+      "plaintext_posture": "legacy_ciphertext_or_metadata",
+      "expected_row_growth": "zero_new_canonical_growth"
+    },
+    {
+      "id": "domain_reference_registry",
+      "owner": "vault-pkm-governance",
+      "data_class": "reference",
+      "lifecycle_status": "transitional",
+      "exact_tables": ["domain_registry"],
+      "primary_access_path": "legacy/domain reference compatibility during PKM scope migration",
+      "retention_policy": "Retain until PKM manifests and scope registry fully replace runtime domain classification.",
+      "deletion_behavior": "Reference cleanup only after migration plan; not user-delete scoped.",
+      "trust_boundary": "Reference metadata only; not source of private PKM truth.",
+      "plaintext_posture": "reference_metadata",
+      "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "ria_marketplace_relationships",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "glob_tables": [
+        "ria_*",
+        "advisor_investor_relationships",
+        "marketplace_public_profiles",
+        "relationship_share_*"
+      ],
+      "primary_access_path": "RIA profile, marketplace, client relationship, invite, and share-grant services",
+      "retention_policy": "Retain while relationship/profile exists; expire or disconnect relationship-scoped grants.",
+      "deletion_behavior": "Delete or disconnect user-scoped relationships on account/persona deletion.",
+      "trust_boundary": "Professional and relationship metadata only; no decrypted investor PKM without consent export.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_relationship"
+    },
+    {
+      "id": "kai_brokerage_provider_cache",
+      "owner": "backend-runtime-governance",
+      "data_class": "provider_cache",
+      "lifecycle_status": "current",
+      "glob_tables": ["kai_plaid_*", "kai_portfolio_source_preferences"],
+      "primary_access_path": "Plaid link, refresh, portfolio source preference, and portfolio-read services",
+      "retention_policy": "Short-lived provider cache; refresh or purge stale derived state and keep encrypted provider tokens only as required.",
+      "deletion_behavior": "Delete on disconnect/account deletion; revoke provider access where supported.",
+      "trust_boundary": "Encrypted provider tokens and bounded derived state; not durable PKM unless consented and re-written into PKM.",
+      "plaintext_posture": "encrypted_tokens_and_cache_metadata",
+      "expected_row_growth": "medium_provider"
+    },
+    {
+      "id": "kai_gmail_receipts_provider_cache",
+      "owner": "backend-runtime-governance",
+      "data_class": "provider_cache",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "kai_gmail_connections",
+        "kai_gmail_receipts",
+        "kai_gmail_sync_runs",
+        "kai_receipt_memory_artifacts"
+      ],
+      "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services",
+      "retention_policy": "Short-lived sync and preview cache; durable memory requires explicit PKM write through consent/vault path.",
+      "deletion_behavior": "Delete on Gmail disconnect/account deletion; compact sync runs and preview artifacts.",
+      "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
+      "plaintext_posture": "provider_cache_metadata",
+      "expected_row_growth": "high_provider_sync"
+    },
+    {
+      "id": "market_reference_and_cache",
+      "owner": "backend-runtime-governance",
+      "data_class": "reference",
+      "lifecycle_status": "current",
+      "glob_tables": [
+        "tickers",
+        "ticker_*",
+        "renaissance_*",
+        "kai_market_cache_entries"
+      ],
+      "primary_access_path": "market/reference lookup, cache refresh, and Kai market insight services",
+      "retention_policy": "Refreshable shared reference/cache data; expire market cache by freshness windows.",
+      "deletion_behavior": "Not user-delete scoped; rebuild from providers or seed/reference sources.",
+      "trust_boundary": "Shared market/reference data only; no user-private PKM.",
+      "plaintext_posture": "reference_or_shared_cache",
+      "expected_row_growth": "medium_reference"
+    },
+    {
+      "id": "funding_trading_audit",
+      "owner": "backend-runtime-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "glob_tables": ["kai_funding_*"],
+      "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services",
+      "retention_policy": "Long-retention operational/audit metadata for money movement and trade execution.",
+      "deletion_behavior": "Do not hard-delete regulated operational evidence without explicit legal/compliance process.",
+      "trust_boundary": "Execution metadata and encrypted provider/account references; no plaintext secrets or raw vault data.",
+      "plaintext_posture": "regulated_metadata",
+      "expected_row_growth": "high_append_only"
+    },
+    {
+      "id": "one_email_kyc_workflow",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "glob_tables": ["one_*"],
+      "primary_access_path": "One mailbox intake, KYC workflow status, consent continuation, and approval-gated draft send",
+      "retention_policy": "Active workflow state retained while open; terminal draft bodies redacted or purged after 30 days.",
+      "deletion_behavior": "Delete user-linked workflows on account deletion; keep mailbox watch state without user data.",
+      "trust_boundary": "Metadata and approval draft state only; no raw full email threads, tokens, vault contents, or decrypted PKM.",
+      "plaintext_posture": "workflow_metadata_and_user_approved_draft",
+      "expected_row_growth": "medium_workflow"
+    },
+    {
+      "id": "developer_access",
+      "owner": "mcp-developer-surface",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "glob_tables": ["developer_*"],
+      "primary_access_path": "developer app registration, token issuance, and MCP/developer API access",
+      "retention_policy": "Retain active apps/tokens and audit metadata; revoke or expire inactive tokens.",
+      "deletion_behavior": "Delete/revoke by developer app lifecycle; preserve audit metadata where needed.",
+      "trust_boundary": "Developer metadata and token hashes/wrappers only; no user PKM payloads.",
+      "plaintext_posture": "metadata_and_token_hashes",
+      "expected_row_growth": "low_developer"
+    }
+  ]
+}

@@ -154,8 +154,23 @@ Used by:
 | `DB_NAME` | same | No (default postgres) | |
 | `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod CORS fallback) | |
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
-| `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py` | Yes (auth) | |
+| `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
 | `GOOGLE_API_KEY` | `hushh_mcp/config.py`, services | Yes (Gemini/Vertex) | |
+| `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
+| `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON`; only use by approved exception. |
+| `ONE_EMAIL_DELEGATED_USER` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Real Workspace mailbox to impersonate for One intake. Defaults to `ONE_EMAIL_ADDRESS`. |
+| `ONE_EMAIL_PUBSUB_TOPIC` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One email intake) | Gmail watch Pub/Sub topic for `one@hushh.ai`. |
+| `ONE_EMAIL_WEBHOOK_AUDIENCE` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Expected Pub/Sub push OIDC audience. Falls back to `GMAIL_WEBHOOK_AUDIENCE`. |
+| `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Expected Pub/Sub push service account. Falls back to `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token for `POST /api/one/email/watch/renew`. |
+| `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One KYC) | Connector public key for strict scoped encrypted PKM exports. |
+| `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Connector key id for KYC export wrapping. |
+| `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Optional override | Real Workspace mailbox to impersonate for support/invite send. Defaults to `ONE_EMAIL_ADDRESS`. |
+| `SUPPORT_EMAIL_FROM` | `hushh_mcp/services/support_email_service.py` | Optional | Visible From address for support/invite send. Defaults to delegated user. |
+| `SUPPORT_EMAIL_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Support recipient. Defaults to `ONE_EMAIL_ADDRESS`. |
+| `SUPPORT_EMAIL_TEST_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Test recipient for non-production email verification. |
+| `SUPPORT_EMAIL_MODE` | `hushh_mcp/services/support_email_service.py` | Optional | `live` or `test`. Non-production defaults to `test` when `SUPPORT_EMAIL_TEST_TO` exists. |
 | `GMAIL_OAUTH_CLIENT_ID` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client id. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth redirect URI. Same key name across local, UAT, and production. |
@@ -221,7 +236,22 @@ Used by:
 | `GMAIL_OAUTH_TOKEN_KEY` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
 | `OPENAI_API_KEY` | Yes (voice) | Yes | Local: `.env`; Hosted: Secret Manager | Required for voice runtime. |
 | `VOICE_RUNTIME_CONFIG_JSON` | Yes (voice) | Yes | Local: `.env`; Hosted: Secret Manager | Structured runtime config for voice rollout, fail-fast policy, and model selection. |
-| `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes (auth) | Yes | Local: `.env`; Prod: Secret Manager | JSON string |
+| `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes (auth) | Yes | Local: `.env`; Prod: Secret Manager | JSON string. Also canonical Workspace DWD credential for `one@hushh.ai`. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Optional alias | Yes | Legacy/runtime Secret Manager alias only | Accepted by backend for compatibility; prefer `FIREBASE_ADMIN_CREDENTIALS_JSON`. |
+| `ONE_EMAIL_ADDRESS` | Optional | No | Local: `.env`; Prod: Cloud Run env or default | Defaults to `one@hushh.ai`. |
+| `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | Optional override | Yes | Secret Manager, only by exception | Prefer canonical Firebase Admin credential. |
+| `ONE_EMAIL_DELEGATED_USER` | Optional override | No | Local: `.env`; Prod: Cloud Run env | Must be a real Workspace user mailbox. |
+| `ONE_EMAIL_PUBSUB_TOPIC` | Yes (One intake) | No | Hosted Cloud Run env | Gmail watch topic. |
+| `ONE_EMAIL_WEBHOOK_AUDIENCE` | Yes (hosted intake) | No | Hosted Cloud Run env | Pub/Sub OIDC audience. |
+| `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | Recommended | No | Hosted Cloud Run env | Pub/Sub push identity. |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes (hosted renewal) | Yes | Secret Manager | Send as `X-Hushh-Maintenance-Token`. |
+| `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | Yes (One KYC) | No | Hosted Cloud Run env | Strict scoped export key. |
+| `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | Recommended | No | Hosted Cloud Run env | Strict scoped export key id. |
+| `SUPPORT_EMAIL_DELEGATED_USER` | Optional override | No | Local: `.env`; Prod: Cloud Run env | Must be a real Workspace user mailbox, not a group. Defaults to `ONE_EMAIL_ADDRESS`. |
+| `SUPPORT_EMAIL_FROM` | Optional | No | Local: `.env`; Prod: Cloud Run env | Visible From address. |
+| `SUPPORT_EMAIL_TO` | Optional | No | Local: `.env`; Prod: Cloud Run env | Defaults to `ONE_EMAIL_ADDRESS`. |
+| `SUPPORT_EMAIL_TEST_TO` | Optional | No | Local/UAT env | Non-production verification recipient. |
+| `SUPPORT_EMAIL_MODE` | Optional | No | Local/UAT env | `live` or `test`. |
 | `ENVIRONMENT` | No | No | Default development; Prod: Cloud Run | production / development |
 | `OTEL_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Enables OpenTelemetry export to Cloud Trace |
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | No | Local: `.env`; Prod: Cloud Run env | True for Vertex AI |

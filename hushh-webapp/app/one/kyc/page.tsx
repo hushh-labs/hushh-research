@@ -1,0 +1,298 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { CheckCircle2, Inbox, RefreshCw, Send, ShieldCheck, XCircle } from "lucide-react";
+
+import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import {
+  SurfaceCard,
+  SurfaceCardContent,
+  SurfaceCardHeader,
+  SurfaceCardTitle,
+} from "@/components/app-ui/surfaces";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useRequireAuth } from "@/hooks/use-auth";
+import { ROUTES } from "@/lib/navigation/routes";
+import {
+  OneKycService,
+  type OneKycWorkflow,
+  type OneKycWorkflowStatus,
+} from "@/lib/services/one-kyc-service";
+
+const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
+  needs_scope: "Needs consent",
+  needs_documents: "Needs documents",
+  drafting: "Drafting",
+  waiting_on_user: "Needs review",
+  waiting_on_counterparty: "Sent",
+  completed: "Completed",
+  blocked: "Blocked",
+};
+
+function statusVariant(status: OneKycWorkflowStatus): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "blocked") return "destructive";
+  if (status === "waiting_on_user" || status === "needs_scope") return "default";
+  if (status === "completed" || status === "waiting_on_counterparty") return "secondary";
+  return "outline";
+}
+
+export default function OneKycPage() {
+  const auth = useRequireAuth();
+  const [workflows, setWorkflows] = useState<OneKycWorkflow[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const selected = useMemo(
+    () => workflows.find((workflow) => workflow.workflow_id === selectedId) || workflows[0] || null,
+    [selectedId, workflows]
+  );
+
+  const load = useCallback(async () => {
+    if (!auth.user || !auth.userId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const idToken = await auth.user.getIdToken();
+      const response = await OneKycService.listWorkflows({
+        userId: auth.userId,
+        idToken,
+      });
+      setWorkflows(response.workflows);
+      const initialId = new URLSearchParams(window.location.search).get("workflowId");
+      setSelectedId((current) => current || initialId || response.workflows[0]?.workflow_id || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load KYC workflows.");
+    } finally {
+      setLoading(false);
+    }
+  }, [auth.user, auth.userId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const updateWorkflow = useCallback((next: OneKycWorkflow) => {
+    setWorkflows((current) => {
+      const index = current.findIndex((workflow) => workflow.workflow_id === next.workflow_id);
+      if (index === -1) return [next, ...current];
+      const copy = [...current];
+      copy[index] = next;
+      return copy;
+    });
+    setSelectedId(next.workflow_id);
+  }, []);
+
+  const runAction = useCallback(
+    async (
+      action: "refresh" | "approve" | "reject",
+      workflow: OneKycWorkflow,
+    ) => {
+      if (!auth.user || !auth.userId) return;
+      setBusy(action);
+      setError(null);
+      try {
+        const idToken = await auth.user.getIdToken();
+        const input = {
+          userId: auth.userId,
+          idToken,
+          workflowId: workflow.workflow_id,
+        };
+        const next =
+          action === "approve"
+            ? await OneKycService.approveDraft(input)
+            : action === "reject"
+              ? await OneKycService.rejectDraft({ ...input, reason: "Rejected from One KYC." })
+              : await OneKycService.refreshWorkflow(input);
+        updateWorkflow(next);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "KYC action failed.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [auth.user, auth.userId, updateWorkflow]
+  );
+
+  return (
+    <AppPageShell
+      width="content"
+      className="space-y-6 px-4 py-6 sm:px-6 lg:px-8"
+      nativeTest={{
+        routeId: ROUTES.ONE_KYC,
+        marker: "native-route-one-kyc",
+        authState: auth.user ? "authenticated" : "pending",
+        dataState: loading ? "loading" : error ? "error" : "loaded",
+      }}
+    >
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow="One"
+          title="KYC workflows"
+          description="Review broker KYC requests, consent status, and approval-gated drafts from one@hushh.ai."
+          icon={ShieldCheck}
+          accent="consent"
+          actions={
+            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+              <RefreshCw className="size-4" />
+              Refresh
+            </Button>
+          }
+        />
+      </AppPageHeaderRegion>
+
+      <AppPageContentRegion className="grid gap-4 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
+        <SurfaceCard>
+          <SurfaceCardHeader>
+            <SurfaceCardTitle>Inbox</SurfaceCardTitle>
+          </SurfaceCardHeader>
+          <SurfaceCardContent className="space-y-2">
+            {loading ? (
+              <p className="text-sm text-muted-foreground">Loading workflows.</p>
+            ) : workflows.length === 0 ? (
+              <div className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                <Inbox className="mt-0.5 size-4 shrink-0" />
+                <span>No KYC emails have been matched to this account yet.</span>
+              </div>
+            ) : (
+              workflows.map((workflow) => (
+                <button
+                  key={workflow.workflow_id}
+                  type="button"
+                  onClick={() => setSelectedId(workflow.workflow_id)}
+                  className={`w-full rounded-md border p-3 text-left transition hover:bg-muted/60 ${
+                    selected?.workflow_id === workflow.workflow_id
+                      ? "border-foreground/30 bg-muted"
+                      : "border-border"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 text-sm font-medium">
+                      {workflow.subject || "KYC request"}
+                    </p>
+                    <Badge variant={statusVariant(workflow.status)}>
+                      {STATUS_LABELS[workflow.status] || workflow.status}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {workflow.counterparty_label || workflow.sender_email || "Counterparty"}
+                  </p>
+                </button>
+              ))
+            )}
+          </SurfaceCardContent>
+        </SurfaceCard>
+
+        <SurfaceCard>
+          <SurfaceCardHeader>
+            <SurfaceCardTitle>{selected?.subject || "Workflow details"}</SurfaceCardTitle>
+          </SurfaceCardHeader>
+          <SurfaceCardContent className="space-y-5">
+            {error ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            ) : null}
+
+            {!selected ? (
+              <p className="text-sm text-muted-foreground">Select a workflow to review.</p>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Info label="Status" value={STATUS_LABELS[selected.status] || selected.status} />
+                  <Info label="Counterparty" value={selected.counterparty_label || selected.sender_email || "-"} />
+                  <Info label="Scope" value={selected.requested_scope || "-"} />
+                  <Info label="Updated" value={selected.updated_at ? new Date(selected.updated_at).toLocaleString() : "-"} />
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Required fields</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(selected.required_fields.length ? selected.required_fields : ["identity_profile"]).map((field) => (
+                      <Badge key={field} variant="outline">
+                        {field.replaceAll("_", " ")}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                {selected.status === "needs_scope" && selected.consent_request_url ? (
+                  <Button asChild>
+                    <a href={selected.consent_request_url}>
+                      <ShieldCheck className="size-4" />
+                      Review consent
+                    </a>
+                  </Button>
+                ) : null}
+
+                {selected.draft_body ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Draft reply</p>
+                    <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm leading-6">
+                      {selected.draft_body}
+                    </pre>
+                  </div>
+                ) : null}
+
+                {selected.last_error_message ? (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200">
+                    {selected.last_error_message}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => void runAction("refresh", selected)}
+                    disabled={Boolean(busy)}
+                  >
+                    <RefreshCw className="size-4" />
+                    Sync status
+                  </Button>
+                  <Button
+                    onClick={() => void runAction("approve", selected)}
+                    disabled={Boolean(busy) || selected.status !== "waiting_on_user"}
+                  >
+                    <Send className="size-4" />
+                    Approve send
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => void runAction("reject", selected)}
+                    disabled={Boolean(busy) || selected.status !== "waiting_on_user"}
+                  >
+                    <XCircle className="size-4" />
+                    Reject
+                  </Button>
+                  {selected.status === "waiting_on_counterparty" ? (
+                    <Badge variant="secondary">
+                      <CheckCircle2 className="size-3" />
+                      Reply sent
+                    </Badge>
+                  ) : null}
+                </div>
+              </>
+            )}
+
+            <Button asChild variant="ghost" size="sm">
+              <Link href={ROUTES.PROFILE}>Open Consent Center</Link>
+            </Button>
+          </SurfaceCardContent>
+        </SurfaceCard>
+      </AppPageContentRegion>
+    </AppPageShell>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-background/60 p-3">
+      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words text-sm">{value}</p>
+    </div>
+  );
+}

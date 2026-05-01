@@ -408,6 +408,20 @@ async def delegate_to_my_agent(query: str) -> dict:
 | KycAgent            | `agents/kyc/`                | `agent.kyc.process`             | identity workflow state, approval-gated drafts, structured PKM writeback |
 | PortfolioImportAgent| (inline in `kai/portfolio.py`)| `vault.owner`                  | File parsing + LLM fallback      |
 
+### One Email KYC Intake
+
+The broker/KYC email lane is One-led, not Kai-owned:
+
+- `one@hushh.ai` is the Workspace user mailbox.
+- `POST /api/one/email/webhook` receives Gmail Pub/Sub notifications.
+- `POST /api/one/email/watch/renew` renews the mailbox watch.
+- workflow state lives in `one_kyc_workflows` and stores metadata only.
+- One creates a scoped `agent_kyc` consent request with strict connector export metadata.
+- `/one/kyc` lets the user inspect state, continue consent, review drafts, approve send, or reject.
+- outbound Gmail send is blocked until `draft_status=ready`, `status=waiting_on_user`, and the authenticated user approves.
+
+Do not store raw email bodies, raw vault contents, broad decrypted PKM, tokens, or chain-of-thought in this lane.
+
 ---
 
 ## Manifest Schema

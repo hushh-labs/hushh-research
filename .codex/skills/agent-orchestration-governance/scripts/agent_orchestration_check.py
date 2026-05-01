@@ -19,19 +19,28 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[4]
 CONFIG_RELATIVE_PATH = Path(".codex/config.toml")
 AGENTS_RELATIVE_PATH = Path(".codex/agents")
 SKILLS_RELATIVE_PATH = Path(".codex/skills")
+WORKFLOWS_RELATIVE_PATH = Path(".codex/workflows")
+DELEGATION_ROUTER_RELATIVE_PATH = Path(
+    ".codex/skills/agent-orchestration-governance/scripts/delegation_router.py"
+)
 
 EXPECTED_AGENTS = {
+    "analytics_observability_architect",
     "governor",
     "reviewer",
     "repo_operator",
     "rca_investigator",
+    "data_model_architect",
     "frontend_architect",
     "backend_architect",
+    "mobile_native_architect",
+    "product_docs_architect",
     "security_consent_auditor",
     "voice_systems_architect",
 }
 REQUIRED_KEYS = {"name", "description", "developer_instructions", "sandbox_mode"}
 READ_ONLY_BASELINE = EXPECTED_AGENTS
+ALLOWED_REASONING_EFFORTS = {"high", "xhigh"}
 NICKNAME_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 GOVERNOR_AUTHORITY_RULE = "only you may produce final merge, deploy, or plan recommendations"
@@ -72,6 +81,25 @@ def validate_config(root: Path, errors: list[str]) -> None:
         errors.append(f"{config_path}: agents.max_threads must equal 6")
     if agents.get("max_depth") != 1:
         errors.append(f"{config_path}: agents.max_depth must equal 1")
+
+
+def validate_delegation_router(root: Path, errors: list[str]) -> None:
+    router_path = root / DELEGATION_ROUTER_RELATIVE_PATH
+    if not router_path.exists():
+        errors.append(f"missing delegation router: {router_path}")
+        return
+    router_text = router_path.read_text(encoding="utf-8")
+    required_markers = [
+        "auto_spawn_authorized",
+        "parent_authority",
+        "default_reasoning_effort",
+        "repo_global_auto_spawn",
+        "repo_intent_lane_match",
+        "phase",
+    ]
+    for marker in required_markers:
+        if marker not in router_text:
+            errors.append(f"{router_path}: delegation router missing marker '{marker}'")
 
 
 def parse_skill_block(path: Path, instructions: str, errors: list[str]) -> list[str]:
@@ -115,6 +143,12 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
     if not isinstance(sandbox_mode, str) or not sandbox_mode.strip():
         errors.append(f"{path}: sandbox_mode must be a non-empty string")
         return
+    reasoning_effort = agent.get("default_reasoning_effort")
+    if name in EXPECTED_AGENTS:
+        if reasoning_effort not in ALLOWED_REASONING_EFFORTS:
+            errors.append(
+                f"{path}: baseline agents must set default_reasoning_effort to high or xhigh"
+            )
 
     if path.stem != name:
         errors.append(f"{path}: filename stem must match name '{name}'")
@@ -178,6 +212,43 @@ def validate_agents(root: Path, errors: list[str]) -> None:
         )
 
 
+def validate_delegation_policies(root: Path, errors: list[str]) -> None:
+    workflow_dir = root / WORKFLOWS_RELATIVE_PATH
+    if not workflow_dir.exists():
+        errors.append(f"missing workflows directory: {workflow_dir}")
+        return
+    for path in sorted(workflow_dir.glob("*/workflow.json")):
+        try:
+            workflow = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # pragma: no cover - surfaced directly to CLI
+            errors.append(f"{path}: failed to parse JSON: {exc}")
+            continue
+        policy = workflow.get("delegation_policy")
+        if not isinstance(policy, dict):
+            continue
+        if policy.get("auto_spawn_read_only_evidence_lanes") is not True:
+            errors.append(f"{path}: delegation_policy must explicitly enable read-only evidence lanes")
+        if policy.get("router") != str(DELEGATION_ROUTER_RELATIVE_PATH):
+            errors.append(f"{path}: delegation_policy.router must point to {DELEGATION_ROUTER_RELATIVE_PATH}")
+        phase_checkpoints = policy.get("phase_checkpoints")
+        if phase_checkpoints != ["start", "mid"]:
+            errors.append(f"{path}: delegation_policy.phase_checkpoints must equal ['start', 'mid']")
+        lanes = policy.get("lanes")
+        if not isinstance(lanes, dict) or not lanes:
+            errors.append(f"{path}: delegation_policy.lanes must be a non-empty object")
+            continue
+        for lane_name, lane in lanes.items():
+            if not isinstance(lane, dict):
+                errors.append(f"{path}: delegation lane '{lane_name}' must be an object")
+                continue
+            agent = lane.get("agent")
+            effort = lane.get("reasoning_effort")
+            if agent not in EXPECTED_AGENTS:
+                errors.append(f"{path}: delegation lane '{lane_name}' references unknown agent '{agent}'")
+            if effort not in ALLOWED_REASONING_EFFORTS:
+                errors.append(f"{path}: delegation lane '{lane_name}' must use high or xhigh reasoning")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate repo-scoped Codex agent orchestration surfaces.")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="repo root to validate")
@@ -189,7 +260,9 @@ def main() -> int:
     root = args.root.resolve()
     errors: list[str] = []
     validate_config(root, errors)
+    validate_delegation_router(root, errors)
     validate_agents(root, errors)
+    validate_delegation_policies(root, errors)
 
     if errors:
         for error in errors:

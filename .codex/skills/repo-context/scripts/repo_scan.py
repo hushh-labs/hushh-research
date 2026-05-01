@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,7 @@ REQUIRED_WORKFLOWS = [
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "data-model-audit",
     "github-contribution-governance",
     "pre-pr-readiness",
     "security-consent-audit",
@@ -105,6 +107,17 @@ PATH_PREFIXES = (
     "consent-protocol/",
     "packages/",
 )
+SKILL_CONTEXT_LINE_LIMIT = 180
+DOC_CONTEXT_LINE_LIMIT = 700
+CODE_MODULARITY_LINE_LIMIT = 3000
+CODE_REVIEW_EXTENSIONS = (".py", ".ts", ".tsx", ".mjs", ".js", ".sh")
+CODE_REVIEW_EXCLUDED_PARTS = {
+    ".next",
+    ".venv",
+    "__pycache__",
+    "DerivedData",
+    "node_modules",
+}
 COMMAND_PATTERNS = [
     r"^\./bin/hushh\s+",
     r"^\./scripts/ci/",
@@ -116,6 +129,9 @@ COMMAND_PATTERNS = [
     r"^cd packages/hushh-mcp && npm run ",
     r"^python3 \.codex/",
     r"^python3 -m py_compile ",
+    r"^gh auth status$",
+    r"^gh api user --jq ",
+    r"^git config --get user\.(name|email)$",
     r"^# TODO$",
 ]
 
@@ -201,6 +217,80 @@ def _uniq(values: list[str]) -> list[str]:
             seen.add(value)
             ordered.append(value)
     return ordered
+
+
+def _git_paths(*args: str) -> list[Path]:
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [
+        REPO_ROOT / line
+        for line in result.stdout.splitlines()
+        if line.strip()
+    ]
+
+
+def _tracked_and_untracked_paths() -> list[Path]:
+    return _git_paths("ls-files") + _git_paths("ls-files", "--others", "--exclude-standard")
+
+
+def _line_count(path: Path) -> int:
+    return len(_load_text(path).splitlines())
+
+
+def _is_reviewable_code_path(path: Path) -> bool:
+    if path.suffix not in CODE_REVIEW_EXTENSIONS:
+        return False
+    try:
+        rel_parts = path.relative_to(REPO_ROOT).parts
+    except ValueError:
+        return False
+    return not any(part in CODE_REVIEW_EXCLUDED_PARTS for part in rel_parts)
+
+
+def _modularity_review_findings() -> list[str]:
+    findings: list[str] = []
+
+    oversized_skills = [
+        (str(path.relative_to(REPO_ROOT)), _line_count(path))
+        for path in sorted(SKILLS_ROOT.glob("*/SKILL.md"))
+        if _line_count(path) > SKILL_CONTEXT_LINE_LIMIT
+    ]
+    for rel, lines in sorted(oversized_skills, key=lambda item: item[1], reverse=True)[:5]:
+        findings.append(
+            f"Context-size review required for skill {rel}: {lines} lines; keep SKILL.md procedural and move durable detail to references/playbooks before adding more SOP."
+        )
+
+    docs_roots = [REPO_ROOT / "docs", REPO_ROOT / "consent-protocol/docs", REPO_ROOT / "hushh-webapp/docs"]
+    oversized_docs: list[tuple[str, int]] = []
+    for root in docs_roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.md")):
+            lines = _line_count(path)
+            if lines > DOC_CONTEXT_LINE_LIMIT:
+                oversized_docs.append((str(path.relative_to(REPO_ROOT)), lines))
+    for rel, lines in sorted(oversized_docs, key=lambda item: item[1], reverse=True)[:5]:
+        findings.append(
+            f"Context-size review required for doc {rel}: {lines} lines; split only when a bounded subtopic needs its own canonical home."
+        )
+
+    oversized_code: list[tuple[str, int]] = []
+    for path in _tracked_and_untracked_paths():
+        if not path.exists() or not _is_reviewable_code_path(path):
+            continue
+        lines = _line_count(path)
+        if lines > CODE_MODULARITY_LINE_LIMIT:
+            oversized_code.append((str(path.relative_to(REPO_ROOT)), lines))
+    for rel, lines in sorted(oversized_code, key=lambda item: item[1], reverse=True)[:8]:
+        findings.append(
+            f"Modularity review required for code {rel}: {lines} lines; future edits should extract new bounded behavior instead of growing the file by default."
+        )
+
+    return findings
 
 
 def _doc_like(value: str) -> bool:
@@ -338,7 +428,14 @@ def build_frontend_section() -> dict[str, Any]:
         ],
         verification_commands=_load_package_scripts(
             REPO_ROOT / "hushh-webapp/package.json",
-            ["verify:design-system", "verify:docs", "verify:routes", "verify:cache", "typecheck"],
+            [
+                "verify:service-boundary",
+                "verify:design-system",
+                "verify:docs",
+                "verify:routes",
+                "verify:cache",
+                "typecheck",
+            ],
         ),
         next_reads=[
             "docs/reference/quality/design-system.md",
@@ -435,12 +532,22 @@ def build_commands_section() -> dict[str, Any]:
             "./bin/hushh codex onboard",
             "./bin/hushh codex route-task <workflow-id>",
             "./bin/hushh codex impact <workflow-id> [--path <repo-path>]",
+            "./bin/hushh codex data-model-audit",
             "./bin/hushh codex audit",
         ],
         package_commands=OrderedDict(
             hushh_webapp=_load_package_scripts(
                 REPO_ROOT / "hushh-webapp/package.json",
-                ["dev", "lint", "typecheck", "verify:design-system", "verify:docs", "verify:routes", "verify:cache"],
+                [
+                    "dev",
+                    "lint",
+                    "typecheck",
+                    "verify:service-boundary",
+                    "verify:design-system",
+                    "verify:docs",
+                    "verify:routes",
+                    "verify:cache",
+                ],
             ),
             hushh_mcp=_load_package_scripts(
                 REPO_ROOT / "packages/hushh-mcp/package.json",
@@ -691,6 +798,7 @@ def build_audit() -> dict[str, Any]:
     workflow_task_types = {workflow["task_type"] for workflow in workflows}
     orphaned_task_types = sorted(set(all_task_types) - workflow_task_types)
     findings["medium"].extend(f"Task type has no workflow pack: {task_type}" for task_type in orphaned_task_types)
+    findings["low"].extend(_modularity_review_findings())
 
     coverage_score = max(0, 100 - (len(uncovered) * 10) - (len(findings["high"]) * 2))
     routing_issues = [

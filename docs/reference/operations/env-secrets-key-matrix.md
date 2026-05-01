@@ -38,7 +38,14 @@ Profile bootstrap rule:
 | `APP_SIGNING_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `VAULT_DATA_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
-| `FIREBASE_ADMIN_CREDENTIALS_JSON` | `consent-protocol/api/utils/firebase_admin.py`, `hushh-webapp/lib/firebase/admin.ts` | Y | Y | Y | secret | secret | secret | secret | required |
+| `FIREBASE_ADMIN_CREDENTIALS_JSON` | `consent-protocol/api/utils/firebase_admin.py`, `consent-protocol/hushh_mcp/runtime_settings.py`, `hushh-webapp/lib/firebase/admin.ts` | Y | Y | Y | secret | secret | secret | secret | required |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | N | N | alias | N | optional alias |
+| `ONE_EMAIL_ADDRESS` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
+| `SUPPORT_EMAIL_DELEGATED_USER` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
+| `SUPPORT_EMAIL_FROM` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
+| `SUPPORT_EMAIL_TO` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
+| `SUPPORT_EMAIL_TEST_TO` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
+| `SUPPORT_EMAIL_MODE` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
 | `APP_FRONTEND_ORIGIN` | `consent-protocol/server.py` | Y | N | Y | secret | N | secret | N | required |
 | `BACKEND_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py`, `consent-protocol/server.py` | Y | N | Y | secret | N | secret | N | required |
 | `DB_USER` | `consent-protocol/db/connection.py` | Y | N | Y | secret | N | secret | N | required |

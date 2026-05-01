@@ -31,12 +31,26 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `DB_NAME` | same | No | Default: postgres. |
 | `REQUIRE_DATABASE_ON_STARTUP` | `server.py` | No | Optional startup strictness override. Defaults to `true` in production and `false` in development; when `false`, local startup warns instead of failing if the DB is offline, but schema mismatches still fail. |
 | `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod) | Backend-owned app origin for CORS and user-facing links. Not part of the public MCP host setup. |
-| `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py` | Yes | Default Firebase Admin credential for server operations (FCM/admin). |
+| `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes | Canonical Firebase Admin credential for server operations, Workspace-delegated Gmail send, and future One mailbox tasks. The approved Workspace DWD client is `109021324828349644970`. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`. Prefer the canonical name for new config. |
 | `GOOGLE_API_KEY` | `hushh_mcp/config.py`, services | Yes | Gemini / Vertex AI API key. |
-| `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/support_email_service.py` | Optional | Dedicated service account JSON for support mail. If unset, support mail falls back to `FIREBASE_ADMIN_CREDENTIALS_JSON`. |
-| `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Recommended | Workspace mailbox to impersonate for Gmail send. Default: `support@hushh.ai`. |
+| `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
+| `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Dedicated service account JSON for One mailbox intake. Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON` unless an explicit exception is approved. |
+| `ONE_EMAIL_DELEGATED_USER` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Workspace mailbox to impersonate for One intake. Default: `ONE_EMAIL_ADDRESS`. Must be a real user mailbox. |
+| `ONE_EMAIL_PUBSUB_TOPIC` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One email intake) | Gmail `users.watch` Pub/Sub topic for `one@hushh.ai`. |
+| `ONE_EMAIL_WEBHOOK_AUDIENCE` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Expected audience for Pub/Sub push OIDC verification. Falls back to `GMAIL_WEBHOOK_AUDIENCE`. |
+| `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Expected Pub/Sub push service-account email. Falls back to `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. |
+| `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Defaults on outside local/dev/test. Disables Pub/Sub token verification only for local testing. |
+| `ONE_EMAIL_WATCH_LABEL_IDS` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Comma-separated Gmail labels for watch registration. Default: `INBOX`. |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token required by `POST /api/one/email/watch/renew` outside local/dev/test. Send as `X-Hushh-Maintenance-Token`. |
+| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Optional | Defaults on outside local/dev/test. Disable only for local testing. |
+| `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One KYC) | Connector public key used to force strict scoped encrypted PKM export for KYC consent. |
+| `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Connector key id for KYC export wrapping. |
+| `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Default least-privilege identity scope requested for broker KYC. Default: `attr.identity.*`. |
+| `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/support_email_service.py` | Optional legacy override | Dedicated service account JSON for support mail. Prefer the canonical Firebase Admin credential unless an explicit exception is approved. |
+| `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Optional override | Workspace mailbox to impersonate for Gmail send. Default: `ONE_EMAIL_ADDRESS` or `one@hushh.ai`. Must be a real user mailbox, not a group. |
 | `SUPPORT_EMAIL_FROM` | `hushh_mcp/services/support_email_service.py` | Optional | Visible `From` address for outgoing support mail. Defaults to `SUPPORT_EMAIL_DELEGATED_USER`. |
-| `SUPPORT_EMAIL_TO` | `hushh_mcp/services/support_email_service.py` | Recommended | Live support inbox recipient. Default: `support@hushh.ai`. |
+| `SUPPORT_EMAIL_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Live support inbox recipient. Default: `ONE_EMAIL_ADDRESS` or `one@hushh.ai`. |
 | `SUPPORT_EMAIL_TEST_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Test-mode recipient override for non-production verification. |
 | `SUPPORT_EMAIL_MODE` | `hushh_mcp/services/support_email_service.py` | Optional | `live` or `test`. If unset, non-production defaults to `test` when `SUPPORT_EMAIL_TEST_TO` exists. |
 | `GMAIL_OAUTH_CLIENT_ID` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client id. Same key name across local, UAT, and production. |
@@ -194,33 +208,56 @@ Webhook maintenance:
 ## Profile Support Messaging
 
 Profile support / bug-report emails are sent through Gmail API using a delegated
-Workspace mailbox. The service account source is:
+Workspace mailbox. RIA invite emails reuse the same authorization path.
 
-- `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON`, if provided
-- otherwise `FIREBASE_ADMIN_CREDENTIALS_JSON`
+Canonical Workspace delegation:
+
+- client ID: `109021324828349644970`
+- service account: `firebase-adminsdk-fbsvc@hushh-pda.iam.gserviceaccount.com`
+- delegated mailbox default: `one@hushh.ai`
+- required scope for send: `https://www.googleapis.com/auth/gmail.send`
+
+The service account source is:
+
+- `FIREBASE_ADMIN_CREDENTIALS_JSON`
+- `FIREBASE_SERVICE_ACCOUNT_JSON` as a runtime compatibility alias
+- `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON` only as a legacy override
 
 - delegated sender: `SUPPORT_EMAIL_DELEGATED_USER` (must be a real mailbox user)
 - visible From address: `SUPPORT_EMAIL_FROM` (default matches delegated user)
 - live inbox: `SUPPORT_EMAIL_TO`
 - optional non-production test inbox: `SUPPORT_EMAIL_TEST_TO`
 
-RIA invite emails reuse this same Gmail authorization path and delegated sender.
-The recipient becomes the investor invite target, but the Workspace delegation
-requirements stay the same.
+The recipient becomes the investor invite target for invite emails, but the
+Workspace delegation requirements stay the same. `GMAIL_OAUTH_*` is unrelated;
+that path is only for user-consented Gmail receipts.
 
 Recommended local testing:
 
-- `SUPPORT_EMAIL_DELEGATED_USER=kushal@hushh.ai`
-- `SUPPORT_EMAIL_FROM=support@hushh.ai`
-- `SUPPORT_EMAIL_TO=support@hushh.ai`
+- `ONE_EMAIL_ADDRESS=one@hushh.ai`
+- `SUPPORT_EMAIL_DELEGATED_USER=one@hushh.ai`
+- `SUPPORT_EMAIL_FROM=one@hushh.ai`
+- `SUPPORT_EMAIL_TO=one@hushh.ai`
 - `SUPPORT_EMAIL_TEST_TO=kushal@hushh.ai`
 - `SUPPORT_EMAIL_MODE=test`
 
-This path requires Workspace domain-wide delegation for the chosen service account client ID with:
+This path requires Workspace domain-wide delegation for client ID `109021324828349644970` with:
 
 - `https://www.googleapis.com/auth/gmail.send`
 
-`SUPPORT_EMAIL_DELEGATED_USER` cannot be a Google Group. A group like `support@hushh.ai` can be the visible sender or recipient inbox, but it cannot be the delegated Gmail user.
+`SUPPORT_EMAIL_DELEGATED_USER` cannot be a Google Group. A group can be a
+recipient or visible alias only if Gmail send-as policy allows it; the delegated
+subject itself must be a real user mailbox.
+
+## One Email Intake Roadmap
+
+`one@hushh.ai` is the inbound mailbox for One-led email workflows. The roadmap
+and rollout gates live in [One Email Intake Roadmap](../../../docs/future/one-email-intake-roadmap.md).
+The repo now includes metadata-only Gmail Pub/Sub intake, watch renewal,
+workflow state, scoped KYC consent requests, `/one/kyc`, and approval-gated
+draft send. Hosted current-state still requires the database migration,
+Pub/Sub subscription, watch renewal schedule, connector key envs, and a real
+UAT smoke.
 
 Local runtime bootstrap:
 
@@ -241,6 +278,16 @@ Local runtime bootstrap:
 | `APP_FRONTEND_ORIGIN` | Yes | GCP Secret Manager |
 | `GOOGLE_API_KEY` | Yes | GCP Secret Manager |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes | GCP Secret Manager |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Alias only | GCP Secret Manager, if legacy runtime still mounts it |
+| `ONE_EMAIL_ADDRESS` | No | Cloud Run env var or default |
+| `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | Optional override | GCP Secret Manager, only by exception |
+| `ONE_EMAIL_DELEGATED_USER` | No | Cloud Run env var or default |
+| `ONE_EMAIL_PUBSUB_TOPIC` | No | Cloud Run env var |
+| `ONE_EMAIL_WEBHOOK_AUDIENCE` | No | Cloud Run env var |
+| `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | No | Cloud Run env var |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes | Secret Manager |
+| `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | No | Cloud Run env var |
+| `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | No | Cloud Run env var |
 | `GMAIL_OAUTH_CLIENT_ID` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_CLIENT_SECRET` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes | GCP Secret Manager |

@@ -101,6 +101,7 @@ Do not use as:
 ./bin/hushh db verify-release-contract
 ./bin/hushh db verify-uat-schema
 ./bin/hushh db report-prod-posture
+./bin/hushh codex data-model-audit
 ```
 
 Meaning:
@@ -111,6 +112,9 @@ Meaning:
   - runs the exact UAT contract against live UAT runtime DB settings, read-only
 - `report-prod-posture`
   - reports the intentional delta between frozen prod and integrated UAT contracts
+- `data-model-audit`
+  - verifies migration-created tables are classified under the runtime DB data-plane contract
+  - blocks unclassified tables and canonical writes into legacy memory tables
 
 ## Contributor Rule
 
@@ -130,3 +134,8 @@ When a new numbered migration lands:
 2. update `release_migration_manifest.json`
 3. update `uat_integrated_schema.json` when the integrated contract advances
 4. keep `prod_core_schema.json` frozen unless production policy intentionally changes
+5. follow the maintainer SOP in [data-model-governance.md](../architecture/data-model-governance.md)
+6. update [runtime-db-data-plane-contract.json](../architecture/runtime-db-data-plane-contract.json) when the migration creates or renames tables
+7. run `./bin/hushh codex data-model-audit` before claiming the migration is production-ready
+
+Every new table must have a declared owner, data class, primary access path, expected row-growth posture, retention policy, deletion behavior, and plaintext/ciphertext posture. Prefer adding the table to an existing family. Create a new family only when the table cannot honestly fit an existing bounded context.

@@ -31,6 +31,8 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [route-contracts.md](./route-contracts.md): app route inventory and parity governance.
 - [loading-policy.md](./loading-policy.md): canonical loading and empty-state policy.
 - [cache-coherence.md](./cache-coherence.md): cache invalidation and freshness model.
+- [data-model-governance.md](./data-model-governance.md): maintainer SOP for schema, data classes, retention, deletion, and table-family changes.
 - [runtime-db-fact-sheet.md](./runtime-db-fact-sheet.md): runtime storage facts and boundaries.
+- [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json): machine-readable table-family ownership, retention, deletion, and trust-boundary contract used by the data-model audit.
 - [data-provenance-ledger.md](./data-provenance-ledger.md): provenance and audit data model.
 - [pkm-cutover-runbook.md](./pkm-cutover-runbook.md): PKM cutover and compatibility rules.

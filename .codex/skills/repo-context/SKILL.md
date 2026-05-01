@@ -37,6 +37,7 @@ Non-owned surfaces:
 2. Mapping the full skill taxonomy and the meaningful repo surface coverage.
 3. Routing recurring work into explicit workflow packs and impact bundles.
 4. Finding code/docs/skill drift or orphaned areas in the repository map.
+5. Running the data-model audit workflow when table-family drift, migration classification, or runtime DB ownership is the starting question.
 
 ## Do Not Use
 
@@ -55,11 +56,13 @@ Non-owned surfaces:
 1. Run `summary` first to get owners, spokes, surface coverage, and uncovered surfaces.
 2. Open exactly one deeper section next: `docs`, `frontend`, `backend`, `skills`, or `commands`.
 3. Use `list-workflows` and `route-task <workflow-id>` when the request matches a recurring execution shape.
-4. Use `impact <workflow-id>` before implementation when blast radius, docs, or verification scope is unclear.
-5. Keep the first pass compact by default; use `--verbose` only when a heavy section such as `skills` or `backend` needs deeper inspection.
-6. Use `--text` when a human-readable low-token routing summary is enough.
-7. Route the task into the recommended owner skill as soon as the domain is clear.
-8. Use `validate` or `audit` when changing the taxonomy, coverage map, workflow packs, or skill-routing docs.
+4. Use `data-model-audit` before data-model implementation when migration/table classification, retention posture, or legacy write drift is in scope.
+5. Use `impact <workflow-id>` before implementation when blast radius, docs, or verification scope is unclear.
+6. Keep the first pass compact by default; use `--verbose` only when a heavy section such as `skills` or `backend` needs deeper inspection.
+7. Use `--text` when a human-readable low-token routing summary is enough.
+8. Route the task into the recommended owner skill as soon as the domain is clear.
+9. Use `validate` or `audit` when changing the taxonomy, coverage map, workflow packs, or skill-routing docs.
+10. Treat low-severity context-size and modularity findings from `audit` as review-required signals only; do not split files or add folders unless a bounded owner, workflow, or navigation problem is proven.
 
 ## Handoff Rules
 
@@ -77,6 +80,7 @@ Non-owned surfaces:
 ./bin/hushh codex list-workflows
 ./bin/hushh codex route-task repo-orientation
 ./bin/hushh codex impact repo-orientation
+./bin/hushh codex data-model-audit
 ./bin/hushh codex audit
 python3 .codex/skills/repo-context/scripts/repo_scan.py validate
 ```

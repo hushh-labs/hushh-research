@@ -198,9 +198,7 @@ class RIAIAMService:
         raw = str(os.getenv(name, fallback)).strip().lower()
         return raw in {"1", "true", "yes", "on"}
 
-    _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset(
-        {"active", "verified", "finra_verified"}
-    )
+    _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset({"active", "verified", "finra_verified"})
 
     async def require_ria_verified(self, user_id: str) -> None:
         """Fail-closed check: raises 403 if the RIA is not verified.
@@ -626,6 +624,7 @@ class RIAIAMService:
         self,
         query: str,
         *,
+        crd_number: str | None = None,
         use_cache: bool = True,
     ) -> NameVerificationResult:
         normalized_query = str(query or "").strip()
@@ -633,14 +632,16 @@ class RIAIAMService:
             raise RIAIAMPolicyError("query is required", status_code=400)
         return await self._name_verification_gateway.verify_name(
             query=normalized_query,
+            crd_number=crd_number,
             use_cache=use_cache,
         )
 
     async def verify_ria_name(
         self,
         query: str,
+        crd_number: str | None = None,
     ) -> dict[str, Any]:
-        result = await self._verify_ria_name_result(query, use_cache=True)
+        result = await self._verify_ria_name_result(query, crd_number=crd_number, use_cache=True)
         return self._serialize_name_verification_result(result)
 
     @staticmethod
@@ -822,7 +823,6 @@ class RIAIAMService:
                         investor_marketplace_opt_in=False,
                         iam_schema_ready=False,
                         mode="compat_investor",
-
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -847,7 +847,6 @@ class RIAIAMService:
                     investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
                     iam_schema_ready=True,
                     mode="full",
-
                 )
                 self._write_cached_persona_state(user_id, response)
                 return response
@@ -877,7 +876,6 @@ class RIAIAMService:
                         investor_marketplace_opt_in=False,
                         iam_schema_ready=False,
                         mode="compat_investor",
-
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -893,7 +891,6 @@ class RIAIAMService:
                         investor_marketplace_opt_in=bool(current["investor_marketplace_opt_in"]),
                         iam_schema_ready=True,
                         mode="full",
-    
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -924,7 +921,6 @@ class RIAIAMService:
                     investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
                     iam_schema_ready=True,
                     mode="full",
-
                 )
                 self._write_cached_persona_state(user_id, response)
                 return response
@@ -2213,8 +2209,10 @@ class RIAIAMService:
         )
         normalized_display_name = str(prepared["display_name"])
         normalized_requested_capabilities = list(prepared["requested_capabilities"])
+        submitted_individual_crd = self._normalize_optional_text(prepared.get("individual_crd"))
         name_lookup = await self._verify_ria_name_result(
             normalized_display_name,
+            crd_number=submitted_individual_crd,
             use_cache=not force_live_verification,
         )
         if name_lookup.status == "provider_unavailable":
@@ -2230,6 +2228,15 @@ class RIAIAMService:
                 or "Advisor name could not be verified against a CRD-backed registration.",
                 status_code=400,
             )
+        if submitted_individual_crd and (
+            self._normalize_crd_text(name_lookup.crd_number)
+            != self._normalize_crd_text(submitted_individual_crd)
+        ):
+            raise RIAIAMPolicyError(
+                "The verified CRD did not match the CRD you entered. Check the CRD or remove it and verify by name.",
+                status_code=400,
+            )
+
         effective_legal_name = (
             self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
         )
@@ -2634,7 +2641,6 @@ class RIAIAMService:
                 return {
                     "exists": False,
                     "verification_status": "draft",
-
                 }
 
             latest_event = await conn.fetchrow(
@@ -5186,7 +5192,8 @@ class RIAIAMService:
         if not cfg.configured:
             error_message = (
                 "Kai invite email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_ADMIN_CREDENTIALS_JSON, plus SUPPORT_EMAIL_* variables."
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON / FIREBASE_SERVICE_ACCOUNT_JSON, plus "
+                "SUPPORT_EMAIL_* variables."
             )
             logger.warning("ria.invite_email.not_configured invite_id=%s", invite_id)
             created_item["delivery_status"] = "failed"

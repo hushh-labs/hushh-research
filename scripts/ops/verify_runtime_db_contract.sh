@@ -76,7 +76,7 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 1; }
 
 if [ -z "$REPORT_PATH" ]; then
-  REPORT_PATH="$(mktemp "${TMPDIR:-/tmp}/runtime-db-contract.XXXXXX.json")"
+  REPORT_PATH="$(mktemp "${TMPDIR:-/tmp}/runtime-db-contract.XXXXXX")"
 fi
 
 SERVICE_JSON="$(gcloud run services describe "$SERVICE" \

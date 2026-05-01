@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 48,
+  "expected_migration_version": 49,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -281,6 +281,42 @@
       "payload_json",
       "occurred_at",
       "created_at"
+    ],
+    "one_email_mailbox_state": [
+      "mailbox_email",
+      "history_id",
+      "watch_status",
+      "watch_expiration_at",
+      "last_watch_renewed_at",
+      "last_notification_at",
+      "created_at",
+      "updated_at"
+    ],
+    "one_kyc_workflows": [
+      "workflow_id",
+      "user_id",
+      "status",
+      "gmail_message_id",
+      "gmail_thread_id",
+      "gmail_history_id",
+      "sender_email",
+      "sender_name",
+      "participant_emails",
+      "subject",
+      "snippet",
+      "counterparty_label",
+      "rfc_message_id",
+      "required_fields",
+      "requested_scope",
+      "consent_request_id",
+      "draft_subject",
+      "draft_body",
+      "draft_status",
+      "last_error_code",
+      "last_error_message",
+      "metadata",
+      "created_at",
+      "updated_at"
     ]
   }
 }

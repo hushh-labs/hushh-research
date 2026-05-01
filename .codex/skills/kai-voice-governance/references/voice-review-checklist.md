@@ -22,9 +22,12 @@ Use this when reviewing Kai voice or typed-search changes.
 
 ## Runtime Boundary
 
+- Which existing voice runtime surfaces does this PR extend: generated gateway, manifest, realtime client, turn orchestrator, shared dispatcher, console sheet, backend voice intent, or voice tests?
+- Is this a new input adapter over the current runtime, or is it creating a parallel voice system?
 - Does runtime surface metadata describe current state rather than invent capabilities?
 - Does the generated gateway remain the shared semantic authority?
 - Is transcript fallback still only a compatibility path rather than the primary discoverability mechanism?
+- If the PR uses browser SpeechRecognition or MCP tools, does it still preserve action gateway parity, settlement, gating, and telemetry?
 
 ## Memory Boundary
 

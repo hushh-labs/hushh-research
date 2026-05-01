@@ -243,6 +243,7 @@ from api.routes.kai.market_insights import (  # noqa: E402
     start_market_insights_background_refresh,
     warm_market_insights_startup_once,
 )
+from api.routes.one import router as one_router  # noqa: E402
 from hushh_mcp.services.email_delivery_queue_service import (  # noqa: E402
     shutdown_email_delivery_queue_service,
 )
@@ -252,6 +253,7 @@ from hushh_mcp.services.gmail_receipts_service import (  # noqa: E402
 )
 
 app.include_router(kai_router)
+app.include_router(one_router)
 
 # Phase 2: Investor Profiles (Public Discovery Layer)
 from api.routes import investors  # noqa: E402

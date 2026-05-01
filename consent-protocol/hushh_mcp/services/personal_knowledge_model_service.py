@@ -2307,23 +2307,14 @@ class PersonalKnowledgeModelService:
         embedding_vector: list[float],
         model_name: str = "all-MiniLM-L6-v2",
     ) -> bool:
-        """Store a user profile embedding."""
-        try:
-            data = {
-                "user_id": user_id,
-                "embedding_type": embedding_type.value,
-                "embedding_vector": embedding_vector,
-                "model_name": model_name,
-                "updated_at": datetime.now(UTC).isoformat(),
-            }
-
-            self.supabase.table("pkm_embeddings").upsert(
-                data, on_conflict="user_id,embedding_type"
-            ).execute()
-            return True
-        except Exception as e:
-            logger.error(f"Error storing embedding: {e}")
-            return False
+        """Legacy profile embeddings are retired until a PKM-native store exists."""
+        logger.info(
+            "Skipping legacy PKM embedding write for user=%s type=%s model=%s",
+            user_id,
+            embedding_type.value,
+            model_name,
+        )
+        return False
 
     async def find_similar_users(
         self,

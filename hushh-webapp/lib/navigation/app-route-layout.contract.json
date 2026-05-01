@@ -18,6 +18,14 @@
     "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell."
   },
   {
+    "route": "/one/kyc",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/kyc/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
     "route": "/register-phone",
     "mode": "hidden",
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."

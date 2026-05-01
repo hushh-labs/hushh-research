@@ -22,28 +22,40 @@
     "docs/reference/quality/pr-impact-checklist.md",
     "docs/reference/architecture/api-contracts.md",
     ".codex/skills/pr-governance-review/references/review-axes.md",
+    ".codex/skills/pr-governance-review/references/runtime-schematics-contract.md",
     ".codex/skills/repo-operations/SKILL.md"
   ],
   "required_commands": [
-    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+    "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"<user request>\" --paths \"<changed paths>\" --text",
+    "python3 .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr <number> --text",
     "./bin/hushh codex audit --text"
   ],
   "verification_bundle": {
     "id": "pr-governance-review",
     "commands": [
+      "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
       "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
-      "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+      "python3 -m py_compile .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py",
+      "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"review a PR touching voice, vault, and CI\" --paths \"hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml\" --text",
+      "python3 .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py --text",
       "./bin/hushh codex audit --text",
       "./bin/hushh docs verify"
     ],
     "tests": [
+      "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
       "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+      "python3 -m py_compile .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py",
+      "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"review a PR touching voice, vault, and CI\" --paths \"hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml\" --text",
+      "python3 .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py --text",
       "./bin/hushh codex audit --text",
       "./bin/hushh docs verify"
     ]
   },
   "deliverables": [
+    "delegation router decision and any read-only evidence lanes spawned",
     "current-head SHA review summary",
+    "repo-derived runtime schematics provenance",
     "blocker-first findings list",
     "stale-vs-current CI interpretation",
     "merge lane recommendation",
@@ -52,8 +64,12 @@
     "updated working report after PR state changes"
   ],
   "impact_fields": [
+    "Delegation decision",
+    "Subagent evidence lanes used or skipped",
     "Head SHA reviewed",
     "Current CI Status Gate state",
+    "Current reviewDecision state",
+    "Runtime schematics source coverage",
     "Blocker findings",
     "Chosen merge lane",
     "Action flow mode",
@@ -69,6 +85,68 @@
     "frontend-architecture",
     "security-audit"
   ],
+  "delegation_policy": {
+    "auto_spawn_read_only_evidence_lanes": true,
+    "router": ".codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
+    "phase_checkpoints": [
+      "start",
+      "mid"
+    ],
+    "parent_only_actions": [
+      "branch switching",
+      "patching",
+      "approval",
+      "merge",
+      "deploy",
+      "secrets"
+    ],
+    "lanes": {
+      "analytics/observability": {
+        "agent": "analytics_observability_architect",
+        "reasoning_effort": "high"
+      },
+      "voice/action": {
+        "agent": "voice_systems_architect",
+        "reasoning_effort": "xhigh"
+      },
+      "security/consent/vault/pkm": {
+        "agent": "security_consent_auditor",
+        "reasoning_effort": "xhigh"
+      },
+      "regression/proof": {
+        "agent": "reviewer",
+        "reasoning_effort": "xhigh"
+      },
+      "backend/contracts": {
+        "agent": "backend_architect",
+        "reasoning_effort": "high"
+      },
+      "data-model/schema/uat": {
+        "agent": "data_model_architect",
+        "reasoning_effort": "xhigh"
+      },
+      "frontend/reachability": {
+        "agent": "frontend_architect",
+        "reasoning_effort": "high"
+      },
+      "mobile/native": {
+        "agent": "mobile_native_architect",
+        "reasoning_effort": "high"
+      },
+      "product/docs/founder-language": {
+        "agent": "product_docs_architect",
+        "reasoning_effort": "xhigh"
+      },
+      "ci/deploy/release": {
+        "agent": "repo_operator",
+        "reasoning_effort": "high"
+      },
+      "failure/rca": {
+        "agent": "rca_investigator",
+        "reasoning_effort": "high"
+      }
+    }
+  },
   "common_failures": [
     "reviewing a stale failed run instead of the current head SHA",
     "treating green CI as sufficient proof for a sensitive contract change",

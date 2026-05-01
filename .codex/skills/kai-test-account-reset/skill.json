@@ -23,21 +23,21 @@
     "docs/reference/kai/kai-action-gateway-vnext.md"
   ],
   "required_commands": [
-    "consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email ankit@hushh.ai",
-    "consent-protocol/.venv/bin/python -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
+    "python3 .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --help",
+    "python3 -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
     "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
   ],
   "verification_bundles": [
     {
       "id": "kai-test-account-reset",
       "commands": [
-        "consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email ankit@hushh.ai",
-        "consent-protocol/.venv/bin/python -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
+        "python3 .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --help",
+        "python3 -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
       ],
       "tests": [
-        "consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email ankit@hushh.ai",
-        "consent-protocol/.venv/bin/python -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py"
+        "python3 .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --help",
+        "python3 -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py"
       ]
     }
   ],

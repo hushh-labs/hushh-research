@@ -147,12 +147,17 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
   - encrypted PKM storage and metadata split
   - runtime DB fact sheet, provenance ledger, and degraded-state handling
   - explicit storage boundary between private encrypted context and shared/query-heavy data
+- Production data-plane split:
+  - transactional app DB for workflow, actor, consent, and regulated operational state
+  - encrypted PKM/vault plane for user-private memory and key-boundary metadata
+  - provider/cache plane for refreshable Plaid, Gmail, market, and other integration state
+  - analytics/warehouse plane for GA4, BigQuery, and dashboard truth outside the app DB
 - What is missing for full-scale architecture:
   - a more formal separation between transactional, analytical, cache, and export materialization planes
   - clearer retention and replay contracts
   - stronger lineage and data lifecycle documentation
 - Next build path:
-  - publish explicit data-plane contracts for personal context, caches, workflows, and analytical replicas
+  - enforce the runtime DB data-plane contract before new tables or long-lived caches ship
 
 ## 5. Intelligence and Agent Layer
 

@@ -51,14 +51,14 @@ Non-owned surfaces:
 
 1. Run a dry run first:
    ```bash
-   consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email <email>
+   python3 .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email <email>
    ```
 2. Report the matched UID preview and planned cleanup scope without printing secrets.
    Add `--include-counts` only when row counts are needed; it can be slow on large UAT tables.
 3. Ask for action-time confirmation before deletion, naming the email, environment, and data classes.
 4. Execute only after confirmation:
    ```bash
-   consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email <email> --execute --confirm-email <email>
+   python3 .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email <email> --execute --confirm-email <email>
    ```
 5. Re-run the dry run to verify there are no DB rows left for the email/UID.
 6. Keep Firebase Auth and browser-local state separate unless the user explicitly asks for those deletions too.
@@ -72,7 +72,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-consent-protocol/.venv/bin/python .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email ankit@hushh.ai
-consent-protocol/.venv/bin/python -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py
+python3 .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --help
+python3 -m py_compile .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 ```

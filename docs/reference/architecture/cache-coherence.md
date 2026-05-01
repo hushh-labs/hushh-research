@@ -97,6 +97,11 @@ Backend Kai market cache tiers (generalized modules):
 - L2 Postgres cache table: `kai_market_cache_entries`
 - L3 live provider fetch
 
+Runtime DB data classes:
+- `provider_cache` tables are refreshable operational state, not durable user memory.
+- `workflow_state` tables can hold active approval or status state, but terminal sensitive drafts/previews should be compacted or redacted by the family retention policy.
+- durable personal memory must be written through the encrypted PKM path, not by promoting provider cache rows into long-lived app DB truth.
+
 ## Mutation -> Cache Sync Matrix
 
 - PKM store domain: `CacheSyncService.onPkmDomainStored(...)`
