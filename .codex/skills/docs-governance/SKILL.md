@@ -79,6 +79,8 @@ Non-owned surfaces:
     - retired: `Kai is the One who remembers.`
 15. Treat `hu_ssh` and `SSH for humans` as secondary founder metaphors only. Keep `Human Secure Socket Host` as the canonical architecture expansion.
 16. Keep strong claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private action receipts in `docs/future/` until implementation docs and tests prove them.
+17. For data-model docs, distinguish encrypted PKM memory from provider caches, workflow state, audit metadata, reference data, and analytics warehouse truth. Provider/cache tables are not durable user memory unless a consented encrypted PKM write makes them so.
+18. Treat long-doc findings as navigation prompts, not automatic split orders. Add subfolders or child docs only when a bounded subtopic has its own owner, lifecycle, or reusable entrypoint.
 
 ## Handoff Rules
 

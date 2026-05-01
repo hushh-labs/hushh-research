@@ -33,6 +33,7 @@ Non-owned surfaces:
 1. Test selection and contract-test placement decisions.
 2. Cross-surface verification policy and quality-gate ownership.
 3. Reviewing whether a code change is missing authoritative checks.
+4. Migration/data-contract verification when a change adds tables, cache lanes, workflow state, or long-lived provider data.
 
 ## Do Not Use
 
@@ -80,8 +81,10 @@ Non-owned surfaces:
 14. Keep required verification lean:
    - prefer changed-surface checks over broad suites
    - protect contributor setup, route/API contracts, and release-critical behavior first
-15. When changing a required test set or gate policy, rerun the selected authoritative checks once after the edit and once again from the canonical repo entrypoint before closing the work.
-16. Treat helper-only skill/docs drift as advisory by default. It becomes blocking only when it hides or weakens a core runtime/deploy/test authority surface that the RCA loop depends on.
+15. If a change creates or repurposes database tables, include `./bin/hushh codex data-model-audit` in the verification bundle.
+16. When changing a required test set or gate policy, rerun the selected authoritative checks once after the edit and once again from the canonical repo entrypoint before closing the work.
+17. Treat helper-only skill/docs drift as advisory by default. It becomes blocking only when it hides or weakens a core runtime/deploy/test authority surface that the RCA loop depends on.
+18. Treat modularity findings as test-selection prompts. Large files are not failures by themselves; require targeted tests only for the behavior being changed or extracted.
 
 ## Handoff Rules
 
@@ -94,7 +97,9 @@ Non-owned surfaces:
 
 ```bash
 cd hushh-webapp && npm run test:ci
+cd hushh-webapp && npm run verify:service-boundary
 cd consent-protocol && python3 -m pytest tests/quality -q
+./bin/hushh codex data-model-audit
 ```
 
 When route/browser verification changes, require the test output to state which contract was proven: in-app navigation, cold deep link, or both.

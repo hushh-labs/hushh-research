@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -22,6 +23,9 @@ SALVAGEABLE_HIGH_FINDINGS = {
     "db_contract_without_matching_migration",
     "db_migration_missing_release_manifest",
     "dual_auth_dependency_overlap",
+    "existing_runtime_contract_bypass",
+    "voice_navigation_namespace_drift",
+    "voice_tool_contract_bypass",
 }
 SALVAGEABLE_MEDIUM_FINDINGS = {
     "account_export_backend_error_detail_leak",
@@ -30,6 +34,13 @@ SALVAGEABLE_MEDIUM_FINDINGS = {
     "background_task_without_failure_logging",
     "db_migration_missing_schema_contract_update",
     "frontend_error_sanitizer_403_permission_mismatch",
+    "frontend_component_without_reachable_caller",
+    "kai_finance_direct_action_language_requires_review",
+    "commercial_consent_gate_missing_db_backed_validation",
+    "existing_capability_overlap_requires_review",
+    "mock_consent_history_on_trust_surface",
+    "one_kai_runtime_identity_boundary_requires_review",
+    "pkm_cloud_projection_authority_boundary_requires_review",
     "service_layer_browser_download_side_effect",
     "runtime_dependency_not_pinned_in_manifest",
     "ignore_surface_changed",
@@ -58,6 +69,234 @@ DB_CONTRACT_FILES = {
 }
 DB_RELEASE_MANIFEST_FILE = "consent-protocol/db/release_migration_manifest.json"
 SCHEMA_CONTRACT_PATH = REPO_ROOT / "consent-protocol/db/contracts/uat_integrated_schema.json"
+SCHEMATICS_SCRIPT_PATH = Path(__file__).with_name("build_runtime_schematics.py")
+PROJECT_SCHEMATICS: dict[str, Any] | None = None
+CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
+    {
+        "id": "voice-runtime",
+        "severity": "medium",
+        "keywords": (
+            "voice",
+            "speechrecognition",
+            "dictation",
+            "microphone",
+            "mcp tool",
+            "action_id",
+        ),
+        "path_markers": (
+            "voice",
+            "kai-command-palette",
+            "mcp_modules/tools",
+        ),
+        "canonical_paths": (
+            "hushh-webapp/lib/voice/voice-turn-orchestrator.ts",
+            "hushh-webapp/lib/voice/voice-action-dispatcher.ts",
+            "hushh-webapp/lib/voice/kai-action-gateway.ts",
+            "hushh-webapp/components/kai/voice/voice-console-sheet.tsx",
+            "contracts/kai/kai-action-gateway.vnext.json",
+            "contracts/kai/voice-action-manifest.v1.json",
+            "consent-protocol/hushh_mcp/services/voice_intent_service.py",
+        ),
+        "summary": (
+            "Voice capability overlaps the existing generated action gateway, realtime "
+            "orchestrator, dispatcher, and voice console. Treat it as an integration review, "
+            "not an isolated new feature."
+        ),
+    },
+    {
+        "id": "pkm-vault-runtime",
+        "severity": "medium",
+        "keywords": (
+            "pkm",
+            "personal knowledge",
+            "vault",
+            "memory",
+            "domain summary",
+            "encrypted",
+        ),
+        "path_markers": (
+            "pkm",
+            "personal-knowledge-model",
+            "vault",
+        ),
+        "canonical_paths": (
+            "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py",
+            "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
+            "hushh-webapp/lib/cache/cache-sync-service.ts",
+            "hushh-webapp/lib/pkm/pkm-domain-resource.ts",
+            "hushh-webapp/components/vault/vault-lock-guard.tsx",
+            "hushh-webapp/components/profile/pkm-explorer-panel.tsx",
+            "consent-protocol/docs/reference/personal-knowledge-model.md",
+            "docs/reference/architecture/cache-coherence.md",
+        ),
+        "summary": (
+            "PKM/vault/memory changes overlap encrypted storage, metadata projection, "
+            "and vault-gated frontend state. Review against the canonical PKM runtime."
+        ),
+    },
+    {
+        "id": "auth-token-session-runtime",
+        "severity": "medium",
+        "keywords": (
+            "auth",
+            "firebase",
+            "apple",
+            "google",
+            "phone",
+            "recaptcha",
+            "session",
+            "bearer",
+            "token",
+            "revocation",
+            "validate_token_with_db",
+        ),
+        "path_markers": (
+            "auth",
+            "firebase",
+            "session",
+            "middleware",
+            "phone-verification-flow",
+            "phone-mandate-guard",
+        ),
+        "canonical_paths": (
+            "hushh-webapp/lib/services/auth-service.ts",
+            "hushh-webapp/lib/firebase/auth-context.tsx",
+            "hushh-webapp/lib/auth/session.ts",
+            "hushh-webapp/lib/auth/validate.ts",
+            "hushh-webapp/proxy.ts",
+            "hushh-webapp/app/api/auth/session/route.ts",
+            "consent-protocol/api/middleware.py",
+            "consent-protocol/api/utils/firebase_auth.py",
+        ),
+        "summary": (
+            "Auth, token, or session changes overlap Firebase sign-in, phone verification, "
+            "bearer/session handling, and DB-backed revocation checks. Review against the "
+            "canonical auth runtime instead of accepting an isolated route fix."
+        ),
+    },
+    {
+        "id": "consent-iam-runtime",
+        "severity": "medium",
+        "keywords": (
+            "consent",
+            "scope",
+            "vault_owner",
+            "permission",
+            "commercial",
+            "token",
+        ),
+        "path_markers": (
+            "consent",
+            "scope",
+            "iam",
+        ),
+        "canonical_paths": (
+            "consent-protocol/hushh_mcp/consent/token.py",
+            "consent-protocol/hushh_mcp/consent/scope_bundles.py",
+            "consent-protocol/api/routes/consent.py",
+            "docs/reference/iam/consent-scope-catalog.md",
+            "docs/reference/iam/architecture.md",
+        ),
+        "summary": (
+            "Consent/IAM changes overlap signed token semantics, scope bundles, and "
+            "relationship access rules. Review against the canonical trust boundary."
+        ),
+    },
+    {
+        "id": "route-shell-onboarding-runtime",
+        "severity": "medium",
+        "keywords": (
+            "onboarding",
+            "route",
+            "navigation",
+            "persona",
+            "vault guard",
+            "protected route",
+            "playwright",
+            "page.goto",
+            "router.push",
+        ),
+        "path_markers": (
+            "onboarding",
+            "route-map",
+            "proxy",
+            "playwright",
+        ),
+        "canonical_paths": (
+            "hushh-webapp/proxy.ts",
+            "hushh-webapp/lib/observability/route-map.ts",
+            "hushh-webapp/components/vault/vault-lock-guard.tsx",
+            "hushh-webapp/components/auth/phone-mandate-guard.tsx",
+            "hushh-webapp/components/kai/onboarding/kai-onboarding-guard.tsx",
+            "hushh-webapp/app/ria/onboarding/page.tsx",
+            "hushh-webapp/app/kai/onboarding/page.tsx",
+            "hushh-webapp/playwright.config.ts",
+        ),
+        "summary": (
+            "Route shell or onboarding changes overlap protected-route state, persona switching, "
+            "vault/phone guards, route-map observability, and sequential browser navigation. "
+            "Review against the canonical route-shell runtime."
+        ),
+    },
+    {
+        "id": "kai-market-analysis-runtime",
+        "severity": "medium",
+        "keywords": (
+            "market",
+            "stock",
+            "ticker",
+            "analysis",
+            "buy",
+            "sell",
+            "not-buy",
+            "financial chart",
+        ),
+        "path_markers": (
+            "market",
+            "analysis",
+            "financial",
+            "renaissance",
+        ),
+        "canonical_paths": (
+            "consent-protocol/api/routes/kai/market_insights.py",
+            "hushh-webapp/components/kai/views/kai-market-preview-view.tsx",
+            "hushh-webapp/components/kai/cards/renaissance-market-list.tsx",
+            "docs/reference/kai/kai-accuracy-contract.md",
+            "docs/reference/kai/kai-change-impact-matrix.md",
+        ),
+        "summary": (
+            "Kai market or analysis changes overlap financial advice, accuracy, and "
+            "market-data presentation contracts. Review against the canonical Kai runtime."
+        ),
+    },
+    {
+        "id": "ria-marketplace-runtime",
+        "severity": "medium",
+        "keywords": (
+            "ria",
+            "advisor",
+            "marketplace",
+            "relationship",
+            "verification",
+        ),
+        "path_markers": (
+            "ria",
+            "marketplace",
+            "advisor",
+        ),
+        "canonical_paths": (
+            "consent-protocol/api/routes/ria.py",
+            "consent-protocol/hushh_mcp/services/ria_iam_service.py",
+            "hushh-webapp/app/marketplace/page.tsx",
+            "hushh-webapp/app/marketplace/ria/page-client.tsx",
+            "docs/reference/iam/marketplace-contract.md",
+        ),
+        "summary": (
+            "RIA/marketplace changes overlap verified advisor access, relationship "
+            "requests, and marketplace consent entry. Review against the existing flow."
+        ),
+    },
+)
 CONCEPT_RULES: tuple[dict[str, Any], ...] = (
     {
         "id": "parallel_decision_card_path",
@@ -246,6 +485,28 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "docs/reference/architecture/api-contracts.md",
         ),
     },
+    {
+        "id": "kai_voice_runtime",
+        "match_prefixes": (
+            "hushh-webapp/lib/voice/",
+            "hushh-webapp/components/kai/voice/",
+            "hushh-webapp/components/kai/kai-command-palette.tsx",
+            "consent-protocol/mcp_modules/tools/kai_tools.py",
+            "consent-protocol/hushh_mcp/services/voice_",
+            "consent-protocol/api/routes/kai/voice.py",
+        ),
+        "files": (
+            "hushh-webapp/lib/voice/voice-turn-orchestrator.ts",
+            "hushh-webapp/lib/voice/voice-action-dispatcher.ts",
+            "hushh-webapp/lib/voice/kai-action-gateway.ts",
+            "hushh-webapp/components/kai/voice/voice-console-sheet.tsx",
+            "consent-protocol/hushh_mcp/services/voice_intent_service.py",
+        ),
+        "docs": (
+            "docs/reference/kai/kai-action-gateway-vnext.md",
+            "docs/reference/kai/kai-voice-runtime-architecture.md",
+        ),
+    },
 )
 
 PATH_SUMMARIES: dict[str, str] = {
@@ -294,9 +555,18 @@ PATH_SUMMARIES: dict[str, str] = {
     "docs/reference/architecture/route-contracts.md": "Frontend route and navigation contract reference for product surfaces.",
     "docs/reference/architecture/pkm-storage-adr.md": "ADR describing PKM storage and canonical product-surface assumptions.",
     "docs/reference/architecture/pkm-cutover-runbook.md": "Runbook for PKM product migration and current ownership path.",
+    "consent-protocol/docs/reference/personal-knowledge-model.md": "Current PKM storage contract: encrypted blobs/manifests are authoritative and pkm_index is discovery-only metadata.",
+    "docs/reference/architecture/cache-coherence.md": "Frontend cache coherence contract for local write-through, encrypted device cache, and mutation invalidation.",
     "docs/reference/kai/kai-interconnection-map.md": "High-level Kai subsystem map including the canonical decision-card surface.",
     "docs/reference/kai/kai-change-impact-matrix.md": "Kai change-governance matrix describing decision-card and stream-contract impacts.",
     "docs/future/kai/email-kyc-pkm-assistant.md": "Superseded planning history for One-led KYC workflow and consent-scoped rollout.",
+    "hushh-webapp/lib/voice/voice-turn-orchestrator.ts": "Current frontend voice turn coordinator for realtime voice flow and action execution.",
+    "hushh-webapp/lib/voice/voice-action-dispatcher.ts": "Current action dispatcher that maps generated voice actions to UI/runtime handlers.",
+    "hushh-webapp/lib/voice/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for Kai voice actions.",
+    "hushh-webapp/components/kai/voice/voice-console-sheet.tsx": "Current voice console UI surface for realtime Kai voice interaction.",
+    "consent-protocol/hushh_mcp/services/voice_intent_service.py": "Backend voice intent mapping service that defines canonical voice action semantics.",
+    "docs/reference/kai/kai-action-gateway-vnext.md": "Canonical generated-action contract for Kai voice and typed action parity.",
+    "docs/reference/kai/kai-voice-runtime-architecture.md": "Runtime architecture for Kai voice, realtime flow, settlement, and action boundaries.",
 }
 
 
@@ -313,6 +583,55 @@ def _run(cmd: list[str]) -> str:
             break
         time.sleep(1.5 * (attempt + 1))
     raise RuntimeError(f"{' '.join(cmd)}: {last_message}")
+
+
+def _project_schematics() -> dict[str, Any]:
+    global PROJECT_SCHEMATICS
+    if PROJECT_SCHEMATICS is not None:
+        return PROJECT_SCHEMATICS
+    if not SCHEMATICS_SCRIPT_PATH.exists():
+        PROJECT_SCHEMATICS = {}
+        return PROJECT_SCHEMATICS
+    spec = importlib.util.spec_from_file_location(
+        "pr_governance_runtime_schematics",
+        SCHEMATICS_SCRIPT_PATH,
+    )
+    if spec is None or spec.loader is None:
+        PROJECT_SCHEMATICS = {}
+        return PROJECT_SCHEMATICS
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    PROJECT_SCHEMATICS = module.build_schematics()
+    return PROJECT_SCHEMATICS
+
+
+def _required_status_check() -> str:
+    ci = _project_schematics().get("ci")
+    if isinstance(ci, dict) and ci.get("required_status_check"):
+        return str(ci["required_status_check"])
+    return "CI Status Gate"
+
+
+def _schematics_summary() -> OrderedDict[str, Any]:
+    schematics = _project_schematics()
+    families = schematics.get("runtime_families", [])
+    return OrderedDict(
+        schema_version=schematics.get("schema_version", ""),
+        generated_at=schematics.get("generated_at", ""),
+        required_status_check=_required_status_check(),
+        runtime_family_count=len(families) if isinstance(families, list) else 0,
+        runtime_families=[
+            family.get("id")
+            for family in families
+            if isinstance(family, dict) and family.get("id")
+        ],
+        skills_count=(schematics.get("governance") or {}).get("skills_count", 0)
+        if isinstance(schematics.get("governance"), dict)
+        else 0,
+        workflows_count=(schematics.get("governance") or {}).get("workflows_count", 0)
+        if isinstance(schematics.get("governance"), dict)
+        else 0,
+    )
 
 
 def _gh_json(repo: str, pr: int, fields: list[str]) -> dict[str, Any]:
@@ -388,10 +707,12 @@ def _contract_set(files: list[str], patch_map: dict[str, str]) -> str:
         return "account-export"
     if any(path.endswith("error-sanitizer.ts") for path in files):
         return "frontend-error-safety"
-    if any(path.startswith("consent-protocol/api/routes/kai/") for path in files):
-        return "kai-route"
     if any("voice" in path for path in files):
         return "voice"
+    if any(path.startswith("consent-protocol/api/routes/kai/") for path in files):
+        if "voice" in patch_text.lower() or "action_id" in patch_text.lower():
+            return "voice"
+        return "kai-route"
     if any("pkm" in path.lower() or "personal-knowledge-model" in path for path in files):
         return "pkm-privacy"
     if any(path.startswith("hushh-webapp/") for path in files):
@@ -626,6 +947,137 @@ def _account_export_schema_mismatches(patch_map: dict[str, str]) -> list[dict[st
     return mismatches
 
 
+def _pkm_projection_authority_boundary_missing(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> bool:
+    patch_text = "\n".join(patch_map.values()).lower()
+    changed = set(files)
+    touches_projection = (
+        "merge_pkm_domain_summary" in patch_text
+        or (
+            "pkm_index" in patch_text
+            and (
+                "domain_summaries" in patch_text
+                or "summary_projection" in patch_text
+                or "available_domains" in patch_text
+            )
+        )
+        or any(path == "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py" for path in files)
+    )
+    if not touches_projection:
+        return False
+    if not (
+        any(path.startswith("consent-protocol/db/") for path in files)
+        or "update_domain_summary" in patch_text
+        or "store_domain_data" in patch_text
+    ):
+        return False
+
+    proof_paths = {
+        "consent-protocol/docs/reference/personal-knowledge-model.md",
+        "docs/reference/architecture/cache-coherence.md",
+        "docs/reference/kai/kai-interconnection-map.md",
+        "hushh-webapp/lib/cache/cache-sync-service.ts",
+        "hushh-webapp/lib/pkm/pkm-domain-resource.ts",
+        "hushh-webapp/__tests__/services/cache-sync-mutation-cascade.test.ts",
+        "hushh-webapp/__tests__/services/pkm-cache.test.ts",
+    }
+    if changed & proof_paths:
+        return False
+
+    boundary_terms = (
+        "discovery-only",
+        "discovery only",
+        "cloud projection",
+        "projection only",
+        "not authoritative",
+        "not the source of truth",
+        "on-device",
+        "local-first",
+        "device cache",
+        "cachesyncservice",
+        "pkmdomainresource",
+        "manifests are authoritative",
+        "pkm manifests",
+    )
+    return not any(term in patch_text for term in boundary_terms)
+
+
+def _commercial_consent_gate_missing_db_backed_validation(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> bool:
+    if "consent-protocol/hushh_mcp/consent/token.py" not in files:
+        return False
+
+    section = patch_map.get("consent-protocol/hushh_mcp/consent/token.py", "")
+    normalized = section.lower()
+    if "commercial" not in normalized or "require_commercial" not in normalized:
+        return False
+
+    db_signature = re.search(
+        r"async\s+def\s+validate_token_with_db\s*\([^)]*require_commercial",
+        section,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    db_forward = re.search(
+        r"validate_token\s*\([^)]*require_commercial\s*=",
+        section,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return not (db_signature and db_forward)
+
+
+def _mock_consent_history_on_trust_surface(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> bool:
+    patch_text = "\n".join(patch_map.values())
+    normalized = patch_text.lower()
+    changed = set(files)
+    consent_ui_added = any(
+        path.startswith("hushh-webapp/src/components/privacy/")
+        or path.startswith("hushh-webapp/components/privacy/")
+        or path.startswith("hushh-webapp/components/consent/")
+        for path in files
+    )
+    if not consent_ui_added:
+        return False
+
+    hardcoded_data_file = any(
+        path.endswith("consentEvents.ts") or path.endswith("consent-events.ts")
+        for path in files
+    )
+    hardcoded_event_terms = (
+        "portfolio valuation access",
+        "analytics scope",
+        "export permission",
+        "third-party data access",
+        "today,",
+        "yesterday,",
+        "consentevents",
+    )
+    hardcoded_history = hardcoded_data_file or any(term in normalized for term in hardcoded_event_terms)
+    if not hardcoded_history:
+        return False
+
+    existing_history_paths = {
+        "hushh-webapp/lib/services/api-service.ts",
+        "hushh-webapp/lib/services/consent-center-service.ts",
+        "hushh-webapp/components/consent/consent-center-page.tsx",
+        "hushh-webapp/app/api/consent/history/route.ts",
+        "consent-protocol/api/routes/consent.py",
+        "consent-protocol/hushh_mcp/services/consent_center_service.py",
+    }
+    production_route_touch = (
+        "hushh-webapp/app/kai/page.tsx" in changed
+        or "hushh-webapp/app/consents/page.tsx" in changed
+        or "hushh-webapp/components/consent/consent-center-page.tsx" in changed
+    )
+    return production_route_touch and not (changed & existing_history_paths)
+
+
 def _gh_diff_name_only(repo: str, pr: int) -> list[str]:
     output = _run(["gh", "pr", "diff", str(pr), "--repo", repo, "--name-only"])
     return [line.strip() for line in output.splitlines() if line.strip()]
@@ -646,6 +1098,19 @@ def _git_show_origin_main(path: str) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout
+
+
+def _git_grep_origin_main(pattern: str) -> list[str]:
+    completed = subprocess.run(
+        ["git", "grep", "-n", pattern, "origin/main", "--", "hushh-webapp"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
+    if completed.returncode not in (0, 1):
+        return []
+    return [line for line in completed.stdout.splitlines() if line.strip()]
 
 
 def _iso_or_empty(value: str | None) -> str:
@@ -790,6 +1255,263 @@ def _has_test_or_doc_change(files: list[str]) -> bool:
     )
 
 
+def _pascal_from_component_path(path: str) -> str:
+    stem = Path(path).stem
+    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[-_]+", stem) if part)
+
+
+def _frontend_component_reachability_findings(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    changed_set = set(files)
+    for path in files:
+        if not (
+            path.startswith("hushh-webapp/components/")
+            and path.endswith((".tsx", ".ts"))
+            and "/__tests__/" not in path
+        ):
+            continue
+        component_name = _pascal_from_component_path(path)
+        if not component_name:
+            continue
+        import_token = path
+        if import_token.startswith("hushh-webapp/"):
+            import_token = f"@/{import_token[len('hushh-webapp/'):]}"
+        import_token = import_token.rsplit(".", 1)[0]
+        basename_token = Path(path).stem
+
+        other_changed_refs = [
+            changed_path
+            for changed_path, section in patch_map.items()
+            if changed_path != path
+            and (
+                component_name in section
+                or import_token in section
+                or basename_token in section
+            )
+        ]
+        origin_refs = [
+            line
+            for token in (component_name, import_token, basename_token)
+            for line in _git_grep_origin_main(token)
+            if f":{path}:" not in line
+        ]
+        if other_changed_refs or origin_refs:
+            continue
+
+        if any(
+            candidate.startswith("hushh-webapp/__tests__/")
+            and component_name in patch_map.get(candidate, "")
+            for candidate in changed_set
+        ):
+            continue
+
+        findings.append(
+            {
+                "id": "frontend_component_without_reachable_caller",
+                "severity": "medium",
+                "summary": (
+                    "Frontend component changed without a reachable app, route, or caller import. "
+                    "Do not treat this as a live app improvement until the PR proves where the "
+                    "component renders or narrows the claim to component-level hygiene."
+                ),
+                "files": [path],
+            }
+        )
+    return findings
+
+
+def _kai_finance_action_language_findings(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    finance_surface = any(
+        path.startswith("hushh-webapp/components/kai/")
+        or path.startswith("hushh-webapp/app/kai/")
+        or path.startswith("hushh-webapp/lib/services/")
+        or path.startswith("marketing/")
+        for path in files
+    )
+    if not finance_surface:
+        return []
+
+    added_lines: list[str] = []
+    removed_lines: set[str] = set()
+    for path, section in patch_map.items():
+        if path.startswith("hushh-webapp/__tests__/"):
+            continue
+        for line in section.splitlines():
+            if line.startswith("+++") or line.startswith("---"):
+                continue
+            if line.startswith("+"):
+                added_lines.append(line[1:])
+            elif line.startswith("-"):
+                removed_lines.add(line[1:])
+    added_text = "\n".join(line for line in added_lines if line not in removed_lines)
+    risky_patterns = (
+        r"\bdo not buy\b",
+        r"\brated a buy\b",
+        r"\bbefore adding\b",
+        r"\bhigher returns\b",
+        r"\bfaster growth\b",
+        r"return\s+['\"]buy['\"]",
+        r"return\s+['\"]sell['\"]",
+    )
+    if not any(re.search(pattern, added_text, flags=re.IGNORECASE) for pattern in risky_patterns):
+        return []
+
+    return [
+        {
+            "id": "kai_finance_direct_action_language_requires_review",
+            "severity": "medium",
+            "summary": (
+                "Kai finance UI or content introduces direct trading-action language. "
+                "User-facing market surfaces should present signals, evidence, confidence, "
+                "and uncertainty, not personalized buy/sell instructions or return promises."
+            ),
+            "files": [
+                path
+                for path in files
+                if path.startswith("hushh-webapp/components/kai/")
+                or path.startswith("hushh-webapp/app/kai/")
+                or path.startswith("marketing/")
+            ]
+            or files,
+        }
+    ]
+
+
+def _kai_finance_runtime_llm_findings(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    kai_runtime_files = [
+        path
+        for path in files
+        if path.startswith("consent-protocol/hushh_mcp/agents/kai/")
+        or path.startswith("consent-protocol/hushh_mcp/operons/kai/")
+        or path.startswith("consent-protocol/api/routes/kai/")
+    ]
+    if not kai_runtime_files:
+        return findings
+
+    added_lines: list[str] = []
+    for path in kai_runtime_files:
+        for line in patch_map.get(path, "").splitlines():
+            if line.startswith("+") and not line.startswith("+++"):
+                added_lines.append(line[1:])
+    added_text = "\n".join(added_lines)
+    if not added_text:
+        return findings
+
+    adds_llm_call = any(
+        marker in added_text
+        for marker in (
+            "stream_gemini_response",
+            ".run(",
+            "generate_content",
+            "llm",
+            "LLM",
+        )
+    )
+    adds_timeout_mediation = "asyncio.wait_for" in added_text or "timeout=" in added_text
+    changes_consensus = any(
+        marker in added_text
+        for marker in (
+            "_build_consensus",
+            "_resolve_conflict",
+            "confidence +=",
+            "dissenting_opinions.append",
+        )
+    )
+    if adds_llm_call and (adds_timeout_mediation or changes_consensus):
+        findings.append(
+            {
+                "id": "kai_finance_extra_llm_call_requires_review",
+                "severity": "high",
+                "summary": (
+                    "Kai finance runtime adds a new LLM call or mediator path inside analysis, "
+                    "consensus, or route execution. This can change latency, rate-limit behavior, "
+                    "and financial decision semantics, so it requires explicit runtime review before merge."
+                ),
+                "files": kai_runtime_files,
+            }
+        )
+    return findings
+
+
+def _new_agent_runtime_boundary_findings(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    agent_files = [
+        path
+        for path in files
+        if path.startswith("consent-protocol/hushh_mcp/agents/")
+        and path.endswith((".py", ".yaml"))
+        and "/tests/" not in path
+        and (_git_show_origin_main(path) is None or "new file mode" in patch_map.get(path, ""))
+    ]
+    if not agent_files:
+        return []
+
+    patch_text = "\n".join(patch_map.get(path, "") for path in agent_files)
+    creates_agent = any(
+        marker in patch_text
+        for marker in (
+            "class ",
+            "HushhAgent",
+            "agent_id",
+            "system_prompt",
+            "agent.yaml",
+        )
+    )
+    if not creates_agent:
+        return []
+
+    non_test_files = [path for path in files if not path.startswith("consent-protocol/tests/")]
+    integration_files = [
+        path
+        for path in non_test_files
+        if path.startswith("consent-protocol/api/routes/")
+        or path.startswith("consent-protocol/hushh_mcp/services/")
+        or path.startswith("consent-protocol/hushh_mcp/adk_bridge/")
+        or path.startswith("consent-protocol/hushh_mcp/agents/one/")
+        or path.startswith("hushh-webapp/")
+        or path.startswith("docs/")
+        or path.startswith("consent-protocol/docs/")
+    ]
+    if integration_files:
+        return []
+
+    finding_id = "new_agent_without_runtime_wiring"
+    summary = (
+        "PR adds a new backend agent but does not wire it into a canonical route, "
+        "service, planner, manifest, docs contract, or current product flow. Treat this "
+        "as a deeper architecture review, not a green-gate merge."
+    )
+    severity = "high"
+    if "pkm" in patch_text.lower() or "summary" in patch_text.lower() or ".run(" in patch_text:
+        finding_id = "pkm_agent_llm_boundary_without_runtime_contract"
+        summary = (
+            "PR adds a PKM/memory-facing agent with an LLM boundary but does not prove how "
+            "it preserves the on-device-first PKM authority, consent scope, cache coherence, "
+            "or canonical service integration."
+        )
+
+    return [
+        {
+            "id": finding_id,
+            "severity": severity,
+            "summary": summary,
+            "files": agent_files,
+        }
+    ]
+
+
 def _db_migration_files(files: list[str]) -> list[str]:
     return sorted(
         path
@@ -801,6 +1523,182 @@ def _db_migration_files(files: list[str]) -> list[str]:
 
 def _db_contract_files(files: list[str]) -> list[str]:
     return sorted(path for path in files if path in DB_CONTRACT_FILES)
+
+
+def _sql_migration_patch_changes_runtime(section: str) -> bool:
+    """Return true when a migration diff changes SQL, not only comments."""
+    for line in section.splitlines():
+        if not line.startswith(("+", "-")):
+            continue
+        if line.startswith(("+++", "---")):
+            continue
+        content = line[1:].strip()
+        if not content:
+            continue
+        if content.startswith("--"):
+            continue
+        return True
+    return False
+
+
+def _path_touches_capability(path: str, markers: tuple[str, ...]) -> bool:
+    lowered = path.lower()
+    for root in ("consent-protocol/", "hushh-webapp/"):
+        if lowered.startswith(root):
+            lowered = lowered[len(root):]
+            break
+    tokens = set(re.split(r"[^a-z0-9]+", lowered))
+    return any(marker in tokens or f"/{marker}/" in lowered for marker in markers)
+
+
+def _text_contains_capability_keyword(text: str, keyword: str) -> bool:
+    escaped = re.escape(keyword.lower())
+    if re.search(r"\W", keyword):
+        return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
+    return re.search(rf"\b{escaped}\b", text) is not None
+
+
+def _runtime_family_paths(family: dict[str, Any]) -> tuple[str, ...]:
+    paths: list[str] = []
+    for key in (
+        "source_contracts",
+        "generated_artifacts",
+        "runtime_sources",
+        "route_sources",
+        "owned_paths",
+        "checked_schema_contracts",
+        "docs",
+    ):
+        value = family.get(key)
+        if isinstance(value, list):
+            paths.extend(path for path in value if isinstance(path, str))
+    return tuple(dict.fromkeys(paths))
+
+
+def _schematic_capability_baselines() -> tuple[dict[str, Any], ...]:
+    schematics = _project_schematics()
+    families = schematics.get("runtime_families", [])
+    if not isinstance(families, list):
+        return CANONICAL_CAPABILITY_BASELINES
+
+    keyword_markers: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
+        "voice-action-runtime": (
+            ("voice", "speechrecognition", "dictation", "microphone", "mcp tool", "action_id"),
+            ("voice", "kai-command-palette", "mcp_modules/tools"),
+            "Voice capability overlaps the current generated action gateway, realtime orchestrator, dispatcher, and voice console. Treat it as an integration review, not an isolated new feature.",
+        ),
+        "pkm-vault-runtime": (
+            ("pkm", "personal knowledge", "vault", "memory", "domain summary", "encrypted"),
+            ("pkm", "personal-knowledge-model", "vault"),
+            "PKM/vault/memory changes overlap encrypted storage, metadata projection, and vault-gated frontend state. Review against the repo-derived PKM runtime.",
+        ),
+        "consent-iam-runtime": (
+            ("consent", "scope", "vault_owner", "permission", "commercial", "token"),
+            ("consent", "scope", "iam"),
+            "Consent/IAM changes overlap signed token semantics, scope bundles, and relationship access rules. Review against the repo-derived trust boundary.",
+        ),
+        "route-shell-onboarding-runtime": (
+            ("onboarding", "route", "navigation", "persona", "vault guard", "protected route", "playwright", "page.goto", "router.push"),
+            ("onboarding", "route-map", "proxy", "playwright"),
+            "Route shell or onboarding changes overlap protected-route state, persona switching, vault/phone guards, route-map observability, and sequential browser navigation.",
+        ),
+        "kai-finance-runtime": (
+            ("market", "stock", "ticker", "analysis", "buy", "sell", "not-buy", "financial chart"),
+            ("market", "analysis", "financial", "renaissance"),
+            "Kai market or analysis changes overlap financial advice, accuracy, and market-data presentation contracts. Review against the repo-derived Kai runtime.",
+        ),
+        "backend-api-contract-runtime": (
+            ("api", "route", "proxy", "response", "request", "http"),
+            ("api", "routes", "services"),
+            "Backend API changes overlap route, service, and caller contracts. Review against the repo-derived backend API contract surface.",
+        ),
+        "db-release-contract": (
+            ("migration", "schema", "table", "column", "index", "uat", "release"),
+            ("db", "migrations", "contracts"),
+            "DB changes overlap migration ordering, checked schema contracts, and live runtime readiness.",
+        ),
+    }
+    rules: list[dict[str, Any]] = []
+    for family in families:
+        if not isinstance(family, dict):
+            continue
+        family_id = str(family.get("id") or "")
+        if family_id not in keyword_markers:
+            continue
+        keywords, markers, summary = keyword_markers[family_id]
+        canonical_paths = _runtime_family_paths(family)
+        if not canonical_paths:
+            continue
+        rules.append(
+            {
+                "id": family_id,
+                "severity": "medium",
+                "keywords": keywords,
+                "path_markers": markers,
+                "canonical_paths": canonical_paths,
+                "summary": summary,
+            }
+        )
+    return tuple(rules) if rules else CANONICAL_CAPABILITY_BASELINES
+
+
+def _existing_capability_overlap_findings(
+    files: list[str],
+    patch_text: str,
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    lowered_patch = patch_text.lower()
+    changed_set = set(files)
+
+    for rule in _schematic_capability_baselines():
+        keywords = tuple(rule["keywords"])
+        path_markers = tuple(rule["path_markers"])
+        canonical_paths = tuple(rule["canonical_paths"])
+        keyword_match = any(
+            _text_contains_capability_keyword(lowered_patch, keyword)
+            for keyword in keywords
+        )
+        path_match = any(_path_touches_capability(path, path_markers) for path in files)
+        if rule["id"] != "voice-runtime" and not path_match:
+            continue
+        if not keyword_match and not path_match:
+            continue
+
+        existing_canonical = [
+            path
+            for path in canonical_paths
+            if _path_exists(path) or _git_show_origin_main(path) is not None
+        ]
+        if not existing_canonical:
+            continue
+
+        touched_canonical = sorted(changed_set & set(existing_canonical))
+        if touched_canonical:
+            continue
+
+        related_changed = sorted(
+            path
+            for path in files
+            if _path_touches_capability(path, path_markers)
+            or any(
+                _text_contains_capability_keyword(path.lower().replace("-", " "), keyword)
+                for keyword in keywords
+            )
+        )
+        findings.append(
+            {
+                "id": "existing_capability_overlap_requires_review",
+                "severity": rule["severity"],
+                "summary": rule["summary"],
+                "files": related_changed or files,
+                "details": {
+                    "capability": rule["id"],
+                    "canonical_paths": existing_canonical[:5],
+                },
+            }
+        )
+
+    return findings
 
 
 def _file_patch_map(patch: str) -> dict[str, str]:
@@ -846,10 +1744,21 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
             }
         )
 
+    findings.extend(_frontend_component_reachability_findings(files, patch_map))
+    findings.extend(_kai_finance_action_language_findings(files, patch_map))
+    findings.extend(_kai_finance_runtime_llm_findings(files, patch_map))
+    findings.extend(_new_agent_runtime_boundary_findings(files, patch_map))
+    findings.extend(_existing_capability_overlap_findings(files, patch_text))
+
     migration_files = _db_migration_files(files)
+    runtime_migration_files = [
+        path
+        for path in migration_files
+        if _sql_migration_patch_changes_runtime(patch_map.get(path, ""))
+    ]
     contract_files = _db_contract_files(files)
     release_manifest_changed = DB_RELEASE_MANIFEST_FILE in files
-    if migration_files:
+    if runtime_migration_files:
         if not release_manifest_changed:
             findings.append(
                 {
@@ -859,7 +1768,7 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                         "DB migration files changed without updating the release migration "
                         "manifest, so UAT/prod operators may not apply the migration in order."
                     ),
-                    "files": migration_files,
+                    "files": runtime_migration_files,
                 }
             )
         if not contract_files:
@@ -871,10 +1780,10 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                         "DB migration files changed without a checked-in schema contract update; "
                         "verify whether the migration changes live UAT/prod contract shape."
                     ),
-                    "files": migration_files,
+                    "files": runtime_migration_files,
                 }
             )
-    if contract_files and not migration_files:
+    if contract_files and not runtime_migration_files:
         findings.append(
             {
                 "id": "db_contract_without_matching_migration",
@@ -883,6 +1792,80 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                     "DB schema contract files changed without a matching SQL migration in the PR."
                 ),
                 "files": contract_files,
+            }
+        )
+    if _pkm_projection_authority_boundary_missing(files, patch_map):
+        findings.append(
+            {
+                "id": "pkm_cloud_projection_authority_boundary_requires_review",
+                "severity": "medium",
+                "summary": (
+                    "PKM index/domain-summary projection changed without proving the on-device "
+                    "and local-cache authority boundary. `pkm_index` must remain discovery-only "
+                    "cloud metadata; encrypted domain data, manifests, and local write-through "
+                    "cache stay authoritative for user memory."
+                ),
+                "files": [
+                    path
+                    for path in files
+                    if path.startswith("consent-protocol/db/")
+                    or path == "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py"
+                    or path in {
+                        "consent-protocol/docs/reference/personal-knowledge-model.md",
+                        "docs/reference/architecture/cache-coherence.md",
+                        "hushh-webapp/lib/cache/cache-sync-service.ts",
+                        "hushh-webapp/lib/pkm/pkm-domain-resource.ts",
+                    }
+                ]
+                or files,
+                "details": {
+                    "required_boundary": (
+                        "Cloud summary/index writes are sync projections only. Local encrypted "
+                        "domain data, manifests, mutation events, and cache write-through remain "
+                        "the user-memory authority."
+                    )
+                },
+            }
+        )
+
+    if _commercial_consent_gate_missing_db_backed_validation(files, patch_map):
+        findings.append(
+            {
+                "id": "commercial_consent_gate_missing_db_backed_validation",
+                "severity": "medium",
+                "summary": (
+                    "Commercial consent-token gating was added only to the in-memory validator. "
+                    "Critical runtime paths now use DB-backed revocation validation, so "
+                    "`validate_token_with_db` must accept and forward `require_commercial` before "
+                    "commercial enforcement is actually usable."
+                ),
+                "files": ["consent-protocol/hushh_mcp/consent/token.py"],
+            }
+        )
+
+    if _mock_consent_history_on_trust_surface(files, patch_map):
+        findings.append(
+            {
+                "id": "mock_consent_history_on_trust_surface",
+                "severity": "medium",
+                "summary": (
+                    "Consent audit UI adds hardcoded consent events to a production trust surface. "
+                    "Consent history must come from the canonical consent-center/history contract "
+                    "or render an honest empty/loading state; fake grants, revokes, actors, or "
+                    "timestamps cannot ship on authenticated app routes."
+                ),
+                "files": [
+                    path
+                    for path in files
+                    if path.startswith("hushh-webapp/src/components/privacy/")
+                    or path.startswith("hushh-webapp/components/privacy/")
+                    or path.endswith("consentEvents.ts")
+                    or path in {
+                        "hushh-webapp/app/kai/page.tsx",
+                        "hushh-webapp/app/consents/page.tsx",
+                    }
+                ]
+                or files,
             }
         )
 
@@ -1045,6 +2028,120 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                 }
             )
 
+    if contract_set == "voice":
+        voice_text = patch_text.lower()
+        if (
+            (
+                "hushh-webapp/components/kai/kai-command-palette.tsx" in files
+                or any(path.endswith("use-voice-dictation.ts") for path in files)
+            )
+            and (
+                "speechrecognition" in voice_text
+                or "webkitspeechrecognition" in voice_text
+                or "dictation" in voice_text
+            )
+            and _path_exists("hushh-webapp/lib/voice/voice-turn-orchestrator.ts")
+            and _path_exists("hushh-webapp/components/kai/voice/voice-console-sheet.tsx")
+        ):
+            findings.append(
+                {
+                    "id": "parallel_voice_input_surface",
+                    "severity": "medium",
+                    "summary": (
+                        "PR adds browser SpeechRecognition/dictation beside the existing Kai voice "
+                        "runtime; verify it is an intentional fallback integrated with current voice "
+                        "state, action parity, and permission UX rather than a parallel voice path."
+                    ),
+                    "files": [
+                        path
+                        for path in files
+                        if path == "hushh-webapp/components/kai/kai-command-palette.tsx"
+                        or path.endswith("use-voice-dictation.ts")
+                    ],
+                }
+            )
+
+        introduces_tool_handlers = any(
+            path in {
+                "consent-protocol/mcp_modules/tools/kai_tools.py",
+                "consent-protocol/mcp_modules/tools/definitions.py",
+                "consent-protocol/mcp_server.py",
+            }
+            for path in files
+        )
+        updates_generated_voice_contract = any(
+            path.endswith(".voice-action-contract.json")
+            or path.startswith("contracts/kai/")
+            or path.startswith("hushh-webapp/contracts/kai/")
+            for path in files
+        )
+        if introduces_tool_handlers and "action_id" in voice_text and not updates_generated_voice_contract:
+            findings.append(
+                {
+                    "id": "voice_tool_contract_bypass",
+                    "severity": "high",
+                    "summary": (
+                        "PR adds backend voice/MCP tool action IDs without updating the local "
+                        "voice-action contracts or generated gateway that are the current semantic "
+                        "authority."
+                    ),
+                    "files": [
+                        path
+                        for path in files
+                        if path.startswith("consent-protocol/mcp_modules/tools/")
+                        or path == "consent-protocol/mcp_server.py"
+                    ],
+                }
+            )
+
+        if re.search(r"action[_-]?id[^\n]*['\"]nav\.", patch_text, flags=re.IGNORECASE):
+            findings.append(
+                {
+                    "id": "voice_navigation_namespace_drift",
+                    "severity": "high",
+                    "summary": (
+                        "Voice action IDs use `nav.*` for ordinary route navigation; current "
+                        "voice governance reserves `nav.*` for Nav privacy/consent guardian "
+                        "actions and uses `route.*` for routing."
+                    ),
+                    "files": [
+                        path
+                        for path, section in patch_map.items()
+                        if re.search(
+                            r"action[_-]?id[^\n]*['\"]nav\.",
+                            section,
+                            flags=re.IGNORECASE,
+                        )
+                    ],
+                }
+            )
+
+        identity_runtime_files = {
+            "consent-protocol/hushh_mcp/services/voice_app_knowledge.py",
+            "consent-protocol/hushh_mcp/agents/kai/agent.yaml",
+            "consent-protocol/hushh_mcp/agents/one/agent.yaml",
+            "consent-protocol/hushh_mcp/agents/one/manifest.py",
+        }
+        changed_file_set = set(files)
+        if changed_file_set & identity_runtime_files and (
+            "one is the top personal agent" in voice_text
+            or "app_name" in voice_text and "one" in voice_text
+            or "kai is the app" in voice_text
+        ):
+            findings.append(
+                {
+                    "id": "one_kai_runtime_identity_boundary_requires_review",
+                    "severity": "medium",
+                    "summary": (
+                        "PR changes One/Kai runtime identity language on a voice or agent surface. "
+                        "Verify current-state wording against the canonical ontology so One is not "
+                        "claimed as fully shipped where the runtime remains Kai-first, and Kai is not "
+                        "treated as the full platform identity."
+                    ),
+                    "files": sorted(changed_file_set & identity_runtime_files),
+                }
+            )
+
     if _has_sensitive_runtime_change(files) and not _has_test_or_doc_change(files):
         findings.append(
             {
@@ -1116,6 +2213,7 @@ def _adds_parallel_voice_input_surface(files: list[str], patch_text: str) -> boo
 
 def _recommend_merge_lane(
     ci_status_gate: str,
+    review_decision: str,
     findings: list[dict[str, Any]],
     surface_tags: list[str],
     changed_files: list[str],
@@ -1127,6 +2225,18 @@ def _recommend_merge_lane(
             next_steps=[
                 "Wait for the current head SHA to reach a green `CI Status Gate` before deciding merge readiness.",
                 "Review only the current head SHA after the gate is terminal.",
+            ],
+        )
+    if review_decision == "CHANGES_REQUESTED":
+        return OrderedDict(
+            lane="block",
+            rationale=(
+                "Current GitHub review decision is CHANGES_REQUESTED on the reviewed head SHA. "
+                "A green gate cannot override unresolved reviewer authority."
+            ),
+            next_steps=[
+                "Inspect the active requested-changes review and resolve it before merge.",
+                "Only reclassify after the review state changes on the current head SHA.",
             ],
         )
 
@@ -1327,6 +2437,10 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         "",
         f"- PR: {pr['url']}",
         f"- Author/head: `{pr['author']}` / `{pr['head_sha'][:8]}` on `{pr['head_ref']}` -> `{pr['base_ref']}`",
+        f"- Draft: `{str(bool(pr.get('is_draft'))).lower()}`",
+        f"- Mergeability: `{pr['mergeable']}` / `{pr['merge_state_status']}`",
+        f"- Review decision: `{pr.get('review_decision') or 'none'}`",
+        f"- Required gate: `{report.get('current_ci_status_gate') or 'UNKNOWN'}`",
         f"- Contract/lane: `{report['contract_set']}` / `{report['lane']}`",
         f"- Lean/core risk: `{_lean_core_risk(report)}`",
         f"- Size/surfaces: `+{pr['additions']}` / `-{pr['deletions']}` across `{pr['changed_files_count']}` files; tags `{', '.join(report['surface_tags']) or 'none'}`",
@@ -1341,6 +2455,62 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
     ]
     if reason and reason != report["decision"]["rationale"]:
         lines.append(f"- Patch/close reason: {reason}")
+    return lines
+
+
+def _is_actionable_live_candidate(report: dict[str, Any]) -> bool:
+    pr = report["pr"]
+    if report["lane"] in {"harvest_then_close", "close_duplicate"}:
+        return True
+    if pr.get("is_draft"):
+        return False
+    if pr.get("review_decision") == "CHANGES_REQUESTED":
+        return False
+    if pr.get("mergeable") not in {"MERGEABLE", "UNKNOWN"}:
+        return False
+    return report["lane"] in {"merge_now", "patch_then_merge", "harvest_then_close", "close_duplicate"}
+
+
+def _live_actionable_queue_lines(reports: list[dict[str, Any]]) -> list[str]:
+    actionable = [report for report in reports if _is_actionable_live_candidate(report)]
+    lines: list[str] = [
+        "## Actionable Next Queue",
+        "",
+        "This queue separates mergeable work from duplicate/harvest-close work. Merge candidates still require non-draft, green-gate, non-conflicting state; close/harvest actions can be actionable when duplicate proof is already present.",
+        "",
+    ]
+    if not actionable:
+        lines.append("- No open PR is currently actionable without contributor rework, CI/DCO repair, conflict resolution, draft promotion, or a maintainer decision to override an existing block.")
+        return lines
+
+    for report in actionable:
+        pr = report["pr"]
+        reason = report.get("patch_then_merge_reason") or report["decision"]["rationale"]
+        lines.append(
+            f"- [#{pr['number']}]({pr['url']}) - `{report['contract_set']}` / `{report['lane']}` / risk `{_lean_core_risk(report)}`: {reason}"
+        )
+    return lines
+
+
+def _blocked_live_register_lines(reports: list[dict[str, Any]]) -> list[str]:
+    blocked = [report for report in reports if not _is_actionable_live_candidate(report)]
+    lines: list[str] = [
+        "",
+        "## Blocked / Waiting Register",
+        "",
+        "These PRs remain live because they are open, but they should not be offered as the next fresh batch until the block changes.",
+        "",
+    ]
+    if not blocked:
+        lines.append("- none")
+        return lines
+    for report in blocked:
+        pr = report["pr"]
+        reason = report.get("patch_then_merge_reason") or report["decision"]["rationale"]
+        review = pr.get("review_decision") or "none"
+        lines.append(
+            f"- [#{pr['number']}]({pr['url']}) - review `{review}`, mergeable `{pr.get('mergeable')}`, lane `{report['lane']}`: {reason}"
+        )
     return lines
 
 
@@ -1502,6 +2672,29 @@ def _operator_batches(
         )
 
     batched_numbers = {number for batch in batches for number in batch["prs"]}
+    for report in sorted(reports, key=_report_sort_key):
+        if report["pr"]["number"] in batched_numbers:
+            continue
+        if report["lane"] not in {"harvest_then_close", "close_duplicate"}:
+            continue
+        pr_number = report["pr"]["number"]
+        batches.append(
+            OrderedDict(
+                title=f"Single-PR Closure: #{pr_number}",
+                prs=[pr_number],
+                preferred_pr=pr_number,
+                contract_sets=[report["contract_set"]],
+                lanes=OrderedDict([(f"#{pr_number}", report["lane"])]),
+                risks=OrderedDict([(f"#{pr_number}", _lean_core_risk(report))]),
+                intent="Close or harvest a PR whose current value is duplicate/superseded rather than mergeable runtime change.",
+                shared_files=[],
+                action="Compare for unique tests or observability, then close with the standard superseded/duplicate comment if no unique value remains.",
+                reason="The PR is actionable as a close/harvest decision even though it is not a merge candidate.",
+                confidence="medium",
+            )
+        )
+        batched_numbers.add(pr_number)
+
     narrow_contracts = {"pkm-privacy", "voice"}
     contract_groups: dict[str, list[dict[str, Any]]] = {}
     for report in reports:
@@ -1586,6 +2779,15 @@ def _text_report(report: dict[str, Any]) -> str:
         f"Size: +{pr['additions']} / -{pr['deletions']} across {pr['changed_files_count']} files"
     )
     lines.append(f"Mergeable: {pr['mergeable']} ({pr['merge_state_status']})")
+    lines.append(f"Review decision: {pr.get('review_decision') or 'none'}")
+    schematics = report.get("schematics") or {}
+    if schematics:
+        lines.append(
+            "Schematic provenance: "
+            f"{schematics.get('schema_version') or 'unknown'}; "
+            f"{schematics.get('runtime_family_count', 0)} runtime families; "
+            f"required check `{schematics.get('required_status_check') or 'CI Status Gate'}`"
+        )
     if pr.get("closed_issues"):
         lines.append(f"Issue linkage: {', '.join('#' + item for item in pr['closed_issues'])}")
     if pr.get("summary"):
@@ -1679,6 +2881,7 @@ def _append_finding(report: dict[str, Any], finding: dict[str, Any]) -> None:
 def _refresh_report_decision(report: dict[str, Any]) -> None:
     report["decision"] = _recommend_merge_lane(
         ci_status_gate=report["current_ci_status_gate"],
+        review_decision=report["pr"].get("review_decision", ""),
         findings=report["findings"],
         surface_tags=report["surface_tags"],
         changed_files=report["changed_files"],
@@ -1882,7 +3085,7 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _open_green_pr_numbers(repo: str, limit: int) -> list[int]:
+def _open_live_pr_numbers(repo: str, limit: int) -> list[int]:
     output = _run(
         [
             "gh",
@@ -1895,33 +3098,29 @@ def _open_green_pr_numbers(repo: str, limit: int) -> list[int]:
             "--limit",
             str(limit),
             "--json",
-            "number,statusCheckRollup,isDraft",
+            "number,isDraft",
         ]
     )
     rows = json.loads(output)
-    numbers: list[int] = []
-    for row in rows:
-        if row.get("isDraft"):
-            continue
-        current_checks = _current_checks(row.get("statusCheckRollup", []))
-        ci_gate = next(
-            (
-                item.get("conclusion", "UNKNOWN")
-                for item in current_checks
-                if item.get("name") == "CI Status Gate"
-            ),
-            "MISSING",
-        )
-        if ci_gate == "SUCCESS":
-            numbers.append(int(row["number"]))
-    return numbers
+    return [int(row["number"]) for row in rows]
+
+
+def _report_gate_counts(reports: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for report in reports:
+        status = str(report.get("current_ci_status_gate") or "UNKNOWN")
+        counts[status] = counts.get(status, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _live_report_text(batch: dict[str, Any]) -> str:
     generated_at = batch["generated_at"]
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for report in batch["reports"]:
-        grouped.setdefault(report["contract_set"], []).append(report)
+    actionable_reports = [
+        report for report in batch["reports"] if _is_actionable_live_candidate(report)
+    ]
+    actionable_grouped: dict[str, list[dict[str, Any]]] = {}
+    for report in actionable_reports:
+        actionable_grouped.setdefault(report["contract_set"], []).append(report)
 
     lines: list[str] = [
         "# Temporary PR Governance Live Report",
@@ -1929,7 +3128,7 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "Status: live operational record",
         f"Last refreshed: {generated_at}",
         f"Repo: https://github.com/{batch['repo']}",
-        "Scope: open non-draft PRs where `CI Status Gate == SUCCESS` at refresh time",
+        "Scope: all open PRs at refresh time, including drafts",
         "",
         "This file is live-only. Merged and closed PRs belong in GitHub comments, final handoff notes, or a separate audit ledger.",
         "",
@@ -1937,6 +3136,8 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "",
         "- [Live Summary](#live-summary)",
         "- [Live Risk Matrix](#live-risk-matrix)",
+        "- [Actionable Next Queue](#actionable-next-queue)",
+        "- [Blocked / Waiting Register](#blocked--waiting-register)",
         "- [Recommended PR Sets](#recommended-pr-sets)",
         "- [Operator Batches](#operator-batches)",
         "- [Individual PR Assessments](#individual-pr-assessments)",
@@ -1955,7 +3156,9 @@ def _live_report_text(batch: dict[str, Any]) -> str:
             "",
             "## Live Summary",
             "",
-            f"- Current open green-gate PRs: {len(batch['prs'])}.",
+            f"- Current open PRs: {len(batch['prs'])}.",
+            f"- Required gate counts: `{json.dumps(_report_gate_counts(batch['reports']), sort_keys=True)}`.",
+            f"- Actionable fresh-batch candidates: {len(actionable_reports)}.",
             f"- Lane counts: `{json.dumps(batch['lane_counts'], sort_keys=True)}`.",
             "- Merge rule: green CI is intake only; merge requires contract-safe, non-duplicate, lean/core-aligned proof.",
             "",
@@ -1973,16 +3176,21 @@ def _live_report_text(batch: dict[str, Any]) -> str:
             f"`{_markdown_cell(report['contract_set'])}` | `{_markdown_cell(report['lane'])}` | "
             f"`{_markdown_cell(_lean_core_risk(report))}` | {_markdown_cell(reason)} |"
         )
+    lines.extend([""])
+    lines.extend(_live_actionable_queue_lines(batch["reports"]))
+    lines.extend(_blocked_live_register_lines(batch["reports"]))
     lines.extend(
         [
             "",
             "## Recommended PR Sets",
             "",
-            "Recommended sets are grouped by contract first, then annotated with lane and lean/core risk so batching starts from product/runtime coherence before author convenience.",
+            "Recommended sets are grouped from the Actionable Next Queue first, then by product/runtime contract. Blocked PRs stay in the waiting register and are not recommended as fresh batches.",
             "",
         ]
     )
-    for contract_set, reports in sorted(grouped.items()):
+    if not actionable_grouped:
+        lines.append("- none; every current open PR is blocked, failing checks, conflicting, draft-only, or waiting on contributor action.")
+    for contract_set, reports in sorted(actionable_grouped.items()):
         prs = ", ".join(f"#{report['pr']['number']}" for report in reports)
         lanes = ", ".join(
             f"#{report['pr']['number']}={report['lane']}" for report in reports
@@ -1996,11 +3204,17 @@ def _live_report_text(batch: dict[str, Any]) -> str:
             "",
             "## Operator Batches",
             "",
-            "Operator batches are the smaller execution groups derived from exact overlap, duplicate groups, or narrow adjacent contracts. Use these for actual merge/close planning; broad recommended sets remain intake buckets.",
+            "Operator batches are the smaller execution groups derived from exact overlap, duplicate groups, or narrow adjacent contracts among actionable candidates. Blocked PRs are excluded until their review state or branch state changes.",
             "",
         ]
     )
-    lines.extend(_operator_batch_lines(batch.get("operator_batches", [])))
+    actionable_numbers = {report["pr"]["number"] for report in actionable_reports}
+    actionable_overlaps = [
+        overlap
+        for overlap in batch.get("overlaps", [])
+        if set(overlap.get("pair", [])) <= actionable_numbers
+    ]
+    lines.extend(_operator_batch_lines(_operator_batches(actionable_reports, actionable_overlaps)))
     lines.extend(
         [
             "## Individual PR Assessments",
@@ -2030,7 +3244,7 @@ def _communication_markdown(report: dict[str, Any]) -> str:
     contract_title = report["contract_set"].replace("-", " ").title()
     findings = report["findings"]
     finding_ids = ", ".join(finding["id"] for finding in findings) if findings else "none"
-    proof = (
+    decision_basis = (
         f"Current head `{pr['head_sha'][:8]}` has CI Status Gate "
         f"`{report['current_ci_status_gate']}`."
     )
@@ -2046,8 +3260,8 @@ def _communication_markdown(report: dict[str, Any]) -> str:
                 "### Why This Is Safe",
                 "The required gate is green and the review did not find contract or governance regressions.",
                 "",
-                "### Proof",
-                proof,
+                "### Outcome",
+                "This keeps the merged surface aligned with Hussh runtime and trust-boundary expectations.",
             ]
         )
 
@@ -2065,8 +3279,8 @@ def _communication_markdown(report: dict[str, Any]) -> str:
                 "### Why This Path",
                 report["decision"]["rationale"],
                 "",
-                "### Proof",
-                proof,
+                "### Outcome",
+                "The maintainer path keeps the useful direction while avoiding a broader contract regression.",
             ]
         )
 
@@ -2092,8 +3306,8 @@ def _communication_markdown(report: dict[str, Any]) -> str:
                 "### What We Kept",
                 "The direction is valid, but only unique tests or observability value should be harvested into the canonical PR.",
                 "",
-                "### Proof",
-                proof,
+                "### Decision Basis",
+                decision_basis,
                 "",
                 "### Outcome",
                 "Closing this avoids two implementation paths for one product contract.",
@@ -2120,6 +3334,7 @@ def _communication_markdown(report: dict[str, Any]) -> str:
 
 
 def build_report(repo: str, pr: int) -> dict[str, Any]:
+    schematics = _schematics_summary()
     pr_view = _gh_json(
         repo,
         pr,
@@ -2131,6 +3346,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
             "headRefOid",
             "headRefName",
             "baseRefName",
+            "isDraft",
             "mergeable",
             "mergeStateStatus",
             "reviewDecision",
@@ -2146,13 +3362,15 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
     patch_map = _file_patch_map(patch)
     contract_set = _contract_set(files, patch_map)
     current_checks = _current_checks(pr_view.get("statusCheckRollup", []))
+    required_status_check = str(schematics.get("required_status_check") or "CI Status Gate")
     ci_status_gate = next(
-        (item.get("conclusion", "UNKNOWN") for item in current_checks if item.get("name") == "CI Status Gate"),
+        (item.get("conclusion", "UNKNOWN") for item in current_checks if item.get("name") == required_status_check),
         "MISSING",
     )
     report = OrderedDict(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         repo=repo,
+        schematics=schematics,
         pr=OrderedDict(
             number=pr_view["number"],
             title=pr_view["title"],
@@ -2163,6 +3381,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
             head_sha=pr_view["headRefOid"],
             head_ref=pr_view["headRefName"],
             base_ref=pr_view["baseRefName"],
+            is_draft=bool(pr_view.get("isDraft")),
             additions=pr_view.get("additions", 0),
             deletions=pr_view.get("deletions", 0),
             changed_files_count=pr_view.get("changedFiles", len(files)),
@@ -2212,6 +3431,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         )
     report["decision"] = _recommend_merge_lane(
         ci_status_gate=ci_status_gate,
+        review_decision=report["pr"].get("review_decision", ""),
         findings=report["findings"],
         surface_tags=report["surface_tags"],
         changed_files=files,
@@ -2231,7 +3451,7 @@ def main() -> int:
     parser.add_argument("--repo", default="hushh-labs/hushh-research")
     parser.add_argument("--pr", type=int)
     parser.add_argument("--prs", help="Comma-separated PR numbers for batch review.")
-    parser.add_argument("--live-report", action="store_true", help="Build a live-only report from current open green-gate PRs.")
+    parser.add_argument("--live-report", action="store_true", help="Build a live-only report from current open PRs, including drafts.")
     parser.add_argument("--limit", type=int, default=100, help="Open PR query limit for --live-report.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
@@ -2243,7 +3463,7 @@ def main() -> int:
 
     try:
         if args.live_report:
-            prs = _open_green_pr_numbers(args.repo, args.limit)
+            prs = _open_live_pr_numbers(args.repo, args.limit)
             report = build_batch_report(args.repo, prs) if prs else OrderedDict(
                 generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
                 repo=args.repo,

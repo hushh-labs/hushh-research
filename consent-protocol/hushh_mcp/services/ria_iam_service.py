@@ -198,9 +198,7 @@ class RIAIAMService:
         raw = str(os.getenv(name, fallback)).strip().lower()
         return raw in {"1", "true", "yes", "on"}
 
-    _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset(
-        {"active", "verified", "finra_verified"}
-    )
+    _RIA_VERIFIED_STATUSES: frozenset[str] = frozenset({"active", "verified", "finra_verified"})
 
     async def require_ria_verified(self, user_id: str) -> None:
         """Fail-closed check: raises 403 if the RIA is not verified.
@@ -822,7 +820,6 @@ class RIAIAMService:
                         investor_marketplace_opt_in=False,
                         iam_schema_ready=False,
                         mode="compat_investor",
-
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -847,7 +844,6 @@ class RIAIAMService:
                     investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
                     iam_schema_ready=True,
                     mode="full",
-
                 )
                 self._write_cached_persona_state(user_id, response)
                 return response
@@ -877,7 +873,6 @@ class RIAIAMService:
                         investor_marketplace_opt_in=False,
                         iam_schema_ready=False,
                         mode="compat_investor",
-
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -893,7 +888,6 @@ class RIAIAMService:
                         investor_marketplace_opt_in=bool(current["investor_marketplace_opt_in"]),
                         iam_schema_ready=True,
                         mode="full",
-    
                     )
                     self._write_cached_persona_state(user_id, response)
                     return response
@@ -924,7 +918,6 @@ class RIAIAMService:
                     investor_marketplace_opt_in=bool(row["investor_marketplace_opt_in"]),
                     iam_schema_ready=True,
                     mode="full",
-
                 )
                 self._write_cached_persona_state(user_id, response)
                 return response
@@ -2634,7 +2627,6 @@ class RIAIAMService:
                 return {
                     "exists": False,
                     "verification_status": "draft",
-
                 }
 
             latest_event = await conn.fetchrow(
@@ -5186,7 +5178,8 @@ class RIAIAMService:
         if not cfg.configured:
             error_message = (
                 "Kai invite email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_ADMIN_CREDENTIALS_JSON, plus SUPPORT_EMAIL_* variables."
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON / FIREBASE_SERVICE_ACCOUNT_JSON, plus "
+                "SUPPORT_EMAIL_* variables."
             )
             logger.warning("ria.invite_email.not_configured invite_id=%s", invite_id)
             created_item["delivery_status"] = "failed"

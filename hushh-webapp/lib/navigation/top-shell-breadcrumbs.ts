@@ -183,6 +183,18 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  if (pathname === ROUTES.ONE_KYC) {
+    return {
+      backHref: ROUTES.PROFILE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "KYC agent" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.MARKETPLACE_CONNECTIONS || pathname.startsWith(`${ROUTES.MARKETPLACE_CONNECTIONS}/`)) {
     const isPortfolio = pathname.includes("/portfolio");
     return {

@@ -888,12 +888,12 @@ _COMPAT_GLOBAL_CONCEPTS: dict[str, dict[str, Any]] = {
 }
 
 _KAI_VOICE_IDENTITY_CONTEXT: dict[str, Any] = {
-    "app_name": "One",
+    "app_name": "Kai",
     "assistant_role": "in_app_voice_interface",
     "role_summary": (
-        "One is the top personal agent and app-level relationship layer. Kai is the finance "
-        "specialist, Nav is the privacy and consent guardian, and KYC is the bounded identity "
-        "workflow specialist."
+        "Kai is the app-level voice runtime today for finance and investor workflows. One is "
+        "the approved top personal agent direction, Nav is the privacy and consent guardian, "
+        "and KYC is the bounded identity workflow specialist."
     ),
     "core_capabilities": [
         "explain current One and Kai screens and visible controls",

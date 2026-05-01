@@ -62,6 +62,7 @@ EXPECTED_WORKFLOW_IDS = [
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "data-model-audit",
     "github-contribution-governance",
     "pre-pr-readiness",
     "security-consent-audit",
@@ -559,7 +560,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             "contract_set",
             "duplicate_group",
             "public_comment_policy",
-            "`### Proof` is the only evidence heading for public GitHub comments",
+            "Do not include a separate successful-merge evidence section",
+            "### Why It Matters",
+            "Final handoffs for state-changing PR work must include direct links",
             "Green CI never overrides exact file overlap",
         ]
         for phrase in required_pr_phrases:
@@ -572,6 +575,8 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         script_text = pr_review_script.read_text(encoding="utf-8")
         forbidden_template_headings = [
             '"## Acknowledgment"',
+            '"### Merge Confidence"',
+            '"### Proof"',
             '"### Verification"',
             '"## Next"',
             '"### Next"',

@@ -163,3 +163,6 @@ The local lint tool checks for:
 10. orphaned meaningful repo surfaces
 11. workflow-pack owner/default-skill consistency
 12. workflow-pack routing, verification, and handoff completeness
+13. non-blocking context-size and modularity review advisories for oversized skills, docs, and code modules
+
+Context-size advisories are review triggers, not failures. They mean the next material edit should consider extracting a bounded reference, workflow playbook, doc, service, or component before adding more content. They do not require splitting working surfaces with passing checks.

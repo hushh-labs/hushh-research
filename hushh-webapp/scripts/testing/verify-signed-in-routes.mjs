@@ -61,6 +61,7 @@ const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
 const SAME_SESSION_SHELL_ROUTES = new Set([
   "/profile",
   "/profile/pkm-agent-lab",
+  "/one/kyc",
   "/ria",
   "/ria/clients",
   "/ria/clients/[userId]",
@@ -549,6 +550,11 @@ async function navigateViaShell(page, spec) {
     case "/profile/pkm-agent-lab":
       await clickBottomNav(page, "Profile");
       await page.getByRole("button", { name: /pkm agent lab/i }).click();
+      return true;
+    case "/one/kyc":
+      await clickBottomNav(page, "Profile");
+      await waitForRouteBeacon(page, ["/profile"]);
+      await page.getByRole("button", { name: /kyc agent/i }).click();
       return true;
     case "/consents":
       await clickBottomNav(page, "Profile");

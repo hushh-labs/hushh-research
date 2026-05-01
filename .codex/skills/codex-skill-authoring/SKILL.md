@@ -53,6 +53,8 @@ Non-owned surfaces:
 6. For licensing, onboarding, subtree, CI, or branch-governance skill changes, do a third check from the canonical repo entrypoint before calling the taxonomy stable.
 7. Keep blocking versus advisory skill drift explicit. Only owner/workflow drift that weakens runtime, deploy, release, or test authority should block the core loop; metadata-only drift should stay advisory.
 8. When PR governance comment templates change, enforce them through `skill_lint.py` so stale public-comment headings such as `Acknowledgment`, `Verification`, or maintainer-only `Next` do not re-enter generated templates.
+9. Keep recurring SOPs short in skills and route durable detail to canonical docs or workflow packs. Skills should point to `runtime-db-fact-sheet.md`, the data-plane contract, or a workflow playbook rather than duplicating long table inventories.
+10. Treat context-size findings from `./bin/hushh codex audit` as review-required advisories: extract durable detail before adding more SOP, but do not split a skill just because it crosses a line-count threshold.
 
 ## Handoff Rules
 
