@@ -102,7 +102,6 @@ export interface ConsentCenterResponse {
     primary_nav_persona: "investor" | "ria";
     ria_setup_available: boolean;
     ria_switch_available: boolean;
-    dev_ria_bypass_allowed: boolean;
     investor_marketplace_opt_in: boolean;
     iam_schema_ready: boolean;
     mode: "full" | "compat_investor";

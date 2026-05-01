@@ -7,8 +7,9 @@ import logging
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
+from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
@@ -42,13 +43,20 @@ async def issue_session_token(
         # Ensure request userId matches verified token
         if request.userId != verified_uid:
             logger.warning("session_token.user_mismatch")
-            raise HTTPException(status_code=403, detail="userId does not match authenticated user")
+            raise HTTPException(status_code=403, detail="userId mismatch")
 
         logger.info("session_token.firebase_verified")
 
+    except HTTPException:
+        raise  # keep original error
+
+    except ValueError as e:
+        logger.warning("session_token.invalid_token: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid token")
+
     except Exception as e:
-        logger.error("session_token.verification_failed: %s", e)
-        raise HTTPException(status_code=401, detail="Token verification failed")
+        logger.error("session_token.internal_error: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     try:
         # Issue token with session scope
@@ -104,27 +112,17 @@ async def get_consent_history(
     userId: str,
     page: int = 1,
     limit: int = 50,
-    authorization: str = Header(..., description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """
     Get paginated consent audit history for a user.
 
-    REQUIRES: VAULT_OWNER consent token.
+    REQUIRES: VAULT_OWNER consent token (via Authorization header).
     Returns all consent actions grouped by app for the Audit Log tab.
     Uses database via consent_db module for persistence.
     """
-    # Validate VAULT_OWNER token
-    from hushh_mcp.consent.token import validate_token
-    from hushh_mcp.constants import ConsentScope
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing consent token")
-    token = authorization.replace("Bearer ", "")
-    valid, reason, payload = validate_token(token, ConsentScope.VAULT_OWNER)
-    if not valid or not payload:
-        _ = reason
-        raise HTTPException(status_code=401, detail="Invalid token")
-    if payload.user_id != userId:
+    # Canonical guard: DB-backed revocation, safe extraction, RFC-7235 headers.
+    if str(token_data["user_id"]) != userId:
         raise HTTPException(status_code=403, detail="Token user mismatch")
 
     logger.info("consent_history.fetch page=%s", page)
@@ -165,27 +163,18 @@ async def get_consent_history(
 
 @router.get("/consent/active")
 async def get_active_consents(
-    userId: str, authorization: str = Header(..., description="Bearer VAULT_OWNER consent token")
+    userId: str,
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """
     Get active (non-expired) consent tokens for a user.
 
-    REQUIRES: VAULT_OWNER consent token.
+    REQUIRES: VAULT_OWNER consent token (via Authorization header).
     Returns consents grouped by app for the Session tab.
     Uses database via consent_db module for persistence.
     """
-    # Validate VAULT_OWNER token
-    from hushh_mcp.consent.token import validate_token
-    from hushh_mcp.constants import ConsentScope
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing consent token")
-    token = authorization.replace("Bearer ", "")
-    valid, reason, payload = validate_token(token, ConsentScope.VAULT_OWNER)
-    if not valid or not payload:
-        _ = reason
-        raise HTTPException(status_code=401, detail="Invalid token")
-    if payload.user_id != userId:
+    # Canonical guard: DB-backed revocation, safe extraction, RFC-7235 headers.
+    if str(token_data["user_id"]) != userId:
         raise HTTPException(status_code=403, detail="Token user mismatch")
 
     logger.info("consent_active.fetch")

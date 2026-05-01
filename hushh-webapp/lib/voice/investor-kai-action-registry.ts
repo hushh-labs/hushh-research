@@ -7,9 +7,11 @@ import {
   listKaiActions,
   listKaiActionsForSurface,
   type KaiActionDefinition,
+  type KaiActionDelegateAgentId,
   type KaiActionExecutionPolicy,
   type KaiActionExecutionTarget,
   type KaiActionRiskLevel,
+  type KaiActionSpeakerPersona,
   type KaiActionWorkflow,
 } from "@/lib/voice/kai-action-gateway";
 
@@ -44,6 +46,7 @@ export type InvestorKaiActionWiring =
         | {
             kind: "route";
             href: string;
+            params?: Record<string, unknown>;
           };
     }
   | {
@@ -64,6 +67,8 @@ export type InvestorKaiActionDefinition = {
   aliases: readonly string[];
   searchKeywords: readonly string[];
   meaning: string;
+  speakerPersona: KaiActionSpeakerPersona;
+  delegateAgentId: KaiActionDelegateAgentId | null;
   scope: {
     routes: readonly string[];
     screens: readonly InvestorKaiScreenScope[];
@@ -211,6 +216,7 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
     binding: {
       kind: "route",
       href: executionTarget.target,
+      params: executionTarget.params ? { ...executionTarget.params } : undefined,
     },
   };
 }
@@ -223,6 +229,8 @@ function toRegistryAction(action: KaiActionDefinition): InvestorKaiActionDefinit
     aliases: action.aliases,
     searchKeywords: action.search_keywords,
     meaning: action.meaning,
+    speakerPersona: action.speaker_persona,
+    delegateAgentId: action.delegate_agent_id,
     scope: {
       routes: action.reachability.routes,
       screens: action.reachability.screens,

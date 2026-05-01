@@ -31,7 +31,6 @@ from hushh_mcp.services.voice_prompt_builder import (
 logger = logging.getLogger(__name__)
 
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
-_OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions"
 _OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 _OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
 _OPENAI_HTTP_TIMEOUT_SECONDS = 45.0
@@ -554,6 +553,35 @@ def _match_surface_navigation_intent(lowered_text: str) -> str | None:
     return None
 
 
+def _match_ria_navigation_action(lowered_text: str) -> str | None:
+    has_navigation_verb = bool(
+        re.search(r"\b(open|show|go to|take me to|switch to|enter|browse)\b", lowered_text)
+    )
+    mentions_ria = bool(re.search(r"\b(ria|advisor|advisory)\b", lowered_text))
+    if not has_navigation_verb and not mentions_ria:
+        return None
+    if re.search(r"\b(clients?|client roster|investors?)\b", lowered_text):
+        return "route.ria_clients"
+    if re.search(r"\b(picks?|stock universe|advisor package|my list|kai list)\b", lowered_text):
+        return "route.ria_picks"
+    if re.search(r"\b(onboarding|setup|verification|verify advisor|advisor setup)\b", lowered_text):
+        return "route.ria_onboarding"
+    if re.search(r"\b(connect|marketplace|browse advisors?)\b", lowered_text):
+        return "route.ria_marketplace_connect"
+    if re.search(r"\b(settings|manage profile|advisor profile)\b", lowered_text):
+        return "route.ria_settings_compat"
+    if re.search(r"\b(requests?|access manager|consent requests?)\b", lowered_text):
+        return "route.ria_requests_compat"
+    if re.search(
+        r"\b(open|show|go to|take me to|switch to|enter)\b.*\b(ria|ria workspace|advisor workspace|advisor home)\b",
+        lowered_text,
+    ):
+        return "route.ria_home"
+    if re.search(r"^\s*(?:ria\s+)?(?:home|workspace)\s*$", lowered_text):
+        return "route.ria_home"
+    return None
+
+
 def _is_receipts_memory_intent(lowered_text: str) -> bool:
     return bool(
         re.search(r"\b(add|build|refresh|save)\b.*\b(receipts?)\b.*\bpkm\b", lowered_text)
@@ -608,13 +636,13 @@ def _build_execute_message(tool_call: dict[str, Any] | None) -> str:
 
 
 _COMMAND_TO_CANONICAL_ACTION_ID = {
-    "home": "nav.kai_home",
-    "dashboard": "nav.kai_dashboard",
-    "history": "nav.analysis_history",
-    "import": "nav.kai_import",
-    "consent": "nav.consents",
-    "profile": "nav.profile",
-    "optimize": "nav.kai_optimize",
+    "home": "route.kai_home",
+    "dashboard": "route.kai_dashboard",
+    "history": "route.analysis_history",
+    "import": "route.kai_import",
+    "consent": "route.consents",
+    "profile": "route.profile",
+    "optimize": "route.kai_optimize",
     "analyze": "analysis.start",
 }
 _VOICE_TOOL_TO_CANONICAL_ACTION_ID = {
@@ -696,7 +724,7 @@ def _legacy_tool_call_from_action(
     normalized_slots = dict(slots or {})
     if not normalized_action_id:
         return None
-    if normalized_action_id == "nav.back":
+    if normalized_action_id == "route.back":
         return {"tool_name": "navigate_back", "args": {}}
 
     voice_tool_name = _CANONICAL_ACTION_ID_TO_VOICE_TOOL.get(normalized_action_id)
@@ -748,7 +776,10 @@ def _heuristic_completion_mode(action_id: str | None, *, mode: str) -> str:
         return "none"
     if normalized_action_id == "analysis.start":
         return "background_start"
-    if normalized_action_id.startswith("nav.") or normalized_action_id == "analysis.resume_active":
+    if (
+        normalized_action_id.startswith("route.")
+        or normalized_action_id == "analysis.resume_active"
+    ):
         return "route_settle"
     return "none"
 
@@ -824,6 +855,17 @@ def _guard_status(
         return ("unknown", "Gmail connection state is not modeled in the backend voice planner.")
     if guard_id == "gmail_configured":
         return ("unknown", "Gmail configuration state is not modeled in the backend voice planner.")
+    if guard_id == "ria_persona_available":
+        available_personas = gate_state.get("persona_available")
+        active_persona = _coerce_str(gate_state.get("active_persona"))
+        satisfied = (
+            isinstance(available_personas, list)
+            and "ria" in {_coerce_str(persona) for persona in available_personas}
+        ) or active_persona == "ria"
+        return (
+            "satisfied" if satisfied else "blocked",
+            None if satisfied else "RIA workspace is not available for this account.",
+        )
     return ("unknown", None)
 
 
@@ -902,6 +944,7 @@ def _blocked_reason_for_guard(guard_id: str) -> str:
         "active_analysis_required": "active_analysis_required",
         "gmail_connected": "gmail_connected_required",
         "gmail_configured": "gmail_config_required",
+        "ria_persona_available": "ria_persona_required",
     }.get(guard_id, "action_blocked")
 
 
@@ -922,6 +965,8 @@ def _guard_blocked_message(action_id: str | None, guard_id: str) -> str:
         return "I can do that after Gmail is connected in Kai."
     if guard_id == "gmail_configured":
         return "I can do that after the Gmail receipts workflow is configured in Kai."
+    if guard_id == "ria_persona_available":
+        return "RIA workspace is not available for this account yet."
     return "That action is not available right now."
 
 
@@ -1815,12 +1860,17 @@ def _normalize_voice_gate(
             "token_available": True,
             "token_valid": True,
             "voice_available": True,
+            "active_persona": "investor",
+            "persona_available": ["investor"],
+            "ria_switch_available": False,
+            "ria_setup_available": False,
             "source": "legacy",
         }
 
     auth = app_state.get("auth") if isinstance(app_state.get("auth"), dict) else {}
     vault = app_state.get("vault") if isinstance(app_state.get("vault"), dict) else {}
     voice = app_state.get("voice") if isinstance(app_state.get("voice"), dict) else {}
+    persona = app_state.get("persona") if isinstance(app_state.get("persona"), dict) else {}
 
     if not auth and not vault:
         return {
@@ -1830,6 +1880,10 @@ def _normalize_voice_gate(
             "token_available": True,
             "token_valid": True,
             "voice_available": True,
+            "active_persona": "investor",
+            "persona_available": ["investor"],
+            "ria_switch_available": False,
+            "ria_setup_available": False,
             "source": "legacy",
         }
 
@@ -1840,6 +1894,10 @@ def _normalize_voice_gate(
         "token_available": _coerce_bool(vault.get("token_available"), default=False),
         "token_valid": _coerce_bool(vault.get("token_valid"), default=False),
         "voice_available": _coerce_bool(voice.get("available"), default=False),
+        "active_persona": _coerce_str_or_none(persona.get("active")),
+        "persona_available": _coerce_str_list(persona.get("available")),
+        "ria_switch_available": _coerce_bool(persona.get("ria_switch_available"), default=False),
+        "ria_setup_available": _coerce_bool(persona.get("ria_setup_available"), default=False),
         "source": "app_state",
     }
 
@@ -2136,161 +2194,6 @@ class VoiceIntentService:
             "barge_in_enabled": bool(turn_detection["interrupt_response"]),
             "raw": result if isinstance(result, dict) else {},
         }
-
-    async def transcribe_audio(
-        self,
-        *,
-        audio_bytes: bytes,
-        filename: str,
-        content_type: str,
-        trace_hook: Callable[[str, dict[str, Any]], None] | None = None,
-    ) -> tuple[str, int, str]:
-        started_at = time.perf_counter()
-        self._require_api_key()
-        if not audio_bytes:
-            raise VoiceServiceError(400, "Audio payload is empty")
-
-        files = {
-            "file": (filename, audio_bytes, content_type or "application/octet-stream"),
-        }
-
-        def _emit_trace(stage: str, payload: dict[str, Any]) -> None:
-            if not trace_hook:
-                return
-            try:
-                trace_hook(stage, payload)
-            except Exception:
-                logger.exception("[VOICE_STT_TRACE_HOOK] stage=%s payload=%s", stage, payload)
-
-        def _on_attempt(event_payload: dict[str, Any]) -> None:
-            event = str(event_payload.get("event") or "")
-            if event == "upstream_started":
-                _emit_trace(
-                    "stt_upstream_started",
-                    {
-                        "model_candidate_order": event_payload.get("model_candidate_order") or [],
-                        "model_attempted": event_payload.get("model_attempted"),
-                        "timeout_seconds": event_payload.get("timeout_seconds"),
-                        "audio_bytes": len(audio_bytes),
-                        "normalized_mime": content_type or "application/octet-stream",
-                        "filename": filename,
-                    },
-                )
-                return
-            if event == "upstream_finished":
-                payload = (
-                    event_payload.get("payload")
-                    if isinstance(event_payload.get("payload"), dict)
-                    else {}
-                )
-                transcript = (
-                    str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
-                )
-                _emit_trace(
-                    "stt_upstream_finished",
-                    {
-                        "model_used": event_payload.get("model_used"),
-                        "elapsed_ms": event_payload.get("elapsed_ms"),
-                        "status_code": event_payload.get("status_code"),
-                        "transcript_chars": len(transcript),
-                    },
-                )
-                return
-            if event == "upstream_failed":
-                _emit_trace(
-                    "stt_upstream_failed",
-                    {
-                        "model_used": event_payload.get("model_used"),
-                        "elapsed_ms": event_payload.get("elapsed_ms"),
-                        "status_code": event_payload.get("status_code"),
-                        "exception_type": event_payload.get("exception_type"),
-                        "upstream_error_message": event_payload.get("upstream_error_message"),
-                        "upstream_error_payload": event_payload.get("upstream_error_payload"),
-                        "will_retry": event_payload.get("will_retry"),
-                        "next_model": event_payload.get("next_model"),
-                    },
-                )
-
-        response, payload, openai_http_ms, model_used = await _post_with_model_fallback(
-            url=_OPENAI_TRANSCRIBE_URL,
-            headers=self._headers(),
-            candidate_models=self.stt_models,
-            body_builder=lambda model_name: {
-                "data": {
-                    "model": model_name,
-                    "language": _VOICE_LANGUAGE,
-                    "prompt": _VOICE_STT_PROMPT,
-                },
-                "files": files,
-            },
-            timeout_seconds=self.upstream_http_timeout_seconds,
-            attempt_hook=_on_attempt,
-            allow_model_fallback=not self.disable_voice_fallbacks,
-        )
-        if response.status_code >= 400:
-            detail = _extract_openai_error(payload) or "STT request failed"
-            _emit_trace(
-                "stt_service_failed",
-                {
-                    "status_code": response.status_code,
-                    "model_used": model_used,
-                    "upstream_http_ms": openai_http_ms,
-                    "service_elapsed_ms": int((time.perf_counter() - started_at) * 1000),
-                    "error": detail,
-                },
-            )
-            logger.warning(
-                (
-                    "[VOICE_STT] status=error model=%s status_code=%s openai_http_ms=%s "
-                    "audio_bytes=%s filename=%s content_type=%s error=%s openai_error_payload=%s"
-                ),
-                model_used,
-                response.status_code,
-                openai_http_ms,
-                len(audio_bytes),
-                filename,
-                content_type or "application/octet-stream",
-                detail,
-                payload.get("error") if isinstance(payload, dict) else payload,
-            )
-            raise VoiceServiceError(502, detail)
-
-        transcript = str(payload.get("text") or "").strip()
-        if not transcript:
-            _emit_trace(
-                "stt_service_failed",
-                {
-                    "status_code": 422,
-                    "model_used": model_used,
-                    "upstream_http_ms": openai_http_ms,
-                    "service_elapsed_ms": int((time.perf_counter() - started_at) * 1000),
-                    "error": "No transcript returned from STT",
-                },
-            )
-            raise VoiceServiceError(422, "No transcript returned from STT")
-        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        _emit_trace(
-            "stt_service_finished",
-            {
-                "status_code": response.status_code,
-                "model_used": model_used,
-                "upstream_http_ms": openai_http_ms,
-                "service_elapsed_ms": elapsed_ms,
-                "transcript_chars": len(transcript),
-            },
-        )
-        logger.info(
-            (
-                "[VOICE_STT] status=ok model=%s elapsed_ms=%s openai_http_ms=%s "
-                "audio_bytes=%s transcript_chars=%s"
-            ),
-            model_used,
-            elapsed_ms,
-            openai_http_ms,
-            len(audio_bytes),
-            len(transcript),
-        )
-        return transcript, openai_http_ms, model_used
 
     async def plan_intent(
         self,
@@ -2961,7 +2864,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.profile_gmail_panel",
+                    action_id_override="route.profile_gmail_panel",
                 ),
                 0,
                 "deterministic",
@@ -2974,7 +2877,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.profile_receipts",
+                    action_id_override="route.profile_receipts",
                 ),
                 0,
                 "deterministic",
@@ -2987,7 +2890,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.profile_pkm_agent_lab",
+                    action_id_override="route.profile_pkm_agent_lab",
                 ),
                 0,
                 "deterministic",
@@ -3000,7 +2903,7 @@ class VoiceIntentService:
                 else "Opening receipts. Use Add receipts to memory there."
             )
             action_id_override = (
-                None if current_screen == "profile_receipts" else "nav.profile_receipts"
+                None if current_screen == "profile_receipts" else "route.profile_receipts"
             )
             return (
                 self._finalize_response(
@@ -3009,6 +2912,20 @@ class VoiceIntentService:
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
                     action_id_override=action_id_override,
+                ),
+                0,
+                "deterministic",
+            )
+
+        ria_navigation_action_id = _match_ria_navigation_action(lowered)
+        if ria_navigation_action_id:
+            return (
+                self._finalize_response(
+                    self._build_response(kind="speak_only", message="Opening that RIA surface."),
+                    gate_state=gate_state,
+                    has_active_analysis=has_active_analysis,
+                    has_portfolio_data=has_portfolio_data,
+                    action_id_override=ria_navigation_action_id,
                 ),
                 0,
                 "deterministic",
@@ -3248,7 +3165,7 @@ class VoiceIntentService:
                     gate_state=gate_state,
                     has_active_analysis=has_active_analysis,
                     has_portfolio_data=has_portfolio_data,
-                    action_id_override="nav.back",
+                    action_id_override="route.back",
                 ),
                 0,
                 "deterministic",
@@ -3365,7 +3282,7 @@ class VoiceIntentService:
                 gate_state=gate_state,
                 has_active_analysis=has_active_analysis,
                 has_portfolio_data=has_portfolio_data,
-                action_id_override="nav.back"
+                action_id_override="route.back"
                 if _coerce_str(validated.get("tool_name")) == "navigate_back"
                 else None,
             ),

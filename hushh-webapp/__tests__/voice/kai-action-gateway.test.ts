@@ -66,15 +66,32 @@ describe("kai-action-gateway", () => {
     const ids = KAI_ACTION_GATEWAY.actions.map((action) => action.action_id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(KAI_ACTION_GATEWAY.source_contracts?.length).toBeGreaterThan(0);
+    const reservedNavPrefix = ["nav", ""].join(".");
+    expect(ids.every((id) => !id.startsWith(reservedNavPrefix))).toBe(true);
+    expect(
+      KAI_ACTION_GATEWAY.actions.every((action) =>
+        ["one", "kai", "nav", "kyc"].includes(action.speaker_persona)
+      )
+    ).toBe(true);
+    expect(
+      KAI_ACTION_GATEWAY.actions.every(
+        (action) =>
+          action.delegate_agent_id === null ||
+          ["one", "kai", "nav", "kyc"].includes(action.delegate_agent_id)
+      )
+    ).toBe(true);
+    expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");
+    expect(getKaiActionById("route.consents")?.speaker_persona).toBe("nav");
+    expect(getKaiActionById("route.profile")?.speaker_persona).toBe("one");
   });
 
   it("maps control ids and authored workflows back to canonical actions", () => {
     const activeAnalysisActions = getKaiActionsForControlId("analysis_open_active");
     expect(activeAnalysisActions.map((action) => action.action_id)).toContain("analysis.resume_active");
 
-    const riaHome = getKaiActionById("nav.ria_home");
+    const riaHome = getKaiActionById("route.ria_home");
     expect(riaHome).not.toBeNull();
-    expect(riaHome?.workflow?.workflow_id).toBe("nav.ria_home.entry");
+    expect(riaHome?.workflow?.workflow_id).toBe("route.ria_home.entry");
     expect(riaHome?.workflow?.steps).toEqual([
       expect.objectContaining({
         type: "persona_switch",
@@ -88,8 +105,97 @@ describe("kai-action-gateway", () => {
     ]);
   });
 
+  it("maps the RIA flow with direct navigation and guarded manual actions", () => {
+    const riaActions = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.surface_id.startsWith("ria_") || action.action_id.includes(".ria.")
+    );
+    expect(riaActions.map((action) => action.action_id)).toEqual(
+      expect.arrayContaining([
+        "route.ria_home",
+        "route.ria_onboarding",
+        "route.ria_clients",
+        "route.ria_picks",
+        "route.ria_marketplace_connect",
+        "ria.picks.open_source_kai",
+        "ria.picks.open_source_my",
+        "ria.picks.save_package",
+        "ria.client_workspace.open_access_tab",
+        "ria.client_workspace.request_access",
+        "marketplace.ria.request_advisory",
+      ])
+    );
+
+    const riaHome = getKaiActionById("route.ria_home");
+    expect(riaHome).toEqual(
+      expect.objectContaining({
+        action_id: "route.ria_home",
+        surface_id: "ria_home",
+        speaker_persona: "one",
+        risk_level: "medium",
+        execution_policy: "allow_direct",
+        guard_ids: ["auth_signed_in", "ria_persona_available"],
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/ria",
+        },
+      })
+    );
+    expect(riaHome?.reachability).toEqual(
+      expect.objectContaining({
+        routes: ["/ria"],
+        screens: ["ria_home"],
+        hidden_navigable: true,
+        active_personas: ["ria"],
+        requires_persona_switch_confirmation: true,
+      })
+    );
+    expect(riaHome?.workflow).toEqual(
+      expect.objectContaining({
+        workflow_id: "route.ria_home.entry",
+        confirmation_required: true,
+        blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+      })
+    );
+
+    expect(getKaiActionById("route.ria_clients")).toEqual(
+      expect.objectContaining({
+        action_id: "route.ria_clients",
+        execution_policy: "allow_direct",
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/ria/clients",
+        },
+      })
+    );
+    expect(getKaiActionById("ria.picks.open_source_kai")?.execution_target).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/ria/picks?source=kai",
+    });
+    expect(getKaiActionById("ria.picks.save_package")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getKaiActionById("marketplace.ria.request_advisory")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+  });
+
   it("requires an explicit persona switch for earned RIA actions", () => {
-    const action = getKaiActionById("nav.ria_home");
+    const action = getKaiActionById("route.ria_home");
     const availability = evaluateKaiActionAvailability({
       action: action!,
       appRuntimeState: makeRuntimeState({
@@ -113,7 +219,7 @@ describe("kai-action-gateway", () => {
   });
 
   it("blocks locked RIA actions with guidance instead of exposing them as executable", () => {
-    const action = getKaiActionById("nav.ria_home");
+    const action = getKaiActionById("route.ria_home");
     const availability = evaluateKaiActionAvailability({
       action: action!,
       appRuntimeState: makeRuntimeState({
@@ -141,7 +247,7 @@ describe("kai-action-gateway", () => {
       query: "dashboard",
       appRuntimeState: makeRuntimeState(),
     });
-    expect(dashboardResults[0]?.action.action_id).toBe("nav.kai_dashboard");
+    expect(dashboardResults[0]?.action.action_id).toBe("route.kai_dashboard");
     expect(dashboardResults[0]?.availability.status).toBe("available");
 
     const riaResults = searchKaiActions({
@@ -157,9 +263,9 @@ describe("kai-action-gateway", () => {
         },
       }),
     });
-    expect(riaResults.some((entry) => entry.action.action_id === "nav.ria_home")).toBe(true);
+    expect(riaResults.some((entry) => entry.action.action_id === "route.ria_home")).toBe(true);
     expect(
-      riaResults.find((entry) => entry.action.action_id === "nav.ria_home")?.availability.status
+      riaResults.find((entry) => entry.action.action_id === "route.ria_home")?.availability.status
     ).toBe("requires_persona_switch");
   });
 });

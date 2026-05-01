@@ -1,0 +1,58 @@
+{
+  "id": "github-contribution-governance",
+  "role": "spoke",
+  "owner_family": "repo-operations",
+  "primary_scope": "github-contribution-governance",
+  "description": "Use when verifying GitHub contribution attribution, green-dot eligibility, commit author email, PR targeting, and merge readiness for Hussh work so daily contributions land on the intended GitHub profile.",
+  "owned_paths": [
+    ".codex/skills/github-contribution-governance",
+    ".codex/workflows/github-contribution-governance"
+  ],
+  "non_owned_paths": [
+    "repo-operations",
+    ".github/workflows",
+    "docs"
+  ],
+  "task_types": [
+    "github-contribution-governance"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/reference/operations/branch-governance.md",
+    "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference",
+    "https://docs.github.com/en/account-and-profile/how-tos/contribution-settings/troubleshooting-missing-contributions",
+    "https://docs.github.com/en/account-and-profile/how-tos/email-preferences/setting-your-commit-email-address"
+  ],
+  "required_commands": [
+    "gh auth status",
+    "gh api user --jq '.login'",
+    "git config --get user.email",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "github-contribution-governance",
+      "commands": [
+        "gh auth status",
+        "gh api user --jq '.login'",
+        "git config --get user.email",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+      ],
+      "tests": []
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "planning-board"
+  ],
+  "adjacent_skills": [
+    "repo-operations",
+    "planning-board"
+  ],
+  "risk_tags": [
+    "contribution-attribution-drift",
+    "wrong-author-email",
+    "unmerged-branch-drift",
+    "self-merge-policy-risk"
+  ]
+}

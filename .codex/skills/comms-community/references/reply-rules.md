@@ -2,9 +2,9 @@
 
 Use these rules for public community responses:
 
-1. Keep it readable in one screen. Hard cap: 3 to 4 lines of prose. If the point does not fit, it is not the point. Signature sits on its own line after that.
+1. Keep it readable in one screen. Default hard cap: 3 to 4 lines of prose. If the user asks for an announcement, product update, launch note, or cinematic cadence, the reply may use more line breaks for rhythm but should still stay short enough to post without editing.
 2. Casual thread register, not memo register. Contractions are fine. Short sentences. Read it out loud, if it sounds like a memo it is wrong, if it sounds like a thread message it is right.
-3. No section headers, no bold sub-labels like `**On X:**`. Fold sub-points into the prose.
+3. No memo-style section headers or bold sub-labels like `**On X:**` in normal replies. For Discord announcements, one bold headline or anchor phrase is allowed when it improves scanability.
 4. Lead with the answer in the same breath as the correction if the premise is off. First sentence is the conclusion. Evidence or doc pointer follows in one line.
 5. Be explicit about current state vs future plan.
 6. Prefer `today / currently / right now` when answering present-state questions.
@@ -71,6 +71,62 @@ Use these rules for public community responses:
    - source-file links for internal Q&A
    - issue/PR links when the concern is tied to open review or active branch work
    - no links when they add clutter without proof value
+
+## Discord Native Formatting Mode
+
+Use this mode when the user asks for Discord formatting, a channel post, product update, launch note, announcement, founder voice, cinematic cadence, or a message meant to be pasted directly into Discord.
+
+Discord message length contract:
+
+1. Default hard limit: `2000` characters per message content.
+2. Default safe drafting budget: `1900` characters per message.
+3. If a drafted Discord message exceeds the safe budget, split it into copy-ready batches instead of returning one oversized block.
+4. Do not target `4000` characters unless the user explicitly asks for a Nitro-oriented draft; even then, keep a fallback split available.
+5. Keep batch labels outside the copy block so the user can copy only the message body into Discord.
+6. Use the deterministic helper when the draft is long:
+
+```bash
+python3 .codex/skills/comms-community/scripts/discord_chunk.py --limit 1900 < /tmp/discord-message.md
+```
+
+Copy batch format:
+
+````md
+Discord copy batch 1/2 (1840 chars)
+
+```text
+<message body only>
+```
+````
+
+Allowed Discord formatting:
+
+1. `**bold**` for one headline, name, or promise. Do not bold every important noun.
+2. Short line breaks to create rhythm.
+3. `>` blockquote for a motto, thesis, or one defining sentence.
+4. Bullets for quick scan lists, especially ontology or release notes.
+5. Inline code only for exact repo, API, command, token, or package identifiers.
+6. One link max unless the user asks for sources.
+
+Avoid:
+
+1. Markdown tables. They read poorly in Discord.
+2. Long section headings.
+3. Nested bullets.
+4. Decorative emoji unless the user explicitly wants brand/launch energy.
+5. Formatting that hides the current-state versus future-state boundary.
+
+Discord announcement pattern:
+
+```md
+**<cinematic anchor>.**
+
+<one short line that says what changed>
+
+<one short line that explains why it matters>
+
+> <optional motto or thesis>
+```
 
 Common framing:
 

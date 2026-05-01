@@ -202,7 +202,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.kai_optimize");
+    expect(plan.actionId).toBe("route.kai_optimize");
     expect(plan.actionLabel).toBe("Open Optimize Surface");
     expect(plan.destructive).toBe(false);
     expect(plan.message).toBeNull();
@@ -234,7 +234,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.kai_analysis");
+    expect(plan.actionId).toBe("route.kai_analysis");
     expect(plan.execution.mode).toBe("navigate_only");
     expect(plan.execution.steps).toEqual([
       {
@@ -293,7 +293,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.kai_dashboard");
+    expect(plan.actionId).toBe("route.kai_dashboard");
     expect(plan.execution.mode).toBe("direct_tool");
     expect(plan.execution.steps).toEqual([
       {
@@ -323,7 +323,7 @@ describe("resolveGroundedVoicePlan", () => {
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.profile_pkm_agent_lab");
+    expect(plan.actionId).toBe("route.profile_pkm_agent_lab");
     expect(plan.execution.mode).toBe("navigate_only");
     expect(plan.execution.steps).toEqual([
       {
@@ -350,11 +350,11 @@ describe("resolveGroundedVoicePlan", () => {
       transcript: "open gmail receipts",
       response,
       structuredContext: makeContext("/kai"),
-      canonicalActionId: "nav.profile",
+      canonicalActionId: "route.profile",
     });
 
     expect(plan.status).toBe("resolved");
-    expect(plan.actionId).toBe("nav.profile");
+    expect(plan.actionId).toBe("route.profile");
     expect(plan.resolutionSource).toBe("canonical");
     expect(plan.execution.mode).toBe("direct_tool");
     expect(plan.execution.steps).toEqual([
@@ -371,6 +371,196 @@ describe("resolveGroundedVoicePlan", () => {
     ]);
   });
 
+  it("grounds RIA home through the confirmed persona-switch workflow before navigation", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening RIA workspace.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open ria workspace",
+      response,
+      structuredContext: makeContext("/kai"),
+      appRuntimeState: makeRuntimeState("/kai", {
+        persona: {
+          active: "investor",
+          primary_nav: "investor",
+          available: ["investor", "ria"],
+          transition_target: null,
+          ria_switch_available: true,
+          ria_setup_available: true,
+        },
+      }),
+      canonicalActionId: "route.ria_home",
+    });
+
+    expect(plan.status).toBe("resolved");
+    expect(plan.actionId).toBe("route.ria_home");
+    expect(plan.actionLabel).toBe("Open RIA Home");
+    expect(plan.destructive).toBe(false);
+    expect(plan.resolutionSource).toBe("canonical");
+    expect(plan.execution.mode).toBe("navigate_then_action");
+    expect(plan.execution.steps).toEqual([
+      {
+        type: "tool_call",
+        toolCall: {
+          tool_name: "switch_persona",
+          args: {
+            target_persona: "ria",
+          },
+        },
+        reason: "workflow_persona_switch",
+        confirmationRequired: true,
+        settlementTarget: {
+          route: null,
+          screen: null,
+          persona: "ria",
+        },
+      },
+      {
+        type: "navigate",
+        href: "/ria",
+        reason: "workflow_route_switch",
+        settlementTarget: {
+          route: "/ria",
+          screen: "ria_home",
+          persona: null,
+        },
+      },
+    ]);
+  });
+
+  it("blocks RIA grounding when the workspace is not unlocked", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening RIA workspace.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open ria workspace",
+      response,
+      structuredContext: makeContext("/kai"),
+      appRuntimeState: makeRuntimeState("/kai", {
+        persona: {
+          active: "investor",
+          primary_nav: "investor",
+          available: ["investor"],
+          transition_target: null,
+          ria_switch_available: false,
+          ria_setup_available: true,
+        },
+      }),
+      canonicalActionId: "route.ria_home",
+    });
+
+    expect(plan.status).toBe("unavailable");
+    expect(plan.actionId).toBe("route.ria_home");
+    expect(plan.message).toBe("RIA actions stay locked until you finish RIA setup.");
+    expect(plan.execution).toEqual({
+      mode: "unavailable",
+      steps: [
+        {
+          type: "prompt",
+          message: "RIA actions stay locked until you finish RIA setup.",
+          reason: "blocked",
+        },
+      ],
+    });
+  });
+
+  it("resolves RIA client workspace tabs with the current client id", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening client sharing.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "show client sharing",
+      response,
+      structuredContext: makeContext("/ria/clients/client-123?tab=overview"),
+      appRuntimeState: makeRuntimeState("/ria/clients/client-123?tab=overview", {
+        route: {
+          pathname: "/ria/clients/client-123?tab=overview",
+          screen: "ria_client_workspace",
+          subview: "overview",
+        },
+        persona: {
+          active: "ria",
+          primary_nav: "ria",
+          available: ["investor", "ria"],
+          transition_target: null,
+          ria_switch_available: true,
+          ria_setup_available: true,
+        },
+      }),
+      canonicalActionId: "ria.client_workspace.open_access_tab",
+    });
+
+    expect(plan.status).toBe("resolved");
+    expect(plan.actionId).toBe("ria.client_workspace.open_access_tab");
+    expect(plan.execution).toEqual({
+      mode: "navigate_only",
+      steps: [
+        {
+          type: "navigate",
+          href: "/ria/clients/client-123?tab=access",
+          reason: "route_bound_action",
+          settlementTarget: {
+            route: "/ria/clients/client-123?tab=access",
+            screen: "ria_client_workspace",
+          },
+        },
+      ],
+    });
+  });
+
+  it("fails closed for RIA dynamic routes when the selected id is missing", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening client sharing.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "show client sharing",
+      response,
+      structuredContext: makeContext("/ria/clients"),
+      appRuntimeState: makeRuntimeState("/ria/clients", {
+        route: {
+          pathname: "/ria/clients",
+          screen: "ria_clients",
+          subview: null,
+        },
+        persona: {
+          active: "ria",
+          primary_nav: "ria",
+          available: ["investor", "ria"],
+          transition_target: null,
+          ria_switch_available: true,
+          ria_setup_available: true,
+        },
+      }),
+      canonicalActionId: "ria.client_workspace.open_access_tab",
+    });
+
+    expect(plan.status).toBe("manual_only");
+    expect(plan.actionId).toBe("ria.client_workspace.open_access_tab");
+    expect(plan.message).toBe("Please choose the exact item on screen.");
+    expect(plan.execution).toEqual({
+      mode: "manual_only",
+      steps: [
+        {
+          type: "prompt",
+          message: "Please choose the exact item on screen.",
+          reason: "dynamic_route_parameter_missing",
+        },
+      ],
+    });
+  });
+
   it("fails closed when the planner sends an unknown canonical action id", () => {
     const response: VoiceResponse = {
       kind: "speak_only",
@@ -382,11 +572,11 @@ describe("resolveGroundedVoicePlan", () => {
       transcript: "open gmail",
       response,
       structuredContext: makeContext("/kai"),
-      canonicalActionId: "nav.not_real",
+      canonicalActionId: "route.not_real",
     });
 
     expect(plan.status).toBe("unavailable");
-    expect(plan.actionId).toBe("nav.not_real");
+    expect(plan.actionId).toBe("route.not_real");
     expect(plan.actionLabel).toBeNull();
     expect(plan.resolutionSource).toBe("canonical");
     expect(plan.execution.mode).toBe("unavailable");

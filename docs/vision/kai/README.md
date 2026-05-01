@@ -1,4 +1,4 @@
-# Agent Kai — Your Explainable Investing Copilot
+# Kai — Finance Specialist Under One
 
 > **Decide like a committee, carry it in your pocket.**
 
@@ -7,10 +7,14 @@
 
 ```mermaid
 flowchart TD
-  root["Agent Kai — Your Explainable Investing Copilot"]
+  one["One<br/>top personal agent"]
+  root["Kai<br/>finance specialist"]
   n1["North-star assistant thesis"]
+  one --> root
   root --> n1
 ```
+
+Kai is the finance specialist that One summons for portfolio, market, investment debate, RIA, and decision-receipt work. Kai is not the platform-level identity for Hussh and does not own consent, vault, deletion, or privacy-policy authority.
 
 Forward-looking Kai roadmap and R&D planning now belong under [../../future/kai/README.md](../../future/kai/README.md). `docs/vision/kai/` stays north-star oriented; speculative execution-model docs should not start here.
 
@@ -26,12 +30,6 @@ Current implementation note:
   <img src="https://img.shields.io/badge/Agent-Kai-blueviolet?style=for-the-badge" alt="Agent Kai"/>
   <img src="https://img.shields.io/badge/Target-UHNW_Investors-gold?style=for-the-badge" alt="UHNW"/>
   <img src="https://img.shields.io/badge/Status-PRIMARY_FOCUS-success?style=for-the-badge" alt="Primary"/>
-</p>
-
-<p align="center">
-  <em>Dedicated to Steve Jobs</em><br/>
-  <em>Inspired by Jensen Huang and the opportunities AI as a technology will create for everyone</em><br/>
-  <strong>Stay Curious • Stay Hungry • Stay Foolish • Stay Healthy • Stay Happy</strong>
 </p>
 
 ---
@@ -72,7 +70,7 @@ Agent Kai's operating entity is NOT registered with the SEC or any state securit
 
 ## 🎯 Executive Summary
 
-**Kai** brings an investment committee in silicon to every iPhone. On any stock or ETF, three specialist agents analyze, debate, and deliver a **Buy/Hold/Reduce decision with receipts**: sources, math, dissent, and risk-persona fit.
+**Kai** is the Hussh finance specialist under One. On finance questions, Kai can analyze, debate, and deliver a **Buy/Hold/Reduce decision with receipts**: sources, math, dissent, and risk-persona fit.
 
 This is a faithful consumer translation of the **AlphaAgents framework**:
 
@@ -82,30 +80,26 @@ This is a faithful consumer translation of the **AlphaAgents framework**:
 - Risk personas
 - Complete observability
 
-**Now with On-Device AI**: Kai runs locally on your device using MLX (iOS) or Gemma (Android), ensuring your investment analysis never leaves your phone.
+Current implementation note: the checked-in runtime is cloud-primary. On-device and hybrid execution remain future-state planning unless a linked current-state reference proves otherwise.
 
 ---
 
 ## 🧠 The Hussh Philosophy (Why Kai Exists)
 
-> _"Hussh is not Jarvis. Hussh is not Batman or Batwoman either."_
-
 ### What Hussh IS
 
-**Hussh is your Personal Agent (PA)** — a _fiduciary intelligence_.
+**Hussh is the platform. One is the personal agent. Kai is the finance specialist.**
 
-An agent that:
+The agent layer:
 
 - Acts **on your behalf**
 - Is **bound by consent**
 - Treats your data as **your private capital**
 - Optimizes outcomes across **your life**, not just tasks
 
-> _"Hussh is the agent you would hire if your data were your business."_
-
 ### The Kai Promise
 
-Kai embodies this philosophy for investing:
+Kai embodies the finance part of this philosophy:
 
 | Traditional Finance AI    | Agent Kai                      |
 | ------------------------- | ------------------------------ |
@@ -114,15 +108,15 @@ Kai embodies this philosophy for investing:
 | One-size-fits-all         | Risk-persona aligned           |
 | No explanation            | Complete audit trail           |
 | Serves the institution    | **Serves only you**            |
-| Requires cloud            | **Runs on your device**        |
+| Requires cloud            | **Can graduate toward on-device execution where supported** |
 
 ---
 
-## 📱 On-Device AI & Hybrid Mode
+## 📱 On-Device AI & Hybrid Mode Direction
 
-Kai operates in two modes depending on user preference and device capabilities:
+Kai's long-term direction supports two modes depending on user preference and device capabilities. Current implementation remains cloud-primary unless a linked current-state reference proves a specific on-device path.
 
-### Mode 1: Fully On-Device (Privacy-First)
+### Mode 1: Future Target — Fully On-Device (Privacy-First)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -163,7 +157,7 @@ Kai operates in two modes depending on user preference and device capabilities:
 
 **When to use**: Maximum privacy, offline scenarios, general analysis.
 
-### Mode 2: Hybrid (Full Featured)
+### Mode 2: Future Target — Hybrid (Full Featured)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -654,7 +648,9 @@ MLX (iOS) and Gemma (Android) now enable powerful LLM inference directly on mobi
 
 ---
 
-## 🏗️ Technical Architecture
+## 🏗️ Target Technical Architecture
+
+The diagrams below describe the Kai vision target. Treat on-device inference, offline decision review, and fully local processing lanes as future-state unless a current implementation reference explicitly proves the shipped surface.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐

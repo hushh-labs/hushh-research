@@ -1104,7 +1104,7 @@ class UatKaiSmoke:
             headers=self._firebase_auth_headers(),
         ).json()
         verification_status = str(status_response.get("verification_status") or "")
-        if verification_status in {"active", "finra_verified", "bypassed"}:
+        if verification_status in {"active", "finra_verified", "verified"}:
             return status_response
         payload = {
             "display_name": "Kai Test Advisory",
@@ -1114,10 +1114,11 @@ class UatKaiSmoke:
             "advisory_firm_legal_name": "Kai Test Advisory LLC",
             "advisory_firm_iapd_number": "123456",
             "strategy": "Long-term quality compounders",
+            "force_live_verification": True,
         }
         response = self._request(
             "POST",
-            "/api/ria/onboarding/dev-activate",
+            "/api/ria/onboarding/submit",
             headers={**self._firebase_auth_headers(), "Content-Type": "application/json"},
             json_body=payload,
         )

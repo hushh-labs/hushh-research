@@ -64,6 +64,14 @@ Non-owned surfaces:
 12. Render the actual PDF and inspect rendered pages, not just source HTML. If needed, export the PDF pages to images and verify the diagram pages and chapter transitions directly.
 13. Keep references hyperlinked and useful, but move source-detail inventory to the references section rather than the narrative body.
 14. State what is not implemented only in a dedicated honesty section; do not open with defensive caveats.
+15. Preserve founder cadence while normalizing the Hussh / One / Kai / Nav ontology:
+    - Hussh is the platform and trust infrastructure.
+    - One is the personal agent and relationship layer.
+    - Kai is the finance specialist.
+    - Nav is the privacy and consent guardian.
+16. Do not promote stale founder-draft phrases such as `Hussh is your personal MCP server and AI agent`, `One has two faces`, or `Kai is the One who remembers` into shared artifacts unless quoting them as source material being corrected.
+17. Treat `hu_ssh`, `SSH for humans`, and `Ask. Approve. Audit.` as founder-facing metaphors that must map back to Human Secure Socket Host and the current Consent Protocol.
+18. Keep claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private receipts future-state unless repo truth proves them.
 
 ## Handoff Rules
 

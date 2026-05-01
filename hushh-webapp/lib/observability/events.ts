@@ -270,7 +270,7 @@ export interface EventPayloadMap {
     result: EventResult;
   };
   ria_verification_status_changed: {
-    action: "draft" | "submitted" | "verified" | "active" | "rejected" | "bypassed";
+    action: "draft" | "submitted" | "verified" | "active" | "rejected";
     result: EventResult;
   };
   marketplace_profile_viewed: {

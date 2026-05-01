@@ -3,7 +3,7 @@
 These tests validate the structural and behavioral integrity of
 CANONICAL_BUNDLES so that adding or editing a bundle cannot silently
 break consent grant resolution. Every scope in every bundle must be a
-valid dynamic scope that the scope matching system recognizes.
+valid dynamic or static consent scope that the scope matching system recognizes.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from hushh_mcp.consent.scope_bundles import (
 )
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
+from hushh_mcp.constants import ConsentScope
 
 # ---------------------------------------------------------------------------
 # Structural invariants
@@ -87,9 +88,9 @@ class TestBundleScopeMatching:
         "key,scope",
         [(k, s) for k, b in CANONICAL_BUNDLES.items() for s in b.scopes],
     )
-    def test_scope_is_dynamic(self, key: str, scope: str) -> None:
-        assert self.gen.is_dynamic_scope(scope), (
-            f"Bundle {key} has scope {scope} that is not a valid dynamic scope"
+    def test_scope_is_valid(self, key: str, scope: str) -> None:
+        assert self.gen.is_dynamic_scope(scope) or ConsentScope.validate(scope), (
+            f"Bundle {key} has scope {scope} that is not a valid consent scope"
         )
 
     @pytest.mark.parametrize(

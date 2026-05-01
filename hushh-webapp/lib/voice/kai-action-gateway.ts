@@ -7,6 +7,8 @@ import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
+export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
+export type KaiActionDelegateAgentId = "one" | "kai" | "nav" | "kyc";
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
@@ -94,6 +96,8 @@ export type KaiActionDefinition = {
   aliases: string[];
   search_keywords: string[];
   meaning: string;
+  speaker_persona: KaiActionSpeakerPersona;
+  delegate_agent_id: KaiActionDelegateAgentId | null;
   reachability: {
     routes: string[];
     screens: string[];
@@ -173,6 +177,25 @@ function cleanString(value: unknown): string | null {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function validateSpeakerPersona(value: unknown): KaiActionSpeakerPersona {
+  const normalized = cleanString(value);
+  if (normalized === "kai" || normalized === "nav" || normalized === "kyc") return normalized;
+  return "one";
+}
+
+function validateDelegateAgentId(value: unknown): KaiActionDelegateAgentId | null {
+  const normalized = cleanString(value);
+  if (
+    normalized === "one" ||
+    normalized === "kai" ||
+    normalized === "nav" ||
+    normalized === "kyc"
+  ) {
+    return normalized;
+  }
+  return null;
 }
 
 function validateExecutionTarget(value: unknown): KaiActionExecutionTarget | null {
@@ -330,6 +353,8 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     aliases: isStringArray(value.aliases) ? value.aliases : [],
     search_keywords: isStringArray(value.search_keywords) ? value.search_keywords : [],
     meaning,
+    speaker_persona: validateSpeakerPersona(value.speaker_persona),
+    delegate_agent_id: validateDelegateAgentId(value.delegate_agent_id),
     reachability: {
       routes: value.reachability.routes,
       screens: value.reachability.screens,

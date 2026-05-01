@@ -142,14 +142,16 @@ Repo-scoped exception:
 Codex supports project-scoped custom agents under `.codex/agents/`. In this repo, that surface is intentionally bounded:
 
 1. Subagent use is explicit only; do not add repo instructions that auto-fan-out by default.
-2. Most repo custom agents should stay `read-only`.
-3. Repo custom agents inherit the parent-session model and reasoning by default; pinning is an exception for future specialized lanes.
-4. The parent session or the built-in `worker` owns edits unless a narrower workflow says otherwise.
-5. Repo-level fan-out stays capped in `.codex/config.toml`:
+2. Every non-trivial task should run the root `AGENTS.md` delegation checkpoint before choosing a local-only path.
+3. Use subagents for independent evidence lanes, not for final authority, branch operations, approval, merge, deploy, or credential handling.
+4. Most repo custom agents should stay `read-only`.
+5. Repo custom agents inherit the parent-session model and reasoning by default; pinning is an exception for future specialized lanes.
+6. The parent session or the built-in `worker` owns edits unless a narrower workflow says otherwise.
+7. Repo-level fan-out stays capped in `.codex/config.toml`:
    - `max_threads = 6`
    - `max_depth = 1`
-6. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
-7. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
+8. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
+9. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
 
 ## How to verify the servers are working
 
@@ -204,11 +206,12 @@ When working in this repo:
    - `.codex/skills/oss-license-governance/`
    - `.codex/skills/contributor-onboarding/`
    - `.codex/skills/subtree-upstream-governance/`
-10. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
-11. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-12. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
-13. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
-14. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
+10. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, security, or repo-operations workflow.
+11. Use `.codex/skills/github-contribution-governance/` for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
+12. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+13. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
+14. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+15. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
 
 If a developer has not configured MCP yet:
 

@@ -17,6 +17,7 @@ export default function KaiPage() {
         authState="authenticated"
         dataState="loaded"
       />
+
       <KaiMarketPreviewView />
     </>
   );

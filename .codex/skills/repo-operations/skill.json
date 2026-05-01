@@ -25,7 +25,8 @@
     "ci-watch-and-heal",
     "release-readiness",
     "mobile-parity-check",
-    "docs-sync"
+    "docs-sync",
+    "github-contribution-governance"
   ],
   "required_reads": [
     "docs/reference/operations/README.md",

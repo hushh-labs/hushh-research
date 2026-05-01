@@ -29,6 +29,7 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
+import { ConsentAuditTimeline } from "@/components/consent/consent-audit-timeline";
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import {
   humanizeConsentScope,
@@ -1023,18 +1024,32 @@ export function ConsentCenterPage() {
                       No relationship entries match this view right now.
                     </div>
                   ) : null}
-                  {items.map((entry) => (
-                    <ConsentEntryRow
-                      key={entry.id}
-                      entry={entry}
-                      selected={selectedEntry?.id === entry.id}
-                      onSelect={() =>
+                  {tab === "history" && items.length > 0 ? (
+                    <ConsentAuditTimeline
+                      entries={items}
+                      selectedId={selectedId}
+                      onSelect={(entry) =>
                         setParam({
                           requestId: entry.request_id || entry.id,
                         })
                       }
+                      resolveCounterpartLabel={resolveCounterpartLabel}
+                      summarizeEntry={entrySummary}
                     />
-                  ))}
+                  ) : (
+                    items.map((entry) => (
+                      <ConsentEntryRow
+                        key={entry.id}
+                        entry={entry}
+                        selected={selectedEntry?.id === entry.id}
+                        onSelect={() =>
+                          setParam({
+                            requestId: entry.request_id || entry.id,
+                          })
+                        }
+                      />
+                    ))
+                  )}
                 </div>
 
                 {tab !== "relationships" && listData ? (

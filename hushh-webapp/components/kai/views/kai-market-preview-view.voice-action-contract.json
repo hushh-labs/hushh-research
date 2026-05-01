@@ -14,7 +14,7 @@
   },
   "actions": [
     {
-      "action_id": "nav.kai_home",
+      "action_id": "route.kai_home",
       "label": "Open Market Home",
       "meaning": "Navigates to the Investor Kai market home surface.",
       "aliases": [
@@ -50,7 +50,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "kai"
     }
   ]
 }

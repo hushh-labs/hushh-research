@@ -249,6 +249,92 @@ describe("executeVoiceResponse", () => {
     });
   });
 
+  it("defers the RIA persona-switch workflow at confirmation before navigating", async () => {
+    const input = baseInput();
+    const setPendingConfirmation = vi.fn();
+    const result = await executeVoiceResponse({
+      ...input,
+      activePersona: "investor",
+      setPendingConfirmation,
+      response: {
+        kind: "speak_only",
+        message: "Opening RIA workspace.",
+        speak: true,
+      },
+      groundedPlan: {
+        status: "resolved",
+        actionId: "route.ria_home",
+        actionLabel: "Open RIA Home",
+        destructive: false,
+        message: null,
+        resolutionSource: "canonical",
+        execution: {
+          mode: "navigate_then_action",
+          steps: [
+            {
+              type: "tool_call",
+              toolCall: {
+                tool_name: "switch_persona",
+                args: {
+                  target_persona: "ria",
+                },
+              },
+              reason: "workflow_persona_switch",
+              confirmationRequired: true,
+              settlementTarget: {
+                persona: "ria",
+              },
+            },
+            {
+              type: "navigate",
+              href: "/ria",
+              reason: "workflow_route_switch",
+              settlementTarget: {
+                route: "/ria",
+                screen: "ria_home",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(setPendingConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "switch_persona",
+        toolCall: {
+          tool_name: "switch_persona",
+          args: {
+            target_persona: "ria",
+          },
+        },
+        prompt: "Switch to the RIA workspace?",
+        transcript: "switch to ria",
+      })
+    );
+    expect(input.router.push).not.toHaveBeenCalled();
+    expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      shortTermMemoryWrite: false,
+      toolName: null,
+      ticker: null,
+      responseKind: "speak_only",
+      actionResult: {
+        status: "noop",
+        actionId: "route.ria_home",
+        routeBefore: "/kai/dashboard",
+        routeAfter: null,
+        screenBefore: "dashboard",
+        screenAfter: null,
+        resultSummary: "Waiting for confirmation before running the next Kai action step.",
+        data: {
+          executionMode: "navigate_then_action",
+          toolName: "switch_persona",
+        },
+      },
+    });
+  });
+
   it("executes hidden action plans as navigation followed by tool dispatch", async () => {
     const input = baseInput();
     const result = await executeVoiceResponse({
@@ -379,7 +465,7 @@ describe("executeVoiceResponse", () => {
       },
       groundedPlan: {
         status: "resolved",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         actionLabel: "Open Gmail Connector Panel",
         destructive: false,
         message: null,
@@ -406,7 +492,7 @@ describe("executeVoiceResponse", () => {
       responseKind: "speak_only",
       actionResult: {
         status: "succeeded",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         routeBefore: "/kai/dashboard",
         routeAfter: "/profile?panel=gmail",
         screenBefore: "dashboard",
@@ -434,7 +520,7 @@ describe("executeVoiceResponse", () => {
       },
       groundedPlan: {
         status: "resolved",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         actionLabel: "Open Gmail Connector Panel",
         destructive: false,
         message: null,
@@ -457,7 +543,7 @@ describe("executeVoiceResponse", () => {
     expect(emitTelemetry).toHaveBeenCalledWith(
       "speak_only_execution_skipped_missing_canonical",
       expect.objectContaining({
-        action_id: "nav.profile_gmail_panel",
+        action_id: "route.profile_gmail_panel",
         resolution_source: "transcript",
       })
     );
@@ -468,7 +554,7 @@ describe("executeVoiceResponse", () => {
       responseKind: "speak_only",
       actionResult: {
         status: "noop",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         routeBefore: "/kai/dashboard",
         routeAfter: null,
         screenBefore: "dashboard",
@@ -497,7 +583,7 @@ describe("executeVoiceResponse", () => {
       },
       groundedPlan: {
         status: "resolved",
-        actionId: "nav.profile_gmail_panel",
+        actionId: "route.profile_gmail_panel",
         actionLabel: "Open Gmail Connector Panel",
         destructive: false,
         message: null,
@@ -519,7 +605,7 @@ describe("executeVoiceResponse", () => {
     expect(emitTelemetry).toHaveBeenCalledWith(
       "speak_only_execution_compatibility_fallback_used",
       expect.objectContaining({
-        action_id: "nav.profile_gmail_panel",
+        action_id: "route.profile_gmail_panel",
         resolution_source: "transcript",
       })
     );

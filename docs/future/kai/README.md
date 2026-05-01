@@ -7,7 +7,7 @@
 ```mermaid
 flowchart TD
   root["docs/future/kai/<br/>Kai future roadmap"]
-  email["Email / KYC / PKM assistant"]
+  email["Superseded Email / KYC / PKM concept"]
 
   root --> email
 ```
@@ -24,7 +24,9 @@ Kai north stars stay in [../../vision/kai/README.md](../../vision/kai/README.md)
 
 ## Current Concepts
 
-- [email-kyc-pkm-assistant.md](./email-kyc-pkm-assistant.md): Kai-owned delegated email/KYC assistant with PKM-aware structured writeback and scoped consent
+- [email-kyc-pkm-assistant.md](./email-kyc-pkm-assistant.md): superseded planning history for email/KYC structured writeback. KYC is now owned by the One-led multi-agent roadmap, not by Kai.
+
+Current One/Kai/Nav/KYC ownership lives in [../one-nav-runtime-plan.md](../one-nav-runtime-plan.md).
 
 ## Promotion Rule
 

@@ -14,7 +14,7 @@
   },
   "actions": [
     {
-      "action_id": "nav.kai_analysis",
+      "action_id": "route.kai_analysis",
       "label": "Open Analysis Surface",
       "meaning": "Navigates directly to the Kai analysis workspace and history route.",
       "aliases": [
@@ -47,10 +47,11 @@
       "state_exposure": [],
       "docs_references": [
         "app/kai/analysis/page.tsx"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
-      "action_id": "nav.analysis_history",
+      "action_id": "route.analysis_history",
       "label": "Open Analysis History",
       "meaning": "Navigates to analysis page history context.",
       "aliases": [
@@ -84,7 +85,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
       "action_id": "analysis.start",
@@ -127,7 +129,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
       "action_id": "analysis.resume_active",
@@ -171,7 +174,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
       "action_id": "analysis.cancel_active",
@@ -215,7 +219,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
+      ],
+      "speaker_persona": "kai"
     },
     {
       "action_id": "analysis.open_transcript_tab_legacy",
@@ -252,7 +257,8 @@
       "docs_references": [
         "lib/voice/voice-json-validator.ts",
         "app/kai/analysis/page.tsx"
-      ]
+      ],
+      "speaker_persona": "kai"
     }
   ]
 }

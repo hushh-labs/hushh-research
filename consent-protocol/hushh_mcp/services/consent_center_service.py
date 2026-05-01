@@ -1078,7 +1078,6 @@ class ConsentCenterService:
                 "primary_nav_persona": "investor",
                 "ria_setup_available": False,
                 "ria_switch_available": False,
-                "dev_ria_bypass_allowed": False,
                 "investor_marketplace_opt_in": False,
                 "iam_schema_ready": False,
                 "mode": "compat_investor",

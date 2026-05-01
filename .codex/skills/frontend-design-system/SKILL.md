@@ -93,6 +93,12 @@ Non-owned surfaces:
 34. Verification forms are not hero surfaces by default; use form-width composition, tighter heading scale, and compact field spacing unless the product explicitly needs a showcase layout.
 35. Interactive icons inside shared controls must inherit the active foreground of their host surface; do not leave chevrons, clear buttons, or adornments on muted gray when the hover/fill surface changes to a strong color.
 36. Contrast review is required for shared interactive states: if a background becomes blue, dark, or accent-heavy on hover/open/pressed, the foreground and icons must remain visibly legible at the component layer.
+37. Route shell, greeting, notification, consent, and memory copy must follow One/Kai/Nav ownership:
+   - One owns shared shell, greetings, memory framing, background-task notifications, and specialist handoffs.
+   - Kai owns finance analysis, portfolio, market, RIA finance, and decision-receipt copy.
+   - Nav owns consent, privacy, vault, deletion, revocation, suspicious-access, and scope-review copy.
+38. UI action ids for ordinary navigation must use `route.*`. Do not use `nav.*` unless the action is truly Nav-owned privacy/consent guardian behavior.
+39. Product copy should use neutral voice descriptors and plain product language; do not add celebrity references or personal numeric preferences to maintained UI copy.
 
 ## Handoff Rules
 

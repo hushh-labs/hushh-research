@@ -20,6 +20,8 @@ const WEBAPP_MANIFEST_OUTPUT_PATH = path.resolve(
   "contracts/kai/voice-action-manifest.v1.json"
 );
 
+const AGENT_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
+const SPEAKER_PERSONAS = AGENT_PERSONAS;
 const DEFAULT_TRIGGER = {
   primary: "voice",
   supported: ["voice", "tap", "keyboard", "programmatic"],
@@ -286,6 +288,22 @@ function normalizeAction(surface, action) {
       `${surface.surface_id}: action requires action_id, label, meaning, risk_level, execution_policy`
     );
   }
+  const speakerPersona =
+    cleanString(action.speaker_persona) ||
+    cleanString(surface.defaults?.speaker_persona) ||
+    "one";
+  if (!SPEAKER_PERSONAS.has(speakerPersona)) {
+    throw new Error(
+      `${actionId}: speaker_persona must be one of ${Array.from(SPEAKER_PERSONAS).join(", ")}`
+    );
+  }
+  const delegateAgentId =
+    cleanString(action.delegate_agent_id) || cleanString(surface.defaults?.delegate_agent_id);
+  if (delegateAgentId && !AGENT_PERSONAS.has(delegateAgentId)) {
+    throw new Error(
+      `${actionId}: delegate_agent_id must be one of ${Array.from(AGENT_PERSONAS).join(", ")}`
+    );
+  }
 
   const docsReferences = uniqueStrings([
     ...surface.docs_references,
@@ -298,6 +316,8 @@ function normalizeAction(surface, action) {
     aliases: uniqueStrings(action.aliases),
     search_keywords: uniqueStrings(action.search_keywords),
     meaning,
+    speaker_persona: speakerPersona,
+    delegate_agent_id: delegateAgentId || null,
     reachability: normalizeReachability(action.reachability, surface.defaults?.reachability, actionId),
     guard_ids: uniqueStrings(action.guard_ids),
     risk_level: riskLevel,
@@ -368,6 +388,8 @@ function toLegacyManifestAction(action) {
     id: action.action_id,
     label: action.label,
     meaning: action.meaning,
+    speaker_persona: action.speaker_persona,
+    delegate_agent_id: action.delegate_agent_id,
     aliases: action.aliases,
     scope: {
       routes: action.reachability.routes,

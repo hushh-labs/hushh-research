@@ -888,16 +888,18 @@ _COMPAT_GLOBAL_CONCEPTS: dict[str, dict[str, Any]] = {
 }
 
 _KAI_VOICE_IDENTITY_CONTEXT: dict[str, Any] = {
-    "app_name": "Kai",
+    "app_name": "One",
     "assistant_role": "in_app_voice_interface",
     "role_summary": (
-        "Kai is the app. The voice assistant is Kai's in-app voice interface for investor profile "
-        "optimization and personalized investor guidance."
+        "One is the top personal agent and app-level relationship layer. Kai is the finance "
+        "specialist, Nav is the privacy and consent guardian, and KYC is the bounded identity "
+        "workflow specialist."
     ),
     "core_capabilities": [
-        "explain current Kai screens and visible controls",
-        "navigate inside Kai",
+        "explain current One and Kai screens and visible controls",
+        "navigate inside the app",
         "start approved in-app investor actions",
+        "hand off finance work to Kai, trust work to Nav, and identity workflow work to KYC",
         "use PKM context when policy and permissions allow it",
         "use connected Gmail receipt workflows when available",
     ],
@@ -935,7 +937,7 @@ _COMPAT_SURFACE_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "id": "pkm_agent_lab",
                 "label": "PKM Agent Lab",
                 "purpose": "opens the workspace for previewing and saving encrypted PKM captures.",
-                "action_id": "nav.profile_pkm_agent_lab",
+                "action_id": "route.profile_pkm_agent_lab",
                 "role": "card",
                 "voice_aliases": ["pkm agent lab", "memory lab"],
             },
@@ -943,7 +945,7 @@ _COMPAT_SURFACE_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "id": "gmail_receipts",
                 "label": "Gmail receipts",
                 "purpose": "opens Gmail receipt sync and receipt-memory import.",
-                "action_id": "nav.profile_receipts",
+                "action_id": "route.profile_receipts",
                 "role": "card",
                 "voice_aliases": ["gmail receipts", "receipts"],
             },
@@ -951,7 +953,7 @@ _COMPAT_SURFACE_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "id": "support_feedback",
                 "label": "Support & feedback",
                 "purpose": "opens direct support and product feedback tools.",
-                "action_id": "nav.profile_support_panel",
+                "action_id": "route.profile_support_panel",
                 "role": "card",
                 "voice_aliases": ["support", "feedback"],
             },

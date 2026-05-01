@@ -27,6 +27,7 @@ def issue_token(
     agent_id: AgentID,
     scope: Union[str, ConsentScope],
     expires_in_ms: int = DEFAULT_CONSENT_TOKEN_EXPIRY_MS,
+    commercial: bool = False,
 ) -> HushhConsentToken:
     """
     Issue a consent token with the given scope.
@@ -34,6 +35,12 @@ def issue_token(
     CRITICAL: Scope can be a string (e.g., 'attr.financial.*') or ConsentScope enum.
     When a string is provided, it's preserved exactly in the token to maintain domain isolation.
     This ensures 'attr.financial.*' tokens can ONLY access financial data, not all attr.* domains.
+
+    The optional `commercial` flag (issue #30) records whether this consent
+    authorizes monetized/commercial agent usage. The flag is part of the
+    signed payload so it cannot be tampered with after issuance. Tokens
+    issued without the flag are non-commercial by default, which preserves
+    backward compatibility with previously issued tokens.
     """
     issued_at = int(time.time() * 1000)
     expires_at = issued_at + expires_in_ms
@@ -49,7 +56,14 @@ def issue_token(
     else:
         scope_str = scope
 
-    raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at}|{expires_at}"
+    # Non-commercial tokens use the original 5-field signed payload so
+    # previously issued tokens still validate. Commercial tokens append
+    # a sixth field which is part of the signed bytes (so it cannot be
+    # tampered with after issuance).
+    if commercial:
+        raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at}|{expires_at}|commercial"
+    else:
+        raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at}|{expires_at}"
     signature = _sign(raw)
 
     token_string = (
@@ -68,6 +82,7 @@ def issue_token(
         issued_at=issued_at,
         expires_at=expires_at,
         signature=signature,
+        commercial=commercial,
     )
 
 
@@ -75,26 +90,25 @@ def _scope_str_to_enum(scope_str: str) -> ConsentScope:
     """
     Map a scope string to its ConsentScope enum equivalent.
     Dynamic scopes (attr.*) map to PKM_READ.
+    Unknown static scopes are rejected instead of silently escalating to PKM_READ.
     """
     try:
         return ConsentScope(scope_str)
     except ValueError:
-        if scope_str == "pkm.read":
-            return ConsentScope.PKM_READ
-        if scope_str == "pkm.write":
-            return ConsentScope.PKM_WRITE
         # Dynamic scope (e.g., attr.financial.*) - map to PKM_READ
         if scope_str.startswith("attr."):
             return ConsentScope.PKM_READ
-        # Unknown scope - default to PKM_READ
-        return ConsentScope.PKM_READ
+        raise
 
 
 # ========== Token Verifier ==========
 
 
 def validate_token(
-    token_str: str, expected_scope: Optional[Union[str, ConsentScope]] = None
+    token_str: str,
+    expected_scope: Optional[Union[str, ConsentScope]] = None,
+    *,
+    require_commercial: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str], Optional[HushhConsentToken]]:
     """
     Validate a consent token.
@@ -102,6 +116,10 @@ def validate_token(
     Args:
         token_str: The token string to validate
         expected_scope: Optional scope to validate against (string or enum)
+        require_commercial: Optional gate for the commercial flag (issue #30).
+            - None (default) accepts both commercial and non-commercial tokens.
+            - True requires the token to authorize commercial usage.
+            - False requires the token to be non-commercial.
 
     Returns:
         Tuple of (valid, error_reason, token_object)
@@ -118,13 +136,28 @@ def validate_token(
             return False, "Invalid token prefix", None
 
         decoded = base64.urlsafe_b64decode(encoded.encode()).decode()
-        user_id, agent_id, scope_str, issued_at_str, expires_at_str = decoded.split("|")
+        parts = decoded.split("|")
+
+        # Backward-compatible payload parsing.
+        # 5 parts = legacy non-commercial token. 6 parts = commercial token
+        # whose final field is the literal "commercial".
+        if len(parts) == 5:
+            user_id, agent_id, scope_str, issued_at_str, expires_at_str = parts
+            commercial = False
+        elif len(parts) == 6 and parts[5] == "commercial":
+            user_id, agent_id, scope_str, issued_at_str, expires_at_str, _ = parts
+            commercial = True
+        else:
+            return False, "Malformed token", None
 
         # Map scope string to enum (for type alignment)
         # IMPORTANT: Don't fail for dynamic scopes - they're valid!
         scope_enum = _scope_str_to_enum(scope_str)
 
-        raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}"
+        if commercial:
+            raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}|commercial"
+        else:
+            raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}"
         expected_sig = _sign(raw)
 
         if not hmac.compare_digest(signature, expected_sig):
@@ -153,6 +186,12 @@ def validate_token(
         if int(time.time() * 1000) > int(expires_at_str):
             return False, "Token expired", None
 
+        # Commercial-flag gate (issue #30).
+        if require_commercial is True and not commercial:
+            return False, "Commercial consent required for this operation", None
+        if require_commercial is False and commercial:
+            return False, "Non-commercial consent required for this operation", None
+
         token = HushhConsentToken(
             token=token_str,
             user_id=UserID(user_id),
@@ -162,15 +201,22 @@ def validate_token(
             issued_at=int(issued_at_str),
             expires_at=int(expires_at_str),
             signature=signature,
+            commercial=commercial,
         )
         return True, None, token
 
-    except Exception as e:
+    except (ValueError, UnicodeDecodeError) as e:
         return False, f"Malformed token: {str(e)}", None
+    except Exception as e:
+        logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
+        raise
 
 
 async def validate_token_with_db(
-    token_str: str, expected_scope: Optional[Union[str, ConsentScope]] = None
+    token_str: str,
+    expected_scope: Optional[Union[str, ConsentScope]] = None,
+    *,
+    require_commercial: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str], Optional[HushhConsentToken]]:
     """
     Validate token with additional database revocation check.
@@ -179,7 +225,11 @@ async def validate_token_with_db(
     Falls back to in-memory check if DB is unavailable.
     """
     # First do the fast in-memory validation
-    valid, reason, token_obj = validate_token(token_str, expected_scope)
+    valid, reason, token_obj = validate_token(
+        token_str,
+        expected_scope,
+        require_commercial=require_commercial,
+    )
 
     if not valid:
         return valid, reason, token_obj
@@ -208,8 +258,28 @@ async def validate_token_with_db(
                 logger.warning(f"Token revoked in DB but not in memory: {token_str[:30]}...")
                 return False, "Token has been revoked (DB check)", None
     except Exception as e:
-        # Log but don't fail - in-memory check is sufficient for single instance
-        logger.warning(f"DB revocation check failed, using in-memory only: {e}")
+        # DB is unreachable — apply fail-closed policy based on token scope.
+        # VAULT_OWNER tokens get a short grace period to avoid locking users
+        # out of their own vault during brief DB hiccups.
+        # All other scoped tokens fail closed immediately — when revocation
+        # status cannot be confirmed, access to third-party data is denied.
+        is_vault_owner = token_obj is not None and (
+            token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
+        )
+        if is_vault_owner:
+            logger.warning(
+                "DB revocation check failed for VAULT_OWNER token, "
+                "applying grace period fallback: %s",
+                e,
+            )
+            return valid, reason, token_obj
+
+        logger.error(
+            "DB revocation check failed for scoped token, "
+            "failing closed to protect consent integrity: %s",
+            e,
+        )
+        return False, "Token revocation status could not be confirmed (DB unavailable)", None
 
     return valid, reason, token_obj
 

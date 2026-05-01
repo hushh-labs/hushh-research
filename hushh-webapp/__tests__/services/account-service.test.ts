@@ -114,4 +114,32 @@ describe("AccountService", () => {
       expect(result.remaining_personas).toEqual(["ria"]);
     });
   });
+
+  describe("exportData", () => {
+    it("throws when no vault owner token is provided", async () => {
+      await expect(AccountService.exportData("")).rejects.toThrow("VAULT_OWNER token required");
+    });
+
+    it("calls export route with VAULT_OWNER authorization header", async () => {
+      mockApiJson.mockResolvedValue({
+        success: true,
+        exported_at: "2026-04-24T00:00:00Z",
+        requested_target: "account",
+      });
+
+      const result = await AccountService.exportData("vault-token-abc");
+
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/account/export",
+        expect.objectContaining({
+          method: "GET",
+          headers: {
+            Authorization: "Bearer vault-token-abc",
+          },
+        })
+      );
+      expect(result.success).toBe(true);
+      expect(result.requested_target).toBe("account");
+    });
+  });
 });

@@ -8,9 +8,11 @@
 flowchart TD
   root["docs/future/<br/>planning-only roadmap home"]
   kai["kai/<br/>assistant and workflow concepts"]
+  oneNav["one-nav-runtime-plan.md<br/>One/Kai/Nav/KYC runtime migration"]
   execution["promotion to execution docs<br/>only after approval"]
 
   root --> kai
+  root --> oneNav
   root --> execution
 ```
 
@@ -54,7 +56,8 @@ Promotion targets:
 
 ## Current Domains
 
-- [kai/README.md](./kai/README.md): Kai future-state concepts and delegated workflow planning
+- [kai/README.md](./kai/README.md): Kai future-state concepts and superseded planning history that has not yet moved
+- [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current Kai-first runtime to the One/Kai/Nav/KYC ontology
 
 ## References
 

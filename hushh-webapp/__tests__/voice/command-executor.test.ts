@@ -123,7 +123,7 @@ describe("executeKaiCommand", () => {
     expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?tab=history");
     expect(result.actionResult).toMatchObject({
       status: "succeeded",
-      actionId: "nav.analysis_history",
+      actionId: "route.analysis_history",
       routeAfter: "/kai/analysis?tab=history",
       screenAfter: "kai_analysis",
     });

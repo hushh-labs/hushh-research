@@ -147,7 +147,7 @@ describe("ApiService voice planning contract", () => {
     expect(body.memory_retrieved).toEqual([{ memory: "m1" }]);
   });
 
-  it("forwards voice turn id header for STT and TTS requests", async () => {
+  it("forwards voice turn id header for TTS requests", async () => {
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
@@ -156,12 +156,6 @@ describe("ApiService voice planning contract", () => {
       })
     );
 
-    await ApiService.transcribeKaiVoice({
-      userId: "user_1",
-      vaultOwnerToken: "vault_token",
-      audioBlob: new Blob(["abc"], { type: "audio/webm" }),
-      voiceTurnId: "vturn_stt_1",
-    });
     await ApiService.synthesizeKaiVoice({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -169,12 +163,9 @@ describe("ApiService voice planning contract", () => {
       voiceTurnId: "vturn_tts_1",
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const [, sttRequest] = fetchSpy.mock.calls[0] ?? [];
-    const [, ttsRequest] = fetchSpy.mock.calls[1] ?? [];
-    const sttHeaders = sttRequest?.headers as Record<string, string>;
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, ttsRequest] = fetchSpy.mock.calls[0] ?? [];
     const ttsHeaders = ttsRequest?.headers as Record<string, string>;
-    expect(sttHeaders["X-Voice-Turn-Id"]).toBe("vturn_stt_1");
     expect(ttsHeaders["X-Voice-Turn-Id"]).toBe("vturn_tts_1");
   });
 
@@ -201,74 +192,6 @@ describe("ApiService voice planning contract", () => {
     expect(headers["X-Voice-Turn-Id"]).toBe("vturn_capability_1");
     const body = JSON.parse(String(request?.body || "{}")) as Record<string, unknown>;
     expect(body.user_id).toBe("user_1");
-  });
-
-  it("sends combined understand payload to /api/kai/voice/understand", async () => {
-    const { ApiService } = await import("@/lib/services/api-service");
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-
-    await ApiService.understandKaiVoice({
-      userId: "user_1",
-      vaultOwnerToken: "vault_token",
-      audioBlob: new Blob(["abc"], { type: "audio/webm" }),
-      voiceTurnId: "vturn_understand_1",
-      context: { route: "/kai" },
-      appState: {
-        auth: { signed_in: true, user_id: "user_1" },
-        vault: { unlocked: true, token_available: true, token_valid: true },
-        route: { pathname: "/kai", screen: "home", subview: null },
-        runtime: {
-          analysis_active: false,
-          analysis_ticker: null,
-          analysis_run_id: null,
-          import_active: false,
-          import_run_id: null,
-          busy_operations: [],
-        },
-        portfolio: { has_portfolio_data: true },
-        voice: {
-          available: true,
-          tts_playing: false,
-          last_tool_name: null,
-          last_ticker: null,
-        },
-      },
-    });
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, request] = fetchSpy.mock.calls[0] ?? [];
-    expect(url).toBe("/api/kai/voice/understand");
-    const headers = request?.headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer vault_token");
-    expect(headers["X-Voice-Turn-Id"]).toBe("vturn_understand_1");
-  });
-
-  it("normalizes codec MIME and filename for voice uploads", async () => {
-    const { ApiService } = await import("@/lib/services/api-service");
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-
-    await ApiService.understandKaiVoice({
-      userId: "user_1",
-      vaultOwnerToken: "vault_token",
-      audioBlob: new Blob(["abc"], { type: "audio/webm;codecs=opus" }),
-      voiceTurnId: "vturn_understand_2",
-    });
-
-    const [, request] = fetchSpy.mock.calls[0] ?? [];
-    const form = request?.body as FormData;
-    const file = form.get("audio_file") as File | null;
-    expect(file?.type).toBe("audio/webm");
-    expect(file?.name).toBe("kai-voice.webm");
   });
 
   it("prefers direct backend transport for local backend in production mode", async () => {

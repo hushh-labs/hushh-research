@@ -20,14 +20,13 @@ from hushh_mcp.services.ria_iam_service import _IAM_REQUIRED_TABLES, RIAIAMServi
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_fake_conn(present_tables: list[str]) -> AsyncMock:
     """Return a fake asyncpg connection that answers pg_catalog queries."""
     conn = AsyncMock()
 
     async def _fetch(query: str, table_list: list[str]) -> list[dict]:
-        assert "pg_catalog.pg_tables" in query, (
-            "Expected a single pg_catalog query, got: " + query
-        )
+        assert "pg_catalog.pg_tables" in query, "Expected a single pg_catalog query, got: " + query
         return [{"tablename": t} for t in table_list if t in present_tables]
 
     conn.fetch.side_effect = _fetch
@@ -44,6 +43,7 @@ def _clear_caches() -> None:
 # _batch_tables_exist
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_batch_tables_exist_issues_single_query_for_all_tables():
     """11 required tables must be checked with exactly ONE DB round-trip."""
@@ -53,9 +53,7 @@ async def test_batch_tables_exist_issues_single_query_for_all_tables():
     result = await RIAIAMService._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
 
     assert result == set(_IAM_REQUIRED_TABLES)
-    assert conn.fetch.call_count == 1, (
-        f"Expected 1 DB query, got {conn.fetch.call_count}"
-    )
+    assert conn.fetch.call_count == 1, f"Expected 1 DB query, got {conn.fetch.call_count}"
 
 
 @pytest.mark.asyncio
@@ -101,9 +99,7 @@ async def test_batch_tables_exist_re_queries_after_ttl_expiry():
 
     await RIAIAMService._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
 
-    assert conn.fetch.call_count == 1, (
-        "Expired cache entries must trigger a fresh DB query"
-    )
+    assert conn.fetch.call_count == 1, "Expired cache entries must trigger a fresh DB query"
 
 
 @pytest.mark.asyncio
@@ -130,6 +126,7 @@ async def test_batch_tables_exist_does_not_cache_missing_tables():
 # ---------------------------------------------------------------------------
 # _is_iam_schema_ready
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_is_iam_schema_ready_returns_true_when_all_tables_present():
