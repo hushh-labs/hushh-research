@@ -5,7 +5,7 @@ import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandle
 import { db } from '../firebase';
 import { UserProfile } from '../types';
 import { Loader2, X } from 'lucide-react';
-import { canJoinSearchingMatch } from '../lib/rankedBattle';
+import { canJoinSearchingMatch, chooseTossCallerId } from '../lib/rankedBattle';
 
 interface MatchmakingProps {
   profile: UserProfile;
@@ -56,6 +56,7 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
             }
 
             setStatus('joining');
+            const playerOrder = [...Object.keys(players), profile.uid];
             transaction.update(matchRef, {
               status: 'toss',
               players: {
@@ -66,6 +67,8 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
                   team: profile.team
                 }
               },
+              playerOrder,
+              tossCallerId: chooseTossCallerId(playerOrder),
               updatedAt: serverTimestamp()
             });
             return true;
@@ -88,6 +91,7 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
               team: profile.team
             }
           },
+          playerOrder: [profile.uid],
           currentBatterId: '',
           currentBowlerId: '',
           innings: 1,
@@ -167,6 +171,8 @@ export default function Matchmaking({ profile, onMatchFound, onCancel }: Matchma
           team: 'hushh'
         }
       },
+      playerOrder: [profile.uid, 'bot'],
+      tossCallerId: profile.uid,
       currentBatterId: '',
       currentBowlerId: '',
       innings: 1,

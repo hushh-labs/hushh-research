@@ -4,6 +4,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { MatchData, UserProfile } from '../types';
 import { cn } from '../lib/utils';
+import { getPlayerOrder } from '../lib/rankedBattle';
 import { ChevronLeft, Play, Pause, SkipForward, SkipBack } from 'lucide-react';
 import { audio } from '../lib/audioManager';
 
@@ -63,13 +64,13 @@ export default function MatchReplay({ matchId, profile, onBack }: ReplayProps) {
   }
 
   // Reconstruct state at current moveIndex
-  const pids = Object.keys(matchData.players);
+  const pids = getPlayerOrder(matchData);
   let scoreP1 = 0;
   let scoreP2 = 0;
   let ballsP1 = 0;
   let ballsP2 = 0;
   let currentInnings = 1;
-  let currentBatterId = matchData.tossWinnerId;
+  let currentBatterId = matchData.tossWinnerId || pids[0];
   let currentBowlerId = pids.find(id => id !== currentBatterId)!;
 
   const history = matchData.history.slice(0, moveIndex);

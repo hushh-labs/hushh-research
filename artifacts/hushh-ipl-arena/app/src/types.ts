@@ -36,6 +36,7 @@ export interface MatchData {
   id: string;
   status: MatchStatus;
   players: Record<string, MatchPlayer>;
+  playerOrder?: string[];
   isBotMatch: boolean;
   botDifficulty?: 'easy' | 'medium' | 'hard';
   currentBatterId: string;
@@ -47,8 +48,10 @@ export interface MatchData {
   lastMoves: Record<string, number>; // uid -> choice
   history: MatchMove[];
   winnerId?: string;
+  tossCallerId?: string;
   tossWinnerId?: string;
-  tossChoice?: 'odd' | 'even';
+  tossCall?: 'heads' | 'tails';
+  tossResult?: 'heads' | 'tails';
   createdAt: any;
   updatedAt: any;
 }

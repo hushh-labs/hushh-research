@@ -6,7 +6,15 @@ import { db } from '../firebase';
 import { UserProfile, MatchData } from '../types';
 import { cn } from '../lib/utils';
 import { Trophy, Home, RotateCcw, Swords, ChevronRight } from 'lucide-react';
-import { calculateMoveResult, hasMove, OPPONENT_MOVE_TIMEOUT_MS } from '../lib/rankedBattle';
+import {
+  calculateMoveResult,
+  getOpponentId,
+  getPlayerOrder,
+  hasMove,
+  OPPONENT_MOVE_TIMEOUT_MS,
+  resolveToss,
+} from '../lib/rankedBattle';
+import type { TossCall } from '../lib/rankedBattle';
 
 import { audio } from '../lib/audioManager';
 
@@ -40,8 +48,10 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
           [profile.uid]: { uid: profile.uid, displayName: profile.displayName, team: profile.team },
           'bot': { uid: 'bot', displayName: 'hushh bot', team: 'hushh' }
         },
+        playerOrder: [profile.uid, 'bot'],
         isBotMatch: true,
         botDifficulty: practiceDifficulty,
+        tossCallerId: profile.uid,
         currentBatterId: '',
         currentBowlerId: '',
         innings: 1,
@@ -70,7 +80,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
   useEffect(() => {
     if (!match || match.status !== 'playing' || revealing) return;
 
-    const pids = Object.keys(match.players);
+    const pids = getPlayerOrder(match);
     const hasP1Move = hasMove(match, pids[0]);
     const hasP2Move = hasMove(match, pids[1]);
     const turnNumber = match.history.length + 1;
@@ -186,7 +196,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
   useEffect(() => {
     if (!match || isPractice || match.status !== 'finished' || statsUpdatedRef.current) return;
 
-    const pids = Object.keys(match.players);
+    const pids = getPlayerOrder(match);
     if (!pids.includes(profile.uid)) return;
 
     statsUpdatedRef.current = true;
@@ -201,13 +211,17 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
   const currentTurnKey = match?.history?.length || 0;
   const submitMoveRef = useRef<((num: number) => Promise<void>) | null>(null);
 
-  const handleToss = async (choice: 'heads' | 'tails') => {
+  const handleToss = async (choice: TossCall) => {
     if (!match || isTossing) return;
+    const pids = getPlayerOrder(match);
+    const tossCallerId = match.tossCallerId || pids[0];
+    const canCallToss = profile.uid === tossCallerId || (match.isBotMatch && profile.uid !== 'bot');
+    if (!canCallToss) return;
 
     setIsTossing(true);
     audio.playToss();
     // Determine result
-    const result = Math.random() > 0.5 ? 'heads' : 'tails';
+    const result: TossCall = Math.random() > 0.5 ? 'heads' : 'tails';
 
     // Animation delay
     setTimeout(async () => {
@@ -221,25 +235,27 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
         audio.playLose(); // small negative tone
       }
 
-      const pids = Object.keys(match.players);
-      const winner = won ? profile.uid : (match.isBotMatch ? 'bot' : pids.find(id => id !== profile.uid)!);
+      const tossUpdates = resolveToss(match, tossCallerId, choice, result);
 
       // Hold the result on screen for 3 seconds before starting the match
+      if (isPractice) {
+        setMatch({
+          ...match,
+          ...tossUpdates,
+        });
+      } else {
+        await updateDoc(doc(db, 'matches', matchId), {
+          ...tossUpdates,
+          updatedAt: serverTimestamp()
+        } as any);
+      }
+
       setTimeout(async () => {
         if (isPractice) {
-          setMatch({
-            ...match,
-            status: 'playing',
-            currentBatterId: winner,
-            currentBowlerId: winner === profile.uid ? 'bot' : profile.uid,
-            tossWinnerId: winner
-          });
+          setMatch(current => current ? { ...current, status: 'playing' } : current);
         } else {
            await updateDoc(doc(db, 'matches', matchId), {
             status: 'playing',
-            currentBatterId: winner,
-            currentBowlerId: pids.find(id => id !== winner)!,
-            tossWinnerId: winner,
             updatedAt: serverTimestamp()
           } as any);
         }
@@ -257,7 +273,6 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
 
       let botMove = Math.floor(Math.random() * 6) + 1;
 
-      const pids = Object.keys(match.players);
       const isBotBatting = match.currentBatterId !== profile.uid;
 
       if (difficulty === 'medium') {
@@ -345,8 +360,7 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
   useEffect(() => {
     if (!match || isPractice || match.isBotMatch || match.status !== 'playing' || revealing) return;
 
-    const pids = Object.keys(match.players);
-    const opponentId = pids.find(id => id !== profile.uid);
+    const opponentId = getOpponentId(match, profile.uid);
     if (!opponentId) return;
 
     const hasMyMove = hasMove(match, profile.uid);
@@ -396,12 +410,17 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
 
   if (!match) return null;
 
-  const pids = Object.keys(match.players);
+  const pids = getPlayerOrder(match);
   const p1 = match.players[pids[0]];
   const p2 = match.players[pids[1]];
   const isMeBatting = match.currentBatterId === profile.uid;
-  const myOpponent = pids.find(id => id !== profile.uid)!;
+  const myOpponent = getOpponentId(match, profile.uid)!;
   const opponentProfile = match.players[myOpponent];
+  const tossCallerId = match.tossCallerId || pids[0];
+  const canCallToss = profile.uid === tossCallerId || (match.isBotMatch && profile.uid !== 'bot');
+  const displayedTossResult = match.tossResult ?? tossResult;
+  const tossCallerName = match.players[tossCallerId]?.displayName || 'Opponent';
+  const tossWinnerName = match.tossWinnerId ? match.players[match.tossWinnerId]?.displayName : null;
 
   const p1BallsFaced = match.history?.filter(m => m.batterId === pids[0]).length || 0;
   const p1StrikeRate = p1BallsFaced > 0 ? ((match.scoreP1 / p1BallsFaced) * 100).toFixed(0) : 0;
@@ -455,12 +474,12 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
                 exit={{ opacity: 0 }}
                 className="text-center relative z-10 flex flex-col items-center"
               >
-                {!isTossing && !tossResult ? (
+                {!isTossing && !displayedTossResult ? (
                   <>
                     <h2 className="text-3xl font-black mb-8 text-teal-600 uppercase tracking-tighter">
-                      {pids[0] === profile.uid || match.isBotMatch ? "CALL THE TOSS" : "OPPONENT IS TOSSING"}
+                      {canCallToss ? "CALL THE TOSS" : `${tossCallerName} IS TOSSING`}
                     </h2>
-                    {pids[0] === profile.uid || match.isBotMatch ? (
+                    {canCallToss ? (
                       <div className="flex gap-6">
                         <button
                           onClick={() => handleToss('heads')}
@@ -491,16 +510,21 @@ export default function Game({ matchId, practiceDifficulty, profile, onClose, on
                       className="w-32 h-32 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 border-4 border-yellow-200 shadow-2xl flex items-center justify-center mb-8"
                     >
                       <span className="text-3xl font-black text-yellow-100 uppercase tracking-widest">
-                        {isTossing ? "?" : (tossResult === 'heads' ? "H" : "T")}
+                        {isTossing ? "?" : (displayedTossResult === 'heads' ? "H" : "T")}
                       </span>
                     </motion.div>
                     <h2 className="text-2xl font-black text-slate-800 uppercase tracking-widest animate-pulse mb-2">
-                      {isTossing ? "Flipping..." : (tossResult === 'heads' ? "HEADS!" : "TAILS!")}
+                      {isTossing ? "Flipping..." : (displayedTossResult === 'heads' ? "HEADS!" : "TAILS!")}
                     </h2>
-                    {!isTossing && tossResult && (
-                       <p className="text-teal-600 font-bold uppercase tracking-widest mt-4">
-                         Match starting...
-                       </p>
+                    {!isTossing && displayedTossResult && (
+                      <div className="flex flex-col items-center gap-2">
+                        <p className="text-teal-600 font-bold uppercase tracking-widest mt-4">
+                          {tossWinnerName ? `${tossWinnerName} bats first` : 'Match starting...'}
+                        </p>
+                        <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-xs">
+                          Match starting...
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}

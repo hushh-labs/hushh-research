@@ -2,6 +2,7 @@ import { MatchData, MatchMove } from '../types';
 
 export const SEARCHING_MATCH_TTL_MS = 30_000;
 export const OPPONENT_MOVE_TIMEOUT_MS = 8_000;
+export type TossCall = 'heads' | 'tails';
 
 export const toMillis = (value: any) => {
   if (!value) return 0;
@@ -29,6 +30,52 @@ export const hasMove = (match: MatchData, uid: string) => (
   Object.prototype.hasOwnProperty.call(match.lastMoves || {}, uid)
 );
 
+export const getPlayerOrder = (match: Pick<MatchData, 'players' | 'playerOrder'>) => {
+  const players = match.players || {};
+  const playerIds = Object.keys(players);
+  const ordered = (match.playerOrder || []).filter(id => Boolean(players[id]));
+  const missing = playerIds.filter(id => !ordered.includes(id));
+  return [...ordered, ...missing];
+};
+
+export const getOpponentId = (match: Pick<MatchData, 'players' | 'playerOrder'>, uid: string) => (
+  getPlayerOrder(match).find(id => id !== uid)
+);
+
+export const chooseTossCallerId = (playerOrder: string[], random = Math.random) => {
+  if (playerOrder.length === 0) return '';
+  return playerOrder[Math.floor(random() * playerOrder.length)];
+};
+
+export const resolveToss = (
+  match: MatchData,
+  callerId: string,
+  call: TossCall,
+  result: TossCall,
+): Partial<MatchData> => {
+  const playerOrder = getPlayerOrder(match);
+  const opponentId = playerOrder.find(id => id !== callerId);
+  if (!opponentId || !playerOrder.includes(callerId)) {
+    throw new Error('Cannot resolve toss without two ordered players');
+  }
+
+  const tossWinnerId = call === result ? callerId : opponentId;
+  const bowlerId = playerOrder.find(id => id !== tossWinnerId);
+  if (!bowlerId) {
+    throw new Error('Cannot assign bowling side without an opponent');
+  }
+
+  return {
+    playerOrder,
+    tossCallerId: callerId,
+    tossCall: call,
+    tossResult: result,
+    tossWinnerId,
+    currentBatterId: tossWinnerId,
+    currentBowlerId: bowlerId,
+  };
+};
+
 export const calculateMoveResult = (match: MatchData, bat: number, bowl: number): Partial<MatchData> => {
   let newScoreP1 = match.scoreP1;
   let newScoreP2 = match.scoreP2;
@@ -37,7 +84,7 @@ export const calculateMoveResult = (match: MatchData, bat: number, bowl: number)
   let newBatterId = match.currentBatterId;
   let newBowlerId = match.currentBowlerId;
   let newWinnerId = match.winnerId;
-  const pids = Object.keys(match.players);
+  const pids = getPlayerOrder(match);
   const p1Id = pids[0];
   const p2Id = pids[1];
 
