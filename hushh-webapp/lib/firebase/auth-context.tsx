@@ -508,7 +508,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     checkAuth,
     refreshUser,
     setNativeUser: (user: User | null) => {
-      console.log("🍎 [AuthContext] Manually setting Native User:", user?.uid);
+      console.log("🍎 [AuthContext] Manually setting Native User");
       applyAuthUser(user);
       setLoading(false);
     },

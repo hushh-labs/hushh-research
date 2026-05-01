@@ -74,6 +74,7 @@ REQUIRED_WORKFLOWS = [
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "github-contribution-governance",
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",

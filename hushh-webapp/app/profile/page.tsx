@@ -3062,6 +3062,17 @@ function ProfilePageContent() {
                 onClick={() => void handleSignOut()}
               />
             </SettingsGroup>
+
+            <SettingsGroup>
+              <SettingsRow
+                icon={Trash2}
+                title="Delete account"
+                description="Permanently delete your account and all data."
+                tone="destructive"
+                chevron
+                onClick={() => void handleDeleteClick()}
+              />
+            </SettingsGroup>
           </div>
         </SurfaceStack>
       </AppPageContentRegion>

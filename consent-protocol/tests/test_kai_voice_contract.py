@@ -61,7 +61,6 @@ import hushh_mcp.services.voice_intent_service as voice_intent_service_module  #
 from hushh_mcp.services.voice_intent_service import (  # noqa: E402
     _ALLOWED_COMMANDS,
     _ALLOWED_TOOL_NAMES,
-    _REALTIME_TRANSCRIPTION_PROMPT,
     _UNCLEAR_STT_MESSAGE,
     _VOICE_ENGLISH_ONLY_INPUT_MESSAGE,
     _VOICE_TTS_INSTRUCTIONS,
@@ -177,45 +176,6 @@ async def test_plan_voice_response_stt_unusable_returns_exact_retry(
     assert response["execution_allowed"] is False
     assert openai_http_ms == 0
     assert model == "deterministic"
-
-
-@pytest.mark.anyio
-async def test_transcribe_audio_pins_openai_stt_to_english(
-    voice_service: VoiceIntentService,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    captured: dict[str, object] = {}
-
-    class _FakeResponse:
-        status_code = 200
-
-    async def _fake_post_with_model_fallback(**kwargs):
-        built = kwargs["body_builder"]("gpt-4o-mini-transcribe")
-        captured["data"] = built["data"]
-        captured["files"] = built["files"]
-        return _FakeResponse(), {"text": "open profile"}, 12, "gpt-4o-mini-transcribe"
-
-    monkeypatch.setattr(
-        voice_intent_service_module,
-        "_post_with_model_fallback",
-        _fake_post_with_model_fallback,
-    )
-
-    transcript, openai_http_ms, model = await voice_service.transcribe_audio(
-        audio_bytes=b"abc",
-        filename="voice.webm",
-        content_type="audio/webm",
-    )
-
-    assert transcript == "open profile"
-    assert openai_http_ms == 12
-    assert model == "gpt-4o-mini-transcribe"
-    assert captured["data"] == {
-        "model": "gpt-4o-mini-transcribe",
-        "language": "en",
-        "prompt": _REALTIME_TRANSCRIPTION_PROMPT,
-    }
-    assert "file" in captured["files"]
 
 
 @pytest.mark.anyio
@@ -1649,7 +1609,8 @@ def test_voice_planner_prompt_includes_kai_app_identity_and_manifest_actions():
 
     prompt = build_voice_planner_system_prompt(planner_context=planner_context)
 
-    assert "Kai is the app" in prompt
+    assert "One is the top personal agent" in prompt
+    assert "Kai is the finance specialist" in prompt
     assert "voice assistant" in prompt.lower()
     assert "route.profile" in prompt
     assert "Relevant Manifest Actions" in prompt

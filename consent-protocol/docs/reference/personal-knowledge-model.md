@@ -36,6 +36,25 @@ Until that migration lands, do not describe One-owned PKM as current-state runti
 - `pkm_upgrade_steps`
   Per-domain resumable checkpoints for generic PKM upgrades. No plaintext or key material is stored here.
 
+## Authority and sync model
+
+PKM is local-first and encrypted-first. The user-memory authority is:
+
+1. encrypted domain payloads in `pkm_blobs`
+2. per-domain structure and version truth in `pkm_manifests`
+3. append-only mutation history in `pkm_events`
+4. client-side cache write-through after vault unlock
+
+`pkm_index` is a cloud discovery projection. It can summarize available domains,
+safe counters, freshness, and coarse capability flags, but it is not the source
+of user memory truth. If local-only, offline, or on-device runtime paths are
+active, the app may read from local encrypted cache and reconcile cloud
+projection later.
+
+Cloud writes to `pkm_index.domain_summaries` must therefore be treated as sync
+projection updates. They should be atomic and repairable, but they must not make
+local saves fail solely because the cloud projection is temporarily unavailable.
+
 ## Storage rules
 
 - New writes are PKM-only.

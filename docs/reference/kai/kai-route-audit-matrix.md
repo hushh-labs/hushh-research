@@ -21,9 +21,7 @@ Operational matrix for runtime audits without expanding automated test suites.
 | `/api/kai/voice/realtime/session` | `POST` | Realtime voice session contract reachable; response includes client secret plus English transcription model/language/prompt metadata |
 | `/api/kai/voice/plan` | `POST` | Voice planning contract reachable with canonical planner fields plus legacy response envelope |
 | `/api/kai/voice/compose` | `POST` | Post-execution voice composition contract reachable for final spoken reply generation |
-| `/api/kai/voice/stt` | `POST` | Voice STT contract reachable for non-realtime fallback paths |
 | `/api/kai/voice/tts` | `POST` | Voice TTS contract reachable for explicit synthesized playback |
-| `/api/kai/voice/understand` | `POST` | Legacy combined STT+plan surface reachable for compatibility; `/voice/plan` remains the canonical planning route |
 | `/api/kai/plaid/status/{user_id}` | `GET` | Plaid aggregate status and source metadata available |
 | `/api/kai/plaid/oauth/resume` | `POST` | OAuth resume session can mint a fresh Link continuation |
 | `/api/kai/plaid/exchange-public-token` | `POST` | Public-token exchange syncs read-only holdings + transactions |

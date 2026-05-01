@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -318,7 +320,8 @@ def test_finra_adapter_reports_configuration_gap_when_providers_unconfigured(mon
     assert "not configured" in result.message.lower()
 
 
-def test_iapd_adapter_honors_advisory_bypass_in_non_production(monkeypatch):
+def test_iapd_adapter_never_bypasses_even_with_bypass_env(monkeypatch):
+    """Bypass was removed — IAPD adapter must fail-closed when unconfigured."""
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("ADVISORY_VERIFICATION_BYPASS_ENABLED", "true")
     monkeypatch.delenv("IAPD_VERIFY_BASE_URL", raising=False)
@@ -334,13 +337,31 @@ def test_iapd_adapter_honors_advisory_bypass_in_non_production(monkeypatch):
         )
     )
 
-    assert result.verified is True
-    assert result.rejected is False
-    assert result.outcome == "bypassed"
-    assert "bypass" in result.message.lower()
+    assert result.verified is False
+    assert result.outcome != "bypassed"
 
 
 def test_stage1_lookup_returns_verified_when_crd_present(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/ria/profile/stage1"
+        assert request.headers["content-type"] == "application/json"
+        payload = request.read()
+        body = json.loads(payload)
+        assert body == {"query": "Akash Katla"}
+        return httpx.Response(status_code=200, json=_stage1_payload())
+
+    adapter = RIAIntelligenceStage1LookupAdapter(transport=httpx.MockTransport(handler))
+    result = _run(adapter.verify_name(query="Akash Katla"))
+
+    assert result.status == "verified"
+    assert result.crd_number == "1234567"
+    assert result.provider == "ria_intelligence_stage1"
+
+
+def test_stage1_lookup_maps_returned_crd_without_user_entered_crd(monkeypatch):
     monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
     monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
 
@@ -353,7 +374,54 @@ def test_stage1_lookup_returns_verified_when_crd_present(monkeypatch):
 
     assert result.status == "verified"
     assert result.crd_number == "1234567"
-    assert result.provider == "ria_intelligence_stage1"
+
+
+def test_stage1_lookup_blocks_verified_payload_without_crd(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
+    adapter = RIAIntelligenceStage1LookupAdapter(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                status_code=200,
+                json=_stage1_payload(exists_on_finra=True, crd_number=None),
+            )
+        )
+    )
+    result = _run(adapter.verify_name(query="Akash Katla"))
+
+    assert result.status == "not_verified"
+    assert "CRD-backed" in (result.reason or "")
+
+
+def test_stage1_lookup_maps_auth_and_rate_limit_failures_to_unavailable(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
+    for status_code in (401, 403, 429):
+        adapter = RIAIntelligenceStage1LookupAdapter(
+            transport=httpx.MockTransport(
+                lambda request, code=status_code: httpx.Response(status_code=code)
+            )
+        )
+        result = _run(adapter.verify_name(query=f"Akash Katla {status_code}"))
+        assert result.status == "provider_unavailable"
+        assert result.metadata["status_code"] == status_code
+
+
+def test_stage1_lookup_maps_invalid_json_to_unavailable(monkeypatch):
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+
+    adapter = RIAIntelligenceStage1LookupAdapter(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(status_code=200, content=b"not-json")
+        )
+    )
+    result = _run(adapter.verify_name(query="Akash Katla"))
+
+    assert result.status == "provider_unavailable"
+    assert "invalid JSON" in (result.reason or "")
 
 
 def test_stage1_lookup_returns_not_verified_with_suggestions(monkeypatch):
@@ -463,7 +531,8 @@ def test_stage1_lookup_does_not_cache_provider_unavailable(monkeypatch):
     assert calls["count"] == 2
 
 
-def test_finra_adapter_honors_ria_dev_bypass_alias(monkeypatch):
+def test_finra_adapter_never_bypasses_even_with_dev_bypass_env(monkeypatch):
+    """Bypass was removed — FINRA adapter must fail-closed when unconfigured."""
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
     monkeypatch.delenv("ADVISORY_VERIFICATION_BYPASS_ENABLED", raising=False)
@@ -481,10 +550,8 @@ def test_finra_adapter_honors_ria_dev_bypass_alias(monkeypatch):
         )
     )
 
-    assert result.verified is True
-    assert result.rejected is False
-    assert result.outcome == "bypassed"
-    assert "bypass" in result.message.lower()
+    assert result.verified is False
+    assert result.outcome != "bypassed"
 
 
 def _run(coro):

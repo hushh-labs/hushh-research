@@ -67,6 +67,7 @@ class _StubSupabase:
             "pkm_scope_registry": _StubSupabaseTable(),
             "pkm_migration_state": _StubSupabaseTable(),
         }
+        self.rpc_calls = []
 
     def table(self, name: str):
         table = self.tables.get(name)
@@ -75,6 +76,10 @@ class _StubSupabase:
             self.tables[name] = table
         table.filters = []
         return table
+
+    def rpc(self, function_name: str, params=None):
+        self.rpc_calls.append({"function_name": function_name, "params": params or {}})
+        return _StubSupabaseTable(rows=[{}])
 
 
 @pytest.mark.asyncio
@@ -208,6 +213,31 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     migration_upsert = service._supabase.tables["pkm_migration_state"].last_upsert_data
     assert migration_upsert["on_conflict"] == "user_id"
     assert migration_upsert["data"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_update_domain_summary_uses_atomic_pkm_index_rpc():
+    service = PersonalKnowledgeModelService()
+    service._supabase = _StubSupabase()
+
+    result = await service.update_domain_summary(
+        user_id="user-1",
+        domain="financial",
+        summary={"holdings_count": 3, "readable_summary": "Updated holdings."},
+    )
+
+    assert result is True
+    assert len(service._supabase.rpc_calls) == 1
+    rpc_call = service._supabase.rpc_calls[0]
+    assert rpc_call["function_name"] == "merge_pkm_domain_summary"
+    assert rpc_call["params"]["p_user_id"] == "user-1"
+    assert rpc_call["params"]["p_domain"] == "financial"
+    assert rpc_call["params"]["p_domains_list"] == ["financial"]
+    assert rpc_call["params"]["p_patch"]["attribute_count"] == 3
+    assert rpc_call["params"]["p_patch"]["item_count"] == 3
+    assert rpc_call["params"]["p_patch"]["holdings_count"] == 3
+    assert rpc_call["params"]["p_patch"]["readable_summary"] == "Updated holdings."
+    assert "pkm_index" not in service._supabase.tables
 
 
 @pytest.mark.asyncio

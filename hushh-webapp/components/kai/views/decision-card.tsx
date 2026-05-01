@@ -550,27 +550,34 @@ const barChartConfig = {
   },
 } satisfies ChartConfig;
 
-function QuantMetricsBarChart({ metrics }: { metrics: Record<string, unknown> }) {
+type QuantMetricChartEntry = {
+  name: string;
+  value: number;
+  isNegative: boolean;
+  fill: string;
+};
+
+function buildQuantMetricChartData(metrics: Record<string, unknown>): QuantMetricChartEntry[] {
+  return Object.entries(metrics)
+    .filter((entry): entry is [string, number] => {
+      const value = entry[1];
+      return typeof value === "number" && value !== 0 && Number.isFinite(value);
+    })
+    .slice(0, 6)
+    .map(([key, value]) => ({
+      name: key.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()),
+      value: Math.abs(value) >= 1e9 ? value / 1e9 : Math.abs(value) >= 1e6 ? value / 1e6 : value,
+      isNegative: value < 0,
+      fill: value < 0 ? "var(--color-negative)" : "var(--color-value)",
+    }));
+}
+
+function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
   const compactMetricLabel = (value: string) => {
     const text = String(value || "");
     if (text.length <= 20) return text;
     return `${text.slice(0, 19)}…`;
   };
-
-  const data = useMemo(() => {
-    return Object.entries(metrics)
-      .filter((entry): entry is [string, number] => {
-        const value = entry[1];
-        return typeof value === "number" && value !== 0 && !Number.isNaN(value);
-      })
-      .slice(0, 6)
-      .map(([key, value]) => ({
-        name: key.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()),
-        value: Math.abs(value) >= 1e9 ? value / 1e9 : Math.abs(value) >= 1e6 ? value / 1e6 : value,
-        isNegative: value < 0,
-        fill: value < 0 ? "var(--color-negative)" : "var(--color-value)",
-      }));
-  }, [metrics]);
 
   if (data.length === 0) return null;
 
@@ -865,9 +872,11 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
     }
     return deduped;
   }, [rawCard]);
-  const hasQuantMetrics = rawCard?.quant_metrics && Object.keys(rawCard.quant_metrics).filter(
-    (k) => rawCard.quant_metrics![k] !== null && rawCard.quant_metrics![k] !== undefined && typeof rawCard.quant_metrics![k] !== "object"
-  ).length > 0;
+  const quantMetricChartData = useMemo(
+    () => (rawCard?.quant_metrics ? buildQuantMetricChartData(rawCard.quant_metrics) : []),
+    [rawCard]
+  );
+  const hasRenderableQuantMetrics = quantMetricChartData.length > 0;
 
   // Fallback for empty/missing decision to prevent layout shift
   const safeDecision = decisionPresentation.label || "REVIEW";
@@ -945,8 +954,8 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           <AgentVoteBar result={result} />
           {rawCard?.price_targets && Object.keys(rawCard.price_targets).length > 1 ? (
                <PriceTargetsChart targets={rawCard.price_targets} />
-          ) : hasQuantMetrics && rawCard?.quant_metrics ? (
-               <QuantMetricsBarChart metrics={rawCard.quant_metrics} />
+          ) : hasRenderableQuantMetrics ? (
+               <QuantMetricsBarChart data={quantMetricChartData} />
           ) : (
                <ConsensusDonut result={result} />
           )}
@@ -1224,7 +1233,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
         {/* Deep Analysis section intentionally removed: debate rounds already surface the agent detail. */}
         
         {/* Consensus Donut - Only show here if QuantMetrics took the main spot */}
-        {hasQuantMetrics && rawCard?.quant_metrics && (
+        {hasRenderableQuantMetrics && (
              <div className="pt-2">
                 <Separator className="bg-primary/5 mb-4" />
                 <ConsensusDonut result={result} />

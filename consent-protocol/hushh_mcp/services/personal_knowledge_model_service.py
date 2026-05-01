@@ -1416,48 +1416,43 @@ class PersonalKnowledgeModelService:
         domain: str,
         summary: dict,
     ) -> bool:
-        """Merge a sanitized PKM discovery summary for one domain."""
+        """Atomically merge a sanitized PKM discovery summary for one domain.
+
+        Uses a single PostgreSQL upsert (merge_pkm_domain_summary RPC) so the
+        cloud discovery projection has no read-modify-write race window. This
+        does not make pkm_index the user-memory authority; encrypted blobs,
+        manifests, mutation events, and local cache write-through remain the
+        source of truth for local-first and on-device flows.
+        """
         domain = self._canonicalize_domain_key(domain)
         if not domain:
             logger.error("update_domain_summary called with empty domain for user %s", user_id)
             return False
 
+        if not is_allowed_top_level_domain(domain):
+            logger.warning(
+                "Non-canonical top-level domain summary write for %s/%s",
+                user_id,
+                domain,
+            )
+
         sanitized = self._normalize_domain_summary(
             domain, summary if isinstance(summary, dict) else {}
         )
+
         try:
-            if not is_allowed_top_level_domain(domain):
-                logger.warning(
-                    "Non-canonical top-level domain summary write for %s/%s",
-                    user_id,
-                    domain,
-                )
-
-            index = await self.get_index_v2(user_id)
-            if index is None:
-                index = PersonalKnowledgeModelIndex(user_id=user_id)
-
-            existing_summary = (
-                index.domain_summaries.get(domain)
-                if isinstance(index.domain_summaries.get(domain), dict)
-                else {}
-            )
-            index.domain_summaries[domain] = self._normalize_domain_summary(
-                domain,
+            await self._run_rpc(
+                "merge_pkm_domain_summary",
                 {
-                    **existing_summary,
-                    **sanitized,
+                    "p_user_id": user_id,
+                    "p_domain": domain,
+                    "p_patch": sanitized,
+                    "p_domains_list": [domain],
                 },
             )
-
-            if domain not in index.available_domains:
-                index.available_domains.append(domain)
-
-            index.total_attributes = self._recalculate_total_attributes(index.domain_summaries)
-
-            return await self.upsert_index_v2(index)
-        except Exception as fallback_err:
-            logger.error(f"PKM update_domain_summary failed: {fallback_err}")
+            return True
+        except Exception as e:
+            logger.error("PKM update_domain_summary failed: %s", e)
             return False
 
     async def upsert_domain_manifest(

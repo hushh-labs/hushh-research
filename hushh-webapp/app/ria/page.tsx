@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
@@ -9,22 +9,24 @@ import {
   Loader2,
 } from "lucide-react";
 
-import { RiaCompatibilityState, RiaDevAllowlistBadge, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
+import { RiaCompatibilityState, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { RiaService, type RiaHomeResponse } from "@/lib/services/ria-service";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 type HeroTone = "neutral" | "warning" | "success" | "critical";
 
+const EMPTY_QUEUE_ITEMS: RiaHomeResponse["needs_attention"] = [];
+
 function verificationState(status?: string | null) {
   switch (status) {
     case "active":
     case "verified":
-    case "bypassed":
       return {
         label: "Ready",
         title: "Your advisor workspace is ready.",
@@ -158,7 +160,7 @@ export default function RiaHomePage() {
   const activeClients = homeResource.data?.counts.active_clients ?? 0;
   const needsAttention = homeResource.data?.counts.needs_attention ?? 0;
   const inviteCount = homeResource.data?.counts.invites ?? 0;
-  const queueItems = homeResource.data?.needs_attention ?? [];
+  const queueItems = homeResource.data?.needs_attention ?? EMPTY_QUEUE_ITEMS;
   const leadItem = queueItems[0] ?? null;
   const heroTitle =
     leadItem?.title ||
@@ -166,6 +168,81 @@ export default function RiaHomePage() {
       ? `You have ${activeClients} active client relationship${activeClients === 1 ? "" : "s"}.`
       : verification.title);
   const heroDescription = leadItem?.subtitle || leadItem?.next_action || verification.description;
+  const voiceControls = useMemo(
+    () => [
+      {
+        id: "ria_route_tab_home",
+        label: "Home",
+        type: "tab",
+        state: "active",
+        actionId: "route.ria_home",
+      },
+      {
+        id: "ria_route_tab_clients",
+        label: "Clients",
+        type: "tab",
+        actionId: "route.ria_clients",
+      },
+      {
+        id: "ria_route_tab_connect",
+        label: "Connect",
+        type: "tab",
+        actionId: "route.ria_marketplace_connect",
+      },
+      {
+        id: "ria_route_tab_picks",
+        label: "Picks",
+        type: "tab",
+        actionId: "route.ria_picks",
+      },
+      ...queueItems.slice(0, 5).map((item, index) => ({
+        id: `ria_home_priority_item_open_${index + 1}`,
+        label: item.title || `Priority item ${index + 1}`,
+        type: "button",
+        actionId: "ria.home.open_priority_item",
+        description: item.next_action || item.subtitle || null,
+      })),
+    ],
+    [queueItems]
+  );
+
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "ria_home",
+      title: "RIA Home",
+      purpose: "Advisor workspace home with readiness, relationship counts, and priority queue.",
+      sections: [
+        {
+          id: "ria_home_readiness",
+          title: "Readiness",
+        },
+        {
+          id: "ria_home_priority_queue",
+          title: "Priority queue",
+        },
+      ],
+      controls: voiceControls,
+      activeTab: "home",
+      visibleModules: ["Readiness", "Priority queue", "Relationships"],
+      availableActions: ["Open RIA Clients", "Open RIA Picks", "Open RIA Connect Marketplace"],
+      screenMetadata: {
+        verification_status: homeResource.data?.verification_status || null,
+        active_clients: activeClients,
+        needs_attention: needsAttention,
+        invite_count: inviteCount,
+        priority_items_visible: queueItems.length,
+      },
+    }),
+    [
+      activeClients,
+      homeResource.data?.verification_status,
+      inviteCount,
+      needsAttention,
+      queueItems.length,
+      voiceControls,
+    ]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   return (
     <RiaPageShell
@@ -195,12 +272,9 @@ export default function RiaHomePage() {
           >
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={cn("w-fit", badgeToneClass(verification.tone))}>
-                    {verification.label}
-                  </Badge>
-                  <RiaDevAllowlistBadge />
-                </div>
+                <Badge className={cn("w-fit", badgeToneClass(verification.tone))}>
+                  {verification.label}
+                </Badge>
                 <div className="space-y-2">
                   <h2 className="text-[clamp(1.25rem,3vw,1.85rem)] font-semibold tracking-tight text-foreground">
                     {heroTitle}
@@ -308,6 +382,7 @@ export default function RiaHomePage() {
                   </div>
                   <Link
                     href={item.href}
+                    data-voice-control-id={`ria_home_priority_item_open_${index + 1}`}
                     className="shrink-0 text-sm font-medium text-foreground/82 transition-colors hover:text-foreground"
                   >
                     Open

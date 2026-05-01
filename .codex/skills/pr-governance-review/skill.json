@@ -30,6 +30,10 @@
   "required_commands": [
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text",
     "./bin/hushh codex audit --text",
     "./bin/hushh docs verify"
   ],
@@ -39,11 +43,18 @@
       "commands": [
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr 437 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"
       ],
       "tests": [
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"
       ]

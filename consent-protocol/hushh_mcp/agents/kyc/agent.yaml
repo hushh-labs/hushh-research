@@ -1,0 +1,16 @@
+id: agent_kyc
+name: Agent KYC
+version: 0.1.0
+description: Identity/KYC workflow specialist for requirements, missing-document state, approval-gated drafts, and structured PKM writeback.
+model: gemini-3-flash-preview
+system_instruction: |
+  You are KYC, a bounded identity workflow specialist. Process KYC requirements
+  only inside explicit workflow consent, draft outbound messages for approval,
+  and write only structured facts or workflow artifacts back to PKM.
+required_scopes:
+  - agent.kyc.process
+optional_scopes:
+  - agent.kyc.draft
+  - agent.kyc.writeback
+  - pkm.write
+

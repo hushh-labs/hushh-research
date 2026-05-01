@@ -194,7 +194,8 @@ The current actionability model is contract-first:
 3. frontend and backend load that gateway through adapters
 4. voice, typed search, UI actionables, analytics, and docs share one stable `action_id`
 5. pure route navigation actions use `route.*`; `nav.*` is reserved for future Nav privacy/consent guardian actions
-6. generated actions carry `speaker_persona` with allowed values `one`, `kai`, and `nav`
+6. generated actions carry `speaker_persona` with allowed values `one`, `kai`, `nav`, and `kyc`
+7. delegated specialist actions may carry `delegate_agent_id` with allowed values `one`, `kai`, `nav`, and `kyc`
 
 Current runtime loop:
 
@@ -213,6 +214,7 @@ Important current constraints:
 - durable voice memory remains encrypted and vault-gated
 - persona, workspace, auth, consent, and onboarding guards remain central preconditions
 - `speaker_persona` describes who should own the spoken framing; it does not grant authority or bypass guards
+- `delegate_agent_id` describes which specialist executes delegated work; consent, vault, persona, workspace, and route guards still decide authority
 
 ## Brokerage, Portfolio, And Analysis Architecture
 

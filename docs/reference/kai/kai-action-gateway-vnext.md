@@ -50,17 +50,27 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current generated coverage includes 9 source contracts and 31 actions. Source contracts:
+Current generated coverage includes 19 source contracts and 73 actions. Source contracts:
 
 - [page.voice-action-contract.json](../../../hushh-webapp/app/kai/analysis/page.voice-action-contract.json)
+- [page-client.voice-action-contract.json](../../../hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/profile/page.voice-action-contract.json)
 - [page-client.voice-action-contract.json](../../../hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/profile/receipts/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/ria/clients/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/ria/onboarding/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/ria/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/ria/picks/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/ria/requests/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/ria/settings/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/ria/workspace/page.voice-action-contract.json)
 - [consent-center-page.voice-action-contract.json](../../../hushh-webapp/components/consent/consent-center-page.voice-action-contract.json)
 - [kai-command-bar-global.voice-action-contract.json](../../../hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json)
 - [dashboard-master-view.voice-action-contract.json](../../../hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json)
 - [kai-market-preview-view.voice-action-contract.json](../../../hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json)
+- [ria-client-account-detail.voice-action-contract.json](../../../hushh-webapp/components/ria/ria-client-account-detail.voice-action-contract.json)
+- [ria-client-request-detail.voice-action-contract.json](../../../hushh-webapp/components/ria/ria-client-request-detail.voice-action-contract.json)
+- [ria-client-workspace.voice-action-contract.json](../../../hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json)
 
 These contracts are the authoring source of truth for capability existence.
 
@@ -130,6 +140,7 @@ Required action fields:
 
 Optional but recommended action fields:
 
+- `delegate_agent_id`
 - `state_exposure`
 - `docs_references`
 - `expected_effects`
@@ -144,14 +155,18 @@ Each action declares `speaker_persona`:
 | `one` | One owns the spoken framing. Use for generic, route, shell, memory, notification, and handoff actions. |
 | `kai` | Kai owns the spoken framing. Use for finance, analysis, portfolio, market, and RIA finance actions. |
 | `nav` | Nav owns the spoken framing. Use for privacy, consent, vault, deletion, revocation, and scope-review actions. |
+| `kyc` | KYC owns the spoken framing. Use only for explicit KYC workflow status, missing-document review, approval-gated drafts, and structured writeback actions. |
 
 Speaker persona is presentation and prompt ownership only. It does not create authorization and must never bypass auth, vault, consent, persona, workspace, or rollout gates.
+
+`delegate_agent_id` is nullable and declares which specialist executes a user-facing action when One frames the handoff. Allowed values are `one`, `kai`, `nav`, and `kyc`.
 
 Action namespace rules:
 
 - `route.*` is the namespace for navigation and route changes.
 - `analysis.*` and `kai.*` remain finance/Kai specialist namespaces.
 - `nav.*` is reserved for true Nav privacy/consent guardian actions.
+- `kyc.*` is reserved for true KYC identity-workflow actions.
 - Do not add legacy aliases from old navigation `nav.*` ids. This migration is a straight rename.
 
 ## Multi-Step Workflow Model
@@ -200,6 +215,37 @@ Example:
 
 - an investor asking for an RIA action may receive a `requires_persona_switch` availability result
 - if RIA is not available, the action stays blocked with explicit setup guidance
+
+## RIA Voice Support
+
+RIA voice support now covers the advisor workspace shell, onboarding, client roster, client workspace, account/request detail fallbacks, stock picks, compatibility routes, and marketplace RIA profile surfaces.
+
+Important RIA action groups:
+
+| Action group | Examples | Execution | Guardrails |
+| --- | --- | --- | --- |
+| RIA route navigation | `route.ria_home`, `route.ria_onboarding`, `route.ria_clients`, `route.ria_picks`, `route.ria_requests_compat`, `route.ria_settings_compat` | Wired route navigation | `auth_signed_in`, `ria_persona_available`; `route.ria_home` includes confirmed persona-switch workflow when entering from another persona |
+| Picks read-only route state | `ria.picks.open_source_kai`, `ria.picks.open_category_top_picks`, `ria.picks.download_template` | Wired route/static download navigation | RIA persona and auth required |
+| Client workspace tabs | `route.ria_client_workspace`, `ria.client_workspace.open_access_tab`, `ria.client_workspace.open_portfolio_tab`, `ria.client_workspace.open_explorer_tab` | Wired dynamic route navigation using the current `[userId]` from the active RIA client route | Auth, RIA persona, onboarding, and client relationship guards |
+| RIA state-changing actions | `ria.picks.save_package`, `ria.client_workspace.request_access`, `ria.client_workspace.disconnect_relationship`, `marketplace.ria.request_advisory` | Manual-only or confirmation-required and currently unwired | Vault, consent, selected entity, manual execution, or explicit confirmation guards |
+
+`route.ria_home` remains the workspace-entry workflow. It is authored in [page.voice-action-contract.json](../../../hushh-webapp/app/ria/page.voice-action-contract.json), generated into both [kai-action-gateway.vnext.json](../../../contracts/kai/kai-action-gateway.vnext.json) and [voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json), and projected through the frontend registry.
+
+Execution behavior:
+
+- if the user is already in the RIA persona, the workflow can route to `/ria`
+- if the user has RIA available but is currently in another persona, Kai must ask before switching
+- if RIA is locked or unavailable, the action blocks with setup guidance
+- safe RIA navigation can execute directly
+- dynamic client workspace tab routes execute only when the current URL provides the required client id
+- RIA mutations remain manual-only or confirmation-required; Kai must not claim it completed them
+
+Verification commands for this surface:
+
+```bash
+cd hushh-webapp && npm run verify:voice-gateway
+cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-response-executor.test.ts
+```
 
 ## Search, Voice, and UI Parity
 

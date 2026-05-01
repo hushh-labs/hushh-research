@@ -84,8 +84,10 @@ Top-level owner skills:
 - `.codex/skills/agent-orchestration-governance/`: repo-scoped custom-agent authoring, bounded subagent limits, delegation authority, and handoff verification.
 
 Specialist spoke skills live under the same tree and should be used after the correct owner skill or `repo-context` has narrowed the request.
+Use `.codex/skills/github-contribution-governance/` as the repo-operations spoke for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
 Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.
 Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends on live PR checks or GitHub Actions state.
+Use `github-contribution-governance` when contribution graph visibility, verified author email, PR target branch, or merge eligibility affects the task outcome.
 
 ## References
 

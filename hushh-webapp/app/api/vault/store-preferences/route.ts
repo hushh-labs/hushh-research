@@ -90,9 +90,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(
-      `✅ Consent validated: ${validation.agent_id} → ${validation.scope}`
-    );
+    console.log("✅ Consent validated for encrypted preference write");
 
     // =========================================================================
     // VAULT WRITE: Now authorized
@@ -104,8 +102,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("📦 Storing preferences");
-    console.log(`📋 Fields to store: ${Object.keys(preferences).join(", ")}`);
+    console.log(
+      `📦 Storing ${Object.keys(preferences).length} encrypted preference field(s)`
+    );
 
     // Dynamically store each preference field
     const storePromises = [];
@@ -122,7 +121,7 @@ export async function POST(request: NextRequest) {
 
       // Validate encrypted structure
       if (!encrypted.ciphertext || !encrypted.iv || !encrypted.tag) {
-        console.warn(`⚠️ Skipping invalid field: ${key}`, encrypted);
+        console.warn("⚠️ Skipping invalid encrypted preference field");
         continue;
       }
 
@@ -132,14 +131,15 @@ export async function POST(request: NextRequest) {
           key,
           encrypted.ciphertext,
           encrypted.iv,
-          encrypted.tag
+          encrypted.tag,
+          { vaultOwnerToken: consentToken }
         )
       );
     }
 
     await Promise.all(storePromises);
 
-    console.log(`✅ Stored ${storePromises.length} preferences`);
+    console.log(`✅ Stored ${storePromises.length} encrypted preference field(s)`);
 
     return NextResponse.json({
       success: true,
