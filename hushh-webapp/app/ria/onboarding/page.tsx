@@ -48,7 +48,6 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import { trackEvent } from "@/lib/observability/client";
 import {
   trackGrowthFunnelStepCompleted,
-  trackRiaActivationCompleted,
 } from "@/lib/observability/growth";
 
 type NameVerificationState =
@@ -111,7 +110,7 @@ function buildSubmitPayload(draft: RiaOnboardingDraft) {
 }
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
-  return status === "active" || status === "verified" || status === "bypassed";
+  return status === "active" || status === "verified";
 }
 
 function normalizeCrd(value?: string | null): string {
@@ -256,7 +255,7 @@ function ReviewField({
 export default function RiaOnboardingPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { devRiaBypassAllowed, refresh: refreshPersonaState } = usePersonaState();
+  const { refresh: refreshPersonaState } = usePersonaState();
 
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
   const [draft, setDraft] = useState<RiaOnboardingDraft>(
@@ -463,13 +462,6 @@ export default function RiaOnboardingPage() {
           state: currentStep.id === "review" && canContinue ? "enabled" : "hidden",
           actionId: "ria.onboarding.submit_verification",
         },
-        {
-          id: "ria_onboarding_dev_bypass",
-          label: "Bypass verification",
-          type: "button",
-          state: devRiaBypassAllowed ? "enabled" : "hidden",
-          actionId: "ria.onboarding.dev_bypass_verification",
-        },
       ],
       activeSection: currentStep.id,
       visibleModules: [currentStep.title, "Verification status"],
@@ -482,7 +474,6 @@ export default function RiaOnboardingPage() {
         can_verify_name: canVerifyName,
         name_verification_status: nameVerificationStatus,
         advisory_verification_status: advisoryVerificationStatus,
-        dev_ria_bypass_allowed: devRiaBypassAllowed,
       },
     }),
     [
@@ -494,7 +485,6 @@ export default function RiaOnboardingPage() {
       currentStep.id,
       currentStep.title,
       currentStepIndex,
-      devRiaBypassAllowed,
       nameVerificationStatus,
       steps.length,
     ]
@@ -709,7 +699,7 @@ export default function RiaOnboardingPage() {
     moveToStep(steps[currentStepIndex + 1]?.id ?? currentStep.id);
   }
 
-  async function finalizeSubmission(mode: "submit" | "dev_activate") {
+  async function finalizeSubmission() {
     if (!user) return;
 
     setSaving(true);
@@ -717,14 +707,11 @@ export default function RiaOnboardingPage() {
     setNotice(null);
     try {
       const idToken = await user.getIdToken();
-      if (mode === "submit" && !nameVerificationSatisfied) {
+      if (!nameVerificationSatisfied) {
         throw new Error("Verify the advisor name and wait for a CRD-backed result before continuing.");
       }
       const payload = buildSubmitPayload(draft);
-      const result =
-        mode === "submit"
-          ? await RiaService.submitOnboarding(idToken, { ...payload, force_live_verification: true })
-          : await RiaService.activateDevRia(idToken, payload);
+      const result = await RiaService.submitOnboarding(idToken, { ...payload, force_live_verification: true });
 
       setStatus((current) => ({
         ...(current || { exists: true }),
@@ -739,9 +726,8 @@ export default function RiaOnboardingPage() {
         verification_status: result.verification_status,
         advisory_status: result.advisory_status,
         brokerage_status: result.brokerage_status,
-        dev_ria_bypass_allowed: mode === "dev_activate" ? true : current?.dev_ria_bypass_allowed,
       }));
-      if (mode === "submit" && result.advisory_status === "verified") {
+      if (result.advisory_status === "verified") {
         setNameVerificationStatus("verified");
         setNameVerificationResult({
           status: "verified",
@@ -769,10 +755,8 @@ export default function RiaOnboardingPage() {
       const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
       const verificationOutcome = (result.verification_outcome || "").toLowerCase();
       const canActivateDiscoverability =
-        mode === "dev_activate" ||
         advisoryOutcome === "verified" ||
-        advisoryOutcome === "active" ||
-        advisoryOutcome === "bypassed";
+        advisoryOutcome === "active";
 
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
         enabled: canActivateDiscoverability,
@@ -785,30 +769,7 @@ export default function RiaOnboardingPage() {
         setShouldPersistDraft(false);
       }
 
-      if (mode === "dev_activate") {
-        trackEvent("ria_verification_status_changed", {
-          action: "bypassed",
-          result: "success",
-        });
-        trackGrowthFunnelStepCompleted({
-          journey: "ria",
-          step: "workspace_ready",
-          entrySurface: "ria_onboarding",
-          workspaceSource: "developer_activation",
-          dedupeKey: "growth:ria:workspace_ready:developer_activation",
-          dedupeWindowMs: 5_000,
-        });
-        trackRiaActivationCompleted({
-          entrySurface: "ria_onboarding",
-          workspaceSource: "developer_activation",
-          dedupeKey: "growth:ria:activation:developer_activation",
-          dedupeWindowMs: 10_000,
-        });
-        toast.success("Developer activation completed", {
-          description: "The RIA workspace is ready in this environment.",
-        });
-        setNotice("Developer activation completed. The RIA workspace is ready in this environment.");
-      } else if (advisoryOutcome === "rejected") {
+      if (advisoryOutcome === "rejected") {
         trackEvent("ria_verification_status_changed", {
           action: "rejected",
           result: "error",
@@ -833,20 +794,6 @@ export default function RiaOnboardingPage() {
             "Your advisor name resolved to a verified CRD-backed RIA record.",
         });
         setNotice("Verification passed. Your RIA workspace is ready.");
-      } else if (advisoryOutcome === "bypassed") {
-        trackEvent("ria_verification_status_changed", {
-          action: "bypassed",
-          result: "success",
-        });
-        toast.warning("Verification bypass active", {
-          description:
-            result.verification_message ||
-            "This non-production environment is using the advisory verification bypass.",
-        });
-        setNotice(
-          result.verification_message ||
-            "Verification bypass is active in this environment. Your RIA workspace is ready for flow testing."
-        );
       } else if (verificationOutcome === "provider_unavailable") {
         trackEvent("ria_verification_status_changed", {
           action: "submitted",
@@ -900,11 +847,7 @@ export default function RiaOnboardingPage() {
       router.push(ROUTES.RIA_HOME);
       return;
     }
-    await finalizeSubmission("submit");
-  }
-
-  async function handleDevActivate() {
-    await finalizeSubmission("dev_activate");
+    await finalizeSubmission();
   }
 
   function renderQuestion(step: RiaOnboardingStep) {
@@ -1089,17 +1032,6 @@ export default function RiaOnboardingPage() {
                         nameVerificationStatus === "provider_unavailable"
                       ? "Retry verification"
                       : "Verify"}
-                </button>
-              ) : null}
-              {devRiaBypassAllowed && !nameVerificationSatisfied ? (
-                <button
-                  type="button"
-                  data-voice-control-id="ria_onboarding_dev_bypass"
-                  onClick={() => void handleDevActivate()}
-                  disabled={saving || displayNameQuery.length === 0}
-                  className="inline-flex min-h-10 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving ? "Activating..." : "Bypass verification"}
                 </button>
               ) : null}
             </div>
@@ -1382,18 +1314,6 @@ export default function RiaOnboardingPage() {
                 </button>
 
                 <div className="flex flex-wrap gap-2">
-                  {currentStep.id === "review" && devRiaBypassAllowed && !advisoryAccessReady ? (
-                    <button
-                      type="button"
-                      data-voice-control-id="ria_onboarding_dev_uat_bypass"
-                      onClick={() => void handleDevActivate()}
-                      disabled={saving}
-                      className="inline-flex min-h-11 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/40 disabled:opacity-60"
-                    >
-                      {saving ? "Activating..." : "Bypass in Dev / UAT"}
-                    </button>
-                  ) : null}
-
                   <button
                     type="button"
                     data-voice-control-id={
