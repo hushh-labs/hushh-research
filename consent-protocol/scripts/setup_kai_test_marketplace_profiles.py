@@ -181,18 +181,18 @@ def main() -> int:
     log("Step 2: Enriching investor marketplace profile via DB...")
     _enrich_investor_marketplace_profile(config)
 
-    # ─── Step 3: Ensure RIA profile via dev-activate ───
+    # ─── Step 3: Ensure RIA profile via onboarding submit ───
     log("Step 3: Checking RIA onboarding status...")
     ria_status = api("GET", backend_url, "/api/ria/onboarding/status", auth_headers)
     verification_status = str(ria_status.get("verification_status") or "")
     log(f"  Current RIA verification_status={verification_status}")
 
-    if verification_status not in {"active", "finra_verified", "bypassed"}:
-        log("  Activating RIA profile via dev-activate...")
+    if verification_status not in {"active", "finra_verified", "verified"}:
+        log("  Submitting RIA profile via onboarding/submit...")
         ria_activate = api(
             "POST",
             backend_url,
-            "/api/ria/onboarding/dev-activate",
+            "/api/ria/onboarding/submit",
             auth_headers,
             {
                 "display_name": "Kai Advisory Partners",
@@ -203,6 +203,7 @@ def main() -> int:
                 "advisory_firm_iapd_number": "801-99999",
                 "bio": "Full-service advisory practice focused on high-conviction quality compounders and tax-aware portfolio management.",
                 "strategy": "Long-term quality compounders with disciplined position sizing and downside protection through diversification.",
+                "force_live_verification": True,
             },
         )
         log(f"  RIA activation: verification_status={ria_activate.get('verification_status')}")

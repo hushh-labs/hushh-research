@@ -36,6 +36,16 @@ SALVAGEABLE_MEDIUM_FINDINGS = {
     "sensitive_runtime_change_without_supporting_proof",
     "marketplace_flow_overlap_on_main",
 }
+CANONICAL_VOICE_RUNTIME_PATHS = (
+    "hushh-webapp/components/kai/kai-search-bar.tsx",
+    "hushh-webapp/components/kai/voice/voice-console-sheet.tsx",
+    "hushh-webapp/lib/voice/voice-session-manager.ts",
+    "hushh-webapp/lib/voice/voice-turn-orchestrator.ts",
+    "hushh-webapp/lib/voice/voice-action-dispatcher.ts",
+    "hushh-webapp/lib/voice/kai-action-gateway.ts",
+    "contracts/kai/kai-action-gateway.vnext.json",
+    "contracts/kai/voice-action-manifest.v1.json",
+)
 ACCOUNT_EXPORT_CORE_FILES = {
     "consent-protocol/api/routes/account.py",
     "consent-protocol/hushh_mcp/services/account_service.py",
@@ -961,6 +971,28 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                 }
             )
 
+    if _adds_parallel_voice_input_surface(files, patch_text):
+        findings.append(
+            {
+                "id": "parallel_voice_input_surface",
+                "severity": "high",
+                "summary": (
+                    "PR adds a new browser speech/dictation entry point while the Kai realtime "
+                    "voice runtime already owns microphone UX, vault gating, transcript handling, "
+                    "and action execution. This is a product-surface duplicate unless explicitly "
+                    "approved as an accessibility fallback and integrated with the canonical voice state."
+                ),
+                "files": [
+                    path
+                    for path in files
+                    if path == "hushh-webapp/components/kai/kai-command-palette.tsx"
+                    or path.endswith("use-voice-dictation.ts")
+                    or "speech" in path.lower()
+                    or "dictation" in path.lower()
+                ],
+            }
+        )
+
         proxy_section = patch_map.get("hushh-webapp/app/api/account/export/route.ts", "")
         if (
             "responseText" in proxy_section
@@ -1050,6 +1082,36 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
         )
 
     return findings
+
+
+def _adds_parallel_voice_input_surface(files: list[str], patch_text: str) -> bool:
+    changed_paths = set(files)
+    if any(path in changed_paths for path in CANONICAL_VOICE_RUNTIME_PATHS):
+        return False
+    lowered_patch = patch_text.lower()
+    adds_browser_speech = (
+        "speechrecognition" in lowered_patch
+        or "webkitspeechrecognition" in lowered_patch
+        or "dictation" in lowered_patch
+    )
+    touches_voice_like_ui = any(
+        path == "hushh-webapp/components/kai/kai-command-palette.tsx"
+        or path.endswith("use-voice-dictation.ts")
+        or "voice" in path.lower()
+        or "speech" in path.lower()
+        or "dictation" in path.lower()
+        for path in files
+    )
+    canonical_voice_exists = all(
+        _path_exists(path) or _git_show_origin_main(path) is not None
+        for path in (
+            "hushh-webapp/components/kai/kai-search-bar.tsx",
+            "hushh-webapp/lib/voice/voice-session-manager.ts",
+            "hushh-webapp/lib/voice/voice-turn-orchestrator.ts",
+            "hushh-webapp/lib/voice/kai-action-gateway.ts",
+        )
+    )
+    return adds_browser_speech and touches_voice_like_ui and canonical_voice_exists
 
 
 def _recommend_merge_lane(
@@ -2137,6 +2199,17 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         findings=_build_findings(files, patch_map),
         related_surfaces=_related_surfaces(files),
     )
+    if report["pr"]["review_decision"] == "CHANGES_REQUESTED":
+        _append_finding(
+            report,
+            _finding(
+                "active_changes_requested_review",
+                "high",
+                "The current PR head has an active changes-requested review. Green CI cannot override maintainer-requested changes.",
+                files,
+                details={"review_decision": report["pr"]["review_decision"]},
+            ),
+        )
     report["decision"] = _recommend_merge_lane(
         ci_status_gate=ci_status_gate,
         findings=report["findings"],

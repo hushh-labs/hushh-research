@@ -23,54 +23,20 @@ def _build_app() -> FastAPI:
 
 
 # ---------------------------------------------------------------------------
-# Backend: dev allowlist respects RIA_DEV_ALLOWLIST
+# Backend: bypass has been permanently removed
 # ---------------------------------------------------------------------------
 
 
-def test_dev_bypass_allowed_when_no_allowlist_set(monkeypatch):
-    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.delenv("RIA_DEV_ALLOWLIST", raising=False)
+def test_bypassed_status_not_in_verified_statuses():
+    """Ensure 'bypassed' is not treated as a verified RIA status."""
+    assert "bypassed" not in RIAIAMService._RIA_VERIFIED_STATUSES
 
+
+def test_no_dev_bypass_method_exists():
+    """Ensure the dev bypass methods have been removed."""
     service = RIAIAMService()
-    assert service._is_dev_bypass_allowed("any_user_id") is True
-
-
-def test_dev_bypass_allowed_for_listed_user(monkeypatch):
-    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.setenv("RIA_DEV_ALLOWLIST", "user_a,user_b")
-
-    service = RIAIAMService()
-    assert service._is_dev_bypass_allowed("user_a") is True
-    assert service._is_dev_bypass_allowed("user_b") is True
-
-
-def test_dev_bypass_denied_for_unlisted_user(monkeypatch):
-    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.setenv("RIA_DEV_ALLOWLIST", "user_a,user_b")
-
-    service = RIAIAMService()
-    assert service._is_dev_bypass_allowed("user_c") is False
-
-
-def test_dev_bypass_denied_in_production(monkeypatch):
-    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "true")
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("RIA_DEV_ALLOWLIST", "user_a")
-
-    service = RIAIAMService()
-    assert service._is_dev_bypass_allowed("user_a") is False
-
-
-def test_dev_bypass_denied_when_flag_off(monkeypatch):
-    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "false")
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.setenv("RIA_DEV_ALLOWLIST", "user_a")
-
-    service = RIAIAMService()
-    assert service._is_dev_bypass_allowed("user_a") is False
+    assert not hasattr(service, "_is_dev_bypass_allowed")
+    assert not hasattr(service, "_is_ria_dev_bypass_enabled")
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +168,7 @@ def test_verified_ria_passes_gate(monkeypatch):
 
 def test_onboarding_status_not_gated(monkeypatch):
     async def _mock_status(self, user_id):
-        return {"exists": False, "verification_status": "draft", "dev_ria_bypass_allowed": False}
+        return {"exists": False, "verification_status": "draft"}
 
     monkeypatch.setattr(RIAIAMService, "get_ria_onboarding_status", _mock_status)
 

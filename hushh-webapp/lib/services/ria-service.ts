@@ -23,7 +23,6 @@ export interface PersonaState {
   primary_nav_persona: Persona;
   ria_setup_available: boolean;
   ria_switch_available: boolean;
-  dev_ria_bypass_allowed: boolean;
   investor_marketplace_opt_in: boolean;
   iam_schema_ready: boolean;
   mode: "full" | "compat_investor";
@@ -65,7 +64,6 @@ export interface RiaOnboardingStatus {
   advisory_status?: string;
   brokerage_status?: string;
   requested_capabilities?: string[];
-  dev_ria_bypass_allowed?: boolean;
   display_name?: string;
   individual_legal_name?: string | null;
   individual_crd?: string | null;
@@ -1050,7 +1048,7 @@ export class RiaService {
 
   static async verifyOnboardingName(
     idToken: string,
-    payload: { query: string; crd_number?: string },
+    payload: { query: string },
     options?: { signal?: AbortSignal }
   ): Promise<RiaNameVerificationResult> {
     const response = await authFetch("/api/ria/onboarding/verify-name", {
@@ -1085,49 +1083,6 @@ export class RiaService {
         return toJsonOrThrow<RiaOnboardingStatus>(response);
       },
     });
-  }
-
-  static async activateDevRia(
-    idToken: string,
-    payload: {
-      display_name: string;
-      requested_capabilities: string[];
-      individual_legal_name?: string;
-      individual_crd?: string;
-      advisory_firm_legal_name?: string;
-      advisory_firm_iapd_number?: string;
-      broker_firm_legal_name?: string;
-      broker_firm_crd?: string;
-      bio?: string;
-      strategy?: string;
-      disclosures_url?: string;
-      primary_firm_role?: string;
-    }
-  ): Promise<{
-    ria_profile_id: string;
-    verification_status: string;
-    verification_provider?: string;
-    advisory_status: string;
-    brokerage_status: string;
-    requested_capabilities: string[];
-    verification_outcome: string;
-    verification_message: string;
-    brokerage_outcome: string;
-    brokerage_message: string;
-    professional_access_granted: boolean;
-    individual_legal_name?: string | null;
-    individual_crd?: string | null;
-    advisory_firm_legal_name?: string | null;
-    advisory_firm_iapd_number?: string | null;
-    broker_firm_legal_name?: string | null;
-    broker_firm_crd?: string | null;
-  }> {
-    const response = await authFetch("/api/ria/onboarding/dev-activate", {
-      method: "POST",
-      idToken,
-      body: payload,
-    });
-    return toJsonOrThrow(response);
   }
 
   static async listFirms(idToken: string): Promise<RiaFirmMembership[]> {

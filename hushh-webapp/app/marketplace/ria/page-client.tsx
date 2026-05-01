@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BadgeCheck, Building2, ShieldCheck } from "lucide-react";
+import { Building2, ShieldCheck } from "lucide-react";
 
 import { RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { useAuth } from "@/hooks/use-auth";
@@ -18,6 +18,7 @@ import {
   ConsentCenterService,
 } from "@/lib/services/consent-center-service";
 import { trackEvent } from "@/lib/observability/client";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 function verificationBadge(status: string) {
   const normalized = status.toLowerCase();
@@ -29,12 +30,6 @@ function verificationBadge(status: string) {
         label: normalized === "finra_verified" ? "FINRA verified" : "Verified",
         className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700",
         icon: ShieldCheck,
-      };
-    case "bypassed":
-      return {
-        label: "Active",
-        className: "border-sky-500/20 bg-sky-500/10 text-sky-700",
-        icon: BadgeCheck,
       };
     case "submitted":
       return {
@@ -145,10 +140,65 @@ export default function MarketplaceRiaProfilePageClient({
   const badge = profile ? verificationBadge(profile.verification_status) : null;
   const BadgeIcon = badge?.icon ?? null;
   const isConnectable = profile
-    ? ["active", "verified", "finra_verified", "bypassed"].includes(
+    ? ["active", "verified", "finra_verified"].includes(
         profile.verification_status.toLowerCase()
       )
     : false;
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "marketplace_ria_profile",
+      title: profile?.display_name || "Marketplace RIA Profile",
+      purpose: "Public advisor marketplace profile with consent-gated request action.",
+      primaryEntity: profile?.display_name || riaId,
+      controls: [
+        {
+          id: "marketplace_ria_profile_route",
+          label: "Marketplace RIA profile",
+          type: "route",
+          actionId: "route.marketplace_ria_profile",
+        },
+        {
+          id: "marketplace_ria_request_advisory",
+          label: "Request advisory",
+          type: "button",
+          state: activePersona === "investor" && isConnectable ? "available" : "hidden",
+          actionId: "marketplace.ria.request_advisory",
+        },
+        {
+          id: "marketplace_ria_manage_profile",
+          label: "Manage your profile",
+          type: "link",
+          state: activePersona === "ria" ? "available" : "hidden",
+          actionId: "marketplace.ria.manage_profile",
+        },
+        {
+          id: "marketplace_ria_continue_browsing",
+          label: "Continue browsing",
+          type: "link",
+          actionId: "route.marketplace_browse_from_ria_profile",
+        },
+        {
+          id: "marketplace_ria_public_disclosure",
+          label: "Public disclosure",
+          type: "external_link",
+          state: profile?.disclosures_url ? "available" : "hidden",
+          actionId: "marketplace.ria.open_public_disclosure",
+        },
+      ],
+      visibleModules: ["Verification", "Firms", "Strategy summary", "Profile actions"],
+      selectedEntity: profile?.display_name || riaId,
+      busyOperations: actionLoading ? ["marketplace_ria_requesting_advisory"] : [],
+      screenMetadata: {
+        ria_id: riaId,
+        profile_loaded: Boolean(profile),
+        active_persona: activePersona,
+        is_connectable: isConnectable,
+        verification_status: profile?.verification_status || null,
+      },
+    }),
+    [actionLoading, activePersona, isConnectable, profile, riaId]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   return (
     <RiaPageShell
@@ -169,6 +219,7 @@ export default function MarketplaceRiaProfilePageClient({
       actions={
         <Link
           href={ROUTES.MARKETPLACE}
+          data-voice-control-id="marketplace_ria_back_to_marketplace"
           className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background/60 px-4 text-sm font-medium text-foreground"
         >
           Back to marketplace
@@ -231,6 +282,7 @@ export default function MarketplaceRiaProfilePageClient({
               {activePersona === "investor" && isConnectable ? (
                 <button
                   type="button"
+                  data-voice-control-id="marketplace_ria_request_advisory"
                   className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-50"
                   onClick={() => void requestAdvisory()}
                   disabled={actionLoading}
@@ -241,6 +293,7 @@ export default function MarketplaceRiaProfilePageClient({
               {activePersona === "ria" ? (
                 <Link
                   href={ROUTES.RIA_SETTINGS}
+                  data-voice-control-id="marketplace_ria_manage_profile"
                   className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
                 >
                   Manage your profile
@@ -248,6 +301,7 @@ export default function MarketplaceRiaProfilePageClient({
               ) : null}
               <Link
                 href={ROUTES.MARKETPLACE}
+                data-voice-control-id="marketplace_ria_continue_browsing"
                 className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground"
               >
                 Continue browsing
@@ -257,6 +311,7 @@ export default function MarketplaceRiaProfilePageClient({
                   href={profile.disclosures_url}
                   target="_blank"
                   rel="noreferrer"
+                  data-voice-control-id="marketplace_ria_public_disclosure"
                   className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground"
                 >
                   Public disclosure

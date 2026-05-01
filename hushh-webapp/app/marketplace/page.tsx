@@ -82,7 +82,7 @@ function connectionBadgeLabel(status?: string | null) {
 }
 
 function isConnectableAdvisor(status?: string | null) {
-  return ["active", "verified", "finra_verified", "bypassed"].includes(
+  return ["active", "verified", "finra_verified"].includes(
     String(status || "").toLowerCase()
   );
 }
