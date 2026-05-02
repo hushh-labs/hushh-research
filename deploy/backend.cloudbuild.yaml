@@ -80,6 +80,9 @@ steps:
         append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
         append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
 
+        deploy_env_vars="HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
+        deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
+
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
           "--image=gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
@@ -92,6 +95,8 @@ steps:
           "--timeout=300"
           "--max-instances=10"
           "--min-instances=1"
+          "--labels=${deploy_labels}"
+          "--set-env-vars=${deploy_env_vars}"
           "--set-secrets=${secrets}"
         )
 
@@ -137,6 +142,10 @@ substitutions:
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _IMAGE_TAG: v2.1.0
+  _DEPLOY_ENV: manual
+  _DEPLOY_SOURCE: manual
+  _DEPLOY_SHA: unknown
+  _GITHUB_RUN_ID: unknown
 
 # Options
 options:
