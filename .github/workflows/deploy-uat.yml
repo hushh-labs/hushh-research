@@ -267,7 +267,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
@@ -284,7 +284,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=uat"
+            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=uat,_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=uat,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
 
       - name: Retain latest frontend revisions
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -355,6 +355,40 @@ jobs:
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify backend deployment provenance
+        id: verify-backend-provenance
+        if: steps.scope.outputs.deploy_backend == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --service "${{ env.BACKEND_SERVICE }}" \
+            --expected-env uat \
+            --expected-source deploy-uat \
+            --expected-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --expected-run-id "${{ github.run_id }}" \
+            --report-path /tmp/uat-backend-provenance.json
+
+      - name: Verify frontend deployment provenance
+        id: verify-frontend-provenance
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --service "${{ env.FRONTEND_SERVICE }}" \
+            --expected-env uat \
+            --expected-source deploy-uat \
+            --expected-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --expected-run-id "${{ github.run_id }}" \
+            --report-path /tmp/uat-frontend-provenance.json
 
       - name: Verify UAT runtime env parity
         id: verify-parity-1
@@ -502,6 +536,8 @@ jobs:
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
           PARITY_ATTEMPT_1: ${{ steps.verify-parity-1.outcome }}
           PARITY_ATTEMPT_2: ${{ steps.verify-parity-2.outcome }}
+          BACKEND_PROVENANCE_OUTCOME: ${{ steps.verify-backend-provenance.outcome }}
+          FRONTEND_PROVENANCE_OUTCOME: ${{ steps.verify-frontend-provenance.outcome }}
           DB_OUTCOME: ${{ steps.postdeploy-db-gate.outcome }}
           SEMANTIC_ATTEMPT_1: ${{ steps.verify-uat-1.outcome }}
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
@@ -533,11 +569,21 @@ jobs:
           parity_report = load_json("/tmp/uat-runtime-parity-attempt-2.json") or load_json(
               "/tmp/uat-runtime-parity-attempt-1.json"
           )
+          backend_provenance_report = load_json("/tmp/uat-backend-provenance.json")
+          frontend_provenance_report = load_json("/tmp/uat-frontend-provenance.json")
           semantic_report = load_json("/tmp/uat-release-verify-attempt-2.json") or load_json(
               "/tmp/uat-release-verify-attempt-1.json"
           )
 
           parity_success = os.environ.get("PARITY_ATTEMPT_1") == "success" or os.environ.get("PARITY_ATTEMPT_2") == "success"
+          backend_provenance_success = (
+              os.environ.get("DEPLOY_BACKEND") != "true"
+              or os.environ.get("BACKEND_PROVENANCE_OUTCOME") == "success"
+          )
+          frontend_provenance_success = (
+              os.environ.get("DEPLOY_FRONTEND") != "true"
+              or os.environ.get("FRONTEND_PROVENANCE_OUTCOME") == "success"
+          )
           semantic_success = os.environ.get("SEMANTIC_ATTEMPT_1") == "success" or os.environ.get("SEMANTIC_ATTEMPT_2") == "success"
           db_outcome = os.environ.get("DB_OUTCOME", "")
 
@@ -575,6 +621,19 @@ jobs:
           if has_runtime_failures(backend_runtime_entries):
               backend_failure = True
 
+          if not backend_provenance_success:
+              append_unique(
+                  blocking,
+                  list(backend_provenance_report.get("classifications") or ["deploy_authority_drift"]),
+              )
+              backend_failure = True
+          if not frontend_provenance_success:
+              append_unique(
+                  blocking,
+                  list(frontend_provenance_report.get("classifications") or ["deploy_authority_drift"]),
+              )
+              frontend_failure = True
+
           semantic_failures = set(semantic_report.get("failures") or [])
           advisory_semantic_failures = sorted(
               item for item in semantic_failures if item.startswith("signed_in_routes:")
@@ -610,6 +669,18 @@ jobs:
                   "attempt_2": os.environ.get("PARITY_ATTEMPT_2", ""),
                   "success": parity_success,
               },
+              "provenance": {
+                  "backend": {
+                      "outcome": os.environ.get("BACKEND_PROVENANCE_OUTCOME", ""),
+                      "success": backend_provenance_success,
+                      "report": backend_provenance_report,
+                  },
+                  "frontend": {
+                      "outcome": os.environ.get("FRONTEND_PROVENANCE_OUTCOME", ""),
+                      "success": frontend_provenance_success,
+                      "report": frontend_provenance_report,
+                  },
+              },
               "semantic": {
                   "attempt_1": os.environ.get("SEMANTIC_ATTEMPT_1", ""),
                   "attempt_2": os.environ.get("SEMANTIC_ATTEMPT_2", ""),
@@ -634,6 +705,7 @@ jobs:
               handle.write(f"frontend_failure={'true' if frontend_failure else 'false'}\n")
               handle.write(f"blocking_classifications={','.join(blocking)}\n")
               handle.write(f"parity_success={'true' if parity_success else 'false'}\n")
+              handle.write(f"provenance_success={'true' if backend_provenance_success and frontend_provenance_success else 'false'}\n")
               handle.write(f"semantic_success={'true' if semantic_success else 'false'}\n")
           PY
 
@@ -748,6 +820,9 @@ jobs:
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
                   "parity_success": "${{ steps.classify-uat-release.outputs.parity_success }}",
+                  "backend_provenance": "${{ steps.verify-backend-provenance.outcome }}",
+                  "frontend_provenance": "${{ steps.verify-frontend-provenance.outcome }}",
+                  "provenance_success": "${{ steps.classify-uat-release.outputs.provenance_success }}",
                   "attempt_1": "${{ steps.verify-uat-1.outcome }}",
                   "attempt_2": "${{ steps.verify-uat-2.outcome }}",
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
@@ -773,6 +848,8 @@ jobs:
             /tmp/uat-frontend-runtime-secret-sync.json
             /tmp/uat-runtime-parity-attempt-1.json
             /tmp/uat-runtime-parity-attempt-2.json
+            /tmp/uat-backend-provenance.json
+            /tmp/uat-frontend-provenance.json
             /tmp/uat-db-migration-guard-predeploy.json
             /tmp/uat-db-migration-guard-postdeploy.json
             /tmp/cloud-sql-proxy-uat.log
@@ -800,6 +877,8 @@ jobs:
             echo "- Frontend revision: \`${{ steps.final-state.outputs.frontend_revision }}\`"
             echo "- Parity attempt 1: \`${{ steps.verify-parity-1.outcome }}\`"
             echo "- Parity attempt 2: \`${{ steps.verify-parity-2.outcome }}\`"
+            echo "- Backend provenance: \`${{ steps.verify-backend-provenance.outcome }}\`"
+            echo "- Frontend provenance: \`${{ steps.verify-frontend-provenance.outcome }}\`"
             echo "- Post-deploy DB contract: \`${{ steps.postdeploy-db-gate.outcome }}\`"
             echo "- Verify attempt 1: \`${{ steps.verify-uat-1.outcome }}\`"
             echo "- Verify attempt 2: \`${{ steps.verify-uat-2.outcome }}\`"

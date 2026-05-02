@@ -101,7 +101,8 @@ steps:
       - "--timeout=60"
       - "--max-instances=10"
       - "--min-instances=1"
-      - "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV}"
+      - "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
+      - "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
       - "--set-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest"
     id: "deploy-frontend"
 
@@ -119,6 +120,10 @@ substitutions:
   _REGION: us-central1
   _APP_ENV: production
   _IMAGE_TAG: v2.1.2
+  _DEPLOY_ENV: manual
+  _DEPLOY_SOURCE: manual
+  _DEPLOY_SHA: unknown
+  _GITHUB_RUN_ID: unknown
 
 # Secrets to fetch
 availableSecrets:

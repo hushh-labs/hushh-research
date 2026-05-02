@@ -640,8 +640,14 @@ class RIAIAMService:
         self,
         query: str,
         crd_number: str | None = None,
+        *,
+        use_cache: bool = True,
     ) -> dict[str, Any]:
-        result = await self._verify_ria_name_result(query, crd_number=crd_number, use_cache=True)
+        result = await self._verify_ria_name_result(
+            query,
+            crd_number=crd_number,
+            use_cache=use_cache,
+        )
         return self._serialize_name_verification_result(result)
 
     @staticmethod
