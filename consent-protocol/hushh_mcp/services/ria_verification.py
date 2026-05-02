@@ -449,7 +449,6 @@ class RIAIntelligenceStage1LookupAdapter:
         self,
         *,
         query: str,
-        crd_number: str | None = None,
     ) -> tuple[dict[str, Any] | None, NameVerificationResult | None]:
         request_url = self._verify_url or (
             f"{self._base_url}{self._endpoint_path}" if self._base_url else ""
@@ -466,11 +465,7 @@ class RIAIntelligenceStage1LookupAdapter:
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        context: dict[str, Any] = {"targetName": query}
-        normalized_crd = _normalize_crd(crd_number)
-        if normalized_crd:
-            context["crdNumber"] = normalized_crd
-        request_body: dict[str, Any] = {"query": query, "context": context}
+        request_body: dict[str, Any] = {"query": query}
 
         try:
             async with httpx.AsyncClient(
@@ -581,7 +576,6 @@ class RIAIntelligenceStage1LookupAdapter:
 
         payload, error = await self._request_payload(
             query=normalized_query,
-            crd_number=normalized_input_crd,
         )
         if error is not None:
             return error
