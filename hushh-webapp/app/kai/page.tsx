@@ -1,8 +1,26 @@
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+"use client";
+
+import dynamic from "next/dynamic";
+import { useConsent } from "../../src/hooks/useConsent";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import KaiPermissionGateSection from "../../src/components/privacy/permission-gate/KaiPermissionGateSection";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+
+const PermissionGate = dynamic(
+  () => import("../../src/components/privacy/permission-gate/PermissionGate"),
+  { ssr: false }
+);
+
+const KaiMarketPreviewView = dynamic(
+  () =>
+    import("@/components/kai/views/kai-market-preview-view").then(
+      (mod) => mod.KaiMarketPreviewView
+    ),
+  { ssr: false }
+);
 
 export default function KaiPage() {
+  const { hasConsentFor, isLoading } = useConsent();
+
   return (
     <>
       <NativeRouteMarker
@@ -19,7 +37,13 @@ export default function KaiPage() {
         dataState="loaded"
       />
 
-      <KaiPermissionGateSection />
+      <PermissionGate
+        permission="portfolio_valuation"
+        hasConsent={hasConsentFor("portfolio_valuation")}
+        isLoading={isLoading}
+      >
+        <KaiMarketPreviewView />
+      </PermissionGate>
     </>
   );
 }

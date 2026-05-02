@@ -1,6 +1,6 @@
 "use client";
 
-import { KaiMarketPreviewView } from "@/components/kai/views/kai-market-preview-view";
+import { KaiMarketPreviewView } from "../../../../components/kai/views/kai-market-preview-view";
 import { useConsent } from "../../../hooks/useConsent";
 import PermissionGate from "./PermissionGate";
 
