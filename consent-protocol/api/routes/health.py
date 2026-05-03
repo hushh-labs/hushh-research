@@ -19,6 +19,10 @@ router = APIRouter(tags=["Health"])
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 REVIEWER_UID_KEY = "REVIEWER_UID"
 REVIEWER_VAULT_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE"  # noqa: S105
+AGENT_MODEL = {
+    "primary": "one",
+    "specialists": ["kai", "nav", "kyc"],
+}
 DEPRECATED_REVIEWER_UID_KEYS = ("UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID")
 DEPRECATED_REVIEWER_PASSPHRASE_KEYS = (  # noqa: S105
     "UAT_SMOKE_PASSPHRASE",
@@ -82,7 +86,11 @@ def health_check():
 @router.get("/health")
 def health():
     """Detailed health check with agent list."""
-    return {"status": "healthy", "agents": ["kai"]}
+    return {
+        "status": "healthy",
+        "agents": ["one", "kai", "nav", "kyc"],
+        "agent_model": AGENT_MODEL,
+    }
 
 
 @router.get("/api/app-config/review-mode")

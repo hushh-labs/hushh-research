@@ -211,6 +211,7 @@ def _surface_uat(args: argparse.Namespace, scratch_dir: Path) -> dict[str, Any]:
         "--frontend-service",
         frontend_service,
         "--require-gmail",
+        "--require-one-email",
         "--require-voice",
         "--assert-runtime-env-contract",
         "--report-path",

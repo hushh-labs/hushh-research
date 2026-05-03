@@ -425,6 +425,225 @@
       ]
     },
     {
+      "id": "route.one_kyc",
+      "label": "Open KYC Workflows",
+      "meaning": "Navigates to One KYC workflow review.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "open kyc",
+        "open one kyc",
+        "show kyc workflows"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kyc"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ]
+    },
+    {
+      "id": "kyc.workflow.sync_status",
+      "label": "Sync KYC Status",
+      "meaning": "Refreshes the selected One KYC workflow status after consent approval.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "sync kyc",
+        "refresh kyc status"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context from /one/kyc."
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ]
+    },
+    {
+      "id": "kyc.draft.review",
+      "label": "Review KYC Draft",
+      "meaning": "Reads or focuses the current approval-gated KYC draft.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "review kyc draft",
+        "show kyc draft"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context and user-visible draft state."
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ]
+    },
+    {
+      "id": "kyc.draft.request_redraft",
+      "label": "Request KYC Redraft",
+      "meaning": "Requests a new KYC draft revision from typed or spoken user instructions.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "redraft kyc",
+        "revise kyc draft"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context and captured redraft instructions."
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ]
+    },
+    {
+      "id": "kyc.draft.approve_send",
+      "label": "Approve KYC Send",
+      "meaning": "Sends the KYC draft only after explicit user approval.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "approve kyc send",
+        "send kyc reply"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required",
+        "explicit_confirmation_required"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ]
+    },
+    {
+      "id": "kyc.draft.reject",
+      "label": "Reject KYC Draft",
+      "meaning": "Rejects the current KYC draft and blocks the workflow.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "reject kyc draft",
+        "block kyc workflow"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context from /one/kyc."
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ]
+    },
+    {
       "id": "route.profile",
       "label": "Open Profile",
       "meaning": "Navigates to profile landing route.",

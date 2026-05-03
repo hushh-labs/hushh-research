@@ -242,6 +242,27 @@ describe("kai-action-gateway", () => {
     });
   });
 
+  it("treats auth_required as a signed-in guard for One KYC actions", () => {
+    const action = getKaiActionById("route.one_kyc");
+    const availability = evaluateKaiActionAvailability({
+      action: action!,
+      appRuntimeState: makeRuntimeState({
+        auth: {
+          signed_in: false,
+          user_id: null,
+        },
+      }),
+    });
+
+    expect(action?.guard_ids).toContain("auth_required");
+    expect(availability).toEqual({
+      status: "blocked",
+      reason: "Sign in to use this action.",
+      target_persona: null,
+      blocked_guidance: null,
+    });
+  });
+
   it("keeps typed search on the same action plane as voice and guard filtering", () => {
     const dashboardResults = searchKaiActions({
       query: "dashboard",

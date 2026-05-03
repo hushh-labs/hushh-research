@@ -95,6 +95,24 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "should_delegate": True,
     },
     {
+        "name": "gmail-push-notifications-not-git-push",
+        "workflow": "one-email-kyc-hardening",
+        "phase": "start",
+        "prompt": "verify One Gmail push notifications and encrypted draft storage caveats",
+        "paths": [
+            "consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
+            "docs/future/one-email-intake-roadmap.md",
+        ],
+        "required_agents": {
+            "backend_architect",
+            "security_consent_auditor",
+            "product_docs_architect",
+        },
+        "forbidden_agents": set(),
+        "should_delegate": True,
+        "forbidden_parent_only_hits": {"push"},
+    },
+    {
         "name": "analytics-observability",
         "workflow": "analytics-observability-review",
         "phase": "start",
@@ -168,6 +186,16 @@ def run(root: Path) -> list[str]:
             errors.append(
                 f"{scenario['name']}: expected should_delegate={scenario['should_delegate']}, got {payload['should_delegate']}"
             )
+        forbidden_parent_only_hits = scenario.get("forbidden_parent_only_hits", set())
+        if forbidden_parent_only_hits:
+            reasons = "\n".join(str(reason) for reason in payload.get("reasons", []))
+            unexpected = {
+                hit for hit in forbidden_parent_only_hits if f"parent-only action terms present: {hit}" in reasons
+            }
+            if unexpected:
+                errors.append(
+                    f"{scenario['name']}: unexpected parent-only hits: {', '.join(sorted(unexpected))}"
+                )
         if missing:
             errors.append(f"{scenario['name']}: missing required agents: {', '.join(sorted(missing))}")
         if forbidden:

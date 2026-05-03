@@ -24,6 +24,14 @@ on:
         options:
           - "false"
           - "true"
+      enable_one_email_kyc:
+        description: "Enable production One Email KYC only after mailbox-watch ownership and encrypted-draft gates are complete"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -263,6 +271,10 @@ jobs:
       - name: Deploy backend using Cloud Build
         if: steps.scope.outputs.deploy_backend == 'true'
         run: |
+          if [ "${{ github.event.inputs.enable_one_email_kyc }}" = "true" ]; then
+            echo "Production One Email KYC is blocked until mailbox-watch ownership, Scheduler renewal, and encrypted-at-rest draft storage are complete."
+            exit 1
+          fi
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \

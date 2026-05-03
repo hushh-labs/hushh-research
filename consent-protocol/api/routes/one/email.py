@@ -30,6 +30,11 @@ class DraftRejectRequest(WorkflowUserRequest):
     reason: str | None = Field(default=None, max_length=500)
 
 
+class DraftRedraftRequest(WorkflowUserRequest):
+    instructions: str = Field(min_length=1, max_length=1000)
+    source: str = Field(default="text", pattern="^(text|voice)$")
+
+
 _DEPENDENCY_ERROR_PATTERNS = (
     "connection refused",
     "server closed the connection unexpectedly",
@@ -245,3 +250,36 @@ async def one_kyc_reject_draft(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="reject_draft") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/redraft")
+async def one_kyc_redraft(
+    workflow_id: str,
+    payload: DraftRedraftRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().redraft(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            instructions=payload.instructions,
+            source=payload.source,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.redraft_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="redraft") from exc
+
+
+@router.post("/kyc/retention/purge")
+async def one_kyc_retention_purge(request: Request, older_than_days: int = 30):
+    _require_watch_renew_auth(request)
+    try:
+        return await _service().purge_terminal_drafts(older_than_days=older_than_days)
+    except Exception as exc:
+        logger.exception("one.kyc.retention_purge_failed")
+        raise _to_http_exception(exc, operation="retention_purge") from exc

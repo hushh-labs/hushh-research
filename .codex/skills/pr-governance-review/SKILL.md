@@ -254,6 +254,15 @@ Non-owned surfaces:
    - record contributor pushes that changed head SHA or review decision after a maintainer comment
    - update batch counts and recommended next order
    - record terminal queue/smoke evidence only in GitHub comments, final handoff, or a separate non-live audit ledger
+   - refresh the contributor impact dashboard when PR work changes merge, close, changes-requested, maintainer-patch, or revert state:
+     `python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text > tmp/contributor-impact-dashboard.md`
+   - keep `tmp/contributor-impact-dashboard.md` historical and rolling: it may include merged, closed, reverted, and patched PRs, unlike the live report
+   - use north-star weighted impact, not raw PR count, when summarizing weekly top-10, two-week top-10, monthly top-10, or contributor-impact movement
+   - default topper windows must be rolling windows: weekly is 7 days, two-week is 14 days, and monthly is 30 days; use calendar month-to-date only when the operator explicitly requests a calendar-month report
+   - keep the dashboard lean: KPI board first, rolling top-10 windows next, then only the highest-signal PRs, corrections, and contract clusters; avoid raw registers or duplicated leaderboards in the default markdown
+   - when the operator needs a shareable artifact, export the dashboard PDF through the frontend-owned Playwright printer:
+     `cd hushh-webapp && npm run report:contributor-impact:pdf`
+   - final PR handoffs should include contributor-impact delta when a PR materially affects trust/security, consent/vault, One/Kai/Nav direction, PKM/memory, user utility, runtime quality, or proof/test posture
 37. If a working report contains its own update checklist, treat that checklist as part of the action flow. Do not end the turn while the checklist is stale.
 38. If the user asks for a batch, produce a comprehensive overview before recommending any merge order. The overview must make product/runtime purpose, overlap, duplication, domain boundaries, lean/core bloat risk, subagent-delegation decision, flow mode, isolation strategy, contract-set grouping, author-grouping decision, and maintainer-patch batching plan explicit enough that the merge plan is auditable.
 39. For DB migration or schema-contract PRs, use this migration-release gate:
@@ -314,6 +323,8 @@ python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text
+python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py
+python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text
 ./bin/hushh codex audit --text
 ./bin/hushh docs verify
 ```

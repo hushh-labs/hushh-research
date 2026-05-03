@@ -35,7 +35,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { APP_SHELL_FRAME_CLASSNAME, APP_SHELL_FRAME_STYLE } from "@/components/app-ui/app-page-shell";
+import {
+  APP_SHELL_FRAME_CLASSNAME,
+  APP_SHELL_FRAME_STYLE,
+} from "@/components/app-ui/app-page-shell";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import {
@@ -100,25 +103,41 @@ export const TOP_SHELL_ICON_BUTTON_CLASSNAME = SHELL_ICON_BUTTON_CLASSNAME;
 const TOP_SHELL_TITLE_PILL_CLASSNAME = SHELL_PILL_TRIGGER_CLASSNAME;
 
 /* ── Stubs (kept for import stability) ─────────────────────────────── */
-export function TopBarBackground() { return null; }
-export function StatusBarBlur() { return null; }
-export function TopAppBarSpacer() { return null; }
+export function TopBarBackground() {
+  return null;
+}
+export function StatusBarBlur() {
+  return null;
+}
+export function TopAppBarSpacer() {
+  return null;
+}
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 function getTopBarTitle(
   pathname: string,
-  activePersona: "investor" | "ria"
+  activePersona: "investor" | "ria",
 ): {
   label: string;
   icon?: LucideIcon;
   interactive: boolean;
 } | null {
-  if (pathname === ROUTES.KAI_ONBOARDING || pathname.startsWith(`${ROUTES.KAI_ONBOARDING}/`)) {
+  if (
+    pathname === ROUTES.KAI_ONBOARDING ||
+    pathname.startsWith(`${ROUTES.KAI_ONBOARDING}/`)
+  ) {
     return { label: "Get started", interactive: false as const };
   }
 
-  if (pathname === ROUTES.RIA_ONBOARDING || pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)) {
-    return { label: "Set up RIA", icon: BriefcaseBusiness, interactive: true as const };
+  if (
+    pathname === ROUTES.RIA_ONBOARDING ||
+    pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+  ) {
+    return {
+      label: "Set up RIA",
+      icon: BriefcaseBusiness,
+      interactive: true as const,
+    };
   }
 
   if (pathname === ROUTES.DEVELOPERS) {
@@ -128,7 +147,11 @@ function getTopBarTitle(
   const isRiaShellRoute =
     pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`);
   if (isRiaShellRoute) {
-    return { label: "RIA", icon: BriefcaseBusiness, interactive: true as const };
+    return {
+      label: "RIA",
+      icon: BriefcaseBusiness,
+      interactive: true as const,
+    };
   }
 
   const isPersonaShellRoute =
@@ -165,29 +188,30 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isVaultUnlocked } = useVault();
-  const {
-    activePersona,
-    riaCapability,
-    riaEntryRoute,
-    switchPersona,
-  } = usePersonaState();
+  const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
+    usePersonaState();
   const pathname = usePathname();
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
-  const topShellMetrics = useMemo(() => resolveTopShellMetrics(pathname), [pathname]);
+  const topShellMetrics = useMemo(
+    () => resolveTopShellMetrics(pathname),
+    [pathname],
+  );
   const topShellBreadcrumb = useMemo(
     () => resolveTopShellBreadcrumb(pathname, searchParams),
-    [pathname, searchParams]
+    [pathname, searchParams],
   );
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
   const centerTitle = useMemo(
     () => getTopBarTitle(pathname, activePersona),
-    [activePersona, pathname]
+    [activePersona, pathname],
   );
   const showKaiTabs = topShellMetrics.hasTabs;
-  const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(null);
+  const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
+    null,
+  );
 
   const handlePersonaSelect = useCallback(
     async (target: Persona) => {
@@ -254,36 +278,50 @@ export function TopAppBar({ className }: TopAppBarProps) {
         setSwitchingPersona(null);
       }
     },
-    [activePersona, lastKaiPath, lastRiaPath, pathname, riaCapability, riaEntryRoute, router, switchPersona]
+    [
+      activePersona,
+      lastKaiPath,
+      lastRiaPath,
+      pathname,
+      riaCapability,
+      riaEntryRoute,
+      router,
+      switchPersona,
+    ],
   );
 
   // Subscribe to scroll-direction store so top glass height follows tabs visibility.
-  const { progress: tabsScrollHideProgress } = useKaiBottomChromeVisibility(showKaiTabs);
+  const { progress: tabsScrollHideProgress } =
+    useKaiBottomChromeVisibility(showKaiTabs);
 
   const topGlassHeight = useMemo(
     () =>
       showKaiTabs
         ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${tabsScrollHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
         : "var(--top-shell-visual-height)",
-    [showKaiTabs, tabsScrollHideProgress]
+    [showKaiTabs, tabsScrollHideProgress],
   );
 
   const topGlassStyle = useMemo<React.CSSProperties>(
-    () => ({
-      "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
-      "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
-      "--app-bar-glass-blur": "6px",
-      "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
-      "--app-bar-mask-overscan": "14px",
-    } as React.CSSProperties),
-    []
+    () =>
+      ({
+        "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
+        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+        "--app-bar-glass-blur": "6px",
+        "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
+        "--app-bar-mask-overscan": "14px",
+      }) as React.CSSProperties,
+    [],
   );
 
   if (hideChrome) return null;
 
   return (
     <div
-      className={cn("fixed inset-x-0 top-0 z-50 pointer-events-none", className)}
+      className={cn(
+        "fixed inset-x-0 top-0 z-50 pointer-events-none",
+        className,
+      )}
     >
       <div
         className="pointer-events-none relative w-full overflow-visible"
@@ -294,13 +332,16 @@ export function TopAppBar({ className }: TopAppBarProps) {
           className="pointer-events-none absolute inset-x-0 top-0 overflow-visible"
           style={{ height: topGlassHeight }}
         >
-          <div className="h-full w-full bar-glass bar-glass-top" style={topGlassStyle} />
+          <div
+            className="h-full w-full bar-glass bar-glass-top"
+            style={topGlassStyle}
+          />
         </div>
 
         <div
           className={cn(
             APP_SHELL_FRAME_CLASSNAME,
-            "pointer-events-none relative flex h-full w-full flex-col justify-end"
+            "pointer-events-none relative flex h-full w-full flex-col justify-end",
           )}
           style={APP_SHELL_FRAME_STYLE}
         >
@@ -323,16 +364,14 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       variant="icon"
                       aria-label="Go back"
                       onClick={() => {
-                        if (typeof window !== "undefined" && window.history.length > 1) {
-                          router.back();
-                          return;
-                        }
                         router.push(topShellBreadcrumb.backHref);
                       }}
                     >
                       <ArrowLeft className="h-5 w-5" />
                     </ShellActionSurface>
-                  ) : <div className="h-10 w-10" aria-hidden />}
+                  ) : (
+                    <div className="h-10 w-10" aria-hidden />
+                  )}
                 </div>
               </div>
 
@@ -340,42 +379,47 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 {centerTitle ? (
                   centerTitle.interactive ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <ShellActionSurface
-                              variant="pill"
-                              data-tour-id="nav-role-switch"
-                              data-testid="top-app-bar-title"
-                              aria-label="Switch role"
-                            >
-                              <Icon
-                                icon={switchingPersona ? Loader2 : centerTitle.icon!}
-                                size="sm"
-                                className={cn(
-                                  "shrink-0 text-current",
-                                  switchingPersona ? "animate-spin" : ""
-                                )}
-                              />
-                              <span className="truncate">
-                                {switchingPersona
-                                  ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
-                                  : centerTitle.label}
-                              </span>
-                              {!switchingPersona && (
-                                <span
-                                  className={cn(
-                                    "h-1.5 w-1.5 shrink-0 rounded-full",
-                                    activePersona === "ria"
-                                      ? "bg-amber-500"
-                                      : "bg-emerald-500"
-                                  )}
-                                  aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
-                                />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <ShellActionSurface
+                            variant="pill"
+                            data-tour-id="nav-role-switch"
+                            data-testid="top-app-bar-title"
+                            aria-label="Switch role"
+                          >
+                            <Icon
+                              icon={
+                                switchingPersona ? Loader2 : centerTitle.icon!
+                              }
+                              size="sm"
+                              className={cn(
+                                "shrink-0 text-current",
+                                switchingPersona ? "animate-spin" : "",
                               )}
-                              <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
-                            </ShellActionSurface>
+                            />
+                            <span className="truncate">
+                              {switchingPersona
+                                ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+                                : centerTitle.label}
+                            </span>
+                            {!switchingPersona && (
+                              <span
+                                className={cn(
+                                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                                  activePersona === "ria"
+                                    ? "bg-amber-500"
+                                    : "bg-emerald-500",
+                                )}
+                                aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
+                              />
+                            )}
+                            <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
+                          </ShellActionSurface>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="center" className="min-w-[200px]">
+                        <DropdownMenuContent
+                          align="center"
+                          className="min-w-[200px]"
+                        >
                           <DropdownMenuItem
                             onClick={() => void handlePersonaSelect("investor")}
                             disabled={switchingPersona !== null}
@@ -396,7 +440,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           >
                             <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
                               <BriefcaseBusiness className="h-4 w-4 text-current" />
-                              <span>{riaCapability === "switch" ? "RIA" : "Set up RIA"}</span>
+                              <span>
+                                {riaCapability === "switch"
+                                  ? "RIA"
+                                  : "Set up RIA"}
+                              </span>
                             </div>
                             {switchingPersona === "ria" ? (
                               <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />
@@ -410,10 +458,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   ) : (
                     <div
                       data-testid="top-app-bar-title"
-                      className={cn(TOP_SHELL_TITLE_PILL_CLASSNAME, "pointer-events-auto")}
+                      className={cn(
+                        TOP_SHELL_TITLE_PILL_CLASSNAME,
+                        "pointer-events-auto",
+                      )}
                     >
                       {centerTitle.icon ? (
-                        <Icon icon={centerTitle.icon} size="sm" className="shrink-0 text-current" />
+                        <Icon
+                          icon={centerTitle.icon}
+                          size="sm"
+                          className="shrink-0 text-current"
+                        />
                       ) : null}
                       <span className="truncate">{centerTitle.label}</span>
                     </div>
@@ -488,7 +543,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>

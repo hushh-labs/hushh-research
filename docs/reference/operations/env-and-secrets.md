@@ -92,7 +92,7 @@ The script reports:
 - whether each required key exists in the target project
 - missing keys (if any), with non-zero exit on failure
 
-Deploy workflows add Gmail and voice runtime checks with `--require-gmail --require-voice`. That enforcement stays in deploy/runtime verification and is not part of the default contributor PR CI lane.
+Deploy workflows add Gmail, One mailbox, and voice runtime checks with `--require-gmail --require-one-email --require-voice`. That enforcement stays in deploy/runtime verification and is not part of the default contributor PR CI lane.
 
 ### Runtime profile shape audit
 
@@ -166,6 +166,8 @@ Used by:
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token for `POST /api/one/email/watch/renew`. |
 | `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One KYC) | Connector public key for strict scoped encrypted PKM exports. |
 | `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Connector key id for KYC export wrapping. |
+| `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (value-filled One KYC) | Secret X25519 private key used only to decrypt approved scoped KYC exports in memory. |
+| `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Must be on the service allowlist. Current approved value: `attr.identity.*`. |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Optional override | Real Workspace mailbox to impersonate for support/invite send. Defaults to `ONE_EMAIL_ADDRESS`. |
 | `SUPPORT_EMAIL_FROM` | `hushh_mcp/services/support_email_service.py` | Optional | Visible From address for support/invite send. Defaults to delegated user. |
 | `SUPPORT_EMAIL_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Support recipient. Defaults to `ONE_EMAIL_ADDRESS`. |
@@ -247,6 +249,8 @@ Used by:
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes (hosted renewal) | Yes | Secret Manager | Send as `X-Hushh-Maintenance-Token`. |
 | `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | Yes (One KYC) | No | Hosted Cloud Run env | Strict scoped export key. |
 | `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | Recommended | No | Hosted Cloud Run env | Strict scoped export key id. |
+| `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` | Yes (value-filled One KYC) | Yes | Secret Manager | X25519 private key. Decrypts approved scoped exports in memory only. |
+| `ONE_EMAIL_KYC_DEFAULT_SCOPE` | Optional | No | Hosted Cloud Run env | Must remain allowlisted. Current approved value: `attr.identity.*`. |
 | `SUPPORT_EMAIL_DELEGATED_USER` | Optional override | No | Local: `.env`; Prod: Cloud Run env | Must be a real Workspace user mailbox, not a group. Defaults to `ONE_EMAIL_ADDRESS`. |
 | `SUPPORT_EMAIL_FROM` | Optional | No | Local: `.env`; Prod: Cloud Run env | Visible From address. |
 | `SUPPORT_EMAIL_TO` | Optional | No | Local: `.env`; Prod: Cloud Run env | Defaults to `ONE_EMAIL_ADDRESS`. |
@@ -254,6 +258,13 @@ Used by:
 | `SUPPORT_EMAIL_MODE` | Optional | No | Local/UAT env | `live` or `test`. |
 | `ENVIRONMENT` | No | No | Default development; Prod: Cloud Run | production / development |
 | `OTEL_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Enables OpenTelemetry export to Cloud Trace |
+
+One mailbox production caveats:
+
+- `one@hushh.ai` is a real Workspace user mailbox. UAT and production must not independently renew Gmail watches for the same mailbox unless a label/topic fanout strategy is explicitly documented and tested.
+- Hosted One intake requires a daily Scheduler or equivalent maintenance call to `POST /api/one/email/watch/renew` with `X-Hushh-Maintenance-Token`. The runtime gate should confirm `one_email_mailbox_state.watch_status=active` and a future `watch_expiration_at`.
+- `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` is for approved scoped-export decrypt in memory. It is not a draft-storage key and must not be reused for durable workflow encryption.
+- Current V1 KYC drafts are user-reviewable sensitive workflow state. Production/public launch should either ship encrypted-at-rest draft storage or keep the lane blocked behind the explicit retention-redaction gate.
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | No | Local: `.env`; Prod: Cloud Run env | True for Vertex AI |
 | `AGENT_ID` | No | No | `.env` (default agent_hushh_default) | |
 | `HUSHH_HACKATHON` | No | No | `.env` (default disabled) | |

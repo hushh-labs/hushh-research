@@ -20,6 +20,7 @@
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:routes": "node ./scripts/testing/verify-signed-in-routes.mjs",
     "verify:cache": "vitest run __tests__/services/cache-sync-mutation-cascade.test.ts __tests__/services/cache-service.test.ts __tests__/services/pkm-cache.test.ts",
+    "report:contributor-impact:pdf": "node ./scripts/reports/export-contributor-impact-pdf.mjs",
     "audit:analytics-sandbox": "node ./scripts/testing/run-observability-sandbox-audit.mjs",
     "smoke:analytics:uat": "node ./scripts/testing/run-uat-analytics-smoke.mjs",
     "audit:ui-surfaces": "node ./scripts/architecture/audit-ui-surfaces.mjs",

@@ -141,11 +141,11 @@ Repo-scoped exception:
 
 Codex supports project-scoped custom agents under `.codex/agents/`. In this repo, that surface is intentionally bounded:
 
-1. Subagent use is explicit only; do not add repo instructions that auto-fan-out by default.
-2. Every non-trivial task should run the root `AGENTS.md` delegation checkpoint before choosing a local-only path.
-3. Use subagents for independent evidence lanes, not for final authority, branch operations, approval, merge, deploy, or credential handling.
+1. Subagent use follows the root `AGENTS.md` delegation checkpoint: user-approved delegation, explicit workflow policy, or repo-global read-only evidence policy may authorize bounded lanes.
+2. Do not add uncontrolled fan-out. Every non-trivial task should run the checkpoint before choosing a local-only path.
+3. Use subagents for independent evidence lanes, not for final authority, branch operations, approval, merge, deploy, push, or credential handling.
 4. Most repo custom agents should stay `read-only`.
-5. Repo custom agents inherit the parent-session model and reasoning by default; pinning is an exception for future specialized lanes.
+5. Repo custom agents inherit the parent-session model family. Repo-scoped `default_reasoning_effort` pins are allowed only for curated high-risk evidence lanes and must stay visible in `.codex/agents/`.
 6. The parent session or the built-in `worker` owns edits unless a narrower workflow says otherwise.
 7. Repo-level fan-out stays capped in `.codex/config.toml`:
    - `max_threads = 6`

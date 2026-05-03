@@ -21,6 +21,9 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Any, Iterable
 
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from google.auth.transport.requests import AuthorizedSession
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
@@ -46,11 +49,16 @@ _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
 _DEFAULT_ONE_EMAIL_ADDRESS = "one@hushh.ai"
+_ONE_EMAIL_DISPLAY_NAME = "One"
 _DEFAULT_KYC_SCOPE = "attr.identity.*"
+_ALLOWED_KYC_DATA_SCOPES = frozenset({_DEFAULT_KYC_SCOPE})
+_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
 _ONE_AGENT_ID = "agent_one"
 _NAV_AGENT_ID = "agent_nav"
 _KYC_AGENT_ID = "agent_kyc"
 _KYC_REQUEST_SOURCE = "one_email_kyc_v1"
+_KYC_REQUEST_ID_PREFIX = "okyc_"
+_CONSENT_REQUEST_ID_MAX_LENGTH = 32
 _MAX_STORED_TEXT = 500
 _MAX_DRAFT_BODY = 6000
 _KYC_WORKFLOW_STATES = {
@@ -97,6 +105,7 @@ class OneEmailKycConfig:
     watch_label_ids: tuple[str, ...]
     connector_public_key: str | None
     connector_key_id: str | None
+    connector_private_key: str | None
     default_kyc_scope: str
     configured: bool
 
@@ -150,7 +159,9 @@ class OneEmailKycConfig:
                 not in {"development", "dev", "local", "test"},
             ),
         )
-        default_scope = _clean_text(os.getenv("ONE_EMAIL_KYC_DEFAULT_SCOPE")) or _DEFAULT_KYC_SCOPE
+        default_scope = _validate_kyc_data_scope(
+            _clean_text(os.getenv("ONE_EMAIL_KYC_DEFAULT_SCOPE")) or _DEFAULT_KYC_SCOPE
+        )
 
         configured = bool(service_account_info and delegated_user and mailbox_email)
         return cls(
@@ -177,6 +188,8 @@ class OneEmailKycConfig:
             connector_public_key=_clean_text(os.getenv("ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY"))
             or None,
             connector_key_id=_clean_text(os.getenv("ONE_EMAIL_KYC_CONNECTOR_KEY_ID")) or None,
+            connector_private_key=_clean_text(os.getenv("ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY"))
+            or None,
             default_kyc_scope=default_scope,
             configured=configured,
         )
@@ -189,6 +202,21 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _validate_kyc_data_scope(scope: str) -> str:
+    normalized = _clean_text(scope)
+    if normalized not in _ALLOWED_KYC_DATA_SCOPES:
+        raise OneEmailKycError(
+            "One email KYC default scope is not approved for this lane.",
+            status_code=503,
+            code="ONE_KYC_SCOPE_NOT_ALLOWED",
+            payload={
+                "scope": normalized,
+                "allowed_scopes": sorted(_ALLOWED_KYC_DATA_SCOPES),
+            },
+        )
+    return normalized
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -198,7 +226,36 @@ def _epoch_ms_now() -> int:
 
 
 def _json(value: Any) -> str:
-    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    return json.dumps(value, default=_json_default, separators=(",", ":"), sort_keys=True)
+
+
+def _json_default(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _kyc_consent_request_id(workflow_id: str) -> str:
+    suffix_limit = _CONSENT_REQUEST_ID_MAX_LENGTH - len(_KYC_REQUEST_ID_PREFIX)
+    return f"{_KYC_REQUEST_ID_PREFIX}{_clean_text(workflow_id)[:suffix_limit]}"
+
+
+def _kyc_consent_request_url(consent_request_id: str | None) -> str | None:
+    if not consent_request_id:
+        return None
+    return build_consent_request_url(
+        request_id=consent_request_id,
+        actor="investor",
+        manager_view="incoming",
+    )
+
+
+def _is_legacy_consent_request_url(value: Any) -> bool:
+    return isinstance(value, str) and "/profile?" in value
+
+
+def _normalize_field_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", _clean_text(value).lower())
 
 
 def _truncate(value: str | None, limit: int = _MAX_STORED_TEXT) -> str | None:
@@ -214,6 +271,44 @@ def _decode_b64url(data: str | None) -> str:
         return ""
     padded = value + ("=" * (-len(value) % 4))
     return base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8", errors="replace")
+
+
+def _b64decode_bytes(value: Any) -> bytes:
+    raw = _clean_text(value)
+    if not raw:
+        raise ValueError("missing base64 value")
+    padded = raw + ("=" * (-len(raw) % 4))
+    return base64.urlsafe_b64decode(padded.encode("utf-8"))
+
+
+def _load_x25519_private_key(value: str | None) -> X25519PrivateKey:
+    raw = _clean_text(value).replace("\\n", "\n")
+    if not raw:
+        raise OneEmailKycError(
+            "ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY is required to decrypt scoped KYC exports.",
+            status_code=503,
+            code="ONE_KYC_CONNECTOR_PRIVATE_KEY_MISSING",
+        )
+    if raw.startswith("-----BEGIN"):
+        key = serialization.load_pem_private_key(raw.encode("utf-8"), password=None)
+        if not isinstance(key, X25519PrivateKey):
+            raise OneEmailKycError(
+                "ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY must be an X25519 private key.",
+                status_code=503,
+                code="ONE_KYC_CONNECTOR_PRIVATE_KEY_INVALID",
+            )
+        return key
+    try:
+        raw_bytes = (
+            bytes.fromhex(raw) if re.fullmatch(r"[0-9a-fA-F]{64}", raw) else _b64decode_bytes(raw)
+        )
+        return X25519PrivateKey.from_private_bytes(raw_bytes)
+    except Exception as exc:
+        raise OneEmailKycError(
+            "ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY could not be decoded.",
+            status_code=503,
+            code="ONE_KYC_CONNECTOR_PRIVATE_KEY_INVALID",
+        ) from exc
 
 
 def _header_map(message: dict[str, Any]) -> dict[str, str]:
@@ -526,6 +621,20 @@ class OneEmailKycService:
     ) -> dict[str, Any]:
         existing = self._workflow_by_message_id(message_id)
         if existing:
+            has_stale_consent_url = _is_legacy_consent_request_url(
+                (existing.get("metadata") or {}).get("consent_request_url")
+            )
+            if (
+                existing.get("status") == "needs_scope"
+                and (not existing.get("consent_request_id") or has_stale_consent_url)
+                and self.config.connector_public_key
+            ):
+                workflow = await self._ensure_consent_request(existing)
+                return {
+                    "handled": True,
+                    "reason": "consent_request_repaired",
+                    "workflow": workflow,
+                }
             return {"handled": False, "reason": "duplicate", "workflow": existing}
 
         message = await asyncio.to_thread(self._fetch_message, message_id)
@@ -557,6 +666,9 @@ class OneEmailKycService:
                 status_code=400,
                 code="ONE_EMAIL_WEBHOOK_DATA_INVALID",
             )
+        for key in ("historyId", "message_id", "messageId"):
+            if parsed.get(key) is not None:
+                parsed[key] = str(parsed[key])
         return parsed
 
     def _list_message_ids_from_history(self, start_history_id: str) -> list[str]:
@@ -685,20 +797,7 @@ class OneEmailKycService:
             last_error_code=None,
             last_error_message=None,
         )
-        consent_request_id = f"one_kyc_{workflow['workflow_id']}"
-        await self._create_consent_request(
-            workflow=workflow,
-            consent_request_id=consent_request_id,
-            required_fields=required_fields,
-        )
-        workflow = self._update_workflow(
-            workflow["workflow_id"],
-            consent_request_id=consent_request_id,
-            metadata={
-                **workflow.get("metadata", {}),
-                "consent_request_url": build_consent_request_url(request_id=consent_request_id),
-            },
-        )
+        workflow = await self._ensure_consent_request(workflow)
         return {"handled": True, "workflow": workflow, "blocked": False}
 
     def _looks_like_kyc(self, *, subject: str, body: str) -> bool:
@@ -853,10 +952,39 @@ class OneEmailKycService:
                 "gmail_message_id": workflow.get("gmail_message_id"),
                 "required_fields": required_fields,
                 "workflow_url": f"{frontend_origin()}/one/kyc?workflowId={workflow['workflow_id']}",
-                "request_url": build_consent_request_url(request_id=consent_request_id),
+                "request_url": _kyc_consent_request_url(consent_request_id),
                 "speaker_persona": "one",
                 "delegate_agent_id": "kyc",
                 "consent_reviewer_agent_id": _NAV_AGENT_ID,
+            },
+        )
+
+    async def _ensure_consent_request(self, workflow: dict[str, Any]) -> dict[str, Any]:
+        existing_request_id = _clean_text(workflow.get("consent_request_id"))
+        if existing_request_id:
+            metadata = workflow.get("metadata", {})
+            if _is_legacy_consent_request_url(metadata.get("consent_request_url")):
+                return self._update_workflow(
+                    workflow["workflow_id"],
+                    metadata={
+                        **metadata,
+                        "consent_request_url": _kyc_consent_request_url(existing_request_id),
+                    },
+                )
+            return workflow
+
+        consent_request_id = _kyc_consent_request_id(workflow["workflow_id"])
+        await self._create_consent_request(
+            workflow=workflow,
+            consent_request_id=consent_request_id,
+            required_fields=workflow.get("required_fields") or [],
+        )
+        return self._update_workflow(
+            workflow["workflow_id"],
+            consent_request_id=consent_request_id,
+            metadata={
+                **workflow.get("metadata", {}),
+                "consent_request_url": _kyc_consent_request_url(consent_request_id),
             },
         )
 
@@ -886,42 +1014,66 @@ class OneEmailKycService:
 
     async def refresh_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
-        if workflow["status"] != "needs_scope" or not workflow.get("consent_request_id"):
+        if workflow["status"] not in {"needs_scope", "needs_documents"} or not workflow.get(
+            "consent_request_id"
+        ):
             return workflow
         status = await self.consent_db.get_request_status(user_id, workflow["consent_request_id"])
         action = _clean_text(status.get("action") if status else None).upper()
         if action == "CONSENT_GRANTED":
             token_id = _clean_text(status.get("token_id") if status else None)
-            export_metadata = (
-                await self.consent_db.get_consent_export_metadata(token_id) if token_id else None
+            export_package = await self._get_validated_consent_export(
+                workflow=workflow,
+                consent_token=token_id,
             )
-            if not export_metadata:
+            if not export_package:
                 return self._update_workflow(
                     workflow_id,
                     last_error_code="scoped_export_pending",
                     last_error_message="Consent is granted; One is waiting for the scoped encrypted export.",
                 )
+            approved_payload = self._decrypt_scoped_export(export_package)
+            approved_values, missing_fields = self._extract_approved_field_values(
+                approved_payload=approved_payload,
+                required_fields=workflow.get("required_fields") or ["identity_profile"],
+            )
+            export_metadata = self._public_export_metadata(export_package)
             workflow = self._update_workflow(
                 workflow_id,
                 status="drafting",
                 metadata={
                     **workflow.get("metadata", {}),
-                    "consent_export": {
-                        "scope": export_metadata.get("scope"),
-                        "export_revision": export_metadata.get("export_revision"),
-                        "export_generated_at": export_metadata.get("export_generated_at"),
-                        "connector_key_id": export_metadata.get("connector_key_id"),
-                        "is_strict_zero_knowledge": export_metadata.get("is_strict_zero_knowledge"),
-                    },
+                    "consent_export": export_metadata,
+                    "approved_field_count": len(approved_values),
+                    "missing_fields": missing_fields,
                 },
             )
-            draft_body = self._build_review_draft(workflow)
+            if missing_fields:
+                return self._update_workflow(
+                    workflow_id,
+                    status="needs_documents",
+                    draft_status="not_ready",
+                    last_error_code="kyc_missing_approved_fields",
+                    last_error_message=(
+                        "The approved KYC export is missing: "
+                        + ", ".join(field.replace("_", " ") for field in missing_fields)
+                        + "."
+                    ),
+                )
+            draft_body = self._build_review_draft(workflow, approved_values=approved_values)
             workflow = self._update_workflow(
                 workflow_id,
                 status="waiting_on_user",
                 draft_status="ready",
                 draft_subject=self._reply_subject(workflow.get("subject")),
                 draft_body=draft_body,
+                last_error_code=None,
+                last_error_message=None,
+                metadata={
+                    **workflow.get("metadata", {}),
+                    "draft_revision": 1,
+                    "draft_consent_export": export_metadata,
+                },
             )
         elif action in {"CONSENT_DENIED", "DENIED", "REVOKED"}:
             workflow = self._update_workflow(
@@ -932,18 +1084,253 @@ class OneEmailKycService:
             )
         return workflow
 
-    def _build_review_draft(self, workflow: dict[str, Any]) -> str:
-        fields = workflow.get("required_fields") or ["identity_profile"]
-        field_lines = "\n".join(f"- {field.replace('_', ' ')}" for field in fields)
+    async def _get_validated_consent_export(
+        self,
+        *,
+        workflow: dict[str, Any],
+        consent_token: str | None,
+    ) -> dict[str, Any] | None:
+        if not consent_token:
+            return None
+        export_package = await self.consent_db.get_consent_export(consent_token)
+        if not export_package:
+            return None
+        self._validate_consent_export(workflow=workflow, export_package=export_package)
+        return export_package
+
+    def _validate_consent_export(
+        self,
+        *,
+        workflow: dict[str, Any],
+        export_package: dict[str, Any],
+    ) -> None:
+        expected_scope = _validate_kyc_data_scope(_clean_text(workflow.get("requested_scope")))
+        if _clean_text(export_package.get("scope")) != expected_scope:
+            raise OneEmailKycError(
+                "KYC scoped export does not match the requested workflow scope.",
+                status_code=409,
+                code="ONE_KYC_EXPORT_SCOPE_MISMATCH",
+            )
+        if export_package.get("refresh_status") != "current":
+            raise OneEmailKycError(
+                "KYC scoped export is stale and must be refreshed before drafting or sending.",
+                status_code=409,
+                code="ONE_KYC_EXPORT_NOT_CURRENT",
+            )
+        if not export_package.get("is_strict_zero_knowledge"):
+            raise OneEmailKycError(
+                "KYC scoped export must use strict wrapped-key encryption.",
+                status_code=409,
+                code="ONE_KYC_EXPORT_NOT_STRICT",
+            )
+        expected_key_id = _clean_text(self.config.connector_key_id)
+        actual_key_id = _clean_text(export_package.get("connector_key_id"))
+        if expected_key_id and actual_key_id != expected_key_id:
+            raise OneEmailKycError(
+                "KYC scoped export connector key does not match the configured One KYC key.",
+                status_code=409,
+                code="ONE_KYC_CONNECTOR_KEY_MISMATCH",
+            )
+        wrapping_alg = _clean_text(export_package.get("connector_wrapping_alg")) or _clean_text(
+            (export_package.get("wrapped_key_bundle") or {}).get("wrapping_alg")
+        )
+        if wrapping_alg != _CONNECTOR_WRAPPING_ALG:
+            raise OneEmailKycError(
+                "KYC scoped export uses an unsupported connector wrapping algorithm.",
+                status_code=409,
+                code="ONE_KYC_CONNECTOR_WRAPPING_MISMATCH",
+            )
+
+    def _decrypt_scoped_export(self, export_package: dict[str, Any]) -> dict[str, Any]:
+        wrapped = export_package.get("wrapped_key_bundle") or {}
+        try:
+            connector_private_key = _load_x25519_private_key(self.config.connector_private_key)
+            sender_public = X25519PublicKey.from_public_bytes(
+                _b64decode_bytes(wrapped.get("sender_public_key"))
+            )
+            shared_secret = connector_private_key.exchange(sender_public)
+            digest = hashes.Hash(hashes.SHA256())
+            digest.update(shared_secret)
+            wrapping_key = digest.finalize()
+            export_key = AESGCM(wrapping_key).decrypt(
+                _b64decode_bytes(wrapped.get("wrapped_key_iv")),
+                _b64decode_bytes(wrapped.get("wrapped_export_key"))
+                + _b64decode_bytes(wrapped.get("wrapped_key_tag")),
+                None,
+            )
+            plaintext = AESGCM(export_key).decrypt(
+                _b64decode_bytes(export_package.get("iv")),
+                _b64decode_bytes(export_package.get("encrypted_data"))
+                + _b64decode_bytes(export_package.get("tag")),
+                None,
+            )
+            parsed = json.loads(plaintext.decode("utf-8"))
+        except OneEmailKycError:
+            raise
+        except Exception as exc:
+            raise OneEmailKycError(
+                "KYC scoped export could not be decrypted.",
+                status_code=409,
+                code="ONE_KYC_EXPORT_DECRYPT_FAILED",
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise OneEmailKycError(
+                "KYC scoped export decrypted to an unsupported payload.",
+                status_code=409,
+                code="ONE_KYC_EXPORT_PAYLOAD_INVALID",
+            )
+        return parsed
+
+    def _public_export_metadata(self, export_package: dict[str, Any]) -> dict[str, Any]:
+        generated_at = export_package.get("export_generated_at")
+        if isinstance(generated_at, datetime):
+            generated_at = generated_at.isoformat()
+        return {
+            "scope": export_package.get("scope"),
+            "export_revision": export_package.get("export_revision"),
+            "export_generated_at": generated_at,
+            "refresh_status": export_package.get("refresh_status"),
+            "connector_key_id": export_package.get("connector_key_id"),
+            "connector_wrapping_alg": export_package.get("connector_wrapping_alg"),
+            "is_strict_zero_knowledge": export_package.get("is_strict_zero_knowledge"),
+        }
+
+    def _validate_draft_export_binding(
+        self,
+        *,
+        workflow: dict[str, Any],
+        export_package: dict[str, Any],
+    ) -> None:
+        metadata = workflow.get("metadata", {})
+        draft_export = metadata.get("draft_consent_export") if isinstance(metadata, dict) else None
+        if not isinstance(draft_export, dict):
+            raise OneEmailKycError(
+                "KYC draft is not bound to the approved export revision.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_EXPORT_BINDING_MISSING",
+            )
+        current_export = self._public_export_metadata(export_package)
+        compared_fields = (
+            "scope",
+            "export_revision",
+            "export_generated_at",
+            "connector_key_id",
+            "connector_wrapping_alg",
+        )
+        for field in compared_fields:
+            if (
+                str(draft_export.get(field) or "").strip()
+                != str(current_export.get(field) or "").strip()
+            ):
+                raise OneEmailKycError(
+                    "KYC draft must be regenerated because the approved export changed.",
+                    status_code=409,
+                    code="ONE_KYC_DRAFT_EXPORT_STALE",
+                )
+
+    def _extract_approved_field_values(
+        self,
+        *,
+        approved_payload: dict[str, Any],
+        required_fields: list[str],
+    ) -> tuple[dict[str, str], list[str]]:
+        field_aliases = {
+            "full_name": (
+                "full_name",
+                "fullName",
+                "legal_name",
+                "legalName",
+                "name",
+                "display_name",
+            ),
+            "date_of_birth": ("date_of_birth", "dateOfBirth", "dob", "birth_date", "birthDate"),
+            "address": ("address", "residential_address", "residentialAddress", "mailing_address"),
+            "phone_number": ("phone_number", "phoneNumber", "phone", "mobile", "telephone"),
+            "email": ("email", "email_address", "emailAddress"),
+            "tax_residency": ("tax_residency", "taxResidency", "tax_residence", "taxResidence"),
+            "nationality": ("nationality", "citizenship"),
+            "employment": ("employment", "occupation", "employer"),
+            "source_of_funds": ("source_of_funds", "sourceOfFunds", "source_of_wealth"),
+            "brokerage_profile": ("brokerage_profile", "brokerageProfile", "trading_experience"),
+            "identity_profile": ("identity", "profile", "identity_profile", "identityProfile"),
+        }
+        source = approved_payload.get("identity")
+        if not isinstance(source, dict):
+            source = approved_payload
+        values: dict[str, str] = {}
+        missing: list[str] = []
+        for field in required_fields or ["identity_profile"]:
+            aliases = field_aliases.get(field, (field,))
+            value = self._find_approved_value(source, aliases)
+            if value is None:
+                missing.append(field)
+            else:
+                values[field] = value
+        return values, missing
+
+    def _find_approved_value(self, value: Any, aliases: tuple[str, ...]) -> str | None:
+        normalized_aliases = {_normalize_field_key(alias) for alias in aliases}
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "__export_metadata":
+                    continue
+                if _normalize_field_key(key) in normalized_aliases:
+                    formatted = self._format_approved_value(item)
+                    if formatted:
+                        return formatted
+            for key, item in value.items():
+                if key == "__export_metadata":
+                    continue
+                formatted = self._find_approved_value(item, aliases)
+                if formatted:
+                    return formatted
+        elif isinstance(value, list):
+            for item in value:
+                formatted = self._find_approved_value(item, aliases)
+                if formatted:
+                    return formatted
+        return None
+
+    def _format_approved_value(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return _truncate(value, 500)
+        if isinstance(value, (int, float, bool)):
+            return _truncate(str(value), 500)
+        if isinstance(value, list):
+            items = [self._format_approved_value(item) for item in value]
+            joined = ", ".join(item for item in items if item)
+            return _truncate(joined, 500)
+        if isinstance(value, dict):
+            public_items = []
+            for key, item in value.items():
+                if key == "__export_metadata":
+                    continue
+                formatted = self._format_approved_value(item)
+                if formatted:
+                    public_items.append(f"{key.replace('_', ' ')}: {formatted}")
+            return _truncate("; ".join(public_items), 1000)
+        return None
+
+    def _build_review_draft(
+        self,
+        workflow: dict[str, Any],
+        *,
+        approved_values: dict[str, str],
+    ) -> str:
+        field_lines = "\n".join(
+            f"- {field.replace('_', ' ')}: {value}" for field, value in approved_values.items()
+        )
         counterparty = workflow.get("counterparty_label") or "there"
         body = f"""Hi {counterparty},
 
-I am replying on behalf of the account holder through One by Hussh.
+I am replying on behalf of the account holder through One.
 
-The user has approved a scoped KYC workflow for this request, and One has received the approved encrypted export metadata. One identified the following requested items for review:
+The user approved a scoped KYC workflow for this request. One prepared the following approved information for your review:
 {field_lines}
 
-I will provide only the approved information after the user reviews this draft in One.
+Please let us know if you need anything else for this KYC review.
 
 Best,
 One"""
@@ -963,6 +1350,7 @@ One"""
                 status_code=409,
                 code="ONE_KYC_DRAFT_NOT_READY",
             )
+        await self._require_sendable_consent(workflow)
         send_result = await asyncio.to_thread(self._send_draft_reply, workflow)
         return self._update_workflow(
             workflow_id,
@@ -975,6 +1363,101 @@ One"""
             },
         )
 
+    async def _require_sendable_consent(self, workflow: dict[str, Any]) -> None:
+        request_id = _clean_text(workflow.get("consent_request_id"))
+        user_id = _clean_text(workflow.get("user_id"))
+        if not request_id or not user_id:
+            raise OneEmailKycError(
+                "KYC draft has no active consent request to revalidate.",
+                status_code=409,
+                code="ONE_KYC_CONSENT_REVALIDATION_MISSING",
+            )
+        status = await self.consent_db.get_request_status(user_id, request_id)
+        if _clean_text(status.get("action") if status else None).upper() != "CONSENT_GRANTED":
+            raise OneEmailKycError(
+                "KYC consent is not active enough to send this draft.",
+                status_code=409,
+                code="ONE_KYC_CONSENT_NOT_ACTIVE",
+            )
+        token_id = _clean_text(status.get("token_id") if status else None)
+        export_package = await self._get_validated_consent_export(
+            workflow=workflow,
+            consent_token=token_id,
+        )
+        if not export_package:
+            raise OneEmailKycError(
+                "KYC consent export is unavailable, so One cannot send this draft.",
+                status_code=409,
+                code="ONE_KYC_EXPORT_UNAVAILABLE",
+            )
+        self._validate_draft_export_binding(workflow=workflow, export_package=export_package)
+
+    async def redraft(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        instructions: str,
+        source: str = "text",
+    ) -> dict[str, Any]:
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC draft is not ready for redraft.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_NOT_READY",
+            )
+        cleaned_instructions = _truncate(instructions, 1000)
+        if not cleaned_instructions:
+            raise OneEmailKycError(
+                "KYC redraft instructions are required.",
+                status_code=400,
+                code="ONE_KYC_REDRAFT_INSTRUCTIONS_REQUIRED",
+            )
+        source_value = source if source in {"text", "voice"} else "text"
+        metadata = workflow.get("metadata", {})
+        revision = int(metadata.get("draft_revision") or 1) + 1
+        draft_body = self._build_redraft(
+            workflow=workflow,
+            instructions=cleaned_instructions,
+            revision=revision,
+        )
+        return self._update_workflow(
+            workflow_id,
+            draft_body=draft_body,
+            draft_status="ready",
+            metadata={
+                **metadata,
+                "draft_revision": revision,
+                "last_redraft_source": source_value,
+                "last_redraft_at": _utcnow().isoformat(),
+            },
+        )
+
+    def _build_redraft(
+        self,
+        *,
+        workflow: dict[str, Any],
+        instructions: str,
+        revision: int,
+    ) -> str:
+        current = _clean_text(workflow.get("draft_body"))
+        counterparty = workflow.get("counterparty_label") or "there"
+        if not current:
+            return f"""Hi {counterparty},
+
+I am replying on behalf of the account holder through One.
+
+{instructions}
+
+Best,
+One"""[:_MAX_DRAFT_BODY]
+        return f"""{current}
+
+---
+One draft revision {revision}
+User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
+
     async def reject_draft(
         self,
         *,
@@ -983,6 +1466,12 @@ One"""
         reason: str | None = None,
     ) -> dict[str, Any]:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC draft is not ready for rejection.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_NOT_READY",
+            )
         return self._update_workflow(
             workflow_id,
             status="blocked",
@@ -991,6 +1480,25 @@ One"""
             last_error_message=_truncate(reason, 300) or "The user rejected the KYC draft.",
             metadata={**workflow.get("metadata", {}), "rejected_at": _utcnow().isoformat()},
         )
+
+    async def purge_terminal_drafts(self, *, older_than_days: int = 30) -> dict[str, Any]:
+        days = max(1, min(int(older_than_days or 30), 365))
+        sql = """
+            UPDATE one_kyc_workflows
+            SET
+              draft_body = NULL,
+              metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'draft_body_redacted_at', NOW(),
+                'draft_body_retention_days', :days
+              ),
+              updated_at = NOW()
+            WHERE draft_body IS NOT NULL
+              AND status IN ('waiting_on_counterparty', 'completed', 'blocked')
+              AND updated_at < NOW() - (:days * INTERVAL '1 day')
+            RETURNING workflow_id
+        """
+        rows = self.db.execute_raw(sql, {"days": days}).data or []
+        return {"purged": len(rows), "older_than_days": days}
 
     def _send_draft_reply(self, workflow: dict[str, Any]) -> dict[str, Any]:
         recipient = _clean_text(workflow.get("sender_email"))
@@ -1002,7 +1510,7 @@ One"""
             )
         msg = EmailMessage()
         msg["To"] = recipient
-        msg["From"] = f"One by Hussh <{self.config.mailbox_email}>"
+        msg["From"] = f"{_ONE_EMAIL_DISPLAY_NAME} <{self.config.mailbox_email}>"
         msg["Subject"] = workflow.get("draft_subject") or self._reply_subject(
             workflow.get("subject")
         )
@@ -1265,11 +1773,11 @@ One"""
             "required_fields": required_fields,
             "requested_scope": row.get("requested_scope"),
             "consent_request_id": consent_request_id,
-            "consent_request_url": metadata.get("consent_request_url")
-            or (
-                build_consent_request_url(request_id=consent_request_id)
-                if consent_request_id
-                else None
+            "consent_request_url": (
+                _kyc_consent_request_url(consent_request_id)
+                if _is_legacy_consent_request_url(metadata.get("consent_request_url"))
+                else metadata.get("consent_request_url")
+                or _kyc_consent_request_url(consent_request_id)
             ),
             "workflow_url": metadata.get("workflow_url"),
             "draft_subject": row.get("draft_subject"),

@@ -53,6 +53,76 @@ _CONSENT_STORAGE_ERROR_PATTERNS = (
     "timed out",
     "timeout",
 )
+_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+
+
+def _clean_text(value: object | None) -> str:
+    return str(value or "").strip()
+
+
+def _require_non_empty_text(value: object | None, field_name: str) -> str:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        raise HTTPException(status_code=400, detail=f"{field_name} is required.")
+    return cleaned
+
+
+def _expected_connector_key_id(metadata: dict | None) -> str:
+    return _clean_text((metadata or {}).get("connector_key_id"))
+
+
+def _expected_connector_wrapping_alg(metadata: dict | None) -> str:
+    return _clean_text((metadata or {}).get("connector_wrapping_alg")) or _CONNECTOR_WRAPPING_ALG
+
+
+def _build_verified_wrapped_key_bundle(
+    *,
+    metadata: dict | None,
+    wrapped_export_key: str | None,
+    wrapped_key_iv: str | None,
+    wrapped_key_tag: str | None,
+    sender_public_key: str | None,
+    wrapping_alg: str | None,
+    connector_key_id: str | None,
+) -> dict:
+    wrapped_export_key = _require_non_empty_text(wrapped_export_key, "wrappedExportKey")
+    wrapped_key_iv = _require_non_empty_text(wrapped_key_iv, "wrappedKeyIv")
+    wrapped_key_tag = _require_non_empty_text(wrapped_key_tag, "wrappedKeyTag")
+    sender_public_key = _require_non_empty_text(sender_public_key, "senderPublicKey")
+    expected_key_id = _expected_connector_key_id(metadata)
+    provided_key_id = _clean_text(connector_key_id)
+    if expected_key_id and not provided_key_id:
+        raise HTTPException(status_code=400, detail="Connector key id is required.")
+    if expected_key_id and provided_key_id != expected_key_id:
+        raise HTTPException(status_code=400, detail="Connector key id does not match request.")
+    normalized_alg = _clean_text(wrapping_alg) or _expected_connector_wrapping_alg(metadata)
+    expected_alg = _expected_connector_wrapping_alg(metadata)
+    if normalized_alg != expected_alg or normalized_alg != _CONNECTOR_WRAPPING_ALG:
+        raise HTTPException(
+            status_code=400,
+            detail="Connector wrapping algorithm does not match request.",
+        )
+    return {
+        "wrapped_export_key": wrapped_export_key,
+        "wrapped_key_iv": wrapped_key_iv,
+        "wrapped_key_tag": wrapped_key_tag,
+        "sender_public_key": sender_public_key,
+        "wrapping_alg": normalized_alg,
+        "connector_key_id": provided_key_id or expected_key_id or None,
+    }
+
+
+def _require_encrypted_export_payload(
+    *,
+    encrypted_data: object | None,
+    encrypted_iv: object | None,
+    encrypted_tag: object | None,
+) -> tuple[str, str, str]:
+    return (
+        _require_non_empty_text(encrypted_data, "encryptedData"),
+        _require_non_empty_text(encrypted_iv, "encryptedIv"),
+        _require_non_empty_text(encrypted_tag, "encryptedTag"),
+    )
 
 
 def _is_consent_storage_unavailable(exc: Exception) -> bool:
@@ -338,13 +408,56 @@ async def approve_consent(
                 str(existing_token.get("token_id") or "")[:32],
             )
             existing_token = None
+        elif existing_token.get("scope") != requested_scope:
+            logger.info(
+                "consent.token_reuse_skipped_developer_superset requested_scope=%s token_scope=%s",
+                requested_scope,
+                existing_token.get("scope"),
+            )
+            existing_token = None
+        elif existing_export.get("refresh_status") != "current":
+            logger.info(
+                "consent.token_reuse_skipped_stale_export scope=%s token=%s",
+                requested_scope,
+                str(existing_token.get("token_id") or "")[:32],
+            )
+            existing_token = None
+        elif _expected_connector_key_id(metadata) and existing_export.get(
+            "connector_key_id"
+        ) != _expected_connector_key_id(metadata):
+            logger.warning(
+                "consent.token_reuse_skipped_connector_key_mismatch scope=%s token=%s",
+                requested_scope,
+                str(existing_token.get("token_id") or "")[:32],
+            )
+            existing_token = None
+        elif existing_export.get("connector_wrapping_alg") != _expected_connector_wrapping_alg(
+            metadata
+        ):
+            logger.warning(
+                "consent.token_reuse_skipped_connector_wrapping_mismatch scope=%s token=%s",
+                requested_scope,
+                str(existing_token.get("token_id") or "")[:32],
+            )
+            existing_token = None
 
     if existing_token:
         # IDEMPOTENT RETURN: Reuse existing token
         logger.info("consent.token_reused scope=%s", requested_scope)
 
-        # Log REUSE event for audit trail (optional, but good for tracking)
-        # await consent_db.insert_event(..., action="TOKEN_REUSED", ...)
+        reuse_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        reuse_metadata["reused_consent_token"] = True
+        await service.insert_event(
+            user_id=userId,
+            agent_id=pending_request["developer"],
+            scope=requested_scope,
+            action="CONSENT_GRANTED",
+            token_id=existing_token.get("token_id"),
+            request_id=requestId,
+            scope_description=get_scope_description(requested_scope),
+            expires_at=existing_token.get("expires_at"),
+            metadata=reuse_metadata,
+        )
         try:
             await RIAIAMService().sync_relationship_from_consent_action(
                 user_id=userId,
@@ -384,21 +497,15 @@ async def approve_consent(
     # Persist to database for cross-instance consistency
     wrapped_key_bundle = None
     if connector_public_key:
-        if not all([wrappedExportKey, wrappedKeyIv, wrappedKeyTag, senderPublicKey]):
-            raise HTTPException(
-                status_code=400,
-                detail="Connector-backed consent approvals must include a wrapped export key bundle.",
-            )
-        wrapped_key_bundle = {
-            "wrapped_export_key": wrappedExportKey,
-            "wrapped_key_iv": wrappedKeyIv,
-            "wrapped_key_tag": wrappedKeyTag,
-            "sender_public_key": senderPublicKey,
-            "wrapping_alg": wrappingAlg
-            or metadata.get("connector_wrapping_alg")
-            or "X25519-AES256-GCM",
-            "connector_key_id": connectorKeyId or metadata.get("connector_key_id"),
-        }
+        wrapped_key_bundle = _build_verified_wrapped_key_bundle(
+            metadata=metadata,
+            wrapped_export_key=wrappedExportKey,
+            wrapped_key_iv=wrappedKeyIv,
+            wrapped_key_tag=wrappedKeyTag,
+            sender_public_key=senderPublicKey,
+            wrapping_alg=wrappingAlg,
+            connector_key_id=connectorKeyId,
+        )
     elif is_developer_request and encryptedData:
         raise HTTPException(
             status_code=400,
@@ -411,14 +518,27 @@ async def approve_consent(
             detail="Developer consent approvals must include an encrypted export payload.",
         )
 
+    encrypted_export_payload = None
+    if is_developer_request:
+        encrypted_export_payload = _require_encrypted_export_payload(
+            encrypted_data=encryptedData,
+            encrypted_iv=encryptedIv,
+            encrypted_tag=encryptedTag,
+        )
+
     if encryptedData and wrapped_key_bundle:
+        payload_data, payload_iv, payload_tag = encrypted_export_payload or (
+            _clean_text(encryptedData),
+            _clean_text(encryptedIv),
+            _clean_text(encryptedTag),
+        )
         # Store in database (source of truth)
         stored = await service.store_consent_export(
             consent_token=token.token,
             user_id=userId,
-            encrypted_data=encryptedData,
-            iv=encryptedIv or "",
-            tag=encryptedTag or "",
+            encrypted_data=payload_data,
+            iv=payload_iv,
+            tag=payload_tag,
             export_key=None,
             wrapped_key_bundle=wrapped_key_bundle,
             scope=pending_request["scope"],
@@ -436,10 +556,12 @@ async def approve_consent(
 
         # Also cache in memory for fast access
         _consent_exports[token.token] = {
-            "encrypted_data": encryptedData,
-            "iv": encryptedIv,
-            "tag": encryptedTag,
+            "encrypted_data": payload_data,
+            "iv": payload_iv,
+            "tag": payload_tag,
             "wrapped_key_bundle": wrapped_key_bundle,
+            "connector_key_id": wrapped_key_bundle.get("connector_key_id"),
+            "connector_wrapping_alg": wrapped_key_bundle.get("wrapping_alg"),
             "scope": pending_request["scope"],
             "export_revision": 1,
             "export_generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -956,7 +1078,10 @@ async def revoke_consent(
 
 
 @router.get("/data")
-async def get_consent_export_data(consent_token: str):
+async def get_consent_export_data(
+    request: Request,
+    consent_token: str | None = Query(default=None),
+):
     """
     Retrieve encrypted export data for a consent token (Zero-Knowledge).
 
@@ -966,7 +1091,23 @@ async def get_consent_export_data(consent_token: str):
 
     Data is retrieved from database (source of truth) with in-memory cache fallback.
     """
-    logger.info("consent.export_requested")
+    authorization = str(request.headers.get("authorization") or "").strip()
+    bearer_token = (
+        authorization.removeprefix("Bearer ").strip()
+        if authorization.lower().startswith("bearer ")
+        else ""
+    )
+    consent_token = bearer_token or _clean_text(consent_token)
+    if not consent_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing consent token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    logger.info(
+        "consent.export_requested token_transport=%s", "bearer" if bearer_token else "query"
+    )
 
     # Validate the consent token — DB-backed revocation check.
     valid, reason, token_obj = await validate_token_with_db(consent_token)
@@ -1117,14 +1258,21 @@ async def upload_refreshed_export(
     export_revision = (
         int(existing_export.get("export_revision") or 1) if isinstance(existing_export, dict) else 1
     ) + 1
-    wrapped_key_bundle = {
-        "wrapped_export_key": request.wrappedExportKey,
-        "wrapped_key_iv": request.wrappedKeyIv,
-        "wrapped_key_tag": request.wrappedKeyTag,
-        "sender_public_key": request.senderPublicKey,
-        "wrapping_alg": request.wrappingAlg or "X25519-AES256-GCM",
-        "connector_key_id": request.connectorKeyId,
+    existing_metadata = {
+        "connector_key_id": existing_export.get("connector_key_id") if existing_export else None,
+        "connector_wrapping_alg": existing_export.get("connector_wrapping_alg")
+        if existing_export
+        else None,
     }
+    wrapped_key_bundle = _build_verified_wrapped_key_bundle(
+        metadata=existing_metadata,
+        wrapped_export_key=request.wrappedExportKey,
+        wrapped_key_iv=request.wrappedKeyIv,
+        wrapped_key_tag=request.wrappedKeyTag,
+        sender_public_key=request.senderPublicKey,
+        wrapping_alg=request.wrappingAlg,
+        connector_key_id=request.connectorKeyId,
+    )
     stored = await service.store_consent_export(
         consent_token=request.consentToken,
         user_id=request.userId,

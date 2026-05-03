@@ -79,6 +79,25 @@ steps:
         append_optional_secret "${_REVIEWER_UID_SECRET}" "REVIEWER_UID"
         append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
         append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
+        append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
+        append_optional_secret "${_ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY_SECRET}" "ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY"
+
+        one_email_envs=()
+        append_optional_env() {
+          local env_name="$1"
+          local env_value="$2"
+          if [[ -n "${env_value}" ]]; then
+            one_email_envs+=("${env_name}=${env_value}")
+          fi
+        }
+        append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
+        append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
+        append_optional_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
+        append_optional_env "ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY" "${_ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY}"
+        append_optional_env "ONE_EMAIL_KYC_CONNECTOR_KEY_ID" "${_ONE_EMAIL_KYC_CONNECTOR_KEY_ID}"
+        append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
@@ -86,6 +105,7 @@ steps:
           "--region=${_REGION}"
           "--platform=managed"
           "--allow-unauthenticated"
+          "--no-traffic"
           "--port=8080"
           "--memory=1Gi"
           "--cpu=1"
@@ -94,6 +114,11 @@ steps:
           "--min-instances=1"
           "--set-secrets=${secrets}"
         )
+
+        if [[ "${#one_email_envs[@]}" -gt 0 ]]; then
+          one_email_env_string="$(IFS=,; echo "${one_email_envs[*]}")"
+          cmd+=("--update-env-vars=${one_email_env_string}")
+        fi
 
         if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
           cmd+=("--add-cloudsql-instances=${_CLOUDSQL_INSTANCES}")
@@ -136,6 +161,16 @@ substitutions:
   _REVIEWER_UID_SECRET: ""
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
+  _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
+  _ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY_SECRET: ""
+  _ONE_EMAIL_ADDRESS: ""
+  _ONE_EMAIL_DELEGATED_USER: ""
+  _ONE_EMAIL_PUBSUB_TOPIC: ""
+  _ONE_EMAIL_WEBHOOK_AUDIENCE: ""
+  _ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL: ""
+  _ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY: ""
+  _ONE_EMAIL_KYC_CONNECTOR_KEY_ID: ""
+  _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _IMAGE_TAG: v2.1.0
 
 # Options

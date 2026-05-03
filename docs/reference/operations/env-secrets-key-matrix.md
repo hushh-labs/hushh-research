@@ -40,7 +40,15 @@ Profile bootstrap rule:
 | `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `consent-protocol/api/utils/firebase_admin.py`, `consent-protocol/hushh_mcp/runtime_settings.py`, `hushh-webapp/lib/firebase/admin.ts` | Y | Y | Y | secret | secret | secret | secret | required |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | N | N | alias | N | optional alias |
-| `ONE_EMAIL_ADDRESS` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
+| `ONE_EMAIL_ADDRESS` | `consent-protocol/hushh_mcp/services/support_email_service.py`, `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | optional |
+| `ONE_EMAIL_PUBSUB_TOPIC` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required for One email intake |
+| `ONE_EMAIL_WEBHOOK_AUDIENCE` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required for hosted One email intake |
+| `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | recommended |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | required for hosted One watch renewal |
+| `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required for One KYC |
+| `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | recommended |
+| `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | Y | secret | N | secret | N | required for value-filled One KYC |
+| `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | optional allowlisted |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
 | `SUPPORT_EMAIL_FROM` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
 | `SUPPORT_EMAIL_TO` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
@@ -104,5 +112,7 @@ Profile bootstrap rule:
 - `cloud_run_live_*` columns are evaluated from current active service revision at runtime by the audit script.
 - `legacy` keys must not appear in Secret Manager, deploy manifests, or live Cloud Run env refs.
 - Gmail and voice use the same backend key names across local, UAT, and production. Local bootstrap hydrates them into `consent-protocol/.env`; tracked files keep only placeholders/templates.
+- One mailbox keys are backend-only. UAT and production must not both own Gmail watch renewal for `one@hushh.ai` unless an explicit label/topic/fanout strategy is documented and tested.
+- `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` decrypts approved scoped exports in memory only. It is not a draft-storage key; encrypted-at-rest KYC drafts require a separate key and additive DB migration.
 - Native release/signing secrets are deploy-only inputs. They are not part of the canonical frontend runtime profile files under `hushh-webapp/.env*.local*`.
 - Maintainer-only overlays such as reviewer passphrases, rehearsal toggles, and native signing inputs are intentionally excluded from contributor env files. UAT still mounts `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE` from Secret Manager on the backend because app-review smoke cannot mint a reviewer Firebase token without those runtime bindings.

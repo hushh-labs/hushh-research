@@ -95,6 +95,7 @@ steps:
       - "--region=${_REGION}"
       - "--platform=managed"
       - "--allow-unauthenticated"
+      - "--no-traffic"
       - "--port=8080"
       - "--memory=512Mi"
       - "--cpu=1"

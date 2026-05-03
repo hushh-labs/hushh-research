@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Inbox, RefreshCw, Send, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, Inbox, RefreshCw, Send, ShieldCheck, Wand2, XCircle } from "lucide-react";
 
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -14,6 +14,7 @@ import {
 } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -21,6 +22,7 @@ import {
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
 } from "@/lib/services/one-kyc-service";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
   needs_scope: "Needs consent",
@@ -46,11 +48,80 @@ export default function OneKycPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [redraftInstructions, setRedraftInstructions] = useState("");
 
   const selected = useMemo(
     () => workflows.find((workflow) => workflow.workflow_id === selectedId) || workflows[0] || null,
     [selectedId, workflows]
   );
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "one_kyc",
+      title: "One KYC Workflows",
+      purpose: "Approval-gated broker KYC workflow review for one@hushh.ai.",
+      sections: [
+        {
+          id: "one_kyc_inbox",
+          title: "KYC workflow inbox",
+        },
+        {
+          id: "one_kyc_detail",
+          title: "Selected KYC workflow",
+        },
+      ],
+      controls: [
+        {
+          id: "one-kyc-open",
+          label: "Open KYC workflows",
+          type: "route",
+          actionId: "route.one_kyc",
+        },
+        {
+          id: "one-kyc-sync-status",
+          label: "Sync status",
+          type: "button",
+          actionId: "kyc.workflow.sync_status",
+          state: selected ? selected.status : "empty",
+        },
+        {
+          id: "one-kyc-draft-review",
+          label: "Review draft",
+          type: "region",
+          actionId: "kyc.draft.review",
+          state: selected?.draft_body ? "available" : "empty",
+        },
+        {
+          id: "one-kyc-redraft",
+          label: "Redraft",
+          type: "button",
+          actionId: "kyc.draft.request_redraft",
+          state: selected?.status === "waiting_on_user" ? "available" : "disabled",
+        },
+        {
+          id: "one-kyc-approve-send",
+          label: "Approve send",
+          type: "button",
+          actionId: "kyc.draft.approve_send",
+          state: selected?.status === "waiting_on_user" ? "available" : "disabled",
+        },
+        {
+          id: "one-kyc-reject",
+          label: "Reject draft",
+          type: "button",
+          actionId: "kyc.draft.reject",
+          state: selected?.status === "waiting_on_user" ? "available" : "disabled",
+        },
+      ],
+      visibleModules: ["workflow inbox", "workflow detail"],
+      screenMetadata: {
+        workflow_count: workflows.length,
+        selected_workflow_status: selected?.status || null,
+        loading,
+      },
+    }),
+    [loading, selected, workflows.length]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   const load = useCallback(async () => {
     if (!auth.user || !auth.userId) return;
@@ -89,10 +160,14 @@ export default function OneKycPage() {
 
   const runAction = useCallback(
     async (
-      action: "refresh" | "approve" | "reject",
+      action: "refresh" | "approve" | "reject" | "redraft",
       workflow: OneKycWorkflow,
     ) => {
       if (!auth.user || !auth.userId) return;
+      if (action === "redraft" && !redraftInstructions.trim()) {
+        setError("Add redraft instructions before asking One to revise this draft.");
+        return;
+      }
       setBusy(action);
       setError(null);
       try {
@@ -107,15 +182,24 @@ export default function OneKycPage() {
             ? await OneKycService.approveDraft(input)
             : action === "reject"
               ? await OneKycService.rejectDraft({ ...input, reason: "Rejected from One KYC." })
+              : action === "redraft"
+                ? await OneKycService.redraft({
+                    ...input,
+                    instructions: redraftInstructions.trim(),
+                    source: "text",
+                  })
               : await OneKycService.refreshWorkflow(input);
         updateWorkflow(next);
+        if (action === "redraft") {
+          setRedraftInstructions("");
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "KYC action failed.");
       } finally {
         setBusy(null);
       }
     },
-    [auth.user, auth.userId, updateWorkflow]
+    [auth.user, auth.userId, redraftInstructions, updateWorkflow]
   );
 
   return (
@@ -222,7 +306,7 @@ export default function OneKycPage() {
 
                 {selected.status === "needs_scope" && selected.consent_request_url ? (
                   <Button asChild>
-                    <a href={selected.consent_request_url}>
+                    <a href={selected.consent_request_url} data-voice-control-id="one-kyc-open-consent">
                       <ShieldCheck className="size-4" />
                       Review consent
                     </a>
@@ -232,9 +316,18 @@ export default function OneKycPage() {
                 {selected.draft_body ? (
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Draft reply</p>
-                    <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm leading-6">
+                    <pre
+                      className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm leading-6"
+                      data-voice-control-id="one-kyc-draft-review"
+                    >
                       {selected.draft_body}
                     </pre>
+                  </div>
+                ) : null}
+
+                {selected.status === "needs_documents" ? (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200">
+                    One needs additional approved identity details before it can prepare a complete KYC reply.
                   </div>
                 ) : null}
 
@@ -244,11 +337,37 @@ export default function OneKycPage() {
                   </div>
                 ) : null}
 
+                {selected.status === "waiting_on_user" ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Redraft instructions</p>
+                    <Textarea
+                      value={redraftInstructions}
+                      onChange={(event) => setRedraftInstructions(event.target.value)}
+                      maxLength={1000}
+                      placeholder="Example: make it shorter, make it more formal, or mention that more documents can be provided on request."
+                      className="min-h-24"
+                      data-voice-control-id="one-kyc-redraft-instructions"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => void runAction("redraft", selected)}
+                      disabled={Boolean(busy) || !redraftInstructions.trim()}
+                      data-voice-control-id="one-kyc-redraft"
+                      data-voice-action-id="kyc.draft.request_redraft"
+                    >
+                      <Wand2 className="size-4" />
+                      Redraft
+                    </Button>
+                  </div>
+                ) : null}
+
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
                     onClick={() => void runAction("refresh", selected)}
                     disabled={Boolean(busy)}
+                    data-voice-control-id="one-kyc-sync-status"
+                    data-voice-action-id="kyc.workflow.sync_status"
                   >
                     <RefreshCw className="size-4" />
                     Sync status
@@ -256,6 +375,8 @@ export default function OneKycPage() {
                   <Button
                     onClick={() => void runAction("approve", selected)}
                     disabled={Boolean(busy) || selected.status !== "waiting_on_user"}
+                    data-voice-control-id="one-kyc-approve-send"
+                    data-voice-action-id="kyc.draft.approve_send"
                   >
                     <Send className="size-4" />
                     Approve send
@@ -264,6 +385,8 @@ export default function OneKycPage() {
                     variant="outline"
                     onClick={() => void runAction("reject", selected)}
                     disabled={Boolean(busy) || selected.status !== "waiting_on_user"}
+                    data-voice-control-id="one-kyc-reject"
+                    data-voice-action-id="kyc.draft.reject"
                   >
                     <XCircle className="size-4" />
                     Reject
@@ -279,7 +402,7 @@ export default function OneKycPage() {
             )}
 
             <Button asChild variant="ghost" size="sm">
-              <Link href={ROUTES.PROFILE}>Open Consent Center</Link>
+              <Link href={ROUTES.CONSENTS}>Open Consent Center</Link>
             </Button>
           </SurfaceCardContent>
         </SurfaceCard>

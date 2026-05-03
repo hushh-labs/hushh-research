@@ -46,6 +46,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Optional | Defaults on outside local/dev/test. Disable only for local testing. |
 | `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One KYC) | Connector public key used to force strict scoped encrypted PKM export for KYC consent. |
 | `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Connector key id for KYC export wrapping. |
+| `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (value-filled One KYC) | Secret X25519 private key used only to decrypt approved scoped KYC exports in memory. |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Default least-privilege identity scope requested for broker KYC. Default: `attr.identity.*`. |
 | `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/support_email_service.py` | Optional legacy override | Dedicated service account JSON for support mail. Prefer the canonical Firebase Admin credential unless an explicit exception is approved. |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Optional override | Workspace mailbox to impersonate for Gmail send. Default: `ONE_EMAIL_ADDRESS` or `one@hushh.ai`. Must be a real user mailbox, not a group. |
@@ -288,6 +289,7 @@ Local runtime bootstrap:
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes | Secret Manager |
 | `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | No | Cloud Run env var |
 | `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | No | Cloud Run env var |
+| `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` | Yes | Secret Manager |
 | `GMAIL_OAUTH_CLIENT_ID` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_CLIENT_SECRET` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes | GCP Secret Manager |

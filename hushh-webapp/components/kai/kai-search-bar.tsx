@@ -9,18 +9,18 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Bug, Loader2, Mic, Search } from "lucide-react";
+import { Bug } from "lucide-react";
 
 import {
   KaiCommandPalette,
   type KaiCommandPaletteSelection,
 } from "@/components/kai/kai-command-palette";
-import { VoiceCompactStatus } from "@/components/kai/voice/voice-compact-status";
-import { VoiceConsoleSheet } from "@/components/kai/voice/voice-console-sheet";
+import {
+  VoiceAmbientSearchSurface,
+  type VoiceAmbientMode,
+} from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
-import { getVariantStyles } from "@/lib/morphy-ux/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { Icon } from "@/lib/morphy-ux/ui";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
 import { cn } from "@/lib/utils";
@@ -55,10 +55,12 @@ import type {
 type VoiceVisibilityMode = "enabled" | "disabled" | "hidden";
 
 const DEFAULT_TTS_VOICE =
-  String(process.env.NEXT_PUBLIC_KAI_VOICE_TTS_VOICE || "alloy").trim() || "alloy";
+  String(process.env.NEXT_PUBLIC_KAI_VOICE_TTS_VOICE || "alloy").trim() ||
+  "alloy";
 
 const DEV_VOICE_DEBUG_ENABLED =
-  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_KAI_VOICE_DEBUG === "1";
+  process.env.NODE_ENV !== "production" ||
+  process.env.NEXT_PUBLIC_KAI_VOICE_DEBUG === "1";
 
 const VOICE_V2_FLAGS = getVoiceV2Flags();
 
@@ -96,8 +98,14 @@ interface KaiSearchBarProps {
 
 function isPermissionDeniedError(error: unknown): boolean {
   const name =
-    error && typeof error === "object" && "name" in error ? String(error.name || "") : "";
-  return name === "NotAllowedError" || name === "SecurityError" || name === "PermissionDeniedError";
+    error && typeof error === "object" && "name" in error
+      ? String(error.name || "")
+      : "";
+  return (
+    name === "NotAllowedError" ||
+    name === "SecurityError" ||
+    name === "PermissionDeniedError"
+  );
 }
 
 function isVoiceSessionConnectAbortedError(error: unknown): boolean {
@@ -201,6 +209,8 @@ type VoiceUiStateRefLike = {
   current: VoiceUiState;
 };
 
+const CLIENT_VAD_SPEECH_STOP_COMMIT_DELAY_MS = 180;
+
 export function clearClientVadFallbackTimer(timerRef: TimerRefLike): void {
   if (timerRef.current === null) return;
   window.clearTimeout(timerRef.current);
@@ -216,7 +226,7 @@ export function scheduleClientVadFallbackCommit(input: {
     stage: "turn" | "mic" | "stt" | "planner" | "dispatch" | "tts" | "ui_fsm",
     event: string,
     payload?: Record<string, unknown>,
-    turnId?: string | null
+    turnId?: string | null,
   ) => void;
   getCurrentTurnId: () => string | null;
 }): void {
@@ -230,8 +240,45 @@ export function scheduleClientVadFallbackCommit(input: {
       return;
     }
     input.commitInputAudio();
-    input.emitDebug("stt", "client_vad_fallback_commit", {}, input.getCurrentTurnId());
+    input.emitDebug(
+      "stt",
+      "client_vad_fallback_commit",
+      {},
+      input.getCurrentTurnId(),
+    );
   }, 1200);
+}
+
+export function scheduleClientVadSpeechStopCommit(input: {
+  timerRef: TimerRefLike;
+  sessionMutedRef: { current: boolean };
+  voiceUiStateRef: VoiceUiStateRefLike;
+  commitInputAudio: () => void;
+  emitDebug: (
+    stage: "turn" | "mic" | "stt" | "planner" | "dispatch" | "tts" | "ui_fsm",
+    event: string,
+    payload?: Record<string, unknown>,
+    turnId?: string | null,
+  ) => void;
+  getCurrentTurnId: () => string | null;
+}): void {
+  clearClientVadFallbackTimer(input.timerRef);
+  input.timerRef.current = window.setTimeout(() => {
+    input.timerRef.current = null;
+    if (
+      input.sessionMutedRef.current ||
+      input.voiceUiStateRef.current !== "sheet_listening"
+    ) {
+      return;
+    }
+    input.commitInputAudio();
+    input.emitDebug(
+      "stt",
+      "client_vad_speech_stop_commit",
+      {},
+      input.getCurrentTurnId(),
+    );
+  }, CLIENT_VAD_SPEECH_STOP_COMMIT_DELAY_MS);
 }
 
 export function runAutoTurnDispatchSafely(input: {
@@ -241,7 +288,9 @@ export function runAutoTurnDispatchSafely(input: {
   void Promise.resolve()
     .then(() => input.dispatch())
     .catch((error) => {
-      input.onError(error instanceof Error ? error : new Error("VOICE_AUTOTURN_FAILED"));
+      input.onError(
+        error instanceof Error ? error : new Error("VOICE_AUTOTURN_FAILED"),
+      );
     });
 }
 
@@ -262,22 +311,32 @@ export function KaiSearchBar({
   const { getVaultOwnerToken, vaultKey } = useVault();
   const [open, setOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
-  const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(null);
-  const [ttsPlaybackState, setTtsPlaybackState] = useState<"idle" | "loading" | "playing">("idle");
-  const [processingStageText, setProcessingStageText] = useState<string | null>(null);
+  const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(
+    null,
+  );
+  const [ttsPlaybackState, setTtsPlaybackState] = useState<
+    "idle" | "loading" | "playing"
+  >("idle");
+  const [processingStageText, setProcessingStageText] = useState<string | null>(
+    null,
+  );
   const [transcriptPreview, setTranscriptPreview] = useState<string>("");
   const [finalTranscript, setFinalTranscript] = useState<string>("");
   const [lastReplyText, setLastReplyText] = useState<string>("");
-  const [micPermissionStatus, setMicPermissionStatus] = useState<string>("unknown");
-  const [stableMicDisabledReason, setStableMicDisabledReason] = useState<string | null>(null);
-  const [realtimeSessionReady, setRealtimeSessionReady] = useState<boolean>(false);
+  const [micPermissionStatus, setMicPermissionStatus] =
+    useState<string>("unknown");
+  const [stableMicDisabledReason, setStableMicDisabledReason] = useState<
+    string | null
+  >(null);
+  const [realtimeSessionReady, setRealtimeSessionReady] =
+    useState<boolean>(false);
   const [sessionMuted, setSessionMuted] = useState<boolean>(true);
   const [sessionStateText, setSessionStateText] = useState<string>("idle");
   const [voiceSessionId] = useState<string>(
-    () => `vsession_${createVoiceTurnId().replace("vturn_", "")}`
+    () => `vsession_${createVoiceTurnId().replace("vturn_", "")}`,
   );
   const [sessionScopeId] = useState<string>(
-    () => `voice_scope_${createVoiceTurnId().replace("vturn_", "")}`
+    () => `voice_scope_${createVoiceTurnId().replace("vturn_", "")}`,
   );
 
   const { progress: hideBottomChromeProgress } =
@@ -286,7 +345,9 @@ export function KaiSearchBar({
   const appendDebugEvent = useVoiceSession((s) => s.appendDebugEvent);
   const setLastAssistantReply = useVoiceSession((s) => s.setLastAssistantReply);
   const pendingConfirmation = useVoiceSession((s) => s.pendingConfirmation);
-  const setPendingConfirmation = useVoiceSession((s) => s.setPendingConfirmation);
+  const setPendingConfirmation = useVoiceSession(
+    (s) => s.setPendingConfirmation,
+  );
 
   const barRef = useRef<HTMLDivElement | null>(null);
   const ttsPlaybackManagerRef = useRef<VoiceTtsPlaybackManager | null>(null);
@@ -294,16 +355,27 @@ export function KaiSearchBar({
   const currentVoiceTurnIdRef = useRef<string | null>(null);
   const voiceUiStateRef = useRef<VoiceUiState>("idle");
   const partialFallbackTimerRef = useRef<number | null>(null);
-  const lastFinalTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
+  const lastFinalTranscriptRef = useRef<{ text: string; atMs: number } | null>(
+    null,
+  );
   const transcriptPreviewRef = useRef<string>("");
   const sessionMutedRef = useRef<boolean>(true);
   const ttsPlaybackStateRef = useRef<"idle" | "loading" | "playing">("idle");
-  const onVoiceResponseRef = useRef<KaiSearchBarProps["onVoiceResponse"]>(onVoiceResponse);
-  const appRuntimeStateRef = useRef<AppRuntimeState | undefined>(appRuntimeState);
-  const voiceContextRef = useRef<Record<string, unknown> | undefined>(voiceContext);
+  const onVoiceResponseRef =
+    useRef<KaiSearchBarProps["onVoiceResponse"]>(onVoiceResponse);
+  const appRuntimeStateRef = useRef<AppRuntimeState | undefined>(
+    appRuntimeState,
+  );
+  const voiceContextRef = useRef<Record<string, unknown> | undefined>(
+    voiceContext,
+  );
   const setLastAssistantReplyRef = useRef(setLastAssistantReply);
   const transitionVoiceStateRef = useRef<
-    (next: VoiceUiState, reason: string, payload?: Record<string, unknown>) => void
+    (
+      next: VoiceUiState,
+      reason: string,
+      payload?: Record<string, unknown>,
+    ) => void
   >(() => {});
   const speakAssistantMessageRef = useRef<
     (input: {
@@ -322,13 +394,15 @@ export function KaiSearchBar({
       stage: "turn" | "mic" | "stt" | "planner" | "dispatch" | "tts" | "ui_fsm",
       event: string,
       payload?: Record<string, unknown>,
-      turnId?: string | null
+      turnId?: string | null,
     ) => void
   >(() => {});
-  const startMeterRef = useRef<(stream: MediaStream) => Promise<void>>(async () => {});
+  const startMeterRef = useRef<(stream: MediaStream) => Promise<void>>(
+    async () => {},
+  );
   const stopMeterRef = useRef<() => void>(() => {});
 
-  const { rawRms, normalizedLevel, smoothedLevel, start, stop } = useAmplitudeMeter({
+  const { smoothedLevel, start, stop } = useAmplitudeMeter({
     sensitivity: 11,
     smoothingFactor: 0.2,
     logIntervalMs: 500,
@@ -344,7 +418,13 @@ export function KaiSearchBar({
         voiceUnavailableReason,
         micPermissionStatus,
       }),
-    [disabled, micPermissionStatus, voiceAvailable, voiceUnavailableReason, voiceVisibilityMode]
+    [
+      disabled,
+      micPermissionStatus,
+      voiceAvailable,
+      voiceUnavailableReason,
+      voiceVisibilityMode,
+    ],
   );
   const micDisabled = Boolean(micDisabledReason);
 
@@ -353,7 +433,7 @@ export function KaiSearchBar({
       stage: "turn" | "mic" | "stt" | "planner" | "dispatch" | "tts" | "ui_fsm",
       event: string,
       payload: Record<string, unknown> = {},
-      turnId?: string | null
+      turnId?: string | null,
     ) => {
       appendDebugEvent({
         turnId: turnId || currentVoiceTurnIdRef.current || "no_turn",
@@ -363,11 +443,15 @@ export function KaiSearchBar({
         payload,
       });
     },
-    [appendDebugEvent, voiceSessionId]
+    [appendDebugEvent, voiceSessionId],
   );
 
   const transitionVoiceState = useCallback(
-    (next: VoiceUiState, reason: string, payload: Record<string, unknown> = {}) => {
+    (
+      next: VoiceUiState,
+      reason: string,
+      payload: Record<string, unknown> = {},
+    ) => {
       const prev = voiceUiStateRef.current;
       if (prev === next) return;
       if (!canTransitionVoiceUiState(prev, next)) {
@@ -389,7 +473,7 @@ export function KaiSearchBar({
         ...payload,
       });
     },
-    [emitDebug]
+    [emitDebug],
   );
 
   const moveToListeningOrIdle = useCallback(() => {
@@ -407,18 +491,26 @@ export function KaiSearchBar({
       setProcessingStageText(null);
       return;
     }
-    const sessionReady = realtimeSessionReady && voiceSessionManager.connected();
+    const sessionReady =
+      realtimeSessionReady && voiceSessionManager.connected();
     if (!sessionReady) {
       clearClientVadFallbackTimer(partialFallbackTimerRef);
       transitionVoiceState("retry_ready", "session_not_connected");
-      setProcessingStageText("Realtime session reconnecting. Tap retry if it does not recover.");
+      setProcessingStageText(
+        "Realtime session reconnecting. Tap retry if it does not recover.",
+      );
       setTranscriptPreview("Realtime session reconnecting...");
       return;
     }
     transitionVoiceState("sheet_listening", "session_live");
     setProcessingStageText(null);
     setTranscriptPreview("Listening...");
-  }, [pendingConfirmation, realtimeSessionReady, sessionMuted, transitionVoiceState]);
+  }, [
+    pendingConfirmation,
+    realtimeSessionReady,
+    sessionMuted,
+    transitionVoiceState,
+  ]);
 
   const setVoiceError = useCallback(
     (message: string, userMessage?: string) => {
@@ -427,7 +519,7 @@ export function KaiSearchBar({
       emitDebug("turn", "error", { message });
       toast.error(userMessage || message);
     },
-    [emitDebug, transitionVoiceState]
+    [emitDebug, transitionVoiceState],
   );
 
   const setRetryReadyError = useCallback(
@@ -439,7 +531,7 @@ export function KaiSearchBar({
       emitDebug("turn", "retry_ready", { message });
       toast.error(userMessage || message);
     },
-    [emitDebug, transitionVoiceState]
+    [emitDebug, transitionVoiceState],
   );
 
   const speakAssistantMessage = useCallback(
@@ -491,7 +583,8 @@ export function KaiSearchBar({
                 onPlaybackStarted,
                 onPlaybackEnded,
               }),
-            cancel: () => voiceSessionManager.cancelSpeech("VOICE_STREAM_TTS_CANCELLED"),
+            cancel: () =>
+              voiceSessionManager.cancelSpeech("VOICE_STREAM_TTS_CANCELLED"),
           },
         });
       } catch (error) {
@@ -504,18 +597,21 @@ export function KaiSearchBar({
           {
             reason: error instanceof Error ? error.message : "unknown_error",
           },
-          input.turnId
+          input.turnId,
         );
         await manager.speak({ ...speakInput, adapter: "backend_batch_tts" });
       }
     },
-    [emitDebug, userId, vaultOwnerToken]
+    [emitDebug, userId, vaultOwnerToken],
   );
 
   const processTranscriptTurn = useCallback(
     async (transcript: string, source: VoiceOrchestratorSource) => {
       if (!orchestratorRef.current || !onVoiceResponse) {
-        setVoiceError("Voice response callback is not configured", "Voice command failed.");
+        setVoiceError(
+          "Voice response callback is not configured",
+          "Voice command failed.",
+        );
         return;
       }
       if (!userId || !vaultOwnerToken || !voiceAvailable) {
@@ -530,8 +626,14 @@ export function KaiSearchBar({
 
       const previous = lastFinalTranscriptRef.current;
       const now = performance.now();
-      if (previous && previous.text.toLowerCase() === normalized.toLowerCase() && now - previous.atMs < 1400) {
-        emitDebug("stt", "final_transcript_deduped", { transcript: normalized });
+      if (
+        previous &&
+        previous.text.toLowerCase() === normalized.toLowerCase() &&
+        now - previous.atMs < 1400
+      ) {
+        emitDebug("stt", "final_transcript_deduped", {
+          transcript: normalized,
+        });
         return;
       }
       lastFinalTranscriptRef.current = { text: normalized, atMs: now };
@@ -546,7 +648,10 @@ export function KaiSearchBar({
         });
         if (!result) return;
         currentVoiceTurnIdRef.current = result.turnId;
-        if (result.response.kind === "clarify" && result.response.reason === "stt_unusable") {
+        if (
+          result.response.kind === "clarify" &&
+          result.response.reason === "stt_unusable"
+        ) {
           setProcessingStageText("Tap retry and speak again.");
           transitionVoiceState("retry_ready", "clarify_retry_ready", {
             response_kind: result.response.kind,
@@ -573,7 +678,7 @@ export function KaiSearchBar({
       voiceUnavailableReason,
       setPendingConfirmation,
       transitionVoiceState,
-    ]
+    ],
   );
 
   const submitDebugTurn = useCallback(() => {
@@ -583,7 +688,12 @@ export function KaiSearchBar({
       return;
     }
     voiceSessionManager.commitInputAudio();
-    emitDebug("stt", "debug_submit_commit_sent", {}, currentVoiceTurnIdRef.current);
+    emitDebug(
+      "stt",
+      "debug_submit_commit_sent",
+      {},
+      currentVoiceTurnIdRef.current,
+    );
   }, [emitDebug, realtimeSessionReady]);
 
   const toggleMuteListening = useCallback(() => {
@@ -596,7 +706,11 @@ export function KaiSearchBar({
       return;
     }
     transitionVoiceState("sheet_listening", "mic_unmuted");
-    setTranscriptPreview(realtimeSessionReady ? "Listening..." : "Connecting realtime voice session...");
+    setTranscriptPreview(
+      realtimeSessionReady
+        ? "Listening..."
+        : "Connecting realtime voice session...",
+    );
   }, [realtimeSessionReady, transitionVoiceState]);
 
   const cancelListening = useCallback(() => {
@@ -617,22 +731,14 @@ export function KaiSearchBar({
     setFinalTranscript("");
   }, [sessionScopeId, setPendingConfirmation, transitionVoiceState]);
 
-  const handleExamplePrompt = useCallback(
-    async (prompt: string) => {
-      const trimmed = String(prompt || "").trim();
-      if (!trimmed) return;
-      transitionVoiceState("processing_compact", "example_prompt_selected");
-      await processTranscriptTurn(trimmed, "example_chip");
-    },
-    [processTranscriptTurn, transitionVoiceState]
-  );
-
   const handleReplay = useCallback(async () => {
     const replayText = String(lastReplyText || "").trim();
     if (!replayText) return;
     const turnId = createVoiceTurnId();
     currentVoiceTurnIdRef.current = turnId;
-    transitionVoiceState("speaking_compact", "replay_clicked", { turn_id: turnId });
+    transitionVoiceState("speaking_compact", "replay_clicked", {
+      turn_id: turnId,
+    });
     try {
       await speakAssistantMessage({
         text: replayText,
@@ -644,7 +750,7 @@ export function KaiSearchBar({
     } catch (error) {
       setRetryReadyError(
         error instanceof Error ? error.message : "Could not replay response",
-        "Could not replay the last response."
+        "Could not replay the last response.",
       );
     }
   }, [
@@ -663,10 +769,12 @@ export function KaiSearchBar({
       voiceSessionManager.cancelSpeech("VOICE_BARGE_IN_STOP");
       moveToListeningOrIdle();
     },
-    [moveToListeningOrIdle]
+    [moveToListeningOrIdle],
   );
 
-  const connectVoiceSession = useCallback(async (): Promise<"connected" | "cancelled" | "failed"> => {
+  const connectVoiceSession = useCallback(async (): Promise<
+    "connected" | "cancelled" | "failed"
+  > => {
     if (!VOICE_V2_FLAGS.enabled) return "failed";
     if (!userId || !vaultOwnerToken || !voiceAvailable) return "failed";
     try {
@@ -685,9 +793,14 @@ export function KaiSearchBar({
       if (connected) {
         return "connected";
       }
-      return snapshot.state === "idle" && !snapshot.lastError ? "cancelled" : "failed";
+      return snapshot.state === "idle" && !snapshot.lastError
+        ? "cancelled"
+        : "failed";
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Realtime voice session failed";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Realtime voice session failed";
       if (isVoiceSessionConnectAbortedError(error)) {
         setVoiceErrorMessage(null);
         setProcessingStageText(null);
@@ -704,7 +817,14 @@ export function KaiSearchBar({
       setVoiceErrorMessage(message);
       return "failed";
     }
-  }, [getVaultOwnerToken, sessionScopeId, setVoiceError, userId, vaultOwnerToken, voiceAvailable]);
+  }, [
+    getVaultOwnerToken,
+    sessionScopeId,
+    setVoiceError,
+    userId,
+    vaultOwnerToken,
+    voiceAvailable,
+  ]);
 
   const startListening = useCallback(async () => {
     if (micDisabled) {
@@ -717,11 +837,16 @@ export function KaiSearchBar({
     let permissionStatus = "unknown";
     if (navigator.permissions?.query) {
       try {
-        const result = await navigator.permissions.query({ name: "microphone" as PermissionName });
+        const result = await navigator.permissions.query({
+          name: "microphone" as PermissionName,
+        });
         permissionStatus = result.state;
         setMicPermissionStatus(result.state);
         if (result.state === "denied") {
-          setVoiceError("Microphone permission denied", "Microphone permission denied");
+          setVoiceError(
+            "Microphone permission denied",
+            "Microphone permission denied",
+          );
           return;
         }
       } catch {
@@ -732,6 +857,8 @@ export function KaiSearchBar({
     setVoiceErrorMessage(null);
     setProcessingStageText(null);
     setPendingConfirmation(null);
+    voiceSessionManager.setMuted(false);
+    setSessionMuted(false);
     transitionVoiceState("sheet_listening", "mic_connect_started");
     setTranscriptPreview(describeVoiceConnectStage(permissionStatus));
 
@@ -748,8 +875,6 @@ export function KaiSearchBar({
       return;
     }
     setMicPermissionStatus("granted");
-    voiceSessionManager.setMuted(false);
-    setSessionMuted(false);
     setVoiceErrorMessage(null);
     setProcessingStageText(null);
     setTranscriptPreview("Listening...");
@@ -774,7 +899,8 @@ export function KaiSearchBar({
       return;
     }
     const turnId = pendingConfirmation.turnId || createVoiceTurnId();
-    const responseId = pendingConfirmation.responseId || createResponseId(turnId);
+    const responseId =
+      pendingConfirmation.responseId || createResponseId(turnId);
     const response =
       pendingConfirmation.kind === "cancel_active_analysis" &&
       pendingConfirmation.toolCall.tool_name === "cancel_active_analysis"
@@ -817,7 +943,7 @@ export function KaiSearchBar({
           plan,
           executionAllowed: true,
           needsConfirmation: false,
-        })
+        }),
       );
       const actionResult =
         outcome &&
@@ -844,14 +970,22 @@ export function KaiSearchBar({
           kind: speech.segmentType === "ack" ? "speak_only" : response.kind,
           turnId,
         });
-        emitDebug("tts", "assistant_text_scheduled", {
-          response_id: responseId,
-          segment_type: speech.segmentType,
-          kind: speech.segmentType === "ack" ? "ack" : response.kind,
-          text_chars: speech.text.length,
-        }, turnId);
+        emitDebug(
+          "tts",
+          "assistant_text_scheduled",
+          {
+            response_id: responseId,
+            segment_type: speech.segmentType,
+            kind: speech.segmentType === "ack" ? "ack" : response.kind,
+            text_chars: speech.text.length,
+          },
+          turnId,
+        );
         setProcessingStageText("Kai is speaking...");
-        transitionVoiceState("speaking_compact", "confirmation_speech_scheduled");
+        transitionVoiceState(
+          "speaking_compact",
+          "confirmation_speech_scheduled",
+        );
         await speakAssistantMessageRef.current({
           text: speech.text,
           turnId,
@@ -863,7 +997,7 @@ export function KaiSearchBar({
     } catch (error) {
       setRetryReadyError(
         error instanceof Error ? error.message : "Voice confirmation failed",
-        "Could not complete that voice action."
+        "Could not complete that voice action.",
       );
     }
   }, [
@@ -885,7 +1019,11 @@ export function KaiSearchBar({
       return;
     }
     transitionVoiceState("sheet_listening", "confirmation_cancelled");
-    setTranscriptPreview(realtimeSessionReady ? "Listening..." : "Connecting realtime voice session...");
+    setTranscriptPreview(
+      realtimeSessionReady
+        ? "Listening..."
+        : "Connecting realtime voice session...",
+    );
   }, [
     pendingConfirmation,
     realtimeSessionReady,
@@ -908,7 +1046,11 @@ export function KaiSearchBar({
         setTranscriptPreview("Listening...");
         return;
       }
-      if (sessionMuted || voiceUiState === "idle" || voiceUiState === "retry_ready") {
+      if (
+        sessionMuted ||
+        voiceUiState === "idle" ||
+        voiceUiState === "retry_ready"
+      ) {
         await startListening();
         return;
       }
@@ -925,7 +1067,7 @@ export function KaiSearchBar({
       startListening,
       transitionVoiceState,
       voiceUiState,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -996,14 +1138,19 @@ export function KaiSearchBar({
     const root = document.documentElement;
     const update = () => {
       const barHeight = barRef.current?.getBoundingClientRect().height ?? 40;
-      const cssGap = Number.parseFloat(getComputedStyle(root).getPropertyValue("--kai-command-bottom-gap"));
+      const cssGap = Number.parseFloat(
+        getComputedStyle(root).getPropertyValue("--kai-command-bottom-gap"),
+      );
       const gap = Number.isFinite(cssGap) ? cssGap : 12;
       const total = Math.round(barHeight + gap);
       root.style.setProperty("--kai-command-fixed-ui", `${total}px`);
     };
 
     update();
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => update()) : null;
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => update())
+        : null;
     if (barRef.current && ro) ro.observe(barRef.current);
 
     window.addEventListener("resize", update, { passive: true });
@@ -1015,9 +1162,15 @@ export function KaiSearchBar({
 
   useEffect(() => {
     const handleOpen = () => setOpen(true);
-    window.addEventListener(KAI_COMMAND_BAR_OPEN_EVENT, handleOpen as EventListener);
+    window.addEventListener(
+      KAI_COMMAND_BAR_OPEN_EVENT,
+      handleOpen as EventListener,
+    );
     return () => {
-      window.removeEventListener(KAI_COMMAND_BAR_OPEN_EVENT, handleOpen as EventListener);
+      window.removeEventListener(
+        KAI_COMMAND_BAR_OPEN_EVENT,
+        handleOpen as EventListener,
+      );
     };
   }, []);
 
@@ -1036,12 +1189,22 @@ export function KaiSearchBar({
           emitDebug("tts", "playback_ended", { source }, voiceTurnId || null);
         },
         onPlaybackFailed: ({ voiceTurnId, reason, source }) => {
-          emitDebug("tts", "playback_failed", { reason, source: source || null }, voiceTurnId || null);
+          emitDebug(
+            "tts",
+            "playback_failed",
+            { reason, source: source || null },
+            voiceTurnId || null,
+          );
         },
         onStopped: ({ voiceTurnId, source }) => {
-          emitDebug("tts", "playback_stopped", { source: source || null }, voiceTurnId || null);
+          emitDebug(
+            "tts",
+            "playback_stopped",
+            { source: source || null },
+            voiceTurnId || null,
+          );
         },
-      }
+      },
     );
   }, [emitDebug, onTtsPlayingChange]);
 
@@ -1089,12 +1252,18 @@ export function KaiSearchBar({
       onStageChange: (stage) => {
         if (stage === "planning") {
           setProcessingStageText("Planning response...");
-          transitionVoiceStateRef.current("processing_compact", "planner_started");
+          transitionVoiceStateRef.current(
+            "processing_compact",
+            "planner_started",
+          );
           return;
         }
         if (stage === "dispatch") {
           setProcessingStageText("Executing action...");
-          transitionVoiceStateRef.current("processing_compact", "dispatch_started");
+          transitionVoiceStateRef.current(
+            "processing_compact",
+            "dispatch_started",
+          );
           return;
         }
         if (stage === "speaking_ack") {
@@ -1112,7 +1281,12 @@ export function KaiSearchBar({
         }
       },
       onDebug: (event, payload) => {
-        emitDebugRef.current("planner", event, payload || {}, currentVoiceTurnIdRef.current);
+        emitDebugRef.current(
+          "planner",
+          event,
+          payload || {},
+          currentVoiceTurnIdRef.current,
+        );
       },
       onAssistantText: ({ text, kind, turnId, responseId, segmentType }) => {
         currentVoiceTurnIdRef.current = turnId;
@@ -1134,7 +1308,7 @@ export function KaiSearchBar({
             kind,
             text_chars: text.length,
           },
-          turnId
+          turnId,
         );
       },
     };
@@ -1144,7 +1318,13 @@ export function KaiSearchBar({
       return;
     }
     orchestratorRef.current = new VoiceTurnOrchestrator(orchestratorConfig);
-  }, [onVoiceResponse, setPendingConfirmation, userId, vaultKey, vaultOwnerToken]);
+  }, [
+    onVoiceResponse,
+    setPendingConfirmation,
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     const unsubscribe = voiceSessionManager.subscribe((event) => {
@@ -1153,7 +1333,11 @@ export function KaiSearchBar({
         setRealtimeSessionReady(snapshot.state === "connected");
         setSessionMuted(snapshot.muted);
         setSessionStateText(snapshot.state);
-        if (snapshot.muted || snapshot.state === "idle" || snapshot.state === "error") {
+        if (
+          snapshot.muted ||
+          snapshot.state === "idle" ||
+          snapshot.state === "error"
+        ) {
           clearClientVadFallbackTimer(partialFallbackTimerRef);
         }
 
@@ -1165,10 +1349,14 @@ export function KaiSearchBar({
           }
           if (
             !snapshot.muted &&
-            (voiceUiStateRef.current === "sheet_listening" || voiceUiStateRef.current === "retry_ready")
+            (voiceUiStateRef.current === "sheet_listening" ||
+              voiceUiStateRef.current === "retry_ready")
           ) {
             if (voiceUiStateRef.current === "retry_ready") {
-              transitionVoiceStateRef.current("sheet_listening", "session_recovered");
+              transitionVoiceStateRef.current(
+                "sheet_listening",
+                "session_recovered",
+              );
             }
             setTranscriptPreview("Listening...");
           }
@@ -1176,7 +1364,10 @@ export function KaiSearchBar({
         if (snapshot.state === "idle" || snapshot.state === "error") {
           stopMeterRef.current();
         }
-        if (snapshot.state === "connecting" && voiceUiStateRef.current === "sheet_listening") {
+        if (
+          snapshot.state === "connecting" &&
+          voiceUiStateRef.current === "sheet_listening"
+        ) {
           setTranscriptPreview("Connecting realtime voice session...");
         }
         if (snapshot.state === "error") {
@@ -1189,8 +1380,13 @@ export function KaiSearchBar({
           setVoiceErrorMessage(detail);
           setTranscriptPreview("Realtime session dropped.");
           if (voiceSessionManager.hasActiveScope(sessionScopeId)) {
-            setProcessingStageText("Realtime session dropped. Tap retry to reconnect.");
-            transitionVoiceStateRef.current("retry_ready", "session_error_retry_ready");
+            setProcessingStageText(
+              "Realtime session dropped. Tap retry to reconnect.",
+            );
+            transitionVoiceStateRef.current(
+              "retry_ready",
+              "session_error_retry_ready",
+            );
           }
         }
 
@@ -1207,7 +1403,7 @@ export function KaiSearchBar({
             reconnect_latency_ms: snapshot.reconnectLatencyMs,
             last_error: snapshot.lastError,
           },
-          currentVoiceTurnIdRef.current
+          currentVoiceTurnIdRef.current,
         );
         return;
       }
@@ -1215,12 +1411,17 @@ export function KaiSearchBar({
       if (event.type === "debug") {
         const allowConnectStageUpdates =
           voiceUiStateRef.current === "sheet_listening" &&
-          (!sessionMutedRef.current || voiceSessionManager.getSnapshot().state === "connecting");
+          (!sessionMutedRef.current ||
+            voiceSessionManager.getSnapshot().state === "connecting");
         if (allowConnectStageUpdates) {
           if (event.event === "permission_request_started") {
             setTranscriptPreview("Waiting for microphone access...");
           } else if (event.event === "permission_request_succeeded") {
             setMicPermissionStatus("granted");
+            const stream = voiceSessionManager.getStream();
+            if (stream) {
+              void startMeterRef.current(stream);
+            }
             setTranscriptPreview("Creating realtime session...");
           } else if (event.event === "realtime_session_request_started") {
             setTranscriptPreview("Creating realtime session...");
@@ -1236,11 +1437,34 @@ export function KaiSearchBar({
           !sessionMutedRef.current &&
           voiceUiStateRef.current === "retry_ready"
         ) {
-          transitionVoiceStateRef.current("sheet_listening", "speech_started_after_retry");
+          transitionVoiceStateRef.current(
+            "sheet_listening",
+            "speech_started_after_retry",
+          );
           setProcessingStageText(null);
           setVoiceErrorMessage(null);
         }
-        emitDebugRef.current("stt", event.event, event.payload || {}, currentVoiceTurnIdRef.current);
+        if (
+          event.event === "speech_stopped" &&
+          VOICE_V2_FLAGS.clientVadFallbackEnabled &&
+          !sessionMutedRef.current &&
+          voiceUiStateRef.current === "sheet_listening"
+        ) {
+          scheduleClientVadSpeechStopCommit({
+            timerRef: partialFallbackTimerRef,
+            sessionMutedRef,
+            voiceUiStateRef,
+            commitInputAudio: () => voiceSessionManager.commitInputAudio(),
+            emitDebug: emitDebugRef.current,
+            getCurrentTurnId: () => currentVoiceTurnIdRef.current,
+          });
+        }
+        emitDebugRef.current(
+          "stt",
+          event.event,
+          event.payload || {},
+          currentVoiceTurnIdRef.current,
+        );
         return;
       }
 
@@ -1258,7 +1482,10 @@ export function KaiSearchBar({
         if (!sessionMutedRef.current) {
           setTranscriptPreview(transcriptEvent.text);
         }
-        if (VOICE_V2_FLAGS.clientVadFallbackEnabled && !sessionMutedRef.current) {
+        if (
+          VOICE_V2_FLAGS.clientVadFallbackEnabled &&
+          !sessionMutedRef.current
+        ) {
           scheduleClientVadFallbackCommit({
             timerRef: partialFallbackTimerRef,
             sessionMutedRef,
@@ -1275,14 +1502,24 @@ export function KaiSearchBar({
 
       setFinalTranscript(transcriptEvent.text);
       setTranscriptPreview(transcriptEvent.text);
-      if (!sessionMutedRef.current && voiceUiStateRef.current === "retry_ready") {
-        transitionVoiceStateRef.current("sheet_listening", "speech_captured_after_retry");
+      if (
+        !sessionMutedRef.current &&
+        voiceUiStateRef.current === "retry_ready"
+      ) {
+        transitionVoiceStateRef.current(
+          "sheet_listening",
+          "speech_captured_after_retry",
+        );
         setProcessingStageText(null);
         setVoiceErrorMessage(null);
       }
       if (VOICE_V2_FLAGS.autoturnEnabled && !sessionMutedRef.current) {
         runAutoTurnDispatchSafely({
-          dispatch: () => processTranscriptTurnRef.current(transcriptEvent.text, "microphone"),
+          dispatch: () =>
+            processTranscriptTurnRef.current(
+              transcriptEvent.text,
+              "microphone",
+            ),
           onError: (error) => {
             emitDebugRef.current(
               "turn",
@@ -1290,7 +1527,7 @@ export function KaiSearchBar({
               {
                 error: error.message,
               },
-              currentVoiceTurnIdRef.current
+              currentVoiceTurnIdRef.current,
             );
             setRetryReadyError(error.message, "Voice command failed.");
           },
@@ -1316,7 +1553,13 @@ export function KaiSearchBar({
     if (voiceUiStateRef.current !== "idle") {
       transitionVoiceState("idle", "voice_unavailable");
     }
-  }, [sessionScopeId, transitionVoiceState, userId, vaultOwnerToken, voiceAvailable]);
+  }, [
+    sessionScopeId,
+    transitionVoiceState,
+    userId,
+    vaultOwnerToken,
+    voiceAvailable,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1343,7 +1586,8 @@ export function KaiSearchBar({
       if (!shouldShowAmbientListeningStatus(transcriptPreviewRef.current)) {
         return;
       }
-      const activity = smoothedLevel > 0.06 ? "Audio detected..." : "Listening...";
+      const activity =
+        smoothedLevel > 0.015 ? "Audio detected..." : "Listening...";
       setTranscriptPreview(activity);
     }, 280);
     return () => {
@@ -1356,32 +1600,39 @@ export function KaiSearchBar({
   const showProcessingCompact = voiceUiState === "processing_compact";
   const showSpeakingCompact = voiceUiState === "speaking_compact";
   const showRetryCompact = voiceUiState === "retry_ready";
-  const showBaseCommandSurface =
-    !showVoiceSheet && !showProcessingCompact && !showSpeakingCompact && !showRetryCompact;
-  const isElevatedVoiceSurface =
-    showVoiceSheet || showProcessingCompact || showSpeakingCompact || showRetryCompact;
 
-  const compactLabel = useMemo(() => {
-    if (showProcessingCompact) return "Processing your voice command...";
-    if (showSpeakingCompact) return "Kai is responding...";
-    if (pendingConfirmation) return "Confirm this voice action";
-    if (showRetryCompact) return "I couldn't understand that. Please try again.";
-    return "";
-  }, [pendingConfirmation, showProcessingCompact, showRetryCompact, showSpeakingCompact]);
+  const realtimeConnecting =
+    sessionStateText === "connecting" && !realtimeSessionReady;
+  const ambientMode = useMemo<VoiceAmbientMode>(() => {
+    if (showVoiceSheet) {
+      if (!realtimeSessionReady || realtimeConnecting) return "connecting";
+      return sessionMuted && realtimeSessionReady ? "muted" : "listening";
+    }
+    if (showProcessingCompact) return "processing";
+    if (showSpeakingCompact) return "speaking";
+    if (showRetryCompact) return "retry_ready";
+    if (voiceUiState === "error_terminal") return "error";
+    return "idle";
+  }, [
+    realtimeSessionReady,
+    realtimeConnecting,
+    sessionMuted,
+    showProcessingCompact,
+    showRetryCompact,
+    showSpeakingCompact,
+    showVoiceSheet,
+    voiceUiState,
+  ]);
 
-  const commandBarBottomOffset = isElevatedVoiceSurface
-    ? "calc(var(--app-bottom-inset) + 58px)"
-    : "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
-  const visibleCommandBarBottomOffset = isElevatedVoiceSurface
-    ? commandBarBottomOffset
-    : `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
-  const realtimeConnecting = sessionStateText === "connecting" && !realtimeSessionReady;
+  const commandBarBottomOffset =
+    "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
+  const visibleCommandBarBottomOffset = `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
 
-      return (
+  return (
     <>
       <div
         className={cn(
-          "fixed inset-x-0 z-[136] flex justify-center px-4 pointer-events-none"
+          "fixed inset-x-0 z-[136] flex justify-center px-4 pointer-events-none",
         )}
         style={{
           bottom: visibleCommandBarBottomOffset,
@@ -1389,95 +1640,63 @@ export function KaiSearchBar({
           opacity: 1,
         }}
       >
-        <div ref={barRef} className="pointer-events-auto w-full max-w-[360px] sm:max-w-[392px]">
-          {showVoiceSheet ? (
-            <VoiceConsoleSheet
-              open={showVoiceSheet}
-              muted={sessionMuted && realtimeSessionReady}
-              submitting={false}
-              submitEnabled={VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady}
-              showSubmit={VOICE_V2_FLAGS.submitDebugVisible}
-              transcriptPreview={transcriptPreview}
-              smoothedLevel={smoothedLevel}
-              onMuteToggle={toggleMuteListening}
-              onSubmit={submitDebugTurn}
-              onCancel={cancelListening}
-              onExamplePrompt={handleExamplePrompt}
-            />
-          ) : showProcessingCompact || showSpeakingCompact || showRetryCompact ? (
-            <VoiceCompactStatus
-              mode={showProcessingCompact ? "processing" : showSpeakingCompact ? "speaking" : "retry_ready"}
-              label={compactLabel}
-              stageText={processingStageText}
-              replyText={showSpeakingCompact || showRetryCompact ? lastReplyText || finalTranscript : finalTranscript}
-              smoothedLevel={smoothedLevel}
-              onStopSpeaking={
-                showSpeakingCompact && ttsPlaybackState === "playing"
-                  ? () => handleStopSpeaking()
-                  : undefined
-              }
-              onReplay={
-                showSpeakingCompact || showRetryCompact
-                  ? handleReplay
-                  : undefined
-              }
-              onRetry={showRetryCompact && !pendingConfirmation ? handleRetry : undefined}
-              onConfirm={showRetryCompact && pendingConfirmation ? handleConfirmPending : undefined}
-              onCancel={showRetryCompact && pendingConfirmation ? handleCancelPending : undefined}
-              confirmLabel="Confirm"
-              cancelLabel="Not now"
-            />
-          ) : showBaseCommandSurface ? (
-            <div className="relative h-9">
-              <button
-                type="button"
-                data-tour-id="kai-command-bar"
-                className={cn(
-                  "flex h-9 w-full items-center justify-start overflow-hidden rounded-full px-3 pr-11 text-[12px] text-muted-foreground",
-                  getVariantStyles("none", "fade"),
-                  disabled && "pointer-events-none opacity-50"
-                )}
-                onClick={() => setOpen(true)}
-              >
-                <Icon icon={Search} size="sm" className="shrink-0 text-muted-foreground" />
-                <span className="ml-2 min-w-0 flex-1 truncate text-left">
-                  Analyze, dashboard, consent with Kai
-                </span>
-              </button>
-              {!micHidden ? (
-                <button
-                  type="button"
-                  aria-label="Toggle voice microphone"
-                  data-no-route-swipe
-                  disabled={micDisabled}
-                  title={
-                    micDisabled
-                      ? stableMicDisabledReason || undefined
-                      : sessionMuted
-                        ? "Unmute microphone"
-                        : "Mute microphone"
-                  }
-                  className={cn(
-                    "absolute right-1 top-1/2 z-10 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
-                    micDisabled && "cursor-not-allowed opacity-60"
-                  )}
-                  onClick={handleMicTap}
-                >
-                  {realtimeConnecting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Icon icon={Mic} size="sm" />
-                  )}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {showBaseCommandSurface && stableMicDisabledReason ? (
-            <p className="mt-1 text-center text-[10px] text-muted-foreground">{stableMicDisabledReason}</p>
-          ) : null}
+        <div
+          ref={barRef}
+          className="pointer-events-auto w-full max-w-[360px] sm:max-w-[392px]"
+        >
+          <VoiceAmbientSearchSurface
+            mode={ambientMode}
+            placeholder="Analyze, dashboard, consent with Kai"
+            transcriptPreview={transcriptPreview}
+            stageText={processingStageText}
+            replyText={
+              showSpeakingCompact || showRetryCompact
+                ? lastReplyText || finalTranscript
+                : finalTranscript
+            }
+            smoothedLevel={smoothedLevel}
+            disabled={disabled}
+            showMic={!micHidden}
+            micDisabled={micDisabled}
+            micDisabledReason={stableMicDisabledReason}
+            showSubmit={
+              VOICE_V2_FLAGS.submitDebugVisible &&
+              (showVoiceSheet || realtimeConnecting)
+            }
+            submitEnabled={
+              VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady
+            }
+            ttsPlaying={ttsPlaybackState === "playing"}
+            pendingConfirmation={Boolean(
+              showRetryCompact && pendingConfirmation,
+            )}
+            onOpenSearch={() => setOpen(true)}
+            onMicToggle={handleMicTap}
+            onMuteToggle={toggleMuteListening}
+            onSubmit={submitDebugTurn}
+            onEnd={cancelListening}
+            onStopSpeaking={handleStopSpeaking}
+            onReplay={
+              showSpeakingCompact || showRetryCompact ? handleReplay : undefined
+            }
+            onRetry={
+              showRetryCompact && !pendingConfirmation ? handleRetry : undefined
+            }
+            onConfirm={
+              showRetryCompact && pendingConfirmation
+                ? handleConfirmPending
+                : undefined
+            }
+            onCancel={
+              showRetryCompact && pendingConfirmation
+                ? handleCancelPending
+                : undefined
+            }
+          />
           {voiceErrorMessage ? (
-            <p className="mt-1 text-center text-[10px] text-destructive">{voiceErrorMessage}</p>
+            <p className="mt-1 text-center text-[10px] text-destructive">
+              {voiceErrorMessage}
+            </p>
           ) : null}
         </div>
       </div>
@@ -1496,27 +1715,27 @@ export function KaiSearchBar({
         sessionId={voiceSessionId}
         route={appRuntimeState?.route.pathname || ""}
         screen={appRuntimeState?.route.screen || ""}
-        authStatus={appRuntimeState?.auth.signed_in ? "signed_in" : "signed_out"}
+        authStatus={
+          appRuntimeState?.auth.signed_in ? "signed_in" : "signed_out"
+        }
         vaultStatus={
           appRuntimeState?.vault.unlocked && appRuntimeState?.vault.token_valid
             ? "unlocked_valid"
             : "locked_or_invalid"
         }
-        voiceAvailabilityReason={voiceAvailable ? "available" : voiceUnavailableReason || "unavailable"}
+        voiceAvailabilityReason={
+          voiceAvailable ? "available" : voiceUnavailableReason || "unavailable"
+        }
+        mobilePlacement="above-searchbar"
       />
 
       {DEV_VOICE_DEBUG_ENABLED ? (
-        <div className="pointer-events-none fixed bottom-[108px] right-4 z-[150] rounded-full border border-border/60 bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow">
+        <div className="pointer-events-none fixed bottom-[108px] right-4 z-[150] hidden rounded-full border border-border/60 bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow sm:block">
           <span className="pointer-events-none inline-flex items-center gap-1">
             <Bug className="h-3 w-3" />
-            {voiceUiState} | {ttsPlaybackState} | mic:{micPermissionStatus} | session:{sessionStateText}
+            {voiceUiState} | {ttsPlaybackState} | mic:{micPermissionStatus} |
+            session:{sessionStateText}
           </span>
-        </div>
-      ) : null}
-
-      {DEV_VOICE_DEBUG_ENABLED && (rawRms > 0 || normalizedLevel > 0) ? (
-        <div className="pointer-events-none fixed bottom-[90px] left-1/2 z-[150] -translate-x-1/2 rounded-full bg-background/85 px-3 py-1 text-[10px] text-muted-foreground shadow">
-          raw={rawRms.toFixed(4)} level={normalizedLevel.toFixed(3)} smoothed={smoothedLevel.toFixed(3)}
         </div>
       ) : null}
     </>

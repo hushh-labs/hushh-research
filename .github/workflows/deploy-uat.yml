@@ -33,7 +33,7 @@ env:
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
-  group: deploy-uat-${{ github.event.inputs.sha || github.run_id }}
+  group: deploy-uat
   cancel-in-progress: false
 
 jobs:
@@ -267,7 +267,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY_SECRET=ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY=5FGRHDEotC1GEvh01AAI1v+RHIJ0TxpLrixkLajKkxI=##_ONE_EMAIL_KYC_CONNECTOR_KEY_ID=one-kyc-uat-20260501##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*"
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
@@ -368,6 +368,7 @@ jobs:
             --require-plaid \
             --require-market-data \
             --require-gmail \
+            --require-one-email \
             --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
@@ -389,6 +390,7 @@ jobs:
             --require-plaid \
             --require-market-data \
             --require-gmail \
+            --require-one-email \
             --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
@@ -550,6 +552,7 @@ jobs:
           backend_secret_names = set(
               required.get("backend", [])
               + required.get("gmail", [])
+              + required.get("one_email", [])
               + required.get("voice", [])
               + required.get("plaid", [])
               + required.get("market", [])
@@ -561,6 +564,7 @@ jobs:
           backend_runtime_entries = (
               (runtime_contract.get("backend") or [])
               + (runtime_contract.get("backend_gmail") or [])
+              + (runtime_contract.get("backend_one_email") or [])
               + (runtime_contract.get("backend_voice") or [])
           )
 

@@ -118,4 +118,25 @@ export class OneKycService {
       }
     );
   }
+
+  static redraft({
+    userId,
+    idToken,
+    workflowId,
+    instructions,
+    source = "text",
+  }: AuthInput & {
+    workflowId: string;
+    instructions: string;
+    source?: "text" | "voice";
+  }): Promise<OneKycWorkflow> {
+    return apiJson<OneKycWorkflow>(
+      `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/redraft`,
+      {
+        method: "POST",
+        headers: authHeaders(idToken),
+        body: JSON.stringify({ user_id: userId, instructions, source }),
+      }
+    );
+  }
 }

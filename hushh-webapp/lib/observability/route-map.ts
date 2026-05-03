@@ -345,6 +345,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/one/kyc/workflows/{workflow_id}/reject-draft",
   },
   {
+    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/redraft(?:\?.*)?$/i,
+    template: "/api/one/kyc/workflows/{workflow_id}/redraft",
+  },
+  {
     regex: /^\/api\/consent\/pending(?:\?.*)?$/i,
     template: "/api/consent/pending",
   },

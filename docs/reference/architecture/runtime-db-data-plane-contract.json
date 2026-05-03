@@ -245,9 +245,9 @@
       "lifecycle_status": "current",
       "glob_tables": ["one_*"],
       "primary_access_path": "One mailbox intake, KYC workflow status, consent continuation, and approval-gated draft send",
-      "retention_policy": "Active workflow state retained while open; terminal draft bodies redacted or purged after 30 days.",
+      "retention_policy": "Active workflow state retained while open; terminal draft bodies redacted or purged after 30 days; production/public launch requires encrypted-at-rest draft storage or an explicit launch block.",
       "deletion_behavior": "Delete user-linked workflows on account deletion; keep mailbox watch state without user data.",
-      "trust_boundary": "Metadata and approval draft state only; no raw full email threads, tokens, vault contents, or decrypted PKM.",
+      "trust_boundary": "Metadata and approval draft state only; no raw full email threads, tokens, vault contents, or broad decrypted PKM. Draft text may contain approved scoped values and must be treated as sensitive workflow state.",
       "plaintext_posture": "workflow_metadata_and_user_approved_draft",
       "expected_row_growth": "medium_workflow"
     },

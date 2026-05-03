@@ -1,6 +1,6 @@
 # One Email Intake Roadmap
 
-Status: V1 repo implementation landed for metadata-only intake, workflow state, scoped consent requests, `/one/kyc`, and approval-gated draft sending. Public automation is not current-state until the database migration, Pub/Sub watch renewal, and UAT mailbox smoke pass in the hosted environment.
+Status: V1 UAT implementation is live for One mailbox intake, workflow state, scoped consent requests, `/one/kyc`, Gmail watch renewal, value-filled KYC draft generation, text/voice redraft, and approval-gated Gmail send. Production/public automation is not current-state until the UAT learnings are promoted through the production rollout gate. The current backend decrypts approved scoped exports in memory and stores user-reviewable drafts as sensitive workflow state with short-retention requirements; that is encrypted export governance, not strict backend-never-sees-plaintext ZK.
 
 ## Visual Map
 
@@ -59,13 +59,24 @@ What is standardized now:
 - Workspace Gmail send defaults to `one@hushh.ai` as the delegated real mailbox unless a specific `SUPPORT_EMAIL_DELEGATED_USER` override is set.
 - `GMAIL_OAUTH_*` remains user Gmail receipts OAuth only; it is not the One mailbox path.
 
-What still needs hosted rollout:
+UAT hosted state as of 2026-05-03:
 
-- apply migration `049_one_email_kyc_workflows.sql`
-- configure Pub/Sub topic/subscription for `one@hushh.ai`
-- schedule `POST /api/one/email/watch/renew`
-- set `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` and `ONE_EMAIL_KYC_CONNECTOR_KEY_ID`
-- run a real UAT email smoke from broker-style email to user draft approval
+- migration `049_one_email_kyc_workflows.sql` is applied and verified by the UAT DB contract guard.
+- Gmail watch renewal is active for `one@hushh.ai`.
+- Pub/Sub push intake is configured for the One mailbox UAT topic/subscription. The active UAT Gmail topic lives in `hushh-pda`, matching the delegated Gmail client project; the UAT Scheduler/runtime still live in `hushh-pda-uat`.
+- `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` and `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` are configured for UAT.
+- `ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY` is available in Secret Manager for value-filled UAT KYC drafting; the private key is used only for in-memory decrypt of approved scoped exports.
+- a real broker-style UAT email smoke created a KYC workflow, requested scoped consent, accepted user approval, decrypted the approved scoped export, generated a value-filled review draft, redrafted through the voice/text action path, and sent the approved reply from `one@hushh.ai`.
+- the visible sender display name for this lane is `One <one@hushh.ai>`.
+- UAT proof artifact: smoke id `one-kyc-smoke-20260503074743`, workflow id `47bc44d76dc045b9b093d69a87325af2`.
+
+What still needs production/product rollout:
+
+- promote the UAT Pub/Sub/Scheduler/env setup to production only after an explicit production gate.
+- decide the production mailbox-watch ownership model before enabling production renewal against the same `one@hushh.ai` mailbox.
+- write structured completion state back to PKM after user-approved send.
+- add the retention job that redacts or purges terminal `draft_body` after 30 days.
+- add encrypted-at-rest draft storage before treating KYC drafts as production-grade sensitive workflow state.
 
 ## Seamless User Story
 
@@ -86,6 +97,7 @@ What still needs hosted rollout:
 - Use service account client `109021324828349644970`.
 - Keep one service-account credential source for maintained backend runtime.
 - Use `ONE_EMAIL_ADDRESS=one@hushh.ai` as the mailbox identity.
+- Keep the visible KYC sender display fixed to `One`.
 - Keep `SUPPORT_EMAIL_*` for support/invite overrides only.
 - Keep user Gmail receipts on `GMAIL_OAUTH_*`.
 - Do not reuse old `hushone-app` Gmail ingestion services for this path.
@@ -105,6 +117,9 @@ What still needs hosted rollout:
 - Store watch expiration and last processed `historyId`.
 - Deduplicate by Gmail message/thread/history IDs.
 - Treat gaps or expired history cursors as blocked/recovery state, not silent success.
+- Do not let UAT and production independently renew watches for the same `one@hushh.ai` mailbox. Production rollout must either move watch ownership to production, keep UAT disabled, use an explicitly managed label/topic strategy, or introduce a single fanout controller.
+
+Google's [Gmail push documentation](https://developers.google.com/workspace/gmail/api/guides/push) requires `watch` renewal at least once every seven days and recommends daily renewal. The [`users.watch` reference](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/watch) includes an `expiration` timestamp, so the runtime gate should verify both `watch_status=active` and a safe future expiration before production promotion.
 
 ### Phase 4: One/Nav/KYC Workflow
 
@@ -122,10 +137,18 @@ What still needs hosted rollout:
 
 ### Phase 6: UAT And Production Rollout
 
-- Validate in UAT with the real `one@hushh.ai` mailbox and real delegated Gmail calls.
-- Send controlled test emails instead of fabricating events.
-- Verify no production side effects from UAT tests.
-- Promote to production only after intake, dedupe, consent, PKM writeback, and approval-gated send are tested end to end.
+- UAT uses the real `one@hushh.ai` mailbox and real delegated Gmail calls.
+- UAT smoke uses controlled test emails instead of fabricated events.
+- Production remains untouched until the production rollout gate confirms no leakage from UAT tests.
+- Promote to production only after intake, dedupe, consent, PKM writeback, value-filled draft generation, and approval-gated send are tested end to end.
+
+### Phase 7: Draft Storage ZK Hardening
+
+- Current V1 stores the user-reviewable `draft_body` in `one_kyc_workflows` as sensitive workflow state so the user can review and approve before send.
+- This is not strict ZK. The One backend decrypts approved scoped exports in memory, maps the approved values into a draft, and persists the reviewable draft until send/reject/retention cleanup.
+- Smallest production-grade improvement: add an additive migration with draft ciphertext, IV, tag, algorithm, and key id columns; encrypt drafts at rest with a dedicated One KYC draft-storage key; decrypt only for user review, redraft, and approval-gated send; then null legacy plaintext.
+- Strict backend-never-sees-plaintext ZK requires a broader V2: draft generation/storage moves to the client or to a user-held key path, and Gmail send receives plaintext only transiently at approval time.
+- Until encrypted draft storage ships, terminal drafts must be redacted or purged after 30 days and active waiting-on-user drafts must be monitored as sensitive workflow state.
 
 ## Acceptance Gates
 
@@ -136,7 +159,10 @@ What still needs hosted rollout:
 - Workflow state is inspectable without reading raw email bodies.
 - KYC cannot read/write outside its granted workflow scope.
 - Outbound sensitive messages require user approval.
-- Current-state docs do not claim public One email automation until UAT passes.
+- Production One mailbox automation has one active watch owner and a daily renewal job.
+- `one_email_mailbox_state.watch_status` is active and `watch_expiration_at` is safely in the future before promotion.
+- KYC drafts are either encrypted at rest or explicitly blocked from production/public launch with retention redaction enabled.
+- Current-state docs do not claim production/public One email automation until the production gate passes.
 
 ## Non-Goals
 
