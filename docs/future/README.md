@@ -61,6 +61,7 @@ Promotion targets:
 - [kai/README.md](./kai/README.md): Kai future-state concepts and superseded planning history that has not yet moved
 - [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current Kai-first runtime to the One/Kai/Nav/KYC ontology
 - [one-email-intake-roadmap.md](./one-email-intake-roadmap.md): planning-to-execution bridge for `one@hushh.ai` mailbox intake, consent, PKM writeback, and KYC delegation
+- [one-personalized-content-roadmap.md](./one-personalized-content-roadmap.md): planning-only concept for a Discover specialist below One that surfaces personalized publisher, brand, and ad-network content under scoped consent
 
 ## References
 
