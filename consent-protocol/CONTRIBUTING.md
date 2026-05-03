@@ -58,7 +58,7 @@ Or run individually:
 ./bin/consent-protocol lint          # Lint
 ./bin/consent-protocol format-check  # Format check
 ./bin/consent-protocol typecheck     # Type check
-./bin/consent-protocol test          # Tests
+./bin/consent-protocol test          # Tests (default tests/; optional args, e.g. tests/test_foo.py COUNT=5)
 ./bin/consent-protocol security      # Security scan
 ```
 

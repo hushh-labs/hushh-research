@@ -243,7 +243,7 @@ Migration authority:
 ./bin/consent-protocol lint         # Lint with ruff
 ./bin/consent-protocol format       # Format code
 ./bin/consent-protocol typecheck    # Type check with mypy
-./bin/consent-protocol test         # Run tests with pytest
+./bin/consent-protocol test         # Run tests with pytest (default: tests/; pass paths/flags, e.g. tests/test_foo.py COUNT=5)
 ./bin/consent-protocol security     # Security scan with bandit
 ./bin/consent-protocol ci           # Run all checks (same as CI)
 ```

@@ -163,6 +163,6 @@ pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-p hushh_repeat_session -v --tb=short"
 asyncio_mode = "auto"  # Enable pytest-asyncio auto mode
 asyncio_default_fixture_loop_scope = "function"  # Set event loop scope
