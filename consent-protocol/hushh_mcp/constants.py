@@ -55,6 +55,14 @@ class ConsentScope(str, Enum):
     AGENT_KAI_CHAT = "agent.kai.chat"
     AGENT_KAI_EXECUTE = "agent.kai.execute"
 
+    # Trading sub-agent. Three-step capability so simulation, order proposal,
+    # and per-order approval can be granted independently. EXECUTE alone is
+    # never sufficient to place a live order — APPROVE must accompany every
+    # individual OrderIntent.
+    AGENT_KAI_TRADE_SIMULATE = "agent.kai.trade.simulate"
+    AGENT_KAI_TRADE_EXECUTE = "agent.kai.trade.execute"
+    AGENT_KAI_TRADE_APPROVE = "agent.kai.trade.approve"
+
     AGENT_NAV_REVIEW = "agent.nav.review"
     AGENT_NAV_REVOKE = "agent.nav.revoke"
 
@@ -202,6 +210,9 @@ class ConsentScope(str, Enum):
             cls.AGENT_KAI_INFER,
             cls.AGENT_KAI_CHAT,
             cls.AGENT_KAI_EXECUTE,
+            cls.AGENT_KAI_TRADE_SIMULATE,
+            cls.AGENT_KAI_TRADE_EXECUTE,
+            cls.AGENT_KAI_TRADE_APPROVE,
             cls.AGENT_NAV_REVIEW,
             cls.AGENT_NAV_REVOKE,
             cls.AGENT_KYC_PROCESS,

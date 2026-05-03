@@ -18,11 +18,14 @@ MANIFEST = {
         ConsentScope.PKM_WRITE,
         ConsentScope.AGENT_KAI_ANALYZE,
     ],
-    # Optional scopes (for hybrid mode)
+    # Optional scopes (for hybrid mode and trading specialist)
     "optional_scopes": [
         ConsentScope("external.sec.filings"),
         ConsentScope("external.market.data"),
         ConsentScope("external.news.api"),
+        ConsentScope.AGENT_KAI_TRADE_SIMULATE,
+        ConsentScope.AGENT_KAI_TRADE_EXECUTE,
+        ConsentScope.AGENT_KAI_TRADE_APPROVE,
     ],
     # Specialist agents
     "specialists": [
@@ -47,13 +50,28 @@ MANIFEST = {
             "color": "#10b981",  # Green
             "icon": "calculator",
         },
+        {
+            "id": "trading",
+            "name": "Trading Agent",
+            "description": (
+                "Strategy research, walk-forward backtesting, paper trading, "
+                "and per-order-approved execution. Reports realized IRR honestly "
+                "and halts on circuit-breaker breach."
+            ),
+            "color": "#f59e0b",  # Amber
+            "icon": "trending-up",
+        },
     ],
     # Capabilities
     "capabilities": {
-        "on_device": True,  # Supports on-device analysis
-        "hybrid": True,  # Supports hybrid mode with external data
-        "real_time": True,  # Can fetch real-time data
-        "historical": True,  # Can analyze historical data
+        "on_device": True,
+        "hybrid": True,
+        "real_time": True,
+        "historical": True,
+        # Permissioned execution: every live order requires a signed
+        # ExecutionApproval bound to the user's vault-owner consent token.
+        # The Trading specialist is the only surface that may emit OrderIntents.
+        "permissioned_execution": True,
     },
     # Regulatory compliance
     "compliance": {
@@ -61,6 +79,10 @@ MANIFEST = {
         "not_investment_advice": True,
         "disclaimer_required": True,
         "audit_trail": True,
+        # Trading-specialist guarantees:
+        "per_order_human_approval": True,
+        "kill_switch": True,
+        "honest_irr_reporting": True,
     },
 }
 

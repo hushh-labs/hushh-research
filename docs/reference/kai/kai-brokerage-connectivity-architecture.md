@@ -40,14 +40,50 @@ Founder-language framing:
 - Statement import: editable
 - Plaid: read-only holdings, accounts, investment transactions, refresh, OAuth resume
 - Combined: comparison-only rollup, not a direct analysis or execution source
+- **Trading specialist (added 2026-05)**: strategy research, walk-forward backtesting,
+  and paper trading run inside the consent-protocol process. Live broker
+  execution is gated behind every rule below and ships paper-first per
+  milestone — see `kai-trading-system.md` for the milestone gate.
+
+### Permissioned Execution Rules (binding)
+
+Every live broker order placed by the Trading specialist must satisfy ALL of
+the following. None are aspirational — code paths that cannot satisfy a rule
+must fail closed.
+
+1. **Separate broker-adapter layer.** Execution does not flow through Plaid.
+   It uses a distinct adapter under `hushh_mcp/integrations/<broker>_trading/`,
+   isolated from `hushh_mcp/integrations/plaid/`.
+2. **Distinct consent scopes.** `agent.kai.trade.simulate`,
+   `agent.kai.trade.execute`, and `agent.kai.trade.approve` are independent.
+   `EXECUTE` alone is never sufficient; each individual `OrderIntent` must
+   carry a freshly-signed `ExecutionApproval` whose token chains to a
+   vault-owner consent token.
+3. **Per-order human approval.** No agent may auto-trade from debate, optimize,
+   backtest, or paper. Every order is rendered as an `OrderPreview` (qty,
+   side, est. price, fees, portfolio impact, risk-limit headroom) and
+   requires explicit click-to-sign.
+4. **Idempotency.** Every `OrderIntent` carries an `idempotency_key` reused
+   as the broker's client-order-id. Resubmissions are a no-op.
+5. **Audit logging.** An append-only hash-chained `kai_execution_audit` log
+   records every Intent, Preview, Approval, Order, Status, Fill, and
+   reconciliation. Audit rows use the same encryption envelope as PKM.
+6. **Post-trade reconciliation.** Broker fills write back to the PKM under
+   `financial.trading.live.book` as a separate source-of-truth, then are
+   cross-checked against Plaid holdings on the next sync.
+7. **Risk + kill switch.** Daily-loss / drawdown / leverage / concentration
+   circuit breakers run before any submit. The env var
+   `KAI_TRADING_MODE=paper|live|halt` is honored as a global override; `halt`
+   blocks every `ExecutionBroker.submit` and rejects in-flight calls.
+8. **Honest IRR reporting.** Realized IRR is reported alongside Sharpe,
+   Sortino, Calmar, max drawdown, and turnover. The 69.69% North Star is a
+   target, never a guarantee — copy and code must not imply otherwise.
 
 ### Not Current
 
-- live trade execution
-- broker order placement
-- auto-trading from debate or optimize
-
-Future trade execution must use a separate broker-adapter layer and distinct consent/approval flows.
+- auto-trading from debate or optimize (still forbidden — only the Trading
+  specialist may emit OrderIntents, and only via the per-order approval flow)
+- order placement that bypasses any of the eight rules above
 
 ## Modularization Boundary
 
@@ -163,9 +199,10 @@ Current guardrails:
 - combined requires explicit source selection first
 - optimize remains fail-closed when realtime market dependencies are missing
 
-## Future Broker Execution Shape
+## Broker Execution Shape
 
-Execution-ready reserved contracts:
+The contracts below were reserved in earlier revisions and are now
+concrete — see `hushh_mcp/operons/kai/trading/execution/contracts.py`.
 
 - `BrokerConnection`
 - `ExecutionBroker`
@@ -176,9 +213,12 @@ Execution-ready reserved contracts:
 - `ExecutionOrder`
 - `ExecutionStatus`
 
-Execution principles:
+The execution principles below restate the binding rules under "Permissioned
+Execution Rules" above:
 
 - broker-adapter based, not Plaid based
-- explicit human approval by default
+- explicit per-order human approval, no auto-trade paths
 - audit logging and idempotency mandatory
 - post-trade reconciliation writes back into the PKM as a separate source of truth
+- realized-IRR reporting is honest; the 69.69% North Star is a target, not a
+  guarantee
