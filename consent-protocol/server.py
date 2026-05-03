@@ -193,6 +193,12 @@ app.include_router(marketplace.router)
 app.include_router(invites.router)
 logger.info("ria.routes_enabled")
 
+# iAlphabets: A-Z stock trading game
+from api.routes.ialphabets import router as ialphabets_router  # noqa: E402
+
+app.include_router(ialphabets_router)
+logger.info("ialphabets.routes_enabled")
+
 logger.info(
     "🚀 Hushh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + WORLD MODEL ENABLED"
 )

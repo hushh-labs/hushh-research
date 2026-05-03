@@ -230,5 +230,34 @@ class TickerCache:
         return out
 
 
+    def search_by_letter(self, letter: str, q: str = "", limit: int = 25) -> List[dict]:
+        letter = (letter or "").upper().strip()
+        if not letter or len(letter) != 1 or not letter.isalpha():
+            return []
+
+        limit = max(1, min(int(limit), 100))
+        q_lower = (q or "").strip().lower()
+        out: List[dict] = []
+        with self._lock:
+            for row in self._rows:
+                if not row.ticker.startswith(letter):
+                    continue
+                if q_lower and q_lower not in row.ticker.lower() and q_lower not in (row.title or "").lower():
+                    continue
+                out.append(
+                    {
+                        "ticker": row.ticker,
+                        "title": row.title,
+                        "exchange": row.exchange,
+                        "sector_primary": row.sector_primary,
+                        "industry_primary": row.industry_primary,
+                        "tradable": row.tradable,
+                    }
+                )
+                if len(out) >= limit:
+                    break
+        return out
+
+
 # Singleton per-process cache
 ticker_cache = TickerCache()

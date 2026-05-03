@@ -27,6 +27,12 @@ export const ROUTES = {
   KAI_DASHBOARD: "/kai/portfolio",
   KAI_ANALYSIS: "/kai/analysis",
   KAI_OPTIMIZE: "/kai/optimize",
+  IALPHABETS_HOME: "/ialphabets",
+  IALPHABETS_LEAGUES: "/ialphabets/leagues",
+  IALPHABETS_DRAFT: "/ialphabets/draft",
+  IALPHABETS_JOIN: "/ialphabets/join",
+  IALPHABETS_DISCOVER: "/ialphabets/discover",
+  IALPHABETS_SHARE: "/ialphabets/share",
 } as const;
 
 export function isKaiOnboardingRoute(pathname: string): boolean {
@@ -42,6 +48,13 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.LOGIN ||
     pathname === ROUTES.LOGOUT ||
     pathname === ROUTES.PROFILE
+  );
+}
+
+export function isIalphabetsRoute(pathname: string): boolean {
+  return (
+    pathname === ROUTES.IALPHABETS_HOME ||
+    pathname.startsWith(`${ROUTES.IALPHABETS_HOME}/`)
   );
 }
 

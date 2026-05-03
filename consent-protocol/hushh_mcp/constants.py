@@ -58,6 +58,11 @@ class ConsentScope(str, Enum):
     EXTERNAL_MARKET_DATA = "external.market.data"
     EXTERNAL_RENAISSANCE = "external.renaissance.data"
 
+    # ==================== iALPHABETS GAME ====================
+    GAME_IALPHABETS_PLAY = "game.ialphabets.play"
+    GAME_IALPHABETS_READ = "game.ialphabets.read"
+    GAME_IALPHABETS_WRITE = "game.ialphabets.write"
+
     # Data access uses world_model.read, world_model.write, and dynamic attr.{domain}.* scopes.
 
     @classmethod
@@ -178,6 +183,9 @@ class ConsentScope(str, Enum):
             cls.WORLD_MODEL_READ,
             cls.WORLD_MODEL_WRITE,
             cls.WORLD_MODEL_METADATA,
+            cls.GAME_IALPHABETS_PLAY,
+            cls.GAME_IALPHABETS_READ,
+            cls.GAME_IALPHABETS_WRITE,
         ]
 
     @classmethod
