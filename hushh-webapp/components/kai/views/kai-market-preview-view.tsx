@@ -1239,7 +1239,7 @@ type KaiMarketLoadOptions = {
 function useKaiMarketHomeController() {
   const { user } = useAuth();
   const {
-    vaultKey,
+    getVaultKey,
     tokenExpiresAt,
     unlockVault,
     getVaultOwnerToken,
@@ -1257,8 +1257,8 @@ function useKaiMarketHomeController() {
   } = useKaiFinancialResource({
     userId: user?.uid ?? "",
     vaultOwnerToken,
-    vaultKey,
-    enabled: Boolean(user?.uid && vaultKey && vaultOwnerToken && financialResourceEnabled),
+    vaultKey: getVaultKey() ?? "",
+    enabled: Boolean(user?.uid && (getVaultKey() ?? "") && vaultOwnerToken && financialResourceEnabled),
     backgroundRefresh: false,
   });
 
@@ -1323,8 +1323,8 @@ function useKaiMarketHomeController() {
         currentExpiresAt: tokenExpiresAt,
         forceRefresh,
         onIssued: (issuedToken, expiresAt) => {
-          if (vaultKey && (issuedToken !== vaultOwnerToken || expiresAt !== tokenExpiresAt)) {
-            unlockVault(vaultKey, issuedToken, expiresAt);
+          if ((getVaultKey() ?? "") && (issuedToken !== vaultOwnerToken || expiresAt !== tokenExpiresAt)) {
+            unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
           }
         },
       });
@@ -1334,7 +1334,7 @@ function useKaiMarketHomeController() {
       tokenExpiresAt,
       unlockVault,
       user?.uid,
-      vaultKey,
+      getVaultKey,
       vaultOwnerToken,
     ]
   );
@@ -1375,11 +1375,11 @@ function useKaiMarketHomeController() {
       }
       const currentToken = getVaultOwnerToken?.() ?? vaultOwnerToken ?? null;
       if (options?.force) {
-        if (!currentToken && !vaultKey) {
+        if (!currentToken && !(getVaultKey() ?? "")) {
           return null;
         }
         const forcedToken =
-          currentToken && !vaultKey ? currentToken : await resolveToken(true);
+          currentToken && !(getVaultKey() ?? "") ? currentToken : await resolveToken(true);
         return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
           userId: user.uid,
           vaultOwnerToken: forcedToken,
@@ -1415,7 +1415,7 @@ function useKaiMarketHomeController() {
         });
       }
 
-      if (!vaultKey) {
+      if (!(getVaultKey() ?? "")) {
         return null;
       }
       const token = await resolveToken(false);
@@ -1435,7 +1435,7 @@ function useKaiMarketHomeController() {
   const payload = personalizedPayload ?? baselinePayload;
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!user?.uid || !(getVaultKey() ?? "") || !vaultOwnerToken) {
       setFinancialResourceEnabled(false);
       backgroundRefreshKeyRef.current = null;
       return;
@@ -1481,7 +1481,7 @@ function useKaiMarketHomeController() {
     personalizedResource.data,
     personalizedResource.snapshot?.data,
     user?.uid,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
@@ -1566,11 +1566,11 @@ function useKaiMarketHomeController() {
       }
       const shouldForce = Boolean(forceTokenRefresh || manual);
       await baselineResource.refresh({ force: shouldForce });
-      if (marketResourceReady && (vaultOwnerToken || vaultKey)) {
+      if (marketResourceReady && (vaultOwnerToken || (getVaultKey() ?? ""))) {
         await personalizedResource.refresh({ force: shouldForce });
       }
     },
-    [baselineResource, marketResourceReady, personalizedResource, user?.uid, vaultKey, vaultOwnerToken]
+    [baselineResource, marketResourceReady, personalizedResource, user?.uid, getVaultKey, vaultOwnerToken]
   );
 
   const handlePickSourceChange = useCallback(

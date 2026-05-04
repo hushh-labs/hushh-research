@@ -81,7 +81,7 @@ function toDateOrNow(value: string | null | undefined): Date {
 export function KaiNavTour() {
   const pathname = usePathname();
   const { user, loading } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, getVaultKey, vaultOwnerToken } = useVault();
 
   const [stepIndex, setStepIndex] = useState(0);
   const [open, setOpen] = useState(false);
@@ -115,7 +115,7 @@ export function KaiNavTour() {
         return;
       }
 
-      if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      if (!isVaultUnlocked || !(getVaultKey() ?? "") || !vaultOwnerToken) {
         const remoteState = await PreVaultUserStateService.bootstrapState(user.uid).catch(
           () => null
         );
@@ -129,7 +129,7 @@ export function KaiNavTour() {
         try {
           const profile = await KaiProfileService.getProfile({
             userId: user.uid,
-            vaultKey,
+            vaultKey: getVaultKey() ?? "",
             vaultOwnerToken,
           });
 
@@ -178,7 +178,7 @@ export function KaiNavTour() {
     isVaultUnlocked,
     loading,
     user?.uid,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
@@ -291,11 +291,11 @@ export function KaiNavTour() {
     skippedAt?: string | null;
   }) {
     if (!user?.uid) return;
-    if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
+    if (isVaultUnlocked && (getVaultKey() ?? "") && vaultOwnerToken) {
       try {
         await KaiProfileService.setNavTourState({
           userId: user.uid,
-          vaultKey,
+          vaultKey: getVaultKey() ?? "",
           vaultOwnerToken,
           completedAt: payload.completedAt,
           skippedAt: payload.skippedAt,
@@ -307,7 +307,7 @@ export function KaiNavTour() {
       return;
     }
 
-    if (isVaultUnlocked && vaultKey && !vaultOwnerToken) {
+    if (isVaultUnlocked && (getVaultKey() ?? "") && !vaultOwnerToken) {
       // Token not ready yet; local state is already persisted and will sync later.
       return;
     }

@@ -45,7 +45,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const nativeTestConfig = useNativeTestConfig();
 
   const [checking, setChecking] = useState(true);
@@ -146,7 +146,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
         // pre-vault mirror, but do not force legacy vault users into onboarding when
         // the mirror has never been backfilled yet. Their real onboarding state will
         // be determined from the encrypted profile after unlock.
-        if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+        if (!isVaultUnlocked || !(getVaultKey() ?? "") || !vaultOwnerToken) {
           const remoteState = await PreVaultUserStateService.bootstrapState(user.uid).catch(
             () => null
           );
@@ -179,7 +179,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
 
         const profile = await KaiProfileService.getProfile({
           userId: user.uid,
-          vaultKey,
+          vaultKey: getVaultKey() ?? "",
           vaultOwnerToken,
         });
 
@@ -198,7 +198,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
 
             void KaiProfileSyncService.syncPendingToVault({
               userId: user.uid,
-              vaultKey,
+              vaultKey: getVaultKey() ?? "",
               vaultOwnerToken,
             }).catch((syncError) => {
               console.warn(
@@ -268,7 +268,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
     user,
     user?.uid,
     isVaultUnlocked,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
     pathname,
     nativeTestConfig.enabled,

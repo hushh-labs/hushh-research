@@ -412,7 +412,7 @@ export function DashboardMasterView({
   onReupload,
 }: DashboardMasterViewProps) {
   const router = useRouter();
-  const { vaultKey } = useVault();
+  const { getVaultKey } = useVault();
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const setLosersInput = useKaiSession((s) => s.setLosersInput);
   const baselineBySourceRef = useRef<Map<string, ComparableHolding>>(new Map());
@@ -438,7 +438,7 @@ export function DashboardMasterView({
   } = usePortfolioSources({
     userId,
     vaultOwnerToken,
-    vaultKey,
+    vaultKey: getVaultKey() ?? "",
     initialStatementPortfolio: portfolioData ?? null,
   });
 
@@ -1553,7 +1553,7 @@ export function DashboardMasterView({
   }, [canEditStatement]);
 
   const persistHoldingsChanges = useCallback(async () => {
-    if (!userId || !vaultKey || !statementEditablePortfolio) {
+    if (!userId || !(getVaultKey() ?? "") || !statementEditablePortfolio) {
       toast.error("Unlock your Vault to save holdings.");
       return;
     }
@@ -1617,7 +1617,7 @@ export function DashboardMasterView({
       const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
         domain: "financial",
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken: vaultOwnerToken || undefined,
         build: (context) => {
           const existingFinancial =
@@ -1684,12 +1684,12 @@ export function DashboardMasterView({
     setCachePortfolioData,
     statementEditablePortfolio,
     userId,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
   const handleDeleteImportedData = useCallback(async () => {
-    if (!userId || !vaultKey || !statementEditablePortfolio) {
+    if (!userId || !(getVaultKey() ?? "") || !statementEditablePortfolio) {
       toast.error("Unlock your Vault to delete imported data.");
       return;
     }
@@ -1735,7 +1735,7 @@ export function DashboardMasterView({
       const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
         domain: "financial",
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken: vaultOwnerToken || undefined,
         build: (context) => {
           const existingFinancial =
@@ -1842,7 +1842,7 @@ export function DashboardMasterView({
     reload,
     statementEditablePortfolio,
     userId,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
   ]);
 

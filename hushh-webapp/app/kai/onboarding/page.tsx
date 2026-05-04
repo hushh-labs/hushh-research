@@ -76,7 +76,7 @@ function KaiOnboardingPageContent() {
   const searchParams = useSearchParams();
   const nativeTestConfig = useNativeTestConfig();
   const { user, loading: authLoading } = useAuth();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { activePersona, loading: personaLoading, riaCapability, switchPersona } = usePersonaState();
 
   const [source, setSource] = useState<OnboardingSource | null>(null);
@@ -147,14 +147,14 @@ function KaiOnboardingPageContent() {
 
         setSource("vault");
 
-        if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+        if (!isVaultUnlocked || !(getVaultKey() ?? "") || !vaultOwnerToken) {
           setStage("loading");
           return;
         }
 
         const nextProfile = await KaiProfileService.getProfile({
           userId: user.uid,
-          vaultKey,
+          vaultKey: getVaultKey() ?? "",
           vaultOwnerToken,
         });
 
@@ -205,7 +205,7 @@ function KaiOnboardingPageContent() {
     user,
     user?.uid,
     isVaultUnlocked,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
     router,
     retryNonce,
@@ -436,13 +436,13 @@ function KaiOnboardingPageContent() {
             const riskScore = computeRiskScore(wizardAnswers as PreVaultOnboardingAnswers);
 
             if (source === "vault") {
-              if (!vaultKey || !vaultOwnerToken) {
+              if (!(getVaultKey() ?? "") || !vaultOwnerToken) {
                 toast.error("Unlock your vault to continue.");
                 return;
               }
               const nextProfile = await KaiProfileService.setOnboardingCompleted({
                 userId: user.uid,
-                vaultKey,
+                vaultKey: getVaultKey() ?? "",
                 vaultOwnerToken,
                 skippedPreferences: false,
               });
@@ -546,13 +546,13 @@ function KaiOnboardingPageContent() {
         try {
           setSaving(true);
           if (source === "vault") {
-            if (!vaultKey || !vaultOwnerToken) {
+            if (!(getVaultKey() ?? "") || !vaultOwnerToken) {
               toast.error("Unlock your vault to continue.");
               return;
             }
             const nextProfile = await KaiProfileService.setOnboardingCompleted({
               userId: user.uid,
-              vaultKey,
+              vaultKey: getVaultKey() ?? "",
               vaultOwnerToken,
               skippedPreferences: true,
             });
@@ -621,14 +621,14 @@ function KaiOnboardingPageContent() {
           setSaving(true);
 
           if (source === "vault") {
-            if (!vaultKey || !vaultOwnerToken) {
+            if (!(getVaultKey() ?? "") || !vaultOwnerToken) {
               toast.error("Unlock your vault to continue.");
               return;
             }
 
             const nextProfile = await KaiProfileService.savePreferences({
               userId: user.uid,
-              vaultKey,
+              vaultKey: getVaultKey() ?? "",
               vaultOwnerToken,
               updates: nextAnswers,
               mode: "onboarding",

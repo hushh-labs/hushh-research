@@ -828,7 +828,7 @@ export function PortfolioReviewView({
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const { user } = useAuth();
   const {
-    vaultKey: ctxVaultKey,
+    getVaultKey: ctxGetVaultKey,
     vaultOwnerToken: ctxVaultOwnerToken,
     tokenExpiresAt: ctxTokenExpiresAt,
     unlockVault: contextUnlockVault,
@@ -838,7 +838,7 @@ export function PortfolioReviewView({
     typeof contextGetVaultOwnerToken === "function"
       ? contextGetVaultOwnerToken()
       : ctxVaultOwnerToken;
-  const effectiveVaultKey = ctxVaultKey ?? vaultKey;
+  const effectiveVaultKey = ctxGetVaultKey() ?? vaultKey;
   const effectiveVaultOwnerToken = currentContextToken ?? vaultOwnerToken;
 
   // Editable state

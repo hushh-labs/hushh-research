@@ -145,7 +145,7 @@ const SpinningLoader = (props: any) => (
 export function ManagePortfolioView() {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { getVaultKey, vaultOwnerToken } = useVault();
   const { getPortfolioData, setPortfolioData: setCachePortfolioData } = useCache();
   
   const [isLoading, setIsLoading] = useState(true);
@@ -191,7 +191,7 @@ export function ManagePortfolioView() {
       // Step 1: Auth check
       completeStep();
 
-      if (!user?.uid || !vaultKey) {
+      if (!user?.uid || !(getVaultKey() ?? "")) {
         setIsLoading(false);
         completeStep(); // Complete step 2 even if no data
         return;
@@ -233,7 +233,7 @@ export function ManagePortfolioView() {
               const snapshot = await PkmDomainResourceService.getStaleFirst({
                 userId: user.uid,
                 domain: "financial",
-                vaultKey,
+                vaultKey: getVaultKey() ?? "",
                 vaultOwnerToken: vaultOwnerToken || undefined,
                 backgroundRefresh: false,
               });
@@ -306,7 +306,7 @@ export function ManagePortfolioView() {
     loadPortfolio();
   }, [
     user?.uid,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
     completeStep,
     getPortfolioData,
@@ -315,7 +315,7 @@ export function ManagePortfolioView() {
 
   // Handle save
   const handleSave = useCallback(async () => {
-    if (!user?.uid || !vaultKey) {
+    if (!user?.uid || !(getVaultKey() ?? "")) {
       toast.error("Please unlock your vault first");
       return;
     }
@@ -355,7 +355,7 @@ export function ManagePortfolioView() {
       const result = await PkmWriteCoordinator.saveMergedDomain({
         userId: user.uid,
         domain: "financial",
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken: vaultOwnerToken || undefined,
         build: (context) => {
           const existingFinancial =
@@ -428,7 +428,7 @@ export function ManagePortfolioView() {
     }
   }, [
     user?.uid,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
     accountInfo,
     accountSummary,

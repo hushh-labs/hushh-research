@@ -41,7 +41,7 @@ function readableMethod(method: VaultMethod): string {
 export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
   const pathname = usePathname();
   const { user, loading } = useAuth();
-  const { vaultKey, isVaultUnlocked } = useVault();
+  const { getVaultKey, isVaultUnlocked } = useVault();
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,7 +55,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
     []
   );
 
-  const canEvaluate = enabled && !loading && !!user?.uid && isVaultUnlocked && !!vaultKey;
+  const canEvaluate = enabled && !loading && !!user?.uid && isVaultUnlocked && !!(getVaultKey() ?? "");
 
   useEffect(() => {
     let cancelled = false;
@@ -166,13 +166,13 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
   }
 
   async function handleEnable() {
-    if (!user?.uid || !vaultKey || !targetMethod) return;
+    if (!user?.uid || !(getVaultKey() ?? "") || !targetMethod) return;
 
     setBusy(true);
     try {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
-        currentVaultKey: vaultKey,
+        currentVaultKey: (getVaultKey() ?? ""),
         displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
       });

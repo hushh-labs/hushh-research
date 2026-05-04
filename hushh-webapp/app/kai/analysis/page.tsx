@@ -135,7 +135,7 @@ function KaiAnalysisPageContent() {
   const searchParams = useSearchParams();
 
   const { user, userId } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { getVaultKey, vaultOwnerToken } = useVault();
 
   const analysisParams = useKaiSession((s) => s.analysisParams);
   const analysisParamsUpdatedAt = useKaiSession((s) => s.analysisParamsUpdatedAt);
@@ -269,13 +269,13 @@ function KaiAnalysisPageContent() {
   }, [focusedRunId, userId]);
 
   useEffect(() => {
-    if (!userId || !vaultOwnerToken || !vaultKey) return;
+    if (!userId || !vaultOwnerToken || !(getVaultKey() ?? "")) return;
     void DebateRunManagerService.resumeActiveRun({
       userId,
       vaultOwnerToken,
-      vaultKey,
+      vaultKey: getVaultKey() ?? "",
     }).catch(() => undefined);
-  }, [userId, vaultKey, vaultOwnerToken]);
+  }, [userId, getVaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     setBusyOperation("stock_analysis_active", Boolean(liveIntentReady));
@@ -291,13 +291,13 @@ function KaiAnalysisPageContent() {
   }, [liveEntry, liveIntentReady, resolvedEntry]);
 
   useEffect(() => {
-    if (!debateId || !userId || !vaultKey) {
+    if (!debateId || !userId || !(getVaultKey() ?? "")) {
       setResolvedEntry(null);
       setResolvingEntry(false);
       return;
     }
     const resolvedUserId = userId;
-    const resolvedVaultKey = vaultKey;
+    const resolvedVaultKey = (getVaultKey() ?? "");
 
     let cancelled = false;
     setResolvingEntry(true);
@@ -327,7 +327,7 @@ function KaiAnalysisPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [debateId, userId, vaultKey, vaultOwnerToken]);
+  }, [debateId, userId, getVaultKey, vaultOwnerToken]);
 
   const handleSelectTicker = useCallback(
     (ticker: string) => {
@@ -965,7 +965,7 @@ function KaiAnalysisPageContent() {
     );
   }
 
-  if (!vaultKey) {
+  if (!(getVaultKey() ?? "")) {
     return (
       <AppPageShell as="div" width="reading">
         <NativeTestBeacon
@@ -1096,7 +1096,7 @@ function KaiAnalysisPageContent() {
                     userId={activeRunTask.userId}
                     riskProfile={analysisParams?.riskProfile || "balanced"}
                     vaultOwnerToken={vaultOwnerToken || ""}
-                    vaultKey={vaultKey}
+                    vaultKey={(getVaultKey() ?? "")}
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
                     pickSource={analysisParams?.pickSource}
@@ -1114,7 +1114,7 @@ function KaiAnalysisPageContent() {
                     userId={focusedRunTask.userId}
                     riskProfile={analysisParams?.riskProfile || "balanced"}
                     vaultOwnerToken={vaultOwnerToken || ""}
-                    vaultKey={vaultKey}
+                    vaultKey={(getVaultKey() ?? "")}
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
                     pickSource={analysisParams?.pickSource}
@@ -1131,7 +1131,7 @@ function KaiAnalysisPageContent() {
                     userId={analysisParams.userId}
                     riskProfile={analysisParams.riskProfile}
                     vaultOwnerToken={vaultOwnerToken || ""}
-                    vaultKey={vaultKey}
+                    vaultKey={(getVaultKey() ?? "")}
                     portfolioContextOverride={analysisParams?.portfolioContext || null}
                     portfolioSource={analysisParams?.portfolioSource}
                     pickSource={analysisParams?.pickSource}
@@ -1277,7 +1277,7 @@ function KaiAnalysisPageContent() {
           ) : null}
           <AnalysisHistoryDashboard
             userId={userId}
-            vaultKey={vaultKey}
+            vaultKey={(getVaultKey() ?? "")}
             vaultOwnerToken={vaultOwnerToken || ""}
             onSelectTicker={handleSelectTicker}
             onViewHistory={handleViewHistory}

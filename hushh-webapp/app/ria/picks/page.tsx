@@ -1324,7 +1324,7 @@ export default function RiaPicksPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { riaCapability, loading: personaLoading, refreshing: personaRefreshing } = usePersonaState();
 
   const [source, setSource] = useState<PicksSource>("kai");
@@ -1410,7 +1410,7 @@ export default function RiaPicksPage() {
       return RiaService.listPicks({
         idToken,
         userId: user.uid,
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
       });
     },
@@ -1987,7 +1987,7 @@ export default function RiaPicksPage() {
     await RiaService.savePickPackage({
       idToken,
       userId: user.uid,
-      vaultKey,
+      vaultKey: getVaultKey() ?? "",
       vaultOwnerToken,
       label: nextLabel || "Active advisor package",
       package_note: payload.package_note || undefined,
@@ -2041,14 +2041,14 @@ export default function RiaPicksPage() {
     if (!user || !fileContent.trim()) return;
     try {
       setSubmitting(true);
-      if (!vaultKey || !vaultOwnerToken) {
+      if (!(getVaultKey() ?? "") || !vaultOwnerToken) {
         throw new Error("Unlock the vault before importing advisor picks.");
       }
       const idToken = await user.getIdToken();
       await RiaService.importPickCsv({
         idToken,
         userId: user.uid,
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
         csv_content: fileContent,
         source_filename: fileName || undefined,
@@ -2077,7 +2077,7 @@ export default function RiaPicksPage() {
     if (!draftPackage) return;
     try {
       setPackageSaving(true);
-      if (!vaultKey || !vaultOwnerToken) {
+      if (!(getVaultKey() ?? "") || !vaultOwnerToken) {
         throw new Error("Unlock the vault before saving advisor picks.");
       }
       const { payload, validation } = await validateDraft(draftPackage);

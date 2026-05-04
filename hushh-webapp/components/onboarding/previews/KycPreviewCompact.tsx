@@ -55,12 +55,12 @@ function buildDisplayItems(
 
 export function KycPreviewCompact() {
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
   const { data: snapshot } = usePkmDomainResource({
     userId: user?.uid ?? "",
     domain: KYC_WORKFLOW_PKM_DOMAIN,
-    vaultKey,
+    vaultKey: getVaultKey() ?? "",
     vaultOwnerToken,
     enabled: Boolean(user?.uid && isVaultUnlocked),
   });

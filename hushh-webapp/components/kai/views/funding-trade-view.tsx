@@ -81,7 +81,7 @@ function intentStatusTone(status: string | null | undefined): string {
 
 export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewProps) {
   const router = useRouter();
-  const { vaultKey } = useVault();
+  const { getVaultKey } = useVault();
   const [isLinkingFunding, setIsLinkingFunding] = useState(false);
   const [isLinkingBrokerage, setIsLinkingBrokerage] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -96,7 +96,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
   const { isLoading, error, plaidFundingStatus, reload } = usePortfolioSources({
     userId,
     vaultOwnerToken,
-    vaultKey,
+    vaultKey: getVaultKey() ?? "",
   });
 
   const fundingItem = (plaidFundingStatus?.items || [])[0] || null;

@@ -14,14 +14,15 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
 import { KaiProfileService, type KaiProfileV2 } from "@/lib/services/kai-profile-service";
 import { useFadeInOnReady } from "@/lib/morphy-ux/hooks/use-fade-in-on-ready";
+import { useVault } from "@/lib/vault/vault-context";
 
 export function KaiPreferencesSheet(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
-  vaultKey: string;
   vaultOwnerToken: string;
 }) {
+  const { getVaultKey } = useVault();
   const [profile, setProfile] = useState<KaiProfileV2 | null>(null);
   const [loading, setLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -37,7 +38,7 @@ export function KaiPreferencesSheet(props: {
       try {
         const p = await KaiProfileService.getProfile({
           userId: props.userId,
-          vaultKey: props.vaultKey,
+          vaultKey: getVaultKey() ?? "",
           vaultOwnerToken: props.vaultOwnerToken,
         });
         if (!cancelled) setProfile(p);
@@ -54,7 +55,7 @@ export function KaiPreferencesSheet(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.open, props.userId, props.vaultKey, props.vaultOwnerToken]);
+  }, [props.open, props.userId, props.vaultOwnerToken, getVaultKey]);
 
   return (
     <Sheet
@@ -101,7 +102,7 @@ export function KaiPreferencesSheet(props: {
                       setLoading(true);
                       await KaiProfileService.savePreferences({
                         userId: props.userId,
-                        vaultKey: props.vaultKey,
+                        vaultKey: getVaultKey() ?? "",
                         vaultOwnerToken: props.vaultOwnerToken,
                         updates: {
                           investment_horizon: payload.investment_horizon,

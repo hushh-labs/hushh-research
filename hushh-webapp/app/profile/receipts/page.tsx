@@ -227,7 +227,7 @@ function isReceiptMemoryWatermarkCurrent(
 export default function ProfileReceiptsPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
@@ -804,7 +804,7 @@ export default function ProfileReceiptsPage() {
 
   const handleSaveReceiptMemory = useCallback(async () => {
     if (!user?.uid || !receiptMemoryArtifact) return;
-    if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
+    if (!(getVaultKey() ?? "") || !vaultOwnerToken || !isVaultUnlocked) {
       requestVaultUnlock();
       return;
     }
@@ -819,7 +819,7 @@ export default function ProfileReceiptsPage() {
       const existingContext = await PkmDomainResourceService.prepareDomainWriteContext({
         userId: user.uid,
         domain: "shopping",
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
       });
       if (
@@ -834,7 +834,7 @@ export default function ProfileReceiptsPage() {
       const result = await PkmWriteCoordinator.savePreparedDomain({
         userId: user.uid,
         domain: "shopping",
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
         build: async (context) => {
           const prepared = buildShoppingReceiptMemoryPreparedDomain({
@@ -844,7 +844,7 @@ export default function ProfileReceiptsPage() {
           });
           const validation = await PersonalKnowledgeModelService.validatePreparedDomainStore({
             userId: user.uid,
-            vaultKey,
+            vaultKey: getVaultKey() ?? "",
             vaultOwnerToken,
             domain: "shopping",
             domainData: prepared.domainData,
@@ -885,7 +885,7 @@ export default function ProfileReceiptsPage() {
     receiptSummaryDraft,
     requestVaultUnlock,
     user,
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
@@ -1080,7 +1080,7 @@ export default function ProfileReceiptsPage() {
               >
                 {receiptMemorySaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : !vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
+                ) : !(getVaultKey() ?? "") || !vaultOwnerToken || !isVaultUnlocked ? (
                   <Lock className="mr-2 h-4 w-4" />
                 ) : null}
                 Save insights
@@ -1096,7 +1096,7 @@ export default function ProfileReceiptsPage() {
                 We&apos;ll prepare your shopping summary after Gmail finishes syncing.
               </p>
             ) : null}
-            {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
+            {!(getVaultKey() ?? "") || !vaultOwnerToken || !isVaultUnlocked ? (
               <p className="text-xs text-muted-foreground">
                 Unlock your vault to save this summary.
               </p>
