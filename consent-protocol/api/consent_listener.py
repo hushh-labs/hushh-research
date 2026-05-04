@@ -35,8 +35,16 @@ JOB_DB_RECOVERY_DELAY_SECONDS = 15
 FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
-# Per-user queues for SSE generators (no polling). Key = user_id.
-_consent_notify_queues: Dict[str, asyncio.Queue] = {}
+# Per-user state for SSE generators (no polling).
+class UserQueueState:
+    def __init__(self, user_id: str):
+        self.user_id = user_id
+        # Bounded queue to prevent unbounded memory growth per user
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self.ref_count = 0
+        self.last_active = time.time()
+
+_consent_notify_queues: Dict[str, UserQueueState] = {}
 _consent_notify_queues_lock = asyncio.Lock()
 
 # Diagnostic: set when listener is running and when NOTIFY is received
@@ -107,20 +115,43 @@ def _is_database_unavailable_error(exc: Exception) -> bool:
 
 async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
     async with _consent_notify_queues_lock:
-        q = _consent_notify_queues.get(user_id)
-        if q is None:
+        state = _consent_notify_queues.get(user_id)
+        if state is None:
             return
+        state.last_active = time.time()
         try:
-            q.put_nowait(data)
+            state.queue.put_nowait(data)
         except asyncio.QueueFull:
-            pass
+            logger.warning(
+                "Consent queue overflow for user_id=%s. Dropping notification.",
+                user_id
+            )
 
 
-def get_consent_queue(user_id: str) -> asyncio.Queue:
-    """Get or create the asyncio queue for this user (used by SSE generator)."""
-    if user_id not in _consent_notify_queues:
-        _consent_notify_queues[user_id] = asyncio.Queue()
-    return _consent_notify_queues[user_id]
+async def get_consent_queue(user_id: str) -> asyncio.Queue:
+    """
+    Get or create the asyncio queue for this user (used by SSE generator).
+    Increments ref_count to track active consumers.
+    """
+    async with _consent_notify_queues_lock:
+        if user_id not in _consent_notify_queues:
+            _consent_notify_queues[user_id] = UserQueueState(user_id)
+        
+        state = _consent_notify_queues[user_id]
+        state.ref_count += 1
+        state.last_active = time.time()
+        return state.queue
+
+async def release_consent_queue(user_id: str) -> None:
+    """
+    Decrement ref_count for a user's queue. 
+    Called when an SSE connection disconnects.
+    """
+    async with _consent_notify_queues_lock:
+        state = _consent_notify_queues.get(user_id)
+        if state:
+            state.ref_count = max(0, state.ref_count - 1)
+            state.last_active = time.time()
 
 
 def get_consent_listener_status() -> dict:
@@ -625,15 +656,44 @@ async def _timeout_job_loop():
             logger.warning("Timeout job error: %s", e)
 
 
+async def _cleanup_queues_job_loop():
+    """
+    Periodically reclaim memory from idle queues with no active consumers.
+    """
+    idle_threshold_seconds = 3600  # 1 hour
+    cleanup_interval = 600        # 10 minutes
+
+    while True:
+        try:
+            await asyncio.sleep(cleanup_interval)
+            async with _consent_notify_queues_lock:
+                now = time.time()
+                to_delete = []
+                for user_id, state in _consent_notify_queues.items():
+                    if state.ref_count <= 0 and (now - state.last_active) > idle_threshold_seconds:
+                        to_delete.append(user_id)
+                
+                for user_id in to_delete:
+                    del _consent_notify_queues[user_id]
+                
+                if to_delete:
+                    logger.info("Reclaimed %d idle consent queues", len(to_delete))
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("Consent queue cleanup job error: %s", e)
+
+
 async def run_consent_listener():
     """
     Long-running task: LISTEN consent_audit_new and dispatch to FCM + in-app queues.
     Uses a dedicated asyncpg connection (db.connection.get_pool()).
     Also starts the optional timeout job (TIMEOUT events for expired requests).
     """
-    # Start timeout + reminder jobs in background.
+    # Start timeout, reminder, and cleanup jobs in background.
     timeout_task = asyncio.create_task(_timeout_job_loop())
     notification_task = asyncio.create_task(_notification_job_loop())
+    cleanup_task = asyncio.create_task(_cleanup_queues_job_loop())
     try:
         from db.connection import get_pool
 
@@ -642,6 +702,7 @@ async def run_consent_listener():
         logger.error("Consent listener: DB pool not available (%s), skipping LISTEN", e)
         timeout_task.cancel()
         notification_task.cancel()
+        cleanup_task.cancel()
         return
     conn = None
     try:
@@ -665,12 +726,17 @@ async def run_consent_listener():
         _listener_active = False
         timeout_task.cancel()
         notification_task.cancel()
+        cleanup_task.cancel()
         try:
             await timeout_task
         except asyncio.CancelledError:
             pass
         try:
             await notification_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await cleanup_task
         except asyncio.CancelledError:
             pass
         if conn is not None:
