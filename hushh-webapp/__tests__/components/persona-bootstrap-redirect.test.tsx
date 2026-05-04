@@ -25,6 +25,8 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     isVaultUnlocked: true,
+    getVaultKey: () => "vault-key",
+    getVaultOwnerToken: () => "vault-token",
   }),
 }));
 

@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => {
       listReceipts: vi.fn(),
       syncNow: vi.fn(),
     },
-    useVault: vi.fn(),
+    useVault: vi.fn(() => ({
+      getVaultKey: () => "vault-key-123",
+      getVaultOwnerToken: () => "vault-owner-token-123",
+    })),
   };
 });
 
@@ -342,9 +345,11 @@ describe("ProfileReceiptsPage", () => {
       loading: false,
     });
     mocks.useVault.mockReturnValue({
-      vaultKey: "vault-key-123",
+      vaultKey: null,
       vaultOwnerToken: "vault-owner-token-123",
       isVaultUnlocked: true,
+      getVaultKey: () => "vault-key-123",
+      getVaultOwnerToken: () => "vault-owner-token-123",
     });
     gmailView = buildGmailView();
     mocks.useGmailConnectorStatus.mockReturnValue(gmailView);
@@ -378,6 +383,8 @@ describe("ProfileReceiptsPage", () => {
       vaultKey: null,
       vaultOwnerToken: null,
       isVaultUnlocked: false,
+      getVaultKey: () => null,
+      getVaultOwnerToken: () => null,
     });
 
     render(<ProfileReceiptsPage />);

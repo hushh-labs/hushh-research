@@ -14,6 +14,8 @@ describe("PermissionGate", () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: true,
       vaultOwnerToken: "HCT:test-token",
+      getVaultKey: () => "vault-key",
+      getVaultOwnerToken: () => "HCT:test-token",
     });
 
     render(
@@ -30,6 +32,8 @@ describe("PermissionGate", () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: false,
       vaultOwnerToken: null,
+      getVaultKey: () => null,
+      getVaultOwnerToken: () => null,
     });
 
     render(

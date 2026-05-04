@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => {
       error: vi.fn(),
     },
     useAuth: vi.fn(),
-    useVault: vi.fn(),
+    useVault: vi.fn(() => ({
+      getVaultKey: () => "vault-key-1",
+      getVaultOwnerToken: () => "vault-owner-token-1",
+    })),
     usePersonaState: vi.fn(),
     useStaleResource: vi.fn(),
     refresh: vi.fn(),
@@ -349,9 +352,11 @@ describe("RiaPicksPage", () => {
       refreshing: false,
     });
     mocks.useVault.mockReturnValue({
-      vaultKey: "vault-key-1",
+      vaultKey: null,
       vaultOwnerToken: "vault-owner-token-1",
       isVaultUnlocked: true,
+      getVaultKey: () => "vault-key-1",
+      getVaultOwnerToken: () => "vault-owner-token-1",
     });
     mocks.useStaleResource.mockReturnValue(buildResource());
     mocks.riaService.getRenaissanceUniverse.mockResolvedValue({
