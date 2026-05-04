@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
+import { createTimeoutSignal } from "@/lib/api/request-timeout";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment } from "@/lib/config";
@@ -38,15 +38,16 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-
+    const authorization = request.headers.get("authorization");
     const response = await fetch(`${PYTHON_API_URL}/db/vault/pre-vault-state`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      },
-      body: JSON.stringify(body),
-    });
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    ...(authorization ? { Authorization: authorization } : {}),
+  },
+  body: JSON.stringify(body),
+  signal: createTimeoutSignal(12000),
+});
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {

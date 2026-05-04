@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { createTimeoutSignal } from "@/lib/api/request-timeout";
 
 const REQUEST_TIMEOUT_MS = 8000;
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
@@ -11,11 +12,9 @@ export async function GET(_request: NextRequest) {
 
   try {
     const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
+  method: "GET",
+  signal: createTimeoutSignal(8000),
+});
     clearTimeout(timeout);
 
     if (!response.ok) {
