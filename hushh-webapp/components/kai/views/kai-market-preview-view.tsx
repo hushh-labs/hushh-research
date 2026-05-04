@@ -1324,7 +1324,7 @@ function useKaiMarketHomeController() {
         forceRefresh,
         onIssued: (issuedToken, expiresAt) => {
           if ((getVaultKey() ?? "") && (issuedToken !== vaultOwnerToken || expiresAt !== tokenExpiresAt)) {
-            unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
+            unlockVault(getVaultKey, issuedToken, expiresAt);
           }
         },
       });
@@ -1334,7 +1334,7 @@ function useKaiMarketHomeController() {
       tokenExpiresAt,
       unlockVault,
       user?.uid,
-      (getVaultKey() ?? ""),
+      getVaultKey,
       vaultOwnerToken,
     ]
   );
@@ -1481,7 +1481,7 @@ function useKaiMarketHomeController() {
     personalizedResource.data,
     personalizedResource.snapshot?.data,
     user?.uid,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
@@ -1570,7 +1570,7 @@ function useKaiMarketHomeController() {
         await personalizedResource.refresh({ force: shouldForce });
       }
     },
-    [baselineResource, marketResourceReady, personalizedResource, user?.uid, (getVaultKey() ?? ""), vaultOwnerToken]
+    [baselineResource, marketResourceReady, personalizedResource, user?.uid, getVaultKey, vaultOwnerToken]
   );
 
   const handlePickSourceChange = useCallback(

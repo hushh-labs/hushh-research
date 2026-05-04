@@ -205,7 +205,7 @@ function KaiOnboardingPageContent() {
     user,
     user?.uid,
     isVaultUnlocked,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
     router,
     retryNonce,

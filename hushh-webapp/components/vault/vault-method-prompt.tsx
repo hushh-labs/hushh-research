@@ -172,7 +172,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
     try {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
-        currentVaultKey: (getVaultKey() ?? ""),
+        currentVaultKey: getVaultKey,
         displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
       });

@@ -1449,7 +1449,7 @@ export function KaiFlow({
       .catch((pendingError) => {
         console.warn("[KaiFlow] Failed to preflight profile sync state:", pendingError);
       });
-  }, [effectiveVaultOwnerToken, userId, (getVaultKey() ?? "")]);
+  }, [effectiveVaultOwnerToken, userId, getVaultKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1695,7 +1695,7 @@ export function KaiFlow({
           forceRefresh: true,
           onIssued: (issuedToken, expiresAt) => {
             if ((getVaultKey() ?? "")) {
-              unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
+              unlockVault(getVaultKey, issuedToken, expiresAt);
             }
           },
         });
@@ -2839,7 +2839,7 @@ export function KaiFlow({
     },
     [
       userId,
-      (getVaultKey() ?? ""),
+      getVaultKey,
       effectiveVaultOwnerToken,
       tokenExpiresAt,
       unlockVault,
@@ -2857,7 +2857,7 @@ export function KaiFlow({
   }, [
     resumeImportAfterVault,
     pendingImportFile,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     effectiveVaultOwnerToken,
     handleFileUpload,
   ]);
@@ -2872,7 +2872,7 @@ export function KaiFlow({
     resumeImportAfterVault,
     resumePreloadAfterVault,
     pendingImportFile,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     effectiveVaultOwnerToken,
   ]);
 
@@ -2886,7 +2886,7 @@ export function KaiFlow({
     resumeImportAfterVault,
     resumePreloadAfterVault,
     pendingSchemaPreload,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     effectiveVaultOwnerToken,
   ]);
 
@@ -3244,7 +3244,7 @@ export function KaiFlow({
     if (!(getVaultKey() ?? "") || !effectiveVaultOwnerToken) return;
     setResumePreloadAfterVault(false);
     void handlePreloadSchema();
-  }, [resumePreloadAfterVault, (getVaultKey() ?? ""), effectiveVaultOwnerToken, handlePreloadSchema]);
+  }, [resumePreloadAfterVault, getVaultKey, effectiveVaultOwnerToken, handlePreloadSchema]);
 
   // Route new analysis starts through the comparison preview first.
   const handleAnalyzeStock = useCallback((symbol: string, _options?: AnalysisLaunchOptions) => {

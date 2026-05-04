@@ -707,7 +707,7 @@ export function KaiCommandBarGlobal() {
       setPendingConfirmation,
       switchPersona,
       userId,
-      (getVaultKey() ?? ""),
+      getVaultKey,
       vaultOwnerToken,
       voiceContext,
     ]

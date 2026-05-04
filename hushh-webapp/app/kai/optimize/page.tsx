@@ -217,7 +217,7 @@ export default function PortfolioHealthPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, (getVaultKey() ?? ""), vaultOwnerToken]);
+  }, [user?.uid, getVaultKey, vaultOwnerToken]);
 
   const thoughtsText = useMemo(() => {
     return thoughts.map((t, i) => `[${i + 1}] ${t.replace(/\*\*/g, "")}`).join("\n");
@@ -321,7 +321,7 @@ export default function PortfolioHealthPage() {
             forceRefresh,
             onIssued: (issuedToken, expiresAt) => {
               if ((getVaultKey() ?? "")) {
-                unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
+                unlockVault(getVaultKey, issuedToken, expiresAt);
               }
             },
           });
@@ -538,7 +538,7 @@ export default function PortfolioHealthPage() {
     tokenExpiresAt,
     getVaultOwnerToken,
     unlockVault,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     setBusyOperation,
     kaiProfile,
     contextStats.holdingsCount,

@@ -178,7 +178,7 @@ export function KaiNavTour() {
     isVaultUnlocked,
     loading,
     user?.uid,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 

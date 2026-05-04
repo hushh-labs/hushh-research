@@ -1684,7 +1684,7 @@ export function DashboardMasterView({
     setCachePortfolioData,
     statementEditablePortfolio,
     userId,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
@@ -1842,7 +1842,7 @@ export function DashboardMasterView({
     reload,
     statementEditablePortfolio,
     userId,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 

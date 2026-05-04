@@ -86,7 +86,7 @@ export default function KaiAlpacaOauthReturnPage() {
       try {
         const issued = await VaultService.getOrIssueVaultOwnerToken(user.uid);
         if ((getVaultKey() ?? "")) {
-          unlockVault((getVaultKey() ?? ""), issued.token, issued.expiresAt);
+          unlockVault(getVaultKey, issued.token, issued.expiresAt);
         }
 
         await PlaidPortfolioService.completeAlpacaConnect({
@@ -104,7 +104,7 @@ export default function KaiAlpacaOauthReturnPage() {
         setError(formatErrorMessage(resumeError));
       }
     })();
-  }, [loading, router, searchParams, unlockVault, user?.uid, (getVaultKey() ?? "")]);
+  }, [loading, router, searchParams, unlockVault, user?.uid, getVaultKey]);
 
   if (stage !== "error") {
     return (

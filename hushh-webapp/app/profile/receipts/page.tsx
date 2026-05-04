@@ -885,7 +885,7 @@ export default function ProfileReceiptsPage() {
     receiptSummaryDraft,
     requestVaultUnlock,
     user,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 

@@ -275,7 +275,7 @@ function KaiAnalysisPageContent() {
       vaultOwnerToken,
       vaultKey: getVaultKey() ?? "",
     }).catch(() => undefined);
-  }, [userId, (getVaultKey() ?? ""), vaultOwnerToken]);
+  }, [userId, getVaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     setBusyOperation("stock_analysis_active", Boolean(liveIntentReady));
@@ -327,7 +327,7 @@ function KaiAnalysisPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [debateId, userId, (getVaultKey() ?? ""), vaultOwnerToken]);
+  }, [debateId, userId, getVaultKey, vaultOwnerToken]);
 
   const handleSelectTicker = useCallback(
     (ticker: string) => {

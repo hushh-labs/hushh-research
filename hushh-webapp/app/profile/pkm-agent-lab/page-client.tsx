@@ -325,7 +325,7 @@ export default function PkmAgentLabPageClient() {
         vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
       }),
-    [isVaultUnlocked, (getVaultKey() ?? ""), vaultOwnerToken]
+    [isVaultUnlocked, getVaultKey, vaultOwnerToken]
   );
   const vaultAccess = useMemo(
     () =>
@@ -335,7 +335,7 @@ export default function PkmAgentLabPageClient() {
         vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
       }),
-    [hasVault, isVaultUnlocked, (getVaultKey() ?? ""), vaultOwnerToken]
+    [hasVault, isVaultUnlocked, getVaultKey, vaultOwnerToken]
   );
   const environment = resolveAppEnvironment();
   const nonProdLabel = environment === "uat" ? "UAT" : "development";
@@ -766,7 +766,7 @@ export default function PkmAgentLabPageClient() {
     handleVaultAccessRequired,
     user,
     vaultCapability.canMutateSecureData,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
@@ -791,7 +791,7 @@ export default function PkmAgentLabPageClient() {
     upgradeLoading,
     upgradeNeedsBackgroundResume,
     user,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 
@@ -969,7 +969,7 @@ export default function PkmAgentLabPageClient() {
     persistableCards,
     user,
     vaultCapability.canMutateSecureData,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
   ]);
 

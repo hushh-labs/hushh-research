@@ -179,7 +179,7 @@ export function PkmExplorerPanel() {
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, selectedDomain, user, (getVaultKey() ?? ""), vaultOwnerToken]);
+  }, [isVaultUnlocked, selectedDomain, user, getVaultKey, vaultOwnerToken]);
 
   const selectedSummary = useMemo<DomainSummary | null>(() => {
     if (!metadata || !selectedDomain) return null;

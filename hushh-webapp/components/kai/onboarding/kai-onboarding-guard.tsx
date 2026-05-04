@@ -268,7 +268,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
     user,
     user?.uid,
     isVaultUnlocked,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
     pathname,
     nativeTestConfig.enabled,

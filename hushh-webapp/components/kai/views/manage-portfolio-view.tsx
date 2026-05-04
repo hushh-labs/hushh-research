@@ -306,7 +306,7 @@ export function ManagePortfolioView() {
     loadPortfolio();
   }, [
     user?.uid,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
     completeStep,
     getPortfolioData,
@@ -428,7 +428,7 @@ export function ManagePortfolioView() {
     }
   }, [
     user?.uid,
-    (getVaultKey() ?? ""),
+    getVaultKey,
     vaultOwnerToken,
     accountInfo,
     accountSummary,

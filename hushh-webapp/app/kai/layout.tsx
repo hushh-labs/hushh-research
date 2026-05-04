@@ -81,7 +81,7 @@ export default function KaiLayout({
         globalThis.clearTimeout(timeoutId);
       }
     };
-  }, [onImportRoute, onOnboardingRoute, pathname, user?.uid, (getVaultKey() ?? ""), vaultOwnerToken]);
+  }, [onImportRoute, onOnboardingRoute, pathname, user?.uid, getVaultKey, vaultOwnerToken]);
 
   const shell = (
     <RouteErrorBoundary fallbackRoute="/kai">

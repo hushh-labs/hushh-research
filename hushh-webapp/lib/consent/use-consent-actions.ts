@@ -259,7 +259,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
                       algorithm: (field.algorithm ||
                         "aes-256-gcm") as "aes-256-gcm",
                     },
-                    (getVaultKey() ?? "")
+                    getVaultKey
                   );
                   decryptedFields[fieldName] = JSON.parse(decrypted);
                 } catch (err) {
@@ -278,7 +278,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
                       encoding: "base64",
                       algorithm: "aes-256-gcm",
                     },
-                    (getVaultKey() ?? "")
+                    getVaultKey
                   );
                   decryptedFields[field.field_name] = JSON.parse(decrypted);
                 } catch {
@@ -409,7 +409,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         }
       }
     },
-    [userId, (getVaultKey() ?? ""), getVaultOwnerToken, markAsHandling, markAsHandled, markAsPending, onActionComplete]
+    [userId, getVaultKey, getVaultOwnerToken, markAsHandling, markAsHandled, markAsPending, onActionComplete]
   );
 
   /**

@@ -1144,7 +1144,7 @@ export function KaiSearchBar({
       return;
     }
     orchestratorRef.current = new VoiceTurnOrchestrator(orchestratorConfig);
-  }, [onVoiceResponse, setPendingConfirmation, userId, (getVaultKey() ?? ""), vaultOwnerToken]);
+  }, [onVoiceResponse, setPendingConfirmation, userId, getVaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     const unsubscribe = voiceSessionManager.subscribe((event) => {

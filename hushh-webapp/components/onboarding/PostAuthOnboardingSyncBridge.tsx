@@ -49,7 +49,7 @@ export function PostAuthOnboardingSyncBridge() {
       .finally(() => {
         syncingRef.current = false;
       });
-  }, [loading, userId, isVaultUnlocked, (getVaultKey() ?? ""), vaultOwnerToken]);
+  }, [loading, userId, isVaultUnlocked, getVaultKey, vaultOwnerToken]);
 
   return null;
 }
