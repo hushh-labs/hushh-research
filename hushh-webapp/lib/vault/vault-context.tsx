@@ -42,7 +42,10 @@ import { VaultService } from "@/lib/services/vault-service";
 // ============================================================================
 
 interface VaultContextType {
-  /** The decrypted vault key (hex string) - ONLY IN MEMORY */
+  /**
+   * @deprecated Always returns null. Use getVaultKey() for encryption operations.
+   * Kept for backward compatibility during gradual consumer migration.
+   */
   vaultKey: string | null;
 
   /** VAULT_OWNER consent token - ONLY IN MEMORY */
@@ -86,9 +89,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // Access Auth Context to listen for logout
   const { user } = useAuth();
 
-  // SECURITY: Vault key stored in React state = memory only
-  // This is NOT accessible via sessionStorage.getItem() - XSS protection
-  const [vaultKey, setVaultKey] = useState<string | null>(null);
+  // SECURITY: Vault key stored in useRef = memory only, NOT visible in React DevTools.
+  // The key is non-serializable and does not participate in React reconciliation.
+  // Access ONLY via getVaultKey() — never exposed through context value.
+  const vaultKeyRef = useRef<string | null>(null);
+  const [hasVaultKey, setHasVaultKey] = useState(false);
 
   // VAULT_OWNER consent token (also memory-only for security)
   const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
@@ -108,7 +113,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
     if (user?.uid) {
       ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: user.uid });
     }
-    setVaultKey(null);
+    vaultKeyRef.current = null;
+    setHasVaultKey(false);
     setVaultOwnerToken(null);
     setTokenExpiresAt(null);
     lastUpgradeKickoffKeyRef.current = null;
@@ -132,11 +138,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // Auto-Lock on Sign Out
   // If AuthContext reports no user, we MUST clear the decrypted key from memory immediately.
   useEffect(() => {
-    if (!user && vaultKey) {
+    if (!user && hasVaultKey) {
       console.log("🔒 [VaultProvider] User signed out - Formatting memory...");
       lockVault();
     }
-  }, [user, vaultKey, lockVault]);
+  }, [user, hasVaultKey, lockVault]);
 
   // Listen for vault-lock-requested events (e.g., when VAULT_OWNER token is revoked)
   useEffect(() => {
@@ -154,7 +160,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
   }, [lockVault]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!user?.uid || !hasVaultKey || !vaultOwnerToken) {
       return;
     }
 
@@ -166,9 +172,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
       if (customEvent.detail?.userId !== user.uid) {
         return;
       }
+      const currentKey = vaultKeyRef.current;
+      if (!currentKey) return;
       void ConsentExportRefreshOrchestrator.ensureRunning({
         userId: user.uid,
-        vaultKey,
+        vaultKey: currentKey,
         vaultOwnerToken,
         initiatedBy: "pkm_domain_store",
       }).catch((error) => {
@@ -180,18 +188,20 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () => {
       window.removeEventListener("pkm-domain-stored", handleDomainStored);
     };
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [user?.uid, hasVaultKey, vaultOwnerToken]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey) {
+    if (!user?.uid || !hasVaultKey) {
       return;
     }
+    const currentKey = vaultKeyRef.current;
+    if (!currentKey) return;
 
     void import("@/lib/kai/kai-financial-resource")
       .then(({ KaiFinancialResourceService }) =>
         KaiFinancialResourceService.hydrateFromSecureCache({
           userId: user.uid,
-          vaultKey,
+          vaultKey: currentKey,
         })
       )
       .catch(() => null);
@@ -201,14 +211,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
         PkmDomainResourceService.hydrateFromSecureCache({
           userId: user.uid,
           domain: "financial",
-          vaultKey,
+          vaultKey: currentKey,
         })
       )
       .catch(() => null);
-  }, [user?.uid, vaultKey]);
+  }, [user?.uid, hasVaultKey]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!user?.uid || !hasVaultKey || !vaultOwnerToken) {
       return;
     }
 
@@ -224,9 +234,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
     const kickoffUpgrade = () => {
       if (cancelled) return;
+      const currentKey = vaultKeyRef.current;
+      if (!currentKey) return;
       void PkmUpgradeOrchestrator.ensureRunning({
         userId: user.uid,
-        vaultKey,
+        vaultKey: currentKey,
         vaultOwnerToken,
         initiatedBy: "app_entry",
       }).catch((error) => {
@@ -261,7 +273,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         globalThis.clearTimeout(timeoutId);
       }
     };
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [user?.uid, hasVaultKey, vaultOwnerToken]);
 
   /**
    * Prefetch common data after vault unlock to speed up page loads.
@@ -287,9 +299,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const unlockVault = useCallback(
     (key: string, token: string, expiresAt: number) => {
       console.log(
-        "🔓 Vault unlocked (key + token in memory only - XSS protected)"
+        "🔓 Vault unlocked (key in ref, token in state - XSS + DevTools protected)"
       );
-      setVaultKey(key);
+      vaultKeyRef.current = key;
+      setHasVaultKey(true);
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
 
@@ -325,8 +338,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
   );
 
   const getVaultKey = useCallback(() => {
-    return vaultKey;
-  }, [vaultKey]);
+    return vaultKeyRef.current;
+  }, []);
 
   const getVaultOwnerToken = useCallback(() => {
     // Check expiry
@@ -338,10 +351,13 @@ export function VaultProvider({ children }: VaultProviderProps) {
   }, [vaultOwnerToken, tokenExpiresAt]);
 
   const value: VaultContextType = {
-    vaultKey,
+    // SECURITY: vaultKey is intentionally null in context.
+    // Consumers must use getVaultKey() to access the key.
+    // This prevents the key from appearing in React DevTools and serialized state.
+    vaultKey: null,
     vaultOwnerToken,
     tokenExpiresAt,
-    isVaultUnlocked: !!vaultKey && !!vaultOwnerToken,
+    isVaultUnlocked: hasVaultKey && !!vaultOwnerToken,
     unlockVault,
     lockVault,
     getVaultKey,
