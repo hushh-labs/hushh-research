@@ -134,7 +134,7 @@ export default function PortfolioHealthPage() {
   const router = useRouter();
   const theme = useThemeAware();
   const { user, loading: authLoading } = useAuth();
-  const { vaultOwnerToken, vaultKey, tokenExpiresAt, unlockVault, getVaultOwnerToken } = useVault();
+  const { vaultOwnerToken, getVaultKey, tokenExpiresAt, unlockVault, getVaultOwnerToken } = useVault();
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
 
   useEffect(() => {
@@ -191,7 +191,7 @@ export default function PortfolioHealthPage() {
     let cancelled = false;
 
     async function loadProfile() {
-      if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      if (!user?.uid || !(getVaultKey() ?? "") || !vaultOwnerToken) {
         setKaiProfile(null);
         return;
       }
@@ -199,7 +199,7 @@ export default function PortfolioHealthPage() {
       try {
         const profile = await KaiProfileService.getProfile({
           userId: user.uid,
-          vaultKey,
+          vaultKey: getVaultKey() ?? "",
           vaultOwnerToken,
         });
         if (!cancelled) {
@@ -217,7 +217,7 @@ export default function PortfolioHealthPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [user?.uid, (getVaultKey() ?? ""), vaultOwnerToken]);
 
   const thoughtsText = useMemo(() => {
     return thoughts.map((t, i) => `[${i + 1}] ${t.replace(/\*\*/g, "")}`).join("\n");
@@ -320,8 +320,8 @@ export default function PortfolioHealthPage() {
             currentExpiresAt: tokenExpiresAt,
             forceRefresh,
             onIssued: (issuedToken, expiresAt) => {
-              if (vaultKey) {
-                unlockVault(vaultKey, issuedToken, expiresAt);
+              if ((getVaultKey() ?? "")) {
+                unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
               }
             },
           });
@@ -538,7 +538,7 @@ export default function PortfolioHealthPage() {
     tokenExpiresAt,
     getVaultOwnerToken,
     unlockVault,
-    vaultKey,
+    (getVaultKey() ?? ""),
     setBusyOperation,
     kaiProfile,
     contextStats.holdingsCount,

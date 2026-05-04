@@ -259,7 +259,7 @@ export function KaiSearchBar({
   voiceContext,
   portfolioTickers = [],
 }: KaiSearchBarProps) {
-  const { getVaultOwnerToken, vaultKey } = useVault();
+  const { getVaultOwnerToken, getVaultKey } = useVault();
   const [open, setOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
   const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(null);
@@ -1055,7 +1055,7 @@ export function KaiSearchBar({
     const orchestratorConfig: VoiceTurnOrchestratorConfig = {
       userId,
       vaultOwnerToken,
-      vaultKey: vaultKey || undefined,
+      vaultKey: (getVaultKey() ?? "") || undefined,
       getAppRuntimeState: () => appRuntimeStateRef.current,
       getVoiceContext: () => voiceContextRef.current,
       onVoiceResponse: (payload) => {
@@ -1144,7 +1144,7 @@ export function KaiSearchBar({
       return;
     }
     orchestratorRef.current = new VoiceTurnOrchestrator(orchestratorConfig);
-  }, [onVoiceResponse, setPendingConfirmation, userId, vaultKey, vaultOwnerToken]);
+  }, [onVoiceResponse, setPendingConfirmation, userId, (getVaultKey() ?? ""), vaultOwnerToken]);
 
   useEffect(() => {
     const unsubscribe = voiceSessionManager.subscribe((event) => {

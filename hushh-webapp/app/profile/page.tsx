@@ -452,7 +452,7 @@ function ProfilePageContent() {
     confirmPhoneReplacement,
   } = useAuth();
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
 
@@ -553,10 +553,10 @@ function ProfilePageContent() {
       resolveVaultAvailabilityState({
         hasVault,
         isVaultUnlocked,
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
+    [hasVault, isVaultUnlocked, (getVaultKey() ?? ""), vaultOwnerToken]
   );
   const routeBlockedByVault =
     hasVault === true &&
@@ -1310,7 +1310,7 @@ function ProfilePageContent() {
   async function switchToQuickMethod(targetMethod: VaultMethod) {
     if (!user?.uid) return;
 
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !(getVaultKey() ?? "")) {
       toast.info("Unlock your vault to change security method.");
       requestVaultUnlock("profile_data");
       return;
@@ -1320,7 +1320,7 @@ function ProfilePageContent() {
     try {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
-        currentVaultKey: vaultKey,
+        currentVaultKey: (getVaultKey() ?? ""),
         displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
       });
@@ -1346,7 +1346,7 @@ function ProfilePageContent() {
   ) {
     if (!user?.uid) return;
 
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !(getVaultKey() ?? "")) {
       toast.info("Unlock your vault to change security method.");
       requestVaultUnlock("profile_data");
       return;
@@ -1377,7 +1377,7 @@ function ProfilePageContent() {
   async function preferPassphraseUnlock() {
     if (!user?.uid) return;
 
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !(getVaultKey() ?? "")) {
       toast.info("Unlock your vault to change security method.");
       requestVaultUnlock("profile_data");
       return;
@@ -1404,7 +1404,7 @@ function ProfilePageContent() {
   async function changePassphrase() {
     if (!user?.uid) return;
 
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
+    if (!vaultAccess.canMutateSecureData || !(getVaultKey() ?? "")) {
       toast.info("Unlock your vault to change passphrase.");
       requestVaultUnlock("profile_data");
       return;
@@ -1414,7 +1414,7 @@ function ProfilePageContent() {
     try {
       const result = await VaultMethodService.changePassphrase({
         userId: user.uid,
-        currentVaultKey: vaultKey,
+        currentVaultKey: (getVaultKey() ?? ""),
         newPassphrase,
         keepPrimaryMethod: true,
       });
@@ -1892,7 +1892,7 @@ function ProfilePageContent() {
       topLevelScopePath: string;
     }
   ) => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!user?.uid || !(getVaultKey() ?? "") || !vaultOwnerToken) {
       requestVaultUnlock("profile_data");
       return;
     }
@@ -1913,7 +1913,7 @@ function ProfilePageContent() {
       const data = await PersonalKnowledgeModelService.loadDomainData({
         userId: user.uid,
         domain: domainKey,
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
         segmentIds: [permission.topLevelScopePath],
       });
@@ -2751,7 +2751,7 @@ function ProfilePageContent() {
         content: (
           <ProfileKaiPreferencesPanel
             userId={user.uid}
-            vaultKey={vaultKey}
+            vaultKey={(getVaultKey() ?? "")}
             vaultOwnerToken={vaultOwnerToken}
             canEdit={canEditKaiPreferences}
             onRequestUnlock={() => requestVaultUnlock("profile_data")}

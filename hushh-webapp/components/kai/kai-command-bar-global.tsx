@@ -140,7 +140,7 @@ export function KaiCommandBarGlobal() {
     riaSwitchAvailable,
     switchPersona,
   } = usePersonaState();
-  const { isVaultUnlocked, vaultOwnerToken, vaultKey, tokenExpiresAt } = useVault();
+  const { isVaultUnlocked, vaultOwnerToken, getVaultKey, tokenExpiresAt } = useVault();
   const handleBack = useCallback(() => {
     router.back();
   }, [router]);
@@ -665,7 +665,7 @@ export function KaiCommandBarGlobal() {
         currentScreen: routeBefore.screen,
         userId,
         vaultOwnerToken: vaultOwnerToken || undefined,
-        vaultKey: vaultKey || undefined,
+        vaultKey: (getVaultKey() ?? "") || undefined,
         router,
         handleBack,
         switchPersona,
@@ -707,7 +707,7 @@ export function KaiCommandBarGlobal() {
       setPendingConfirmation,
       switchPersona,
       userId,
-      vaultKey,
+      (getVaultKey() ?? ""),
       vaultOwnerToken,
       voiceContext,
     ]
@@ -750,7 +750,7 @@ export function KaiCommandBarGlobal() {
           currentScreen: routeBefore.screen,
           userId,
           vaultOwnerToken: vaultOwnerToken || undefined,
-          vaultKey: vaultKey || undefined,
+          vaultKey: (getVaultKey() ?? "") || undefined,
           router,
           handleBack,
           switchPersona,

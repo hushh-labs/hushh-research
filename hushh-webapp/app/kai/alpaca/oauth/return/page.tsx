@@ -33,7 +33,7 @@ export default function KaiAlpacaOauthReturnPage() {
   const searchParams = useSearchParams();
   const startedRef = useRef(false);
   const { user, loading } = useAuth();
-  const { vaultKey, unlockVault } = useVault();
+  const { getVaultKey, unlockVault } = useVault();
   const [stage, setStage] = useState<ResumeStage>("loading");
   const [error, setError] = useState<string | null>(null);
   const [returnPath, setReturnPath] = useState<string>(ROUTES.KAI_PORTFOLIO);
@@ -85,8 +85,8 @@ export default function KaiAlpacaOauthReturnPage() {
     void (async () => {
       try {
         const issued = await VaultService.getOrIssueVaultOwnerToken(user.uid);
-        if (vaultKey) {
-          unlockVault(vaultKey, issued.token, issued.expiresAt);
+        if ((getVaultKey() ?? "")) {
+          unlockVault((getVaultKey() ?? ""), issued.token, issued.expiresAt);
         }
 
         await PlaidPortfolioService.completeAlpacaConnect({
@@ -104,7 +104,7 @@ export default function KaiAlpacaOauthReturnPage() {
         setError(formatErrorMessage(resumeError));
       }
     })();
-  }, [loading, router, searchParams, unlockVault, user?.uid, vaultKey]);
+  }, [loading, router, searchParams, unlockVault, user?.uid, (getVaultKey() ?? "")]);
 
   if (stage !== "error") {
     return (

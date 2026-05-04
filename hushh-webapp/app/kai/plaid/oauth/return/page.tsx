@@ -33,7 +33,7 @@ export default function KaiPlaidOauthReturnPage() {
   const router = useRouter();
   const startedRef = useRef(false);
   const { user, loading } = useAuth();
-  const { vaultKey, unlockVault } = useVault();
+  const { getVaultKey, unlockVault } = useVault();
   const [stage, setStage] = useState<ResumeStage>("loading");
   const [error, setError] = useState<string | null>(null);
   const [returnPath, setReturnPath] = useState<string>(ROUTES.KAI_DASHBOARD);
@@ -72,8 +72,8 @@ export default function KaiPlaidOauthReturnPage() {
       try {
         setStage("loading");
         const issued = await VaultService.getOrIssueVaultOwnerToken(user.uid);
-        if (vaultKey) {
-          unlockVault(vaultKey, issued.token, issued.expiresAt);
+        if ((getVaultKey() ?? "")) {
+          unlockVault((getVaultKey() ?? ""), issued.token, issued.expiresAt);
         }
 
         const resume = await PlaidPortfolioService.resumeOAuth({
@@ -162,7 +162,7 @@ export default function KaiPlaidOauthReturnPage() {
         setError(formatErrorMessage(resumeError));
       }
     })();
-  }, [loading, router, unlockVault, user?.uid, vaultKey]);
+  }, [loading, router, unlockVault, user?.uid, (getVaultKey() ?? "")]);
 
   if (stage !== "error") {
     return (

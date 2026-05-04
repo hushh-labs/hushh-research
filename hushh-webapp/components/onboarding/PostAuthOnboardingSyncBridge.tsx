@@ -12,13 +12,13 @@ import { useVault } from "@/lib/vault/vault-context";
  */
 export function PostAuthOnboardingSyncBridge() {
   const { user, loading } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, getVaultKey, vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
   const syncingRef = useRef(false);
   const lastSyncedSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (loading || !userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+    if (loading || !userId || !isVaultUnlocked || !(getVaultKey() ?? "") || !vaultOwnerToken) {
       return;
     }
 
@@ -36,7 +36,7 @@ export function PostAuthOnboardingSyncBridge() {
 
     void PostUnlockSyncService.run({
       userId,
-      vaultKey,
+      vaultKey: getVaultKey() ?? "",
       vaultOwnerToken,
     })
       .catch((error) => {
@@ -49,7 +49,7 @@ export function PostAuthOnboardingSyncBridge() {
       .finally(() => {
         syncingRef.current = false;
       });
-  }, [loading, userId, isVaultUnlocked, vaultKey, vaultOwnerToken]);
+  }, [loading, userId, isVaultUnlocked, (getVaultKey() ?? ""), vaultOwnerToken]);
 
   return null;
 }

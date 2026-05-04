@@ -121,7 +121,7 @@ export function InvestmentsMasterView({
   initialStatementPortfolio = null,
 }: InvestmentsMasterViewProps) {
   const router = useRouter();
-  const { vaultKey } = useVault();
+  const { getVaultKey } = useVault();
   const [isLinkingPlaid, setIsLinkingPlaid] = useState(false);
   const [isLinkingFunding, setIsLinkingFunding] = useState(false);
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
@@ -148,7 +148,7 @@ export function InvestmentsMasterView({
   } = usePortfolioSources({
     userId,
     vaultOwnerToken,
-    vaultKey,
+    vaultKey: getVaultKey() ?? "",
     initialStatementPortfolio,
   });
 

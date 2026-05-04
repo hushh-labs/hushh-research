@@ -80,7 +80,7 @@ function getScopeDataEndpoint(scope: string): string | null {
 // ============================================================================
 
 export function useConsentActions(options: UseConsentActionsOptions = {}) {
-  const { vaultKey, getVaultOwnerToken } = useVault();
+  const { getVaultKey, getVaultOwnerToken } = useVault();
   const { userId, onActionComplete } = options;
 
   // Track request status: ID -> "pending" | "handling" | "handled"
@@ -153,7 +153,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       // Mark as handling immediately to block re-showing
       markAsHandling(consent.id);
 
-      if (!userId || !vaultKey) {
+      if (!userId || !(getVaultKey() ?? "")) {
         toast.error("Vault not unlocked", {
           id: toastId,
           description: "Unlock your vault to approve this request.",
@@ -186,7 +186,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             const builtExport = await buildConsentExportForScope({
               userId,
               scope: consent.scope,
-              vaultKey,
+              vaultKey: getVaultKey() ?? "",
               vaultOwnerToken,
             });
             scopeData = builtExport.payload;
@@ -259,7 +259,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
                       algorithm: (field.algorithm ||
                         "aes-256-gcm") as "aes-256-gcm",
                     },
-                    vaultKey
+                    (getVaultKey() ?? "")
                   );
                   decryptedFields[fieldName] = JSON.parse(decrypted);
                 } catch (err) {
@@ -278,7 +278,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
                       encoding: "base64",
                       algorithm: "aes-256-gcm",
                     },
-                    vaultKey
+                    (getVaultKey() ?? "")
                   );
                   decryptedFields[field.field_name] = JSON.parse(decrypted);
                 } catch {
@@ -409,7 +409,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         }
       }
     },
-    [userId, vaultKey, getVaultOwnerToken, markAsHandling, markAsHandled, markAsPending, onActionComplete]
+    [userId, (getVaultKey() ?? ""), getVaultOwnerToken, markAsHandling, markAsHandled, markAsPending, onActionComplete]
   );
 
   /**

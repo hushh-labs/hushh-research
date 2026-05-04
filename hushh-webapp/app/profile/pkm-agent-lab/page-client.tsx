@@ -316,26 +316,26 @@ function buildPreviewCards(
 export default function PkmAgentLabPageClient() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, getVaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const vaultCapability = useMemo(
     () =>
       resolveVaultCapabilityState({
         isVaultUnlocked,
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
       }),
-    [isVaultUnlocked, vaultKey, vaultOwnerToken]
+    [isVaultUnlocked, (getVaultKey() ?? ""), vaultOwnerToken]
   );
   const vaultAccess = useMemo(
     () =>
       resolveVaultAvailabilityState({
         hasVault,
         isVaultUnlocked,
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
+    [hasVault, isVaultUnlocked, (getVaultKey() ?? ""), vaultOwnerToken]
   );
   const environment = resolveAppEnvironment();
   const nonProdLabel = environment === "uat" ? "UAT" : "development";
@@ -739,7 +739,7 @@ export default function PkmAgentLabPageClient() {
 
   const handleResumeUpgrade = useCallback(async () => {
     if (!user) return;
-    if (!vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
+    if (!vaultCapability.canMutateSecureData || !(getVaultKey() ?? "") || !vaultOwnerToken) {
       handleVaultAccessRequired(
         "Unlock your vault to continue the Personal Knowledge Model upgrade."
       );
@@ -750,7 +750,7 @@ export default function PkmAgentLabPageClient() {
       setUpgradeBusy(true);
       await PkmUpgradeOrchestrator.ensureRunning({
         userId: user.uid,
-        vaultKey,
+        vaultKey: getVaultKey() ?? "",
         vaultOwnerToken,
         initiatedBy: "pkm_lab",
       });
@@ -766,7 +766,7 @@ export default function PkmAgentLabPageClient() {
     handleVaultAccessRequired,
     user,
     vaultCapability.canMutateSecureData,
-    vaultKey,
+    (getVaultKey() ?? ""),
     vaultOwnerToken,
   ]);
 
@@ -775,7 +775,7 @@ export default function PkmAgentLabPageClient() {
       !upgradeNeedsBackgroundResume ||
       !user ||
       !vaultCapability.canMutateSecureData ||
-      !vaultKey ||
+      !(getVaultKey() ?? "") ||
       !vaultOwnerToken ||
       upgradeBusy ||
       upgradeLoading
@@ -791,7 +791,7 @@ export default function PkmAgentLabPageClient() {
     upgradeLoading,
     upgradeNeedsBackgroundResume,
     user,
-    vaultKey,
+    (getVaultKey() ?? ""),
     vaultOwnerToken,
   ]);
 
@@ -843,7 +843,7 @@ export default function PkmAgentLabPageClient() {
   ]);
 
   const persistPreview = useCallback(async () => {
-    if (!user || !vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
+    if (!user || !vaultCapability.canMutateSecureData || !(getVaultKey() ?? "") || !vaultOwnerToken) {
       handleVaultAccessRequired("Unlock your vault before saving to PKM.");
       return;
     }
@@ -927,7 +927,7 @@ export default function PkmAgentLabPageClient() {
         const result = await PkmWriteCoordinator.savePreparedDomain({
           userId: user.uid,
           domain: targetDomain,
-          vaultKey,
+          vaultKey: getVaultKey() ?? "",
           vaultOwnerToken,
           build: async () => ({
             domainData: candidatePayload,
@@ -969,7 +969,7 @@ export default function PkmAgentLabPageClient() {
     persistableCards,
     user,
     vaultCapability.canMutateSecureData,
-    vaultKey,
+    (getVaultKey() ?? ""),
     vaultOwnerToken,
   ]);
 

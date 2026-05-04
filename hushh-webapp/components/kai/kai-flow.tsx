@@ -708,7 +708,7 @@ export function KaiFlow({
   const router = useRouter();
   const { user } = useAuth();
   const {
-    vaultKey,
+    getVaultKey,
     vaultOwnerToken: contextVaultOwnerToken,
     tokenExpiresAt,
     unlockVault,
@@ -744,7 +744,7 @@ export function KaiFlow({
   } = useKaiFinancialResource({
     userId,
     vaultOwnerToken: effectiveVaultOwnerToken,
-    vaultKey,
+    vaultKey: getVaultKey() ?? "",
     enabled: Boolean(userId),
     backgroundRefresh: true,
   });
@@ -1397,7 +1397,7 @@ export function KaiFlow({
   }, [effectiveVaultOwnerToken, mode, setBusyOperation, userId]);
 
   const runDeferredPostSaveSync = useCallback(() => {
-    if (!effectiveVaultOwnerToken || !vaultKey) return;
+    if (!effectiveVaultOwnerToken || !(getVaultKey() ?? "")) return;
     void KaiProfileSyncService.getPendingSyncState(userId)
       .then((pendingState) => {
         if (!pendingState.hasPending) return;
@@ -1412,7 +1412,7 @@ export function KaiFlow({
 
         return KaiProfileSyncService.syncPendingToVault({
           userId,
-          vaultKey,
+          vaultKey: getVaultKey() ?? "",
           vaultOwnerToken: effectiveVaultOwnerToken,
           pendingState,
         })
@@ -1449,7 +1449,7 @@ export function KaiFlow({
       .catch((pendingError) => {
         console.warn("[KaiFlow] Failed to preflight profile sync state:", pendingError);
       });
-  }, [effectiveVaultOwnerToken, userId, vaultKey]);
+  }, [effectiveVaultOwnerToken, userId, (getVaultKey() ?? "")]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1676,7 +1676,7 @@ export function KaiFlow({
         return;
       }
 
-      if (!vaultKey || !effectiveVaultOwnerToken) {
+      if (!(getVaultKey() ?? "") || !effectiveVaultOwnerToken) {
         setPendingImportFile(file);
         setResumeImportAfterVault(false);
         setVaultDialogOpen(true);
@@ -1694,8 +1694,8 @@ export function KaiFlow({
           currentExpiresAt: tokenExpiresAt,
           forceRefresh: true,
           onIssued: (issuedToken, expiresAt) => {
-            if (vaultKey) {
-              unlockVault(vaultKey, issuedToken, expiresAt);
+            if ((getVaultKey() ?? "")) {
+              unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
             }
           },
         });
@@ -2839,7 +2839,7 @@ export function KaiFlow({
     },
     [
       userId,
-      vaultKey,
+      (getVaultKey() ?? ""),
       effectiveVaultOwnerToken,
       tokenExpiresAt,
       unlockVault,
@@ -2849,7 +2849,7 @@ export function KaiFlow({
 
   useEffect(() => {
     if (!resumeImportAfterVault || !pendingImportFile) return;
-    if (!vaultKey || !effectiveVaultOwnerToken) return;
+    if (!(getVaultKey() ?? "") || !effectiveVaultOwnerToken) return;
     const queuedFile = pendingImportFile;
     setResumeImportAfterVault(false);
     setPendingImportFile(null);
@@ -2857,7 +2857,7 @@ export function KaiFlow({
   }, [
     resumeImportAfterVault,
     pendingImportFile,
-    vaultKey,
+    (getVaultKey() ?? ""),
     effectiveVaultOwnerToken,
     handleFileUpload,
   ]);
@@ -2865,28 +2865,28 @@ export function KaiFlow({
   useEffect(() => {
     if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault) return;
     if (!pendingImportFile) return;
-    if (vaultKey && effectiveVaultOwnerToken) return;
+    if ((getVaultKey() ?? "") && effectiveVaultOwnerToken) return;
     setPendingImportFile(null);
   }, [
     vaultDialogOpen,
     resumeImportAfterVault,
     resumePreloadAfterVault,
     pendingImportFile,
-    vaultKey,
+    (getVaultKey() ?? ""),
     effectiveVaultOwnerToken,
   ]);
 
   useEffect(() => {
     if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault) return;
     if (!pendingSchemaPreload) return;
-    if (vaultKey && effectiveVaultOwnerToken) return;
+    if ((getVaultKey() ?? "") && effectiveVaultOwnerToken) return;
     setPendingSchemaPreload(false);
   }, [
     vaultDialogOpen,
     resumeImportAfterVault,
     resumePreloadAfterVault,
     pendingSchemaPreload,
-    vaultKey,
+    (getVaultKey() ?? ""),
     effectiveVaultOwnerToken,
   ]);
 
@@ -3241,10 +3241,10 @@ export function KaiFlow({
 
   useEffect(() => {
     if (!resumePreloadAfterVault) return;
-    if (!vaultKey || !effectiveVaultOwnerToken) return;
+    if (!(getVaultKey() ?? "") || !effectiveVaultOwnerToken) return;
     setResumePreloadAfterVault(false);
     void handlePreloadSchema();
-  }, [resumePreloadAfterVault, vaultKey, effectiveVaultOwnerToken, handlePreloadSchema]);
+  }, [resumePreloadAfterVault, (getVaultKey() ?? ""), effectiveVaultOwnerToken, handlePreloadSchema]);
 
   // Route new analysis starts through the comparison preview first.
   const handleAnalyzeStock = useCallback((symbol: string, _options?: AnalysisLaunchOptions) => {
@@ -3373,7 +3373,7 @@ export function KaiFlow({
         <PortfolioReviewView
           portfolioData={flowData.parsedPortfolio}
           userId={userId}
-          vaultKey={vaultKey ?? undefined}
+          vaultKey={(getVaultKey() ?? "") ?? undefined}
           vaultOwnerToken={effectiveVaultOwnerToken}
           onSaveComplete={handleSaveComplete}
           onReimport={handleReimport}

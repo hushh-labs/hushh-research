@@ -49,7 +49,7 @@ function formatTimestamp(value: string | null | undefined): string {
 
 export function PkmExplorerPanel() {
   const { user, loading } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, getVaultKey, vaultOwnerToken } = useVault();
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
@@ -124,7 +124,7 @@ export function PkmExplorerPanel() {
     let cancelled = false;
 
     async function loadDomainState() {
-      if (!user || !selectedDomain || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
+      if (!user || !selectedDomain || !(getVaultKey() ?? "") || !vaultOwnerToken || !isVaultUnlocked) {
         if (!cancelled) {
           setDomainState({
             manifest: null,
@@ -149,7 +149,7 @@ export function PkmExplorerPanel() {
           PersonalKnowledgeModelService.loadDomainData({
             userId: user.uid,
             domain: selectedDomain,
-            vaultKey,
+            vaultKey: getVaultKey() ?? "",
             vaultOwnerToken,
           }),
         ]);
@@ -179,7 +179,7 @@ export function PkmExplorerPanel() {
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, selectedDomain, user, vaultKey, vaultOwnerToken]);
+  }, [isVaultUnlocked, selectedDomain, user, (getVaultKey() ?? ""), vaultOwnerToken]);
 
   const selectedSummary = useMemo<DomainSummary | null>(() => {
     if (!metadata || !selectedDomain) return null;
