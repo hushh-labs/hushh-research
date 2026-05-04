@@ -99,7 +99,9 @@ vi.mock("@/lib/utils", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     getVaultOwnerToken: () => "vault_token",
+    vaultOwnerToken: "vault_token",
     getVaultKey: () => "vault_key",
+    isVaultUnlocked: true,
   }),
 }));
 

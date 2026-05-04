@@ -121,15 +121,17 @@ const [hasVaultKey, setHasVaultKey] = useState(false);
 
 ### Follow-up
 
-- [ ] Migrate remaining consumers from `const { vaultKey } = useVault()` to `getVaultKey()`
+- [x] Migrate remaining consumers from `const { vaultKey } = useVault()` to `getVaultKey()`
 - [ ] Optional: move `encryptData`/`decryptData` to a Web Worker to fully isolate the key from the main thread
 
 ---
 
 ### Files Changed
 
-- `hushh-webapp/lib/vault/vault-context.tsx` — Core: ref storage, boolean state, null context broadcast
-- `hushh-webapp/components/kai/onboarding/KaiPreferencesSheet.tsx` — Prop elimination, hook-based access
+- `hushh-webapp/lib/vault/vault-context.tsx` — Core: ref storage, boolean state, removed deprecated property
+- `hushh-webapp/components/kai/views/portfolio-review-view.tsx` — Migrated to functional accessor
+- `hushh-webapp/app/ria/picks/page.tsx` — Migrated to functional accessor
+- `hushh-webapp/__tests__/...` — Fixed test suite regressions by updating mocks to match new API
 
 ---
 
@@ -138,15 +140,15 @@ const [hasVaultKey, setHasVaultKey] = useState(false);
 - [x] Follows repository contribution guidelines
 - [x] No secrets or sensitive data exposed
 - [x] Focused, single-responsibility PR
-- [x] Backward compatible (no breaking API changes)
+- [x] Secure functional accessors implemented (`getVaultKey`, `getVaultOwnerToken`)
 - [x] `getVaultKey()` has stable identity (`useCallback([], [])`)
 - [x] Effects depend on `hasVaultKey`, not key string
 - [x] No console logs or serialization of key
-- [x] No `vaultKey` left in context value (except `null`)
-- [x] No lingering prop usage in `KaiPreferencesSheet`
+- [x] Deprecated `vaultKey` property removed from context and types
+- [x] Test suite updated and verified (Mocks updated to include functions + properties)
 
 ---
 
-This implementation has been validated across vault unlock/lock flows, KAI onboarding, and PKM hydration paths, and is safe for incremental rollout.
+This implementation has been validated across vault unlock/lock flows, KAI onboarding, RIA picks, and test suite execution. It is ready for final merge.
 
 Signed-off-by: Om Prakash <omprakash@hussh.dev>

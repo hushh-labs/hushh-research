@@ -12,7 +12,9 @@ const mocks = vi.hoisted(() => {
     useAuth: vi.fn(),
     useVault: vi.fn(() => ({
       getVaultKey: () => "vault-key-1",
+      vaultOwnerToken: "vault-owner-token-1",
       getVaultOwnerToken: () => "vault-owner-token-1",
+      isVaultUnlocked: true,
     })),
     usePersonaState: vi.fn(),
     useStaleResource: vi.fn(),
@@ -352,7 +354,6 @@ describe("RiaPicksPage", () => {
       refreshing: false,
     });
     mocks.useVault.mockReturnValue({
-      vaultKey: null,
       vaultOwnerToken: "vault-owner-token-1",
       isVaultUnlocked: true,
       getVaultKey: () => "vault-key-1",

@@ -18,7 +18,9 @@ const mocks = vi.hoisted(() => {
     },
     useVault: vi.fn(() => ({
       getVaultKey: () => "vault-key-123",
+      vaultOwnerToken: "vault-owner-token-123",
       getVaultOwnerToken: () => "vault-owner-token-123",
+      isVaultUnlocked: true,
     })),
   };
 });
@@ -345,7 +347,6 @@ describe("ProfileReceiptsPage", () => {
       loading: false,
     });
     mocks.useVault.mockReturnValue({
-      vaultKey: null,
       vaultOwnerToken: "vault-owner-token-123",
       isVaultUnlocked: true,
       getVaultKey: () => "vault-key-123",
@@ -380,7 +381,6 @@ describe("ProfileReceiptsPage", () => {
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
     mocks.useVault.mockReturnValue({
-      vaultKey: null,
       vaultOwnerToken: null,
       isVaultUnlocked: false,
       getVaultKey: () => null,

@@ -42,12 +42,6 @@ import { VaultService } from "@/lib/services/vault-service";
 // ============================================================================
 
 interface VaultContextType {
-  /**
-   * @deprecated Always returns null. Use getVaultKey() for encryption operations.
-   * Kept for backward compatibility during gradual consumer migration.
-   */
-  vaultKey: string | null;
-
   /** VAULT_OWNER consent token - ONLY IN MEMORY */
   vaultOwnerToken: string | null;
 
@@ -351,10 +345,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
   }, [vaultOwnerToken, tokenExpiresAt]);
 
   const value: VaultContextType = {
-    // SECURITY: vaultKey is intentionally null in context.
-    // Consumers must use getVaultKey() to access the key.
-    // This prevents the key from appearing in React DevTools and serialized state.
-    vaultKey: null,
     vaultOwnerToken,
     tokenExpiresAt,
     isVaultUnlocked: hasVaultKey && !!vaultOwnerToken,
