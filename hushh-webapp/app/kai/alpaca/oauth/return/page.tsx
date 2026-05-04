@@ -86,7 +86,7 @@ export default function KaiAlpacaOauthReturnPage() {
       try {
         const issued = await VaultService.getOrIssueVaultOwnerToken(user.uid);
         if ((getVaultKey() ?? "")) {
-          unlockVault(getVaultKey, issued.token, issued.expiresAt);
+          unlockVault((getVaultKey() ?? ""), issued.token, issued.expiresAt);
         }
 
         await PlaidPortfolioService.completeAlpacaConnect({

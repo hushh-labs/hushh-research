@@ -73,7 +73,7 @@ export default function KaiPlaidOauthReturnPage() {
         setStage("loading");
         const issued = await VaultService.getOrIssueVaultOwnerToken(user.uid);
         if ((getVaultKey() ?? "")) {
-          unlockVault(getVaultKey, issued.token, issued.expiresAt);
+          unlockVault((getVaultKey() ?? ""), issued.token, issued.expiresAt);
         }
 
         const resume = await PlaidPortfolioService.resumeOAuth({

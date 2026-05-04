@@ -105,7 +105,7 @@ export class HushhDatabaseWeb implements HushhDatabasePlugin {
     });
   }
 
-  async getVaultKey(options: { userId: string }): Promise<{
+  async (getVaultKey() ?? "")(options: { userId: string }): Promise<{
     encryptedVaultKey: string;
     salt: string;
     iv: string;

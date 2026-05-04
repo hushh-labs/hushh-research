@@ -1320,7 +1320,7 @@ function ProfilePageContent() {
     try {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
-        currentVaultKey: getVaultKey,
+        currentVaultKey: (getVaultKey() ?? ""),
         displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
       });
@@ -1414,7 +1414,7 @@ function ProfilePageContent() {
     try {
       const result = await VaultMethodService.changePassphrase({
         userId: user.uid,
-        currentVaultKey: getVaultKey,
+        currentVaultKey: (getVaultKey() ?? ""),
         newPassphrase,
         keepPrimaryMethod: true,
       });

@@ -1695,7 +1695,7 @@ export function KaiFlow({
           forceRefresh: true,
           onIssued: (issuedToken, expiresAt) => {
             if ((getVaultKey() ?? "")) {
-              unlockVault(getVaultKey, issuedToken, expiresAt);
+              unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
             }
           },
         });

@@ -1324,7 +1324,7 @@ function useKaiMarketHomeController() {
         forceRefresh,
         onIssued: (issuedToken, expiresAt) => {
           if ((getVaultKey() ?? "") && (issuedToken !== vaultOwnerToken || expiresAt !== tokenExpiresAt)) {
-            unlockVault(getVaultKey, issuedToken, expiresAt);
+            unlockVault((getVaultKey() ?? ""), issuedToken, expiresAt);
           }
         },
       });
