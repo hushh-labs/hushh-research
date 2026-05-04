@@ -545,7 +545,7 @@ export interface HushhDatabasePlugin {
     recoverySalt: string;
     recoveryIv: string;
   }): Promise<{ success: boolean }>;
-  (getVaultKey() ?? "")(options: { userId: string }): Promise<{
+  getVaultKey(options: { userId: string }): Promise<{
     encryptedVaultKey: string;
     salt: string;
     iv: string;
