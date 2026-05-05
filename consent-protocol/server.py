@@ -481,6 +481,14 @@ async def shutdown_remote_mcp_transport():
 
 
 @app.on_event("startup")
+async def startup_market_cache_store_table():
+    """Ensure the L2 market cache table exists before any request hits it."""
+    from hushh_mcp.services.market_cache_store import get_market_cache_store_service
+
+    await get_market_cache_store_service().ensure_table()
+
+
+@app.on_event("startup")
 async def startup_market_insights_refresh():
     """Warm shared market caches, then keep them refreshed in the background."""
     await warm_market_insights_startup_once()
