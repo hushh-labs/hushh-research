@@ -31,7 +31,7 @@ import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 import { useVault } from "@/lib/vault/vault-context";
 
-type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
+type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "chat" | "profile";
 type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
 type NavKey = InvestorNavKey | RiaNavKey;
 
@@ -218,6 +218,9 @@ export const Navbar = () => {
         return;
       case "dashboard":
         router.push(ROUTES.KAI_DASHBOARD);
+        return;
+      case "chat":
+        router.push(ROUTES.KAI_CHAT);
         return;
       case "analysis":
         router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);

@@ -81,7 +81,11 @@ export interface KaiPlugin {
     vaultOwnerToken: string;
   }): Promise<{
     response: string;
-    conversationId: string;
+    conversation_id: string;
+    component_type?: "import_prompt" | "analysis_summary" | "profile_summary" | null;
+    component_data?: Record<string, unknown> | null;
+    learned_attributes?: Array<{ domain: string; key: string; value: string }>;
+    tokens_used?: number | null;
     timestamp: string;
   }>;
 

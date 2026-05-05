@@ -339,18 +339,24 @@ export async function getStockContext(
  * Send a chat message to Kai.
  * Platform-aware: Uses Kai plugin on native, Next.js API on web.
  * Requires VAULT_OWNER token for consent-gated data access.
- * 
+ *
  * Note: Returns camelCase for React components, transforms from snake_case backend response.
  */
+export interface KaiChatResponse {
+  response: string;
+  conversationId: string;
+  componentType: "import_prompt" | "analysis_summary" | "profile_summary" | null;
+  componentData: Record<string, unknown> | null;
+  learnedAttributes: Array<{ domain: string; key: string; value: string }>;
+  tokensUsed: number | null;
+  timestamp: string;
+}
+
 export async function chat(params: {
   userId: string;
   message: string;
   conversationId?: string;
-}): Promise<{
-  response: string;
-  conversationId: string;
-  timestamp: string;
-}> {
+}): Promise<KaiChatResponse> {
   const vaultOwnerToken = requireVaultOwnerToken();
 
   const result = await Kai.chat({
@@ -361,11 +367,14 @@ export async function chat(params: {
   });
 
   // Transform snake_case to camelCase for React components
-   
   const raw = result as any;
   return {
-    response: raw.response || "",
-    conversationId: raw.conversation_id || raw.conversationId || "",
-    timestamp: raw.timestamp || new Date().toISOString(),
+    response: raw.response ?? "",
+    conversationId: raw.conversation_id ?? raw.conversationId ?? "",
+    componentType: raw.component_type ?? null,
+    componentData: raw.component_data ?? null,
+    learnedAttributes: raw.learned_attributes ?? [],
+    tokensUsed: raw.tokens_used ?? null,
+    timestamp: raw.timestamp ?? new Date().toISOString(),
   };
 }
