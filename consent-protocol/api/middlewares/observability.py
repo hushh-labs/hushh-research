@@ -97,9 +97,35 @@ def get_request_id() -> str:
     return _request_id_ctx.get("")
 
 
+def _extract_bearer_user_id(request: Request) -> str | None:
+    """
+    Decode the Bearer token once per request and return the user_id string.
+
+    Result is cached on ``request.state.rate_limit_user_id`` so the rate-limit
+    key function can read it without performing a second JWT decode.
+    Returns ``None`` when no valid authenticated token is present.
+    """
+    authorization = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not (authorization and authorization.startswith("Bearer ")):
+        return None
+    consent_token = authorization.removeprefix("Bearer ").strip()
+    if not consent_token:
+        return None
+    # Import here to avoid a circular import between middlewares and consent layer.
+    from hushh_mcp.consent.token import validate_token
+
+    valid, _reason, payload = validate_token(consent_token)
+    if valid and payload and payload.user_id:
+        return str(payload.user_id)
+    return None
+
+
 async def observability_middleware(request: Request, call_next):
     request_id = _resolve_request_id(request)
     request.state.request_id = request_id
+    # Decode the JWT once here; rate_limit.py reads this cached value instead
+    # of calling validate_token a second time on every request.
+    request.state.rate_limit_user_id = _extract_bearer_user_id(request)
     token = _request_id_ctx.set(request_id)
 
     method = request.method.upper()

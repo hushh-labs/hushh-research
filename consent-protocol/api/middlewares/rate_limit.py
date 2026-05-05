@@ -14,8 +14,6 @@ from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from hushh_mcp.consent.token import validate_token
-
 logger = logging.getLogger(__name__)
 
 
@@ -23,18 +21,15 @@ def get_rate_limit_key(request: Request) -> str:
     """
     Extract rate limit key from request.
 
-    Derives the bucket from the signature-verified consent bearer token so a
-    caller cannot mint new quota by spoofing an identity header. Falls back
-    to the remote IP when no valid token is present.
+    Reads the user_id decoded by ``observability_middleware`` from
+    ``request.state.rate_limit_user_id`` — avoids a second JWT decode on
+    every request. Falls back to the remote IP when no authenticated user
+    is present or when the state attribute is missing (e.g. tests that
+    bypass the middleware stack).
     """
-    authorization = request.headers.get("Authorization") or request.headers.get("authorization")
-    if authorization and authorization.startswith("Bearer "):
-        consent_token = authorization.removeprefix("Bearer ").strip()
-        if consent_token:
-            valid, _reason, payload = validate_token(consent_token)
-            if valid and payload and payload.user_id:
-                return f"user:{payload.user_id}"
-
+    user_id = getattr(request.state, "rate_limit_user_id", None)
+    if user_id:
+        return f"user:{user_id}"
     return get_remote_address(request)
 
 
