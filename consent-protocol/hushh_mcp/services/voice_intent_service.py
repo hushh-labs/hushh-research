@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -33,7 +35,7 @@ logger = logging.getLogger(__name__)
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 _OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
-_OPENAI_HTTP_TIMEOUT_SECONDS = 45.0
+_OPENAI_HTTP_TIMEOUT_SECONDS = 8.0
 _OPENAI_TTS_TIMEOUT_SECONDS = 20.0
 _VOICE_LANGUAGE = "en"
 _VOICE_STT_PROMPT = (
@@ -241,6 +243,59 @@ _DESTRUCTIVE_INTENT_KEYWORDS = (
     "clear all data",
 )
 
+# ---------------------------------------------------------------------------
+# Persistent HTTP client (connection reuse across voice turns)
+# ---------------------------------------------------------------------------
+_SHARED_HTTP_CLIENT: httpx.AsyncClient | None = None
+_SHARED_HTTP_CLIENT_LOCK = asyncio.Lock()
+
+
+async def _get_shared_http_client() -> httpx.AsyncClient:
+    global _SHARED_HTTP_CLIENT
+    if _SHARED_HTTP_CLIENT is not None and not _SHARED_HTTP_CLIENT.is_closed:
+        return _SHARED_HTTP_CLIENT
+    async with _SHARED_HTTP_CLIENT_LOCK:
+        if _SHARED_HTTP_CLIENT is None or _SHARED_HTTP_CLIENT.is_closed:
+            _SHARED_HTTP_CLIENT = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=3.0, read=_OPENAI_HTTP_TIMEOUT_SECONDS, write=5.0, pool=5.0),
+                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=30),
+            )
+        return _SHARED_HTTP_CLIENT
+
+
+# ---------------------------------------------------------------------------
+# In-process intent result cache (avoids LLM round-trip for repeated phrases)
+# ---------------------------------------------------------------------------
+_INTENT_CACHE_TTL_SECONDS = 300  # 5 minutes
+_INTENT_CACHE_MAX_SIZE = 256
+_intent_cache: dict[str, tuple[float, tuple[dict[str, Any] | None, int, str]]] = {}
+
+
+def _intent_cache_key(transcript: str, context_payload: dict[str, Any]) -> str:
+    normalized = re.sub(r"\s+", " ", transcript.strip().lower())
+    route = str(context_payload.get("route") or "")
+    has_portfolio = str(bool(context_payload.get("has_portfolio_data")))
+    raw = f"{normalized}|{route}|{has_portfolio}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
+def _intent_cache_get(key: str) -> tuple[dict[str, Any] | None, int, str] | None:
+    entry = _intent_cache.get(key)
+    if entry is None:
+        return None
+    ts, value = entry
+    if time.monotonic() - ts > _INTENT_CACHE_TTL_SECONDS:
+        _intent_cache.pop(key, None)
+        return None
+    return value
+
+
+def _intent_cache_put(key: str, value: tuple[dict[str, Any] | None, int, str]) -> None:
+    if len(_intent_cache) >= _INTENT_CACHE_MAX_SIZE:
+        oldest_key = min(_intent_cache, key=lambda k: _intent_cache[k][0])
+        _intent_cache.pop(oldest_key, None)
+    _intent_cache[key] = (time.monotonic(), value)
+
 
 def _parse_model_candidates(raw: str | None, *, default_models: list[str]) -> list[str]:
     source = raw.strip() if isinstance(raw, str) else ""
@@ -343,100 +398,101 @@ async def _post_with_model_fallback(
         raise VoiceServiceError(500, "Voice model selection failed before request")
     last_model = models_to_try[0]
 
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        for index, model_name in enumerate(models_to_try):
-            request_kwargs = body_builder(model_name)
-            if attempt_hook:
-                attempt_hook(
-                    {
-                        "event": "upstream_started",
-                        "model_candidate_order": list(models_to_try),
-                        "model_attempted": model_name,
-                        "attempt_index": index + 1,
-                        "attempt_count": len(models_to_try),
-                        "timeout_seconds": timeout_seconds,
-                        "fallback_enabled": allow_model_fallback,
-                    }
-                )
-            started_at = time.perf_counter()
-            try:
-                response = await client.post(
-                    url,
-                    headers=headers,
-                    **request_kwargs,
-                )
-            except Exception as error:
-                elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-                if attempt_hook:
-                    attempt_hook(
-                        {
-                            "event": "upstream_failed",
-                            "model_used": model_name,
-                            "elapsed_ms": elapsed_ms,
-                            "exception_type": type(error).__name__,
-                            "upstream_error_message": str(error),
-                            "upstream_error_payload": None,
-                            "will_retry": False,
-                            "next_model": None,
-                        }
-                    )
-                raise
-            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-            payload = response.json() if response.content else {}
-
-            if response.status_code < 400:
-                if attempt_hook:
-                    attempt_hook(
-                        {
-                            "event": "upstream_finished",
-                            "model_used": model_name,
-                            "elapsed_ms": elapsed_ms,
-                            "status_code": response.status_code,
-                            "payload": payload,
-                        }
-                    )
-                return response, payload, elapsed_ms, model_name
-
-            last_response = response
-            last_payload = payload
-            last_elapsed_ms = elapsed_ms
-            last_model = model_name
-
-            should_retry = (
-                allow_model_fallback
-                and index < len(models_to_try) - 1
-                and _is_retryable_model_error(response.status_code, payload)
+    client = await _get_shared_http_client()
+    for index, model_name in enumerate(models_to_try):
+        request_kwargs = body_builder(model_name)
+        if attempt_hook:
+            attempt_hook(
+                {
+                    "event": "upstream_started",
+                    "model_candidate_order": list(models_to_try),
+                    "model_attempted": model_name,
+                    "attempt_index": index + 1,
+                    "attempt_count": len(models_to_try),
+                    "timeout_seconds": timeout_seconds,
+                    "fallback_enabled": allow_model_fallback,
+                }
             )
+        started_at = time.perf_counter()
+        try:
+            response = await client.post(
+                url,
+                headers=headers,
+                timeout=timeout_seconds,
+                **request_kwargs,
+            )
+        except Exception as error:
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             if attempt_hook:
                 attempt_hook(
                     {
                         "event": "upstream_failed",
                         "model_used": model_name,
                         "elapsed_ms": elapsed_ms,
-                        "status_code": response.status_code,
-                        "exception_type": None,
-                        "upstream_error_message": _extract_openai_error(payload),
-                        "upstream_error_payload": payload.get("error")
-                        if isinstance(payload, dict)
-                        else payload,
-                        "will_retry": should_retry,
-                        "next_model": models_to_try[index + 1]
-                        if should_retry and index + 1 < len(models_to_try)
-                        else None,
-                        "fallback_enabled": allow_model_fallback,
+                        "exception_type": type(error).__name__,
+                        "upstream_error_message": str(error),
+                        "upstream_error_payload": None,
+                        "will_retry": False,
+                        "next_model": None,
                     }
                 )
-            if should_retry:
-                logger.warning(
-                    "[VOICE_MODEL_FALLBACK] model=%s status=%s error=%s next_model=%s",
-                    model_name,
-                    response.status_code,
-                    _extract_openai_error(payload),
-                    models_to_try[index + 1],
-                )
-                continue
+            raise
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        payload = response.json() if response.content else {}
 
+        if response.status_code < 400:
+            if attempt_hook:
+                attempt_hook(
+                    {
+                        "event": "upstream_finished",
+                        "model_used": model_name,
+                        "elapsed_ms": elapsed_ms,
+                        "status_code": response.status_code,
+                        "payload": payload,
+                    }
+                )
             return response, payload, elapsed_ms, model_name
+
+        last_response = response
+        last_payload = payload
+        last_elapsed_ms = elapsed_ms
+        last_model = model_name
+
+        should_retry = (
+            allow_model_fallback
+            and index < len(models_to_try) - 1
+            and _is_retryable_model_error(response.status_code, payload)
+        )
+        if attempt_hook:
+            attempt_hook(
+                {
+                    "event": "upstream_failed",
+                    "model_used": model_name,
+                    "elapsed_ms": elapsed_ms,
+                    "status_code": response.status_code,
+                    "exception_type": None,
+                    "upstream_error_message": _extract_openai_error(payload),
+                    "upstream_error_payload": payload.get("error")
+                    if isinstance(payload, dict)
+                    else payload,
+                    "will_retry": should_retry,
+                    "next_model": models_to_try[index + 1]
+                    if should_retry and index + 1 < len(models_to_try)
+                    else None,
+                    "fallback_enabled": allow_model_fallback,
+                }
+            )
+        if should_retry:
+            logger.warning(
+                "[VOICE_MODEL_FALLBACK] model=%s status=%s error=%s next_model=%s",
+                model_name,
+                response.status_code,
+                _extract_openai_error(payload),
+                models_to_try[index + 1],
+            )
+            continue
+
+        return response, payload, elapsed_ms, model_name
 
     if last_response is None:
         raise VoiceServiceError(500, "Voice model selection failed before request")
@@ -2088,15 +2144,15 @@ class VoiceIntentService:
             "session": session_payload,
         }
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                _OPENAI_REALTIME_CLIENT_SECRETS_URL,
-                headers={
-                    **self._headers(),
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
+        realtime_client = await _get_shared_http_client()
+        response = await realtime_client.post(
+            _OPENAI_REALTIME_CLIENT_SECRETS_URL,
+            headers={
+                **self._headers(),
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
 
         result = response.json() if response.content else {}
         if response.status_code >= 400:
@@ -2476,6 +2532,13 @@ class VoiceIntentService:
         trace_hook: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> tuple[dict[str, Any] | None, int, str]:
         self._require_api_key()
+
+        cache_key = _intent_cache_key(transcript, context_payload)
+        cached = _intent_cache_get(cache_key)
+        if cached is not None:
+            logger.debug("[VOICE_INTENT_CACHE] hit cache_key=%s", cache_key[:8])
+            return cached
+
         tools = _build_tools_schema()
         planner_context = build_voice_planner_context(
             transcript=transcript,
@@ -2566,7 +2629,9 @@ class VoiceIntentService:
             raise VoiceServiceError(502, detail)
         raw_tool_call = _extract_first_tool_call(result)
         validated = _validate_tool_call(raw_tool_call)
-        return validated, openai_http_ms, model_used
+        result_tuple = (validated, openai_http_ms, model_used)
+        _intent_cache_put(cache_key, result_tuple)
+        return result_tuple
 
     async def plan_voice_response(
         self,

@@ -162,6 +162,7 @@ class VoiceRuntimeSettings:
     tts_default_voice: str
     tts_format: str
     tts_prefer_quality: bool
+    vad_silence_ms: int
 
 
 def get_optional_gmail_oauth_token_key() -> str:
@@ -261,6 +262,7 @@ def get_voice_runtime_settings() -> VoiceRuntimeSettings:
         tts_default_voice=str(config.get("tts_default_voice") or "alloy").strip() or "alloy",
         tts_format=str(config.get("tts_format") or "mp3").strip() or "mp3",
         tts_prefer_quality=_bool_from_value(config.get("tts_prefer_quality"), default=False),
+        vad_silence_ms=max(300, min(2000, _int_from_value(config.get("vad_silence_ms"), 500))),
     )
 
 

@@ -611,7 +611,7 @@ async def kai_voice_realtime_session(
         session = await voice_service.create_realtime_session(
             voice=body.voice,
             include_input_transcription=True,
-            server_vad_silence_ms=1000,
+            server_vad_silence_ms=_voice_runtime_settings().vad_silence_ms,
             disable_auto_response=True,
             enable_barge_in=False,
         )
