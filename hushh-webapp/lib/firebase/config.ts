@@ -38,15 +38,22 @@ if (!hasValidFirebaseConfig) {
   );
 }
 
-// Initialize Firebase only when configuration is valid
-const app = hasValidFirebaseConfig
-  ? getApps().length === 0
-    ? initializeApp(firebaseConfig)
-    : getApp()
-  : null;
+const app =
+  getApps().length === 0
+    ? initializeApp(
+        hasValidFirebaseConfig
+          ? firebaseConfig
+          : {
+              apiKey: "dummy-api-key",
+              authDomain: "dummy.firebaseapp.com",
+              projectId: "dummy-project",
+              appId: "dummy-app-id",
+            },
+        hasValidFirebaseConfig ? undefined : "fallback"
+      )
+    : getApp();
 
-// Initialize Auth only when Firebase app exists
-const auth = app ? getAuth(app) : null;
+const auth = getAuth(app);
 
 const disablePhoneAuthAppVerificationForTesting =
   process.env.NEXT_PUBLIC_APP_ENV === "development" &&

@@ -122,12 +122,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return nativeUser;
     }
 
-    if (!auth) {
-      applyAuthUser(null);
-      setLoading(false);
-      return null;
-    }
-
     const currentUser = auth.currentUser;
 
     if (currentUser) {
@@ -236,17 +230,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     init();
 
-    if (!auth) {
-      console.warn(
-        "[AuthProvider] Firebase Auth unavailable. Skipping auth state subscription."
-      );
-
-      setLoading(false);
-
-      return () => {
-        mounted = false;
-      };
-    }
+   
 
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (!mounted) return;
