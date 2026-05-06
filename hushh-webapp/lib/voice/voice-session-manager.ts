@@ -54,7 +54,10 @@ export type VoiceSessionAcquireInput = {
 // Keep the live session around across brief tab switches so voice does not
 // repeatedly pay the full realtime handshake cost.
 const BACKGROUND_DISCONNECT_DELAY_MS = 5000;
-const REALTIME_SERVER_VAD_SILENCE_MS = 1000;
+// VAD silence is configured server-side via VoiceRuntimeSettings.vad_silence_ms
+// and returned in the session response as `silence_duration_ms`. Fall back to
+// 500 ms locally only when the backend does not provide the value.
+const REALTIME_SERVER_VAD_SILENCE_MS_FALLBACK = 500;
 const REALTIME_SERVER_BARGE_IN_ENABLED = false;
 
 function isVoiceSessionConnectCancellationError(error: unknown): boolean {
@@ -70,6 +73,7 @@ function parseRealtimeSessionPayload(raw: unknown): {
   model: string;
   voice: string;
   sessionId?: string | null;
+  silenceDurationMs?: number;
   transcriptionModel?: string;
   transcriptionLanguage?: string;
   transcriptionPrompt?: string;
@@ -82,6 +86,13 @@ function parseRealtimeSessionPayload(raw: unknown): {
   const voice = typeof value.voice === "string" ? value.voice.trim() : "";
   const sessionId =
     typeof value.session_id === "string" ? value.session_id.trim() : null;
+  const silenceDurationMsRaw = value.silence_duration_ms;
+  const silenceDurationMs =
+    typeof silenceDurationMsRaw === "number" &&
+    Number.isFinite(silenceDurationMsRaw) &&
+    silenceDurationMsRaw > 0
+      ? Math.round(silenceDurationMsRaw)
+      : undefined;
   const transcriptionModel =
     typeof value.transcription_model === "string"
       ? value.transcription_model.trim()
@@ -100,6 +111,7 @@ function parseRealtimeSessionPayload(raw: unknown): {
     model,
     voice,
     sessionId: sessionId || null,
+    ...(silenceDurationMs !== undefined ? { silenceDurationMs } : {}),
     ...(transcriptionModel ? { transcriptionModel } : {}),
     ...(transcriptionLanguage ? { transcriptionLanguage } : {}),
     ...(transcriptionPrompt ? { transcriptionPrompt } : {}),
@@ -530,7 +542,8 @@ class VoiceSessionManager {
           localStream,
           turnId: sessionTurnId,
           signal: connectAbortController.signal,
-          serverVadSilenceMs: REALTIME_SERVER_VAD_SILENCE_MS,
+          serverVadSilenceMs:
+            sessionPayload.silenceDurationMs ?? REALTIME_SERVER_VAD_SILENCE_MS_FALLBACK,
           enableBargeIn: REALTIME_SERVER_BARGE_IN_ENABLED,
           onTranscript: (transcriptEvent) => {
             this.emit({
