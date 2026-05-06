@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 49,
+  "expected_migration_version": 50,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -292,6 +292,19 @@
       "created_at",
       "updated_at"
     ],
+    "one_kyc_client_connectors": [
+      "connector_id",
+      "user_id",
+      "connector_key_id",
+      "connector_public_key",
+      "connector_wrapping_alg",
+      "public_key_fingerprint",
+      "status",
+      "created_at",
+      "updated_at",
+      "rotated_at",
+      "revoked_at"
+    ],
     "one_kyc_workflows": [
       "workflow_id",
       "user_id",
@@ -312,6 +325,17 @@
       "draft_subject",
       "draft_body",
       "draft_status",
+      "send_attempt_id",
+      "send_status",
+      "sent_message_id",
+      "sent_at",
+      "client_draft_hash",
+      "approved_send_hash",
+      "pkm_writeback_status",
+      "pkm_writeback_artifact_hash",
+      "pkm_writeback_attempt_count",
+      "pkm_writeback_last_error",
+      "pkm_writeback_completed_at",
       "last_error_code",
       "last_error_message",
       "metadata",

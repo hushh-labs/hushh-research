@@ -243,12 +243,16 @@
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",
       "lifecycle_status": "current",
-      "glob_tables": ["one_*"],
-      "primary_access_path": "One mailbox intake, KYC workflow status, consent continuation, and approval-gated draft send",
-      "retention_policy": "Active workflow state retained while open; terminal draft bodies redacted or purged after 30 days; production/public launch requires encrypted-at-rest draft storage or an explicit launch block.",
+      "exact_tables": [
+        "one_email_mailbox_state",
+        "one_kyc_workflows",
+        "one_kyc_client_connectors"
+      ],
+      "primary_access_path": "One mailbox intake, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
+      "retention_policy": "Active workflow metadata retained while open; legacy dev/UAT draft_body rows are redacted by migration and terminal metadata is compacted by retention jobs.",
       "deletion_behavior": "Delete user-linked workflows on account deletion; keep mailbox watch state without user data.",
-      "trust_boundary": "Metadata and approval draft state only; no raw full email threads, tokens, vault contents, or broad decrypted PKM. Draft text may contain approved scoped values and must be treated as sensitive workflow state.",
-      "plaintext_posture": "workflow_metadata_and_user_approved_draft",
+      "trust_boundary": "Metadata only plus public connector metadata and send/writeback hashes; no raw full email threads, connector private keys, consent export plaintext, vault contents, broad decrypted PKM, or review draft plaintext. Approved outgoing email body may be handled transiently only for Gmail send and must not be logged or persisted.",
+      "plaintext_posture": "metadata_public_connector_and_hashes_only",
       "expected_row_growth": "medium_workflow"
     },
     {

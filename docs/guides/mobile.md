@@ -192,7 +192,7 @@ All 10 plugins exist on both platforms with matching methods:
 
 Visible page routes are governed through `hushh-webapp/lib/navigation/routes.ts` together with the architecture/mobile parity docs. That coverage includes:
 
-- product routes (`/kai`, `/consents`, `/profile`, `/marketplace`, `/ria`)
+- product routes (`/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
 - `/developers`
 - public/auth content pages (`/`, `/login`, `/logout`)
 - visible lab routes

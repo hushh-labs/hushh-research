@@ -21,7 +21,6 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -130,7 +129,9 @@ def _is_consent_storage_unavailable(exc: Exception) -> bool:
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(current, (DatabaseExecutionError, SqlalchemyOperationalError)):
+        if current.__class__.__name__ == "DatabaseExecutionError":
+            return True
+        if isinstance(current, SqlalchemyOperationalError):
             return True
         if isinstance(current, (ConnectionError, OSError, TimeoutError)):
             return True

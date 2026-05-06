@@ -15,16 +15,26 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  KycWorkflowPkmService,
+  type KycWorkflowCheck,
+  type KycWorkflowCheckKey,
+  type KycWorkflowStatus,
+} from "@/lib/services/kyc-pkm-write-service";
+import { OneKycClientZkService, sha256Hex, type KycDraftBuildResult } from "@/lib/services/one-kyc-client-zk-service";
 import {
   OneKycService,
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
 } from "@/lib/services/one-kyc-service";
+import { useVault } from "@/lib/vault/vault-context";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
+  needs_client_connector: "Needs vault setup",
   needs_scope: "Needs consent",
   needs_documents: "Needs documents",
   drafting: "Drafting",
@@ -42,18 +52,30 @@ function statusVariant(status: OneKycWorkflowStatus): "default" | "secondary" | 
 }
 
 export default function OneKycPage() {
+  return (
+    <VaultLockGuard>
+      <OneKycWorkspace />
+    </VaultLockGuard>
+  );
+}
+
+function OneKycWorkspace() {
   const auth = useRequireAuth();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [workflows, setWorkflows] = useState<OneKycWorkflow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [redraftInstructions, setRedraftInstructions] = useState("");
+  const [localDrafts, setLocalDrafts] = useState<Record<string, KycDraftBuildResult>>({});
+  const [connectorReady, setConnectorReady] = useState(false);
 
   const selected = useMemo(
     () => workflows.find((workflow) => workflow.workflow_id === selectedId) || workflows[0] || null,
     [selectedId, workflows]
   );
+  const selectedDraft = selected ? localDrafts[selected.workflow_id] || null : null;
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "one_kyc",
@@ -88,7 +110,7 @@ export default function OneKycPage() {
           label: "Review draft",
           type: "region",
           actionId: "kyc.draft.review",
-          state: selected?.draft_body ? "available" : "empty",
+          state: selected ? (localDrafts[selected.workflow_id] ? "available" : "empty") : "empty",
         },
         {
           id: "one-kyc-redraft",
@@ -116,36 +138,92 @@ export default function OneKycPage() {
       screenMetadata: {
         workflow_count: workflows.length,
         selected_workflow_status: selected?.status || null,
+        vault_unlocked: Boolean(isVaultUnlocked && vaultKey && vaultOwnerToken),
+        connector_ready: connectorReady,
         loading,
       },
     }),
-    [loading, selected, workflows.length]
+    [connectorReady, isVaultUnlocked, loading, localDrafts, selected, vaultKey, vaultOwnerToken, workflows.length]
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   const load = useCallback(async () => {
-    if (!auth.user || !auth.userId) return;
+    if (!auth.user || !auth.userId || !vaultKey || !vaultOwnerToken) return;
     setLoading(true);
     setError(null);
     try {
-      const idToken = await auth.user.getIdToken();
+      await OneKycClientZkService.ensureConnector({
+        userId: auth.userId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      setConnectorReady(true);
       const response = await OneKycService.listWorkflows({
         userId: auth.userId,
-        idToken,
+        vaultOwnerToken,
       });
       setWorkflows(response.workflows);
       const initialId = new URLSearchParams(window.location.search).get("workflowId");
       setSelectedId((current) => current || initialId || response.workflows[0]?.workflow_id || null);
     } catch (err) {
+      setConnectorReady(false);
       setError(err instanceof Error ? err.message : "Unable to load KYC workflows.");
     } finally {
       setLoading(false);
     }
-  }, [auth.user, auth.userId]);
+  }, [auth.user, auth.userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function prepareClientDraft() {
+      if (!auth.userId || !vaultKey || !vaultOwnerToken || !selected) return;
+      if (selected.status !== "waiting_on_user" || selected.draft_status !== "ready") return;
+      if (localDrafts[selected.workflow_id]) return;
+      const consentToken =
+        selected.consent_token ||
+        (typeof selected.metadata?.consent_token === "string" ? selected.metadata.consent_token : "");
+      if (!consentToken) return;
+      try {
+        setBusy((current) => current || "draft");
+        const connector = await OneKycClientZkService.ensureConnector({
+          userId: auth.userId,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const exportPackage = await OneKycService.getConsentExport({ consentToken });
+        const exportPayload = await OneKycClientZkService.decryptScopedExport({
+          exportPackage,
+          connector,
+        });
+        const draft = await OneKycClientZkService.buildDraft({
+          workflow: selected,
+          exportPayload,
+        });
+        if (!cancelled) {
+          setLocalDrafts((current) => ({ ...current, [selected.workflow_id]: draft }));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Unable to prepare the KYC draft.");
+        }
+      } finally {
+        if (!cancelled) {
+          setBusy((current) => (current === "draft" ? null : current));
+        }
+      }
+    }
+
+    void prepareClientDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, localDrafts, selected, vaultKey, vaultOwnerToken]);
 
   const updateWorkflow = useCallback((next: OneKycWorkflow) => {
     setWorkflows((current) => {
@@ -163,43 +241,163 @@ export default function OneKycPage() {
       action: "refresh" | "approve" | "reject" | "redraft",
       workflow: OneKycWorkflow,
     ) => {
-      if (!auth.user || !auth.userId) return;
+      if (!auth.user || !auth.userId || !vaultKey || !vaultOwnerToken) return;
       if (action === "redraft" && !redraftInstructions.trim()) {
         setError("Add redraft instructions before asking One to revise this draft.");
+        return;
+      }
+      const localDraft = localDrafts[workflow.workflow_id];
+      if (action === "approve" && !localDraft) {
+        setError("Prepare the KYC draft before approving send.");
         return;
       }
       setBusy(action);
       setError(null);
       try {
-        const idToken = await auth.user.getIdToken();
         const input = {
           userId: auth.userId,
-          idToken,
+          vaultOwnerToken,
           workflowId: workflow.workflow_id,
         };
-        const next =
-          action === "approve"
-            ? await OneKycService.approveDraft(input)
-            : action === "reject"
-              ? await OneKycService.rejectDraft({ ...input, reason: "Rejected from One KYC." })
-              : action === "redraft"
-                ? await OneKycService.redraft({
-                    ...input,
-                    instructions: redraftInstructions.trim(),
-                    source: "text",
-                  })
-              : await OneKycService.refreshWorkflow(input);
-        updateWorkflow(next);
         if (action === "redraft") {
+          if (!localDraft) {
+            setError("Prepare the KYC draft before revising it.");
+            return;
+          }
+          const body = `${localDraft.body}
+
+---
+User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
+          setLocalDrafts((current) => ({
+            ...current,
+            [workflow.workflow_id]: {
+              ...localDraft,
+              body,
+              draftHash: "",
+            },
+          }));
+          const draftHash = await sha256Hex(body);
+          setLocalDrafts((current) => ({
+            ...current,
+            [workflow.workflow_id]: {
+              ...localDraft,
+              body,
+              draftHash,
+            },
+          }));
+          const next = await OneKycService.redraft({
+            ...input,
+            instructions: redraftInstructions.trim(),
+            source: "text",
+          });
+          updateWorkflow(next);
           setRedraftInstructions("");
+          return;
         }
+
+        let next: OneKycWorkflow;
+        if (action === "approve") {
+          if (!localDraft) {
+            setError("Prepare the KYC draft before approving send.");
+            return;
+          }
+          const checks = {
+            identity: {
+              status: localDraft.missingFields.length === 0 ? "verified" : "pending",
+              updated_at: new Date().toISOString(),
+              method: "one_email_kyc_consent_export",
+              source_domain: "identity",
+            },
+            address: emptyKycCheck(),
+            bank: emptyKycCheck(),
+            email: emptyKycCheck(),
+          } satisfies Record<KycWorkflowCheckKey, KycWorkflowCheck>;
+          const overallStatus: KycWorkflowStatus =
+            localDraft.missingFields.length === 0 ? "verified" : "pending";
+          const artifact = {
+            checks,
+            overall_status: overallStatus,
+            counterparty: workflow.counterparty_label || workflow.sender_email || null,
+            request_summary: workflow.subject || null,
+            pending_requirements: localDraft.missingFields,
+            completed_requirements: workflow.required_fields.filter(
+              (field) => !localDraft.missingFields.includes(field)
+            ),
+          };
+          const artifactHash = await sha256Hex(JSON.stringify(artifact));
+          next = await OneKycService.sendApprovedReply({
+            ...input,
+            approvedSubject: localDraft.subject || workflow.draft_subject,
+            approvedBody: localDraft.body,
+            clientDraftHash: localDraft.draftHash,
+            consentExportRevision:
+              typeof workflow.consent_export?.export_revision === "number"
+                ? workflow.consent_export.export_revision
+                : typeof workflow.metadata?.consent_export === "object" &&
+                    workflow.metadata.consent_export !== null &&
+                    typeof (workflow.metadata.consent_export as Record<string, unknown>).export_revision === "number"
+                  ? ((workflow.metadata.consent_export as Record<string, unknown>).export_revision as number)
+                  : null,
+            pkmWritebackArtifactHash: artifactHash,
+          });
+
+          let writeback;
+          try {
+            writeback = await KycWorkflowPkmService.writeWorkflowArtifact({
+              userId: auth.userId,
+              vaultKey,
+              vaultOwnerToken,
+              artifact,
+            });
+          } catch (writebackError) {
+            const message = errorMessage(writebackError);
+            next = await OneKycService.writebackComplete({
+              ...input,
+              artifactHash,
+              status: "failed",
+              errorMessage: message,
+            }).catch(() => next);
+            updateWorkflow(next);
+            setError(`Approved reply sent, but encrypted PKM writeback failed: ${message}`);
+            return;
+          }
+
+          next = await OneKycService.writebackComplete({
+            ...input,
+            artifactHash,
+            status: writeback.success ? "succeeded" : "failed",
+            errorMessage: writeback.success ? null : writeback.message || "PKM writeback failed.",
+          });
+          if (!writeback.success) {
+            updateWorkflow(next);
+            setError(
+              `Approved reply sent, but encrypted PKM writeback failed: ${
+                writeback.message || "PKM writeback failed."
+              }`
+            );
+            return;
+          }
+        } else if (action === "reject") {
+          next = await OneKycService.rejectDraft({ ...input, reason: "Rejected from One KYC." });
+        } else {
+          next = await OneKycService.refreshWorkflow(input);
+        }
+        updateWorkflow(next);
       } catch (err) {
         setError(err instanceof Error ? err.message : "KYC action failed.");
       } finally {
         setBusy(null);
       }
     },
-    [auth.user, auth.userId, redraftInstructions, updateWorkflow]
+    [
+      auth.user,
+      auth.userId,
+      localDrafts,
+      redraftInstructions,
+      updateWorkflow,
+      vaultKey,
+      vaultOwnerToken,
+    ]
   );
 
   return (
@@ -304,6 +502,12 @@ export default function OneKycPage() {
                   </div>
                 </div>
 
+                {selected.status === "needs_client_connector" ? (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200">
+                    Unlock completed. Sync this workflow so One can request scoped consent with your client-held KYC connector.
+                  </div>
+                ) : null}
+
                 {selected.status === "needs_scope" && selected.consent_request_url ? (
                   <Button asChild>
                     <a href={selected.consent_request_url} data-voice-control-id="one-kyc-open-consent">
@@ -313,15 +517,20 @@ export default function OneKycPage() {
                   </Button>
                 ) : null}
 
-                {selected.draft_body ? (
+                {selectedDraft ? (
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Draft reply</p>
                     <pre
                       className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm leading-6"
                       data-voice-control-id="one-kyc-draft-review"
                     >
-                      {selected.draft_body}
+                      {selectedDraft.body}
                     </pre>
+                    {selectedDraft.missingFields.length > 0 ? (
+                      <p className="text-sm text-amber-700 dark:text-amber-200">
+                        Missing approved fields: {selectedDraft.missingFields.map((field) => field.replaceAll("_", " ")).join(", ")}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -351,7 +560,7 @@ export default function OneKycPage() {
                     <Button
                       variant="outline"
                       onClick={() => void runAction("redraft", selected)}
-                      disabled={Boolean(busy) || !redraftInstructions.trim()}
+                      disabled={Boolean(busy) || !redraftInstructions.trim() || !selectedDraft}
                       data-voice-control-id="one-kyc-redraft"
                       data-voice-action-id="kyc.draft.request_redraft"
                     >
@@ -374,7 +583,7 @@ export default function OneKycPage() {
                   </Button>
                   <Button
                     onClick={() => void runAction("approve", selected)}
-                    disabled={Boolean(busy) || selected.status !== "waiting_on_user"}
+                    disabled={Boolean(busy) || selected.status !== "waiting_on_user" || !selectedDraft}
                     data-voice-control-id="one-kyc-approve-send"
                     data-voice-action-id="kyc.draft.approve_send"
                   >
@@ -418,4 +627,17 @@ function Info({ label, value }: { label: string; value: string }) {
       <p className="mt-1 break-words text-sm">{value}</p>
     </div>
   );
+}
+
+function emptyKycCheck(): KycWorkflowCheck {
+  return {
+    status: "not_started",
+    updated_at: null,
+    method: null,
+    source_domain: null,
+  };
+}
+
+function errorMessage(value: unknown): string {
+  return value instanceof Error ? value.message : "Unknown error";
 }

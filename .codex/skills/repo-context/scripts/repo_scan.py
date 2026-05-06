@@ -5,6 +5,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any
@@ -134,6 +135,58 @@ COMMAND_PATTERNS = [
     r"^git config --get user\.(name|email)$",
     r"^# TODO$",
 ]
+
+
+def _delegation_router_payload(
+    *,
+    workflow_id: str,
+    prompt: str,
+    paths: list[str],
+    phase: str = "start",
+) -> OrderedDict[str, Any]:
+    router = REPO_ROOT / ".codex/skills/agent-orchestration-governance/scripts/delegation_router.py"
+    if not router.exists():
+        return OrderedDict(
+            available=False,
+            error="delegation_router.py is missing",
+            should_delegate=False,
+            lanes=[],
+        )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(router),
+            "--workflow",
+            workflow_id,
+            "--phase",
+            phase,
+            "--prompt",
+            prompt,
+            "--paths",
+            ",".join(paths),
+            "--json",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return OrderedDict(
+            available=False,
+            error=result.stderr.strip() or result.stdout.strip() or "delegation router failed",
+            should_delegate=False,
+            lanes=[],
+        )
+    payload = json.loads(result.stdout)
+    return OrderedDict(
+        available=True,
+        auto_spawn_authorized=payload.get("auto_spawn_authorized", False),
+        auto_spawn_source=payload.get("auto_spawn_source", ""),
+        should_delegate=payload.get("should_delegate", False),
+        parent_authority=payload.get("parent_authority", ""),
+        reasons=payload.get("reasons", []),
+        lanes=payload.get("lanes", []),
+    )
 
 
 def _load_text(path: Path) -> str:
@@ -632,6 +685,11 @@ def build_route_task(workflow_id: str, verbose: bool = False) -> dict[str, Any]:
         required_deliverables=workflow["deliverables"],
         handoff_chain=workflow["handoff_chain"],
         playbook=workflow["playbook"],
+        delegation_policy=_delegation_router_payload(
+            workflow_id=workflow_id,
+            prompt=f"{workflow['title']} {workflow['goal']}",
+            paths=workflow["affected_surfaces"],
+        ),
     )
     if verbose:
         payload["workflow"] = workflow
@@ -681,6 +739,11 @@ def build_impact(workflow_id: str, paths: list[str] | None = None, verbose: bool
         likely_tests=likely_tests,
         risk_areas=risk_areas,
         handoff_chain=workflow["handoff_chain"],
+        delegation_policy=_delegation_router_payload(
+            workflow_id=workflow_id,
+            prompt=f"{workflow['title']} {workflow['goal']}",
+            paths=likely_paths,
+        ),
     )
     if verbose:
         payload["requested_paths"] = requested_paths
@@ -985,6 +1048,7 @@ def _render_workflows_text(payload: dict[str, Any]) -> str:
 
 def _render_route_task_text(payload: dict[str, Any]) -> str:
     data = payload["data"]
+    delegation = data.get("delegation_policy", {})
     lines = [
         f"Workflow: {data['workflow_id']}",
         f"Owner skill: {_skill_label(data['selected_owner_skill'])}",
@@ -994,12 +1058,26 @@ def _render_route_task_text(payload: dict[str, Any]) -> str:
         f"Commands: {', '.join(data['exact_commands_to_run'])}",
         f"Verification bundle: {data['exact_verification_bundle']['id']}",
         f"Deliverables: {', '.join(data['required_deliverables'])}",
+        f"Delegation: should_delegate={delegation.get('should_delegate', False)} auto_spawn={delegation.get('auto_spawn_authorized', False)} source={delegation.get('auto_spawn_source', 'n/a')}",
     ]
+    lanes = delegation.get("lanes") or []
+    lines.append(
+        "Delegation lanes: "
+        + (
+            ", ".join(
+                f"{lane['agent']}[{lane['reasoning_effort']}/{lane['sandbox_mode']}]"
+                for lane in lanes
+            )
+            if lanes
+            else "none"
+        )
+    )
     return "\n".join(lines)
 
 
 def _render_impact_text(payload: dict[str, Any]) -> str:
     data = payload["data"]
+    delegation = data.get("delegation_policy", {})
     lines = [
         f"Impact: {data['workflow_id']}",
         f"Likely paths: {', '.join(data['likely_paths'])}",
@@ -1008,7 +1086,20 @@ def _render_impact_text(payload: dict[str, Any]) -> str:
         f"Likely tests: {', '.join(data['likely_tests']) if data['likely_tests'] else 'none'}",
         f"Risk areas: {', '.join(data['risk_areas'])}",
         f"Handoff chain: {', '.join(data['handoff_chain'])}",
+        f"Delegation: should_delegate={delegation.get('should_delegate', False)} auto_spawn={delegation.get('auto_spawn_authorized', False)} source={delegation.get('auto_spawn_source', 'n/a')}",
     ]
+    lanes = delegation.get("lanes") or []
+    lines.append(
+        "Delegation lanes: "
+        + (
+            ", ".join(
+                f"{lane['agent']}[{lane['reasoning_effort']}/{lane['sandbox_mode']}]"
+                for lane in lanes
+            )
+            if lanes
+            else "none"
+        )
+    )
     return "\n".join(lines)
 
 
@@ -1048,6 +1139,8 @@ def _render_audit_text(payload: dict[str, Any]) -> str:
 
 
 def main() -> int:
+    workflow_choices = sorted(_workflows_by_id(_collect_workflows()).keys())
+
     parser = argparse.ArgumentParser(description="Scan Hussh repo context for Codex.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -1071,13 +1164,13 @@ def main() -> int:
     workflows_parser.add_argument("--verbose", action="store_true", help="emit deeper detail")
 
     route_parser = subparsers.add_parser("route-task", help="route a workflow pack to owner and spoke skills")
-    route_parser.add_argument("workflow_id", choices=REQUIRED_WORKFLOWS, help="workflow id")
+    route_parser.add_argument("workflow_id", choices=workflow_choices, help="workflow id")
     route_parser.add_argument("--json", action="store_true", help="emit JSON")
     route_parser.add_argument("--text", action="store_true", help="emit concise text")
     route_parser.add_argument("--verbose", action="store_true", help="emit deeper detail")
 
     impact_parser = subparsers.add_parser("impact", help="compute impact for a workflow pack")
-    impact_parser.add_argument("workflow_id", choices=REQUIRED_WORKFLOWS, help="workflow id")
+    impact_parser.add_argument("workflow_id", choices=workflow_choices, help="workflow id")
     impact_parser.add_argument("--path", action="append", default=[], help="repo path to narrow impact output")
     impact_parser.add_argument("--json", action="store_true", help="emit JSON")
     impact_parser.add_argument("--text", action="store_true", help="emit concise text")

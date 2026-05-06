@@ -1,7 +1,9 @@
 """One mailbox intake for approval-gated KYC workflows.
 
-The service stores mailbox/workflow metadata only. Raw email bodies and scoped
-PKM exports stay transient and must not be persisted by this lane.
+The service stores mailbox metadata, consent status, send metadata, and
+workflow state. Raw email bodies, scoped PKM export plaintext, client connector
+private keys, and reviewable draft bodies must not be persisted or decrypted by
+this backend lane.
 """
 
 from __future__ import annotations
@@ -21,9 +23,6 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Any, Iterable
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from google.auth.transport.requests import AuthorizedSession
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
@@ -62,6 +61,7 @@ _CONSENT_REQUEST_ID_MAX_LENGTH = 32
 _MAX_STORED_TEXT = 500
 _MAX_DRAFT_BODY = 6000
 _KYC_WORKFLOW_STATES = {
+    "needs_client_connector",
     "needs_scope",
     "needs_documents",
     "drafting",
@@ -103,10 +103,8 @@ class OneEmailKycConfig:
     webhook_service_account_email: str | None
     webhook_auth_enabled: bool
     watch_label_ids: tuple[str, ...]
-    connector_public_key: str | None
-    connector_key_id: str | None
-    connector_private_key: str | None
     default_kyc_scope: str
+    strict_client_zk_enabled: bool
     configured: bool
 
     @classmethod
@@ -185,12 +183,8 @@ class OneEmailKycConfig:
             ),
             webhook_auth_enabled=webhook_auth_enabled,
             watch_label_ids=label_ids,
-            connector_public_key=_clean_text(os.getenv("ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY"))
-            or None,
-            connector_key_id=_clean_text(os.getenv("ONE_EMAIL_KYC_CONNECTOR_KEY_ID")) or None,
-            connector_private_key=_clean_text(os.getenv("ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY"))
-            or None,
             default_kyc_scope=default_scope,
+            strict_client_zk_enabled=_env_bool("ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED", True),
             configured=configured,
         )
 
@@ -250,6 +244,51 @@ def _kyc_consent_request_url(consent_request_id: str | None) -> str | None:
     )
 
 
+def _public_key_fingerprint(public_key: str) -> str:
+    normalized = _clean_text(public_key)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _validate_connector_key_id(value: str | None) -> str:
+    key_id = _clean_text(value)
+    if not key_id:
+        raise OneEmailKycError(
+            "KYC client connector key id is required.",
+            status_code=400,
+            code="ONE_KYC_CLIENT_CONNECTOR_KEY_ID_REQUIRED",
+        )
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{3,120}", key_id):
+        raise OneEmailKycError(
+            "KYC client connector key id contains unsupported characters.",
+            status_code=400,
+            code="ONE_KYC_CLIENT_CONNECTOR_KEY_ID_INVALID",
+        )
+    return key_id
+
+
+def _validate_connector_public_key(value: str | None) -> str:
+    public_key = _clean_text(value)
+    if len(public_key) < 32:
+        raise OneEmailKycError(
+            "KYC client connector public key is required.",
+            status_code=400,
+            code="ONE_KYC_CLIENT_CONNECTOR_PUBLIC_KEY_REQUIRED",
+        )
+    return public_key
+
+
+def _validate_connector_wrapping_alg(value: str | None) -> str:
+    wrapping_alg = _clean_text(value) or _CONNECTOR_WRAPPING_ALG
+    if wrapping_alg != _CONNECTOR_WRAPPING_ALG:
+        raise OneEmailKycError(
+            "KYC client connector uses an unsupported wrapping algorithm.",
+            status_code=400,
+            code="ONE_KYC_CLIENT_CONNECTOR_WRAPPING_UNSUPPORTED",
+            payload={"supported_wrapping_alg": _CONNECTOR_WRAPPING_ALG},
+        )
+    return wrapping_alg
+
+
 def _is_legacy_consent_request_url(value: Any) -> bool:
     return isinstance(value, str) and "/profile?" in value
 
@@ -271,44 +310,6 @@ def _decode_b64url(data: str | None) -> str:
         return ""
     padded = value + ("=" * (-len(value) % 4))
     return base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8", errors="replace")
-
-
-def _b64decode_bytes(value: Any) -> bytes:
-    raw = _clean_text(value)
-    if not raw:
-        raise ValueError("missing base64 value")
-    padded = raw + ("=" * (-len(raw) % 4))
-    return base64.urlsafe_b64decode(padded.encode("utf-8"))
-
-
-def _load_x25519_private_key(value: str | None) -> X25519PrivateKey:
-    raw = _clean_text(value).replace("\\n", "\n")
-    if not raw:
-        raise OneEmailKycError(
-            "ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY is required to decrypt scoped KYC exports.",
-            status_code=503,
-            code="ONE_KYC_CONNECTOR_PRIVATE_KEY_MISSING",
-        )
-    if raw.startswith("-----BEGIN"):
-        key = serialization.load_pem_private_key(raw.encode("utf-8"), password=None)
-        if not isinstance(key, X25519PrivateKey):
-            raise OneEmailKycError(
-                "ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY must be an X25519 private key.",
-                status_code=503,
-                code="ONE_KYC_CONNECTOR_PRIVATE_KEY_INVALID",
-            )
-        return key
-    try:
-        raw_bytes = (
-            bytes.fromhex(raw) if re.fullmatch(r"[0-9a-fA-F]{64}", raw) else _b64decode_bytes(raw)
-        )
-        return X25519PrivateKey.from_private_bytes(raw_bytes)
-    except Exception as exc:
-        raise OneEmailKycError(
-            "ONE_EMAIL_KYC_CONNECTOR_PRIVATE_KEY could not be decoded.",
-            status_code=503,
-            code="ONE_KYC_CONNECTOR_PRIVATE_KEY_INVALID",
-        ) from exc
 
 
 def _header_map(message: dict[str, Any]) -> dict[str, str]:
@@ -423,6 +424,113 @@ class OneEmailKycService:
         if self._config is None:
             self._config = OneEmailKycConfig.from_env()
         return self._config
+
+    def _public_connector(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not row:
+            return None
+        return {
+            "user_id": row.get("user_id"),
+            "connector_key_id": row.get("connector_key_id"),
+            "connector_public_key": row.get("connector_public_key"),
+            "connector_wrapping_alg": row.get("connector_wrapping_alg") or _CONNECTOR_WRAPPING_ALG,
+            "public_key_fingerprint": row.get("public_key_fingerprint"),
+            "status": row.get("status"),
+            "created_at": _iso(row.get("created_at")),
+            "updated_at": _iso(row.get("updated_at")),
+            "rotated_at": _iso(row.get("rotated_at")),
+            "revoked_at": _iso(row.get("revoked_at")),
+        }
+
+    def _get_active_client_connector(self, user_id: str | None) -> dict[str, Any] | None:
+        user = _clean_text(user_id)
+        if not user:
+            return None
+        sql = """
+            SELECT *
+            FROM one_kyc_client_connectors
+            WHERE user_id = :user_id
+              AND status = 'active'
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """
+        rows = self.db.execute_raw(sql, {"user_id": user}).data or []
+        return self._public_connector(dict(rows[0])) if rows else None
+
+    async def get_client_connector(self, *, user_id: str) -> dict[str, Any]:
+        connector = self._get_active_client_connector(user_id)
+        return {"configured": connector is not None, "connector": connector}
+
+    async def register_client_connector(
+        self,
+        *,
+        user_id: str,
+        connector_public_key: str,
+        connector_key_id: str,
+        connector_wrapping_alg: str = _CONNECTOR_WRAPPING_ALG,
+        public_key_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        user = _clean_text(user_id)
+        if not user:
+            raise OneEmailKycError(
+                "KYC client connector user id is required.",
+                status_code=400,
+                code="ONE_KYC_CLIENT_CONNECTOR_USER_REQUIRED",
+            )
+        public_key = _validate_connector_public_key(connector_public_key)
+        key_id = _validate_connector_key_id(connector_key_id)
+        wrapping_alg = _validate_connector_wrapping_alg(connector_wrapping_alg)
+        fingerprint = _clean_text(public_key_fingerprint) or _public_key_fingerprint(public_key)
+        self.db.execute_raw(
+            """
+            UPDATE one_kyc_client_connectors
+            SET status = 'rotated',
+                rotated_at = NOW(),
+                updated_at = NOW()
+            WHERE user_id = :user_id
+              AND connector_key_id <> :connector_key_id
+              AND status = 'active'
+            """,
+            {"user_id": user, "connector_key_id": key_id},
+        )
+        rows = self.db.execute_raw(
+            """
+            INSERT INTO one_kyc_client_connectors (
+              user_id,
+              connector_key_id,
+              connector_public_key,
+              connector_wrapping_alg,
+              public_key_fingerprint,
+              status,
+              updated_at
+            )
+            VALUES (
+              :user_id,
+              :connector_key_id,
+              :connector_public_key,
+              :connector_wrapping_alg,
+              :public_key_fingerprint,
+              'active',
+              NOW()
+            )
+            ON CONFLICT (user_id, connector_key_id) DO UPDATE SET
+              connector_public_key = EXCLUDED.connector_public_key,
+              connector_wrapping_alg = EXCLUDED.connector_wrapping_alg,
+              public_key_fingerprint = EXCLUDED.public_key_fingerprint,
+              status = 'active',
+              revoked_at = NULL,
+              updated_at = NOW()
+            RETURNING *
+            """,
+            {
+                "user_id": user,
+                "connector_key_id": key_id,
+                "connector_public_key": public_key,
+                "connector_wrapping_alg": wrapping_alg,
+                "public_key_fingerprint": fingerprint,
+            },
+        ).data
+        connector = self._public_connector(dict(rows[0])) if rows else None
+        return {"configured": connector is not None, "connector": connector}
 
     def _authorized_session(self, scopes: tuple[str, ...]) -> AuthorizedSession:
         cfg = self.config
@@ -624,10 +732,29 @@ class OneEmailKycService:
             has_stale_consent_url = _is_legacy_consent_request_url(
                 (existing.get("metadata") or {}).get("consent_request_url")
             )
-            if (
-                existing.get("status") == "needs_scope"
-                and (not existing.get("consent_request_id") or has_stale_consent_url)
-                and self.config.connector_public_key
+            if existing.get("status") == "needs_client_connector":
+                connector = self._get_active_client_connector(existing.get("user_id"))
+                if connector:
+                    repaired = self._update_workflow(
+                        existing["workflow_id"],
+                        status="needs_scope",
+                        last_error_code=None,
+                        last_error_message=None,
+                        metadata={
+                            **existing.get("metadata", {}),
+                            "client_connector_key_id": connector["connector_key_id"],
+                            "client_connector_fingerprint": connector.get("public_key_fingerprint"),
+                            "strict_client_zk": True,
+                        },
+                    )
+                    workflow = await self._ensure_consent_request(repaired, connector=connector)
+                    return {
+                        "handled": True,
+                        "reason": "client_connector_repaired",
+                        "workflow": workflow,
+                    }
+            if existing.get("status") == "needs_scope" and (
+                not existing.get("consent_request_id") or has_stale_consent_url
             ):
                 workflow = await self._ensure_consent_request(existing)
                 return {
@@ -775,29 +902,39 @@ class OneEmailKycService:
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        if not self.config.connector_public_key:
+        connector = self._get_active_client_connector(user_match.get("user_id"))
+        if not connector:
             workflow = self._insert_workflow(
                 **common,
-                status="blocked",
+                status="needs_client_connector",
                 required_fields=self._extract_required_fields(subject=subject, body=body_text),
                 requested_scope=self.config.default_kyc_scope,
-                last_error_code="kyc_connector_key_missing",
+                last_error_code="kyc_client_connector_missing",
                 last_error_message=(
-                    "ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY is required before requesting scoped PKM export."
+                    "Unlock the KYC workspace once so One can register a client-held connector key."
                 ),
             )
-            return {"handled": True, "workflow": workflow, "blocked": True}
+            return {"handled": True, "workflow": workflow, "blocked": False}
 
         required_fields = self._extract_required_fields(subject=subject, body=body_text)
-        workflow = self._insert_workflow(
+        workflow_common = {
             **common,
+            "metadata": {
+                **common["metadata"],
+                "client_connector_key_id": connector["connector_key_id"],
+                "client_connector_fingerprint": connector.get("public_key_fingerprint"),
+                "strict_client_zk": True,
+            },
+        }
+        workflow = self._insert_workflow(
+            **workflow_common,
             status="needs_scope",
             required_fields=required_fields,
             requested_scope=self.config.default_kyc_scope,
             last_error_code=None,
             last_error_message=None,
         )
-        workflow = await self._ensure_consent_request(workflow)
+        workflow = await self._ensure_consent_request(workflow, connector=connector)
         return {"handled": True, "workflow": workflow, "blocked": False}
 
     def _looks_like_kyc(self, *, subject: str, body: str) -> bool:
@@ -921,6 +1058,7 @@ class OneEmailKycService:
         self,
         *,
         workflow: dict[str, Any],
+        connector: dict[str, Any],
         consent_request_id: str,
         required_fields: list[str],
     ) -> None:
@@ -944,8 +1082,11 @@ class OneEmailKycService:
                 "requester_label": "One KYC",
                 "developer_app_display_name": "One KYC",
                 "requester_entity_id": _KYC_AGENT_ID,
-                "connector_public_key": self.config.connector_public_key,
-                "connector_key_id": self.config.connector_key_id,
+                "connector_public_key": connector["connector_public_key"],
+                "connector_key_id": connector["connector_key_id"],
+                "connector_wrapping_alg": connector.get("connector_wrapping_alg")
+                or _CONNECTOR_WRAPPING_ALG,
+                "connector_public_key_fingerprint": connector.get("public_key_fingerprint"),
                 "reason": reason,
                 "workflow_id": workflow["workflow_id"],
                 "gmail_thread_id": workflow.get("gmail_thread_id"),
@@ -959,7 +1100,12 @@ class OneEmailKycService:
             },
         )
 
-    async def _ensure_consent_request(self, workflow: dict[str, Any]) -> dict[str, Any]:
+    async def _ensure_consent_request(
+        self,
+        workflow: dict[str, Any],
+        *,
+        connector: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         existing_request_id = _clean_text(workflow.get("consent_request_id"))
         if existing_request_id:
             metadata = workflow.get("metadata", {})
@@ -973,18 +1119,41 @@ class OneEmailKycService:
                 )
             return workflow
 
+        connector = connector or self._get_active_client_connector(workflow.get("user_id"))
+        if not connector:
+            return self._update_workflow(
+                workflow["workflow_id"],
+                status="needs_client_connector",
+                last_error_code="kyc_client_connector_missing",
+                last_error_message=(
+                    "Unlock the KYC workspace once so One can register a client-held connector key."
+                ),
+                metadata={
+                    **workflow.get("metadata", {}),
+                    "strict_client_zk": True,
+                    "client_connector_required": True,
+                },
+            )
+
         consent_request_id = _kyc_consent_request_id(workflow["workflow_id"])
         await self._create_consent_request(
             workflow=workflow,
+            connector=connector,
             consent_request_id=consent_request_id,
             required_fields=workflow.get("required_fields") or [],
         )
         return self._update_workflow(
             workflow["workflow_id"],
+            status="needs_scope"
+            if workflow.get("status") == "needs_client_connector"
+            else workflow.get("status"),
             consent_request_id=consent_request_id,
             metadata={
                 **workflow.get("metadata", {}),
                 "consent_request_url": _kyc_consent_request_url(consent_request_id),
+                "client_connector_key_id": connector["connector_key_id"],
+                "client_connector_fingerprint": connector.get("public_key_fingerprint"),
+                "strict_client_zk": True,
             },
         )
 
@@ -1014,6 +1183,8 @@ class OneEmailKycService:
 
     async def refresh_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow["status"] == "needs_client_connector":
+            workflow = await self._ensure_consent_request(workflow)
         if workflow["status"] not in {"needs_scope", "needs_documents"} or not workflow.get(
             "consent_request_id"
         ):
@@ -1032,47 +1203,24 @@ class OneEmailKycService:
                     last_error_code="scoped_export_pending",
                     last_error_message="Consent is granted; One is waiting for the scoped encrypted export.",
                 )
-            approved_payload = self._decrypt_scoped_export(export_package)
-            approved_values, missing_fields = self._extract_approved_field_values(
-                approved_payload=approved_payload,
-                required_fields=workflow.get("required_fields") or ["identity_profile"],
-            )
             export_metadata = self._public_export_metadata(export_package)
-            workflow = self._update_workflow(
-                workflow_id,
-                status="drafting",
-                metadata={
-                    **workflow.get("metadata", {}),
-                    "consent_export": export_metadata,
-                    "approved_field_count": len(approved_values),
-                    "missing_fields": missing_fields,
-                },
-            )
-            if missing_fields:
-                return self._update_workflow(
-                    workflow_id,
-                    status="needs_documents",
-                    draft_status="not_ready",
-                    last_error_code="kyc_missing_approved_fields",
-                    last_error_message=(
-                        "The approved KYC export is missing: "
-                        + ", ".join(field.replace("_", " ") for field in missing_fields)
-                        + "."
-                    ),
-                )
-            draft_body = self._build_review_draft(workflow, approved_values=approved_values)
             workflow = self._update_workflow(
                 workflow_id,
                 status="waiting_on_user",
                 draft_status="ready",
                 draft_subject=self._reply_subject(workflow.get("subject")),
-                draft_body=draft_body,
+                draft_body=None,
                 last_error_code=None,
                 last_error_message=None,
                 metadata={
                     **workflow.get("metadata", {}),
-                    "draft_revision": 1,
-                    "draft_consent_export": export_metadata,
+                    "consent_export": export_metadata,
+                    "consent_token": token_id,
+                    "client_draft_required": True,
+                    "draft_revision": int(
+                        (workflow.get("metadata") or {}).get("draft_revision") or 0
+                    )
+                    + 1,
                 },
             )
         elif action in {"CONSENT_DENIED", "DENIED", "REVOKED"}:
@@ -1123,11 +1271,23 @@ class OneEmailKycService:
                 status_code=409,
                 code="ONE_KYC_EXPORT_NOT_STRICT",
             )
-        expected_key_id = _clean_text(self.config.connector_key_id)
+        metadata = workflow.get("metadata", {})
+        expected_key_id = _clean_text(
+            metadata.get("client_connector_key_id") if isinstance(metadata, dict) else None
+        )
+        if not expected_key_id:
+            connector = self._get_active_client_connector(workflow.get("user_id"))
+            expected_key_id = _clean_text(connector.get("connector_key_id") if connector else None)
         actual_key_id = _clean_text(export_package.get("connector_key_id"))
-        if expected_key_id and actual_key_id != expected_key_id:
+        if not expected_key_id:
             raise OneEmailKycError(
-                "KYC scoped export connector key does not match the configured One KYC key.",
+                "KYC client connector key id is required for scoped export validation.",
+                status_code=409,
+                code="ONE_KYC_CLIENT_CONNECTOR_KEY_ID_MISSING",
+            )
+        if actual_key_id != expected_key_id:
+            raise OneEmailKycError(
+                "KYC scoped export connector key does not match the client-held KYC key.",
                 status_code=409,
                 code="ONE_KYC_CONNECTOR_KEY_MISMATCH",
             )
@@ -1140,46 +1300,6 @@ class OneEmailKycService:
                 status_code=409,
                 code="ONE_KYC_CONNECTOR_WRAPPING_MISMATCH",
             )
-
-    def _decrypt_scoped_export(self, export_package: dict[str, Any]) -> dict[str, Any]:
-        wrapped = export_package.get("wrapped_key_bundle") or {}
-        try:
-            connector_private_key = _load_x25519_private_key(self.config.connector_private_key)
-            sender_public = X25519PublicKey.from_public_bytes(
-                _b64decode_bytes(wrapped.get("sender_public_key"))
-            )
-            shared_secret = connector_private_key.exchange(sender_public)
-            digest = hashes.Hash(hashes.SHA256())
-            digest.update(shared_secret)
-            wrapping_key = digest.finalize()
-            export_key = AESGCM(wrapping_key).decrypt(
-                _b64decode_bytes(wrapped.get("wrapped_key_iv")),
-                _b64decode_bytes(wrapped.get("wrapped_export_key"))
-                + _b64decode_bytes(wrapped.get("wrapped_key_tag")),
-                None,
-            )
-            plaintext = AESGCM(export_key).decrypt(
-                _b64decode_bytes(export_package.get("iv")),
-                _b64decode_bytes(export_package.get("encrypted_data"))
-                + _b64decode_bytes(export_package.get("tag")),
-                None,
-            )
-            parsed = json.loads(plaintext.decode("utf-8"))
-        except OneEmailKycError:
-            raise
-        except Exception as exc:
-            raise OneEmailKycError(
-                "KYC scoped export could not be decrypted.",
-                status_code=409,
-                code="ONE_KYC_EXPORT_DECRYPT_FAILED",
-            ) from exc
-        if not isinstance(parsed, dict):
-            raise OneEmailKycError(
-                "KYC scoped export decrypted to an unsupported payload.",
-                status_code=409,
-                code="ONE_KYC_EXPORT_PAYLOAD_INVALID",
-            )
-        return parsed
 
     def _public_export_metadata(self, export_package: dict[str, Any]) -> dict[str, Any]:
         generated_at = export_package.get("export_generated_at")
@@ -1195,21 +1315,30 @@ class OneEmailKycService:
             "is_strict_zero_knowledge": export_package.get("is_strict_zero_knowledge"),
         }
 
-    def _validate_draft_export_binding(
+    def _validate_send_export_binding(
         self,
         *,
         workflow: dict[str, Any],
         export_package: dict[str, Any],
+        consent_export_revision: int | None = None,
     ) -> None:
         metadata = workflow.get("metadata", {})
-        draft_export = metadata.get("draft_consent_export") if isinstance(metadata, dict) else None
-        if not isinstance(draft_export, dict):
+        workflow_export = metadata.get("consent_export") if isinstance(metadata, dict) else None
+        if not isinstance(workflow_export, dict):
             raise OneEmailKycError(
-                "KYC draft is not bound to the approved export revision.",
+                "KYC workflow is not bound to the approved export revision.",
                 status_code=409,
                 code="ONE_KYC_DRAFT_EXPORT_BINDING_MISSING",
             )
         current_export = self._public_export_metadata(export_package)
+        if consent_export_revision is not None and str(consent_export_revision) != str(
+            current_export.get("export_revision") or ""
+        ):
+            raise OneEmailKycError(
+                "KYC approved reply must be regenerated because the approved export changed.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_EXPORT_STALE",
+            )
         compared_fields = (
             "scope",
             "export_revision",
@@ -1219,11 +1348,11 @@ class OneEmailKycService:
         )
         for field in compared_fields:
             if (
-                str(draft_export.get(field) or "").strip()
+                str(workflow_export.get(field) or "").strip()
                 != str(current_export.get(field) or "").strip()
             ):
                 raise OneEmailKycError(
-                    "KYC draft must be regenerated because the approved export changed.",
+                    "KYC approved reply must be regenerated because the approved export changed.",
                     status_code=409,
                     code="ONE_KYC_DRAFT_EXPORT_STALE",
                 )
@@ -1313,29 +1442,6 @@ class OneEmailKycService:
             return _truncate("; ".join(public_items), 1000)
         return None
 
-    def _build_review_draft(
-        self,
-        workflow: dict[str, Any],
-        *,
-        approved_values: dict[str, str],
-    ) -> str:
-        field_lines = "\n".join(
-            f"- {field.replace('_', ' ')}: {value}" for field, value in approved_values.items()
-        )
-        counterparty = workflow.get("counterparty_label") or "there"
-        body = f"""Hi {counterparty},
-
-I am replying on behalf of the account holder through One.
-
-The user approved a scoped KYC workflow for this request. One prepared the following approved information for your review:
-{field_lines}
-
-Please let us know if you need anything else for this KYC review.
-
-Best,
-One"""
-        return body[:_MAX_DRAFT_BODY]
-
     def _reply_subject(self, subject: str | None) -> str:
         value = _clean_text(subject) or "KYC request"
         if value.lower().startswith("re:"):
@@ -1343,27 +1449,117 @@ One"""
         return f"Re: {value}"[:500]
 
     async def approve_draft(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
+        raise OneEmailKycError(
+            "KYC draft approval now requires a client-generated approved reply body.",
+            status_code=410,
+            code="ONE_KYC_CLIENT_APPROVED_BODY_REQUIRED",
+        )
+
+    async def send_approved_reply(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        approved_subject: str | None,
+        approved_body: str,
+        client_draft_hash: str | None = None,
+        consent_export_revision: int | None = None,
+        pkm_writeback_artifact_hash: str | None = None,
+    ) -> dict[str, Any]:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if (
+            workflow.get("draft_status") == "sent"
+            or workflow.get("status") == "waiting_on_counterparty"
+        ):
+            return workflow
         if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
             raise OneEmailKycError(
-                "KYC draft is not ready for approval.",
+                "KYC workflow is not ready for approved reply send.",
                 status_code=409,
                 code="ONE_KYC_DRAFT_NOT_READY",
             )
-        await self._require_sendable_consent(workflow)
-        send_result = await asyncio.to_thread(self._send_draft_reply, workflow)
+        body = _clean_text(approved_body)
+        if not body:
+            raise OneEmailKycError(
+                "Approved KYC reply body is required.",
+                status_code=400,
+                code="ONE_KYC_APPROVED_BODY_REQUIRED",
+            )
+        if len(body) > _MAX_DRAFT_BODY:
+            raise OneEmailKycError(
+                "Approved KYC reply body is too long.",
+                status_code=400,
+                code="ONE_KYC_APPROVED_BODY_TOO_LONG",
+            )
+        subject = (
+            _truncate(approved_subject, 500)
+            or workflow.get("draft_subject")
+            or self._reply_subject(workflow.get("subject"))
+        )
+        send_attempt_id = uuid.uuid4().hex
+        await self._require_sendable_consent(
+            workflow,
+            consent_export_revision=consent_export_revision,
+        )
+        pending = self._update_workflow(
+            workflow_id,
+            send_attempt_id=send_attempt_id,
+            send_status="sending",
+            client_draft_hash=_truncate(client_draft_hash, 128),
+            pkm_writeback_status="pending",
+            pkm_writeback_artifact_hash=_truncate(pkm_writeback_artifact_hash, 128),
+            metadata={
+                **workflow.get("metadata", {}),
+                "send_attempt_id": send_attempt_id,
+                "send_status": "sending",
+                "client_draft_hash": _truncate(client_draft_hash, 128),
+                "approved_send_hash": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "pkm_writeback_status": "pending",
+                "pkm_writeback_artifact_hash": _truncate(pkm_writeback_artifact_hash, 128),
+            },
+        )
+        try:
+            send_result = await asyncio.to_thread(
+                self._send_approved_reply,
+                pending,
+                approved_subject=subject,
+                approved_body=body,
+            )
+        except Exception:
+            self._update_workflow(
+                workflow_id,
+                send_status="failed",
+                pkm_writeback_status="not_started",
+                metadata={
+                    **pending.get("metadata", {}),
+                    "send_status": "failed",
+                    "send_failed_at": _utcnow().isoformat(),
+                    "pkm_writeback_status": "not_started",
+                },
+            )
+            raise
         return self._update_workflow(
             workflow_id,
             status="waiting_on_counterparty",
             draft_status="sent",
+            send_status="sent",
+            sent_message_id=send_result.get("id"),
+            sent_at=_utcnow(),
+            approved_send_hash=hashlib.sha256(body.encode("utf-8")).hexdigest(),
             metadata={
-                **workflow.get("metadata", {}),
+                **pending.get("metadata", {}),
+                "send_status": "sent",
                 "sent_message_id": send_result.get("id"),
                 "sent_at": _utcnow().isoformat(),
             },
         )
 
-    async def _require_sendable_consent(self, workflow: dict[str, Any]) -> None:
+    async def _require_sendable_consent(
+        self,
+        workflow: dict[str, Any],
+        *,
+        consent_export_revision: int | None = None,
+    ) -> None:
         request_id = _clean_text(workflow.get("consent_request_id"))
         user_id = _clean_text(workflow.get("user_id"))
         if not request_id or not user_id:
@@ -1390,7 +1586,11 @@ One"""
                 status_code=409,
                 code="ONE_KYC_EXPORT_UNAVAILABLE",
             )
-        self._validate_draft_export_binding(workflow=workflow, export_package=export_package)
+        self._validate_send_export_binding(
+            workflow=workflow,
+            export_package=export_package,
+            consent_export_revision=consent_export_revision,
+        )
 
     async def redraft(
         self,
@@ -1417,46 +1617,20 @@ One"""
         source_value = source if source in {"text", "voice"} else "text"
         metadata = workflow.get("metadata", {})
         revision = int(metadata.get("draft_revision") or 1) + 1
-        draft_body = self._build_redraft(
-            workflow=workflow,
-            instructions=cleaned_instructions,
-            revision=revision,
-        )
         return self._update_workflow(
             workflow_id,
-            draft_body=draft_body,
             draft_status="ready",
             metadata={
                 **metadata,
                 "draft_revision": revision,
                 "last_redraft_source": source_value,
                 "last_redraft_at": _utcnow().isoformat(),
+                "last_redraft_instruction_hash": hashlib.sha256(
+                    cleaned_instructions.encode("utf-8")
+                ).hexdigest(),
+                "client_draft_required": True,
             },
         )
-
-    def _build_redraft(
-        self,
-        *,
-        workflow: dict[str, Any],
-        instructions: str,
-        revision: int,
-    ) -> str:
-        current = _clean_text(workflow.get("draft_body"))
-        counterparty = workflow.get("counterparty_label") or "there"
-        if not current:
-            return f"""Hi {counterparty},
-
-I am replying on behalf of the account holder through One.
-
-{instructions}
-
-Best,
-One"""[:_MAX_DRAFT_BODY]
-        return f"""{current}
-
----
-One draft revision {revision}
-User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
 
     async def reject_draft(
         self,
@@ -1481,6 +1655,72 @@ User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
             metadata={**workflow.get("metadata", {}), "rejected_at": _utcnow().isoformat()},
         )
 
+    async def mark_writeback_complete(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        artifact_hash: str,
+        status: str = "succeeded",
+        error_message: str | None = None,
+    ) -> dict[str, Any]:
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        normalized_status = _clean_text(status).lower() or "succeeded"
+        if normalized_status not in {"succeeded", "failed"}:
+            raise OneEmailKycError(
+                "KYC PKM writeback status is invalid.",
+                status_code=400,
+                code="ONE_KYC_WRITEBACK_STATUS_INVALID",
+            )
+        if (
+            workflow.get("status") != "waiting_on_counterparty"
+            or workflow.get("draft_status") != "sent"
+            or workflow.get("send_status") != "sent"
+        ):
+            raise OneEmailKycError(
+                "KYC PKM writeback can only be marked after the approved reply is sent.",
+                status_code=409,
+                code="ONE_KYC_WRITEBACK_NOT_READY",
+            )
+        truncated_artifact_hash = _truncate(artifact_hash, 128)
+        if not re.fullmatch(r"[a-f0-9]{64}", truncated_artifact_hash or ""):
+            raise OneEmailKycError(
+                "KYC PKM writeback artifact hash is invalid.",
+                status_code=400,
+                code="ONE_KYC_WRITEBACK_ARTIFACT_HASH_INVALID",
+            )
+        if workflow.get("pkm_writeback_status") == "succeeded":
+            if (
+                normalized_status == "succeeded"
+                and workflow.get("pkm_writeback_artifact_hash") == truncated_artifact_hash
+            ):
+                return workflow
+            raise OneEmailKycError(
+                "KYC PKM writeback is already complete.",
+                status_code=409,
+                code="ONE_KYC_WRITEBACK_ALREADY_COMPLETED",
+            )
+        attempt_count = int(workflow.get("pkm_writeback_attempt_count") or 0) + 1
+        completed_at = _utcnow() if normalized_status == "succeeded" else None
+        metadata = {
+            **workflow.get("metadata", {}),
+            "pkm_writeback_status": normalized_status,
+            "pkm_writeback_artifact_hash": truncated_artifact_hash,
+            "pkm_writeback_attempt_count": attempt_count,
+            "pkm_writeback_last_error": _truncate(error_message, 500),
+        }
+        if completed_at:
+            metadata["pkm_writeback_completed_at"] = completed_at.isoformat()
+        return self._update_workflow(
+            workflow_id,
+            pkm_writeback_status=normalized_status,
+            pkm_writeback_artifact_hash=truncated_artifact_hash,
+            pkm_writeback_attempt_count=attempt_count,
+            pkm_writeback_last_error=_truncate(error_message, 500),
+            pkm_writeback_completed_at=completed_at,
+            metadata=metadata,
+        )
+
     async def purge_terminal_drafts(self, *, older_than_days: int = 30) -> dict[str, Any]:
         days = max(1, min(int(older_than_days or 30), 365))
         sql = """
@@ -1500,7 +1740,13 @@ User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
         rows = self.db.execute_raw(sql, {"days": days}).data or []
         return {"purged": len(rows), "older_than_days": days}
 
-    def _send_draft_reply(self, workflow: dict[str, Any]) -> dict[str, Any]:
+    def _send_approved_reply(
+        self,
+        workflow: dict[str, Any],
+        *,
+        approved_subject: str,
+        approved_body: str,
+    ) -> dict[str, Any]:
         recipient = _clean_text(workflow.get("sender_email"))
         if not recipient:
             raise OneEmailKycError(
@@ -1511,14 +1757,12 @@ User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
         msg = EmailMessage()
         msg["To"] = recipient
         msg["From"] = f"{_ONE_EMAIL_DISPLAY_NAME} <{self.config.mailbox_email}>"
-        msg["Subject"] = workflow.get("draft_subject") or self._reply_subject(
-            workflow.get("subject")
-        )
+        msg["Subject"] = approved_subject
         rfc_message_id = _clean_text(workflow.get("rfc_message_id"))
         if rfc_message_id:
             msg["In-Reply-To"] = rfc_message_id
             msg["References"] = rfc_message_id
-        msg.set_content(_clean_text(workflow.get("draft_body")))
+        msg.set_content(approved_body)
         encoded = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
         payload: dict[str, Any] = {"raw": encoded}
         thread_id = _clean_text(workflow.get("gmail_thread_id"))
@@ -1685,8 +1929,18 @@ User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
             "status",
             "consent_request_id",
             "draft_subject",
-            "draft_body",
             "draft_status",
+            "send_attempt_id",
+            "send_status",
+            "sent_message_id",
+            "sent_at",
+            "client_draft_hash",
+            "approved_send_hash",
+            "pkm_writeback_status",
+            "pkm_writeback_artifact_hash",
+            "pkm_writeback_attempt_count",
+            "pkm_writeback_last_error",
+            "pkm_writeback_completed_at",
             "last_error_code",
             "last_error_message",
             "metadata",
@@ -1713,13 +1967,53 @@ User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
                 WHEN :set_draft_subject THEN :draft_subject
                 ELSE draft_subject
               END,
-              draft_body = CASE
-                WHEN :set_draft_body THEN :draft_body
-                ELSE draft_body
-              END,
               draft_status = CASE
                 WHEN :set_draft_status THEN :draft_status
                 ELSE draft_status
+              END,
+              send_attempt_id = CASE
+                WHEN :set_send_attempt_id THEN :send_attempt_id
+                ELSE send_attempt_id
+              END,
+              send_status = CASE
+                WHEN :set_send_status THEN :send_status
+                ELSE send_status
+              END,
+              sent_message_id = CASE
+                WHEN :set_sent_message_id THEN :sent_message_id
+                ELSE sent_message_id
+              END,
+              sent_at = CASE
+                WHEN :set_sent_at THEN :sent_at
+                ELSE sent_at
+              END,
+              client_draft_hash = CASE
+                WHEN :set_client_draft_hash THEN :client_draft_hash
+                ELSE client_draft_hash
+              END,
+              approved_send_hash = CASE
+                WHEN :set_approved_send_hash THEN :approved_send_hash
+                ELSE approved_send_hash
+              END,
+              pkm_writeback_status = CASE
+                WHEN :set_pkm_writeback_status THEN :pkm_writeback_status
+                ELSE pkm_writeback_status
+              END,
+              pkm_writeback_artifact_hash = CASE
+                WHEN :set_pkm_writeback_artifact_hash THEN :pkm_writeback_artifact_hash
+                ELSE pkm_writeback_artifact_hash
+              END,
+              pkm_writeback_attempt_count = CASE
+                WHEN :set_pkm_writeback_attempt_count THEN :pkm_writeback_attempt_count
+                ELSE pkm_writeback_attempt_count
+              END,
+              pkm_writeback_last_error = CASE
+                WHEN :set_pkm_writeback_last_error THEN :pkm_writeback_last_error
+                ELSE pkm_writeback_last_error
+              END,
+              pkm_writeback_completed_at = CASE
+                WHEN :set_pkm_writeback_completed_at THEN :pkm_writeback_completed_at
+                ELSE pkm_writeback_completed_at
               END,
               last_error_code = CASE
                 WHEN :set_last_error_code THEN :last_error_code
@@ -1773,6 +2067,8 @@ User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
             "required_fields": required_fields,
             "requested_scope": row.get("requested_scope"),
             "consent_request_id": consent_request_id,
+            "consent_token": metadata.get("consent_token"),
+            "consent_export": metadata.get("consent_export"),
             "consent_request_url": (
                 _kyc_consent_request_url(consent_request_id)
                 if _is_legacy_consent_request_url(metadata.get("consent_request_url"))
@@ -1781,8 +2077,25 @@ User requested adjustment: {instructions}"""[:_MAX_DRAFT_BODY]
             ),
             "workflow_url": metadata.get("workflow_url"),
             "draft_subject": row.get("draft_subject"),
-            "draft_body": row.get("draft_body"),
+            "draft_body": None,
             "draft_status": row.get("draft_status"),
+            "send_attempt_id": row.get("send_attempt_id") or metadata.get("send_attempt_id"),
+            "send_status": row.get("send_status") or metadata.get("send_status"),
+            "sent_message_id": row.get("sent_message_id") or metadata.get("sent_message_id"),
+            "sent_at": _iso(row.get("sent_at")) or metadata.get("sent_at"),
+            "client_draft_hash": row.get("client_draft_hash") or metadata.get("client_draft_hash"),
+            "approved_send_hash": row.get("approved_send_hash")
+            or metadata.get("approved_send_hash"),
+            "pkm_writeback_status": row.get("pkm_writeback_status")
+            or metadata.get("pkm_writeback_status"),
+            "pkm_writeback_artifact_hash": row.get("pkm_writeback_artifact_hash")
+            or metadata.get("pkm_writeback_artifact_hash"),
+            "pkm_writeback_attempt_count": row.get("pkm_writeback_attempt_count")
+            or metadata.get("pkm_writeback_attempt_count"),
+            "pkm_writeback_last_error": row.get("pkm_writeback_last_error")
+            or metadata.get("pkm_writeback_last_error"),
+            "pkm_writeback_completed_at": _iso(row.get("pkm_writeback_completed_at"))
+            or metadata.get("pkm_writeback_completed_at"),
             "last_error_code": row.get("last_error_code"),
             "last_error_message": row.get("last_error_message"),
             "metadata": metadata,

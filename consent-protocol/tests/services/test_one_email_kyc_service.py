@@ -113,9 +113,26 @@ def _message(*, body: str, sender: str = "broker@example.com") -> dict:
 
 
 class _FakeDb:
-    def __init__(self, *, user_id: str | None = "user_123") -> None:
+    def __init__(self, *, user_id: str | None = "user_123", connector: bool = True) -> None:
         self.user_id = user_id
         self.workflows: list[dict] = []
+        self.connectors: list[dict] = []
+        if user_id and connector:
+            self.connectors.append(
+                {
+                    "connector_id": "connector_1",
+                    "user_id": user_id,
+                    "connector_key_id": "one-kyc-key",
+                    "connector_public_key": _CONNECTOR_PUBLIC_B64,
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                    "public_key_fingerprint": "fp_1",
+                    "status": "active",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                    "rotated_at": None,
+                    "revoked_at": None,
+                }
+            )
 
     def execute_raw(self, sql: str, params: dict | None = None):
         params = params or {}
@@ -130,6 +147,55 @@ class _FakeDb:
             message_id = params.get("gmail_message_id")
             rows = [row for row in self.workflows if row.get("gmail_message_id") == message_id]
             return SimpleNamespace(data=rows[:1])
+        if "from one_kyc_client_connectors" in normalized:
+            rows = [
+                row
+                for row in self.connectors
+                if row.get("user_id") == params.get("user_id") and row.get("status") == "active"
+            ]
+            return SimpleNamespace(data=rows[:1])
+        if "update one_kyc_client_connectors" in normalized:
+            for row in self.connectors:
+                if (
+                    row.get("user_id") == params.get("user_id")
+                    and row.get("connector_key_id") != params.get("connector_key_id")
+                    and row.get("status") == "active"
+                ):
+                    row["status"] = "rotated"
+                    row["rotated_at"] = datetime.now(timezone.utc)
+                    row["updated_at"] = datetime.now(timezone.utc)
+            return SimpleNamespace(data=[])
+        if "insert into one_kyc_client_connectors" in normalized:
+            existing = next(
+                (
+                    row
+                    for row in self.connectors
+                    if row.get("user_id") == params.get("user_id")
+                    and row.get("connector_key_id") == params.get("connector_key_id")
+                ),
+                None,
+            )
+            if existing is None:
+                existing = {
+                    "connector_id": f"connector_{len(self.connectors) + 1}",
+                    "created_at": datetime.now(timezone.utc),
+                    "rotated_at": None,
+                    "revoked_at": None,
+                }
+                self.connectors.append(existing)
+            existing.update(
+                {
+                    "user_id": params.get("user_id"),
+                    "connector_key_id": params.get("connector_key_id"),
+                    "connector_public_key": params.get("connector_public_key"),
+                    "connector_wrapping_alg": params.get("connector_wrapping_alg"),
+                    "public_key_fingerprint": params.get("public_key_fingerprint"),
+                    "status": "active",
+                    "updated_at": datetime.now(timezone.utc),
+                    "revoked_at": None,
+                }
+            )
+            return SimpleNamespace(data=[existing])
         if "insert into one_kyc_workflows" in normalized:
             row = dict(params)
             row["participant_emails"] = json.loads(row["participant_emails"])
@@ -141,6 +207,17 @@ class _FakeDb:
             row.setdefault("consent_request_id", None)
             row.setdefault("draft_subject", None)
             row.setdefault("draft_body", None)
+            row.setdefault("send_attempt_id", None)
+            row.setdefault("send_status", "not_started")
+            row.setdefault("sent_message_id", None)
+            row.setdefault("sent_at", None)
+            row.setdefault("client_draft_hash", None)
+            row.setdefault("approved_send_hash", None)
+            row.setdefault("pkm_writeback_status", "not_started")
+            row.setdefault("pkm_writeback_artifact_hash", None)
+            row.setdefault("pkm_writeback_attempt_count", 0)
+            row.setdefault("pkm_writeback_last_error", None)
+            row.setdefault("pkm_writeback_completed_at", None)
             self.workflows.append(row)
             return SimpleNamespace(data=[row])
         if "update one_kyc_workflows" in normalized:
@@ -208,10 +285,8 @@ def _service(db: _FakeDb, consent_db: _FakeConsentDb) -> OneEmailKycService:
         webhook_service_account_email=None,
         webhook_auth_enabled=False,
         watch_label_ids=("INBOX",),
-        connector_public_key=_CONNECTOR_PUBLIC_B64,
-        connector_key_id="one-kyc-key",
-        connector_private_key=_CONNECTOR_PRIVATE_B64,
         default_kyc_scope="attr.identity.*",
+        strict_client_zk_enabled=True,
         configured=True,
     )
     return service
@@ -271,6 +346,54 @@ async def test_process_message_creates_scoped_kyc_consent_without_storing_raw_bo
     assert consent_db.events[0]["metadata"]["requester_actor_type"] == "developer"
     assert consent_db.events[0]["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_B64
     assert raw_body_marker not in json.dumps(db.workflows, default=str)
+
+
+@pytest.mark.asyncio
+async def test_process_message_waits_for_client_connector_before_consent():
+    db = _FakeDb(connector=False)
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    result = await service._process_message(
+        _message(body="Please complete KYC for our broker API. Required: full name."),
+        history_id="100",
+    )
+
+    workflow = result["workflow"]
+    assert workflow["status"] == "needs_client_connector"
+    assert workflow["last_error_code"] == "kyc_client_connector_missing"
+    assert consent_db.events == []
+
+
+@pytest.mark.asyncio
+async def test_register_client_connector_repairs_waiting_workflow():
+    db = _FakeDb(connector=False)
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    result = await service._process_message(
+        _message(body="Please complete KYC for our broker API. Required: full name."),
+        history_id="100",
+    )
+    assert result["workflow"]["status"] == "needs_client_connector"
+
+    registered = await service.register_client_connector(
+        user_id="user_123",
+        connector_public_key=_CONNECTOR_PUBLIC_B64,
+        connector_key_id="one-kyc-key",
+        connector_wrapping_alg="X25519-AES256-GCM",
+    )
+    assert registered["configured"] is True
+
+    refreshed = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+    )
+
+    assert refreshed["status"] == "needs_scope"
+    assert refreshed["consent_request_id"].startswith("okyc_")
+    assert consent_db.events[0]["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_B64
+    assert consent_db.events[0]["metadata"]["connector_key_id"] == "one-kyc-key"
 
 
 @pytest.mark.asyncio
@@ -380,7 +503,7 @@ async def test_process_message_blocks_unknown_user_without_creating_consent():
 
 
 @pytest.mark.asyncio
-async def test_refresh_workflow_generates_review_draft_after_consent_granted():
+async def test_refresh_workflow_marks_client_draft_ready_without_decrypting_export():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
@@ -401,6 +524,8 @@ async def test_refresh_workflow_generates_review_draft_after_consent_granted():
         }
     )
 
+    service._decrypt_scoped_export = None  # type: ignore[attr-defined]
+
     workflow = await service.refresh_workflow(
         user_id="user_123",
         workflow_id=result["workflow"]["workflow_id"],
@@ -408,12 +533,14 @@ async def test_refresh_workflow_generates_review_draft_after_consent_granted():
 
     assert workflow["status"] == "waiting_on_user"
     assert workflow["draft_status"] == "ready"
-    assert "through One" in workflow["draft_body"]
-    assert "full name: Test Reviewer" in workflow["draft_body"]
+    assert workflow["draft_body"] is None
+    assert workflow["consent_token"] == "token_123"  # noqa: S105
+    assert workflow["metadata"]["client_draft_required"] is True
+    assert workflow["metadata"]["consent_export"]["connector_key_id"] == "one-kyc-key"
 
 
 @pytest.mark.asyncio
-async def test_refresh_workflow_moves_to_needs_documents_when_export_is_incomplete():
+async def test_refresh_workflow_rejects_export_for_wrong_client_connector_key():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
@@ -431,39 +558,26 @@ async def test_refresh_workflow_moves_to_needs_documents_when_export_is_incomple
             "identity": {
                 "full_name": "Test Reviewer",
             }
-        }
+        },
+        export_revision=1,
     )
 
-    workflow = await service.refresh_workflow(
-        user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+    consent_db.export_by_token["token_missing"]["connector_key_id"] = "other-key"
+    consent_db.export_by_token["token_missing"]["wrapped_key_bundle"]["connector_key_id"] = (
+        "other-key"
     )
 
-    assert workflow["status"] == "needs_documents"
-    assert workflow["draft_status"] == "not_ready"
-    assert workflow["last_error_code"] == "kyc_missing_approved_fields"
-    assert "date of birth" in workflow["last_error_message"]
+    with pytest.raises(OneEmailKycError) as exc:
+        await service.refresh_workflow(
+            user_id="user_123",
+            workflow_id=result["workflow"]["workflow_id"],
+        )
 
-    consent_db.export_by_token["token_missing"] = _encrypted_export(
-        {
-            "identity": {
-                "full_name": "Test Reviewer",
-                "date_of_birth": "1990-01-01",
-            }
-        }
-    )
-
-    repaired = await service.refresh_workflow(
-        user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
-    )
-
-    assert repaired["status"] == "waiting_on_user"
-    assert "date of birth: 1990-01-01" in repaired["draft_body"]
+    assert exc.value.code == "ONE_KYC_CONNECTOR_KEY_MISMATCH"
 
 
 @pytest.mark.asyncio
-async def test_redraft_updates_review_draft_without_sending():
+async def test_redraft_records_instruction_hash_without_storing_plaintext():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
@@ -493,13 +607,15 @@ async def test_redraft_updates_review_draft_without_sending():
 
     assert redrafted["status"] == "waiting_on_user"
     assert redrafted["draft_status"] == "ready"
-    assert "User requested adjustment: Make this shorter." in redrafted["draft_body"]
+    assert redrafted["draft_body"] is None
     assert redrafted["metadata"]["draft_revision"] == 2
     assert redrafted["metadata"]["last_redraft_source"] == "voice"
+    assert "last_redraft_instruction_hash" in redrafted["metadata"]
+    assert "Make this shorter." not in json.dumps(db.workflows, default=str)
 
 
 @pytest.mark.asyncio
-async def test_approve_draft_revalidates_consent_and_sends_from_one_display_name():
+async def test_send_approved_reply_revalidates_consent_and_sends_transient_body():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
@@ -527,19 +643,31 @@ async def test_approve_draft_revalidates_consent_and_sends_from_one_display_name
 
     service._post_json_sync = _capture_send
 
-    sent = await service.approve_draft(user_id="user_123", workflow_id=workflow["workflow_id"])
+    sent = await service.send_approved_reply(
+        user_id="user_123",
+        workflow_id=workflow["workflow_id"],
+        approved_subject=workflow["draft_subject"],
+        approved_body="Approved KYC reply body",
+        client_draft_hash="draft_hash_1",
+        consent_export_revision=1,
+        pkm_writeback_artifact_hash="a" * 64,
+    )
 
     assert sent["status"] == "waiting_on_counterparty"
     assert sent["draft_status"] == "sent"
+    assert sent["send_status"] == "sent"
+    assert sent["draft_body"] is None
     raw = sent_payloads[0]["raw"]
     parsed = email.message_from_bytes(
         base64.urlsafe_b64decode((raw + ("=" * (-len(raw) % 4))).encode("utf-8"))
     )
     assert parsed["From"] == "One <one@hushh.ai>"
+    assert parsed.get_payload() == "Approved KYC reply body\n"
+    assert "Approved KYC reply body" not in json.dumps(db.workflows, default=str)
 
 
 @pytest.mark.asyncio
-async def test_approve_draft_rejects_when_bound_export_revision_changes():
+async def test_send_approved_reply_rejects_when_bound_export_revision_changes():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
@@ -566,9 +694,125 @@ async def test_approve_draft_rejects_when_bound_export_revision_changes():
     )
 
     with pytest.raises(OneEmailKycError) as exc:
-        await service.approve_draft(user_id="user_123", workflow_id=workflow["workflow_id"])
+        await service.send_approved_reply(
+            user_id="user_123",
+            workflow_id=workflow["workflow_id"],
+            approved_subject=workflow["draft_subject"],
+            approved_body="Approved KYC reply body",
+            consent_export_revision=1,
+        )
 
     assert exc.value.code == "ONE_KYC_DRAFT_EXPORT_STALE"
+
+
+@pytest.mark.asyncio
+async def test_send_approved_reply_clears_writeback_pending_when_gmail_send_fails():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(body="Broker KYC questionnaire asking for full name."),
+        history_id="106a",
+    )
+    request_id = result["workflow"]["consent_request_id"]
+    consent_db.status_by_request[request_id] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_send_failed",
+    }
+    consent_db.export_by_token["token_send_failed"] = _encrypted_export(
+        {"identity": {"full_name": "Test Reviewer"}}
+    )
+    workflow = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+    )
+
+    def _fail_send(url, *, json_payload, scopes):
+        raise RuntimeError("gmail unavailable")
+
+    service._post_json_sync = _fail_send
+
+    with pytest.raises(RuntimeError):
+        await service.send_approved_reply(
+            user_id="user_123",
+            workflow_id=workflow["workflow_id"],
+            approved_subject=workflow["draft_subject"],
+            approved_body="Approved KYC reply body",
+            consent_export_revision=1,
+            pkm_writeback_artifact_hash="a" * 64,
+        )
+
+    failed = await service.get_workflow(
+        user_id="user_123",
+        workflow_id=workflow["workflow_id"],
+    )
+    assert failed["send_status"] == "failed"
+    assert failed["pkm_writeback_status"] == "not_started"
+
+
+@pytest.mark.asyncio
+async def test_writeback_complete_updates_metadata_without_plaintext():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(body="Broker KYC questionnaire asking for full name."),
+        history_id="106b",
+    )
+    request_id = result["workflow"]["consent_request_id"]
+    consent_db.status_by_request[request_id] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_writeback",
+    }
+    consent_db.export_by_token["token_writeback"] = _encrypted_export(
+        {"identity": {"full_name": "Test Reviewer"}}
+    )
+    workflow = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+    )
+    service._post_json_sync = lambda url, *, json_payload, scopes: {"id": "gmail_sent_writeback"}
+    sent = await service.send_approved_reply(
+        user_id="user_123",
+        workflow_id=workflow["workflow_id"],
+        approved_subject=workflow["draft_subject"],
+        approved_body="Approved KYC reply body",
+        consent_export_revision=1,
+    )
+
+    updated = await service.mark_writeback_complete(
+        user_id="user_123",
+        workflow_id=sent["workflow_id"],
+        artifact_hash="b" * 64,
+        status="succeeded",
+    )
+
+    assert updated["pkm_writeback_status"] == "succeeded"
+    assert updated["pkm_writeback_artifact_hash"] == "b" * 64
+    assert updated["pkm_writeback_attempt_count"] == 1
+    assert "b" * 64 in json.dumps(db.workflows, default=str)
+    assert "Approved KYC reply body" not in json.dumps(db.workflows, default=str)
+
+
+@pytest.mark.asyncio
+async def test_writeback_complete_requires_sent_reply():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(body="Broker KYC questionnaire asking for full name."),
+        history_id="106c",
+    )
+
+    with pytest.raises(OneEmailKycError) as exc:
+        await service.mark_writeback_complete(
+            user_id="user_123",
+            workflow_id=result["workflow"]["workflow_id"],
+            artifact_hash="b" * 64,
+            status="succeeded",
+        )
+
+    assert exc.value.code == "ONE_KYC_WRITEBACK_NOT_READY"
 
 
 @pytest.mark.asyncio

@@ -26,7 +26,8 @@
     "046_kai_gmail_receipt_total.sql",
     "047_actor_identity_phone_shadow.sql",
     "048_merge_pkm_domain_summary_rpc.sql",
-    "049_one_email_kyc_workflows.sql"
+    "049_one_email_kyc_workflows.sql",
+    "050_one_kyc_client_connector_registry.sql"
   ],
   "groups": {
     "iam": [
@@ -40,6 +41,7 @@
       "037_actor_identity_cache.sql",
       "047_actor_identity_phone_shadow.sql",
       "049_one_email_kyc_workflows.sql",
+      "050_one_kyc_client_connector_registry.sql",
       "041_ria_pick_package_metadata.sql",
       "042_ria_pick_single_active_record.sql",
       "043_ria_pick_share_artifacts.sql"

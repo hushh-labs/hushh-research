@@ -263,6 +263,66 @@ describe("kai-action-gateway", () => {
     });
   });
 
+  it("projects One KYC route and draft actions with explicit safety policies", () => {
+    const kycActions = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.surface_id === "one_kyc"
+    );
+
+    expect(kycActions.map((action) => action.action_id)).toEqual([
+      "route.one_kyc",
+      "kyc.workflow.sync_status",
+      "kyc.draft.review",
+      "kyc.draft.request_redraft",
+      "kyc.draft.approve_send",
+      "kyc.draft.reject",
+    ]);
+    expect(
+      kycActions.every(
+        (action) => action.speaker_persona === "kyc" && action.delegate_agent_id === "kyc"
+      )
+    ).toBe(true);
+
+    expect(getKaiActionById("route.one_kyc")).toEqual(
+      expect.objectContaining({
+        action_id: "route.one_kyc",
+        risk_level: "low",
+        execution_policy: "allow_direct",
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/one/kyc",
+        },
+        guard_ids: ["auth_required"],
+      })
+    );
+    expect(getKaiActionById("kyc.draft.approve_send")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        guard_ids: ["auth_required", "explicit_confirmation_required"],
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getKaiActionById("kyc.draft.request_redraft")).toEqual(
+      expect.objectContaining({
+        execution_policy: "confirm_required",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getKaiActionById("kyc.draft.reject")).toEqual(
+      expect.objectContaining({
+        execution_policy: "confirm_required",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+  });
+
   it("keeps typed search on the same action plane as voice and guard filtering", () => {
     const dashboardResults = searchKaiActions({
       query: "dashboard",
