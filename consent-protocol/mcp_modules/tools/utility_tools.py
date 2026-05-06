@@ -148,7 +148,7 @@ async def handle_delegate(args: dict) -> list[TextContent]:
     ]
 
 
-async def handle_list_scopes() -> list[TextContent]:
+async def handle_list_scopes(_args: dict | None = None) -> list[TextContent]:
     """
     List scope categories using backend dynamic registry output.
     """

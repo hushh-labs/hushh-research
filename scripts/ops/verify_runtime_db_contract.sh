@@ -84,10 +84,39 @@ SERVICE_JSON="$(gcloud run services describe "$SERVICE" \
   --region "$REGION" \
   --format=json)"
 
-DB_HOST="$(printf '%s' "$SERVICE_JSON" | jq -r '.spec.template.spec.containers[0].env[]? | select(.name=="DB_HOST") | .value' | tail -n 1)"
-DB_PORT="$(printf '%s' "$SERVICE_JSON" | jq -r '.spec.template.spec.containers[0].env[]? | select(.name=="DB_PORT") | .value' | tail -n 1)"
-DB_NAME="$(printf '%s' "$SERVICE_JSON" | jq -r '.spec.template.spec.containers[0].env[]? | select(.name=="DB_NAME") | .value' | tail -n 1)"
-DB_UNIX_SOCKET="$(printf '%s' "$SERVICE_JSON" | jq -r '.spec.template.spec.containers[0].env[]? | select(.name=="DB_UNIX_SOCKET") | .value' | tail -n 1)"
+runtime_env_value() {
+  local name="$1"
+  local value secret version
+  value="$(printf '%s' "$SERVICE_JSON" | jq -r --arg name "$name" '.spec.template.spec.containers[0].env[]? | select(.name==$name) | .value // empty' | tail -n 1)"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  secret="$(printf '%s' "$SERVICE_JSON" | jq -r --arg name "$name" '.spec.template.spec.containers[0].env[]? | select(.name==$name) | .valueFrom.secretKeyRef.name // empty' | tail -n 1)"
+  if [ -n "$secret" ]; then
+    version="$(printf '%s' "$SERVICE_JSON" | jq -r --arg name "$name" '.spec.template.spec.containers[0].env[]? | select(.name==$name) | .valueFrom.secretKeyRef.key // "latest"' | tail -n 1)"
+    gcloud secrets versions access "$version" --secret="$secret" --project="$PROJECT"
+    return 0
+  fi
+}
+
+secret_value_if_exists() {
+  local name="$1"
+  if gcloud secrets describe "$name" --project="$PROJECT" >/dev/null 2>&1; then
+    gcloud secrets versions access latest --secret="$name" --project="$PROJECT"
+  fi
+}
+
+DB_HOST="$(runtime_env_value DB_HOST)"
+DB_PORT="$(runtime_env_value DB_PORT)"
+DB_NAME="$(runtime_env_value DB_NAME)"
+DB_UNIX_SOCKET="$(runtime_env_value DB_UNIX_SOCKET)"
+
+DB_HOST="${DB_HOST:-$(secret_value_if_exists DB_HOST)}"
+DB_PORT="${DB_PORT:-$(secret_value_if_exists DB_PORT)}"
+DB_NAME="${DB_NAME:-$(secret_value_if_exists DB_NAME)}"
+DB_UNIX_SOCKET="${DB_UNIX_SOCKET:-$(secret_value_if_exists DB_UNIX_SOCKET)}"
 
 DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-postgres}"

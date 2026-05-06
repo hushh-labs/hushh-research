@@ -48,6 +48,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/labs/profile-appearance`
 - `/profile`
 - `/consents`
+- `/one/kyc`
 - `/marketplace`
 - `/marketplace/ria`
 - `/ria`

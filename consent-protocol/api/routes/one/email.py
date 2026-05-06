@@ -10,8 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_firebase_auth, verify_user_id_match
-from db.db_client import DatabaseExecutionError
+from api.middleware import require_vault_owner_token
 from hushh_mcp.services.one_email_kyc_service import (
     OneEmailKycError,
     get_one_email_kyc_service,
@@ -26,8 +25,34 @@ class WorkflowUserRequest(BaseModel):
     user_id: str = Field(min_length=1)
 
 
+class ClientConnectorRequest(WorkflowUserRequest):
+    connector_public_key: str = Field(min_length=32, max_length=5000)
+    connector_key_id: str = Field(min_length=3, max_length=120)
+    connector_wrapping_alg: str = Field(default="X25519-AES256-GCM")
+    public_key_fingerprint: str | None = Field(default=None, max_length=128)
+
+
+class ApprovedReplyRequest(WorkflowUserRequest):
+    approved_subject: str | None = Field(default=None, max_length=500)
+    approved_body: str = Field(min_length=1, max_length=6000)
+    client_draft_hash: str | None = Field(default=None, max_length=128)
+    consent_export_revision: int | None = Field(default=None, ge=1)
+    pkm_writeback_artifact_hash: str = Field(pattern="^[a-f0-9]{64}$")
+
+
+class WritebackCompleteRequest(WorkflowUserRequest):
+    artifact_hash: str = Field(pattern="^[a-f0-9]{64}$")
+    status: str = Field(default="succeeded", pattern="^(succeeded|failed)$")
+    error_message: str | None = Field(default=None, max_length=500)
+
+
 class DraftRejectRequest(WorkflowUserRequest):
     reason: str | None = Field(default=None, max_length=500)
+
+
+class DraftRedraftRequest(WorkflowUserRequest):
+    instructions: str = Field(min_length=1, max_length=1000)
+    source: str = Field(default="text", pattern="^(text|voice)$")
 
 
 _DEPENDENCY_ERROR_PATTERNS = (
@@ -53,7 +78,7 @@ def _iter_exception_chain(exc: BaseException):
 
 def _is_dependency_unavailable_error(exc: Exception) -> bool:
     for current in _iter_exception_chain(exc):
-        if isinstance(current, DatabaseExecutionError):
+        if current.__class__.__name__ == "DatabaseExecutionError":
             return True
         if isinstance(current, (ConnectionError, OSError, TimeoutError)):
             return True
@@ -94,6 +119,29 @@ def _to_http_exception(exc: Exception, *, operation: str) -> HTTPException:
 
 def _service():
     return get_one_email_kyc_service()
+
+
+def _verified_vault_user_id(
+    token_data: dict[str, Any], requested_user_id: str | None = None
+) -> str:
+    user_id = str(token_data.get("user_id") or "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_KYC_VAULT_USER_MISSING",
+                "message": "Vault owner token has no user.",
+            },
+        )
+    if requested_user_id and user_id != requested_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "ONE_KYC_USER_MISMATCH",
+                "message": "KYC workflow user does not match the vault owner token.",
+            },
+        )
+    return user_id
 
 
 def _watch_renew_auth_enabled() -> bool:
@@ -165,9 +213,9 @@ async def one_email_watch_renew(request: Request):
 @router.get("/kyc/workflows")
 async def one_kyc_list_workflows(
     user_id: str,
-    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
-    verify_user_id_match(firebase_uid, user_id)
+    _verified_vault_user_id(token_data, user_id)
     try:
         return await _service().list_workflows(user_id=user_id)
     except Exception as exc:
@@ -179,9 +227,9 @@ async def one_kyc_list_workflows(
 async def one_kyc_get_workflow(
     workflow_id: str,
     user_id: str,
-    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
-    verify_user_id_match(firebase_uid, user_id)
+    _verified_vault_user_id(token_data, user_id)
     try:
         return await _service().get_workflow(user_id=user_id, workflow_id=workflow_id)
     except Exception as exc:
@@ -193,9 +241,9 @@ async def one_kyc_get_workflow(
 async def one_kyc_refresh_workflow(
     workflow_id: str,
     payload: WorkflowUserRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
-    verify_user_id_match(firebase_uid, payload.user_id)
+    _verified_vault_user_id(token_data, payload.user_id)
     try:
         return await _service().refresh_workflow(user_id=payload.user_id, workflow_id=workflow_id)
     except Exception as exc:
@@ -211,9 +259,9 @@ async def one_kyc_refresh_workflow(
 async def one_kyc_approve_draft(
     workflow_id: str,
     payload: WorkflowUserRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
-    verify_user_id_match(firebase_uid, payload.user_id)
+    _verified_vault_user_id(token_data, payload.user_id)
     try:
         return await _service().approve_draft(user_id=payload.user_id, workflow_id=workflow_id)
     except Exception as exc:
@@ -225,13 +273,116 @@ async def one_kyc_approve_draft(
         raise _to_http_exception(exc, operation="approve_draft") from exc
 
 
+@router.get("/kyc/client-connector")
+async def one_kyc_get_client_connector(
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, user_id)
+    try:
+        return await _service().get_client_connector(user_id=user_id)
+    except Exception as exc:
+        logger.exception("one.kyc.client_connector_get_failed user_id=%s", user_id)
+        raise _to_http_exception(exc, operation="client_connector_get") from exc
+
+
+@router.post("/kyc/client-connector")
+async def one_kyc_register_client_connector(
+    payload: ClientConnectorRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().register_client_connector(
+            user_id=payload.user_id,
+            connector_public_key=payload.connector_public_key,
+            connector_key_id=payload.connector_key_id,
+            connector_wrapping_alg=payload.connector_wrapping_alg,
+            public_key_fingerprint=payload.public_key_fingerprint,
+        )
+    except Exception as exc:
+        logger.exception("one.kyc.client_connector_register_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="client_connector_register") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/send-approved-reply")
+async def one_kyc_send_approved_reply(
+    workflow_id: str,
+    payload: ApprovedReplyRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().send_approved_reply(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            approved_subject=payload.approved_subject,
+            approved_body=payload.approved_body,
+            client_draft_hash=payload.client_draft_hash,
+            consent_export_revision=payload.consent_export_revision,
+            pkm_writeback_artifact_hash=payload.pkm_writeback_artifact_hash,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.send_approved_reply_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="send_approved_reply") from exc
+
+
+@router.get("/kyc/workflows/{workflow_id}/consent-export")
+async def one_kyc_get_workflow_consent_export(
+    workflow_id: str,
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, user_id)
+    try:
+        return await _service().get_workflow_consent_export(
+            user_id=user_id,
+            workflow_id=workflow_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.workflow_consent_export_failed user_id=%s workflow_id=%s",
+            user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="workflow_consent_export") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/writeback-complete")
+async def one_kyc_writeback_complete(
+    workflow_id: str,
+    payload: WritebackCompleteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().mark_writeback_complete(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            artifact_hash=payload.artifact_hash,
+            status=payload.status,
+            error_message=payload.error_message,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.writeback_complete_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="writeback_complete") from exc
+
+
 @router.post("/kyc/workflows/{workflow_id}/reject-draft")
 async def one_kyc_reject_draft(
     workflow_id: str,
     payload: DraftRejectRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
-    verify_user_id_match(firebase_uid, payload.user_id)
+    _verified_vault_user_id(token_data, payload.user_id)
     try:
         return await _service().reject_draft(
             user_id=payload.user_id,
@@ -245,3 +396,36 @@ async def one_kyc_reject_draft(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="reject_draft") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/redraft")
+async def one_kyc_redraft(
+    workflow_id: str,
+    payload: DraftRedraftRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().redraft(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            instructions=payload.instructions,
+            source=payload.source,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.redraft_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="redraft") from exc
+
+
+@router.post("/kyc/retention/purge")
+async def one_kyc_retention_purge(request: Request, older_than_days: int = 30):
+    _require_watch_renew_auth(request)
+    try:
+        return await _service().purge_terminal_drafts(older_than_days=older_than_days)
+    except Exception as exc:
+        logger.exception("one.kyc.retention_purge_failed")
+        raise _to_http_exception(exc, operation="retention_purge") from exc

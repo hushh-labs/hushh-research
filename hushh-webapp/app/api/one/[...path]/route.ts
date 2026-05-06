@@ -35,12 +35,14 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const path = params.path.join("/");
   const url = `${getPythonApiUrl()}/api/one/${path}${request.nextUrl.search}`;
   const authHeader = request.headers.get("authorization");
+  const hushhConsentHeader = request.headers.get("x-hushh-consent");
   const acceptHeader = request.headers.get("accept");
   const contentType = request.headers.get("content-type") || "";
 
   try {
     const headers = createUpstreamHeaders(requestId);
     if (authHeader) headers.set("Authorization", authHeader);
+    if (hushhConsentHeader) headers.set("X-Hushh-Consent", hushhConsentHeader);
     if (acceptHeader) headers.set("Accept", acceptHeader);
 
     let body: BodyInit | undefined;
