@@ -544,8 +544,10 @@ export class VoiceTurnOrchestrator {
       // user hears immediate audio instead of ~500 ms of silence.
       // -----------------------------------------------------------------------
       let ackSpeakPromise: Promise<void> | null = null;
-      const isLongRunning = normalizedPlan.is_long_running === true || ackText !== null;
-      if (ackText && isLongRunning && response.speak !== false) {
+      // is_long_running lives on the raw planner envelope (PlannerV2Response),
+      // not on the normalised VoicePlanPayload — read it from plannerEnvelope.
+      const isLongRunning = plannerEnvelope.is_long_running === true || ackText !== null;
+      if (ackText && isLongRunning) {
         this.config.onStageChange?.("speaking_ack");
         this.config.onAssistantText?.({
           text: ackText,
