@@ -2,6 +2,8 @@
 
 Use this reference when changing repo-scoped custom agents or the orchestration rules that govern them.
 
+The shared truth-first reasoning contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Delegation uses that kernel for claim labels, evidence order, domain probes, and child handoff shape.
+
 ## Baseline policy
 
 1. Skills remain the primary knowledge and process system.
@@ -15,23 +17,24 @@ Use this reference when changing repo-scoped custom agents or the orchestration 
 
 Before routing to an agent lane, the parent must extract the important claims in the prompt and classify them against repo evidence when feasible:
 
-1. `already exists`
-2. `partially exists`
+1. `already_exists`
+2. `partially_exists`
 3. `missing`
-4. `future-state only`
-5. `wrong direction`
-6. `needs verification`
+4. `future_state_only`
+5. `wrong_direction`
+6. `needs_verification`
 
 Use specialist agents to inspect claims when the surface is high-risk or cross-domain, but keep the final classification with the parent or `governor`.
 
 Delegated prompts should ask for evidence in this shape:
 
-1. claim inspected
-2. current repo truth
-3. source files/docs/contracts checked
-4. classification
-5. safest next boundary
-6. risks if the prompt premise is accepted blindly
+1. `claim_inspected`
+2. `classification`
+3. `evidence_checked`
+4. `current_repo_truth`
+5. `real_gap`
+6. `suggested_boundary`
+7. `risk_if_prompt_is_accepted_blindly`
 
 Do not ask a child agent only "is this okay?" or "summarize this." That creates agreeable but weak evidence.
 
@@ -130,12 +133,16 @@ python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.p
 
 Every delegated result should include:
 
-1. `scope covered`
-2. `files or surfaces inspected`
-3. `findings or conclusion`
-4. `assumptions`
-5. `validations run`
-6. `unresolved risks`
+1. `claim_inspected`
+2. `classification`
+3. `evidence_checked`
+4. `current_repo_truth`
+5. `real_gap`
+6. `suggested_boundary`
+7. `risk_if_prompt_is_accepted_blindly`
+8. `scope_covered`
+9. `validations_run`
+10. `unresolved_risks`
 
 ## Current repo-scoped custom-agent baseline
 

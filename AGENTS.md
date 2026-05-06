@@ -8,6 +8,8 @@ Before accepting a premise, drafting a reply, proposing a plan, patching code, r
 
 This applies to every non-trivial Codex task in this repo. The goal is to prevent drift where Codex agrees with a user or contributor claim that the repo already contradicts.
 
+The canonical shared contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
+
 Use this sequence:
 
 1. Extract the concrete claims from the prompt, especially statements like `missing`, `not implemented`, `new`, `dynamic`, `static`, `always`, `never`, `broken`, `safe`, `duplicate`, or `ready`.
@@ -19,12 +21,12 @@ Use this sequence:
    - tests
    - runtime logs or CI when relevant
 3. Classify each important claim as:
-   - `already exists`
-   - `partially exists`
+   - `already_exists`
+   - `partially_exists`
    - `missing`
-   - `future-state only`
-   - `wrong direction`
-   - `needs verification`
+   - `future_state_only`
+   - `wrong_direction`
+   - `needs_verification`
 4. Respond or act from that classification, not from conversational agreement.
 5. If the premise is wrong, say so directly and replace it with the correct boundary.
 6. If the capability already exists, do not propose a parallel path. Extend or harden the existing contract.
@@ -86,4 +88,4 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 1. Use repo skills first to choose the owner lane.
 2. Delegate only concrete, bounded sidecar tasks.
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
-4. Require delegated handoffs to include scope, inspected files/surfaces, findings, assumptions, validations, and unresolved risks.
+4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, validations, and unresolved risks.

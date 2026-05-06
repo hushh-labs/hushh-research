@@ -45,6 +45,22 @@ NICKNAME_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 GOVERNOR_AUTHORITY_RULE = "only you may produce final merge, deploy, or plan recommendations"
 NON_GOVERNOR_AUTHORITY_RULE = "You are advisory-only. Do not self-authorize merge, deploy, release, or governance decisions."
+TRUTH_FIRST_HEADER = "Truth-first protocol:"
+TRUTH_FIRST_TOKENS = [
+    "already_exists",
+    "partially_exists",
+    "missing",
+    "future_state_only",
+    "wrong_direction",
+    "needs_verification",
+    "claim_inspected",
+    "classification",
+    "evidence_checked",
+    "current_repo_truth",
+    "real_gap",
+    "suggested_boundary",
+    "risk_if_prompt_is_accepted_blindly",
+]
 
 
 def load_toml(path: Path) -> dict:
@@ -164,6 +180,12 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
     for skill_id in referenced_skills:
         if skill_id not in skill_ids:
             errors.append(f"{path}: referenced repo-local skill does not exist: {skill_id}")
+
+    if TRUTH_FIRST_HEADER not in instructions:
+        errors.append(f"{path}: missing truth-first protocol block")
+    for token in TRUTH_FIRST_TOKENS:
+        if token not in instructions:
+            errors.append(f"{path}: truth-first protocol missing token '{token}'")
 
     instructions_lower = instructions.lower()
     if name == "governor":

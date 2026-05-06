@@ -25,6 +25,22 @@ MAX_AGENT_COUNT = 12
 ALLOWED_REASONING_EFFORTS = {"high", "xhigh"}
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 ADVISORY_RULE = "You are advisory-only. Do not self-authorize merge, deploy, release, or governance decisions."
+TRUTH_FIRST_HEADER = "Truth-first protocol:"
+TRUTH_FIRST_TOKENS = [
+    "already_exists",
+    "partially_exists",
+    "missing",
+    "future_state_only",
+    "wrong_direction",
+    "needs_verification",
+    "claim_inspected",
+    "classification",
+    "evidence_checked",
+    "current_repo_truth",
+    "real_gap",
+    "suggested_boundary",
+    "risk_if_prompt_is_accepted_blindly",
+]
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -72,6 +88,8 @@ def _load_agents(root: Path) -> dict[str, dict[str, Any]]:
             "default_reasoning_effort": data.get("default_reasoning_effort") or "",
             "skills": _parse_skill_block(instructions),
             "has_advisory_rule": name == "governor" or ADVISORY_RULE in instructions,
+            "has_truth_first_protocol": TRUTH_FIRST_HEADER in instructions
+            and all(token in instructions for token in TRUTH_FIRST_TOKENS),
         }
     return agents
 
@@ -130,6 +148,8 @@ def audit(root: Path) -> OrderedDict[str, Any]:
             hard_findings.append(f"{agent['path']}: reasoning effort must be high or xhigh")
         if not agent["has_advisory_rule"]:
             hard_findings.append(f"{agent['path']}: missing advisory-only authority rule")
+        if not agent["has_truth_first_protocol"]:
+            hard_findings.append(f"{agent['path']}: missing complete truth-first protocol")
         if not agent["skills"]:
             hard_findings.append(f"{agent['path']}: missing standardized skill block")
         for skill_id in agent["skills"]:

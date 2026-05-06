@@ -40,8 +40,9 @@ Non-owned surfaces:
 ## Read First
 
 1. `.codex/skills/codex-skill-authoring/references/skill-contract.md`
-2. `.codex/skills/codex-skill-authoring/references/authoring-workflow.md`
-3. `.codex/skills/repo-context/references/index-contract.md`
+2. `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
+3. `.codex/skills/codex-skill-authoring/references/authoring-workflow.md`
+4. `.codex/skills/repo-context/references/index-contract.md`
 
 ## Workflow
 
@@ -55,6 +56,7 @@ Non-owned surfaces:
 8. When PR governance comment templates change, enforce them through `skill_lint.py` so stale public-comment headings such as `Acknowledgment`, `Verification`, or maintainer-only `Next` do not re-enter generated templates.
 9. Keep recurring SOPs short in skills and route durable detail to canonical docs or workflow packs. Skills should point to `runtime-db-fact-sheet.md`, the data-plane contract, or a workflow playbook rather than duplicating long table inventories.
 10. Treat context-size findings from `./bin/hushh codex audit` as review-required advisories: extract durable detail before adding more SOP, but do not split a skill just because it crosses a line-count threshold.
+11. Enforce the truth-first operating kernel through deterministic smoke fixtures so skills, workflows, and agents do not slide back into blind premise acceptance.
 
 ## Handoff Rules
 
@@ -66,8 +68,9 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
+python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run
 ./bin/hushh codex audit
-python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py
+python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py
 ```

@@ -17,28 +17,32 @@
   ],
   "required_reads": [
     ".codex/skills/codex-skill-authoring/references/skill-contract.md",
+    ".codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
     ".codex/skills/codex-skill-authoring/references/authoring-workflow.md",
     ".codex/skills/repo-context/references/index-contract.md"
   ],
   "required_commands": [
+    "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
     "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
     "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run",
     "./bin/hushh codex audit",
-    "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
+    "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
   ],
   "verification_bundles": [
     {
       "id": "codex-skill-authoring",
       "commands": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
         "python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run",
         "./bin/hushh codex audit",
-        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
+        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
       ],
       "tests": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
         "./bin/hushh codex audit",
-        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
+        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py"
       ]
     }
   ],

@@ -16,6 +16,7 @@
   ],
   "required_reads": [
     ".codex/skills/comms-community/references/reply-rules.md",
+    ".codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
     "docs/reference/iam/README.md",
     "consent-protocol/docs/reference/developer-api.md"
   ],

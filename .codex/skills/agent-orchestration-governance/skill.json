@@ -26,9 +26,11 @@
     "AGENTS.md",
     ".codex/skills/agent-orchestration-governance/references/delegation-contract.md",
     ".codex/skills/codex-skill-authoring/references/skill-contract.md",
+    ".codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
     "docs/reference/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
+    "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
     "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
     "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
     "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
@@ -44,6 +46,7 @@
     "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase mid --prompt \"review founder docs and One Kai Nav ontology drift\" --paths \"docs/vision/agent-ontology.md,docs/future/one-nav-runtime-plan.md\" --text",
     "./scripts/ci/repo-governance-check.sh",
     "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
     "./bin/hushh codex list-workflows",
     "./bin/hushh codex audit",
     "./bin/hushh docs verify"
@@ -52,6 +55,7 @@
     {
       "id": "agent-orchestration-governance",
       "commands": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
         "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
         "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
@@ -67,11 +71,13 @@
         "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase mid --prompt \"review founder docs and One Kai Nav ontology drift\" --paths \"docs/vision/agent-ontology.md,docs/future/one-nav-runtime-plan.md\" --text",
         "./scripts/ci/repo-governance-check.sh",
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "./bin/hushh codex list-workflows",
         "./bin/hushh codex audit",
         "./bin/hushh docs verify"
       ],
       "tests": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
         "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
         "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
@@ -87,6 +93,7 @@
         "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase mid --prompt \"review founder docs and One Kai Nav ontology drift\" --paths \"docs/vision/agent-ontology.md,docs/future/one-nav-runtime-plan.md\" --text",
         "./scripts/ci/repo-governance-check.sh",
         "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
         "./bin/hushh codex audit",
         "./bin/hushh docs verify"
       ]

@@ -2,6 +2,7 @@
 
 Use these rules for public community responses:
 
+0. Inherit the truth-first operating kernel from `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`: extract material claims, classify them, and answer from current repo evidence before accepting contributor wording.
 1. Keep it readable in one screen. Default hard cap: 3 to 4 lines of prose. If the user asks for an announcement, product update, launch note, or cinematic cadence, the reply may use more line breaks for rhythm but should still stay short enough to post without editing.
 2. Casual thread register, not memo register. Contractions are fine. Short sentences. Read it out loud, if it sounds like a memo it is wrong, if it sounds like a thread message it is right.
 3. No memo-style section headers or bold sub-labels like `**On X:**` in normal replies. For Discord announcements, one bold headline or anchor phrase is allowed when it improves scanability.

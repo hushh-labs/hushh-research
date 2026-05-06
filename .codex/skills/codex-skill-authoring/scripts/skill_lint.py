@@ -128,6 +128,33 @@ PATH_PREFIXES = (
     "consent-protocol/",
     "packages/",
 )
+TRUTH_FIRST_REFERENCE = ".codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md"
+TRUTH_FIRST_LABELS = [
+    "already_exists",
+    "partially_exists",
+    "missing",
+    "future_state_only",
+    "wrong_direction",
+    "needs_verification",
+]
+TRUTH_FIRST_HANDOFF_TOKENS = [
+    "claim_inspected",
+    "classification",
+    "evidence_checked",
+    "current_repo_truth",
+    "real_gap",
+    "suggested_boundary",
+    "risk_if_prompt_is_accepted_blindly",
+]
+TRUTH_FIRST_DOMAIN_PROBES = [
+    "Kai Decisions",
+    "MCP And Consent Tools",
+    "PKM And Vault",
+    "Voice And Action Gateway",
+    "PR Governance",
+    "Frontend",
+    "Data Model",
+]
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -532,8 +559,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         impact_fields = workflow.get("impact_fields", [])
         common_failures = workflow.get("common_failures", [])
         expected_deliverables = {
-            "default reply variant",
-            "detailed reply variant",
+            "Brief reply",
+            "Detailed reply",
+            "claim classification for material premise corrections",
             "repo-backed GitHub doc citations",
         }
         for value in expected_deliverables:
@@ -541,7 +569,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 errors.append(
                     f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response deliverable `{value}`"
                 )
-        expected_impacts = {"GitHub doc links used", "Reply variants provided"}
+        expected_impacts = {"GitHub doc links used", "Claim classification used", "Reply variants provided"}
         for value in expected_impacts:
             if value not in impact_fields:
                 errors.append(
@@ -549,12 +577,23 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 )
         expected_failures = {
             "repo-relative paths instead of canonical GitHub doc links",
-            "missing required drafted-reply variants",
+            "accepting contributor wording as repo truth",
+            "bloated drafted-reply variants beyond Brief/Detailed without need",
         }
         for value in expected_failures:
             if value not in common_failures:
                 errors.append(
                     f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response failure mode `{value}`"
+                )
+        forbidden_values = {
+            "default reply variant",
+            "detailed reply variant",
+            "missing required drafted-reply variants",
+        }
+        for value in forbidden_values:
+            if value in deliverables or value in common_failures:
+                errors.append(
+                    f"{community_workflow.relative_to(REPO_ROOT)}: stale community-response workflow value `{value}`"
                 )
 
     if pr_governance_skill.exists():
@@ -591,11 +630,73 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 )
 
 
+def validate_truth_first_contract(errors: list[str]) -> None:
+    truth_reference = REPO_ROOT / TRUTH_FIRST_REFERENCE
+    agents_md = REPO_ROOT / "AGENTS.md"
+    skill_contract = SKILLS_ROOT / "codex-skill-authoring" / "references" / "skill-contract.md"
+    delegation_contract = (
+        SKILLS_ROOT / "agent-orchestration-governance" / "references" / "delegation-contract.md"
+    )
+    community_workflow = WORKFLOWS_ROOT / "community-response" / "workflow.json"
+
+    if not truth_reference.exists():
+        errors.append(f"missing truth-first operating kernel: {TRUTH_FIRST_REFERENCE}")
+        return
+
+    truth_text = truth_reference.read_text(encoding="utf-8")
+    required_truth_phrases = [
+        "derive facts from the repo before accepting the prompt",
+        "Evidence Order",
+        "Default Answer Shape",
+        "Agent Evidence Handoff",
+        "Community Q&A Contract",
+        "price is missing",
+        "make MCP tools dynamic by consent",
+        "add voice mic",
+        "store LLM wiki as markdown",
+        "green CI means merge",
+        *TRUTH_FIRST_LABELS,
+        *TRUTH_FIRST_HANDOFF_TOKENS,
+        *TRUTH_FIRST_DOMAIN_PROBES,
+    ]
+    for phrase in required_truth_phrases:
+        if phrase not in truth_text:
+            errors.append(f"{TRUTH_FIRST_REFERENCE}: missing truth-first phrase `{phrase}`")
+
+    for path in [agents_md, skill_contract, delegation_contract]:
+        if not path.exists():
+            errors.append(f"missing truth-first linked contract: {path.relative_to(REPO_ROOT)}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        if TRUTH_FIRST_REFERENCE not in text:
+            errors.append(f"{path.relative_to(REPO_ROOT)}: must reference `{TRUTH_FIRST_REFERENCE}`")
+        for label in TRUTH_FIRST_LABELS:
+            if label not in text:
+                errors.append(f"{path.relative_to(REPO_ROOT)}: missing truth-first label `{label}`")
+
+    for agent_path in sorted((REPO_ROOT / ".codex/agents").glob("*.toml")):
+        text = agent_path.read_text(encoding="utf-8")
+        if "Truth-first protocol:" not in text:
+            errors.append(f"{agent_path.relative_to(REPO_ROOT)}: missing truth-first protocol block")
+        for token in [*TRUTH_FIRST_LABELS, *TRUTH_FIRST_HANDOFF_TOKENS]:
+            if token not in text:
+                errors.append(f"{agent_path.relative_to(REPO_ROOT)}: missing truth-first token `{token}`")
+
+    if community_workflow.exists():
+        workflow = load_json(community_workflow)
+        deliverables = workflow.get("deliverables", [])
+        if "Brief reply" not in deliverables or "Detailed reply" not in deliverables:
+            errors.append(
+                f"{community_workflow.relative_to(REPO_ROOT)}: community workflow must use Brief/Detailed reply outputs"
+            )
+
+
 def main() -> int:
     skills, errors = collect_skill_bodies()
     skill_manifests = validate_skill_manifests(skills, errors)
     validate_workflows(skill_manifests, errors)
     validate_special_skill_contracts(errors)
+    validate_truth_first_contract(errors)
 
     if errors:
         print("Skill lint failed:")
