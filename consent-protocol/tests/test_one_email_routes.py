@@ -36,6 +36,19 @@ def test_one_watch_renew_rejects_missing_maintenance_token(monkeypatch):
     assert response.json()["detail"]["code"] == "ONE_EMAIL_WATCH_RENEW_UNAUTHORIZED"
 
 
+def test_one_watch_renew_auth_follows_deploy_environment(monkeypatch):
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setenv("ONE_EMAIL_WATCH_RENEW_TOKEN", "expected-token")
+    client = _build_app()
+
+    response = client.post("/api/one/email/watch/renew")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ONE_EMAIL_WATCH_RENEW_UNAUTHORIZED"
+
+
 def test_one_kyc_reject_route_uses_authenticated_user(monkeypatch):
     calls: list[dict] = []
 
@@ -137,3 +150,28 @@ def test_one_kyc_client_connector_registration_uses_vault_user(monkeypatch):
             "public_key_fingerprint": "fp",
         }
     ]
+
+
+def test_one_kyc_workflow_consent_export_uses_vault_user_without_consent_token(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def get_workflow_consent_export(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "status": "success",
+                "encrypted_data": "ciphertext",
+                "iv": "iv",
+                "tag": "tag",
+                "wrapped_key_bundle": {"connector_key_id": "one-kyc-test"},
+            }
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    response = client.get("/api/one/kyc/workflows/workflow_123/consent-export?user_id=user_123")
+
+    assert response.status_code == 200
+    assert response.json()["encrypted_data"] == "ciphertext"
+    assert "consent_token" not in response.text
+    assert calls == [{"user_id": "user_123", "workflow_id": "workflow_123"}]

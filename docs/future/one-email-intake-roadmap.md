@@ -52,6 +52,7 @@ What exists:
 - app review/status surface: `/one/kyc`
 - mailbox metadata plus sensitive workflow-state tables from `049_one_email_kyc_workflows.sql`
 - client connector registry, send/writeback metadata, and legacy draft redaction from `050_one_kyc_client_connector_registry.sql`
+- workflow metadata token redaction from `051_one_kyc_metadata_token_redaction.sql`
 
 What is standardized now:
 

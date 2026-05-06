@@ -485,7 +485,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     if comms_skill.exists():
         skill_text = comms_skill.read_text(encoding="utf-8")
         required_skill_phrases = [
-            "default to named reply variants",
+            "default to exactly two named outputs",
+            "`Brief reply`",
+            "`Detailed reply`",
             "canonical GitHub markdown doc links on `main`, not repo-relative paths",
             "maintained top-level doc first",
         ]
@@ -499,11 +501,12 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         rules_text = reply_rules.read_text(encoding="utf-8")
         required_rules_phrases = [
             "All public links must be full GitHub URLs on `main`",
-            "default output must include:",
-            "`Default`",
-            "`Detailed`",
-            "`Firmer`",
+            "default output must include exactly:",
+            "`Brief reply`",
+            "`Detailed reply`",
+            "`Firmer reply`",
             "Do not answer with repo-relative paths unless the user explicitly wants repo-local references.",
+            "Keep normal Q&A lean",
         ]
         for phrase in required_rules_phrases:
             if phrase not in rules_text:

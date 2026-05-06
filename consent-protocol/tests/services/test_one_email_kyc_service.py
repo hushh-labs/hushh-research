@@ -112,6 +112,17 @@ def _message(*, body: str, sender: str = "broker@example.com") -> dict:
     }
 
 
+def test_config_enables_webhook_auth_from_deploy_environment(monkeypatch):
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("ONE_EMAIL_WEBHOOK_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("GMAIL_WEBHOOK_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+
+    config = OneEmailKycConfig.from_env()
+
+    assert config.webhook_auth_enabled is True
+
+
 class _FakeDb:
     def __init__(self, *, user_id: str | None = "user_123", connector: bool = True) -> None:
         self.user_id = user_id
@@ -480,7 +491,7 @@ async def test_duplicate_message_repairs_legacy_consent_url():
     result = await service.process_message_id("gmail_msg_1", history_id="101")
 
     assert result["reason"] == "consent_request_repaired"
-    assert "/consents?tab=pending" in result["workflow"]["consent_request_url"]
+    assert "/consents?tab=incoming" in result["workflow"]["consent_request_url"]
     assert "/profile?" not in result["workflow"]["consent_request_url"]
     assert consent_db.events == []
 
@@ -534,9 +545,19 @@ async def test_refresh_workflow_marks_client_draft_ready_without_decrypting_expo
     assert workflow["status"] == "waiting_on_user"
     assert workflow["draft_status"] == "ready"
     assert workflow["draft_body"] is None
-    assert workflow["consent_token"] == "token_123"  # noqa: S105
+    assert "consent_token" not in workflow
+    assert "consent_token" not in workflow["metadata"]
     assert workflow["metadata"]["client_draft_required"] is True
     assert workflow["metadata"]["consent_export"]["connector_key_id"] == "one-kyc-key"
+
+    export_package = await service.get_workflow_consent_export(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+    )
+    assert export_package["status"] == "success"
+    assert export_package["encrypted_data"]
+    assert export_package["wrapped_key_bundle"]["connector_key_id"] == "one-kyc-key"
+    assert "token_123" not in json.dumps(export_package, default=str)
 
 
 @pytest.mark.asyncio
@@ -700,6 +721,7 @@ async def test_send_approved_reply_rejects_when_bound_export_revision_changes():
             approved_subject=workflow["draft_subject"],
             approved_body="Approved KYC reply body",
             consent_export_revision=1,
+            pkm_writeback_artifact_hash="a" * 64,
         )
 
     assert exc.value.code == "ONE_KYC_DRAFT_EXPORT_STALE"
@@ -778,6 +800,7 @@ async def test_writeback_complete_updates_metadata_without_plaintext():
         approved_subject=workflow["draft_subject"],
         approved_body="Approved KYC reply body",
         consent_export_revision=1,
+        pkm_writeback_artifact_hash="b" * 64,
     )
 
     updated = await service.mark_writeback_complete(
@@ -792,6 +815,48 @@ async def test_writeback_complete_updates_metadata_without_plaintext():
     assert updated["pkm_writeback_attempt_count"] == 1
     assert "b" * 64 in json.dumps(db.workflows, default=str)
     assert "Approved KYC reply body" not in json.dumps(db.workflows, default=str)
+
+
+@pytest.mark.asyncio
+async def test_writeback_complete_requires_declared_artifact_hash_match():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(body="Broker KYC questionnaire asking for full name."),
+        history_id="106bb",
+    )
+    request_id = result["workflow"]["consent_request_id"]
+    consent_db.status_by_request[request_id] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_writeback_mismatch",
+    }
+    consent_db.export_by_token["token_writeback_mismatch"] = _encrypted_export(
+        {"identity": {"full_name": "Test Reviewer"}}
+    )
+    workflow = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+    )
+    service._post_json_sync = lambda url, *, json_payload, scopes: {"id": "gmail_sent_writeback"}
+    sent = await service.send_approved_reply(
+        user_id="user_123",
+        workflow_id=workflow["workflow_id"],
+        approved_subject=workflow["draft_subject"],
+        approved_body="Approved KYC reply body",
+        consent_export_revision=1,
+        pkm_writeback_artifact_hash="a" * 64,
+    )
+
+    with pytest.raises(OneEmailKycError) as exc:
+        await service.mark_writeback_complete(
+            user_id="user_123",
+            workflow_id=sent["workflow_id"],
+            artifact_hash="b" * 64,
+            status="succeeded",
+        )
+
+    assert exc.value.code == "ONE_KYC_WRITEBACK_ARTIFACT_HASH_MISMATCH"
 
 
 @pytest.mark.asyncio

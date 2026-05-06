@@ -14,6 +14,7 @@ export type KycClientConnectorPrivateRecord = {
   connector_key_id: string;
   connector_public_key: string;
   connector_private_key: string;
+  connector_private_key_format: "pkcs8";
   connector_wrapping_alg: typeof KYC_CONNECTOR_WRAPPING_ALG;
   public_key_fingerprint: string;
   created_at: string;
@@ -186,7 +187,7 @@ async function generateConnectorRecord(): Promise<KycClientConnectorPrivateRecor
     "deriveBits",
   ])) as CryptoKeyPair;
   const publicKeyBytes = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
-  const privateKeyBytes = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.privateKey));
+  const privateKeyBytes = new Uint8Array(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
   const publicKey = bytesToBase64(publicKeyBytes);
   const privateKey = bytesToBase64(privateKeyBytes);
   const fingerprint = await sha256Hex(publicKey);
@@ -194,6 +195,7 @@ async function generateConnectorRecord(): Promise<KycClientConnectorPrivateRecor
     connector_key_id: `one-kyc-${fingerprint.slice(0, 20)}`,
     connector_public_key: publicKey,
     connector_private_key: privateKey,
+    connector_private_key_format: "pkcs8",
     connector_wrapping_alg: KYC_CONNECTOR_WRAPPING_ALG,
     public_key_fingerprint: fingerprint,
     created_at: new Date().toISOString(),
@@ -210,6 +212,7 @@ function parseStoredConnector(value: unknown): KycClientConnectorPrivateRecord |
     connector_key_id: String(active.connector_key_id || ""),
     connector_public_key: String(active.connector_public_key || ""),
     connector_private_key: String(active.connector_private_key || ""),
+    connector_private_key_format: String(active.connector_private_key_format || ""),
     connector_wrapping_alg: String(active.connector_wrapping_alg || ""),
     public_key_fingerprint: String(active.public_key_fingerprint || ""),
     created_at: String(active.created_at || ""),
@@ -218,6 +221,7 @@ function parseStoredConnector(value: unknown): KycClientConnectorPrivateRecord |
     connector.connector_key_id &&
     connector.connector_public_key &&
     connector.connector_private_key &&
+    connector.connector_private_key_format === "pkcs8" &&
     connector.connector_wrapping_alg === KYC_CONNECTOR_WRAPPING_ALG
   ) {
     return connector as KycClientConnectorPrivateRecord;
@@ -317,7 +321,7 @@ export class OneKycClientZkService {
 
     const x25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
     const privateKey = await crypto.subtle.importKey(
-      "raw",
+      "pkcs8",
       toArrayBuffer(base64ToBytesCompat(params.connector.connector_private_key)),
       x25519,
       false,

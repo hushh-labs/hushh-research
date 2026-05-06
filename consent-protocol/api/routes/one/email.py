@@ -37,10 +37,7 @@ class ApprovedReplyRequest(WorkflowUserRequest):
     approved_body: str = Field(min_length=1, max_length=6000)
     client_draft_hash: str | None = Field(default=None, max_length=128)
     consent_export_revision: int | None = Field(default=None, ge=1)
-    pkm_writeback_artifact_hash: str | None = Field(
-        default=None,
-        pattern="^[a-f0-9]{64}$",
-    )
+    pkm_writeback_artifact_hash: str = Field(pattern="^[a-f0-9]{64}$")
 
 
 class WritebackCompleteRequest(WorkflowUserRequest):
@@ -151,7 +148,11 @@ def _watch_renew_auth_enabled() -> bool:
     raw = os.getenv("ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED")
     if raw is not None:
         return raw.strip().lower() in {"1", "true", "yes", "on"}
-    environment = str(os.getenv("ENVIRONMENT") or "development").strip().lower()
+    environment = (
+        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "development")
+        .strip()
+        .lower()
+    )
     return environment not in {"development", "dev", "local", "test"}
 
 
@@ -332,6 +333,27 @@ async def one_kyc_send_approved_reply(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="send_approved_reply") from exc
+
+
+@router.get("/kyc/workflows/{workflow_id}/consent-export")
+async def one_kyc_get_workflow_consent_export(
+    workflow_id: str,
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, user_id)
+    try:
+        return await _service().get_workflow_consent_export(
+            user_id=user_id,
+            workflow_id=workflow_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.workflow_consent_export_failed user_id=%s workflow_id=%s",
+            user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="workflow_consent_export") from exc
 
 
 @router.post("/kyc/workflows/{workflow_id}/writeback-complete")

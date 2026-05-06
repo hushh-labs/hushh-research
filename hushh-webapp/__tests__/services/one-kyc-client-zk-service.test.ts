@@ -42,6 +42,7 @@ const connector: KycClientConnectorPrivateRecord = {
   connector_key_id: "one-kyc-test",
   connector_public_key: "public-key",
   connector_private_key: "private-key",
+  connector_private_key_format: "pkcs8",
   connector_wrapping_alg: KYC_CONNECTOR_WRAPPING_ALG,
   public_key_fingerprint: "fingerprint",
   created_at: "2026-05-04T00:00:00.000Z",

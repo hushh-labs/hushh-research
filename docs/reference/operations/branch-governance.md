@@ -72,6 +72,9 @@ Before deleting a local backup branch, classify its unique commits as:
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 6. The canonical GitHub deployment environment for this lane is `uat`.
+7. Cloud Run traffic changes must be made only by the GitHub UAT workflow service account. Human `gcloud run deploy` or `gcloud run services update-traffic` against UAT is deploy-authority drift, even for maintainers.
+8. Every UAT backend/frontend revision must carry `HUSHH_DEPLOY_ENV`, `HUSHH_DEPLOY_SOURCE`, `HUSHH_DEPLOY_SHA`, and `HUSHH_DEPLOY_RUN_ID` from the workflow. UAT release classification treats missing or mismatched provenance as `deploy_authority_drift` and rolls back the affected service.
+9. Project IAM should remove direct human Cloud Run deploy/update permissions for UAT; humans dispatch the governed workflow, not the runtime service.
 
 ### Production
 

@@ -60,6 +60,9 @@ _KYC_REQUEST_ID_PREFIX = "okyc_"
 _CONSENT_REQUEST_ID_MAX_LENGTH = 32
 _MAX_STORED_TEXT = 500
 _MAX_DRAFT_BODY = 6000
+_SENSITIVE_WORKFLOW_METADATA_KEYS = frozenset(
+    {"access_token", "consent_token", "token", "token_id"}
+)
 _KYC_WORKFLOW_STATES = {
     "needs_client_connector",
     "needs_scope",
@@ -70,6 +73,14 @@ _KYC_WORKFLOW_STATES = {
     "completed",
     "blocked",
 }
+
+
+def _runtime_environment() -> str:
+    return (
+        _clean_text(os.getenv("ENVIRONMENT"))
+        or _clean_text(os.getenv("HUSHH_DEPLOY_ENV"))
+        or "development"
+    ).lower()
 
 
 class OneEmailKycError(RuntimeError):
@@ -153,8 +164,7 @@ class OneEmailKycConfig:
             "ONE_EMAIL_WEBHOOK_AUTH_ENABLED",
             _env_bool(
                 "GMAIL_WEBHOOK_AUTH_ENABLED",
-                (_clean_text(os.getenv("ENVIRONMENT")) or "development").lower()
-                not in {"development", "dev", "local", "test"},
+                _runtime_environment() not in {"development", "dev", "local", "test"},
             ),
         )
         default_scope = _validate_kyc_data_scope(
@@ -237,11 +247,7 @@ def _kyc_consent_request_id(workflow_id: str) -> str:
 def _kyc_consent_request_url(consent_request_id: str | None) -> str | None:
     if not consent_request_id:
         return None
-    return build_consent_request_url(
-        request_id=consent_request_id,
-        actor="investor",
-        manager_view="incoming",
-    )
+    return build_consent_request_url(request_id=consent_request_id, view="incoming")
 
 
 def _public_key_fingerprint(public_key: str) -> str:
@@ -381,6 +387,14 @@ def _metadata_from_row(row: dict[str, Any]) -> dict[str, Any]:
         except json.JSONDecodeError:
             return {}
     return {}
+
+
+def _redact_sensitive_workflow_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: item
+        for key, item in value.items()
+        if str(key).strip().lower() not in _SENSITIVE_WORKFLOW_METADATA_KEYS
+    }
 
 
 def _json_list_from_row(row: dict[str, Any], key: str) -> list[Any]:
@@ -1213,9 +1227,8 @@ class OneEmailKycService:
                 last_error_code=None,
                 last_error_message=None,
                 metadata={
-                    **workflow.get("metadata", {}),
+                    **_redact_sensitive_workflow_metadata(workflow.get("metadata", {})),
                     "consent_export": export_metadata,
-                    "consent_token": token_id,
                     "client_draft_required": True,
                     "draft_revision": int(
                         (workflow.get("metadata") or {}).get("draft_revision") or 0
@@ -1232,6 +1245,48 @@ class OneEmailKycService:
             )
         return workflow
 
+    async def get_workflow_consent_export(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+    ) -> dict[str, Any]:
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC workflow export is only available for a ready client draft.",
+                status_code=409,
+                code="ONE_KYC_EXPORT_NOT_READY",
+            )
+        request_id = _clean_text(workflow.get("consent_request_id"))
+        user = _clean_text(workflow.get("user_id"))
+        if not request_id or not user:
+            raise OneEmailKycError(
+                "KYC workflow has no active consent request.",
+                status_code=409,
+                code="ONE_KYC_CONSENT_REVALIDATION_MISSING",
+            )
+        status = await self.consent_db.get_request_status(user, request_id)
+        if _clean_text(status.get("action") if status else None).upper() != "CONSENT_GRANTED":
+            raise OneEmailKycError(
+                "KYC consent is not active enough to load the encrypted export.",
+                status_code=409,
+                code="ONE_KYC_CONSENT_NOT_ACTIVE",
+            )
+        token_id = _clean_text(status.get("token_id") if status else None)
+        export_package = await self._get_validated_consent_export(
+            workflow=workflow,
+            consent_token=token_id,
+        )
+        if not export_package:
+            raise OneEmailKycError(
+                "KYC consent export is unavailable.",
+                status_code=404,
+                code="ONE_KYC_EXPORT_UNAVAILABLE",
+            )
+        self._validate_send_export_binding(workflow=workflow, export_package=export_package)
+        return self._public_encrypted_export(export_package)
+
     async def _get_validated_consent_export(
         self,
         *,
@@ -1245,6 +1300,22 @@ class OneEmailKycService:
             return None
         self._validate_consent_export(workflow=workflow, export_package=export_package)
         return export_package
+
+    def _public_encrypted_export(self, export_package: dict[str, Any]) -> dict[str, Any]:
+        generated_at = export_package.get("export_generated_at")
+        if isinstance(generated_at, datetime):
+            generated_at = generated_at.isoformat()
+        return {
+            "status": "success",
+            "encrypted_data": export_package.get("encrypted_data"),
+            "iv": export_package.get("iv"),
+            "tag": export_package.get("tag"),
+            "wrapped_key_bundle": export_package.get("wrapped_key_bundle"),
+            "scope": export_package.get("scope"),
+            "export_revision": export_package.get("export_revision"),
+            "export_generated_at": generated_at,
+            "export_refresh_status": export_package.get("refresh_status"),
+        }
 
     def _validate_consent_export(
         self,
@@ -1496,6 +1567,13 @@ class OneEmailKycService:
             or workflow.get("draft_subject")
             or self._reply_subject(workflow.get("subject"))
         )
+        writeback_artifact_hash = _truncate(pkm_writeback_artifact_hash, 128)
+        if not re.fullmatch(r"[a-f0-9]{64}", writeback_artifact_hash or ""):
+            raise OneEmailKycError(
+                "Approved KYC send requires a predeclared encrypted PKM writeback artifact hash.",
+                status_code=400,
+                code="ONE_KYC_WRITEBACK_ARTIFACT_HASH_INVALID",
+            )
         send_attempt_id = uuid.uuid4().hex
         await self._require_sendable_consent(
             workflow,
@@ -1507,7 +1585,7 @@ class OneEmailKycService:
             send_status="sending",
             client_draft_hash=_truncate(client_draft_hash, 128),
             pkm_writeback_status="pending",
-            pkm_writeback_artifact_hash=_truncate(pkm_writeback_artifact_hash, 128),
+            pkm_writeback_artifact_hash=writeback_artifact_hash,
             metadata={
                 **workflow.get("metadata", {}),
                 "send_attempt_id": send_attempt_id,
@@ -1515,7 +1593,7 @@ class OneEmailKycService:
                 "client_draft_hash": _truncate(client_draft_hash, 128),
                 "approved_send_hash": hashlib.sha256(body.encode("utf-8")).hexdigest(),
                 "pkm_writeback_status": "pending",
-                "pkm_writeback_artifact_hash": _truncate(pkm_writeback_artifact_hash, 128),
+                "pkm_writeback_artifact_hash": writeback_artifact_hash,
             },
         )
         try:
@@ -1688,6 +1766,24 @@ class OneEmailKycService:
                 "KYC PKM writeback artifact hash is invalid.",
                 status_code=400,
                 code="ONE_KYC_WRITEBACK_ARTIFACT_HASH_INVALID",
+            )
+        metadata = workflow.get("metadata", {})
+        expected_artifact_hash = _clean_text(workflow.get("pkm_writeback_artifact_hash")) or (
+            _clean_text(metadata.get("pkm_writeback_artifact_hash"))
+            if isinstance(metadata, dict)
+            else ""
+        )
+        if not expected_artifact_hash:
+            raise OneEmailKycError(
+                "KYC PKM writeback has no predeclared artifact hash.",
+                status_code=409,
+                code="ONE_KYC_WRITEBACK_ARTIFACT_HASH_MISSING",
+            )
+        if truncated_artifact_hash != expected_artifact_hash:
+            raise OneEmailKycError(
+                "KYC PKM writeback artifact hash does not match the approved send.",
+                status_code=409,
+                code="ONE_KYC_WRITEBACK_ARTIFACT_HASH_MISMATCH",
             )
         if workflow.get("pkm_writeback_status") == "succeeded":
             if (
@@ -2048,7 +2144,7 @@ class OneEmailKycService:
         return self._public_workflow(dict(rows[0])) if rows else None
 
     def _public_workflow(self, row: dict[str, Any]) -> dict[str, Any]:
-        metadata = _metadata_from_row(row)
+        metadata = _redact_sensitive_workflow_metadata(_metadata_from_row(row))
         required_fields = _json_list_from_row(row, "required_fields")
         participant_emails = _json_list_from_row(row, "participant_emails")
         consent_request_id = row.get("consent_request_id")
@@ -2067,7 +2163,6 @@ class OneEmailKycService:
             "required_fields": required_fields,
             "requested_scope": row.get("requested_scope"),
             "consent_request_id": consent_request_id,
-            "consent_token": metadata.get("consent_token"),
             "consent_export": metadata.get("consent_export"),
             "consent_request_url": (
                 _kyc_consent_request_url(consent_request_id)

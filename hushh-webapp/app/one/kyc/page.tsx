@@ -184,10 +184,6 @@ function OneKycWorkspace() {
       if (!auth.userId || !vaultKey || !vaultOwnerToken || !selected) return;
       if (selected.status !== "waiting_on_user" || selected.draft_status !== "ready") return;
       if (localDrafts[selected.workflow_id]) return;
-      const consentToken =
-        selected.consent_token ||
-        (typeof selected.metadata?.consent_token === "string" ? selected.metadata.consent_token : "");
-      if (!consentToken) return;
       try {
         setBusy((current) => current || "draft");
         const connector = await OneKycClientZkService.ensureConnector({
@@ -195,7 +191,11 @@ function OneKycWorkspace() {
           vaultKey,
           vaultOwnerToken,
         });
-        const exportPackage = await OneKycService.getConsentExport({ consentToken });
+        const exportPackage = await OneKycService.getWorkflowConsentExport({
+          userId: auth.userId,
+          vaultOwnerToken,
+          workflowId: selected.workflow_id,
+        });
         const exportPayload = await OneKycClientZkService.decryptScopedExport({
           exportPackage,
           connector,

@@ -34,7 +34,6 @@ export interface OneKycWorkflow {
   draft_subject?: string | null;
   draft_body?: string | null;
   draft_status?: "not_ready" | "ready" | "sent" | "rejected" | null;
-  consent_token?: string | null;
   consent_export?: Record<string, unknown> | null;
   send_status?: "not_started" | "sending" | "sent" | "failed" | null;
   sent_message_id?: string | null;
@@ -130,7 +129,7 @@ export class OneKycService {
     approvedBody: string;
     clientDraftHash?: string | null;
     consentExportRevision?: number | null;
-    pkmWritebackArtifactHash?: string | null;
+    pkmWritebackArtifactHash: string;
   }): Promise<OneKycWorkflow> {
     return apiJson<OneKycWorkflow>(
       `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/send-approved-reply`,
@@ -215,14 +214,18 @@ export class OneKycService {
     });
   }
 
-  static getConsentExport({
-    consentToken,
-  }: {
-    consentToken: string;
-  }): Promise<KycScopedExportPackage> {
-    return apiJson<KycScopedExportPackage>("/api/consent/data", {
-      headers: authHeaders(consentToken),
-    });
+  static getWorkflowConsentExport({
+    userId,
+    vaultOwnerToken,
+    workflowId,
+  }: AuthInput & { workflowId: string }): Promise<KycScopedExportPackage> {
+    const query = new URLSearchParams({ user_id: userId });
+    return apiJson<KycScopedExportPackage>(
+      `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/consent-export?${query.toString()}`,
+      {
+        headers: authHeaders(vaultOwnerToken),
+      }
+    );
   }
 
   static writebackComplete({

@@ -27,7 +27,7 @@ def _load_json_file(path: str | None) -> dict[str, Any] | None:
 
 
 def _run_gcloud_json(args: list[str]) -> dict[str, Any]:
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - fixed gcloud executable with structured args.
         ["gcloud", *args, "--format=json"],
         check=True,
         text=True,

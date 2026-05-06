@@ -54,6 +54,7 @@ class RIAOnboardingSubmitRequest(BaseModel):
 class RIAOnboardingVerifyNameRequest(BaseModel):
     query: str = Field(..., min_length=1)
     crd_number: str | None = None
+    force_live_verification: bool = False
 
 
 class RIAConsentRequestCreate(BaseModel):
@@ -207,7 +208,11 @@ async def verify_onboarding_name(
     service = RIAIAMService()
     try:
         _ = firebase_uid
-        return await service.verify_ria_name(payload.query, crd_number=payload.crd_number)
+        return await service.verify_ria_name(
+            payload.query,
+            crd_number=payload.crd_number,
+            use_cache=not payload.force_live_verification,
+        )
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

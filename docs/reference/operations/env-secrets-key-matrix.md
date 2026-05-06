@@ -44,7 +44,9 @@ Profile bootstrap rule:
 | `ONE_EMAIL_PUBSUB_TOPIC` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required for One email intake |
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required for hosted One email intake |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | recommended |
+| `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required true for hosted One email intake |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | required for hosted One watch renewal |
+| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `consent-protocol/api/routes/one/email.py` | Y | N | N | env | N | env | N | required true for hosted One watch renewal |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | strict client-side ZK guard; defaults true |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | optional allowlisted |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
