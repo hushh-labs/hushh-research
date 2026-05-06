@@ -12,10 +12,10 @@ Use these rules for public community responses:
 8. Public/community replies should link markdown docs only, not source files. `.py`, `.ts`, `.tsx`, `.yaml`, `.json` are internal context, not public citation material.
 9. Internal repo-backed Q&A may cite source files or GitHub issue/PR links when they directly prove the point and the user asked for evidence or the premise needs correction.
 10. All public links must be full GitHub URLs on `main`, not relative paths. Format: `https://github.com/hushh-labs/hushh-research/blob/main/<path>`. Append `#L<n>` or `#L<start>-L<end>` only when pointing to a specific passage.
-11. For drafted Q&A / teammate-share replies, default output must include:
-   - `Default`
-   - `Detailed`
-   - `Firmer` only when correction is needed or the user explicitly asks for a sharper reply
+11. For drafted Q&A / teammate-share replies, default output must include exactly:
+   - `Brief reply`
+   - `Detailed reply`
+   - `Firmer reply` only when the user explicitly asks for sharper wording or the premise is materially wrong enough that a separate correction helps
 12. When maintained docs answer the question, link those GitHub docs first. Do not answer with repo-relative paths unless the user explicitly wants repo-local references.
 13. Never use em-dashes (`—` U+2014) or en-dashes (`–` U+2013). Use commas, periods, parentheses, colons, or hyphens.
 14. Choose references that directly prove the answer for that exact question.
@@ -60,13 +60,10 @@ Use these rules for public community responses:
    - file/module exists in the current tree
    - concern is visible in current tests, logs, or code when feasible
    - otherwise answer that the report is not grounded in the current repo snapshot
-39. When the user asks for reply variants, emit exactly these tiers:
-   - `Default`
-   - `Firmer`
-   - `Detailed`
-40. `Default` should be short and actionable.
-41. `Firmer` should be explicit about what is and is not grounded in the repo.
-42. `Detailed` should explain the repo evidence, what is real, what is not, and the next step to unblock the teammate.
+39. When the user asks for reply variants, emit `Brief reply` and `Detailed reply` by default.
+40. `Brief reply` should be short, actionable, and sendable without editing.
+41. `Detailed reply` should explain only the extra repo evidence, current-state boundary, and next step needed to unblock the teammate.
+42. Add `Firmer reply` only when requested or when the premise is materially wrong enough that a separate correction is useful.
 43. Optional evidence links are only worth adding when they materially improve the answer:
    - source-file links for internal Q&A
    - issue/PR links when the concern is tied to open review or active branch work
@@ -103,6 +100,12 @@ Use these rules for public community responses:
    - if X exists only transiently, say `we compute X but do not persist it in the right evaluation surface yet`
    - if X truly does not exist, name the smallest contract where it belongs
    - do not draft a reply that treats an unverified "missing" claim as fact
+50. Keep normal Q&A lean:
+   - do not output three variants unless `Firmer reply` adds real value
+   - do not add memo-like headings beyond `Brief reply` and `Detailed reply`
+   - do not repeat the same point in both replies unless the detailed version needs it for clarity
+   - do not include implementation inventories unless the user asks for exact files or proof
+   - prefer one crisp correction plus one concrete next PR boundary
 
 ## Discord Native Formatting Mode
 

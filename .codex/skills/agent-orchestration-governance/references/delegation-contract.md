@@ -9,6 +9,31 @@ Use this reference when changing repo-scoped custom agents or the orchestration 
 3. Repo-scoped custom agents are a thin execution layer for bounded role specialization and explicit parallelism.
 4. Subagent use is explicit at the repo-policy level. Do not add unbounded fan-out, but repo workflows inherit a global read-only evidence-lane policy so the parent does not need to ask again for obvious specialist review.
 5. The sweet spot is a small fleet of broad evidence lanes. Do not create one agent per skill; add an agent only when a recurring high-risk family crosses multiple skills and cannot be reliably covered by the current baseline.
+6. Premise verification happens before delegation and before synthesis. Agents exist to gather evidence against concrete claims, not to reinforce the prompt's assumption.
+
+## Premise Verification Before Delegation
+
+Before routing to an agent lane, the parent must extract the important claims in the prompt and classify them against repo evidence when feasible:
+
+1. `already exists`
+2. `partially exists`
+3. `missing`
+4. `future-state only`
+5. `wrong direction`
+6. `needs verification`
+
+Use specialist agents to inspect claims when the surface is high-risk or cross-domain, but keep the final classification with the parent or `governor`.
+
+Delegated prompts should ask for evidence in this shape:
+
+1. claim inspected
+2. current repo truth
+3. source files/docs/contracts checked
+4. classification
+5. safest next boundary
+6. risks if the prompt premise is accepted blindly
+
+Do not ask a child agent only "is this okay?" or "summarize this." That creates agreeable but weak evidence.
 
 ## Subagent suitability checkpoint
 
