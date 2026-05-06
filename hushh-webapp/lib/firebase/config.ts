@@ -1,7 +1,7 @@
 /**
  * Firebase Configuration
  * ======================
- * 
+ *
  * Production-grade Firebase setup for Hussh webapp.
  * Uses Phone Authentication for consent-first user identification.
  */
@@ -23,23 +23,37 @@ const firebaseConfig = {
   ...(firebaseMeasurementId ? { measurementId: firebaseMeasurementId } : {}),
 };
 
-// Log warning if running with dummy or missing config (common in CI/builds)
-if (
-  (!firebaseConfig.apiKey || firebaseConfig.apiKey === "dummy-api-key") &&
-  typeof window === "undefined"
-) {
-  console.warn("⚠️ Firebase Config: Running with missing or dummy credentials. This is expected during CI/Builds but critical features will fail in production.");
+// Validate Firebase configuration before initialization
+const hasValidFirebaseConfig =
+  firebaseConfig.apiKey &&
+  firebaseConfig.apiKey !== "dummy-api-key" &&
+  firebaseConfig.authDomain &&
+  firebaseConfig.projectId &&
+  firebaseConfig.appId;
+
+// Warn contributors/CI when Firebase credentials are unavailable
+if (!hasValidFirebaseConfig) {
+  console.warn(
+    "⚠️ Firebase Config: Running with missing or dummy credentials. Firebase Auth initialization has been skipped."
+  );
 }
 
-// Initialize Firebase (singleton pattern for Next.js)
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const auth = getAuth(app);
+// Initialize Firebase only when configuration is valid
+const app = hasValidFirebaseConfig
+  ? getApps().length === 0
+    ? initializeApp(firebaseConfig)
+    : getApp()
+  : null;
+
+// Initialize Auth only when Firebase app exists
+const auth = app ? getAuth(app) : null;
 
 const disablePhoneAuthAppVerificationForTesting =
   process.env.NEXT_PUBLIC_APP_ENV === "development" &&
-  process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION === "true";
+  process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION ===
+    "true";
 
-if (disablePhoneAuthAppVerificationForTesting) {
+if (disablePhoneAuthAppVerificationForTesting && auth) {
   auth.settings.appVerificationDisabledForTesting = true;
 }
 
@@ -55,9 +69,17 @@ function getWindowWithRecaptcha() {
   };
 }
 
-export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
+export function getRecaptchaVerifier(
+  containerId: string
+): RecaptchaVerifier {
   if (typeof window === "undefined") {
     throw new Error("RecaptchaVerifier can only be used in browser");
+  }
+
+  if (!auth) {
+    throw new Error(
+      "Firebase Auth is unavailable because Firebase configuration is missing or invalid."
+    );
   }
 
   // Always create a new verifier to avoid stale state
@@ -67,12 +89,14 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
     } catch {
       // Ignore clear errors
     }
+
     recaptchaVerifier = null;
     recaptchaWidgetId = null;
   }
 
   // Make sure the container exists
   const container = document.getElementById(containerId);
+
   if (!container) {
     throw new Error(`reCAPTCHA container '${containerId}' not found in DOM`);
   }
@@ -81,21 +105,26 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   // Google's reCAPTCHA library tracks which DOM elements have been rendered
   // in an internal registry keyed by element reference. Clearing children
   // or calling .clear() does not remove the element from that registry,
-  // so re-rendering on the same element throws
+  // so re-rendering on the same element throws:
   // "reCAPTCHA has already been rendered in this element".
   // Swapping in a brand-new element with the same id sidesteps the registry.
   const freshContainer = document.createElement("div");
+
   freshContainer.id = containerId;
+
   for (const cls of Array.from(container.classList)) {
     freshContainer.classList.add(cls);
   }
+
   container.replaceWith(freshContainer);
 
   recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
     size: "invisible",
+
     callback: () => {
       console.log("reCAPTCHA solved");
     },
+
     "expired-callback": () => {
       console.log("reCAPTCHA expired");
       resetRecaptcha();
@@ -105,9 +134,13 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   return recaptchaVerifier;
 }
 
-export async function prepareRecaptchaVerifier(containerId: string): Promise<RecaptchaVerifier> {
+export async function prepareRecaptchaVerifier(
+  containerId: string
+): Promise<RecaptchaVerifier> {
   const verifier = getRecaptchaVerifier(containerId);
+
   recaptchaWidgetId = await verifier.render();
+
   return verifier;
 }
 
@@ -117,10 +150,12 @@ export function resetRecaptcha() {
       if (recaptchaWidgetId !== null) {
         getWindowWithRecaptcha().grecaptcha?.reset(recaptchaWidgetId);
       }
+
       recaptchaVerifier.clear();
     } catch {
       // Ignore errors
     }
+
     recaptchaVerifier = null;
     recaptchaWidgetId = null;
   }
@@ -128,12 +163,16 @@ export function resetRecaptcha() {
   // Also replace the container element so Google's internal registry
   // does not retain a reference to the old element.
   const container = document.getElementById("recaptcha-container");
+
   if (container) {
     const freshContainer = document.createElement("div");
+
     freshContainer.id = "recaptcha-container";
+
     for (const cls of Array.from(container.classList)) {
       freshContainer.classList.add(cls);
     }
+
     container.replaceWith(freshContainer);
   }
 }

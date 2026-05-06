@@ -122,10 +122,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return nativeUser;
     }
 
+    if (!auth) {
+      applyAuthUser(null);
+      setLoading(false);
+      return null;
+    }
+
     const currentUser = auth.currentUser;
+
     if (currentUser) {
       await currentUser.reload().catch(() => undefined);
     }
+
     const refreshedUser = auth.currentUser;
     applyAuthUser(refreshedUser);
     setLoading(false);
@@ -228,6 +236,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     init();
 
+    if (!auth) {
+      console.warn(
+        "[AuthProvider] Firebase Auth unavailable. Skipping auth state subscription."
+      );
+
+      setLoading(false);
+
+      return () => {
+        mounted = false;
+      };
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (!mounted) return;
 
@@ -244,6 +264,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       applyAuthUser(firebaseUser);
+
       // Only stop loading if we actually got a user or valid null (web)
       setLoading(false);
     });
