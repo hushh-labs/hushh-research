@@ -20,7 +20,9 @@ function titleizeSegment(segment: string): string {
     .join(" ");
 }
 
-function normalizeInternalHref(value: string | null | undefined): string | null {
+function normalizeInternalHref(
+  value: string | null | undefined,
+): string | null {
   const next = String(value || "").trim();
   if (!next.startsWith("/")) return null;
   if (next.startsWith("//")) return null;
@@ -35,6 +37,21 @@ function profilePanelLabel(panel: string | null): string | null {
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Gmail receipts";
   return null;
+}
+
+function profilePanelFromParams(
+  searchParams?: URLSearchParams | { get(name: string): string | null } | null,
+): string {
+  const panel = String(searchParams?.get("panel") || "").trim();
+  if (panel) return panel;
+
+  const tab = String(searchParams?.get("tab") || "").trim();
+  if (tab === "privacy") return "access";
+  return tab;
+}
+
+function profilePanelHref(panel: string): string {
+  return `${ROUTES.PROFILE}?panel=${encodeURIComponent(panel)}`;
 }
 
 function profileDetailLabel(detail: string | null): string | null {
@@ -56,13 +73,15 @@ function profileDetailLabel(detail: string | null): string | null {
 
 export function resolveTopShellBreadcrumb(
   pathname: string,
-  searchParams?: URLSearchParams | { get(name: string): string | null } | null
+  searchParams?: URLSearchParams | { get(name: string): string | null } | null,
 ): TopShellBreadcrumbConfig | null {
   if (pathname === ROUTES.KAI_ANALYSIS) {
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
     const runId = String(searchParams?.get("run_id") || "").trim();
-    const ticker = String(searchParams?.get("ticker") || "").trim().toUpperCase();
+    const ticker = String(searchParams?.get("ticker") || "")
+      .trim()
+      .toUpperCase();
 
     if (debateId) {
       return {
@@ -109,10 +128,7 @@ export function resolveTopShellBreadcrumb(
       backHref: ROUTES.RIA_HOME,
       width: "profile",
       align: "center",
-      items: [
-        { label: "RIA", href: ROUTES.RIA_HOME },
-        { label: "Clients" },
-      ],
+      items: [{ label: "RIA", href: ROUTES.RIA_HOME }, { label: "Clients" }],
     };
   }
 
@@ -169,7 +185,7 @@ export function resolveTopShellBreadcrumb(
 
   if (pathname === ROUTES.CONSENTS) {
     const originHref = normalizeInternalHref(searchParams?.get("from"));
-    const privacyHref = `${ROUTES.PROFILE}?tab=privacy`;
+    const privacyHref = profilePanelHref("access");
     const backHref = originHref || privacyHref;
     return {
       backHref,
@@ -195,10 +211,15 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  if (pathname === ROUTES.MARKETPLACE_CONNECTIONS || pathname.startsWith(`${ROUTES.MARKETPLACE_CONNECTIONS}/`)) {
+  if (
+    pathname === ROUTES.MARKETPLACE_CONNECTIONS ||
+    pathname.startsWith(`${ROUTES.MARKETPLACE_CONNECTIONS}/`)
+  ) {
     const isPortfolio = pathname.includes("/portfolio");
     return {
-      backHref: isPortfolio ? ROUTES.MARKETPLACE_CONNECTIONS : ROUTES.MARKETPLACE,
+      backHref: isPortfolio
+        ? ROUTES.MARKETPLACE_CONNECTIONS
+        : ROUTES.MARKETPLACE,
       width: "profile",
       align: "center",
       items: [
@@ -210,7 +231,7 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.PROFILE) {
-    const panel = String(searchParams?.get("panel") || "").trim();
+    const panel = profilePanelFromParams(searchParams);
     const detail = String(searchParams?.get("detail") || "").trim();
     const panelLabel = profilePanelLabel(panel);
     if (!panelLabel) {
@@ -218,13 +239,14 @@ export function resolveTopShellBreadcrumb(
     }
 
     const detailLabel = profileDetailLabel(detail);
+    const panelHref = profilePanelHref(panel);
     return {
-      backHref: detailLabel ? `${ROUTES.PROFILE}?panel=${encodeURIComponent(panel)}` : ROUTES.PROFILE,
+      backHref: detailLabel ? panelHref : ROUTES.PROFILE,
       width: "profile",
       align: "center",
       items: [
         { label: "Profile", href: ROUTES.PROFILE },
-        { label: panelLabel, href: detailLabel ? `${ROUTES.PROFILE}?panel=${encodeURIComponent(panel)}` : undefined },
+        { label: panelLabel, href: detailLabel ? panelHref : undefined },
         ...(detailLabel ? [{ label: detailLabel }] : []),
       ],
     };
@@ -234,8 +256,11 @@ export function resolveTopShellBreadcrumb(
     return null;
   }
 
-  if (pathname === `${ROUTES.PROFILE}/pkm` || pathname === `${ROUTES.PROFILE}/pkm-agent-lab`) {
-    const privacyHref = `${ROUTES.PROFILE}?tab=privacy`;
+  if (
+    pathname === `${ROUTES.PROFILE}/pkm` ||
+    pathname === `${ROUTES.PROFILE}/pkm-agent-lab`
+  ) {
+    const privacyHref = profilePanelHref("access");
     return {
       backHref: privacyHref,
       width: "profile",
@@ -260,12 +285,14 @@ export function resolveTopShellBreadcrumb(
   }
 
   return {
-    backHref: `${ROUTES.PROFILE}?tab=account`,
+    backHref: profilePanelHref("account"),
     width: "profile",
     items: [
-      { label: "Profile", href: `${ROUTES.PROFILE}?tab=account` },
+      { label: "Profile", href: profilePanelHref("account") },
       { label: titleizeSegment(firstSegment) },
-      ...remainingSegments.map((segment) => ({ label: titleizeSegment(segment) })),
+      ...remainingSegments.map((segment) => ({
+        label: titleizeSegment(segment),
+      })),
     ],
   };
 }

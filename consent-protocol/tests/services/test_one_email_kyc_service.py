@@ -491,8 +491,8 @@ async def test_duplicate_message_repairs_legacy_consent_url():
     result = await service.process_message_id("gmail_msg_1", history_id="101")
 
     assert result["reason"] == "consent_request_repaired"
-    assert "/profile?tab=privacy" in result["workflow"]["consent_request_url"]
-    assert "consentView=incoming" in result["workflow"]["consent_request_url"]
+    assert "/consents?tab=incoming" in result["workflow"]["consent_request_url"]
+    assert "/profile?" not in result["workflow"]["consent_request_url"]
     assert consent_db.events == []
 
 

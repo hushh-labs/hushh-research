@@ -125,6 +125,10 @@ steps:
           "--set-secrets=${secrets}"
         )
 
+        if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
+          cmd+=("--no-traffic")
+        fi
+
         if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
           cmd+=("--add-cloudsql-instances=${_CLOUDSQL_INSTANCES}")
         fi
@@ -176,6 +180,7 @@ substitutions:
   _ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED: "true"
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
+  _CLOUD_RUN_NO_TRAFFIC: "false"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual

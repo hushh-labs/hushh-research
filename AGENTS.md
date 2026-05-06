@@ -2,6 +2,47 @@
 
 These repo-level instructions supplement the active Codex system/developer instructions. Follow the more specific instruction when there is a conflict.
 
+## Project-Wide Premise Verification Gate
+
+Before accepting a premise, drafting a reply, proposing a plan, patching code, reviewing a PR, or merging work, run a quick repo-backed premise check.
+
+This applies to every non-trivial Codex task in this repo. The goal is to prevent drift where Codex agrees with a user or contributor claim that the repo already contradicts.
+
+The canonical shared contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
+
+Use this sequence:
+
+1. Extract the concrete claims from the prompt, especially statements like `missing`, `not implemented`, `new`, `dynamic`, `static`, `always`, `never`, `broken`, `safe`, `duplicate`, or `ready`.
+2. Check the current source of truth before responding:
+   - code paths
+   - generated contracts
+   - docs and future-state caveats
+   - schemas and migrations
+   - tests
+   - runtime logs or CI when relevant
+3. Classify each important claim as:
+   - `already_exists`
+   - `partially_exists`
+   - `missing`
+   - `future_state_only`
+   - `wrong_direction`
+   - `needs_verification`
+4. Respond or act from that classification, not from conversational agreement.
+5. If the premise is wrong, say so directly and replace it with the correct boundary.
+6. If the capability already exists, do not propose a parallel path. Extend or harden the existing contract.
+7. If the capability exists only transiently, name the real gap: persistence, visibility, tests, UX, docs, schema, consent, cache, or observability.
+8. For high-risk surfaces such as auth, consent, vault, PKM, finance recommendations, generated action contracts, migrations, deploys, and external integrations, verify twice from independent evidence when feasible.
+
+Default response shape for repo-backed Q&A:
+
+1. `Correction / current truth`
+2. `Useful contribution boundary`
+3. `Where it should live`
+4. `What not to build`
+5. `Smallest acceptable next PR`
+
+Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
+
 ## Project-Wide Delegation Checkpoint
 
 At the start of every non-trivial request, run a quick delegation suitability checkpoint before choosing a local-only path.
@@ -47,4 +88,4 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 1. Use repo skills first to choose the owner lane.
 2. Delegate only concrete, bounded sidecar tasks.
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
-4. Require delegated handoffs to include scope, inspected files/surfaces, findings, assumptions, validations, and unresolved risks.
+4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.

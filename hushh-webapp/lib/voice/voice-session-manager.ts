@@ -8,7 +8,11 @@ import {
   type VoiceRealtimeTranscriptEvent,
 } from "@/lib/voice/voice-realtime-client";
 
-export type VoiceSessionConnectionState = "idle" | "connecting" | "connected" | "error";
+export type VoiceSessionConnectionState =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "error";
 
 export type VoiceSessionSnapshot = {
   state: VoiceSessionConnectionState;
@@ -72,16 +76,24 @@ function parseRealtimeSessionPayload(raw: unknown): {
 } | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
-  const clientSecret = typeof value.client_secret === "string" ? value.client_secret.trim() : "";
+  const clientSecret =
+    typeof value.client_secret === "string" ? value.client_secret.trim() : "";
   const model = typeof value.model === "string" ? value.model.trim() : "";
   const voice = typeof value.voice === "string" ? value.voice.trim() : "";
-  const sessionId = typeof value.session_id === "string" ? value.session_id.trim() : null;
+  const sessionId =
+    typeof value.session_id === "string" ? value.session_id.trim() : null;
   const transcriptionModel =
-    typeof value.transcription_model === "string" ? value.transcription_model.trim() : "";
+    typeof value.transcription_model === "string"
+      ? value.transcription_model.trim()
+      : "";
   const transcriptionLanguage =
-    typeof value.transcription_language === "string" ? value.transcription_language.trim() : "";
+    typeof value.transcription_language === "string"
+      ? value.transcription_language.trim()
+      : "";
   const transcriptionPrompt =
-    typeof value.transcription_prompt === "string" ? value.transcription_prompt.trim() : "";
+    typeof value.transcription_prompt === "string"
+      ? value.transcription_prompt.trim()
+      : "";
   if (!clientSecret || !model || !voice) return null;
   return {
     clientSecret,
@@ -109,7 +121,9 @@ function asLowerTrimmed(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
-function isNonFatalRealtimeStreamError(payload?: Record<string, unknown>): boolean {
+function isNonFatalRealtimeStreamError(
+  payload?: Record<string, unknown>,
+): boolean {
   const message = asLowerTrimmed(payload?.message);
   const code = asLowerTrimmed(payload?.code);
   const errorType = asLowerTrimmed(payload?.error_type);
@@ -125,11 +139,17 @@ function isNonFatalRealtimeStreamError(payload?: Record<string, unknown>): boole
     haystack.includes("unknown parameter") ||
     haystack.includes("invalid parameter") ||
     haystack.includes("unrecognized parameter") ||
-    haystack.includes("invalid event")
+    haystack.includes("invalid event") ||
+    haystack.includes("input_audio_buffer_commit_empty") ||
+    haystack.includes("buffer is empty") ||
+    haystack.includes("audio buffer is empty") ||
+    haystack.includes("already committed")
   );
 }
 
-function isHardFatalRealtimeStreamError(payload?: Record<string, unknown>): boolean {
+function isHardFatalRealtimeStreamError(
+  payload?: Record<string, unknown>,
+): boolean {
   const message = asLowerTrimmed(payload?.message);
   const code = asLowerTrimmed(payload?.code);
   const errorType = asLowerTrimmed(payload?.error_type);
@@ -213,7 +233,11 @@ class VoiceSessionManager {
     };
   }
 
-  private setState(state: VoiceSessionConnectionState, reason: string, errorMessage?: string): void {
+  private setState(
+    state: VoiceSessionConnectionState,
+    reason: string,
+    errorMessage?: string,
+  ): void {
     this.state = state;
     this.lastError = errorMessage || null;
     this.emit({
@@ -267,7 +291,10 @@ class VoiceSessionManager {
       return this.vaultOwnerToken;
     }
     const nextToken = this.vaultOwnerTokenProvider();
-    this.vaultOwnerToken = typeof nextToken === "string" && nextToken.trim() ? nextToken.trim() : null;
+    this.vaultOwnerToken =
+      typeof nextToken === "string" && nextToken.trim()
+        ? nextToken.trim()
+        : null;
     return this.vaultOwnerToken;
   }
 
@@ -280,7 +307,8 @@ class VoiceSessionManager {
       ? input.getVaultOwnerToken()
       : input.vaultOwnerToken;
     const credentialsChanged =
-      this.userId !== input.userId || this.vaultOwnerToken !== nextVaultOwnerToken;
+      this.userId !== input.userId ||
+      this.vaultOwnerToken !== nextVaultOwnerToken;
 
     this.userId = input.userId;
     this.vaultOwnerTokenProvider = input.getVaultOwnerToken || null;
@@ -288,7 +316,8 @@ class VoiceSessionManager {
       typeof nextVaultOwnerToken === "string" && nextVaultOwnerToken.trim()
         ? nextVaultOwnerToken.trim()
         : null;
-    this.configuredVoice = String(input.voice || this.configuredVoice || "alloy").trim() || "alloy";
+    this.configuredVoice =
+      String(input.voice || this.configuredVoice || "alloy").trim() || "alloy";
 
     if (!this.visibilityHandlerRegistered) {
       this.registerVisibilityHandlers();
@@ -296,7 +325,9 @@ class VoiceSessionManager {
 
     if (
       credentialsChanged &&
-      (this.connected() || this.connectPromise !== null || this.state === "connecting")
+      (this.connected() ||
+        this.connectPromise !== null ||
+        this.state === "connecting")
     ) {
       await this.disconnect("credentials_changed", { stopLocalStream: true });
     }
@@ -342,7 +373,7 @@ class VoiceSessionManager {
   private async recoverFromTransportFailure(
     reason: string,
     errorMessage: string,
-    payload: Record<string, unknown> = {}
+    payload: Record<string, unknown> = {},
   ): Promise<void> {
     if (this.transportRecoveryInFlight) {
       this.emitDebug("transport_recovery_skipped_in_flight", {
@@ -361,8 +392,14 @@ class VoiceSessionManager {
     });
 
     try {
-      await this.disconnect("transport_error_cleanup", { stopLocalStream: true });
-      if (this.activeScopeIds.size === 0 || !this.userId || !this.resolveVaultOwnerToken()) {
+      await this.disconnect("transport_error_cleanup", {
+        stopLocalStream: true,
+      });
+      if (
+        this.activeScopeIds.size === 0 ||
+        !this.userId ||
+        !this.resolveVaultOwnerToken()
+      ) {
         this.emitDebug("transport_recovery_skipped_no_scope", { reason });
         return;
       }
@@ -370,7 +407,9 @@ class VoiceSessionManager {
       this.emitDebug("transport_recovery_succeeded", { reason });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "VOICE_REALTIME_TRANSPORT_RECOVERY_FAILED";
+        error instanceof Error
+          ? error.message
+          : "VOICE_REALTIME_TRANSPORT_RECOVERY_FAILED";
       this.setState("error", "transport_recovery_failed", message);
       this.emitDebug("transport_recovery_failed", {
         reason,
@@ -414,12 +453,17 @@ class VoiceSessionManager {
         const localStreamPromise = navigator.mediaDevices
           .getUserMedia({ audio: true })
           .then((stream) => {
+            this.localStream = stream;
+            this.applyMuteToLocalStream();
             this.emitDebug("permission_request_succeeded", {});
             return stream;
           })
           .catch((error) => {
             this.emitDebug("permission_request_failed", {
-              message: error instanceof Error ? error.message : String(error || "unknown"),
+              message:
+                error instanceof Error
+                  ? error.message
+                  : String(error || "unknown"),
             });
             throw error;
           });
@@ -444,19 +488,25 @@ class VoiceSessionManager {
           throw new Error("VOICE_SESSION_CONNECT_STALE");
         }
         this.localStream = localStream;
-        const sessionPayloadRaw = (await sessionResponse.json().catch(() => ({}))) as unknown;
+        const sessionPayloadRaw = (await sessionResponse
+          .json()
+          .catch(() => ({}))) as unknown;
         if (!sessionResponse.ok) {
           const detail =
             sessionPayloadRaw &&
             typeof sessionPayloadRaw === "object" &&
-            typeof (sessionPayloadRaw as Record<string, unknown>).detail === "string"
+            typeof (sessionPayloadRaw as Record<string, unknown>).detail ===
+              "string"
               ? String((sessionPayloadRaw as Record<string, unknown>).detail)
               : `VOICE_SESSION_HTTP_${sessionResponse.status}`;
           throw new Error(detail);
         }
         this.emitDebug("realtime_session_request_succeeded", {
           turn_id: sessionTurnId,
-          latency_ms: Math.max(0, Math.round(performance.now() - sessionRequestStartedAt)),
+          latency_ms: Math.max(
+            0,
+            Math.round(performance.now() - sessionRequestStartedAt),
+          ),
         });
 
         const sessionPayload = parseRealtimeSessionPayload(sessionPayloadRaw);
@@ -493,11 +543,17 @@ class VoiceSessionManager {
               return;
             }
             this.emitDebug(event, payload || {});
-            if (event === "stream_error" && isNonFatalRealtimeStreamError(payload || {})) {
+            if (
+              event === "stream_error" &&
+              isNonFatalRealtimeStreamError(payload || {})
+            ) {
               this.emitDebug("stream_error_ignored_non_fatal", payload || {});
               return;
             }
-            if (event === "stream_error" && !isHardFatalRealtimeStreamError(payload || {})) {
+            if (
+              event === "stream_error" &&
+              !isHardFatalRealtimeStreamError(payload || {})
+            ) {
               this.emitDebug("stream_error_ignored_soft", payload || {});
               return;
             }
@@ -505,22 +561,32 @@ class VoiceSessionManager {
             const peerConnectionFailed =
               event === "peer_connection_state_changed" &&
               typeof payload?.connection_state === "string" &&
-              ["closed", "disconnected", "failed"].includes(payload.connection_state);
+              ["closed", "disconnected", "failed"].includes(
+                payload.connection_state,
+              );
             const transportFailed =
               event === "data_channel_closed" ||
               event === "data_channel_error" ||
-              (event === "stream_error" && isHardFatalRealtimeStreamError(payload || {})) ||
+              (event === "stream_error" &&
+                isHardFatalRealtimeStreamError(payload || {})) ||
               peerConnectionFailed;
 
             if (!transportFailed) return;
 
             const message =
-              (typeof payload?.message === "string" && payload.message.trim()) ||
+              (typeof payload?.message === "string" &&
+                payload.message.trim()) ||
               (typeof payload?.connection_state === "string" &&
-              ["closed", "disconnected", "failed"].includes(payload.connection_state)
+              ["closed", "disconnected", "failed"].includes(
+                payload.connection_state,
+              )
                 ? `VOICE_REALTIME_CONNECTION_${payload.connection_state.toUpperCase()}`
                 : "VOICE_REALTIME_TRANSPORT_ERROR");
-            void this.recoverFromTransportFailure("realtime_transport_error", message, payload || {});
+            void this.recoverFromTransportFailure(
+              "realtime_transport_error",
+              message,
+              payload || {},
+            );
           },
         });
         this.emitDebug("realtime_handshake_succeeded", {
@@ -536,7 +602,10 @@ class VoiceSessionManager {
         this.sessionId = sessionPayload.sessionId || null;
         this.model = sessionPayload.model;
         this.voice = sessionPayload.voice;
-        this.reconnectLatencyMs = Math.max(0, Math.round(performance.now() - connectStartedAt));
+        this.reconnectLatencyMs = Math.max(
+          0,
+          Math.round(performance.now() - connectStartedAt),
+        );
         this.foregroundResumeEligible = this.activeScopeIds.size > 0;
         this.applyMuteToLocalStream();
         this.setState("connected", reason);
@@ -546,7 +615,8 @@ class VoiceSessionManager {
           connectAbortController.signal.aborted ||
           isVoiceSessionConnectCancellationError(error)
         ) {
-          const preserveForegroundResume = this.foregroundResumeEligible && this.activeScopeIds.size > 0;
+          const preserveForegroundResume =
+            this.foregroundResumeEligible && this.activeScopeIds.size > 0;
           this.foregroundResumeEligible = preserveForegroundResume;
           await this.disconnect("connect_cancelled_cleanup", {
             stopLocalStream: true,
@@ -554,10 +624,15 @@ class VoiceSessionManager {
           });
           throw new Error("VOICE_SESSION_CONNECT_ABORTED");
         }
-        const message = error instanceof Error ? error.message : "VOICE_SESSION_CONNECT_FAILED";
+        const message =
+          error instanceof Error
+            ? error.message
+            : "VOICE_SESSION_CONNECT_FAILED";
         this.foregroundResumeEligible = false;
         this.setState("error", "connect_failed", message);
-        await this.disconnect("connect_failed_cleanup", { stopLocalStream: true });
+        await this.disconnect("connect_failed_cleanup", {
+          stopLocalStream: true,
+        });
         throw error;
       } finally {
         if (this.connectPromise === connectOperation) {
@@ -579,12 +654,12 @@ class VoiceSessionManager {
     options: {
       stopLocalStream?: boolean;
       preserveForegroundResume?: boolean;
-    } = {}
+    } = {},
   ): Promise<void> {
     this.clearHiddenDisconnectTimer();
     this.connectGeneration += 1;
     this.foregroundResumeEligible = Boolean(
-      options.preserveForegroundResume && this.activeScopeIds.size > 0
+      options.preserveForegroundResume && this.activeScopeIds.size > 0,
     );
 
     if (this.connectAbortController) {
@@ -651,7 +726,8 @@ class VoiceSessionManager {
   }
 
   private registerVisibilityHandlers(): void {
-    if (this.visibilityHandlerRegistered || typeof document === "undefined") return;
+    if (this.visibilityHandlerRegistered || typeof document === "undefined")
+      return;
 
     const onVisibility = () => {
       if (document.hidden) {
@@ -660,7 +736,9 @@ class VoiceSessionManager {
         }
         const preserveForegroundResume =
           this.activeScopeIds.size > 0 &&
-          (this.foregroundResumeEligible || this.state === "connecting" || this.connectPromise !== null);
+          (this.foregroundResumeEligible ||
+            this.state === "connecting" ||
+            this.connectPromise !== null);
         this.emitDebug("background_disconnect_scheduled", {
           delay_ms: BACKGROUND_DISCONNECT_DELAY_MS,
           preserve_foreground_resume: preserveForegroundResume,
@@ -685,7 +763,10 @@ class VoiceSessionManager {
           if (isVoiceSessionConnectCancellationError(error)) {
             return;
           }
-          const message = error instanceof Error ? error.message : "VOICE_SESSION_RESUME_FAILED";
+          const message =
+            error instanceof Error
+              ? error.message
+              : "VOICE_SESSION_RESUME_FAILED";
           this.setState("error", "foreground_resume_failed", message);
         });
       }

@@ -2,6 +2,8 @@
 
 Use this reference when changing repo-scoped custom agents or the orchestration rules that govern them.
 
+The shared truth-first reasoning contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Delegation uses that kernel for claim labels, evidence order, domain probes, and child handoff shape.
+
 ## Baseline policy
 
 1. Skills remain the primary knowledge and process system.
@@ -9,6 +11,37 @@ Use this reference when changing repo-scoped custom agents or the orchestration 
 3. Repo-scoped custom agents are a thin execution layer for bounded role specialization and explicit parallelism.
 4. Subagent use is explicit at the repo-policy level. Do not add unbounded fan-out, but repo workflows inherit a global read-only evidence-lane policy so the parent does not need to ask again for obvious specialist review.
 5. The sweet spot is a small fleet of broad evidence lanes. Do not create one agent per skill; add an agent only when a recurring high-risk family crosses multiple skills and cannot be reliably covered by the current baseline.
+6. Premise verification happens before delegation and before synthesis. Agents exist to gather evidence against concrete claims, not to reinforce the prompt's assumption.
+
+## Premise Verification Before Delegation
+
+Before routing to an agent lane, the parent must extract the important claims in the prompt and classify them against repo evidence when feasible:
+
+1. `already_exists`
+2. `partially_exists`
+3. `missing`
+4. `future_state_only`
+5. `wrong_direction`
+6. `needs_verification`
+
+Use specialist agents to inspect claims when the surface is high-risk or cross-domain, but keep the final classification with the parent or `governor`.
+
+Delegated prompts should ask for evidence in this shape:
+
+1. `claim_inspected`
+2. `classification`
+3. `evidence_checked`
+4. `current_repo_truth`
+5. `real_gap`
+6. `suggested_boundary`
+7. `risk_if_prompt_is_accepted_blindly`
+8. `scope_covered`
+9. `inspected_surfaces`
+10. `assumptions`
+11. `validations_run`
+12. `unresolved_risks`
+
+Do not ask a child agent only "is this okay?" or "summarize this." That creates agreeable but weak evidence.
 
 ## Subagent suitability checkpoint
 
@@ -105,12 +138,18 @@ python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.p
 
 Every delegated result should include:
 
-1. `scope covered`
-2. `files or surfaces inspected`
-3. `findings or conclusion`
-4. `assumptions`
-5. `validations run`
-6. `unresolved risks`
+1. `claim_inspected`
+2. `classification`
+3. `evidence_checked`
+4. `current_repo_truth`
+5. `real_gap`
+6. `suggested_boundary`
+7. `risk_if_prompt_is_accepted_blindly`
+8. `scope_covered`
+9. `inspected_surfaces`
+10. `assumptions`
+11. `validations_run`
+12. `unresolved_risks`
 
 ## Current repo-scoped custom-agent baseline
 

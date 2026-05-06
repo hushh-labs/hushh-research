@@ -86,24 +86,33 @@ steps:
 
   # Step 3: Deploy to Cloud Run
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: gcloud
+    entrypoint: "bash"
     args:
-      - "run"
-      - "deploy"
-      - "${_FRONTEND_SERVICE}"
-      - "--image=gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
-      - "--region=${_REGION}"
-      - "--platform=managed"
-      - "--allow-unauthenticated"
-      - "--port=8080"
-      - "--memory=512Mi"
-      - "--cpu=1"
-      - "--timeout=60"
-      - "--max-instances=10"
-      - "--min-instances=1"
-      - "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
-      - "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
-      - "--set-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest"
+      - "-c"
+      - |
+        set -euo pipefail
+        cmd=(
+          gcloud run deploy "${_FRONTEND_SERVICE}"
+          "--image=gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
+          "--region=${_REGION}"
+          "--platform=managed"
+          "--allow-unauthenticated"
+          "--port=8080"
+          "--memory=512Mi"
+          "--cpu=1"
+          "--timeout=60"
+          "--max-instances=10"
+          "--min-instances=1"
+          "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
+          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
+          "--set-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest"
+        )
+
+        if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
+          cmd+=("--no-traffic")
+        fi
+
+        "${cmd[@]}"
     id: "deploy-frontend"
 
 # Images to store in Container Registry
@@ -119,6 +128,7 @@ substitutions:
   _FRONTEND_SERVICE: hushh-webapp
   _REGION: us-central1
   _APP_ENV: production
+  _CLOUD_RUN_NO_TRAFFIC: "false"
   _IMAGE_TAG: v2.1.2
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual

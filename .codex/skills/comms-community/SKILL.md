@@ -42,8 +42,9 @@ Non-owned surfaces:
 ## Read First
 
 1. `.codex/skills/comms-community/references/reply-rules.md`
-2. `docs/reference/iam/README.md`
-3. `consent-protocol/docs/reference/developer-api.md`
+2. `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
+3. `docs/reference/iam/README.md`
+4. `consent-protocol/docs/reference/developer-api.md`
 
 ## Workflow
 
@@ -53,11 +54,12 @@ Non-owned surfaces:
 4. For repo-backed Q&A, verify the premise first:
    - confirm the referenced file, module, or test surface exists in the current tree
    - confirm the reported concern is actually visible in the current repo state when feasible
+   - classify material claims with the truth-first labels before drafting
    - if the premise is not grounded, say that directly before suggesting any fix
-5. For drafted reply/Q&A requests, default to named reply variants:
-   - `Default`: sendable now, short, human-facing, evidence-backed
-   - `Detailed`: same answer with one more layer of reasoning or context
-   - `Firmer`: include only when the premise is wrong, the user asks for sharper wording, or a decision boundary needs correction
+5. For drafted reply/Q&A requests, default to exactly two named outputs:
+   - `Brief reply`: sendable now, short, direct, evidence-backed
+   - `Detailed reply`: same answer with one more layer of reasoning or context
+   Add `Firmer reply` only when the user asks for sharper wording or the premise is materially wrong enough that a separate correction helps.
 6. When the user asks for a Discord-formatted post, announcement, cinematic cadence, launch note, or channel message, use native Discord formatting deliberately:
    - use `#`, `##`, or `###` headings only when the channel message benefits from a clear top-level scan point; include a space after the heading marker
    - use `-#` subtext sparingly for one quiet context line, not as body copy

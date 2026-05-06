@@ -53,13 +53,16 @@ Non-owned surfaces:
 1. `AGENTS.md`
 2. `.codex/skills/agent-orchestration-governance/references/delegation-contract.md`
 3. `.codex/skills/codex-skill-authoring/references/skill-contract.md`
-4. `docs/reference/operations/coding-agent-mcp.md`
+4. `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
+5. `docs/reference/operations/coding-agent-mcp.md`
 
 ## Workflow
 
 1. Verify that a repo-scoped custom agent is actually justified before adding one; prefer skills and workflows when role specialization is not needed.
 2. Keep the agent fleet at the curated sweet spot: broad evidence lanes, not one agent per skill. Add a new agent only when a recurring high-risk evidence family crosses multiple skills and existing agents have repeatedly missed it.
 3. Preserve the project-wide delegation checkpoint in `AGENTS.md` before narrowing behavior in any skill or workflow:
+   - run the project-wide premise verification gate before delegation; agents are evidence lanes, not agreement lanes
+   - classify important prompt claims as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction`, or `needs_verification` before final synthesis
    - use subagents only when the user explicitly allows delegation or a repo workflow/global repo policy has an approved delegation step
    - treat every non-trivial repo workflow as eligible for read-only evidence lanes when the checkpoint passes
    - treat high-stakes PR governance, RCA, release readiness, security/consent review, schema/migration review, docs/founder-language work, analytics/observability work, mobile/native work, frontend/backend contract review, and voice/action-runtime review as especially strong delegation candidates
@@ -67,6 +70,7 @@ Non-owned surfaces:
    - require independent evidence lanes and a concrete handoff shape
    - keep final authority with the parent session or `governor`
    - record why delegation was skipped when a high-stakes workflow stays local
+   - keep delegated handoffs aligned to the shared truth-first operating kernel: claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, and blind-acceptance risk
 4. Keep custom-agent TOML files thin:
    - define role, sandbox, nicknames, and concise behavioral instructions
    - route domain knowledge back to existing repo skills instead of copying it into agent files
@@ -83,12 +87,18 @@ Non-owned surfaces:
    - only `governor` produces final merge, deploy, or plan recommendations inside delegated workflows
    - child agents return evidence and judgments, not final authority
 9. Require every delegated handoff to include:
-   - scope covered
-   - files or surfaces inspected
-   - findings or conclusion
-   - assumptions
-   - validations run
-   - unresolved risks
+   - `claim_inspected`
+   - `classification`
+   - `evidence_checked`
+   - `current_repo_truth`
+   - `real_gap`
+   - `suggested_boundary`
+   - `risk_if_prompt_is_accepted_blindly`
+   - `scope_covered`
+   - `inspected_surfaces`
+   - `assumptions`
+   - `validations_run`
+   - `unresolved_risks`
 10. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
 11. Add a mid-execution delegation recheck to workflows that can discover new authority lanes after initial intake, especially PR governance, RCA, release readiness, and security/consent review.
 12. Treat self-maintenance as drift detection plus CI enforcement, not autonomous self-rewrite or bot mutation.
@@ -105,6 +115,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
+python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
 python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
 python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py
@@ -120,6 +131,7 @@ python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.p
 python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase mid --prompt "review founder docs and One Kai Nav ontology drift" --paths "docs/vision/agent-ontology.md,docs/future/one-nav-runtime-plan.md" --text
 ./scripts/ci/repo-governance-check.sh
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py
 ./bin/hushh codex list-workflows
 ./bin/hushh codex audit
 ./bin/hushh docs verify

@@ -2,6 +2,8 @@
 
 This is the canonical contract for the Codex operating system under `.codex/skills/` and `.codex/workflows/`.
 
+The shared truth-first reasoning contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Every repo-local skill and workflow inherits that operating kernel.
+
 ## Machine-readable source of truth
 
 Every repo-local skill must have:
@@ -119,6 +121,11 @@ Workflow-routing rules:
 4. Be explicit about what the skill does not own.
 5. Hand off to owner or sibling skills instead of absorbing adjacent workflows.
 6. Do not create a new skill when tightening an existing owner or spoke is enough.
+7. Every skill inherits the repo-wide premise verification gate from `AGENTS.md` and the shared truth-first operating kernel.
+8. Skills that answer, review, plan, or merge must explicitly avoid blind agreement with prompt claims. They should verify current repo contracts before treating a claim as true.
+9. When a task includes phrases such as `missing`, `not implemented`, `static`, `dynamic`, `duplicate`, `safe`, `ready`, `working before`, or `should be easy`, the owning skill must classify the claim as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction`, or `needs_verification` before recommending a path.
+10. If a capability already exists, the skill must route the user toward extending the existing contract rather than creating a parallel path.
+11. If a capability exists transiently but is not durable, the skill should name the real gap precisely: persistence, schema, generated contract, tests, docs, UI visibility, observability, consent, vault, cache, or deployment parity.
 
 ## Coverage baseline
 

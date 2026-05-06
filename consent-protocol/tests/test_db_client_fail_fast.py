@@ -240,6 +240,63 @@ def test_execute_raw_commits_before_returning_rows():
     assert result.data == [{"token_prefix": "hdk_demo"}]
 
 
+def test_rpc_adapts_json_params_and_commits_for_postgres():
+    class _FakeRow:
+        _mapping = {"merge_pkm_domain_summary": None}
+
+    class _FakeResult:
+        def __iter__(self):
+            return iter((_FakeRow(),))
+
+    class _FakeConnection:
+        def __init__(self):
+            self.params = None
+            self.committed = False
+
+        def execute(self, _statement, params):
+            self.params = params
+            return _FakeResult()
+
+        def commit(self):
+            self.committed = True
+
+    class _FakeContext:
+        def __init__(self, connection):
+            self._connection = connection
+
+        def __enter__(self):
+            return self._connection
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeEngine:
+        def __init__(self, connection):
+            self._connection = connection
+            self.dialect = SimpleNamespace(name="postgresql")
+
+        def connect(self):
+            return _FakeContext(self._connection)
+
+    connection = _FakeConnection()
+    db = DatabaseClient(engine=_FakeEngine(connection))
+
+    result = db.rpc(
+        "merge_pkm_domain_summary",
+        {
+            "p_user_id": "user_demo",
+            "p_domain": "identity",
+            "p_patch": {"has_full_name": True},
+            "p_domains_list": ["identity"],
+        },
+    )
+
+    assert result.count == 1
+    assert connection.committed is True
+    assert isinstance(connection.params["p_patch"], PsycopgJson)
+    assert connection.params["p_domains_list"] == ["identity"]
+
+
 def test_upsert_adapts_json_like_params_for_postgres():
     class _FakeResult:
         def __iter__(self):

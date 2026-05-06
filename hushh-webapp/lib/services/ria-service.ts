@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import {
@@ -787,7 +788,7 @@ export class RiaService {
   private static readonly DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
 
   private static logRequest(stage: string, detail: Record<string, unknown>): void {
-    console.info(`[RequestAudit:ria_resource] ${stage}`, detail);
+    logRequestAudit("ria_resource", stage, detail);
   }
 
   private static readCached<T>(key: string, force?: boolean): T | null {

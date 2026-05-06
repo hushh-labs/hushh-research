@@ -58,6 +58,15 @@ describe("voice-debug-drawer", () => {
         writeText: writeTextMock,
       },
     });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
   });
 
   it("copies the current debug payload to the clipboard", async () => {

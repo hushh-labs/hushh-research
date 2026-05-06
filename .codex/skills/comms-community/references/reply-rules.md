@@ -2,6 +2,7 @@
 
 Use these rules for public community responses:
 
+0. Inherit the truth-first operating kernel from `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`: extract material claims, classify them, and answer from current repo evidence before accepting contributor wording.
 1. Keep it readable in one screen. Default hard cap: 3 to 4 lines of prose. If the user asks for an announcement, product update, launch note, or cinematic cadence, the reply may use more line breaks for rhythm but should still stay short enough to post without editing.
 2. Casual thread register, not memo register. Contractions are fine. Short sentences. Read it out loud, if it sounds like a memo it is wrong, if it sounds like a thread message it is right.
 3. No memo-style section headers or bold sub-labels like `**On X:**` in normal replies. For Discord announcements, one bold headline or anchor phrase is allowed when it improves scanability.
@@ -12,10 +13,10 @@ Use these rules for public community responses:
 8. Public/community replies should link markdown docs only, not source files. `.py`, `.ts`, `.tsx`, `.yaml`, `.json` are internal context, not public citation material.
 9. Internal repo-backed Q&A may cite source files or GitHub issue/PR links when they directly prove the point and the user asked for evidence or the premise needs correction.
 10. All public links must be full GitHub URLs on `main`, not relative paths. Format: `https://github.com/hushh-labs/hushh-research/blob/main/<path>`. Append `#L<n>` or `#L<start>-L<end>` only when pointing to a specific passage.
-11. For drafted Q&A / teammate-share replies, default output must include:
-   - `Default`
-   - `Detailed`
-   - `Firmer` only when correction is needed or the user explicitly asks for a sharper reply
+11. For drafted Q&A / teammate-share replies, default output must include exactly:
+   - `Brief reply`
+   - `Detailed reply`
+   - `Firmer reply` only when the user explicitly asks for sharper wording or the premise is materially wrong enough that a separate correction helps
 12. When maintained docs answer the question, link those GitHub docs first. Do not answer with repo-relative paths unless the user explicitly wants repo-local references.
 13. Never use em-dashes (`—` U+2014) or en-dashes (`–` U+2013). Use commas, periods, parentheses, colons, or hyphens.
 14. Choose references that directly prove the answer for that exact question.
@@ -60,17 +61,52 @@ Use these rules for public community responses:
    - file/module exists in the current tree
    - concern is visible in current tests, logs, or code when feasible
    - otherwise answer that the report is not grounded in the current repo snapshot
-39. When the user asks for reply variants, emit exactly these tiers:
-   - `Default`
-   - `Firmer`
-   - `Detailed`
-40. `Default` should be short and actionable.
-41. `Firmer` should be explicit about what is and is not grounded in the repo.
-42. `Detailed` should explain the repo evidence, what is real, what is not, and the next step to unblock the teammate.
+39. When the user asks for reply variants, emit `Brief reply` and `Detailed reply` by default.
+40. `Brief reply` should be short, actionable, and sendable without editing.
+41. `Detailed reply` should explain only the extra repo evidence, current-state boundary, and next step needed to unblock the teammate.
+42. Add `Firmer reply` only when requested or when the premise is materially wrong enough that a separate correction is useful.
 43. Optional evidence links are only worth adding when they materially improve the answer:
    - source-file links for internal Q&A
    - issue/PR links when the concern is tied to open review or active branch work
    - no links when they add clutter without proof value
+44. Founder-direct Q&A mode is the default for technical community guidance:
+   - answer as the maintainer of the architecture, not as a passive reviewer
+   - do not "yes-and" a proposal before checking whether the capability already exists
+   - correct the premise first when a proposal describes shipped functionality as missing
+   - separate `already_exists`, `partially_exists`, and `wrong_direction`
+   - prefer the smallest useful next PR boundary over broad agreement
+45. For MCP, consent, scope, and tool-discovery questions, always check the current shipped contract before drafting:
+   - dynamic per-user scopes already exist through `discover_user_domains(user_id)` and `/api/v1/user-scopes/{user_id}`
+   - MCP tool visibility is already filtered by the current developer principal's allowed tool groups
+   - tool list visibility is not the security boundary; every tool call still needs server-side entitlement, token, and consent validation
+   - if the contributor proposes "make tools dynamic based on consent," answer by distinguishing dynamic scope discovery, developer/tool entitlement, and per-call consent gating
+46. Do not reduce high-risk product questions to conversational approval. For adaptive agent behavior, recommendations, finance outcomes, consent authority, vault access, or PKM memory:
+   - name the risk introduced by the proposed mechanism
+   - name the safe version of the idea
+   - name the first acceptable implementation lane
+   - if the change could affect regulated advice, trust boundaries, or durable memory, default to shadow/evaluation mode before runtime mutation
+47. When a contributor suggests a feature that overlaps existing infrastructure, the reply should include one crisp maintainer sentence:
+   - `That part already exists; the useful contribution is ...`
+   - `That is not the boundary we want; the safer version is ...`
+   - `Do not build a parallel path; extend the existing ... contract.`
+48. For Kai decision, recommendation, portfolio outcome, and agent-weight questions, verify the shipped decision/stream contract before drafting:
+   - realtime quote data is already part of the analysis provider path; do not accept "price is missing" without checking the current decision payload and raw card
+   - current stream decisions already carry valuation/trend fields, `analysis_updated_at`, diagnostics, and a `market_snapshot` in the live stream path
+   - the likely missing piece is usually a durable shadow-evaluation contract, not the visible decision card itself
+   - keep user-facing Decision Card fields separate from internal evaluation telemetry unless the product surface explicitly needs the field
+   - never suggest live agent-weight mutation from outcomes; recommend shadow logging, offline cohort evaluation, and promotion gates first
+49. For statements phrased as "we are missing X," use this sequence:
+   - check whether X already exists in code/docs/contracts
+   - if X exists, say `we already capture X; the gap is Y`
+   - if X exists only transiently, say `we compute X but do not persist it in the right evaluation surface yet`
+   - if X truly does not exist, name the smallest contract where it belongs
+   - do not draft a reply that treats an unverified "missing" claim as fact
+50. Keep normal Q&A lean:
+   - do not output three variants unless `Firmer reply` adds real value
+   - do not add memo-like headings beyond `Brief reply` and `Detailed reply`
+   - do not repeat the same point in both replies unless the detailed version needs it for clarity
+   - do not include implementation inventories unless the user asks for exact files or proof
+   - prefer one crisp correction plus one concrete next PR boundary
 
 ## Discord Native Formatting Mode
 

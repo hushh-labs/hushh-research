@@ -779,8 +779,11 @@ class DatabaseClient:
                 else:
                     sql = f"SELECT {function_name}()"
 
-                result = conn.execute(text(sql), params or {})
+                dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
+                adapted_params = _adapt_db_params(params or {}, dialect_name=dialect_name)
+                result = conn.execute(text(sql), adapted_params)
                 rows = [dict(row._mapping) for row in result]
+                conn.commit()
                 return QueryResult(data=rows, count=len(rows))
 
             return _run_with_connection_retry(

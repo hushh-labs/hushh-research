@@ -4,6 +4,7 @@
   "source_contracts": [
     "hushh-webapp/app/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
+    "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/profile/page.voice-action-contract.json",
     "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
     "hushh-webapp/app/profile/receipts/page.voice-action-contract.json",
@@ -54,6 +55,34 @@
             "ria"
           ]
         }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_kyc",
+      "surface_title": "One KYC Workflows",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/kyc"
+          ],
+          "screens": [
+            "one_kyc"
+          ],
+          "active_personas": [
+            "investor"
+          ],
+          "navigation_prerequisites": [
+            "user must be signed in"
+          ]
+        },
+        "speaker_persona": "kyc",
+        "delegate_agent_id": "kyc"
       }
     },
     {
@@ -1077,6 +1106,419 @@
       "expected_effects": {
         "state_changes": [
           "current route becomes /marketplace/ria"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_kyc",
+      "surface_id": "one_kyc",
+      "label": "Open KYC Workflows",
+      "aliases": [
+        "open kyc",
+        "open one kyc",
+        "show kyc workflows"
+      ],
+      "search_keywords": [
+        "kyc",
+        "one",
+        "broker"
+      ],
+      "meaning": "Navigates to One KYC workflow review.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kyc"
+      },
+      "control_ids": [
+        "one-kyc-open"
+      ],
+      "state_exposure": [
+        "workflow list metadata only"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "kyc.workflow.sync_status",
+      "surface_id": "one_kyc",
+      "label": "Sync KYC Status",
+      "aliases": [
+        "sync kyc",
+        "refresh kyc status"
+      ],
+      "search_keywords": [
+        "kyc",
+        "sync",
+        "consent"
+      ],
+      "meaning": "Refreshes the selected One KYC workflow status after consent approval.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context from /one/kyc."
+      },
+      "control_ids": [
+        "one-kyc-sync-status"
+      ],
+      "state_exposure": [
+        "workflow status metadata"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "kyc.draft.review",
+      "surface_id": "one_kyc",
+      "label": "Review KYC Draft",
+      "aliases": [
+        "review kyc draft",
+        "show kyc draft"
+      ],
+      "search_keywords": [
+        "kyc",
+        "draft",
+        "review"
+      ],
+      "meaning": "Reads or focuses the current approval-gated KYC draft.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context and user-visible draft state."
+      },
+      "control_ids": [
+        "one-kyc-draft-review"
+      ],
+      "state_exposure": [
+        "approved draft body"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "kyc.draft.request_redraft",
+      "surface_id": "one_kyc",
+      "label": "Request KYC Redraft",
+      "aliases": [
+        "redraft kyc",
+        "revise kyc draft"
+      ],
+      "search_keywords": [
+        "kyc",
+        "redraft",
+        "revise"
+      ],
+      "meaning": "Requests a new KYC draft revision from typed or spoken user instructions.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context and captured redraft instructions."
+      },
+      "control_ids": [
+        "one-kyc-redraft"
+      ],
+      "state_exposure": [
+        "approved draft body",
+        "redraft instructions"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "kyc.draft.approve_send",
+      "surface_id": "one_kyc",
+      "label": "Approve KYC Send",
+      "aliases": [
+        "approve kyc send",
+        "send kyc reply"
+      ],
+      "search_keywords": [
+        "kyc",
+        "send",
+        "approve"
+      ],
+      "meaning": "Sends the KYC draft only after explicit user approval.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_required",
+        "explicit_confirmation_required"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
+      },
+      "control_ids": [
+        "one-kyc-approve-send"
+      ],
+      "state_exposure": [
+        "approved draft body",
+        "send status"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "kyc.draft.reject",
+      "surface_id": "one_kyc",
+      "label": "Reject KYC Draft",
+      "aliases": [
+        "reject kyc draft",
+        "block kyc workflow"
+      ],
+      "search_keywords": [
+        "kyc",
+        "reject",
+        "block"
+      ],
+      "meaning": "Rejects the current KYC draft and blocks the workflow.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Requires selected workflow context from /one/kyc."
+      },
+      "control_ids": [
+        "one-kyc-reject"
+      ],
+      "state_exposure": [
+        "workflow status metadata"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/future/one-email-intake-roadmap.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
         ],
         "backend_effects": []
       },

@@ -171,4 +171,4 @@ python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 - No callable alias path for previous route-navigation `nav.*` action ids.
 - No celebrity voice references in canonical docs.
 - No personal numeric preference in canonical docs.
-- No live public `one@hushh.ai` inbound KYC workflow until the [One Email Intake Roadmap](./one-email-intake-roadmap.md) acceptance gates pass.
+- No production/public `one@hushh.ai` inbound KYC workflow until the [One Email Intake Roadmap](./one-email-intake-roadmap.md) production gates pass. UAT mailbox validation is allowed only under controlled smoke tests.
